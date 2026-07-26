@@ -1,0 +1,25 @@
+{
+  "expected": {
+    "blindingLength": "31",
+    "dstViewRootBytes": "545350502f766965775f726f6f742f505f636f6e73742f7631",
+    "mergeInfoBytes": "545350502f6d65726765",
+    "p256PublicKeyLength": "33",
+    "pConstBytes": "030e4df946bce14b95292f13e133d2b0c64e898b5644f620a5bed25a061a42fcdb",
+    "publicKeyLength": "34",
+    "saltLength": "16",
+    "viewTagLength": "32"
+  },
+  "id": "fx-p00-keypair-constants-v1",
+  "inputs": {
+    "recordedBlindingBytes": "08080808080808080808080808080808080808080808080808080808080808",
+    "recordedSaltBytes": "00000000000000000000000000000000",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/src/constants.rs",
+  "owningPacket": "P00",
+  "responsibility": "public lengths, domain bytes, and recorded randomness boundaries",
+  "rustPath": "sdk-libs/keypair/src/constants.rs",
+  "rustSymbol": "PUBLIC_KEY_LEN; P256_PUBKEY_LEN; BLINDING_LEN; SALT_LEN; VIEW_TAG_LEN; P_CONST_SEC1",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

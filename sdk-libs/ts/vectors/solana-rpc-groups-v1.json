@@ -1,0 +1,771 @@
+{
+  "cases": [
+    {
+      "accepted": true,
+      "groups": [
+        {
+          "inner": [],
+          "outer": {
+            "accounts": [
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "data": "070809",
+            "programId": "11111111111111111111111111111111",
+            "stackHeight": 1
+          }
+        }
+      ],
+      "name": "outerOnly",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [
+                  1,
+                  2
+                ],
+                "data": "3Myz",
+                "programIdIndex": 0,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": true,
+      "groups": [
+        {
+          "inner": [],
+          "outer": {
+            "accounts": [
+              "SysvarC1ock11111111111111111111111111111111"
+            ],
+            "data": "01",
+            "programId": "11111111111111111111111111111111",
+            "stackHeight": 1
+          }
+        },
+        {
+          "inner": [
+            {
+              "accounts": [
+                "11111111111111111111111111111111"
+              ],
+              "data": "03",
+              "programId": "Vote111111111111111111111111111111111111111",
+              "stackHeight": 2
+            },
+            {
+              "accounts": [
+                "SysvarC1ock11111111111111111111111111111111"
+              ],
+              "data": "04",
+              "programId": "Vote111111111111111111111111111111111111111",
+              "stackHeight": 3
+            }
+          ],
+          "outer": {
+            "accounts": [
+              "11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "data": "0202",
+            "programId": "SysvarC1ock11111111111111111111111111111111",
+            "stackHeight": 1
+          }
+        }
+      ],
+      "name": "innerGroups",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [
+            {
+              "index": 1,
+              "instructions": [
+                {
+                  "accounts": [
+                    0
+                  ],
+                  "data": "4",
+                  "programIdIndex": 2,
+                  "stackHeight": 2
+                },
+                {
+                  "accounts": [
+                    1
+                  ],
+                  "data": "5",
+                  "programIdIndex": 2,
+                  "stackHeight": 3
+                }
+              ]
+            }
+          ],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [
+                  1
+                ],
+                "data": "2",
+                "programIdIndex": 0,
+                "stackHeight": null
+              },
+              {
+                "accounts": [
+                  0,
+                  2
+                ],
+                "data": "9s",
+                "programIdIndex": 1,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": true,
+      "groups": [
+        {
+          "inner": [],
+          "outer": {
+            "accounts": [
+              "Stake11111111111111111111111111111111111111",
+              "SysvarRent111111111111111111111111111111111"
+            ],
+            "data": "05",
+            "programId": "11111111111111111111111111111111",
+            "stackHeight": 1
+          }
+        }
+      ],
+      "name": "loadedAddresses",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [],
+          "loadedAddresses": {
+            "readonly": [
+              "SysvarRent111111111111111111111111111111111"
+            ],
+            "writable": [
+              "Stake11111111111111111111111111111111111111"
+            ]
+          },
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [
+                  3,
+                  4
+                ],
+                "data": "6",
+                "programIdIndex": 0,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": true,
+      "groups": [],
+      "name": "emptyInstructions",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "missingMeta",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": null,
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [],
+                "data": "2",
+                "programIdIndex": 0,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "missingInnerInstructions",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": null,
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [],
+                "data": "2",
+                "programIdIndex": 0,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "innerIndexPastLastOuter",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [
+            {
+              "index": 3,
+              "instructions": [
+                {
+                  "accounts": [],
+                  "data": "2",
+                  "programIdIndex": 0,
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [],
+                "data": "2",
+                "programIdIndex": 0,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "programIdIndexOutOfBounds",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [
+                  0
+                ],
+                "data": "2",
+                "programIdIndex": 9,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "accountIndexOutOfBounds",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [
+                  9
+                ],
+                "data": "2",
+                "programIdIndex": 0,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "loadedAddressIndexWithoutTable",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [
+                  3
+                ],
+                "data": "6",
+                "programIdIndex": 0,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "base64Transaction",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": [
+          "AQAB",
+          "base64"
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "parsedMessage",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              {
+                "pubkey": "11111111111111111111111111111111",
+                "signer": true,
+                "source": "transaction",
+                "writable": true
+              }
+            ],
+            "instructions": [
+              {
+                "parsed": {
+                  "type": "transfer"
+                },
+                "program": "system",
+                "programId": "11111111111111111111111111111111",
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    },
+    {
+      "accepted": false,
+      "groups": null,
+      "name": "parsedInnerInstruction",
+      "result": {
+        "blockTime": 1700000000,
+        "meta": {
+          "err": null,
+          "fee": 5000,
+          "innerInstructions": [
+            {
+              "index": 0,
+              "instructions": [
+                {
+                  "parsed": {
+                    "type": "transfer"
+                  },
+                  "program": "system",
+                  "programId": "11111111111111111111111111111111",
+                  "stackHeight": 2
+                }
+              ]
+            }
+          ],
+          "logMessages": [],
+          "postBalances": [
+            1
+          ],
+          "preBalances": [
+            1
+          ],
+          "rewards": [],
+          "status": {
+            "Ok": null
+          }
+        },
+        "slot": 100,
+        "transaction": {
+          "message": {
+            "accountKeys": [
+              "11111111111111111111111111111111",
+              "SysvarC1ock11111111111111111111111111111111",
+              "Vote111111111111111111111111111111111111111"
+            ],
+            "header": {
+              "numReadonlySignedAccounts": 0,
+              "numReadonlyUnsignedAccounts": 2,
+              "numRequiredSignatures": 1
+            },
+            "instructions": [
+              {
+                "accounts": [],
+                "data": "2",
+                "programIdIndex": 0,
+                "stackHeight": null
+              }
+            ],
+            "recentBlockhash": "11111111111111111111111111111111"
+          },
+          "signatures": [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        }
+      }
+    }
+  ],
+  "signature": "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2",
+  "version": 1
+}

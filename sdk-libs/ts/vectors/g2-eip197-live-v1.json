@@ -1,0 +1,10 @@
+{
+  "schema": "zolana-ts-vectors-v1",
+  "responsibility": "Live confidential Ed25519 1x1 prover G2 B point (sample 0 from P5 PKP-08). Pins gnark c1-first Fq2 layout for Solana compress parity.",
+  "source": "planning/typescript-sdk-port/row-updates/g2-compression-live.json firstReject.bHex",
+  "uncompressedBHex": "07f54a6d56e7442ae6b7664b001818e660f480c5556a8da4edbbc9a4cf0efbb12f61e89c69a00e748264ffbe56c4cb73e67833478beb4c8e6a614290d0e4c9d9204f2c16bd4c0700445df62ceff320923e114db8f221c4ce6f233afb1fdfc1f82b76d1317c46f89d3871184878b6fc5e3ed0cdbdb7d69793994c139661513821",
+  "notes": [
+    "gnark WriteRawTo emits x.c1||x.c0||y.c1||y.c0. Reading c0 first assembled an off-curve point; compression now uses gnark order for the sign bit and the syscall range check only.",
+    "Pure TypeScript compressProof must match alt_bn128_g2_compress_be on this B."
+  ]
+}

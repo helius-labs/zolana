@@ -1,0 +1,116 @@
+{
+  "expected": {
+    "bsb22": {
+      "compressed": {
+        "aBytes": "8000000000000000000000000000000000000000000000000000000000000001",
+        "bBytes": "198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c21800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed",
+        "cBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+        "commitment": {
+          "commitmentBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+          "commitmentPokBytes": "0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      "rail": "p256",
+      "uncompressed": {
+        "aBytes": "000000000000000000000000000000000000000000000000000000000000000130644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd45",
+        "bBytes": "198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c21800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa",
+        "cBytes": "00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002",
+        "commitment": {
+          "commitmentBytes": "00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002",
+          "commitmentPokBytes": "00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002"
+        }
+      }
+    },
+    "errors": {
+      "malformed": {
+        "code": "ProofParse",
+        "details": "ProofParse(\"could not parse proof: {\\\"proof\\\":{\\\"ar\\\":[\\\"0x1\\\"],\\\"bs\\\":[],\\\"krs\\\":[]}}\")"
+      },
+      "offCurve": {
+        "code": "ProofParse",
+        "details": "ProofParse(\"failed to compress proof_a: G1CompressionFailed\")"
+      },
+      "partialCommitment": {
+        "code": "ProofParse",
+        "details": "ProofParse(\"could not parse proof: {\\\"proof\\\":{\\\"ar\\\":[\\\"0x0000000000000000000000000000000000000000000000000000000000000001\\\",\\\"0x0000000000000000000000000000000000000000000000000000000000000002\\\"],\\\"bs\\\":[[\\\"0x198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2\\\",\\\"0x1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed\\\"],[\\\"0x090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b\\\",\\\"0x12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa\\\"]],\\\"krs\\\":[\\\"0x0000000000000000000000000000000000000000000000000000000000000001\\\",\\\"0x0000000000000000000000000000000000000000000000000000000000000002\\\"],\\\"proof_commitment\\\":[\\\"0x0000000000000000000000000000000000000000000000000000000000000001\\\",\\\"0x0000000000000000000000000000000000000000000000000000000000000002\\\"]}}\")"
+      },
+      "wrongRail": {
+        "code": "ProofParse",
+        "details": "ProofParse(\"P256-rail proof is missing its BSB22 commitment (wrong rail?)\")"
+      }
+    },
+    "vanilla": {
+      "compressed": {
+        "aBytes": "8000000000000000000000000000000000000000000000000000000000000001",
+        "bBytes": "198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c21800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed",
+        "cBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+        "commitment": null
+      },
+      "rail": "eddsa",
+      "uncompressed": {
+        "aBytes": "000000000000000000000000000000000000000000000000000000000000000130644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd45",
+        "bBytes": "198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c21800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa",
+        "cBytes": "00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002",
+        "commitment": null
+      }
+    }
+  },
+  "id": "fx-p00-client-proof-validity-v1",
+  "inputs": {
+    "curveGenerators": "ark_bn254::{G1Affine,G2Affine}::generator",
+    "malformedResponse": {
+      "proof": {
+        "ar": [
+          "0x1"
+        ],
+        "bs": [],
+        "krs": []
+      }
+    },
+    "partialCommitmentResponse": {
+      "proof": {
+        "ar": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000000000000000000000000000002"
+        ],
+        "bs": [
+          [
+            "0x198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2",
+            "0x1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed"
+          ],
+          [
+            "0x090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b",
+            "0x12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa"
+          ]
+        ],
+        "krs": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000000000000000000000000000002"
+        ],
+        "proof_commitment": [
+          "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000000000000000000000000000002"
+        ]
+      }
+    }
+  },
+  "inventoryRow": "P09 fixture follow-up recorded in sdk-libs/ts/reports/packets/P09.json",
+  "owningPacket": "P00",
+  "responsibility": "valid vanilla and BSB22 points, exact negation and compression, and rail errors",
+  "rustPath": "sdk-libs/client/src/prover/proof.rs",
+  "rustSymbol": "proof_from_gnark_json; ProofCompressed::try_from; ProofCompressed::to_transact_proof",
+  "schema": "zolana-ts-fixtures-v1",
+  "verifyingKeys": [
+    {
+      "module": "transfer_confidential_1_1",
+      "rail": "eddsa",
+      "sha256": "84cf72ea0b19dcef78329c39cc84dc38e5a6ebac8c4a7d96428e5db2af2302ca"
+    },
+    {
+      "module": "transfer_p256_confidential_1_1",
+      "rail": "p256",
+      "sha256": "33c9ee5014b281df4c53b948011d7065a74d4dcfcfea6afc387d24c39704e615"
+    }
+  ],
+  "version": "1"
+}

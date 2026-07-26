@@ -1,0 +1,231 @@
+{
+  "apiDiff": {
+    "added": [
+      "@zolana/wallet root: WalletError, ApprovalRequest, WalletAuthority, LocalWalletAuthority, DepositParams, Deposit, createDeposit, buildDepositTransaction, TransferParams, WithdrawalParams, UnsignedPrivateTransaction, TransferRecipient, CreatedTransfer, CreatedWithdrawal, createTransfer, createWithdrawal, SplitParams, CreatedSplit, createSplit, MergeParams, CreatedMerge, createMerge, MergeMaterial, SubmitMergeTransaction, SubmittedMerge, submitMergeTransaction, createAssociatedTokenAccount, buildPrivateTransaction, signPrivateTransaction, TransactionSigner, SyncWalletConfig, syncWallet, getPrivateTokenBalances, getPrivateTransactions, ResolvedAddress, buildRegistrationTransaction, fetchUserRecord, isWalletRegistered, resolveRegisteredAddress",
+      "@zolana/wallet subpaths: authority, registry, actions, sync"
+    ],
+    "changed": [],
+    "removed": []
+  },
+  "blockers": [],
+  "commands": [
+    {
+      "command": "npm run test:unit --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "result": "8 files, 21 tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "result": "3 files, 6 tests"
+    },
+    {
+      "command": "npm run test:cross --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "result": "1 file, 7 tests"
+    },
+    {
+      "command": "npm run test:browser --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "result": "production bundle is browser-safe"
+    },
+    {
+      "command": "npm run build --workspace=@zolana/wallet",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run typecheck --workspace=@zolana/wallet",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/wallet/src/**/*.ts\" \"sdk-libs/ts/wallet/test/**/*.ts\" --max-warnings=0",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/wallet/src/**/*.ts\" \"sdk-libs/ts/wallet/test/**/*.ts\"",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run api:check --workspace=@zolana/wallet",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm pack --dry-run --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "result": "57 files, 28.2 kB packed, 141.1 kB unpacked"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "result": "48 files, 285 tests; build, typecheck, lint, format, inventory, exports, dependencies, and API passed"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "result": "49 fixtures and 182 inventory rows verified"
+    },
+    {
+      "command": "npm run test:exports",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run test:dependencies",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run test:browser",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0"
+    }
+  ],
+  "dependencies": {
+    "production": ["@zolana/client", "@zolana/interface", "@zolana/keypair", "@zolana/transaction"],
+    "dependencyGaps": 0,
+    "status": "All prerequisite capabilities and declared dependencies resolve."
+  },
+  "fixtureCoverage": [
+    {
+      "id": "fx-p00-wallet-create-associated-token-account-v1",
+      "sha256": "51aac93339fa4aac5db7a33bd1d70954fbbad69fbd3e0187665c98fd52810d00",
+      "assertions": "canonical address, exact ordered legacy message, external signing, and submission"
+    },
+    {
+      "id": "fx-p00-wallet-deposit-v1",
+      "sha256": "7ad57eeb0b1a801b2b253f9cc7aac94a04f36ab26836e8c4443a46ae1432c6f2",
+      "assertions": "SOL instruction fields, ordered accounts, and exact unsigned message"
+    },
+    {
+      "id": "fx-p00-wallet-actions-mod-v1",
+      "sha256": "9a46531824fb9c5718fc2076fd935a31fd0551103a742dbe69dc5078e5a12056",
+      "assertions": "every frozen action maps to an exact root and actions-subpath export"
+    },
+    {
+      "id": "fx-p00-wallet-submit-v1",
+      "sha256": "f5ea889d78bf106c8b47f6038590328d81a20b705982c137c01565b81226f725",
+      "assertions": "material identity, registry/proof/build/submit sequence, merge-disabled and tree-mismatch errors"
+    },
+    {
+      "id": "fx-p00-wallet-transaction-v1",
+      "sha256": "5c4cc4e0f62b5e125d5e67fc59bf32611e514c3eb7bf4ea0a2bc36c3c7665605",
+      "assertions": "smallest-first merge selection, amount, padding, duplicate rejection, transfer fallback, split, and custody"
+    },
+    {
+      "id": "fx-p00-wallet-lib-v1",
+      "sha256": "c9df7b29fb9f00a92e2a649760ccabc295a314d3144d48e8257a18d5ce2af2e7",
+      "assertions": "root flow mapping and observable nested transaction error"
+    },
+    {
+      "id": "fx-p00-wallet-user-registry-v1",
+      "sha256": "868399178ba1b5daddfe8b2e955f11a69077d8f9e883a87aac0a66a89b93a6aa",
+      "assertions": "exact register/update messages, current no-op, checked decoding, PDA bump, and resolved address"
+    },
+    {
+      "id": "fx-p00-wallet-authority-v1",
+      "sha256": "8133e06fc28a3e8e75cb112fe3792332f2b3003cc2bf132f726a8be166a5e818",
+      "assertions": "sync material, deterministic P256 signature, decryptable transfer payload, and decryptable split bundle"
+    },
+    {
+      "id": "fx-p00-wallet-sync-v1",
+      "sha256": "fec1a3df3d6188e0a1a95a5c66a52045546c80136ac81a2eaa0cc9a4215dc4ea",
+      "assertions": "configured chunking, repeated empty sync, durable balance/history, timeout, abort, and atomic failure"
+    },
+    {
+      "id": "fx-workflow-instruction-deposit-v1",
+      "sha256": "ee83ce306250984eac86de07a902ce767de5fe65ce8aa6be85255c698de23582",
+      "assertions": "exact deposit instruction bytes, program, accounts, signer flags, and writable flags"
+    },
+    {
+      "id": "fx-p00-client-rpc-indexer-v1",
+      "sha256": "7039237c6ced30894445891f5374561e2cce49ffb6cca4b5789f1736ae5e9def",
+      "assertions": "external-custody and signer convenience paths preserve the exact legacy message"
+    },
+    {
+      "id": "fx-p00-keypair-shielded-v1",
+      "sha256": "98832df59eb827f8ac303db94a7e4480edebab71ca7ce65b25c89e1570918983",
+      "assertions": "signing, nullifier, viewing, and owner-hash identity material"
+    },
+    {
+      "id": "fx-p00-transaction-authority-v1",
+      "sha256": "c77fc97c8a7d8d837c07c4c9312190b844e0315e062e51d587a30af7ae94dad3",
+      "assertions": "deterministic authority P256 signature"
+    },
+    {
+      "id": "fx-p00-transaction-merge-v1",
+      "sha256": "ac71080a87c8ee460ffed497194f100693dd2ced775408a729c747df8ef9f522",
+      "assertions": "real and padded input counts and conserved output amount"
+    },
+    {
+      "id": "fx-p00-transaction-split-v1",
+      "sha256": "6a420d9d3e864149a791249257a04b2e5d2943162bf81f43161d6e9d5117bd28",
+      "assertions": "part count, per-output amount, input shape, and conservation"
+    }
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "inventoryRowStatus": [
+    {
+      "row": "sdk-libs/wallet/src/actions/create_associated_token_account.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/src/actions/deposit.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/src/actions/mod.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/src/actions/submit.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/src/actions/transaction.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/src/lib.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/src/user_registry.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/src/wallet_authority.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/src/wallet_sync.rs",
+      "status": "closed"
+    },
+    {
+      "row": "sdk-libs/wallet/tests/transaction.rs",
+      "status": "closed"
+    }
+  ],
+  "packet": "P10",
+  "qualityPass": {
+    "edits": [
+      "removed every prerequisite-unavailable branch",
+      "kept key extraction, encryption, and signing inside WalletAuthority",
+      "preserved encrypt, approve, finalize, and P256-sign ordering",
+      "validated registry identity and merge opt-in before proving",
+      "matched Solana legacy account ordering by signer/writable class and address bytes",
+      "kept Node imports under tests and verified production browser bundles",
+      "applied simplification, code-quality, comment, lint, type, API, and format reviews"
+    ],
+    "remainingPlaceholders": 0
+  },
+  "readiness": {
+    "aggregateBlockers": [],
+    "dependencyGaps": 0,
+    "inventoryRowsClosed": 10,
+    "inventoryRowsPartial": 0,
+    "implementation": "complete",
+    "packetCheckpoint": "ready"
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}

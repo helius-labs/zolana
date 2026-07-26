@@ -1,0 +1,26 @@
+{
+  "expected": {
+    "ciphertextBytes": "d52cccc7053c653d83c840fcb12c3a1dd6ac2263a9f4c705d784dfd894234b6b5271590160bddbb7191a0eeb96646aa5397e0acb27b605aec6f1ceadcd2726cab1a675d511f202",
+    "ciphertextHashBytes": "2418c4f8d103a80bcc365a28f6172e7cd9cbfe71a301c19f775a64187ed2f453",
+    "recoveredBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546",
+    "tamperedCiphertextHashBytes": "2df84bbd45e8a72b485f5fa4598caf8594103c6df2c8d6dc55699b24c10d10c9",
+    "txViewingPublicKeyBytes": "02fb50388f29498d0a93ad25ec4c34037b9d3cc3cca4787eb6fedabe2b3003eac8",
+    "txViewingPublicKeyHighBytes": "000000000000000000000000000000000000000000000000000000000000eac8",
+    "txViewingPublicKeyLowBytes": "0002fb50388f29498d0a93ad25ec4c34037b9d3cc3cca4787eb6fedabe2b3003"
+  },
+  "id": "fx-p00-keypair-merge-v1",
+  "inputs": {
+    "plaintextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546",
+    "testOnlySecret": true,
+    "txViewingSecretBytes": "00000000000000000000000000000000000000000000000000000000075bcd15",
+    "userViewingPublicKeyBytes": "028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+    "userViewingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007"
+  },
+  "inventoryRow": "sdk-libs/keypair/src/merge.rs",
+  "owningPacket": "P00",
+  "responsibility": "merge ciphertext, ephemeral public key, public contribution, and hashes",
+  "rustPath": "sdk-libs/keypair/src/merge.rs",
+  "rustSymbol": "encrypt_verifiable; decrypt_verifiable; merge_public_contribution; merge_ciphertext_hash",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

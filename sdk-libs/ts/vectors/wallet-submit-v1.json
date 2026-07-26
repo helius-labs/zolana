@@ -1,0 +1,63 @@
+{
+  "generator": "cargo run -p xtask --bin wallet-submit",
+  "inputs": {
+    "nullifierPubkeyHex": "004d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+    "owner": "7SxpAu819BojmBqTnGwoh66yS24sb126nVmJCom5Vi7n",
+    "signingPubkeyHex": "015fccc0049983d8a901e26c12a6feb43b7676516def3aa27ecd69f7efdb53286d00",
+    "signingSeedHex": "0000000000000000000000000000000000000000000000000000000000000015",
+    "viewingPubkeyHex": "02ed6a906b323a1da201c93cd0313f463cdf34c383361f5a83c5ab19b7a3484e15"
+  },
+  "keyMismatches": [
+    {
+      "error": "MergeSigningKeyMismatch",
+      "mutation": "signing-rail",
+      "name": "signing-rail",
+      "ownerDetail": false
+    },
+    {
+      "error": "MergeNullifierKeyMismatch",
+      "mutation": "nullifier",
+      "name": "nullifier",
+      "ownerDetail": false
+    },
+    {
+      "error": "MergeViewingKeyMismatch",
+      "mutation": "viewing",
+      "name": "viewing",
+      "ownerDetail": true
+    }
+  ],
+  "proofTrees": [
+    {
+      "arm": "ok",
+      "name": "matching",
+      "nullifierTree": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+      "stateTree": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+    },
+    {
+      "arm": "err",
+      "error": "MergeTreeMismatch",
+      "name": "wrong-state-tree",
+      "nullifierTree": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+      "proofTree": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+      "stateTree": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+      "submitTree": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+    },
+    {
+      "arm": "err",
+      "error": "MergeTreeMismatch",
+      "name": "wrong-nullifier-tree",
+      "nullifierTree": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+      "proofTree": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+      "stateTree": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+      "submitTree": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+    }
+  ],
+  "rustSource": [
+    "sdk-libs/wallet/src/actions/submit.rs"
+  ],
+  "trees": {
+    "other": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+    "submit": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+  }
+}

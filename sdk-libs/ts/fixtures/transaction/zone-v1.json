@@ -1,0 +1,34 @@
+{
+  "expected": {
+    "error": {
+      "code": "MergeInputZoneMismatch",
+      "details": "MergeInputZoneMismatch { index: 0 }"
+    },
+    "inputContext": {
+      "nullifierBytes": "0e1477067dd374b0cccef71e04af71e60220de9ee838490b859ed6cfaa70dab4",
+      "utxoHashBytes": "2b9e3eaf61f823cb6bf4512247c5896022c5fd48dd9a37c8d11afd941170428f"
+    },
+    "inputCount": "8",
+    "outputAmount": "50",
+    "outputHashBytes": "1f3a10c52992053e6fb6a9dd1ecc9a70f17b7484835b831ffbd55360085f4027",
+    "realInputCount": "1",
+    "zoneProgramIdBytes": "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"
+  },
+  "id": "fx-p00-transaction-zone-v1",
+  "inputs": {
+    "inputZoneDataHashBytes": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+    "outputZoneDataHashBytes": "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
+    "testOnlySecret": true,
+    "txViewingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000010",
+    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808",
+    "zoneProgramIdBytes": "1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"
+  },
+  "inventoryRow": "sdk-libs/transaction/src/instructions/merge_zone.rs",
+  "owningPacket": "P00",
+  "responsibility": "zone-bound input and output hashes, contexts, deterministic padding, and errors",
+  "rustPath": "sdk-libs/transaction/src/instructions/merge_zone.rs; sdk-libs/transaction/src/instructions/zone_authority.rs",
+  "rustSymbol": "MergeZone; PreparedMergeZone; zone authority inputs",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

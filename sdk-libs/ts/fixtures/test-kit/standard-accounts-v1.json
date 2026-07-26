@@ -1,0 +1,18 @@
+{
+  "expected": {
+    "foresterVault": "HentFJ9edn8jLudNMN4UWDcE5gQCskFjrBkzGf5fmexW",
+    "mergeVault": "EoRGAciEX8g2qZgfqrvwzrM9zV7SYbdjRvw76cvFdSNy",
+    "protocolVault": "EdMSvMoHfsemd2s7eHCrRnuM1dzPu2CpUrHJN98XYC9y",
+    "treeVault": "HeyDRGGvcgSgAKDV92nK9TNN2qbYLrjsVtBj662AnS2x",
+    "zoneVault": "43FjdgD5zqL9Yay7sCx2iyzJSJ82oi1dzcGLV6o8eaFB"
+  },
+  "id": "fx-p00-test-kit-standard-accounts-v1",
+  "inputs": {},
+  "inventoryRow": "program-tests smart-account support",
+  "owningPacket": "P00",
+  "responsibility": "deterministic test support account addresses",
+  "rustPath": "program-tests/test-utils/src/smart_account.rs",
+  "rustSymbol": "standard_accounts",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

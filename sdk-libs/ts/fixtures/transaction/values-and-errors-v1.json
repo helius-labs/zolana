@@ -1,0 +1,34 @@
+{
+  "expected": {
+    "canonicalData": {
+      "memoBytes": "04",
+      "valid": true
+    },
+    "errors": [
+      {
+        "code": "UnsupportedShape",
+        "details": "UnsupportedShape { n_in: 99, n_out: 99 }"
+      },
+      {
+        "code": "DuplicateDataRecord",
+        "details": "DuplicateDataRecord"
+      }
+    ],
+    "shape": {
+      "inputs": "2",
+      "outputs": "3"
+    }
+  },
+  "id": "fx-p00-transaction-values-errors-v1",
+  "inputs": {
+    "inputs": "2",
+    "outputs": "3"
+  },
+  "inventoryRow": "sdk-libs/transaction/tests/steps/mod.rs",
+  "owningPacket": "P00",
+  "responsibility": "logical values and typed error evidence",
+  "rustPath": "sdk-libs/transaction/src/instructions/transact/shape.rs",
+  "rustSymbol": "canonical_shape; Data::validate",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

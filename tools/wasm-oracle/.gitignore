@@ -1,0 +1,5 @@
+# Build output. `pkg` is the wasm-pack artifact the suite loads through a
+# relative require, so it is never a package dependency and never published.
+crate/target/
+pkg/
+report/

@@ -1,0 +1,39 @@
+{
+  "expected": {
+    "approvalRejection": {
+      "calls": [
+        "encrypt",
+        "approve"
+      ],
+      "error": {
+        "code": "Transaction",
+        "details": "Transaction(Authority(\"approval rejected\"))"
+      },
+      "p256SignSkipped": true
+    },
+    "p256Signature": {
+      "pubkeyBytes": "033250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83",
+      "rBytes": "c65f3353cb47e3514dc410078feb636f24bfedc11de8a05c234c4bb7880a924a",
+      "sBytes": "12d8e147ff81038f4759c2b3fc5d47f90f4d2b847848e9000ff3c2bdcb3305b3"
+    },
+    "syncMaterial": {
+      "identitySigningPubkeyBytes": "00033250fcf686637c7b2e4ac86eb473bca53a582139f42b1523fd76364e67399e83",
+      "nullifierPubkeyBytes": "004d36b3e24457800728a8c114f4b3f61a26f85f321cfb075daf0d36208786b0",
+      "viewingKeyCount": "1"
+    }
+  },
+  "id": "fx-p00-wallet-authority-v1",
+  "inputs": {
+    "messageHashBytes": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000015",
+    "testOnlySecret": true,
+    "viewingSeedBytes": "1616161616161616161616161616161616161616161616161616161616161616"
+  },
+  "inventoryRow": "sdk-libs/wallet/src/wallet_authority.rs",
+  "owningPacket": "P00",
+  "responsibility": "sync material, deterministic P256 signature, encryption-before-approval, and rejection short circuit",
+  "rustPath": "sdk-libs/wallet/src/wallet_authority.rs; sdk-libs/transaction/src/wallet/authority.rs",
+  "rustSymbol": "LocalWalletAuthority; WalletAuthority; SyncWalletAuthority",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

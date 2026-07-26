@@ -1,0 +1,88 @@
+{
+  "expected": {
+    "address": "4ucGh9ycdArAmu3oeBVDR7PDnWHBBsPkQj9PnKeeGZ9i",
+    "firstCreate": {
+      "accountExistsAfter": true,
+      "createdAccountCount": "1",
+      "instruction": {
+        "accounts": [
+          {
+            "address": "7nLFtY5yiR4CZnkB6bYMth3bbAns9DnFhtgjHGqcCiRn",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "4ucGh9ycdArAmu3oeBVDR7PDnWHBBsPkQj9PnKeeGZ9i",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "2poys8aGy427mSkhn4oordqbbHgSBiY961ziaGDBAzi6",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "2tjH1S3HZMKLuY1DDN8j9WcMqStdrnDxeRfNdeFmvL2o",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "dataBytes": "01",
+        "programId": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+      },
+      "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+      "transaction": {
+        "messageBytes": "0100050764c30815ff26d5c4aff8e11274a38ed6dd0553049da4c10372a9575b7a7769093a0d24b5ae7b42a133c0a31d1bc4573a98360e37ee6ee4288ef8bced4878d141000000000000000000000000000000000000000000000000000000000000000006ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a91b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f8591d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d0106060001040502030101",
+        "requiredSignatures": "1",
+        "signatures": [
+          "41Jiv45U6SZevzpW5ep4HtSUsVfgds6Q4ZeSeAA5WqXA2Y5C6piZqqLVUmuETsYjMqHa9aMaAcfNnH76hQNzD5mh"
+        ]
+      }
+    },
+    "idempotentRepeat": {
+      "accountExistsAfter": true,
+      "balanceDelta": "0",
+      "createdAccountCount": "1",
+      "instructionMessageUnchanged": true,
+      "signature": "1111111111111111111111111111111111111111111111111111111111111111",
+      "transaction": {
+        "messageBytes": "0100050764c30815ff26d5c4aff8e11274a38ed6dd0553049da4c10372a9575b7a7769093a0d24b5ae7b42a133c0a31d1bc4573a98360e37ee6ee4288ef8bced4878d141000000000000000000000000000000000000000000000000000000000000000006ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a91b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f8591d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d0106060001040502030101",
+        "requiredSignatures": "1",
+        "signatures": [
+          "41Jiv45U6SZevzpW5ep4HtSUsVfgds6Q4ZeSeAA5WqXA2Y5C6piZqqLVUmuETsYjMqHa9aMaAcfNnH76hQNzD5mh"
+        ]
+      }
+    },
+    "submissionCount": "2",
+    "typedError": {
+      "code": "Rpc",
+      "details": "Rpc(\"fixture submission rejected\")"
+    }
+  },
+  "id": "fx-workflow-action-ata-idempotent-v1",
+  "inputs": {
+    "accountInitiallyExists": false,
+    "blockhashBytes": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+    "mint": "2tjH1S3HZMKLuY1DDN8j9WcMqStdrnDxeRfNdeFmvL2o",
+    "owner": "2poys8aGy427mSkhn4oordqbbHgSBiY961ziaGDBAzi6",
+    "payerSecretBytes": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "P12-BLOCKER-FIXTURES in sdk-libs/ts/reports/packets/P12.json",
+  "owningPacket": "P00",
+  "responsibility": "first ATA creation, idempotent repeat, exact transactions, unchanged balance, and RPC error propagation",
+  "rustPath": "sdk-libs/wallet/src/actions/create_associated_token_account.rs; program-libs/interface/src/instruction/builders/create_associated_token_account.rs",
+  "rustSymbol": "create_associated_token_account; CreateAssociatedTokenAccount::instruction",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

@@ -1,0 +1,25 @@
+{
+  "expected": {
+    "ed25519Bytes": "01d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00",
+    "ed25519ConfidentialViewTagBytes": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+    "ed25519RoundTripBytes": "01d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00",
+    "p256Bytes": "00036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+    "p256ConfidentialViewTagBytes": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+    "p256RoundTripBytes": "00036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+    "p256XBytes": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+    "p256YIsOdd": true
+  },
+  "id": "fx-p00-keypair-pubkey-v1",
+  "inputs": {
+    "ed25519SecretBytes": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "p256SecretBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/src/pubkey.rs",
+  "owningPacket": "P00",
+  "responsibility": "P256 and Ed25519 tagged parsing, fields, and round trips",
+  "rustPath": "sdk-libs/keypair/src/pubkey.rs",
+  "rustSymbol": "P256Pubkey; PublicKey",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

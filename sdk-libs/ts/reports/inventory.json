@@ -1,0 +1,1852 @@
+{
+  "counts": {
+    "duplicate": "0",
+    "missing": "0",
+    "rows": "182",
+    "unknownPackets": "0"
+  },
+  "dispositionCounts": {
+    "internal": 5,
+    "not applicable": 7,
+    "port": 135,
+    "reuse": 1,
+    "test-only": 34
+  },
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "packetCounts": {
+    "P00": 7,
+    "P01": 9,
+    "P03": 1,
+    "P04": 30,
+    "P05": 62,
+    "P06": 4,
+    "P07": 1,
+    "P08": 1,
+    "P09": 45,
+    "P10": 10,
+    "P11": 12
+  },
+  "rows": [
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/client/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/client` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/client.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/client.rs",
+      "responsibility": "Implements SignedPrivateTransaction; ZolanaClient; DEFAULT_TRANSACT_CU_LIMIT; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/client.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/errors-v1.json` exhaustively maps all 58 current variants and structured fields; representative constructible wrapped errors cover each external category.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/error.rs",
+      "responsibility": "Implements ClientError; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/error.ts`",
+      "testResponsibility": "Unit: exact fixture taxonomy/details, conversion boundaries, malformed causes, immutability, and secret exclusion. Integration: exhaustive Rust match fails to compile when the source enum drifts."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/indexer.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/indexer.rs",
+      "responsibility": "Implements ZolanaIndexer; AsyncZolanaIndexer; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/indexer.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/lib.rs",
+      "responsibility": "Explicit export/module responsibility for crate-root pub use allowlist; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/client` · `src/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/client.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/client.rs",
+      "responsibility": "Implements ProverClient; AsyncProverClient; spawn_prover; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/client.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "internal",
+      "fixtureResponsibility": "Rust-generated `client/test/oracles/field-alignment-v1.json`, written by `ts_field_alignment_oracle_is_current` in `sdk-libs/client/tests/ts_prover_oracle.rs`.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/field.rs",
+      "responsibility": "The Rust module is public (`prover/mod.rs:2` declares `pub mod field`), and the port keeps its three helpers unexported: no SDK flow needs them above the proof-input assembly that uses them, so publishing them would add surface the Rust API happens to have rather than surface a consumer asks for.",
+      "target": "`@zolana/client` · `src/internal.ts` · `bytesField`, `bytesToBigInt`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/inputs.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/inputs.rs",
+      "responsibility": "Implements TransferInput; TransferOutput; TransferInputs; TransferP256Inputs; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/inputs.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "internal",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/json.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/json.rs",
+      "responsibility": "Internal implementation of prover request JSON serializers; callers reach it through the package allowlist.",
+      "target": "`@zolana/client` · `src/prover/json.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/merge.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/merge.rs",
+      "responsibility": "Implements MergeProver; MergeProofResult; MergeWitness; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/merge.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/merge_zone.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/merge_zone.rs",
+      "responsibility": "Implements MergeZoneProver; MergeZoneWitness; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/merge.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/mod.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/mod.rs",
+      "responsibility": "Explicit export/module responsibility for prover module pub use allowlist; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/client` · `src/prover/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/proof.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/proof.rs",
+      "responsibility": "Implements Proof; ProofCompressed; Commitments; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/proof.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/eddsa.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/transact/eddsa.rs",
+      "responsibility": "Implements TransferProver; TransferProofResult; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/transact/eddsa.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/mod.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/transact/mod.rs",
+      "responsibility": "Explicit export/module responsibility for transact prover pub use allowlist; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/client` · `src/prover/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/p256_and_eddsa.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/transact/p256_and_eddsa.rs",
+      "responsibility": "Implements TransferP256Prover; TransferP256ProofResult; P256Owner; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/transact/p256-and-eddsa.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/witness.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/transact/witness.rs",
+      "responsibility": "Implements SpendProof; CircuitType; ProverInputs; assemble; into_prover; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/transact/witness.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/zone_eddsa.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/transact/zone_eddsa.rs",
+      "responsibility": "Implements ZoneTransferProver; ZoneTransferProofResult; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/transact/zone-eddsa.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/zone_p256.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/transact/zone_p256.rs",
+      "responsibility": "Implements ZoneTransferP256Prover; ZoneTransferP256ProofResult; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/transact/zone-p256.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/zone_authority.json` covering all relevant rails/shapes and malformed mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/prover/zone_authority.rs",
+      "responsibility": "Implements ZoneAuthorityProver; ZoneAuthorityProofResult; ZoneAuthorityWitness; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/prover/zone-authority.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/retry.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/retry.rs",
+      "responsibility": "Implements IndexerPollConfig; IndexerRpcConfig; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/retry.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/rpc.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/rpc.rs",
+      "responsibility": "Implements Rpc; AsyncRpc; proof and indexed-response types; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/rpc.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/client/solana_rpc.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/src/solana_rpc.rs",
+      "responsibility": "Implements SolanaRpc; AsyncSolanaRpc; ConfirmedInstructionGroups; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/client` · `src/solana-rpc.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `eddsa_p256_transaction.feature` plus emitted expected bytes/state in `fixtures/eddsa_p256_transaction.json`.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/features/eddsa_p256_transaction.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: eddsa_p256_transaction; no runtime export.",
+      "target": "`@zolana/client` · `test/eddsa-p256-transaction.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `eddsa_transaction.feature` plus emitted expected bytes/state in `fixtures/eddsa_transaction.json`.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/features/eddsa_transaction.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: eddsa_transaction; no runtime export.",
+      "target": "`@zolana/client` · `test/eddsa-transaction.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `p256_transaction.feature` plus emitted expected bytes/state in `fixtures/p256_transaction.json`.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/features/p256_transaction.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: p256_transaction; no runtime export.",
+      "target": "`@zolana/client` · `test/p256-transaction.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/merge/features/merge.feature`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/merge/features/merge.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: merge; no runtime export.",
+      "target": "`@zolana/client` · `test/merge/features/merge.feature`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "not applicable",
+      "fixtureResponsibility": "No byte fixture; coverage is the runner-to-Vitest replacement decision.",
+      "marker": "exclusion",
+      "packet": "P00",
+      "path": "sdk-libs/client/tests/merge/main.rs",
+      "responsibility": "Rust-only test runner/module wiring; no TypeScript runtime export or source file.",
+      "target": "`@zolana/client` · `no TypeScript file`",
+      "testResponsibility": "Unit: inventory exclusion check. Property/integration/E2E: not applicable to runner wiring; covered by the mapped scenario suites."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/merge/steps.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/merge/steps.rs",
+      "responsibility": "Non-public evidence for test module `steps`; no runtime export.",
+      "target": "`@zolana/client` · `test/merge/steps.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/merge/world.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/merge/world.rs",
+      "responsibility": "Non-public evidence for test module `world`; no runtime export.",
+      "target": "`@zolana/client` · `test/merge/world.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/merge_zone/features/merge_zone.feature`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/merge_zone/features/merge_zone.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: merge_zone; no runtime export.",
+      "target": "`@zolana/client` · `test/merge-zone/features/merge-zone.feature`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "not applicable",
+      "fixtureResponsibility": "No byte fixture; coverage is the runner-to-Vitest replacement decision.",
+      "marker": "exclusion",
+      "packet": "P00",
+      "path": "sdk-libs/client/tests/merge_zone/main.rs",
+      "responsibility": "Rust-only test runner/module wiring; no TypeScript runtime export or source file.",
+      "target": "`@zolana/client` · `no TypeScript file`",
+      "testResponsibility": "Unit: inventory exclusion check. Property/integration/E2E: not applicable to runner wiring; covered by the mapped scenario suites."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/merge_zone/steps.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/merge_zone/steps.rs",
+      "responsibility": "Non-public evidence for test module `steps`; no runtime export.",
+      "target": "`@zolana/client` · `test/merge-zone/steps.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/merge_zone/world.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/merge_zone/world.rs",
+      "responsibility": "Non-public evidence for test module `world`; no runtime export.",
+      "target": "`@zolana/client` · `test/merge-zone/world.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/prover.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/prover.rs",
+      "responsibility": "Non-public evidence for test module `prover`; no runtime export.",
+      "target": "`@zolana/client` · `test/prover.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/solana_rpc.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/solana_rpc.rs",
+      "responsibility": "Non-public evidence for test module `solana_rpc`; no runtime export.",
+      "target": "`@zolana/client` · `test/solana-rpc.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/steps/input.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/steps/input.rs",
+      "responsibility": "Non-public evidence for test module `input`; no runtime export.",
+      "target": "`@zolana/client` · `test/steps/input.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "not applicable",
+      "fixtureResponsibility": "No byte fixture; coverage is the runner-to-Vitest replacement decision.",
+      "marker": "exclusion",
+      "packet": "P00",
+      "path": "sdk-libs/client/tests/steps/mod.rs",
+      "responsibility": "Rust-only test runner/module wiring; no TypeScript runtime export or source file.",
+      "target": "`@zolana/client` · `test/steps/mod.test.ts`",
+      "testResponsibility": "Unit: inventory exclusion check. Property/integration/E2E: not applicable to runner wiring; covered by the mapped scenario suites."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/steps/transfer.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/steps/transfer.rs",
+      "responsibility": "Non-public evidence for test module `transfer`; no runtime export.",
+      "target": "`@zolana/client` · `test/steps/transfer.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/test_indexer.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/test_indexer.rs",
+      "responsibility": "Non-public evidence for test module `test_indexer`; no runtime export.",
+      "target": "`@zolana/client` · `test/test-indexer.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/transaction_proving.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/transaction_proving.rs",
+      "responsibility": "Non-public evidence for test module `transaction_proving`; no runtime export.",
+      "target": "`@zolana/client` · `test/transaction-proving.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/transfer_dummy.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/transfer_dummy.rs",
+      "responsibility": "Non-public evidence for test module `transfer_dummy`; no runtime export.",
+      "target": "`@zolana/client` · `test/transfer-dummy.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/world.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/world.rs",
+      "responsibility": "Non-public evidence for test module `world`; no runtime export.",
+      "target": "`@zolana/client` · `test/world.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/zone_authority/features/zone_authority.feature`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/zone_authority/features/zone_authority.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: zone_authority; no runtime export.",
+      "target": "`@zolana/client` · `test/zone-authority/features/zone-authority.feature`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "not applicable",
+      "fixtureResponsibility": "No byte fixture; coverage is the runner-to-Vitest replacement decision.",
+      "marker": "exclusion",
+      "packet": "P00",
+      "path": "sdk-libs/client/tests/zone_authority/main.rs",
+      "responsibility": "Rust-only test runner/module wiring; no TypeScript runtime export or source file.",
+      "target": "`@zolana/client` · `no TypeScript file`",
+      "testResponsibility": "Unit: inventory exclusion check. Property/integration/E2E: not applicable to runner wiring; covered by the mapped scenario suites."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/zone_authority/steps.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/zone_authority/steps.rs",
+      "responsibility": "Non-public evidence for test module `steps`; no runtime export.",
+      "target": "`@zolana/client` · `test/zone-authority/steps.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/zone_authority/world.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/zone_authority/world.rs",
+      "responsibility": "Non-public evidence for test module `world`; no runtime export.",
+      "target": "`@zolana/client` · `test/zone-authority/world.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/zone_transfer/features/zone_transfer.feature`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/zone_transfer/features/zone_transfer.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: zone_transfer; no runtime export.",
+      "target": "`@zolana/client` · `test/zone-transfer/features/zone-transfer.feature`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "not applicable",
+      "fixtureResponsibility": "No byte fixture; coverage is the runner-to-Vitest replacement decision.",
+      "marker": "exclusion",
+      "packet": "P00",
+      "path": "sdk-libs/client/tests/zone_transfer/main.rs",
+      "responsibility": "Rust-only test runner/module wiring; no TypeScript runtime export or source file.",
+      "target": "`@zolana/client` · `no TypeScript file`",
+      "testResponsibility": "Unit: inventory exclusion check. Property/integration/E2E: not applicable to runner wiring; covered by the mapped scenario suites."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/zone_transfer/steps.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/zone_transfer/steps.rs",
+      "responsibility": "Non-public evidence for test module `steps`; no runtime export.",
+      "target": "`@zolana/client` · `test/zone-transfer/steps.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/client/tests/zone_transfer/world.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P09",
+      "path": "sdk-libs/client/tests/zone_transfer/world.rs",
+      "responsibility": "Non-public evidence for test module `world`; no runtime export.",
+      "target": "`@zolana/client` · `test/zone-transfer/world.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/indexer-api/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/indexer-api` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/indexer-api/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P07",
+      "path": "sdk-libs/indexer-api/src/lib.rs",
+      "responsibility": "Explicit export/module responsibility for method constants; encoded scalars; JSON-RPC request/response schemas; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/indexer-api` · `src/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/keypair/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/keypair` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/constants.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/constants.rs",
+      "responsibility": "`BLINDING_LENGTH`, `DST_VIEW_ROOT`, `P256_PUBLIC_KEY_LENGTH`, `P_CONST_SEC1`, `SALT_LENGTH`, `SHIELDED_PUBLIC_KEY_LENGTH`, `VIEW_TAG_LENGTH`, one per `pub` item of the Rust module. The `INFO_*` labels and the HPKE prefixes stay internal because Rust keeps them `pub(crate)`.",
+      "target": "`@zolana/keypair` · `src/constants.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "internal",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/encryption.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/encryption.rs",
+      "responsibility": "Internal implementation of ECDH, HKDF, AES-CTR slot primitives; callers reach it through the package allowlist.",
+      "target": "`@zolana/keypair` · `src/encryption.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/error.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/error.rs",
+      "responsibility": "Implements KeypairError; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/error.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/hash.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/hash.rs",
+      "responsibility": "Ported: `hashField`, `ownerHash`, `sha256Be`, `sha256Bytes` and `splitBigEndian128` are re-exported by name from the package root, so callers reach them directly rather than through another module's allowlist.",
+      "target": "`@zolana/keypair` · `src/hash.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/lib.rs",
+      "responsibility": "Explicit export/module responsibility for crate-root keypair pub use allowlist; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/keypair` · `src/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/merge.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/merge.rs",
+      "responsibility": "Implements MERGE_INFO; encrypt_verifiable; decrypt_verifiable; contribution/hash; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/merge.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/nullifier_key.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/nullifier_key.rs",
+      "responsibility": "Implements NullifierKey; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/nullifier-key.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/pubkey.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/pubkey.rs",
+      "responsibility": "Implements P256Pubkey; PublicKey; SignatureType; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/pubkey.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/shielded.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/shielded.rs",
+      "responsibility": "Implements ShieldedAddress; CompressedShieldedAddress; ShieldedKeypair; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/shielded.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/signing_key.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/signing_key.rs",
+      "responsibility": "Implements SigningKey; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/signing-key.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/mod.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/traits/mod.rs",
+      "responsibility": "Explicit export/module responsibility for ShieldedKeypairTrait; ViewingKeyTrait re-exports; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/keypair` · `src/traits/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/shielded_keypair.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/traits/shielded_keypair.rs",
+      "responsibility": "Implements ShieldedKeypairTrait; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/traits/shielded-keypair.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/view_key.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/traits/view_key.rs",
+      "responsibility": "Implements ViewingKeyTrait; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/traits/view-key.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/keypair/viewing_key.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/src/viewing_key.rs",
+      "responsibility": "Implements ViewingKey; random_salt; random_blinding; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/keypair` · `src/viewing-key.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/bdd.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/bdd.rs",
+      "responsibility": "Non-public evidence for test module `bdd`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/bdd.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `hashing.feature` plus emitted expected bytes/state in `fixtures/hashing.json`.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/features/hashing.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: hashing; no runtime export.",
+      "target": "`@zolana/keypair` · `test/hashing.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `nullifier.feature` plus emitted expected bytes/state in `fixtures/nullifier.json`.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/features/nullifier.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: nullifier; no runtime export.",
+      "target": "`@zolana/keypair` · `test/nullifier.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `pubkey.feature` plus emitted expected bytes/state in `fixtures/pubkey.json`.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/features/pubkey.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: pubkey; no runtime export.",
+      "target": "`@zolana/keypair` · `test/pubkey.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `shielded.feature` plus emitted expected bytes/state in `fixtures/shielded.json`.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/features/shielded.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: shielded; no runtime export.",
+      "target": "`@zolana/keypair` · `test/shielded.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `signing.feature` plus emitted expected bytes/state in `fixtures/signing.json`.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/features/signing.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: signing; no runtime export.",
+      "target": "`@zolana/keypair` · `test/signing.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `transaction.feature` plus emitted expected bytes/state in `fixtures/transaction.json`.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/features/transaction.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: transaction; no runtime export.",
+      "target": "`@zolana/keypair` · `test/transaction.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `viewing.feature` plus emitted expected bytes/state in `fixtures/viewing.json`.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/features/viewing.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: viewing; no runtime export.",
+      "target": "`@zolana/keypair` · `test/viewing.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/steps/common.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/steps/common.rs",
+      "responsibility": "Non-public evidence for test module `common`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/steps/common.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/steps/hashing.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/steps/hashing.rs",
+      "responsibility": "Non-public evidence for test module `hashing`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/steps/hashing.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "not applicable",
+      "fixtureResponsibility": "No byte fixture; coverage is the runner-to-Vitest replacement decision.",
+      "marker": "exclusion",
+      "packet": "P00",
+      "path": "sdk-libs/keypair/tests/steps/mod.rs",
+      "responsibility": "Rust-only test runner/module wiring; no TypeScript runtime export or source file.",
+      "target": "`@zolana/keypair` · `test/steps/mod.test.ts`",
+      "testResponsibility": "Unit: inventory exclusion check. Property/integration/E2E: not applicable to runner wiring; covered by the mapped scenario suites."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/steps/nullifier.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/steps/nullifier.rs",
+      "responsibility": "Non-public evidence for test module `nullifier`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/steps/nullifier.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/steps/pubkey.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/steps/pubkey.rs",
+      "responsibility": "Non-public evidence for test module `pubkey`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/steps/pubkey.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/steps/shielded.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/steps/shielded.rs",
+      "responsibility": "Non-public evidence for test module `shielded`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/steps/shielded.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/steps/signing.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/steps/signing.rs",
+      "responsibility": "Non-public evidence for test module `signing`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/steps/signing.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/steps/transaction.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/steps/transaction.rs",
+      "responsibility": "Non-public evidence for test module `transaction`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/steps/transaction.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/keypair/tests/steps/viewing.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P04",
+      "path": "sdk-libs/keypair/tests/steps/viewing.rs",
+      "responsibility": "Non-public evidence for test module `viewing`; no runtime export.",
+      "target": "`@zolana/keypair` · `test/steps/viewing.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/merkle-tree/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/merkle-tree` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Current-Rust `fixtures/merkle-tree/paths-v1.json` with custom-sentinel, root, path-length, and tamper evidence.",
+      "marker": "active",
+      "packet": "P06",
+      "path": "sdk-libs/merkle-tree/src/indexed.rs",
+      "responsibility": "Implements the indexed tree, low-level update, path and proof access, custom highest values, and non-inclusion verification.",
+      "target": "`@zolana/merkle-tree` · `src/indexed.ts`",
+      "testResponsibility": "Unit and property tests cover ordering, custom sentinels, mutation failures, exact proof lengths, trusted roots, and u64 indexes."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Current-Rust `fixtures/merkle-tree/paths-v1.json` with roots, sparse paths, history indexes, next index, and failure-mutation evidence.",
+      "marker": "active",
+      "packet": "P06",
+      "path": "sdk-libs/merkle-tree/src/lib.rs",
+      "responsibility": "Exposes append, update, roots, paths, proofs, canopy, history, subtree, leaf, verification, and sparse reconstruction operations.",
+      "target": "`@zolana/merkle-tree` · `src/merkle-tree.ts`, `src/index.ts`",
+      "testResponsibility": "Unit, vector, and property tests cover public operations, sparse reconstruction, histories, atomic failures, u64 indexes, Poseidon, SHA-256, and Keccak."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/merkle-tree/tests/indexed.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P06",
+      "path": "sdk-libs/merkle-tree/tests/indexed.rs",
+      "responsibility": "Non-public evidence for test module `indexed`; no runtime export.",
+      "target": "`@zolana/merkle-tree` · `test/indexed.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/merkle-tree/tests/tests.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P06",
+      "path": "sdk-libs/merkle-tree/tests/tests.rs",
+      "responsibility": "Non-public evidence for test module `tests`; no runtime export.",
+      "target": "`@zolana/merkle-tree` · `test/tests.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/program-test/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/test-kit` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/admin.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/admin.rs",
+      "responsibility": "Implements protocol/tree administration helpers; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/admin.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/events.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/events.rs",
+      "responsibility": "Implements instruction grouping and event extraction; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/events.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/indexer.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/indexer.rs",
+      "responsibility": "Implements in-memory indexer and proof helpers; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/indexer.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/instructions.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/instructions.rs",
+      "responsibility": "Implements account/tree instruction helpers; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/instructions.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "internal",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/lib.rs",
+      "responsibility": "Explicit export/module responsibility for ProgramTestContext and local test lifecycle; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/test-kit` · `src/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/paths.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/paths.rs",
+      "responsibility": "Implements program binary path resolution; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/paths.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/proofless.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/proofless.rs",
+      "responsibility": "Implements SOL/SPL proofless deposit helpers; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/proofless.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/rpc.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/rpc.rs",
+      "responsibility": "Implements test Rpc implementation; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/rpc.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/spl.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/spl.rs",
+      "responsibility": "Implements SPL mint/account/interface helpers; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/spl.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/wallet_data.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/wallet_data.rs",
+      "responsibility": "Implements wallet shield-data fixtures; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/wallet-data.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/program-test/zone.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/src/zone.rs",
+      "responsibility": "Implements zone program/config/deposit helpers; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/test-kit` · `src/zone.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/program-test/tests/indexer_events.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P11",
+      "path": "sdk-libs/program-test/tests/indexer_events.rs",
+      "responsibility": "Non-public evidence for test module `indexer_events`; no runtime export.",
+      "target": "`@zolana/test-kit` · `test/indexer-events.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/smart-account-client/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/smart-account-client` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/smart-account-client/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P03",
+      "path": "sdk-libs/smart-account-client/src/lib.rs",
+      "responsibility": "Explicit export/module responsibility for PDA helpers; Permissions; SmartAccountSigner; create_smart_account_ix; execute_sync_ix; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/smart-account-client` · `src/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "reuse",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/BENCHMARKS.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/BENCHMARKS.md",
+      "responsibility": "Non-public evidence for benchmark methodology; no runtime export.",
+      "target": "`@zolana/transaction` · `bench/README.md`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/transaction/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/transaction` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/wallet_ops.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/benches/wallet_ops.rs",
+      "responsibility": "Non-public evidence for wallet primitive/decryption/sync benchmarks; no runtime export.",
+      "target": "`@zolana/transaction` · `bench/wallet-ops.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/data.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/data.rs",
+      "responsibility": "Implements DataRecord; Data; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/data.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/error.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/error.rs",
+      "responsibility": "Implements TransactionError; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/error.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/merge.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/merge.rs",
+      "responsibility": "Implements Merge; PreparedMerge; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/merge.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/merge_zone.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/merge_zone.rs",
+      "responsibility": "Implements MergeZone; PreparedMergeZone; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/merge-zone.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/mod.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/mod.rs",
+      "responsibility": "Explicit export/module responsibility for instruction module boundary; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/transaction` · `src/instructions/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/external_data.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/transact/external_data.rs",
+      "responsibility": "Implements ExternalData; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/transact/external-data.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/mod.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/transact/mod.rs",
+      "responsibility": "Explicit export/module responsibility for split transact pub use allowlist; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/transaction` · `src/instructions/transact/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/shape.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/transact/shape.rs",
+      "responsibility": "Implements Shape; SPP_SUPPORTED_SHAPES; canonical_shape; resolve_shape; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/transact/shape.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/slots.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/transact/slots.rs",
+      "responsibility": "Implements EncryptedTransactionData; encrypt_transaction_data; encode_confidential_slots; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/transact/slots.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/split.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/transact/split.rs",
+      "responsibility": "Implements ConfidentialSplit; PreparedSplit; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/transact/split.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/spp_proof_inputs.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs",
+      "responsibility": "Implements PublicAmounts; SppProofInputs; signed/asset/viewing-key helpers; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/transact/spp-proof-inputs.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/transfer.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/transact/transfer.rs",
+      "responsibility": "Implements ConfidentialTransfer; PreparedTransfer; Recipient; WithdrawalTarget; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/transact/transfer.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/types.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/transact/types.rs",
+      "responsibility": "Implements InputUtxo; proof input/output; encrypted/indexed transaction types; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/transact/types.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/types.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/types.rs",
+      "responsibility": "Implements SpendUtxo; InputCommitment; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/types.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/zone_authority.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/instructions/zone_authority.rs",
+      "responsibility": "Implements PreparedZoneAuthority and zone-authority assembly; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/instructions/zone-authority.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/lib.rs",
+      "responsibility": "Explicit export/module responsibility for crate-root transaction pub use allowlist and scheme tags; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/transaction` · `src/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/anonymous.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/serialization/anonymous.rs",
+      "responsibility": "Implements anonymous sender/recipient codecs; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/serialization/anonymous.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/confidential.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/serialization/confidential.rs",
+      "responsibility": "Implements confidential sender/recipient codecs; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/serialization/confidential.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/merge.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/serialization/merge.rs",
+      "responsibility": "Implements merge plaintext/encrypted codec; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/serialization/merge.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/mod.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/serialization/mod.rs",
+      "responsibility": "Explicit export/module responsibility for DecodeCx; OwnerCx; UtxoSerialization; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/transaction` · `src/serialization/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/plaintext.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/serialization/plaintext.rs",
+      "responsibility": "Implements plaintext transfer codec; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/serialization/plaintext.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/proofless.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/serialization/proofless.rs",
+      "responsibility": "Implements Proofless; ProoflessEncode; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/serialization/proofless.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/scheme.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/serialization/scheme.rs",
+      "responsibility": "Implements EncryptedScheme; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/serialization/scheme.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/split.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/serialization/split.rs",
+      "responsibility": "Implements Split; SplitBundlePlaintext; SplitEncryptedUtxos; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/serialization/split.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/utxo.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/utxo.rs",
+      "responsibility": "Implements Utxo; ProofInputUtxo; derive_blinding; owner_utxo_hash; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/utxo.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/asset.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/wallet/asset.rs",
+      "responsibility": "Implements SOL_ASSET_ID; SOL_MINT; AssetRegistry; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/wallet/asset.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/authority.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/wallet/authority.rs",
+      "responsibility": "Implements WalletAuthority; SyncWalletAuthority; LocalWalletAuthority; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/wallet/authority.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/mod.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/wallet/mod.rs",
+      "responsibility": "Explicit export/module responsibility for wallet pub use allowlist; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/transaction` · `src/wallet/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "internal",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/parallel.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/wallet/parallel.rs",
+      "responsibility": "Internal implementation of parallel tag/decryption scheduling; callers reach it through the package allowlist.",
+      "target": "`@zolana/transaction` · `src/wallet/parallel.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/state.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/wallet/state.rs",
+      "responsibility": "Implements Wallet; WalletUtxo; balances; history; SyncReport; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/wallet/state.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/transaction/sync.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/src/wallet/sync.rs",
+      "responsibility": "Implements SyncConfig; decrypt_transactions; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/transaction` · `src/wallet/sync.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/bdd.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/bdd.rs",
+      "responsibility": "Non-public evidence for test module `bdd`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/bdd.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/bench_scenarios.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/bench_scenarios.rs",
+      "responsibility": "Non-public evidence for test module `bench_scenarios`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/bench-scenarios.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/common/mod.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/common/mod.rs",
+      "responsibility": "Non-public evidence for test module `mod`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/common/mod.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `asset.feature` plus emitted expected bytes/state in `fixtures/asset.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/asset.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: asset; no runtime export.",
+      "target": "`@zolana/transaction` · `test/asset.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `blinding.feature` plus emitted expected bytes/state in `fixtures/blinding.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/blinding.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: blinding; no runtime export.",
+      "target": "`@zolana/transaction` · `test/blinding.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `plaintext_transfer.feature` plus emitted expected bytes/state in `fixtures/plaintext_transfer.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/plaintext_transfer.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: plaintext_transfer; no runtime export.",
+      "target": "`@zolana/transaction` · `test/plaintext-transfer.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `program_data.feature` plus emitted expected bytes/state in `fixtures/program_data.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/program_data.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: program_data; no runtime export.",
+      "target": "`@zolana/transaction` · `test/program-data.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `serialization.feature` plus emitted expected bytes/state in `fixtures/serialization.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/serialization.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: serialization; no runtime export.",
+      "target": "`@zolana/transaction` · `test/serialization.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `split.feature` plus emitted expected bytes/state in `fixtures/split.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/split.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: split; no runtime export.",
+      "target": "`@zolana/transaction` · `test/split.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `transfer.feature` plus emitted expected bytes/state in `fixtures/transfer.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/transfer.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: transfer; no runtime export.",
+      "target": "`@zolana/transaction` · `test/transfer.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `utxo.feature` plus emitted expected bytes/state in `fixtures/utxo.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/utxo.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: utxo; no runtime export.",
+      "target": "`@zolana/transaction` · `test/utxo.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `utxo_encryption.feature` plus emitted expected bytes/state in `fixtures/utxo_encryption.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/utxo_encryption.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: utxo_encryption; no runtime export.",
+      "target": "`@zolana/transaction` · `test/utxo-encryption.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust scenario `wallet.feature` plus emitted expected bytes/state in `fixtures/wallet.json`.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/features/wallet.feature",
+      "responsibility": "Non-public evidence for Feature scenarios: wallet; no runtime export.",
+      "target": "`@zolana/transaction` · `test/wallet.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/asset.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/asset.rs",
+      "responsibility": "Non-public evidence for test module `asset`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/asset.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/blinding.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/blinding.rs",
+      "responsibility": "Non-public evidence for test module `blinding`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/blinding.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/common.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/common.rs",
+      "responsibility": "Non-public evidence for test module `common`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/common.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "not applicable",
+      "fixtureResponsibility": "No byte fixture; coverage is the runner-to-Vitest replacement decision.",
+      "marker": "exclusion",
+      "packet": "P00",
+      "path": "sdk-libs/transaction/tests/steps/mod.rs",
+      "responsibility": "Rust-only test runner/module wiring; no TypeScript runtime export or source file.",
+      "target": "`@zolana/transaction` · `test/steps/mod.test.ts`",
+      "testResponsibility": "Unit: inventory exclusion check. Property/integration/E2E: not applicable to runner wiring; covered by the mapped scenario suites."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/plaintext_transfer.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/plaintext_transfer.rs",
+      "responsibility": "Non-public evidence for test module `plaintext_transfer`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/plaintext-transfer.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/serialization.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/serialization.rs",
+      "responsibility": "Non-public evidence for test module `serialization`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/serialization.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/split.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/split.rs",
+      "responsibility": "Non-public evidence for test module `split`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/split.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/transfer.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/transfer.rs",
+      "responsibility": "Non-public evidence for test module `transfer`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/transfer.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/utxo.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/utxo.rs",
+      "responsibility": "Non-public evidence for test module `utxo`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/utxo.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/utxo_encryption.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/utxo_encryption.rs",
+      "responsibility": "Non-public evidence for test module `utxo_encryption`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/utxo-encryption.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "test-only",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/steps/wallet.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/steps/wallet.rs",
+      "responsibility": "Non-public evidence for test module `wallet`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/steps/wallet.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/tamper.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/tamper.rs",
+      "responsibility": "Non-public evidence for test module `tamper`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/tamper.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/wallet_history.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/wallet_history.rs",
+      "responsibility": "Non-public evidence for test module `wallet_history`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/wallet-history.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/wallet_proofless.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/wallet_proofless.rs",
+      "responsibility": "Non-public evidence for test module `wallet_proofless`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/wallet-proofless.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/wallet_prop.proptest-regressions`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/wallet_prop.proptest-regressions",
+      "responsibility": "Non-public evidence for persisted proptest regression seeds; no runtime export.",
+      "target": "`@zolana/transaction` · `test/fixtures/wallet_prop-regressions.json`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/wallet_prop.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/wallet_prop.rs",
+      "responsibility": "Non-public evidence for test module `wallet_prop`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/wallet-prop.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/transaction/tests/wallet_unified.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P05",
+      "path": "sdk-libs/transaction/tests/wallet_unified.rs",
+      "responsibility": "Non-public evidence for test module `wallet_unified`; no runtime export.",
+      "target": "`@zolana/transaction` · `test/wallet-unified.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/wallet/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/wallet` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/create_associated_token_account.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/actions/create_associated_token_account.rs",
+      "responsibility": "Implements create_associated_token_account; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/wallet` · `src/actions/create-associated-token-account.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/deposit.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/actions/deposit.rs",
+      "responsibility": "Implements Deposit; DepositParams; create_deposit; build_deposit_transaction; deposit; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/wallet` · `src/actions/deposit.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/mod.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/actions/mod.rs",
+      "responsibility": "Explicit export/module responsibility for wallet action pub use allowlist; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/wallet` · `src/actions/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/submit.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/actions/submit.rs",
+      "responsibility": "Implements MergeMaterial; SubmitMergeTransaction; SubmittedMerge; submit_merge_transaction; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/wallet` · `src/actions/submit.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/transaction.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/actions/transaction.rs",
+      "responsibility": "Implements UnsignedPrivateTransaction; create_transfer; create_withdrawal; create_split; create_merge; build_private_transaction; sign_private_transaction; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/wallet` · `src/actions/transaction.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/lib.rs",
+      "responsibility": "Explicit export/module responsibility for crate-root wallet pub use allowlist; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/wallet` · `src/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/user_registry.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/user_registry.rs",
+      "responsibility": "Implements registration, checked fetch, validation, and resolution functions; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/wallet` · `src/user-registry.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/wallet_authority.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/wallet_authority.rs",
+      "responsibility": "Implements WalletAuthority; SyncWalletAuthority; LocalWalletAuthority re-exports; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/wallet` · `src/wallet-authority.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/wallet/wallet_sync.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/src/wallet_sync.rs",
+      "responsibility": "Implements SyncWalletConfig; sync_wallet; balances; private history; public only where `public-exports.md` declares it.",
+      "target": "`@zolana/wallet` · `src/wallet-sync.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Deterministic inputs and assertions extracted from `sdk-libs/wallet/tests/transaction.rs`; preserve named regression seeds where present.",
+      "marker": "active",
+      "packet": "P10",
+      "path": "sdk-libs/wallet/tests/transaction.rs",
+      "responsibility": "Non-public evidence for test module `transaction`; no runtime export.",
+      "target": "`@zolana/wallet` · `test/transaction.test.ts`",
+      "testResponsibility": "Direct unit/scenario port; add property mutation where data-shaped, integration with real dependency where I/O/proving is involved, and map to action- or instruction-level E2E when observable."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Frozen dependency/feature snapshot and clean packed-package graph.",
+      "marker": "active",
+      "packet": "P01",
+      "path": "sdk-libs/zolana-api/Cargo.toml",
+      "responsibility": "Package boundary, features, and allowed production dependency graph; no runtime export.",
+      "target": "`@zolana/api` · `package.json`",
+      "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Rust-generated `fixtures/zolana-api/lib.json` with logical input, exact bytes/value, and error mutations.",
+      "marker": "active",
+      "packet": "P08",
+      "path": "sdk-libs/zolana-api/src/lib.rs",
+      "responsibility": "Explicit export/module responsibility for ZolanaApi; BlockingZolanaApi; ApiError; typed method calls; only names allowlisted in `public-exports.md` are public.",
+      "target": "`@zolana/api` · `src/index.ts`",
+      "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
+    }
+  ],
+  "schema": "zolana-ts-inventory-v1"
+}

@@ -1,0 +1,583 @@
+{
+  "generator": "cargo run -p xtask --bin wallet-actions",
+  "merges": [
+    {
+      "inputs": null,
+      "outcome": {
+        "arm": "err",
+        "error": "AmbiguousTree { asset: 11111111111111111111111111111111, tree_count: 2 }"
+      },
+      "tree": null,
+      "wallet": "rollover"
+    },
+    {
+      "inputs": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "mergedAmount": "8",
+          "numInputs": "2",
+          "tree": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2"
+        }
+      },
+      "tree": "primary",
+      "wallet": "rollover"
+    },
+    {
+      "inputs": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "mergedAmount": "18",
+          "numInputs": "2",
+          "tree": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+        }
+      },
+      "tree": "secondary",
+      "wallet": "rollover"
+    },
+    {
+      "inputs": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "mergedAmount": "23",
+          "numInputs": "3",
+          "tree": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2"
+        }
+      },
+      "tree": null,
+      "wallet": "ascending"
+    },
+    {
+      "inputs": [
+        "0",
+        "2"
+      ],
+      "outcome": {
+        "arm": "err",
+        "error": "InputUtxoTreeMismatch { hash: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], utxo_tree: cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN, spend_tree: 29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2 }"
+      },
+      "tree": "primary",
+      "wallet": "rollover"
+    }
+  ],
+  "rails": [
+    {
+      "authorityRail": "p256",
+      "noteRail": "p256",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "p256Signature": true
+        }
+      },
+      "sameKey": true
+    },
+    {
+      "authorityRail": "ed25519",
+      "noteRail": "ed25519",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "p256Signature": false
+        }
+      },
+      "sameKey": true
+    },
+    {
+      "authorityRail": "p256",
+      "noteRail": "ed25519",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "p256Signature": true
+        }
+      },
+      "sameKey": false
+    },
+    {
+      "authorityRail": "ed25519",
+      "noteRail": "p256",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "p256Signature": false
+        }
+      },
+      "sameKey": false
+    }
+  ],
+  "rustSource": [
+    "sdk-libs/wallet/src/actions/transaction.rs"
+  ],
+  "splits": [
+    {
+      "input": null,
+      "outcome": {
+        "arm": "err",
+        "error": "Transaction(SplitInvalidPartCount { num_outputs: 0 })"
+      },
+      "parts": "0",
+      "wallet": "ascending"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "err",
+        "error": "Transaction(SplitInvalidPartCount { num_outputs: 1 })"
+      },
+      "parts": "1",
+      "wallet": "ascending"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1",
+          "numOutputs": "2",
+          "perOutputAmount": "6"
+        }
+      },
+      "parts": "2",
+      "wallet": "ascending"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1",
+          "numOutputs": "3",
+          "perOutputAmount": "4"
+        }
+      },
+      "parts": "3",
+      "wallet": "ascending"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1",
+          "numOutputs": "4",
+          "perOutputAmount": "3"
+        }
+      },
+      "parts": "4",
+      "wallet": "ascending"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1",
+          "numOutputs": "8",
+          "perOutputAmount": "1"
+        }
+      },
+      "parts": "8",
+      "wallet": "ascending"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "err",
+        "error": "Transaction(SplitInvalidPartCount { num_outputs: 9 })"
+      },
+      "parts": "9",
+      "wallet": "ascending"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "err",
+        "error": "SplitNotDivisible { amount: 11, parts: 2 }"
+      },
+      "parts": "2",
+      "wallet": "indivisible"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "err",
+        "error": "InsufficientBalance { requested: 1, available: 0 }"
+      },
+      "parts": "2",
+      "wallet": "empty"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "err",
+        "error": "InsufficientBalance { requested: 1, available: 0 }"
+      },
+      "parts": "2",
+      "wallet": "zone-bound"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "err",
+        "error": "InsufficientBalance { requested: 1, available: 0 }"
+      },
+      "parts": "2",
+      "wallet": "data-carrying"
+    },
+    {
+      "input": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1",
+          "numOutputs": "2",
+          "perOutputAmount": "6"
+        }
+      },
+      "parts": "2",
+      "wallet": "zone-bound-beside-plain"
+    },
+    {
+      "input": "1",
+      "outcome": {
+        "arm": "err",
+        "error": "SplitInputZoneMismatch { hash: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2] }"
+      },
+      "parts": "2",
+      "wallet": "zone-bound-beside-plain"
+    },
+    {
+      "input": "0",
+      "outcome": {
+        "arm": "err",
+        "error": "SplitInputHasData { hash: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] }"
+      },
+      "parts": "2",
+      "wallet": "data-carrying"
+    },
+    {
+      "input": "9",
+      "outcome": {
+        "arm": "err",
+        "error": "InputUtxoUnavailable { hash: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10] }"
+      },
+      "parts": "2",
+      "wallet": "ascending"
+    }
+  ],
+  "substitutions": [
+    {
+      "outcome": {
+        "arm": "ok",
+        "value": {}
+      },
+      "substitution": "none"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "spent"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "tree"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "commitment"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "nullifier"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "dataHash"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "zoneDataHash"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.owner"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.asset"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.amount"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.blinding"
+    },
+    {
+      "outcome": {
+        "arm": "err",
+        "error": "UnsignedInputUnavailable { index: 0 }"
+      },
+      "substitution": "utxo.zoneProgramId"
+    }
+  ],
+  "trees": {
+    "primary": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+    "secondary": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+  },
+  "wallets": {
+    "ascending": [
+      {
+        "amount": "3",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "8",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "12",
+        "kind": "plain",
+        "tree": "primary"
+      }
+    ],
+    "data-carrying": [
+      {
+        "amount": "12",
+        "kind": "withData",
+        "tree": "primary"
+      }
+    ],
+    "empty": [],
+    "indivisible": [
+      {
+        "amount": "11",
+        "kind": "plain",
+        "tree": "primary"
+      }
+    ],
+    "overflowing": [
+      {
+        "amount": "1",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "18446744073709551615",
+        "kind": "plain",
+        "tree": "primary"
+      }
+    ],
+    "rollover": [
+      {
+        "amount": "3",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "5",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "7",
+        "kind": "plain",
+        "tree": "secondary"
+      },
+      {
+        "amount": "11",
+        "kind": "plain",
+        "tree": "secondary"
+      }
+    ],
+    "two-trees": [
+      {
+        "amount": "4",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "10",
+        "kind": "plain",
+        "tree": "secondary"
+      }
+    ],
+    "zone-bound": [
+      {
+        "amount": "12",
+        "kind": "zoneBound",
+        "tree": "primary"
+      }
+    ],
+    "zone-bound-beside-plain": [
+      {
+        "amount": "12",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "1000",
+        "kind": "zoneBound",
+        "tree": "primary"
+      }
+    ]
+  },
+  "withdrawals": [
+    {
+      "amount": "0",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1"
+        }
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "1",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1"
+        }
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "3",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1"
+        }
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "4",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "2"
+        }
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "11",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "2"
+        }
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "12",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "3"
+        }
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "23",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "3"
+        }
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "24",
+      "outcome": {
+        "arm": "err",
+        "error": "InsufficientBalance { requested: 24, available: 23 }"
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "18446744073709551615",
+      "outcome": {
+        "arm": "err",
+        "error": "InsufficientBalance { requested: 18446744073709551615, available: 23 }"
+      },
+      "wallet": "ascending"
+    },
+    {
+      "amount": "0",
+      "outcome": {
+        "arm": "err",
+        "error": "InsufficientBalance { requested: 1, available: 0 }"
+      },
+      "wallet": "empty"
+    },
+    {
+      "amount": "4",
+      "outcome": {
+        "arm": "err",
+        "error": "AmbiguousTree { asset: 11111111111111111111111111111111, tree_count: 2 }"
+      },
+      "wallet": "two-trees"
+    },
+    {
+      "amount": "18446744073709551615",
+      "outcome": {
+        "arm": "err",
+        "error": "SelectedBalanceOverflow"
+      },
+      "wallet": "overflowing"
+    },
+    {
+      "amount": "12",
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "inputCount": "1"
+        }
+      },
+      "wallet": "zone-bound"
+    }
+  ],
+  "zoneProgram": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+}

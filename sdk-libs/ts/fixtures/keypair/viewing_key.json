@@ -1,0 +1,36 @@
+{
+  "expected": {
+    "bootstrapTagBytes": "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+    "ecdhSharedBytes": "7cf27b188d034f7e8a52380304b51ac3c08969e277f21b35a60b48fc47669978",
+    "mergeTagBytes": "0078a0c193f3d5b3b066699dc530104ac31d577daf637ecf420a1c12d00f88a7",
+    "mergeTagRootBytes": "032d4525edc42285c8585f83d6f31766bc09248eb4aa2d77c415e6357efff23d",
+    "publicKeyBytes": "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+    "recipientRequestTagBytes": "009ee93d98690302e24aee699c902b057c6642aa9278d84f97d8b8a223a9a54b",
+    "recipientTagRootBytes": "22442357391d2d42bea3b22196c8fb84fe787a8d8ccf0b13ce2b757938bb65ed",
+    "seededPublicKeyBytes": "036fc3e973f5ebfee86c796993ee93471fb5fbab46d7d851a3f88d3aac94549f90",
+    "seededSecretBytes": "26bb58e3768586699b54ce7b8e3ad33402e41bf389d078c7e3b8525f25b76608",
+    "sendSharedTagBytes": "00567760ab8b868d307c8f87b65a8de3d93e13177ac807579ddf049f8faded1d",
+    "senderTagBytes": "00f1a7068d4ce6a99f4895f91279ac7ad7e17159bc8155cc889005c5170d7d42",
+    "senderTagRootBytes": "3e1eaf8a6586cba799c7b739eac585452909a69c892ac772297d4e6744ce748e",
+    "transactionViewingPublicKeyBytes": "03fc0eabf2531ad885eb2617f25c0c8c8b98fe342ad93e2f27daba9584cea03a74",
+    "transactionViewingSecretBytes": "b61dcca74ec7a66199ff78e937471a2d05eebfd313f3f73dd1275dfc8f56a59f",
+    "txViewingTagRootBytes": "112b208dca3769cc9d891c0bb4a42f7fe1451c35c10b637f2f7d54f4cbc5985b"
+  },
+  "id": "fx-p00-keypair-viewing-key-v1",
+  "inputs": {
+    "counterpartySecretBytes": "0000000000000000000000000000000000000000000000000000000000000002",
+    "firstNullifierBytes": "0808080808080808080808080808080808080808080808080808080808080808",
+    "seedAccount": "9",
+    "seedBytes": "0707070707070707070707070707070707070707070707070707070707070707",
+    "tagIndex": "11",
+    "testOnlySecret": true,
+    "viewingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000001"
+  },
+  "inventoryRow": "sdk-libs/keypair/src/viewing_key.rs",
+  "owningPacket": "P00",
+  "responsibility": "public key, ECDH, purpose roots, all tag directions, seed, and transaction key",
+  "rustPath": "sdk-libs/keypair/src/viewing_key.rs",
+  "rustSymbol": "ViewingKey",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

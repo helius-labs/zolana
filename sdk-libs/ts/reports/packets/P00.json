@@ -1,0 +1,612 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "commands": [
+    {
+      "command": "rustup run 1.97.0 cargo check -p xtask --bin ts-fixtures",
+      "exitStatus": "0",
+      "responsibility": "fixture generator compilation"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo test -p xtask --bin ts-fixtures",
+      "exitStatus": "0",
+      "responsibility": "inventory, fixture ID, secret marking, and canonical JSON tests"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo clippy -p xtask --bin ts-fixtures -- -D warnings",
+      "exitStatus": "0",
+      "responsibility": "fixture generator lint"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo fmt --all -- --check",
+      "exitStatus": "0",
+      "responsibility": "Rust formatting"
+    },
+    {
+      "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_transaction.rs",
+      "exitStatus": "0",
+      "responsibility": "standalone transaction oracle formatting"
+    },
+    {
+      "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_client.rs",
+      "exitStatus": "0",
+      "responsibility": "standalone client oracle formatting"
+    },
+    {
+      "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_api.rs",
+      "exitStatus": "0",
+      "responsibility": "standalone API transport oracle formatting"
+    },
+    {
+      "command": "rustup run 1.97.0 rustfmt --edition 2021 --check xtask/src/ts_fixtures_wallet.rs",
+      "exitStatus": "0",
+      "responsibility": "standalone wallet oracle formatting"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures",
+      "exitStatus": "0",
+      "responsibility": "fixture generation"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check",
+      "exitStatus": "0",
+      "responsibility": "deterministic regeneration and Rust verification"
+    },
+    {
+      "command": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures && rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures -- --check",
+      "exitStatus": "0",
+      "responsibility": "deterministic double generation"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "P04 vector baseline before fixture-loader follow-up"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "P05 vector baseline before production fixture-loader follow-up"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/interface && npm run test:vectors --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "current interface instruction and codec tests"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/transaction && npm run test:vectors --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "current transaction preparation, wire, and vector tests"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "current P09 RPC, indexer, proof, and polling tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "current P09 fixture tests"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "current wallet unit and frozen deposit tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "manifest-backed wallet vector tests"
+    },
+    {
+      "command": "npm run test:cross --workspace @zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "current wallet cross-surface tests"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/test-kit",
+      "exitStatus": "0",
+      "responsibility": "current private test-kit tests"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "responsibility": "manifest hashes, secret marking, deterministic regeneration, and 182-row inventory validation"
+    },
+    {
+      "command": "npm run build && npm run typecheck && npm run lint && npm run test:inventory && npm run test:exports && npm run test:dependencies && npm run api:check",
+      "exitStatus": "0",
+      "responsibility": "current package build, type, lint, inventory, exports, dependency, and API tests"
+    },
+    {
+      "command": "cargo xtask ts-fixtures --check",
+      "exitStatus": "blocked",
+      "responsibility": "canonical command; existing xtask dispatch is outside P00 ownership"
+    },
+    {
+      "command": "npm run test:inventory",
+      "exitStatus": "0",
+      "responsibility": "frozen 182-row inventory completeness and packet ownership"
+    },
+    {
+      "command": "git diff --exit-code -- sdk-libs/ts/fixtures",
+      "exitStatus": "1 (expected)",
+      "responsibility": "reopened P00 adds wallet fixtures and updates the manifest"
+    },
+    {
+      "command": "git diff --check",
+      "exitStatus": "0",
+      "responsibility": "whitespace validation"
+    }
+  ],
+  "counts": {
+    "apiTransportErrorVectors": "5",
+    "apiTransportSuccessVectors": "6",
+    "clientFixtureFiles": "8",
+    "fixtureFiles": "58",
+    "inventoryDuplicate": "0",
+    "inventoryMissing": "0",
+    "inventoryRows": "182",
+    "inventoryUnknownPackets": "0",
+    "keypairFixtureFiles": "12",
+    "p00Rows": "7",
+    "transactionFixtureFiles": "14",
+    "transactionOracleVectors": "13",
+    "walletFixtureFiles": "10",
+    "walletOracleVectors": "12",
+    "workflowFixtureFiles": "7"
+  },
+  "fixtureIds": [
+    "fx-p00-api-prover-request-v1",
+    "fx-p00-api-transport-v1",
+    "fx-p00-client-proof-compression-v1",
+    "fx-p00-client-proof-input-v1",
+    "fx-p00-client-proof-validity-v1",
+    "fx-p00-client-prover-shapes-v1",
+    "fx-p00-client-rpc-indexer-v1",
+    "fx-p00-indexer-schema-v1",
+    "fx-p00-interface-deposit-v1",
+    "fx-p00-keypair-constants-v1",
+    "fx-p00-keypair-encryption-v1",
+    "fx-p00-keypair-error-v1",
+    "fx-p00-keypair-hash-v1",
+    "fx-p00-keypair-lib-v1",
+    "fx-p00-keypair-merge-v1",
+    "fx-p00-keypair-nullifier-key-v1",
+    "fx-p00-keypair-pubkey-v1",
+    "fx-p00-keypair-shielded-v1",
+    "fx-p00-keypair-signing-key-v1",
+    "fx-p00-keypair-test-secret-v1",
+    "fx-p00-keypair-tests-v1",
+    "fx-p00-keypair-viewing-key-v1",
+    "fx-p00-merkle-paths-v1",
+    "fx-p00-smart-account-create-v1",
+    "fx-p00-test-kit-standard-accounts-v1",
+    "fx-p00-transaction-asset-v1",
+    "fx-p00-transaction-authority-v1",
+    "fx-p00-transaction-data-v1",
+    "fx-p00-transaction-frozen-tests-v1",
+    "fx-p00-transaction-merge-v1",
+    "fx-p00-transaction-serialization-v1",
+    "fx-p00-transaction-split-v1",
+    "fx-p00-transaction-transact-v1",
+    "fx-p00-transaction-transfer-v1",
+    "fx-p00-transaction-utxo-v1",
+    "fx-p00-transaction-values-errors-v1",
+    "fx-p00-transaction-wallet-state-v1",
+    "fx-p00-transaction-wallet-sync-v1",
+    "fx-p00-transaction-zone-v1",
+    "fx-p00-wallet-actions-mod-v1",
+    "fx-p00-wallet-authority-v1",
+    "fx-p00-wallet-create-associated-token-account-v1",
+    "fx-p00-wallet-deposit-v1",
+    "fx-p00-wallet-lib-v1",
+    "fx-p00-wallet-sequence-v1",
+    "fx-p00-wallet-submit-v1",
+    "fx-p00-wallet-sync-v1",
+    "fx-p00-wallet-transaction-v1",
+    "fx-p00-wallet-user-registry-v1",
+    "fx-p09-client-errors-v1",
+    "fx-p09-client-lib-v1",
+    "fx-workflow-action-ata-idempotent-v1",
+    "fx-workflow-action-merge-v1",
+    "fx-workflow-action-split-v1",
+    "fx-workflow-instruction-deposit-v1",
+    "fx-workflow-instruction-transfer-v1",
+    "fx-workflow-instruction-withdraw-sol-v1",
+    "fx-workflow-instruction-withdraw-spl-v1"
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "ownedChangedPaths": [
+    "sdk-libs/ts/config/historical-baseline-commit",
+    "sdk-libs/ts/fixtures/api/prover-request-v1.json",
+    "sdk-libs/ts/fixtures/api/transport-v1.json",
+    "sdk-libs/ts/fixtures/client/errors-v1.json",
+    "sdk-libs/ts/fixtures/client/lib.json",
+    "sdk-libs/ts/fixtures/client/proof-input-v1.json",
+    "sdk-libs/ts/fixtures/client/proof-result-compression-v1.json",
+    "sdk-libs/ts/fixtures/client/proof-validity-v1.json",
+    "sdk-libs/ts/fixtures/client/prover-shapes-v1.json",
+    "sdk-libs/ts/fixtures/client/rpc-indexer-v1.json",
+    "sdk-libs/ts/fixtures/indexer-api/schema-v1.json",
+    "sdk-libs/ts/fixtures/interface/deposit-instruction-v1.json",
+    "sdk-libs/ts/fixtures/keypair/constants.json",
+    "sdk-libs/ts/fixtures/keypair/encryption.json",
+    "sdk-libs/ts/fixtures/keypair/error.json",
+    "sdk-libs/ts/fixtures/keypair/hash.json",
+    "sdk-libs/ts/fixtures/keypair/lib.json",
+    "sdk-libs/ts/fixtures/keypair/merge.json",
+    "sdk-libs/ts/fixtures/keypair/nullifier_key.json",
+    "sdk-libs/ts/fixtures/keypair/pubkey.json",
+    "sdk-libs/ts/fixtures/keypair/shielded.json",
+    "sdk-libs/ts/fixtures/keypair/signing_key.json",
+    "sdk-libs/ts/fixtures/keypair/test-secret-blinding-v1.json",
+    "sdk-libs/ts/fixtures/keypair/tests.json",
+    "sdk-libs/ts/fixtures/keypair/viewing_key.json",
+    "sdk-libs/ts/fixtures/manifest.json",
+    "sdk-libs/ts/fixtures/merkle-tree/paths-v1.json",
+    "sdk-libs/ts/fixtures/smart-account-client/standard-create-v1.json",
+    "sdk-libs/ts/fixtures/test-kit/standard-accounts-v1.json",
+    "sdk-libs/ts/fixtures/transaction/asset-v1.json",
+    "sdk-libs/ts/fixtures/transaction/authority-v1.json",
+    "sdk-libs/ts/fixtures/transaction/data-v1.json",
+    "sdk-libs/ts/fixtures/transaction/frozen-tests-v1.json",
+    "sdk-libs/ts/fixtures/transaction/merge-v1.json",
+    "sdk-libs/ts/fixtures/transaction/serialization-v1.json",
+    "sdk-libs/ts/fixtures/transaction/split-v1.json",
+    "sdk-libs/ts/fixtures/transaction/transact-v1.json",
+    "sdk-libs/ts/fixtures/transaction/transfer-v1.json",
+    "sdk-libs/ts/fixtures/transaction/utxo-v1.json",
+    "sdk-libs/ts/fixtures/transaction/values-and-errors-v1.json",
+    "sdk-libs/ts/fixtures/transaction/wallet-state-v1.json",
+    "sdk-libs/ts/fixtures/transaction/wallet-sync-v1.json",
+    "sdk-libs/ts/fixtures/transaction/zone-v1.json",
+    "sdk-libs/ts/fixtures/wallet/asset-sequence-v1.json",
+    "sdk-libs/ts/fixtures/wallet/create_associated_token_account.json",
+    "sdk-libs/ts/fixtures/wallet/deposit.json",
+    "sdk-libs/ts/fixtures/wallet/lib.json",
+    "sdk-libs/ts/fixtures/wallet/mod.json",
+    "sdk-libs/ts/fixtures/wallet/submit.json",
+    "sdk-libs/ts/fixtures/wallet/transaction.json",
+    "sdk-libs/ts/fixtures/wallet/user_registry.json",
+    "sdk-libs/ts/fixtures/wallet/wallet_authority.json",
+    "sdk-libs/ts/fixtures/wallet/wallet_sync.json",
+    "sdk-libs/ts/fixtures/workflows/action-ata-idempotent-v1.json",
+    "sdk-libs/ts/fixtures/workflows/action-merge-v1.json",
+    "sdk-libs/ts/fixtures/workflows/action-split-v1.json",
+    "sdk-libs/ts/fixtures/workflows/deposit-v1.json",
+    "sdk-libs/ts/fixtures/workflows/instruction-transfer-v1.json",
+    "sdk-libs/ts/fixtures/workflows/instruction-withdraw-sol-v1.json",
+    "sdk-libs/ts/fixtures/workflows/instruction-withdraw-spl-v1.json",
+    "sdk-libs/ts/reports/inventory.json",
+    "sdk-libs/ts/reports/packets/P00.json",
+    "xtask/src/bin/ts-fixtures.rs",
+    "xtask/src/ts_fixtures_api.rs",
+    "xtask/src/ts_fixtures_client.rs",
+    "xtask/src/ts_fixtures_keypair.rs",
+    "xtask/src/ts_fixtures_merkle.rs",
+    "xtask/src/ts_fixtures_transaction.rs",
+    "xtask/src/ts_fixtures_wallet.rs"
+  ],
+  "p00InventoryRows": [
+    "sdk-libs/client/tests/merge/main.rs",
+    "sdk-libs/client/tests/merge_zone/main.rs",
+    "sdk-libs/client/tests/steps/mod.rs",
+    "sdk-libs/client/tests/zone_authority/main.rs",
+    "sdk-libs/client/tests/zone_transfer/main.rs",
+    "sdk-libs/keypair/tests/steps/mod.rs",
+    "sdk-libs/transaction/tests/steps/mod.rs"
+  ],
+  "p00RowEvidence": [
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/merge/main.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/merge_zone/main.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/steps/mod.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/zone_authority/main.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/client/tests/zone_transfer/main.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/keypair/tests/steps/mod.rs",
+      "test": "test-inventory-exclusion-check"
+    },
+    {
+      "disposition": "not applicable",
+      "fixture": "none (explicit exclusion)",
+      "path": "sdk-libs/transaction/tests/steps/mod.rs",
+      "test": "test-inventory-exclusion-check"
+    }
+  ],
+  "p04FollowUp": {
+    "command": "npm run test:vectors --workspace @zolana/keypair",
+    "fixtureFiles": [
+      "constants.json",
+      "encryption.json",
+      "error.json",
+      "hash.json",
+      "lib.json",
+      "merge.json",
+      "nullifier_key.json",
+      "pubkey.json",
+      "shielded.json",
+      "signing_key.json",
+      "tests.json",
+      "viewing_key.json"
+    ],
+    "testFile": "sdk-libs/ts/keypair/test/vectors/keypair-vectors.test.ts"
+  },
+  "p05FollowUp": {
+    "command": "npm run test:vectors --workspace @zolana/transaction",
+    "fixtureFiles": [
+      "asset-v1.json",
+      "authority-v1.json",
+      "data-v1.json",
+      "frozen-tests-v1.json",
+      "merge-v1.json",
+      "serialization-v1.json",
+      "split-v1.json",
+      "transact-v1.json",
+      "transfer-v1.json",
+      "utxo-v1.json",
+      "values-and-errors-v1.json",
+      "wallet-state-v1.json",
+      "wallet-sync-v1.json",
+      "zone-v1.json"
+    ],
+    "loaderChanges": [
+      "replace hard-coded Rust literals with manifest-verified reads from sdk-libs/ts/fixtures/transaction",
+      "parameterize codec tests over expected.families and assert exact bytes plus malformed errors",
+      "load transfer, split, merge, zone, proof-input, asset, authority, wallet-state, and wallet-sync snapshots by fixture id",
+      "replay frozen-tests-v1 regression seeds and assert sequential/parallel equivalence"
+    ],
+    "sharedFixtureFiles": [
+      "sdk-libs/ts/fixtures/client/proof-input-v1.json",
+      "sdk-libs/ts/fixtures/client/proof-result-compression-v1.json"
+    ],
+    "testFiles": [
+      "sdk-libs/ts/transaction/test/vectors/transaction-vectors.test.ts",
+      "sdk-libs/ts/transaction/test/serialization.test.ts",
+      "sdk-libs/ts/transaction/test/transfer.test.ts",
+      "sdk-libs/ts/transaction/test/wallet-sync.test.ts"
+    ]
+  },
+  "p08FollowUp": {
+    "errorCases": "5",
+    "fixture": "sdk-libs/ts/fixtures/api/transport-v1.json",
+    "rustMethods": "5",
+    "successCases": "6",
+    "testFile": "sdk-libs/ts/api/test/vectors.test.ts"
+  },
+  "p09FollowUp": {
+    "blocker": "sdk-libs/ts/reports/packets/P09.json:10-59",
+    "fixtureFiles": [
+      "sdk-libs/ts/fixtures/client/prover-shapes-v1.json",
+      "sdk-libs/ts/fixtures/client/proof-validity-v1.json",
+      "sdk-libs/ts/fixtures/client/rpc-indexer-v1.json"
+    ],
+    "groups": [
+      {
+        "fixture": "client/prover-shapes-v1.json",
+        "symbols": [
+          "prover::transact::witness::assemble",
+          "TransferProver::build",
+          "TransferP256Prover::build",
+          "ProverClient::{prove_transfer,prove_transfer_p256}"
+        ],
+        "tests": [
+          "client/test/vectors/prover-inputs.test.ts",
+          "client/test/prover/eddsa.test.ts",
+          "client/test/prover/p256.test.ts"
+        ]
+      },
+      {
+        "fixture": "client/proof-validity-v1.json",
+        "symbols": [
+          "proof_from_gnark_json",
+          "ProofCompressed::try_from",
+          "ProofCompressed::to_transact_proof"
+        ],
+        "tests": [
+          "client/test/vectors/proof-compression.test.ts",
+          "client/test/prover.test.ts"
+        ]
+      },
+      {
+        "fixture": "client/rpc-indexer-v1.json",
+        "symbols": [
+          "SolanaRpc RPC methods",
+          "indexer proof converters",
+          "build_unsigned_solana_transaction",
+          "wait_for_indexed_transaction_async"
+        ],
+        "tests": [
+          "client/test/solana-rpc.test.ts",
+          "client/test/indexer-client.test.ts",
+          "client/test/vectors/unsigned-message.test.ts"
+        ]
+      }
+    ],
+    "supportedShapesPerRail": "10"
+  },
+  "p10FollowUp": {
+    "blocker": "sdk-libs/ts/reports/packets/P10.json fixture-generator blocker (labelled P01; owned by P00)",
+    "fixtureFiles": [
+      "sdk-libs/ts/fixtures/wallet/create_associated_token_account.json",
+      "sdk-libs/ts/fixtures/wallet/deposit.json",
+      "sdk-libs/ts/fixtures/wallet/mod.json",
+      "sdk-libs/ts/fixtures/wallet/submit.json",
+      "sdk-libs/ts/fixtures/wallet/transaction.json",
+      "sdk-libs/ts/fixtures/wallet/lib.json",
+      "sdk-libs/ts/fixtures/wallet/user_registry.json",
+      "sdk-libs/ts/fixtures/wallet/wallet_authority.json",
+      "sdk-libs/ts/fixtures/wallet/wallet_sync.json"
+    ],
+    "inventoryMapping": [
+      {
+        "fixture": "wallet/create_associated_token_account.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/create_associated_token_account.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/deposit.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/deposit.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/mod.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/mod.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/submit.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/submit.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/transaction.json",
+        "rows": [
+          "sdk-libs/wallet/src/actions/transaction.rs",
+          "sdk-libs/wallet/tests/transaction.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/lib.json",
+        "rows": [
+          "sdk-libs/wallet/src/lib.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/user_registry.json",
+        "rows": [
+          "sdk-libs/wallet/src/user_registry.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/wallet_authority.json",
+        "rows": [
+          "sdk-libs/wallet/src/wallet_authority.rs"
+        ]
+      },
+      {
+        "fixture": "wallet/wallet_sync.json",
+        "rows": [
+          "sdk-libs/wallet/src/wallet_sync.rs"
+        ]
+      }
+    ],
+    "targetTests": [
+      "sdk-libs/ts/wallet/test/vectors/wallet-vectors.test.ts",
+      "sdk-libs/ts/wallet/test/vectors/deposit-vector.test.ts"
+    ]
+  },
+  "p12FollowUp": {
+    "blocker": "P12-BLOCKER-FIXTURES",
+    "fixtureMapping": [
+      {
+        "assertions": [
+          "auto-selected divisible input and exact conservation",
+          "encrypted split bundle and signed proof-input bytes",
+          "spent input plus resulting real and padding outputs",
+          "repeated sync no-op and spent-input tamper rejection"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/action-split-v1.json",
+        "id": "fx-workflow-action-split-v1",
+        "test": "e2e-action-split"
+      },
+      {
+        "assertions": [
+          "smallest-first preparation and enabled user-record context",
+          "minimal merge material and deterministic proof inputs",
+          "exact merge instruction, account metas, message, signature, and output hash",
+          "spent inputs, one merged output, repeated sync no-op, and typed rejection paths"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/action-merge-v1.json",
+        "id": "fx-workflow-action-merge-v1",
+        "test": "e2e-action-merge-submit"
+      },
+      {
+        "assertions": [
+          "canonical ATA and exact idempotent instruction",
+          "first and repeated submitted messages",
+          "single account creation and zero repeated balance delta",
+          "typed RPC submission error propagation"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/action-ata-idempotent-v1.json",
+        "id": "fx-workflow-action-ata-idempotent-v1",
+        "test": "e2e-action-ata-idempotent"
+      }
+    ],
+    "sourceRevision": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f"
+  },
+  "p13FollowUp": {
+    "blocker": "P00-owned missing workflow fixtures in sdk-libs/ts/reports/packets/P13.json",
+    "fixtureMapping": [
+      {
+        "assertions": [
+          "raw registered transfer across EdDSA, P256, and mixed-input P256 rails",
+          "exact proof inputs, prover request/result/compression, transact accounts and bytes",
+          "exact unsigned messages, direct and inner confirmation tags, nullifiers, outputs, and balances",
+          "malformed and incomplete proof, wrong account order, wrong-signature timeout, owner-tag, and replay rejection evidence"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/instruction-transfer-v1.json",
+        "id": "fx-workflow-instruction-transfer-v1",
+        "test": "e2e-instruction-transfer-wire"
+      },
+      {
+        "assertions": [
+          "negative public SOL amount and exact SOL-interface, recipient, and system-program suffix",
+          "exact EdDSA proof inputs, prover exchange, compression, transact bytes, and unsigned message",
+          "external SOL balance delta, input nullifiers, output commitments, and confirmation tags",
+          "malformed and incomplete proof, wrong account order, wrong-signature timeout, owner-tag, and replay rejection evidence"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/instruction-withdraw-sol-v1.json",
+        "id": "fx-workflow-instruction-withdraw-sol-v1",
+        "test": "e2e-instruction-withdraw-sol-wire"
+      },
+      {
+        "assertions": [
+          "one negative public SPL asset and exact CPI-authority, vault, recipient, ATA, and token-program suffix",
+          "exact mixed-input P256 proof inputs, prover exchange, commitment compression, transact bytes, and unsigned message",
+          "external SPL balance delta, input nullifiers, output commitments, and confirmation tags",
+          "malformed and incomplete proof, wrong account order, wrong-signature timeout, and replay rejection evidence"
+        ],
+        "fixture": "sdk-libs/ts/fixtures/workflows/instruction-withdraw-spl-v1.json",
+        "id": "fx-workflow-instruction-withdraw-spl-v1",
+        "test": "e2e-instruction-withdraw-spl-wire"
+      }
+    ],
+    "sourceRevision": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f"
+  },
+  "packet": "P00",
+  "schema": "zolana-ts-packet-evidence-v1"
+}

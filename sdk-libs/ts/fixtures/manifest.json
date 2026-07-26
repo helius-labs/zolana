@@ -1,0 +1,390 @@
+{
+  "canonicalSourceRevisions": {
+    "baseline": "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71",
+    "client": "2ca98d82543f5aa8610fc3b37cb1bcae4c5f8e47",
+    "interface": "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71",
+    "merkleTree": "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa"
+  },
+  "driftReview": {
+    "commitsSinceFrozenTouchingFixtureSources": 84,
+    "finding": "no-body-drift",
+    "generators": [
+      "ts-fixtures --check",
+      "ts-fixtures --current-client --check"
+    ],
+    "notes": "frozenCommit stays the historical inventory/spec/proving-key pin. Family stamps (baseline/interface/merkleTree/client) advance only when a fixture body changes. Regenerating against current working-tree Rust reproduced every committed body byte-for-byte, including after the G2 compression fix at c1a9b35e (client tip ahead of the client stamp, which correctly did not move). No behavioural drift to accept or dispute.",
+    "reviewedAgainst": "7218405507f46e273f1a7c1e9dbf20d9a4277066",
+    "reviewedAt": "2026-07-26"
+  },
+  "files": [
+    {
+      "path": "api/prover-request-v1.json",
+      "sha256": "ddd510dc0596f07e8a2548a33fabc0fdbe51e35c25022b723fa14c75f454c136"
+    },
+    {
+      "path": "api/transport-v1.json",
+      "sha256": "9f4057f423bf7d24170a8ff734b961a637953fd3888343e02490bfde655141dc"
+    },
+    {
+      "path": "client/errors-v1.json",
+      "sha256": "e50c7fdf8c24f759e9ba4d27225627ae62bc1dcf8d61dd9474540716c734fc84"
+    },
+    {
+      "path": "client/lib.json",
+      "sha256": "a4a88a2a18cc1c7888388de5a9d26d6751f768c405d4a24ab436e6890099982f"
+    },
+    {
+      "path": "client/proof-input-v1.json",
+      "sha256": "c5380ddd05b399a2c72e12f989fe90f72b1167d928ec4db38ce076632ed8b5e0"
+    },
+    {
+      "path": "client/proof-result-compression-v1.json",
+      "sha256": "d3a96f04f157efe65162907ac4cce07199e55d28529823f2a48d1c2cdc22baa0"
+    },
+    {
+      "path": "client/proof-validity-v1.json",
+      "sha256": "3f0f3d1356b835c6d404d80f9df606a98f7be40a1c666da5860afd7793abe0ca"
+    },
+    {
+      "path": "client/prover-shapes-v1.json",
+      "sha256": "71093c067958a2d703a7f0e59170ab6ef68e90db588ffd2700ac79fd40bc76dd"
+    },
+    {
+      "path": "client/rpc-indexer-v1.json",
+      "sha256": "b52863fdb5d192751a70825b554a4e8a74b09e76b08d7b183670ab0ad0387edd"
+    },
+    {
+      "path": "indexer-api/schema-v1.json",
+      "sha256": "4265b3eabaad498871186fe43163b5e30983f5e8f715c509249d69e121b53fdc"
+    },
+    {
+      "path": "interface/deposit-instruction-v1.json",
+      "sha256": "74daab38aad7bf4475756923ccd99d28072b2ea43f83d685b08106a3c96ab530"
+    },
+    {
+      "path": "keypair/constants.json",
+      "sha256": "ba3ea93934373f232abd496d6871c7ea5fa62ff169c5c905f18ce35a49364797"
+    },
+    {
+      "path": "keypair/encryption.json",
+      "sha256": "dd9507ea35386d0ab783d42a1226de10bdb975f2fa5807c5ebe52fdea30c621e"
+    },
+    {
+      "path": "keypair/error.json",
+      "sha256": "e74a2fa1754b11676a0cbbec7c2351ae88ef5fa51fed5640c4974eea449965f6"
+    },
+    {
+      "path": "keypair/hash.json",
+      "sha256": "aafab1def46c5184d2c656535f0f67bfbdf9073f27c7f893012c1763f711c09e"
+    },
+    {
+      "path": "keypair/lib.json",
+      "sha256": "7a2e65864aa01bde92c4ae53240c81a2c0fdddab907bd814a22c05bbd10e047a"
+    },
+    {
+      "path": "keypair/merge.json",
+      "sha256": "a9326d223042e900d35098f3068c0e5052c536195214a417ac1fa1aa8fc97428"
+    },
+    {
+      "path": "keypair/nullifier_key.json",
+      "sha256": "15281377de7a3251653ed7690cbb1b17dd806b9307771117243dda2a41215468"
+    },
+    {
+      "path": "keypair/pubkey.json",
+      "sha256": "0144758c9876066bf9c41df09e91faca8f729d3e958198e489b8d17669188cc4"
+    },
+    {
+      "path": "keypair/shielded.json",
+      "sha256": "98832df59eb827f8ac303db94a7e4480edebab71ca7ce65b25c89e1570918983"
+    },
+    {
+      "path": "keypair/signing_key.json",
+      "sha256": "109834b25d7fde41aa049bc51bbb197e5574421196c4e38370e9ae795a1eb7ed"
+    },
+    {
+      "path": "keypair/test-secret-blinding-v1.json",
+      "sha256": "6b98bc8d3307d1cce1a51cd51ac539938ef0033b602efa446e46a6b405615319"
+    },
+    {
+      "path": "keypair/tests.json",
+      "sha256": "466cea69360e1f4bf9038afd125ab230f60e29fd12c8141460752b03473f5641"
+    },
+    {
+      "path": "keypair/viewing_key.json",
+      "sha256": "66c128d5db1935bc3f54725ad0f16158eea3a3c1e2061ea542ce8aad56e3de04"
+    },
+    {
+      "path": "merkle-tree/paths-v1.json",
+      "sha256": "fbdb6168f4424f9f8bf7132ece9347114d0f74135f5618206765fca91ea9ad66"
+    },
+    {
+      "path": "smart-account-client/standard-create-v1.json",
+      "sha256": "e770a35b80ade3fc8c58becfe77121541ece662fc9a15487a4184325b17b5056"
+    },
+    {
+      "path": "test-kit/standard-accounts-v1.json",
+      "sha256": "3d32fe32c4fe531b3f461aa7357168b1be0f863e76a189ad1db1774ef7544d76"
+    },
+    {
+      "path": "transaction/asset-v1.json",
+      "sha256": "884ab83f286d3e1b4fd98f52e1c6bf8ab6d1531347a38db0c06c6a65e28cf19a"
+    },
+    {
+      "path": "transaction/authority-v1.json",
+      "sha256": "c77fc97c8a7d8d837c07c4c9312190b844e0315e062e51d587a30af7ae94dad3"
+    },
+    {
+      "path": "transaction/data-v1.json",
+      "sha256": "e469e1dfba8e9ae80e2bad3b5f437ab2115bbf06eb05071e33437e9fb93580d3"
+    },
+    {
+      "path": "transaction/frozen-tests-v1.json",
+      "sha256": "ce1f24cadf5f1871ef122c3d857a671e7630909398b54ce6a4d25a37a7ccd7b0"
+    },
+    {
+      "path": "transaction/merge-v1.json",
+      "sha256": "ac71080a87c8ee460ffed497194f100693dd2ced775408a729c747df8ef9f522"
+    },
+    {
+      "path": "transaction/serialization-v1.json",
+      "sha256": "e149e6224e60bf23e64971de3b63f18bbf54b738d27d9ebf5847b572abf70654"
+    },
+    {
+      "path": "transaction/split-v1.json",
+      "sha256": "6a420d9d3e864149a791249257a04b2e5d2943162bf81f43161d6e9d5117bd28"
+    },
+    {
+      "path": "transaction/transact-v1.json",
+      "sha256": "db071277d821570aa5c8e519ddbb29099deed3cefefef990da35d58644a0c576"
+    },
+    {
+      "path": "transaction/transfer-v1.json",
+      "sha256": "427ae297d1771c91290ec93d550274baa770800d49896a854fefb8460c1f976f"
+    },
+    {
+      "path": "transaction/utxo-v1.json",
+      "sha256": "9499c26a6a7312b10dd4c7ffabc75f9f89b6480553283235253576f49eaca26f"
+    },
+    {
+      "path": "transaction/values-and-errors-v1.json",
+      "sha256": "836dd15edee85e2b38794bb49a71ca74887916a433e5c0fd6c9d73bb0dda8fdd"
+    },
+    {
+      "path": "transaction/wallet-state-v1.json",
+      "sha256": "540241a4be8c8d3d10204375a33e54df8883e2298b88f0228d3171108e29c6c3"
+    },
+    {
+      "path": "transaction/wallet-sync-v1.json",
+      "sha256": "5597c776e8acfee16ecc6f71b0a84cf4b5f379dda05a93b6e8afb08d5d59a319"
+    },
+    {
+      "path": "transaction/zone-v1.json",
+      "sha256": "ce7b443db0f7d9c88e7e17200dee926436d088840c4afea548e2a19111042966"
+    },
+    {
+      "path": "wallet/asset-sequence-v1.json",
+      "sha256": "6ce2d6e7d9587215c555151aa3fc58106ea63fcb80a13e2e89515204472ac6bf"
+    },
+    {
+      "path": "wallet/create_associated_token_account.json",
+      "sha256": "51aac93339fa4aac5db7a33bd1d70954fbbad69fbd3e0187665c98fd52810d00"
+    },
+    {
+      "path": "wallet/deposit.json",
+      "sha256": "2ed035c1eaccac37e2ee40da4356aada1ede9a79f23d08754f2efd156572f637"
+    },
+    {
+      "path": "wallet/lib.json",
+      "sha256": "c9df7b29fb9f00a92e2a649760ccabc295a314d3144d48e8257a18d5ce2af2e7"
+    },
+    {
+      "path": "wallet/mod.json",
+      "sha256": "9a46531824fb9c5718fc2076fd935a31fd0551103a742dbe69dc5078e5a12056"
+    },
+    {
+      "path": "wallet/submit.json",
+      "sha256": "f5ea889d78bf106c8b47f6038590328d81a20b705982c137c01565b81226f725"
+    },
+    {
+      "path": "wallet/transaction.json",
+      "sha256": "5c4cc4e0f62b5e125d5e67fc59bf32611e514c3eb7bf4ea0a2bc36c3c7665605"
+    },
+    {
+      "path": "wallet/user_registry.json",
+      "sha256": "6e2ffd256822e9301e7af6d2e0a4853f383ef1e7054fcea56e790d1ef4ebe1db"
+    },
+    {
+      "path": "wallet/wallet_authority.json",
+      "sha256": "8133e06fc28a3e8e75cb112fe3792332f2b3003cc2bf132f726a8be166a5e818"
+    },
+    {
+      "path": "wallet/wallet_sync.json",
+      "sha256": "5122568c975072b3fd8d457e241e22eff684f6710a2af2b93f7ff28105e1f20f"
+    },
+    {
+      "path": "workflows/action-ata-idempotent-v1.json",
+      "sha256": "3c79ab05d39982a5e6fbebcaac105b47116664949f1d93f9aaf3293e51076d3b"
+    },
+    {
+      "path": "workflows/action-merge-v1.json",
+      "sha256": "2ce84c9d2bf4aee4e6c371d70cec2abf9885427474f8ab57b34c69cdeaa6af3e"
+    },
+    {
+      "path": "workflows/action-split-v1.json",
+      "sha256": "b490781aeb2f8d94dbff118e41015a001484331e336552754b36cb54188c3d4c"
+    },
+    {
+      "path": "workflows/deposit-v1.json",
+      "sha256": "ee83ce306250984eac86de07a902ce767de5fe65ce8aa6be85255c698de23582"
+    },
+    {
+      "path": "workflows/instruction-transfer-v1.json",
+      "sha256": "f738e5ebb1532291c7f89e6a589e0bd52276890d7be05676d8507c4a4e1d6fb6"
+    },
+    {
+      "path": "workflows/instruction-withdraw-sol-v1.json",
+      "sha256": "3ba5a521df47438897c32f4906233a5da694674dbbd67483790c2a0f4d730dfa"
+    },
+    {
+      "path": "workflows/instruction-withdraw-spl-v1.json",
+      "sha256": "ef317172358f21df13bac0f1ad810b9539e1eb258fc2e83911fdb8ff3fa5297f"
+    }
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "generatorCommand": "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures",
+  "historicalBaselineCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "photonSchemaRevision": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "provingKeyRelease": {
+    "lockPath": "prover/server/prover/provingkeys/proving-keys.lock",
+    "lockSha256": "c0f617b3b3c24b48e2aa4f16912fe255216568268f582f075283dbd637036e07"
+  },
+  "revisionCompatibility": {
+    "baseline": {
+      "compatibility": "Provenance stamp for baseline-family fixtures regenerated from working-tree sources. May diverge from frozenCommit (Q6): stamps do not gate regeneration. Independent of client and merkleTree.",
+      "regenerationTrigger": "Regenerate when sdk-libs or program-libs sources that feed baseline fixtures change the produced bytes."
+    },
+    "client": {
+      "compatibility": "Live stamp for client/errors-v1.json, client/lib.json, and client/rpc-indexer-v1.json. Each fixture sourceRevision must equal this pin. May diverge from baseline and frozenCommit.",
+      "regenerationTrigger": "Advances only when a current-client fixture body changes; unrelated tip moves under sdk-libs/client/src do not invalidate or rewrite the stamp."
+    },
+    "driftReview": {
+      "compatibility": "Reviewed regeneration against current working-tree Rust. finding must be no-body-drift or a named body-change finding with an accepted disposition. Does not move frozenCommit.",
+      "regenerationTrigger": "Re-run ts-fixtures --check (and --current-client --check) whenever sdk-libs or program-libs sources that feed fixtures change; update reviewedAgainst/reviewedAt/finding."
+    },
+    "frozenCommit": {
+      "compatibility": "Historical inventory, spec, and proving-key pin. Must equal historicalBaselineCommit and photonSchemaRevision. api/transport-v1.json sourceRevision must equal this pin. Staleness relative to tip is expected; body freshness is enforced by generator --check plus driftReview.",
+      "mustAgreeWith": [
+        "historicalBaselineCommit",
+        "photonSchemaRevision"
+      ],
+      "regenerationTrigger": "Change only when deliberately re-pinning the historical evidence set."
+    },
+    "historicalBaselineCommit": {
+      "compatibility": "Historical baseline alias. Must equal frozenCommit.",
+      "mustAgreeWith": [
+        "frozenCommit"
+      ],
+      "regenerationTrigger": "Same as frozenCommit."
+    },
+    "interface": {
+      "compatibility": "Provenance stamp for interface-family fixtures. Independent of client and merkleTree; may match baseline when both families last regenerated together.",
+      "regenerationTrigger": "Regenerate when program-libs/interface or related sources change interface fixture bytes."
+    },
+    "merkleTree": {
+      "compatibility": "Stamp for merkle-tree/paths-v1.json. That fixture's sourceRevision must equal this pin. Independent of baseline, client, and frozenCommit.",
+      "regenerationTrigger": "Regenerate when sdk-libs/merkle-tree or hasher sources change path fixture bytes."
+    },
+    "photonSchemaRevision": {
+      "compatibility": "Photon schema identity for indexer transport fixtures. Must equal frozenCommit while the schema is frozen to that revision.",
+      "mustAgreeWith": [
+        "frozenCommit"
+      ],
+      "regenerationTrigger": "Change when the Photon schema the fixtures encode moves off the historical pin."
+    },
+    "provingKeyRelease": {
+      "compatibility": "lockPath plus lockSha256 of proving-keys.lock at frozenCommit. Proof fixtures that assume a different proving-key release are incompatible with this pin.",
+      "regenerationTrigger": "Update when the proving-keys.lock blob at frozenCommit changes (key rotation recorded on that historical pin)."
+    },
+    "specSha256": {
+      "compatibility": "SHA-256 of docs/spec.md at frozenCommit. A fixture claim that assumes a different spec digest is incompatible with this pin.",
+      "regenerationTrigger": "Recompute when frozenCommit moves to a commit whose docs/spec.md differs."
+    }
+  },
+  "rust": {
+    "packages": [
+      {
+        "features": [
+          "default",
+          "solana-rpc"
+        ],
+        "name": "zolana-client"
+      },
+      {
+        "features": [
+          "poseidon",
+          "sha256",
+          "keccak"
+        ],
+        "name": "zolana-hasher"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-indexer-api"
+      },
+      {
+        "features": [
+          "default",
+          "tree",
+          "verifying-keys"
+        ],
+        "name": "zolana-interface"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-keypair"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-merkle-tree"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-program-test"
+      },
+      {
+        "features": [],
+        "name": "zolana-test-utils"
+      },
+      {
+        "features": [
+          "parallel"
+        ],
+        "name": "zolana-transaction"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-wallet"
+      },
+      {
+        "features": [
+          "default"
+        ],
+        "name": "zolana-api"
+      }
+    ],
+    "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+  },
+  "schema": "zolana-ts-fixtures-v1",
+  "specSha256": "d962f3e871cf8edee67cfbfd2f59f88320e1615f175e99c53f8275268162550c",
+  "version": "1"
+}
