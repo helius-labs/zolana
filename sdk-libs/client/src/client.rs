@@ -918,9 +918,7 @@ fn wait_for_rpc_confirmation<R: Rpc>(
             return Ok(());
         }
     }
-    Err(ClientError::Rpc(format!(
-        "signature not confirmed: {signature}"
-    )))
+    Err(ClientError::ConfirmationTimeout)
 }
 
 async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
@@ -936,9 +934,7 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
             return Ok(());
         }
     }
-    Err(ClientError::Rpc(format!(
-        "signature not confirmed: {signature}"
-    )))
+    Err(ClientError::ConfirmationTimeout)
 }
 
 /// Poll the indexer until the sent transaction is visible under any output
@@ -952,9 +948,7 @@ fn wait_for_indexed_transaction(
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
     if tags.is_empty() {
-        return Err(ClientError::Rpc(
-            "confirmed TRANSACT instruction has no output view tags".into(),
-        ));
+        return Err(ClientError::MissingOutput);
     }
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
@@ -980,9 +974,7 @@ async fn wait_for_indexed_transaction_async(
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
     if tags.is_empty() {
-        return Err(ClientError::Rpc(
-            "confirmed TRANSACT instruction has no output view tags".into(),
-        ));
+        return Err(ClientError::MissingOutput);
     }
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {

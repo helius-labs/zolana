@@ -3,7 +3,7 @@ use zolana_transaction::{instructions::types::SppProofInputUtxo, ProofInputUtxo}
 
 use crate::{
     error::ClientError,
-    prover::field::be,
+    prover::field::checked_be,
     rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
 
@@ -48,10 +48,10 @@ impl TransferInput {
                 nullifier_next_value: BigUint::ZERO,
                 nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
                 nullifier_low_path_index: BigUint::ZERO,
-                utxo_tree_root: be(utxo_tree_root),
-                nullifier_tree_root: be(nullifier_tree_root),
-                nullifier: be(&nullifier),
-                owner_pk_hash: be(owner_pk_hash),
+                utxo_tree_root: checked_be(utxo_tree_root)?,
+                nullifier_tree_root: checked_be(nullifier_tree_root)?,
+                nullifier: checked_be(&nullifier)?,
+                owner_pk_hash: checked_be(owner_pk_hash)?,
                 nullifier_secret: BigUint::ZERO,
             },
             nullifier,

@@ -275,7 +275,7 @@ describe("ClientError", () => {
       path: "client/errors-v1.json",
       sha256: createHash("sha256").update(fixtureBytes).digest("hex"),
     });
-    expect(vectors).toHaveLength(59);
+    expect(vectors).toHaveLength(61);
     expect(new Set(vectors.map(({ code }) => code)).size).toBe(vectors.length);
     expect(vectors.map(({ code }) => code)).toEqual(CANONICAL_CLIENT_ERROR_CODES);
 

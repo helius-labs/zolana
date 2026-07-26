@@ -419,11 +419,11 @@ fn field_case_json(name: &str, bytes: &[u8]) -> Value {
     }
 }
 
-/// `prover::field` (C06) has no fixture and no Rust test of its own, and the
-/// TypeScript counterpart `internal.ts::bytesField` layers a BN254 range check
-/// on top of the same alignment. Pin what Rust actually returns for each length
-/// and either side of the modulus so the port's extra rejection is measured
-/// rather than assumed.
+/// `prover::field` (C06): pin what unchecked `be` returns for each length and
+/// either side of the modulus. Production assembly reads merkle witnesses
+/// through `checked_be`, which refuses at and above the modulus the way
+/// TypeScript `bytesField` does; raw `be` stays the unchecked reader used for
+/// P256 coordinates.
 #[test]
 fn ts_field_alignment_oracle_is_current() {
     let oracle = json!({
