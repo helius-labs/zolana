@@ -67,7 +67,9 @@ function capabilityOnly(owner: ShieldedKeypair): ShieldedKeypair {
         throw new Error(`builder reached past the capability for ${property}()`);
       }
       const value = Reflect.get(target, property) as unknown;
-      return typeof value === "function" ? value.bind(target) : value;
+      return typeof value === "function"
+        ? (value as (this: ShieldedKeypair, ...args: never[]) => unknown).bind(target)
+        : value;
     },
   });
 }
