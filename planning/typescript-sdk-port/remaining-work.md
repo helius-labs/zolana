@@ -441,6 +441,11 @@ Splitting the `NO_TYPESCRIPT_PRODUCER` set, so a code with a live Rust producer
 is recorded apart from the two only tests construct, closes the row instead and
 stays inside the package.
 
+`C04` carries two rulings, and both land outside this package. The `Context`
+field is amended to `block_time: i64` and that is already in `docs/spec.md:1910`;
+the integer domain is [packet 8a](#packet-8a-land-the-u64-integer-domain-per-field).
+Neither is client work, so this row closes on its decode evidence alone.
+
 `C03` and `C04` interact with open pull request 158, which renames a type this
 port already uses and rewrites `indexer_error` in the opposite direction from
 `6d757791`. Read
@@ -504,13 +509,41 @@ sentence this step used to carry, that no batch owns either, is out of date:
 `port/interface-b` in the `zolana-ts-interface-b` tree has taken both and has
 committed against each.
 
-`X01`: TypeScript follows current Rust and Photon accurately, while `docs/spec.md`
-defines different indexer context, UTXO, transaction, and output schemas. The
-base64-to-bytes and hash error distinctions are incomplete, the promised Rust
-fixture is absent, and there is no exhaustive rejection or live-Photon evidence.
-The specification is the side that lags here, so this needs an amendment rather
-than a code change, then the schema, conversions, errors, and fixtures aligned
-behind it. `ee650188` restores the byte view and splits the hash errors.
+`X01` is ruled: where Rust, the port and Photon already agree, that agreement is
+authoritative and the port is correct as it stands
+([ledger](authority-rulings.md#ruled-indexer-api-schema-authority-x01)). The
+row's schema conflict therefore closes through a `docs/spec.md` amendment rather
+than a code change, and `get_nullifier_queue_elements` gets a specification entry
+rather than removal, since Rust, the port and Photon each carry it. What the
+ruling leaves is evidence: the base64-to-bytes and hash error distinctions are
+incomplete, the promised Rust fixture `fixtures/indexer-api/lib.json` is absent
+and needs an `xtask` generator, and there is no exhaustive rejection or
+live-Photon evidence. `ee650188` restores the byte view and splits the hash
+errors.
+
+**The u64 integer domain is ruled and the code is not on this branch.**
+`codec.ts` refuses any JSON number outside the double-precision safe range,
+which is narrower than the `u64` Photon serializes. The owner adopted Light
+Protocol's encoding, which is neither option the row offered: accept a decimal
+string as well as a JSON number, keep refusing an unsafe number, and apply the
+string form only to fields whose domain can genuinely exceed `2^53`
+([ledger](authority-rulings.md#ruled-the-u64-integer-domain-c04)).
+
+The per-field half is operative and is the half that gets dropped in retelling.
+Light coerces `lamports`, `seq`, `slotCreated` and `discriminator`, and declares
+`slot` and `leafIndex` as plain `number()` with no coercion at all, because
+those cannot overflow (`js/stateless.js/src/rpc-interface.ts:316-328`, `:429`,
+`:83`). Over this codec that split puts `seq`, `root_seq` and `start_seq` on the
+union and leaves `block_time`, `slot`, `leaf_index`, `low_element_index`,
+`high_element_index`, `tree_type` and `root_index` reading a plain safe JSON
+number: a field that cannot overflow should not acquire a parse path it never
+needs.
+
+`876c5bf5` on `port/open-questions` implements the union and the transport-side
+quoting that carries it, but routes every integer through one `wireInteger`
+rather than splitting per field, so it grants the escape hatch to seven fields
+the ruling excludes. Narrowing it to the three sequence fields is what closes
+the distance between that branch and the ruling.
 
 `S01`: Rust casts compiled account positions to `u8` while TypeScript refuses an
 index above 255, so the overflow policy conflicts. TypeScript also has no
@@ -520,10 +553,28 @@ boundary at `u8` in both languages and `09012b2f` pins the export surface. What
 remains is the size limit and the execute bytes.
 
 **Done when** both rows reach `done`, which needs `port/interface-b` merged and
-the residue above closed.
+the residue above closed, and the integer-domain packet below has landed.
 
 **Check.** The `indexer-api` and `smart-account-client` package gate blocks have
 no adverse row.
+
+### Packet 8a. Land the u64 integer domain, per field
+
+Owner: unassigned. This is the queue entry for the ruling above; no branch owns
+it, and `port/open-questions` holds the work it starts from rather than a claim
+on it.
+
+Merge `876c5bf5` and `0e26c397` from `port/open-questions`, then narrow the
+coercion. `wireInteger` keeps the number path and the unsafe-number refusal for
+every field; a second decoder that also accepts a decimal string applies to
+`seq`, `root_seq` and `start_seq` alone. The encoder side stays as it is, since
+a `bigint` above `2^53` still has no lossless JSON number to become.
+
+**Done when** a decoded response carrying `"seq": "18446744073709551615"` reads
+back as that `bigint`, the same string in `slot` or `leaf_index` is refused with
+`INDEXER_SCHEMA_INVALID_INTEGER`, and an unsafe JSON number is refused in every
+field. Apply a control edit to each of the three assertions and watch it fail
+before recording the verdict.
 
 ## Step 9. Pass the package and full SDK gate sets
 
