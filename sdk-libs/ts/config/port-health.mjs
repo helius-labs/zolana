@@ -1,16 +1,19 @@
-// Report the two ways the coordinator's picture of this port goes wrong.
+// Report the three ways the coordinator's picture of this port goes wrong.
 //
-// Both failures are silent, which is what makes them expensive. An agent dropped
-// by the platform leaves no error and no completion message; its transcript
-// simply stops, most often part-way through a tool call whose result never
-// arrives. And a document that was accurate when it was written goes stale
-// without changing, so it keeps reading as true.
+// All three failures are silent, which is what makes them expensive. An agent
+// dropped by the platform leaves no error and no completion message; its
+// transcript simply stops, most often part-way through a tool call whose result
+// never arrives. A document that was accurate when it was written goes stale
+// without changing, so it keeps reading as true. And two agents dispatched
+// against one row never hear it from each other; they find out at merge, if the
+// loser's work survives that long.
 //
 // Three agents died in one evening and were found only because their branches
 // happened to sit at the same commit, which is luck rather than method. The
 // reconciler died an hour before anyone noticed, and because it is the single
 // writer of the review checklist, the adverse-row count the entry gate reads was
-// frozen that whole time while the work behind it kept moving.
+// frozen that whole time while the work behind it kept moving. Three pairs of
+// agents duplicated each other that same evening, and nothing caught any of it.
 //
 // Exit 0 means nothing needs attention. Exit 1 means something does, and the
 // report says what. Exit 2 means the check could not run, which is not the same
@@ -50,7 +53,12 @@ const MERGE_BACKLOG_MINUTES = 45;
 
 const json = process.argv.includes("--json");
 
-const git = async (...args) => (await execFileAsync("git", args, { cwd: repoRoot })).stdout.trim();
+// Reading another agent's worktree must never be the reason its build fails, so
+// every command aimed at one runs with --no-optional-locks and leaves the index
+// alone.
+const gitIn = async (cwd, ...args) =>
+  (await execFileAsync("git", ["--no-optional-locks", ...args], { cwd })).stdout.trim();
+const git = (...args) => gitIn(repoRoot, ...args);
 const minutesSince = (epochSeconds) => Math.round((Date.now() / 1000 - epochSeconds) / 60);
 
 const problems = [];
@@ -171,6 +179,149 @@ report.push(
   `branches: ${behind.length} unmerged (${behind.map((item) => `${item.branch}+${item.count}`).join(", ") || "none"})`,
 );
 
+// ------------------------------------------------------------ duplicated work
+
+// The coordinator dispatches from memory and has no way to ask what is already
+// owned, so the same work gets handed out twice. Three times in one evening:
+// two workers were sent at the C04 integer domain and both rewrote
+// `indexer-api/src/codec.ts`, one applying a string-or-number union to every
+// integer and one going per-field; the address lookup table question was
+// studied twice; and the WebAssembly hasher was verified twice, which is why
+// `row-updates/` carries both `wasm-verification.md` and
+// `wasm-poseidon-verification.md`. Each time, two branches sat on one file for
+// an hour with nothing saying so. A convention in a document cannot fix this,
+// because the failure is precisely that nobody consults the document.
+//
+// Uncommitted work counts, and is the reason this reads worktrees rather than
+// history alone. The per-field half of the C04 collision was never committed;
+// it sat unstaged in a tree and was nearly lost, so a check reading commits
+// would have missed the half that mattered.
+
+// What this stays quiet about is what decides whether it gets read. Several
+// branches edit the plan's shared documents and always will -- the rulings
+// ledger has an author, an auditor and a rewriter on it right now, all
+// legitimately -- and naming those every run teaches the reader to skip the
+// whole section, which is the false-positive trap the transcript check above
+// already had to be walked back from. Lockfiles are worse still: any tree that
+// runs an install shows the same diff without anyone having repeated anyone.
+//
+// Row updates and log entries are the exception inside the plan. Those are one
+// file per batch precisely so two branches cannot contend for one, so a second
+// branch in one of them is not shared-document traffic; it is two batches
+// working the same subject, which is the duplicate being looked for.
+const dedicatedPlanFiles = [`${planDir}/row-updates/`, `${planDir}/log/`];
+const generatedFiles = new Set(["package-lock.json", "Cargo.lock"]);
+const worthReporting = (file) =>
+  !generatedFiles.has(file) &&
+  (!file.startsWith(`${planDir}/`) || dedicatedPlanFiles.some((dir) => file.startsWith(dir)));
+
+// A branch is live if it has unmerged commits or a dirty tree. Merged is not
+// finished: `port/client-b` is merged and its tree is deliberately retained,
+// and an edit made there today would collide exactly like an unmerged one.
+const trees = [];
+try {
+  for (const block of (await git("worktree", "list", "--porcelain")).split("\n\n")) {
+    const dir = block.match(/^worktree (.+)$/m)?.[1];
+    const branch = block.match(/^branch refs\/heads\/(port\/.+)$/m)?.[1];
+    // A prunable entry names a directory that is no longer there. Reading it
+    // would fail, and failing over a tree someone already deleted would report
+    // a problem that does not exist.
+    if (dir && branch && !/^prunable/m.test(block)) trees.push({ dir, branch });
+  }
+} catch (error) {
+  console.error(`Could not list worktrees: ${error.message}`);
+  process.exit(2);
+}
+
+// file -> branch -> whether any of that branch's edits to it are uncommitted
+const touched = new Map();
+const noteTouch = (file, branch, uncommitted) => {
+  const branches = touched.get(file) ?? new Map();
+  branches.set(branch, uncommitted || branches.get(branch) === true);
+  touched.set(file, branches);
+};
+
+for (const { branch } of behind) {
+  const changed = await git("diff", "--name-only", `ts-sdk-port...${branch}`);
+  for (const file of changed.split("\n").filter(Boolean)) noteTouch(file, branch, false);
+}
+const unreadable = [];
+for (const { dir, branch } of trees) {
+  const status = await gitIn(dir, "status", "--porcelain").catch(() => null);
+  if (status === null) {
+    unreadable.push(branch);
+    continue;
+  }
+  // Porcelain v1 prefixes two status columns, and renames read `old -> new`.
+  for (const line of status.split("\n").filter(Boolean)) {
+    noteTouch(line.slice(3).split(" -> ").at(-1), branch, true);
+  }
+}
+// A tree that could not be read may be holding an overlap that cannot be seen,
+// which is not the same as there being none. Say so rather than reporting clean.
+if (unreadable.length > 0) {
+  problems.push(
+    `could not read the working tree of ${unreadable.join(", ")}, ` +
+      "so any uncommitted overlap there is invisible to this check",
+  );
+}
+
+// A branch's claim on a file starts at its first edit, so the overlap itself
+// starts at the later of the two claims: the moment the second agent arrived.
+const claimEpoch = async (branch, file) => {
+  const history = await git(
+    "log",
+    "--format=%ct",
+    "--reverse",
+    `ts-sdk-port..${branch}`,
+    "--",
+    file,
+  );
+  const firstCommit = history.split("\n")[0];
+  if (firstCommit) return Number(firstCommit);
+  const dir = trees.find((tree) => tree.branch === branch)?.dir;
+  const info = dir ? await stat(path.join(dir, file)).catch(() => null) : null;
+  return info ? info.mtimeMs / 1000 : Date.now() / 1000;
+};
+
+const collisions = [];
+let sharedQuietly = 0;
+for (const [file, branches] of touched) {
+  if (branches.size < 2) continue;
+  if (!worthReporting(file)) {
+    sharedQuietly += 1;
+    continue;
+  }
+  const claims = await Promise.all(
+    [...branches].map(async ([branch, uncommitted]) => ({
+      branch,
+      uncommitted,
+      epoch: await claimEpoch(branch, file),
+    })),
+  );
+  const minutes = minutesSince(Math.max(...claims.map((claim) => claim.epoch)));
+  collisions.push({ file, minutes, branches: claims.sort((a, b) => a.epoch - b.epoch) });
+}
+
+// No minimum age, unlike the merge backlog above. A branch left unmerged for
+// ten minutes is a merge still being written, but two branches on one module is
+// wrong from the first minute, and the C04 overlap stood for an hour precisely
+// because nothing said anything early.
+for (const { file, minutes, branches } of collisions.sort((a, b) => b.minutes - a.minutes)) {
+  const named = branches
+    .map((claim) => (claim.uncommitted ? `${claim.branch} (uncommitted)` : claim.branch))
+    .join(", ");
+  problems.push(
+    `${file} has been changed on ${branches.length} live branches for ${minutes} min ` +
+      `(${named}); either one agent is redoing the other's work, or the loser of the ` +
+      "merge silently loses it",
+  );
+}
+report.push(
+  `overlap: ${collisions.length} file(s) claimed by more than one branch` +
+    (sharedQuietly > 0 ? `, ${sharedQuietly} shared plan/lock file(s) left unreported` : ""),
+);
+
 // ------------------------------------------------------------- stale plan text
 
 // The status block carries a timestamp because a reader has no other way to
@@ -199,7 +350,11 @@ if (!stamp) {
 
 if (json) {
   console.log(
-    JSON.stringify({ healthy: problems.length === 0, problems, report, workers }, null, 2),
+    JSON.stringify(
+      { healthy: problems.length === 0, problems, report, workers, collisions },
+      null,
+      2,
+    ),
   );
 } else {
   console.log("Port health\n");
