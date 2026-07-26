@@ -39,9 +39,9 @@ entries wrote the local `+02:00` clock and labelled it UTC.
 | Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
 | Branch | 1941 unit tests pass, with vectors, property, cross-language and prover suites alongside them; formatting, typecheck and lint are clean |
 | Phase | 2 of 4: remediation, and further into it than the last update read. Phases 3 and 4 not started |
-| Entry gate to the cryptographic phase | Criteria 1 and 3 pass. Criterion 2 fails on the 30 adverse rows. Criterion 4 is pending rather than failing: 23 checks pass, none fails, 10 are still running |
+| Entry gate to the cryptographic phase | Criteria 1 and 3 pass. Criterion 2 fails on the 30 adverse rows. Criterion 4 fails on one job, `tests / sdk-libs`, diagnosed in the checklist's known-failing block: the `T28` explicit-zero clause landed without regenerating `transaction-parity-v1.json`, and the whole difference is one submodule name |
 | Reconciliation debt | None outstanding. The six row updates named in the last update are folded in, and two of them moved no row |
-| Continuous integration | No job is red. One failure mode is designed in and worth knowing before it fires: `typescript / static`, `suites` and `packaging` carry no Rust toolchain, so a change to `program-libs/hasher` without a regenerated `@zolana/hasher` artifact turns all three red on the build's refusal |
+| Continuous integration | One red job, `tests / sdk-libs`, on a stale committed oracle rather than a behaviour change. A second failure mode is designed in and worth knowing before it fires: `typescript / static`, `suites` and `packaging` carry no Rust toolchain, so a change to `program-libs/hasher` without a regenerated `@zolana/hasher` artifact turns those three red on the build's refusal |
 
 **Do not trust a row that says `PARITY` without reading its evidence.** An audit
 on 2026-07-25 examined the 36 rows then claiming it and found one supported by
@@ -113,6 +113,7 @@ the collisions recorded below.
 | `zolana-ts-green2` | `port/green2` | the same, second holder, plus the browser gate's reading of the word "process". Unmerged |
 | `zolana-ts-overlap` | `port/overlap-detect` | `port-health.mjs` and what a tree collision costs. Merged |
 | `zolana-ts-handoff` | `port/handoff` | integration merges. **Note:** it also committed to `review-checklist.md`, which the reconciler owns |
+| `zolana-ts-c03` | `port/c03` | `C03`, the `Rpc` trait decomposition question |
 | `zolana-merge-record` | `fix/merge-user-record-binding` | program defect, **separate** pull request off `main` |
 | (no tree) | `fix/indexed-array-exclusive-highest-value` | protocol-library fix relocated out of the port, **separate** pull request off `main` |
 
