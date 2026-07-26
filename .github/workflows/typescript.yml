@@ -176,9 +176,11 @@ jobs:
         run: tar -xzf ts-dist.tar.gz
       - name: Refuse a stale hasher artifact
         run: node sdk-libs/ts/hasher/scripts/build-hooks.mjs
-      # Suites shell out to this xtask oracle (groth16-verify). Pre-build it so
-      # vitest never pays a cold `cargo run` compile against the 30s default
-      # timeout; the helper fails immediately if the binary is missing.
+      # Warm the groth16-verify oracle before check:suites. Vitest globalSetup
+      # also runs `cargo build -p xtask --bin groth16-verify` (freshness for
+      # local/CI alike); this step fails earlier as a named CI step and leaves
+      # the target warm so every workspace vectors run's globalSetup is a no-op
+      # after setup-rust cache restore, instead of contending on first compile.
       - name: Pre-build TypeScript suite Rust oracles
         run: cargo build -p xtask --bin groth16-verify
       - run: npm run check:suites

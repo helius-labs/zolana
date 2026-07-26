@@ -5,23 +5,24 @@ import { fileURLToPath } from "node:url";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
-/// Prefer `CARGO_TARGET_DIR` so a custom target layout still finds the binary CI
-/// (and local warmup) built with `cargo build -p xtask --bin groth16-verify`.
+/// Prefer `CARGO_TARGET_DIR` so a custom target layout still finds the binary
+/// vitest `globalSetup` (and CI) built with `cargo build -p xtask --bin groth16-verify`.
 function groth16VerifyBin(): string {
   const targetDir = process.env["CARGO_TARGET_DIR"] ?? path.join(workspaceRoot, "target");
   return path.join(targetDir, "debug", "groth16-verify");
 }
 
-/// Resolve the pre-built oracle. Compiling under vitest via `cargo run` is
-/// forbidden: a cold compile under a parallel suite pool exceeds the test
-/// budget and surfaces only as a timeout.
+/// Resolve the oracle binary path. Freshness is the vitest `globalSetup`'s job
+/// (`cargo build` every run); this only fails loudly if setup was skipped.
+/// Compiling inside a test via `cargo run` is forbidden: a cold compile under
+/// a parallel suite pool exceeds the test budget and surfaces only as a timeout.
 function resolveGroth16VerifyBin(): string {
   const bin = groth16VerifyBin();
   if (!existsSync(bin)) {
     throw new Error(
       [
         `missing groth16-verify oracle binary: ${bin}`,
-        "TypeScript suites require it pre-built; they do not compile xtask under vitest.",
+        "Vitest globalSetup should have built it; suites do not compile xtask inside a test.",
         "Build with: cargo build -p xtask --bin groth16-verify",
       ].join("\n"),
     );

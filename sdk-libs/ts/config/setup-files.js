@@ -9,3 +9,7 @@ const configRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export const poseidonSetupFile = path.join(configRoot, "poseidon.setup.mjs");
 export const propertySetupFile = path.join(configRoot, "property.setup.mjs");
+export const groth16VerifyGlobalSetupFile = path.join(
+  configRoot,
+  "groth16-verify.global-setup.mjs",
+);
