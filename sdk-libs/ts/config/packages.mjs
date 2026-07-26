@@ -52,7 +52,6 @@ export const packageConfigurations = {
   client: {
     entryPoints: [".", "./prover", "./retry"],
     dependencies: [
-      "@noble/curves",
       "@noble/hashes",
       "@zolana/api",
       "@zolana/hasher",
