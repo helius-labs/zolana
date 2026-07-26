@@ -16,41 +16,55 @@ review iterations.
 Update this block at the start of each session.
 
 - Branch: `ts-sdk-port`
-- Review HEAD: `1b10b87c` at `2026-07-25 23:35 UTC`
-- Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`
-- Canonical Rust drift since freeze: 26 canonical source files. The manifest re-pins interface at `14ad3001`, client at `6d757791`, and merkle-tree at `975783aa`, and no scoped source moved past its pin, so the 13 changed `sdk-libs/transaction` paths are the unpinned remainder (G8-1)
+- Review HEAD: `5691096b` at `2026-07-26 02:05 UTC`
+- Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`, unchanged, and still the value `HISTORICAL_BASELINE_SHA` freezes the 182-row inventory, `docs/spec.md`, and the proving-key lockfile against
+- Canonical Rust drift since freeze: the picture changed and the old entry here described the wrong paths. `BASELINE_SHA` in `xtask/src/bin/ts-fixtures.rs` moved to `e51ad12b` when the CI batch reformatted `sdk-libs/` under the pinned 1.97.0 toolchain, which is the re-pin that gate exists to force. Measured at `5691096b`, five paths have moved past that pin, all under `sdk-libs/client/src/prover`: `client.rs`, `mod.rs`, `proof.rs`, and the two new generators `ts_poll_oracle.rs` and `ts_proof_oracle.rs`. They are the `C08` and `C19` work, so the drift is this session's own and owes a re-pin and a regeneration rather than a decision (G8-1)
 - Primary rows: `145`, raised from `118` on `2026-07-25` by [row-updates/queue-coverage-audit.md](row-updates/queue-coverage-audit.md). The scope rule, that a `program-libs` crate is in scope when an SDK crate depends on it, had been applied to `interface` and to none of the other four crates that meet it
-- Active phase: `2`. The Status column no longer holds a `todo` entry: the 27 rows the coverage audit added, and `I16` beside them, were taken up by the interface, program-libs, event, and hasher batches, so each of the 145 rows now carries a verdict and the phase-1 denominator problem is closed. What replaces it is 32 rows at `needs_re_review` and 29 at `needs_fix`. Re-review in queue order from `I01`, which outranks the `needs_fix` drain
-- Progress: `90 done / 145 total`, counted at `2026-07-26 00:20 UTC` against the Status column. Six further rows are `done` on a confirmed `NOT_APPLICABLE` disposition, `H09` through `H14`, and the CI count excludes them because it counts `done` and `PARITY` together. Fix workers land commits while this block is read, so recount before you cite a number. The `typescript / planning` CI job fails when this count disagrees with the tables
-- Scope and denominator, `2026-07-26`: [scope-and-denominator.md](scope-and-denominator.md). None of the 145 rows is terminal under the SDK-only rule: the three nominated as needing a change outside `sdk-libs`, `T21`, `T23`, and `C08`, were checked against their code and the rulings at `3cacdb4c`, and each is ordinary in-scope work. The denominator for the entry criterion is 45 adverse open rows, of which 41 are ordinary work and 4 are pinned on one ruling whose fix is in scope either way. Four further open rows owe a confirming artifact rather than an implementation. The findings whose fix is genuinely outside are `PD-1`, `PD-2`, and the zone-authority key coverage hazard on `C18`, each with a recommended route
-- Exact next eligible row: `I01 program-libs/interface/src/error.rs`
-- Full SDK parity claim: unsupported. The shape of the evidence has changed since the figure of 1 row of 145 was written, and the count now is 74 rows at `PARITY`, of which the fold-in entries from `2026-07-25 22:20 UTC` onward rest on a Rust-generated oracle replayed by a TypeScript test rather than on a reading. 61 rows carry an adverse verdict, 33 `PARTIAL`, 23 `DIVERGENT`, 4 `BLOCKED`, and 1 `STALE`; 10 carry a `NOT_APPLICABLE` disposition, 6 of them confirmed; and no package gate set has passed, which is the largest thing still standing between this queue and a claim about the SDK as a whole
+- Active phase: `2`. The Status column no longer holds a `todo` entry: the 27 rows the coverage audit added, and `I16` beside them, were taken up by the interface, program-libs, event, and hasher batches, so each of the 145 rows now carries a verdict and the phase-1 denominator problem is closed. What replaces it is 17 rows at `needs_re_review` and 22 at `needs_fix`, down from 32 and 29. Re-review in queue order from `I07`, which outranks the `needs_fix` drain
+- Progress: `95 done / 145 total`, counted at `2026-07-26 02:05 UTC` against the Status column. Seven further rows are `done` on a confirmed `NOT_APPLICABLE` disposition, `H08` through `H14`, and the CI count excludes them because it counts `done` and `PARITY` together, which is why the Status column shows 102 `done` against a progress figure of 95. Fix workers land commits while this block is read, so recount before you cite a number. The `typescript / planning` CI job fails when this count disagrees with the tables
+- Scope and denominator, `2026-07-26`: [scope-and-denominator.md](scope-and-denominator.md). None of the 145 rows is terminal under the SDK-only rule: the three nominated as needing a change outside `sdk-libs`, `T21`, `T23`, and `C08`, were checked against their code and the rulings at `3cacdb4c`, and each is ordinary in-scope work. The denominator for the entry criterion is 40 adverse open rows as of `2026-07-26 02:05 UTC`, down from 45, of which 36 are ordinary work and 4 are pinned on one ruling whose fix is in scope either way. Four further open rows owe a confirming artifact rather than an implementation. The findings whose fix is genuinely outside are `PD-1` and `PD-2`, each with a recommended route. The zone-authority item was listed here as a third; it is not, and the correction matters because it was filed as a key-coverage question for the prover. `docs/spec.md:1013-1020` gives that rail four supported shapes and four keys exist, so the SDKs accepting ten is a divergence to fix inside `sdk-libs`, and generating the six missing keys would be wrong on the merits. It is now `C18`, adverse
+- Exact next eligible row: `I07 program-libs/interface/src/instruction/instruction_data/deposit.rs`
+- Full SDK parity claim: unsupported. Counted from the tables at `2026-07-26 02:05 UTC` and cross-checked against `pkp-entry-gate.mjs`, which reads the same columns: 95 rows at `PARITY`, 40 adverse, of which 22 are `PARTIAL`, 17 `DIVERGENT`, and 1 `STALE`, and 10 at `NOT_APPLICABLE`, 7 of them confirmed. No row is `BLOCKED`. The figures previously in this line, 74 `PARITY` and 61 adverse including 4 `BLOCKED`, disagreed with the tables and with the line above them in this same block; recount before citing rather than trusting either. The fold-in entries from `2026-07-25 22:20 UTC` onward rest on a Rust-generated oracle replayed by a TypeScript test rather than on a reading. What has moved since is the package gates: `check:packaging` passes at `ecfda044`, covering the inventory, export-allowlist, dependency, api, browser-runtime and packed-artifact checks for the ten production packages, so the sentence that no package gate set has passed is no longer true. Default-mode `fixtures:check` still fails, on this session's own drift
 - Coverage, `2026-07-25`: 27 rows were added for `program-libs/event` (6), `hasher` (14), `indexed-array` (4), and `user-registry-interface` (3). Eighteen need a parity verdict and nine record a justified `NOT_APPLICABLE`. The uncovered files held the Poseidon parameters, the instruction tag table, the output-data encoding tags, the proofless output layout, and the `UserRecord` account layout, each reimplemented in TypeScript and in several cases more than once, with nothing comparing them. Both protocol defects found this session, `PD-1` and `PD-2`, surfaced in code no row pointed at. Five further rows, `I02`, `I03`, `I30`, `I34`, and `T21`, named a TypeScript file that does not hold the behavior they review; they are repointed and `needs_re_review`, and their verdicts are about the wrong code rather than merely unsupported
 - Reconciliation, `2026-07-25`: [row-updates/parity-evidence-audit.md](row-updates/parity-evidence-audit.md) walked the paper trail behind the 36 rows then marked `done` / `PARITY` and found 1 supported, 34 unsupported, and 1 contradicted. Thirty rows were reopened to the verdict each held before its unsupported upgrade, `M01` was set adverse on the differential oracle, and the five wallet rows kept `done` because their re-review exists and only its log entry was lost; those entries are now written. `W02` then reopened anyway, as `STALE`, for the unrelated reason that the deposit tag ruling moved its canonical Rust after the review. Twenty-seven of the thirty went through two batch interface re-reviews 26 minutes apart, and every row upgraded through a batch entry was unsupported
-- Active reviews: `C01-C22` reviewed `2026-07-25` and folded in four batches, the last being client batch B at `9f9d6676`. Nine of the 22 are now `done` / `PARITY`, including the three zone prover rails the owner un-deferred; `C02`, `C03`, `C04`, and `C08` stay `DIVERGENT`, and `C08`'s difference is a Rust defect rather than a TypeScript one. The client package gates stay unchecked
+- Active reviews: `C01-C22` reviewed `2026-07-25` and folded in six batches, the last two being the client batch B residual at `c06abb97` and the hasher, CI and zone-shape batches at `5691096b`. Thirteen of the 22 are now `done` / `PARITY`. `C08` closed: the owner ruled Rust had to move and it moved, so the rail is passed into `proof_from_gnark_json` rather than inferred from the response. `C18` went the other way, from `PARITY` back to `DIVERGENT`, because `docs/spec.md` supports four zone-authority shapes and the SDKs accept ten; TypeScript agrees with Rust there and both differ from the specification. The nine still adverse are `C01`, `C02`, `C03`, `C04`, `C05`, `C06`, `C18`, `C21`, and `C22`. The client package gates now pass as part of `check:packaging`
 - Wallet package: `W01-W09` reviewed `2026-07-25`, then re-reviewed against the fix commits. Seven are now `done` / `PARITY`: `W01`, `W03`, `W05`, `W07`, and `W06`, `W08`, `W09`, the last three closed out of `BLOCKED` once `EncryptedEnvelope` landed and the export sets became a derived comparison against the Rust source rather than a transcription. `W02` is `STALE` and unowned rather than blocked; `W04` is `PARTIAL`, downgraded from the wallet batch's self-reported `PARITY` because its signing clauses rest on a reading. All five are `needs_re_review` against a landed commit, `d2dcced3` for `W02` and `d2ff553b` for the other four, and the wallet package gates stay unchecked until those reviews run. The five upgrades are the only rows in the table whose re-review was written into the cell rather than the log, so their entries were reconstructed from the cells and carry no worker identity
-- Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`
-- Last session: `2026-07-25`
+- Active fixes: `K01 proposed`; `K02 proposed`; `K03 proposed`; `C18 proposed`
+- Last session: `2026-07-26`
 
 Refresh the HEAD, fixture commit, drift result, progress, active fixes, and exact
 next row after each wake. Treat dirty evidence as uncommitted. Record the commit
 that makes it available before re-review. Other agents commit while you work, so
 read HEAD again before you cite it rather than trusting the value above.
 
-### Known-failing commands, 2026-07-25
+### Known-failing commands, 2026-07-26
 
-These failures predate the workers now running. Refresh this block at each wake:
-it is expected to go stale, and it is a courtesy list rather than permission to
-ignore a failure you caused.
+Refresh this block at each wake: it is expected to go stale, and it is a
+courtesy list rather than permission to ignore a failure you caused. Re-measured
+at `5691096b` against a clean worktree, and most of what stood here is gone.
 
-- Default-mode `fixtures:check` fails on baseline drift from `43fde8e4` across
-  13 `sdk-libs/transaction` paths, joined since `65100a09` by
-  `sdk-libs/keypair/src/signing_key.rs`. That is register issue
-  [G8-1](production-readiness-issues.md#g8-1-the-manifest-pins-multiple-source-revisions-high),
-  deferred by decision until the Rust source settles. The client-scoped check
-  passes; see the environment facts below.
-- Tree-wide `build` and `typecheck` fail on an uncommitted rewrite of
-  `sdk-libs/ts/wallet/src/sync.ts`.
+- Default-mode `fixtures:check` fails, and the cause has changed. It is no
+  longer the transaction paths recorded before: `BASELINE_SHA` moved to
+  `e51ad12b` with the toolchain reformatting, and the five paths past that pin
+  are `client.rs`, `mod.rs`, `proof.rs`, `ts_poll_oracle.rs`, and
+  `ts_proof_oracle.rs` under `sdk-libs/client/src/prover`, landed by the `C08`
+  and `C19` work. This is a re-pin and a regeneration that is owed, not
+  [G8-1](production-readiness-issues.md#g8-1-the-manifest-pins-multiple-source-revisions-high)
+  waiting on the Rust source to settle. `xtask` owns it.
+- Fixed since the last block: tree-wide `build` and `typecheck` both pass. They
+  failed on an uncommitted rewrite of `sdk-libs/ts/wallet/src/sync.ts`, which is
+  not in this worktree.
+- Also passing, recorded because several rows were held open waiting for it:
+  `check:packaging` completes, including `test:browser` and `pack:check`. The
+  `globalThis.process` leak that failed both was one environment read in
+  `client/src/prover/client.ts` and is removed.
+- Read before clearing a cache: if the TypeScript suite fails to collect across
+  many files at once with `Failed to resolve entry for package "@zolana/hasher"`,
+  the likely cause is an unbuilt workspace, since `@zolana/hasher` resolves
+  through `dist/` after the Poseidon repackaging. Run `npm run build`. The other
+  cause is another agent checking a different branch out of this worktree, which
+  presents the same way. Run `git branch --show-current` first, because the
+  branch check is free and clearing a cache on a hijacked tree is not.
 
 ## Vocabulary
 
