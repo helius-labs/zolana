@@ -15,7 +15,7 @@ import type { ShieldedAddress } from "@zolana/keypair";
 import { SOL_MINT, type Wallet, type WalletUtxo } from "@zolana/transaction";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { equalBytes } from "./internal.js";
+import { bytesKey, equalBytes } from "./internal.js";
 import { resolveRegisteredAddress } from "./registry.js";
 
 interface UnsignedSpendInput {
@@ -332,7 +332,9 @@ export function createSplit(params: SplitParams): CreatedSplit {
     ? entries.find((entry) => equalBytes(entry.outputContext.hash, params.input as Bytes32))
     : undefined;
   if (params.input !== undefined && named === undefined) {
-    throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", { details: { hash: params.input } });
+    throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", {
+      details: { hash: bytesKey(params.input) },
+    });
   }
   const tree = named ? named.outputContext.tree : spendTree(params.wallet, params.asset, plain);
   const candidates = entries.filter((entry) => entry.outputContext.tree === tree && plain(entry));
@@ -357,10 +359,13 @@ export function createSplit(params: SplitParams): CreatedSplit {
     });
   }
   const hash = selected.outputContext.hash;
+  const hashHex = bytesKey(hash);
   if (selected.utxo.zoneProgramId !== undefined) {
-    throw new WalletError("WALLET_SPLIT_INPUT_ZONE_MISMATCH", { details: { hash } });
+    throw new WalletError("WALLET_SPLIT_INPUT_ZONE_MISMATCH", { details: { hash: hashHex } });
   }
-  if (!plain(selected)) throw new WalletError("WALLET_SPLIT_INPUT_HAS_DATA", { details: { hash } });
+  if (!plain(selected)) {
+    throw new WalletError("WALLET_SPLIT_INPUT_HAS_DATA", { details: { hash: hashHex } });
+  }
   if (selected.utxo.amount % BigInt(params.parts) !== 0n) {
     throw new WalletError("WALLET_SPLIT_NOT_DIVISIBLE", {
       details: { amount: selected.utxo.amount.toString(), parts: params.parts },

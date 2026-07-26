@@ -18,6 +18,7 @@ import {
   getPrivateTransactions,
   LocalWalletAuthority,
   signPrivateTransaction,
+  WalletError,
   type TransactionSigner,
 } from "../src/index.js";
 import { base58, fixture, hex, hexBytes, walletFixture } from "./helpers/fixtures.js";
@@ -367,7 +368,7 @@ describe("wallet actions", () => {
     expect(rejection).toThrow(
       expect.objectContaining({
         code: "WALLET_INPUT_UTXO_TREE_MISMATCH",
-        details: { hash: bytes32(2), utxoTree: OTHER_TREE, spendTree: TREE },
+        details: { hash: hex(bytes32(2)), utxoTree: OTHER_TREE, spendTree: TREE },
       }),
     );
 
@@ -399,9 +400,17 @@ describe("wallet actions", () => {
     ).toThrow(
       expect.objectContaining({
         code: "WALLET_INPUT_UTXO_TREE_MISMATCH",
-        details: { hash: bytes32(3), utxoTree: OTHER_TREE, spendTree: TREE },
+        details: { hash: hex(bytes32(3)), utxoTree: OTHER_TREE, spendTree: TREE },
       }),
     );
+  });
+
+  it("drops a non-allow-listed detail on WalletError", () => {
+    const error = new WalletError("WALLET_INSUFFICIENT_BALANCE", {
+      details: { requested: "11", available: "10", ciphertext: "deadbeef" },
+    });
+    expect(error.details).toEqual({ requested: "11", available: "10" });
+    expect(JSON.stringify(error)).not.toContain("deadbeef");
   });
 
   it("keeps external-custody and signer convenience message bytes identical", async () => {

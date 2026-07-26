@@ -165,7 +165,7 @@ function isPlain(entry: WalletUtxo): boolean {
 function namedInputTree(entries: readonly WalletUtxo[], hash: Bytes32): Address {
   const entry = entries.find((candidate) => equalBytes(candidate.outputContext.hash, hash));
   if (entry === undefined) {
-    throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", { details: { hash } });
+    throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", { details: { hash: bytesKey(hash) } });
   }
   return entry.outputContext.tree;
 }
@@ -202,18 +202,18 @@ function selectMergeEntries(
     return hashes.map((hash) => {
       const key = bytesKey(hash);
       if (seen.has(key)) {
-        throw new WalletError("WALLET_DUPLICATE_INPUT_UTXO", { details: { hash } });
+        throw new WalletError("WALLET_DUPLICATE_INPUT_UTXO", { details: { hash: key } });
       }
       seen.add(key);
       const entry = entries.find((candidate) => equalBytes(candidate.outputContext.hash, hash));
       if (entry === undefined) {
-        throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", { details: { hash } });
+        throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE", { details: { hash: key } });
       }
       // A named utxo on another tree is a mismatch, not an unknown hash: the
       // owner can see it in their own listing.
       if (entry.outputContext.tree !== tree) {
         throw new WalletError("WALLET_INPUT_UTXO_TREE_MISMATCH", {
-          details: { hash, utxoTree: entry.outputContext.tree, spendTree: tree },
+          details: { hash: key, utxoTree: entry.outputContext.tree, spendTree: tree },
         });
       }
       return entry;
