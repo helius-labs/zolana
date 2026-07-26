@@ -724,11 +724,22 @@ input to this decision.
       G9-4 and G6-2 are closed; remaining package-gate bullets above still need a per-package
       evidence walk before this top-level line can be checked
       ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
-- [ ] Cross-package public types, errors, dependencies, and capability boundaries match current Rust,
-      except (a) the forester `address-append` / `batchUpdateNullifierTreeInstruction` path, which is
-      an owner-ruled unsupported capability (no TypeScript forester; builder withdrawn; codec and tag
-      retained), and (b) P3 G2 proof compression, owned by `port/g2` and not certified here
-      ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
+- [x] Cross-package public types, errors, dependencies, and capability boundaries match current Rust,
+      except the forester `address-append` / `batchUpdateNullifierTreeInstruction` path, which is an
+      owner-ruled unsupported capability (no TypeScript forester; builder withdrawn; codec and tag
+      retained). The former P3 G2 carve-out is removed: it was a TypeScript Fq2 limb-order defect
+      (`c0` then `c1` vs gnark's `c1` first), fixed at `c1a9b35e`; live evidence is 16/16
+      `tsCompressOk` / `matchesRust` with `rustFallbackNeeded: 0`
+      ([row-updates/g2.md](row-updates/g2.md),
+      [row-updates/g2-compression-live.json](row-updates/g2-compression-live.json)).
+      Verified at HEAD on `port/gate-ledger`: empty-slice merge ciphertext reports
+      `KEYPAIR_POSEIDON` (not `KEYPAIR_HASH`); `ViewingKeyLike` is synchronous and
+      `ShieldedKeypairLike` keeps `T | Promise<T>` per Q17; no shipped source names
+      `batchUpdateNullifierTreeInstruction` / `address-append` prove path;
+      `npm run test:dependencies` / `test:exports` / `api:check` pass after dropping the
+      stale `@noble/curves` client dependency left by the G2 fix (`a9508d05`).
+      ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md),
+      [row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
 - [x] Deposit, private transfer, withdraw, split, merge, registration, sync, and submission flows have current-Rust coverage without behavior-hiding stubs.
       Evidence: [`row-updates/gate3-flows.md`](row-updates/gate3-flows.md) plus
       submission landings in [`row-updates/gate-submit.md`](row-updates/gate-submit.md)
@@ -739,7 +750,14 @@ input to this decision.
       split / merge / private transfer / withdraw signatures against programs
       built in this worktree (`just build-programs`).
 - [ ] Proof inputs work with the same-revision prover for each supported shape and rail.
-- [ ] Indexer requests and responses match the same-revision live Photon contract.
+- [x] Indexer requests and responses match the same-revision live Photon contract.
+      Evidence at HEAD: `sdk-libs/ts/e2e/photon/photon-contract.live.test.ts` (11 tests) drives
+      every production indexer method through `@zolana/api` / `ZolanaIndexer` against
+      `just build-photon`'s same-revision binary; `npm run test:e2e:photon` is in
+      `check:e2e`, which the `typescript / e2e` job runs. Control edits renaming
+      `block_time` or typing it as string fail the suite
+      ([row-updates/gate6-photon.md](row-updates/gate6-photon.md),
+      [row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
 - [x] EdDSA and P256 rails cover the complete supported shape set.
       Evidence at `12c748d6`: authoritative ten-shape set is
       `(1,1),(1,2),(2,2),(2,3),(3,3),(4,3),(4,4),(5,3),(5,4),(1,8)` in
@@ -765,17 +783,45 @@ input to this decision.
       `transfer.test.ts` zone-authority / MergeZone mismatches.
       ([row-updates/gate-shapes.md](row-updates/gate-shapes.md)).
 - [ ] Fixture provenance points to the reviewed Rust revision and covers deterministic success, rejection, and tamper cases where applicable.
-- [ ] The public-export ledger has no unexplained difference.
-- [ ] No row or package gate has an unresolved adverse verdict.
+      Provenance half closed at `6bcd79ae` (G8-1 revisionCompatibility +
+      fixtures-provenance; G8-2 verifying-key module + sha256) and still holds at
+      HEAD. Rejection/tamper half is **not** closed: `@zolana/indexer-api` and
+      `@zolana/smart-account-client` ship only success-shape P00 fixtures while
+      their validation surfaces reject malformed input in unit tests that are not
+      Rust-generated. Closing those two needs xtask generator output plus a
+      `manifest.json` hash update, which this worker is forbidden to touch.
+      Packages that already carry reject/tamper in fixtures or gated vectors
+      (transaction, wallet, keypair error/merge, merkle-tree, api/transport,
+      client proof-validity, workflows, poseidon-parity, program-libs-parity,
+      proof-response-parity) are fine.
+      ([row-updates/gate-ci.md](row-updates/gate-ci.md),
+      [row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
+- [x] The public-export ledger has no unexplained difference.
+      Per-package disposition tests assert `unexplained === []` at HEAD
+      (`client/test/vectors/crate-root-exports.test.ts`,
+      `transaction/test/vectors/module-surface.test.ts`,
+      `wallet/test/vectors/export-vector.test.ts`, interface re-export ledgers).
+      `@zolana/hasher` was missing from `public-exports.md` and is now recorded.
+      Note: the ledger's closing claim that `api:check` parses this file is
+      false — `api:check` only asserts scaffolding; disposition tests are the
+      real gate ([row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
+- [x] No row or package gate has an unresolved adverse verdict.
+      Recounted from the primary tables at HEAD: 145 rows = 135 `done`/`PARITY`
+      + 7 `done`/`NOT_APPLICABLE` + 3 `needs_re_review`/`NOT_APPLICABLE`; zero
+      `MISSING` / `PARTIAL` / `OPEN` / `STALE` / `DIVERGENT` / `BLOCKED`.
+      Unchecked package-completion bullets are incomplete evidence walks, not
+      adverse verdicts ([row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
 - [ ] Full CI, fixture regeneration, browser, packed-package consumer, action
       E2E, and instruction E2E commands pass from a clean checkout.
       Evidence at `6bcd79ae` ([row-updates/gate-ci.md](row-updates/gate-ci.md)):
       `fixtures:check`, `test:browser`, `check:browser-runtime`, `pack:check`,
       `test:e2e:actions` (9 pass / 1 skip), and `test:e2e:instructions` (7 pass)
-      all exit 0 after `npm install` + `npm run build`. Left unchecked because
-      `check:static` / `lint:packages` still fails on the seven pre-existing errors
-      in `sdk-libs/ts/client/test/vectors/g2-compression-live.test.ts` owned by
-      `port/g2`; this worker did not touch that file.
+      all exit 0 after `npm install` + `npm run build`. The former `check:static`
+      blocker on `g2-compression-live.test.ts` is obsolete after `c1a9b35e`
+      (`port/g2` merged). This gate-ledger worker re-ran packaging constituents
+      and unit/static/fixtures locally; full `check:e2e` / GitHub Actions merge
+      tier was not re-dispatched here, so the top-level line stays open for a
+      clean-checkout CI green rather than for the old G2 lint residue.
 - [x] A repository workflow runs the TypeScript merge tier on pull requests. A gate in this section
       is not satisfied by a local run
       ([G9-1](production-readiness-issues.md#g9-1-no-workflow-runs-the-typescript-suite-blocker)).

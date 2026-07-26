@@ -41,7 +41,7 @@ export const CHECK_PARTS = Object.freeze([
   },
   {
     name: "check:e2e",
-    contains: "test:e2e:actions, test:e2e:instructions",
+    contains: "test:e2e:actions, test:e2e:instructions, test:e2e:photon",
     needs: "Solana validator, same-revision Photon, local prover, built programs",
   },
 ]);
@@ -53,6 +53,24 @@ if (scripts.check !== expectedCheck) {
   throw new Error(
     `package.json check runs ${JSON.stringify(scripts.check)}; documented scope is ${JSON.stringify(expectedCheck)}`,
   );
+}
+
+// `contains` is documentation unless it is checked against the sub-script. The
+// Photon suite was in `check:e2e` while this file still listed only actions and
+// instructions; nothing failed until a reader compared the two by hand.
+for (const part of CHECK_PARTS) {
+  const script = scripts[part.name];
+  if (typeof script !== "string") {
+    throw new Error(`package.json lacks scripts.${part.name}`);
+  }
+  for (const token of part.contains.split(",").map((value) => value.trim())) {
+    const npmScript = token.replace(/\s*\(.*\)$/u, "");
+    if (!script.includes(npmScript)) {
+      throw new Error(
+        `${part.name} is documented to contain ${JSON.stringify(token)} but runs ${JSON.stringify(script)}`,
+      );
+    }
+  }
 }
 
 console.log("npm run check — merge-tier composition");

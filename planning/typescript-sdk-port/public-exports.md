@@ -1682,6 +1682,31 @@ The workflow's strict hash conversion also uses `hash(Bytes32)` and
 `hashBytes(Hash)` from `@zolana/indexer-api`; no snippet needs a cast between
 wire base58 strings and bytes. These corrections require no product decision.
 
+## `@zolana/hasher`
+
+Source: [`program-libs/hasher`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/program-libs/hasher)
+compiled through [`sdk-libs/hasher-wasm`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/hasher-wasm).
+This package has no Rust SDK crate twin; it is the TypeScript host for the
+compiled Poseidon the other packages call.
+
+```ts
+export class HasherWasmError extends Error {
+  readonly code: number;
+}
+export const MAX_POSEIDON_INPUTS: 12;
+export const POSEIDON_ARTIFACT_BYTES: number;
+export function initializePoseidon(): Promise<void>;
+export function isPoseidonInitialized(): boolean;
+export function poseidon(inputs: readonly Uint8Array[]): Uint8Array;
+export function resetPoseidonForTests(): void;
+```
+
+`poseidon` is synchronous and throws `HasherWasmError` when the module is
+uninitialized or when the arity is outside `1..=MAX_POSEIDON_INPUTS`. Call
+`initializePoseidon` once before the first hash. `@zolana/hasher/slim` is the
+same module without the inlined artifact: the caller supplies `poseidon.wasm`.
+`resetPoseidonForTests` is test-only.
+
 ## `@zolana/merkle-tree`
 
 Source: [`sdk-libs/merkle-tree/src/lib.rs`](https://github.com/helius-labs/zolana/blob/975783aa38b65734585f7749e347201fd67a2b71/sdk-libs/merkle-tree/src/lib.rs)
@@ -1869,10 +1894,14 @@ SDK semver.
   wallet or client.
 - `@zolana/indexer-api` owns schema and method names; `@zolana/api` owns only
   transport.
+- `@zolana/hasher` has no Rust SDK crate twin; it hosts the compiled
+  `zolana-hasher` Poseidon for the packages above it.
 - The frozen `program-test` root maps only to private `@zolana/test-kit`. The
   root entry point is the five names above; `@zolana/test-kit/node` re-exports
   a broader Node-only annex for e2e helpers and is outside SDK semver.
 
-Per-package `exports.test.ts` / export-vector suites pin runtime allowlists.
-`npm run api:check` is a scaffold check (scripts and entry points), not an
-api-extractor report against this file.
+Per-package export disposition tests
+(`crate-root-exports.test.ts`, `module-surface.test.ts`, `export-vector.test.ts`,
+interface re-export ledgers) fail on unexplained root exports. `npm run api:check`
+only asserts package scaffolding (scripts, browser/vector hooks); it does not
+parse this file.
