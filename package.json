@@ -39,6 +39,7 @@
     "test:e2e:photon": "ZOLANA_PORT_OFFSET=800 vitest run --config sdk-libs/ts/config/vitest.e2e-photon.config.js",
     "test:e2e:p5": "ZOLANA_TEST_P5=1 ZOLANA_PORT_OFFSET=500 vitest run --config sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/e2e/actions/prove-to-chain.live.test.ts",
     "test:e2e:p5:hybrid": "ZOLANA_TEST_P5=1 ZOLANA_TEST_P5_RUST_COMPRESS=1 ZOLANA_PORT_OFFSET=500 vitest run --config sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/e2e/actions/prove-to-chain.live.test.ts",
+    "test:e2e:gate3": "ZOLANA_TEST_GATE3=1 ZOLANA_PORT_OFFSET=600 vitest run --config sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/e2e/actions/gate3-flows.live.test.ts",
     "test:inventory": "node sdk-libs/ts/config/inventory-check.mjs",
     "test:exports": "node sdk-libs/ts/config/workspace-check.mjs exports",
     "test:dependencies": "node sdk-libs/ts/config/workspace-check.mjs dependencies",

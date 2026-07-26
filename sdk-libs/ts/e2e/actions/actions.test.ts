@@ -535,7 +535,11 @@ describe("P12 action workflows", () => {
     );
   });
 
-  it("creates and submits a merge through the production pipeline", async () => {
+  // Fixture-only: asserts merge-submit request wiring (client URL, material
+  // bytes, signature handoff) without a real prove. Live merge-submit coverage
+  // is `gate3-flows.live.test.ts` (`ZOLANA_TEST_GATE3=1`) against the local
+  // prover — this case must not be cited as the flow's only evidence.
+  it("wires merge-submit request shape against a mocked prover", async () => {
     const [fixture, proofFixture] = await Promise.all([
       fixtureJson<MergeFixture>("workflows/action-merge-v1"),
       fixtureJson<{
