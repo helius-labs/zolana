@@ -300,7 +300,11 @@ export interface ProofOutputUtxo {
   hash(): Bytes32;
   isDummy(): boolean;
   withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo;
-  withZoneData(zoneProgramId: Address, zoneData: Uint8Array, zoneDataHash: Bytes32): ProofOutputUtxo;
+  withZoneData(
+    zoneProgramId: Address,
+    zoneData: Uint8Array,
+    zoneDataHash: Bytes32,
+  ): ProofOutputUtxo;
   /**
    * Bind an output to policy-zone state when only its commitment hash belongs in
    * the witness; the zone owes the owner the preimage under its own policy.

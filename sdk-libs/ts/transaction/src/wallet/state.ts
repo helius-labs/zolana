@@ -20,11 +20,27 @@ function matches(filter: Filter, utxo: Utxo): boolean {
   return utxo.amount >= filter.minAmount;
 }
 
+/**
+ * Stable identity of one history row. `index` discriminates rows within a
+ * transaction: received outputs use the UTXO leaf index where the indexer
+ * supplies one, and sender-side aggregate rows use a high local range.
+ */
+export interface PrivateTransactionId {
+  readonly signature: Signature;
+  readonly index: bigint;
+}
+
+export type PrivateTransactionKind = "deposit" | "transfer" | "withdrawal" | "split" | "merge";
+
+export type PrivateTransactionDirection = "incoming" | "outgoing" | "self";
+
+export type PrivateTransactionStatus = "pending" | "confirmed";
+
 export interface PrivateTransaction {
-  readonly id: Readonly<{ signature: Signature; index: bigint }>;
-  readonly kind: "deposit" | "transfer" | "withdrawal" | "split" | "merge";
-  readonly direction: "incoming" | "outgoing" | "self";
-  readonly status: "pending" | "confirmed";
+  readonly id: PrivateTransactionId;
+  readonly kind: PrivateTransactionKind;
+  readonly direction: PrivateTransactionDirection;
+  readonly status: PrivateTransactionStatus;
   readonly slot: bigint;
 }
 

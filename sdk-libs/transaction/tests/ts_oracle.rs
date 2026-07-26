@@ -16,7 +16,10 @@
 //! `TransactionError` exhaustively, so a new Rust variant fails to compile until
 //! it is mapped to a TypeScript code (or recorded as having none).
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde_json::{json, Map, Value};
 use solana_address::Address;
@@ -2917,6 +2920,21 @@ fn utxo_serialization_section() -> Value {
 /// compare against a list Rust generates rather than one a reviewer typed. A
 /// name added to or removed from a Rust module changes this section, and the
 /// TypeScript side then has to carry it or record why it does not.
+fn collect_submodule_names(directory: &Path, modules: &[String], out: &mut Vec<String>) {
+    for module in modules {
+        let file = [
+            directory.join(format!("{module}.rs")),
+            directory.join(module).join("mod.rs"),
+        ]
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .unwrap_or_else(|| panic!("locate the source of submodule {module}"));
+        let (children, names) = module_surface(&fs::read_to_string(&file).expect("read submodule"));
+        out.extend(names);
+        collect_submodule_names(file.parent().expect("submodule directory"), &children, out);
+    }
+}
+
 fn module_surfaces_section() -> Value {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut surfaces = Map::new();
@@ -2927,9 +2945,26 @@ fn module_surfaces_section() -> Value {
             !modules.is_empty() || !names.is_empty(),
             "{path} yielded no public surface"
         );
+        // A TypeScript barrel flattens what Rust leaves behind a `pub mod`, so
+        // what explains an export the aggregate itself does not re-export is
+        // the whole submodule tree beneath it, not just its direct children.
+        let parent = root
+            .join(path)
+            .parent()
+            .expect("module directory")
+            .to_owned();
+        let mut submodule_names = Vec::new();
+        collect_submodule_names(&parent, &modules, &mut submodule_names);
+        submodule_names.sort_unstable();
+        submodule_names.dedup();
         surfaces.insert(
             path.to_string(),
-            json!({ "entryPoint": entry_point, "modules": modules, "names": names }),
+            json!({
+                "entryPoint": entry_point,
+                "modules": modules,
+                "names": names,
+                "submoduleNames": submodule_names,
+            }),
         );
     }
     Value::Object(surfaces)

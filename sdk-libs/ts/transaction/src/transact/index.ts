@@ -1,13 +1,16 @@
 export {
   ConfidentialTransfer,
+  SENDER_SLOT_COUNT,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
   canonicalShape,
   createEncryptedTransaction,
   createExternalData,
   createInputUtxo,
+  encodeConfidentialSlots,
   privateTxHash,
   resolveShape,
+  signedToField,
   slotOrdinal,
 } from "../instructions/transact.js";
 export type {
@@ -18,9 +21,11 @@ export type {
   InputUtxo,
   InputUtxoContext,
   OutputContext,
+  OutputSlot,
   PreparedTransfer,
   PrivateTxHashInput,
   PublicAmounts,
   Shape,
   WithdrawalTarget,
 } from "../instructions/transact.js";
+export type { ProofOutputUtxo } from "../utxo.js";
