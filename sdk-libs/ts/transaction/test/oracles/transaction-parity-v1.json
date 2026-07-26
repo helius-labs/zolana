@@ -1063,6 +1063,20 @@
     "messageDataByte": 205,
     "outputDataByte": 171,
     "saltHex": "09090909090909090909090909090909",
+    "settlementBinding": {
+      "orphanSolAccountHashHex": "00ed51f2efc1e78f314c6b4dedaacbad6be9b9d0ae682b028f9f80391a2aa9ab",
+      "orphanSplAccountHashHex": "0068bd1cc20e77b3704d82a3029de0227bfb472e5cfc027040c9b8b875947609",
+      "outputDataLength": 3,
+      "outputs": 2,
+      "solAccount": "3mg7sM6RFEBHiiFotFNfvteH1WdFcc9cujKuPaqZdfDz",
+      "solAmount": "500",
+      "splAmount": "-7",
+      "splToken": "3qbR1eZRqXUWroWKKYhbDmR3FfqTHfqSU8zZSxtANzYh",
+      "splTokenInterface": "3uWi9x2SRpmjztkpkr2WWeBoVq3exjXG2YfDWLvm8KsQ",
+      "unsetHashHex": "0038e74cec3f7462a01bbd113a5a46f3db3077ff3450a026dfac76a99b08b4ce",
+      "withPublicSolHashHex": "004d6dc4b0d35ac57919cb0925a9527ee890e013cdd8f6af3382e49a4cdb1d27",
+      "withPublicSplHashHex": "003d8a4ff99d40424cb511bb1a65efa78e95ddcbc634a15803977f3556a4d821"
+    },
     "txViewingPublicKeyHex": "020202020202020202020202020202020202020202020202020202020202020202"
   },
   "fields": {

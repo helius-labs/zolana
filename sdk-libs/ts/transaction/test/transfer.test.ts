@@ -911,6 +911,43 @@ describe("ConfidentialTransfer constructor matches Rust", () => {
     }).toThrow(expect.objectContaining({ code: "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH" }));
   });
 
+  it("finalizes a zero-amount withdrawal without hashing the recipient account", () => {
+    const keypair = ShieldedKeypair.fromKeys(
+      SigningKey.fromBytes(new Uint8Array(32).fill(9)),
+      NullifierKey.fromSigningKey(SigningKey.fromBytes(new Uint8Array(32).fill(9))),
+      ViewingKey.fromSeed(new Uint8Array(32).fill(10) as Bytes32, 0),
+    );
+    const recipient = encodeAddress(new Uint8Array(32).fill(20));
+    const transfer = new ConfidentialTransfer(
+      keypair.shieldedAddress(),
+      [
+        new ProofInputUtxo({
+          utxo: new Utxo({
+            owner: keypair.signingPublicKey(),
+            asset: SOL_MINT,
+            amount: 100n,
+            blinding: deriveBlinding(new Uint8Array(31).fill(11) as Bytes31, 0),
+          }),
+          nullifierKey: keypair.nullifierKey(),
+        }),
+      ],
+      SOL_MINT,
+    );
+    transfer.withdraw(SOL_MINT, 0n, { kind: "sol", recipient });
+    const prepared = transfer.prepare();
+    expect(prepared.publicSolAmount).toBeUndefined();
+    expect(prepared.userSolAccount).toBe(recipient);
+
+    const tx = ViewingKey.fromSeed(new Uint8Array(32).fill(12) as Bytes32, 0);
+    const signed = prepared.finalize({
+      txViewingPublicKey: tx.publicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      payload: [],
+    });
+    expect(signed.externalData.publicSolAmount).toBeUndefined();
+    expect(signed.externalData.userSolAccount).toBe(SOL_MINT);
+  });
+
   it("accepts a dummy input", () => {
     const ownerAddress = ShieldedKeypair.generate().shieldedAddress();
     expect(

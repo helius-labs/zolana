@@ -3213,6 +3213,56 @@ fn external_data_section() -> Value {
         "messageDataByte": EXTERNAL_DATA_MESSAGE_BYTE,
         "cases": cases,
         "builders": external_data_builder_cases(),
+        "settlementBinding": settlement_account_binding_cases(),
+    })
+}
+
+/// Transfer finalize only binds settlement accounts through `with_public_sol` /
+/// `with_public_spl`. A zero public amount therefore hashes the unset defaults
+/// even when the prepared transfer still carries the withdrawal recipient. The
+/// TypeScript flat-object constructor must match those preimages.
+fn settlement_account_binding_cases() -> Value {
+    let shape = ExternalDataShape {
+        name: "settlementBinding",
+        outputs: 2,
+        messages: 0,
+        output_data_len: Some(3),
+        message_data_len: 0,
+        ..ExternalDataShape::default()
+    };
+    let base = shape.build();
+    let with_sol = base
+        .clone()
+        .with_public_sol(EXTERNAL_DATA_SOL_AMOUNT, address(EXTERNAL_SOL_BYTE))
+        .expect("public sol");
+    let with_spl = base
+        .clone()
+        .with_public_spl(
+            EXTERNAL_DATA_SPL_AMOUNT,
+            address(EXTERNAL_SPL_BYTE),
+            address(EXTERNAL_SPL_INTERFACE_BYTE),
+        )
+        .expect("public spl");
+    // The preimage Transfer finalize must not produce for a zero-amount
+    // withdrawal: a real recipient stamped without a public amount.
+    let mut orphan_sol = base.clone();
+    orphan_sol.user_sol_account = address(EXTERNAL_SOL_BYTE);
+    let mut orphan_spl = base.clone();
+    orphan_spl.user_spl_token = address(EXTERNAL_SPL_BYTE);
+    orphan_spl.spl_token_interface = address(EXTERNAL_SPL_INTERFACE_BYTE);
+    json!({
+        "outputs": shape.outputs,
+        "outputDataLength": shape.output_data_len,
+        "solAmount": EXTERNAL_DATA_SOL_AMOUNT.to_string(),
+        "splAmount": EXTERNAL_DATA_SPL_AMOUNT.to_string(),
+        "solAccount": address(EXTERNAL_SOL_BYTE).to_string(),
+        "splToken": address(EXTERNAL_SPL_BYTE).to_string(),
+        "splTokenInterface": address(EXTERNAL_SPL_INTERFACE_BYTE).to_string(),
+        "unsetHashHex": hex(&base.hash().expect("unset hash")),
+        "withPublicSolHashHex": hex(&with_sol.hash().expect("sol hash")),
+        "withPublicSplHashHex": hex(&with_spl.hash().expect("spl hash")),
+        "orphanSolAccountHashHex": hex(&orphan_sol.hash().expect("orphan sol hash")),
+        "orphanSplAccountHashHex": hex(&orphan_spl.hash().expect("orphan spl hash")),
     })
 }
 
