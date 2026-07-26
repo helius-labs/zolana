@@ -27,7 +27,8 @@ use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::shape::SPP_SUPPORTED_SHAPES;
 use zolana_keypair::{
-    hash::hash_field, NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
+    hash::{hash_field, sha256},
+    NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
 };
 use zolana_transaction::{
     derive_blinding,
@@ -265,6 +266,13 @@ fn p256_owner(keypair: &ShieldedKeypair, inputs: &mut SppProofInputs) -> P256Own
     }
 }
 
+fn field_bytes(value: &num_bigint::BigUint) -> [u8; 32] {
+    let bytes = value.to_bytes_be();
+    let mut out = [0u8; 32];
+    out[32 - bytes.len()..].copy_from_slice(&bytes);
+    out
+}
+
 /// The named intermediates that feed the public-input chain, in Rust's order.
 /// A TypeScript failure compares these first, so the report names the element
 /// that diverged rather than only the final hash.
@@ -273,17 +281,38 @@ fn chain_json(
     nullifiers: &[[u8; 32]],
     output_hashes: &[[u8; 32]],
 ) -> Value {
+    let utxo_roots = inputs
+        .inputs
+        .iter()
+        .map(|input| field_bytes(&input.utxo_tree_root))
+        .collect::<Vec<_>>();
+    let nullifier_roots = inputs
+        .inputs
+        .iter()
+        .map(|input| field_bytes(&input.nullifier_tree_root))
+        .collect::<Vec<_>>();
+    let input_owners = inputs
+        .inputs
+        .iter()
+        .map(|input| field_bytes(&input.owner_pk_hash))
+        .collect::<Vec<_>>();
     json!({
         "nullifierChain": hex(&create_hash_chain_from_slice(nullifiers).expect("nullifier chain")),
         "outputHashChain": hex(&create_hash_chain_from_slice(output_hashes).expect("output chain")),
+        "utxoRootChain": hex(&create_hash_chain_from_slice(&utxo_roots).expect("utxo root chain")),
+        "nullifierRootChain": hex(
+            &create_hash_chain_from_slice(&nullifier_roots).expect("nullifier root chain")
+        ),
         "externalDataHash": inputs.external_data_hash.to_string(),
         "privateTxHash": inputs.private_tx_hash.to_string(),
+        "p256MessageDigestField": hex(&hash_field(&[0u8; 32]).expect("zero p256 message element")),
         "publicSolAmount": inputs.public_sol_amount.to_string(),
         "publicSplAmount": inputs.public_spl_amount.to_string(),
         "publicSplAssetPubkey": inputs.public_spl_asset_pubkey.to_string(),
         "zoneProgramId": inputs.zone_program_id.to_string(),
         "payerPubkeyHash": inputs.payer_pubkey_hash.to_string(),
         "publicInputHash": inputs.public_input_hash.to_string(),
+        "inputOwnerChain": hex(&create_hash_chain_from_slice(&input_owners).expect("input owners")),
         "inputOwnerPkHashes": inputs
             .inputs
             .iter()
@@ -302,11 +331,33 @@ fn p256_chain_json(
     nullifiers: &[[u8; 32]],
     output_hashes: &[[u8; 32]],
 ) -> Value {
+    let utxo_roots = inputs
+        .inputs
+        .iter()
+        .map(|input| field_bytes(&input.utxo_tree_root))
+        .collect::<Vec<_>>();
+    let nullifier_roots = inputs
+        .inputs
+        .iter()
+        .map(|input| field_bytes(&input.nullifier_tree_root))
+        .collect::<Vec<_>>();
+    let input_owners = inputs
+        .inputs
+        .iter()
+        .map(|input| field_bytes(&input.owner_pk_hash))
+        .collect::<Vec<_>>();
+    let private_tx = field_bytes(&inputs.private_tx_hash);
+    let p256_message = sha256(&private_tx);
     json!({
         "nullifierChain": hex(&create_hash_chain_from_slice(nullifiers).expect("nullifier chain")),
         "outputHashChain": hex(&create_hash_chain_from_slice(output_hashes).expect("output chain")),
+        "utxoRootChain": hex(&create_hash_chain_from_slice(&utxo_roots).expect("utxo root chain")),
+        "nullifierRootChain": hex(
+            &create_hash_chain_from_slice(&nullifier_roots).expect("nullifier root chain")
+        ),
         "externalDataHash": inputs.external_data_hash.to_string(),
         "privateTxHash": inputs.private_tx_hash.to_string(),
+        "p256MessageDigestField": hex(&hash_field(&p256_message).expect("p256 message element")),
         "p256MessageHashLow": inputs.p256_message_hash_low.to_string(),
         "p256MessageHashHigh": inputs.p256_message_hash_high.to_string(),
         "p256SigningPkField": inputs.p256_signing_pk_field.to_string(),
@@ -316,6 +367,7 @@ fn p256_chain_json(
         "zoneProgramId": inputs.zone_program_id.to_string(),
         "payerPubkeyHash": inputs.payer_pubkey_hash.to_string(),
         "publicInputHash": inputs.public_input_hash.to_string(),
+        "inputOwnerChain": hex(&create_hash_chain_from_slice(&input_owners).expect("input owners")),
         "inputOwnerPkHashes": inputs
             .inputs
             .iter()

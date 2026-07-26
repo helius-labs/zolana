@@ -258,15 +258,43 @@ describe("zone prover rails against the Rust oracle", () => {
           const payload = assembled.proverInputs.payload;
           // Compare the chain elements before the final hash, so a failure
           // names the first field that moved.
+          expect(hex(bigintToBytes(hashChain(assembled.nullifiers.map(bytesToBigInt))))).toBe(
+            expected.chain["nullifierChain"],
+          );
+          expect(
+            hex(bigintToBytes(hashChain(assembled.outputHashes.map(bytesToBigInt)))),
+          ).toBe(expected.chain["outputHashChain"]);
+          expect(
+            hex(
+              bigintToBytes(
+                hashChain(payload.inputs.map((input) => input.utxoTreeRoot)),
+              ),
+            ),
+          ).toBe(expected.chain["utxoRootChain"]);
+          expect(
+            hex(
+              bigintToBytes(
+                hashChain(payload.inputs.map((input) => input.nullifierTreeRoot)),
+              ),
+            ),
+          ).toBe(expected.chain["nullifierRootChain"]);
           expect(payload.privateTxHash.toString()).toBe(expected.chain["privateTxHash"]);
           expect(payload.externalDataHash.toString()).toBe(expected.chain["externalDataHash"]);
           expect(payload.zoneProgramId.toString()).toBe(expected.chain["zoneProgramId"]);
+          expect(payload.zoneProgramId).not.toBe(0n);
           expect(payload.payerPublicKeyHash.toString()).toBe(expected.chain["payerPubkeyHash"]);
           expect(payload.publicSolAmount.toString()).toBe(expected.chain["publicSolAmount"]);
           expect(payload.publicSplAmount.toString()).toBe(expected.chain["publicSplAmount"]);
           expect(payload.publicSplAssetPublicKey.toString()).toBe(
             expected.chain["publicSplAssetPubkey"],
           );
+          expect(
+            hex(
+              bigintToBytes(
+                hashChain(payload.inputs.map((input) => input.ownerPublicKeyHash)),
+              ),
+            ),
+          ).toBe(expected.chain["inputOwnerChain"]);
           expect(payload.inputs.map((input) => input.ownerPublicKeyHash.toString())).toEqual(
             expected.chain["inputOwnerPkHashes"],
           );
@@ -350,6 +378,35 @@ describe("zone prover rails against the Rust oracle", () => {
     const authority = rails[2].assemble(shape);
     expect(hex(authority.publicInputHash)).not.toBe(hex(transfer.publicInputHash));
     expect(hex(authority.privateTxHash)).toBe(hex(transfer.privateTxHash));
+    // Owners stay in the witness; folding them into the authority hash would
+    // make the two rails agree on the same preimage length.
+    const authorityOwners = hashChain(
+      authority.proverInputs.payload.inputs.map((input) => input.ownerPublicKeyHash),
+    );
+    expect(authorityOwners).not.toBe(0n);
+    expect(
+      hex(
+        bigintToBytes(
+          hashChain([
+            hashChain(authority.nullifiers.map(bytesToBigInt)),
+            hashChain(authority.outputHashes.map(bytesToBigInt)),
+            hashChain(authority.proverInputs.payload.inputs.map((input) => input.utxoTreeRoot)),
+            hashChain(
+              authority.proverInputs.payload.inputs.map((input) => input.nullifierTreeRoot),
+            ),
+            authority.proverInputs.payload.privateTxHash,
+            bytesToBigInt(bytes(oracle.expected.zeroP256MessageElementBytes)),
+            authority.proverInputs.payload.externalDataHash,
+            authority.proverInputs.payload.publicSolAmount,
+            authority.proverInputs.payload.publicSplAmount,
+            authority.proverInputs.payload.publicSplAssetPublicKey,
+            authority.proverInputs.payload.zoneProgramId,
+            authority.proverInputs.payload.payerPublicKeyHash,
+            authorityOwners,
+          ]),
+        ),
+      ),
+    ).not.toBe(hex(authority.publicInputHash));
   });
 
   /// Rust `ZoneAuthorityWitness`: a caller who prepared the transition in
