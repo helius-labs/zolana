@@ -86,7 +86,7 @@ mod tests {
             types::SppProofInputUtxo,
         },
         utxo::Utxo,
-        AssetRegistry, Data, SOL_MINT,
+        AssetRegistry, OutputData, SOL_MINT,
     };
 
     use super::*;
@@ -119,7 +119,7 @@ mod tests {
             amount: input_amount,
             blinding: [5u8; BLINDING_LEN],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
 
@@ -255,7 +255,7 @@ mod tests {
             amount,
             blinding: [6u8; BLINDING_LEN],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
 

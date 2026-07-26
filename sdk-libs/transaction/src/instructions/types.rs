@@ -4,9 +4,9 @@ use zolana_keypair::{
 };
 
 use crate::{
-    data::Data,
+    data::OutputData,
     error::TransactionError,
-    utxo::{ProofInputUtxo, Utxo},
+    utxo::{normalized_zone_data_hash, ProofInputUtxo, Utxo},
 };
 
 #[derive(Clone)]
@@ -33,7 +33,7 @@ impl SppProofInputUtxo {
     }
 
     pub fn with_zone_data_hash(mut self, zone_data_hash: [u8; 32]) -> Self {
-        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_data_hash = normalized_zone_data_hash(zone_data_hash);
         self
     }
 
@@ -44,7 +44,7 @@ impl SppProofInputUtxo {
             amount: 0,
             blinding: random_blinding(),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         Self {
             utxo,
@@ -56,6 +56,54 @@ impl SppProofInputUtxo {
 
     pub fn is_dummy(&self) -> bool {
         self.utxo.owner.is_zero()
+    }
+
+    /// What the commitment folds in. `None` and `Some([0u8; 32])` reach
+    /// [`ProofInputUtxo`] as the same field, so every rule below reads this
+    /// rather than the option: `with_data_hash` normalizes nothing and both
+    /// fields are public, so the two spellings are reachable without the
+    /// builders and must not be told apart afterwards.
+    fn committed_data_hash(&self) -> [u8; 32] {
+        self.data_hash.unwrap_or_default()
+    }
+
+    fn committed_zone_data_hash(&self) -> [u8; 32] {
+        self.zone_data_hash.unwrap_or_default()
+    }
+
+    /// A zero owner is not a parseable key, so a zero-owner input can only stand
+    /// for an unused slot. Every other field must be zero as well: the circuit
+    /// treats the slot as absent, and anything carried here would be committed
+    /// under an owner hash no key can reproduce.
+    ///
+    /// `zone_program_id` is checked for presence rather than for a zero value,
+    /// unlike the two hashes: `Some(Address::default())` commits to
+    /// `pk_field(0)`, a non-zero field, so it is carried rather than absent.
+    pub fn check_canonical_dummy(&self) -> Result<(), TransactionError> {
+        if !self.is_dummy() {
+            return Ok(());
+        }
+        let noncanonical = if self.utxo.asset != Address::default() {
+            Some("asset")
+        } else if self.utxo.amount != 0 {
+            Some("amount")
+        } else if !self.utxo.data.records.is_empty() {
+            Some("data")
+        } else if self.utxo.zone_program_id.is_some() {
+            Some("zone_program_id")
+        } else if self.committed_data_hash() != [0u8; 32] {
+            Some("data_hash")
+        } else if self.committed_zone_data_hash() != [0u8; 32] {
+            Some("zone_data_hash")
+        } else if self.nullifier_key.secret() != &[0u8; BLINDING_LEN] {
+            Some("nullifier_key")
+        } else {
+            None
+        };
+        match noncanonical {
+            Some(field) => Err(TransactionError::NoncanonicalDummyInput { field }),
+            None => Ok(()),
+        }
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
@@ -76,6 +124,7 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
     // A dummy's zeroed owner is not a parseable key; it contributes a zero
     // owner hash instead. The circuit skips ownership for dummies.
     fn try_from(spend: &SppProofInputUtxo) -> Result<Self, Self::Error> {
+        spend.check_canonical_dummy()?;
         let owner_hash = if spend.is_dummy() {
             [0u8; 32]
         } else {
@@ -87,9 +136,9 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
             spend.utxo.amount,
             &spend.utxo.blinding,
         )?
-        .with_data_hash(spend.data_hash.unwrap_or_default())
+        .with_data_hash(spend.committed_data_hash())
         .with_zone(
-            spend.zone_data_hash.unwrap_or_default(),
+            spend.committed_zone_data_hash(),
             &spend.utxo.zone_program_id,
         )
     }
@@ -99,4 +148,190 @@ pub struct InputUtxoContext {
     pub index: usize,
     pub utxo_hash: [u8; 32],
     pub nullifier: [u8; 32],
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::data::DataRecord;
+
+    use super::*;
+
+    /// Blinding and the two digests below are shared with
+    /// `sdk-libs/ts/transaction/test/core.test.ts`, which pins the same bytes.
+    /// Either language changing the dummy rule breaks one of the two.
+    const ORACLE_BLINDING: [u8; BLINDING_LEN] = [7u8; BLINDING_LEN];
+    const ORACLE_HASH: &str = "0497a9bf5848d01c8b5fc1f75603964e63c0e268a206f182e204152de2b7403c";
+    const ORACLE_NULLIFIER: &str =
+        "1afecf4cfcfd1c73219605b615e66d7236c98ec083f9e555ce904900204d0f29";
+
+    fn hex(bytes: &[u8; 32]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn field_of(spend: &SppProofInputUtxo) -> &'static str {
+        match spend.check_canonical_dummy() {
+            Err(TransactionError::NoncanonicalDummyInput { field }) => field,
+            other => panic!("expected a noncanonical dummy rejection, got {other:?}"),
+        }
+    }
+
+    /// A canonical dummy is the only zero-owner input either language accepts,
+    /// and it commits to the same bytes as an explicit zero owner hash.
+    #[test]
+    fn canonical_dummy_hashes_under_a_zero_owner() {
+        let dummy = SppProofInputUtxo::new_dummy();
+        let expected = ProofInputUtxo::new([0u8; 32], &Address::default(), 0, &dummy.utxo.blinding)
+            .expect("proof input")
+            .hash()
+            .expect("hash");
+
+        assert_eq!(dummy.check_canonical_dummy(), Ok(()));
+        assert_eq!(dummy.hash().expect("dummy hash"), expected);
+    }
+
+    #[test]
+    fn canonical_dummy_matches_the_cross_language_oracle() {
+        let mut dummy = SppProofInputUtxo::new_dummy();
+        dummy.utxo.blinding = ORACLE_BLINDING;
+
+        assert_eq!(hex(&dummy.hash().expect("dummy hash")), ORACLE_HASH);
+        assert_eq!(
+            hex(&dummy.nullifier().expect("dummy nullifier")),
+            ORACLE_NULLIFIER
+        );
+    }
+
+    #[test]
+    fn a_dummy_carrying_any_other_field_is_rejected() {
+        let mut asset = SppProofInputUtxo::new_dummy();
+        asset.utxo.asset = Address::new_from_array([7u8; 32]);
+        assert_eq!(field_of(&asset), "asset");
+
+        let mut amount = SppProofInputUtxo::new_dummy();
+        amount.utxo.amount = 1;
+        assert_eq!(field_of(&amount), "amount");
+
+        let mut data = SppProofInputUtxo::new_dummy();
+        data.utxo.data = OutputData::new(vec![DataRecord::UtxoData(vec![1])]);
+        assert_eq!(field_of(&data), "data");
+
+        let mut zone = SppProofInputUtxo::new_dummy();
+        zone.utxo.zone_program_id = Some(Address::new_from_array([8u8; 32]));
+        assert_eq!(field_of(&zone), "zone_program_id");
+
+        let mut data_hash = SppProofInputUtxo::new_dummy();
+        data_hash.data_hash = Some([5u8; 32]);
+        assert_eq!(field_of(&data_hash), "data_hash");
+
+        let mut zone_data_hash = SppProofInputUtxo::new_dummy();
+        zone_data_hash.zone_data_hash = Some([6u8; 32]);
+        assert_eq!(field_of(&zone_data_hash), "zone_data_hash");
+
+        let mut nullifier_key = SppProofInputUtxo::new_dummy();
+        nullifier_key.nullifier_key = NullifierKey::from_secret([3u8; BLINDING_LEN]);
+        assert_eq!(field_of(&nullifier_key), "nullifier_key");
+    }
+
+    /// The other half of the T28 split, at the dummy rule rather than at the
+    /// builders. A zero zone address is carried, not absent, so a dummy holding
+    /// one stays noncanonical however the two hashes are read.
+    #[test]
+    fn a_dummy_bound_to_the_zero_zone_address_is_still_rejected() {
+        let mut zero_zone = SppProofInputUtxo::new_dummy();
+        zero_zone.utxo.zone_program_id = Some(Address::default());
+        assert_eq!(field_of(&zero_zone), "zone_program_id");
+    }
+
+    /// The commitment folds an explicit zero hash and an absent one into the
+    /// same field, so the dummy rule has to agree with it. Both spellings are
+    /// reachable without `with_zone_data_hash`: the fields are public, and
+    /// `with_data_hash` normalizes nothing.
+    #[test]
+    fn a_dummy_carrying_an_explicit_zero_hash_stays_canonical() {
+        let canonical = SppProofInputUtxo::new_dummy();
+
+        let mut assigned = canonical.clone();
+        assigned.data_hash = Some([0u8; 32]);
+        assigned.zone_data_hash = Some([0u8; 32]);
+        assert_eq!(assigned.check_canonical_dummy(), Ok(()));
+        assert_eq!(assigned.hash(), canonical.hash());
+        assert_eq!(assigned.nullifier(), canonical.nullifier());
+
+        let built = canonical.clone().with_data_hash([0u8; 32]);
+        assert_eq!(built.check_canonical_dummy(), Ok(()));
+        assert_eq!(built.hash(), canonical.hash());
+    }
+
+    /// Rejection has to reach the hash and the nullifier, not only the explicit
+    /// check: those are the values that would otherwise enter a proof.
+    #[test]
+    fn hashing_a_noncanonical_dummy_fails() {
+        let mut spend = SppProofInputUtxo::new_dummy();
+        spend.utxo.amount = 5;
+
+        assert_eq!(
+            spend.hash(),
+            Err(TransactionError::NoncanonicalDummyInput { field: "amount" })
+        );
+        assert_eq!(
+            spend.nullifier(),
+            Err(TransactionError::NoncanonicalDummyInput { field: "amount" })
+        );
+    }
+
+    /// A real input is untouched by the dummy rule.
+    #[test]
+    fn a_real_input_may_carry_any_field() {
+        let mut spend = SppProofInputUtxo::new_dummy();
+        spend.utxo.owner = PublicKey::from_ed25519(&[1u8; 32]);
+        spend.utxo.amount = 5;
+
+        assert_eq!(spend.check_canonical_dummy(), Ok(()));
+    }
+
+    /// The commitment folds an explicit zero zone data hash into absence, so
+    /// the builder stores absence: a zone passing a generically computed empty
+    /// digest prepares the same input as one passing no digest at all.
+    #[test]
+    fn an_explicit_zero_zone_data_hash_is_stored_as_absence() {
+        let mut absent = SppProofInputUtxo::new_dummy();
+        absent.utxo.owner = PublicKey::from_ed25519(&[1u8; 32]);
+        absent.utxo.amount = 5;
+        let explicit = absent.clone().with_zone_data_hash([0u8; 32]);
+
+        assert_eq!(explicit.zone_data_hash, None);
+        assert_eq!(explicit.hash(), absent.hash());
+        assert_eq!(explicit.nullifier(), absent.nullifier());
+    }
+
+    #[test]
+    fn a_non_zero_zone_data_hash_is_kept() {
+        let spend = SppProofInputUtxo::new_dummy().with_zone_data_hash([4u8; 32]);
+        assert_eq!(spend.zone_data_hash, Some([4u8; 32]));
+    }
+
+    /// T28 covers two zone bindings that cost differently, and the suite has to
+    /// hold them apart. The clause above normalizes the zone data hash and
+    /// moves no commitment. This one is why the zone address is not normalized
+    /// with it: `Some(Address::default())` commits to `pk_field(0)`, a non-zero
+    /// field the circuit reads as zone-bound, so folding it to absence would
+    /// change what the UTXO says rather than how a caller spelled it. This test
+    /// fails if anyone extends the normalization there.
+    #[test]
+    fn the_zero_zone_address_stays_bound_rather_than_normalizing() {
+        let mut spend = SppProofInputUtxo::new_dummy();
+        spend.utxo.owner = PublicKey::from_ed25519(&[1u8; 32]);
+        spend.utxo.amount = 5;
+        let unbound = spend.hash().expect("unbound hash");
+
+        spend.utxo.zone_program_id = Some(Address::default());
+
+        assert_eq!(
+            ProofInputUtxo::try_from(&spend)
+                .expect("proof input")
+                .zone_program_id,
+            zolana_keypair::hash::hash_field(&[0u8; 32]).expect("pk_field(0)")
+        );
+        assert_ne!(spend.hash().expect("zero-zone hash"), unbound);
+    }
 }

@@ -16,11 +16,15 @@ type StreamHits = Vec<(u64, Vec<(usize, usize)>)>;
 
 fn probe_recipient_stream(
     index: &TxIndex,
+    start: u64,
     window: u64,
     mut derive: impl FnMut(u64) -> Result<ViewTag, KeypairError>,
 ) -> Result<StreamHits, TransactionError> {
     let mut hits = Vec::new();
-    let mut start = 0u64;
+    if window == 0 {
+        return Err(TransactionError::InvalidTagWindow);
+    }
+    let mut start = start;
     loop {
         let mut window_hit = false;
         for n in start..start.saturating_add(window) {
@@ -39,11 +43,15 @@ fn probe_recipient_stream(
 
 fn probe_sender_stream(
     index: &TxIndex,
+    start: u64,
     window: u64,
     mut derive: impl FnMut(u64) -> Result<ViewTag, KeypairError>,
 ) -> Result<Vec<(u64, Vec<usize>)>, TransactionError> {
     let mut hits = Vec::new();
-    let mut start = 0u64;
+    if window == 0 {
+        return Err(TransactionError::InvalidTagWindow);
+    }
+    let mut start = start;
     loop {
         let mut window_hit = false;
         for n in start..start.saturating_add(window) {
@@ -62,11 +70,15 @@ fn probe_sender_stream(
 
 fn probe_presence_stream(
     index: &TxIndex,
+    start: u64,
     window: u64,
     mut derive: impl FnMut(u64) -> Result<ViewTag, KeypairError>,
 ) -> Result<Option<u64>, TransactionError> {
     let mut max_present = None;
-    let mut start = 0u64;
+    if window == 0 {
+        return Err(TransactionError::InvalidTagWindow);
+    }
+    let mut start = start;
     loop {
         let mut window_hit = false;
         for n in start..start.saturating_add(window) {
@@ -102,6 +114,27 @@ impl Wallet {
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
+        let mut staged = self.clone();
+        let report = staged.sync_parallel_with_material_in_place(
+            material,
+            transactions,
+            synced_at,
+            window,
+        )?;
+        *self = staged;
+        Ok(report)
+    }
+
+    fn sync_parallel_with_material_in_place(
+        &mut self,
+        material: &WalletSyncMaterial,
+        transactions: &[ShieldedTransaction],
+        synced_at: i64,
+        window: u64,
+    ) -> Result<SyncReport, TransactionError> {
+        if window == 0 {
+            return Err(TransactionError::InvalidTagWindow);
+        }
         let identity = material.identity;
         if identity != self.identity {
             return Err(TransactionError::WalletAuthorityMismatch);
@@ -177,7 +210,8 @@ impl Wallet {
                 }
             }
 
-            let sender_hits = probe_sender_stream(&index, window, |n| key.get_sender_view_tag(n))?;
+            let sender_hits =
+                probe_sender_stream(&index, *tx_count, window, |n| key.get_sender_view_tag(n))?;
             if let Some((m, _)) = sender_hits.last() {
                 *tx_count = *m + 1;
             }
@@ -190,8 +224,9 @@ impl Wallet {
                 }
             }
 
-            let request_hits =
-                probe_recipient_stream(&index, window, |n| key.get_recipient_request_view_tag(n))?;
+            let request_hits = probe_recipient_stream(&index, *request_count, window, |n| {
+                key.get_recipient_request_view_tag(n)
+            })?;
             if let Some((m, _)) = request_hits.last() {
                 *request_count = *m + 1;
             }
@@ -204,11 +239,12 @@ impl Wallet {
                 }
             }
 
-            let senders: Vec<P256Pubkey> = known_senders.keys().copied().collect();
+            let mut senders: Vec<P256Pubkey> = known_senders.keys().copied().collect();
+            senders.sort_by_key(|key| *key.as_bytes());
             let shared_in: Vec<(P256Pubkey, StreamHits)> = senders
                 .par_iter()
                 .map(|s| {
-                    probe_recipient_stream(&index, window, |n| {
+                    probe_recipient_stream(&index, known_senders[s], window, |n| {
                         key.get_recipient_shared_view_tag(s, n)
                     })
                     .map(|hits| (*s, hits))
@@ -225,12 +261,19 @@ impl Wallet {
                 }
             }
 
-            let recipients: Vec<P256Pubkey> = known_recipients.keys().copied().collect();
+            for (t, tx) in transactions.iter().enumerate() {
+                ctx.record_confidential_send(tx, t, key, assets, known_recipients)?;
+            }
+
+            let mut recipients: Vec<P256Pubkey> = known_recipients.keys().copied().collect();
+            recipients.sort_by_key(|key| *key.as_bytes());
             let shared_out: Vec<(P256Pubkey, Option<u64>)> = recipients
                 .par_iter()
                 .map(|r| {
-                    probe_presence_stream(&index, window, |n| key.get_send_shared_view_tag(r, n))
-                        .map(|max| (*r, max))
+                    probe_presence_stream(&index, known_recipients[r], window, |n| {
+                        key.get_send_shared_view_tag(r, n)
+                    })
+                    .map(|max| (*r, max))
                 })
                 .collect::<Result<_, _>>()?;
             for (r, max) in shared_out {

@@ -3,7 +3,7 @@ mod common;
 use common::{
     build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
-use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
+use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, TransactionError, Wallet};
 
 const WINDOW: u64 = 8;
 
@@ -54,4 +54,23 @@ fn sync_stores_unified_change_and_recipient_utxos() {
             .collect::<Vec<_>>(),
         vec![recipient_utxo]
     );
+}
+
+#[test]
+fn sync_rejects_zero_window_without_mutating_wallet() {
+    let keypair = keypair_from_index(0);
+    let authority = LocalWalletAuthority::new(Address::default(), &keypair);
+    let mut wallet = Wallet::new(
+        keypair.shielded_address().unwrap(),
+        AssetRegistry::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        wallet.sync(&authority, &[], 99, 0),
+        Err(TransactionError::InvalidTagWindow)
+    );
+    assert_eq!(wallet.last_synced, 0);
+    assert!(wallet.utxos.is_empty());
+    assert!(wallet.transactions.is_empty());
 }

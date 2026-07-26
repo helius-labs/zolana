@@ -4,7 +4,7 @@ use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
 use zolana_transaction::{
-    data::{Data, DataRecord},
+    data::{DataRecord, OutputData},
     serialization::{
         split::{Split, SplitBundlePlaintext, SplitEncode},
         DecodeCx, OwnerCx, UtxoSerialization,
@@ -99,7 +99,7 @@ fn build_split(world: &mut TransactionWorld, owner: String, num_outputs: u8, amo
         asset_id: SPLIT_ASSET_ID,
         asset_amount: amount,
         blinding_seed: SPLIT_BLINDING_SEED,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let owner_kp = world.fresh_keypair(&owner);
     let tx = build_split_tx(&owner_kp, &bundle, [11u8; 32]);
@@ -136,7 +136,7 @@ fn split_data_zero_outputs(world: &mut TransactionWorld, owner: String) {
         asset_id: 2,
         asset_amount: 0,
         blinding_seed: [3u8; BLINDING_LEN],
-        data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
+        data: OutputData::new(vec![DataRecord::UtxoData(vec![1])]),
     };
     assert_eq!(
         bundle.into_utxos(&registry, None).unwrap_err(),

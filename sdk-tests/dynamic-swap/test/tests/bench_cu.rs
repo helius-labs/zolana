@@ -68,7 +68,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetRegistry, Data, Utxo, SOL_MINT,
+    AssetRegistry, OutputData, Utxo, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 
@@ -367,7 +367,7 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
     SectionTable {
         title: "Transaction Size".into(),
         headers: vec![
-            "Instruction Data".into(),
+            "Instruction OutputData".into(),
             "Accounts".into(),
             "Legacy Tx".into(),
             "v0 + ALT Tx".into(),
@@ -557,7 +557,7 @@ fn bench_create_escrow(
         amount: ORDER_AMOUNT,
         blinding: random_blinding(),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let source_in = SppProofInputUtxo::new(source_utxo, &user_keypair);
 
@@ -568,7 +568,7 @@ fn bench_create_escrow(
         amount: FUNDING_AMOUNT,
         blinding: random_blinding(),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let maker_funding = SppProofInputUtxo::new(maker_funding_utxo, &authority_keypair);
 

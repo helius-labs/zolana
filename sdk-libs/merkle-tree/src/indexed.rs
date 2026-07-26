@@ -18,6 +18,10 @@ pub enum IndexedReferenceMerkleTreeError {
     NonInclusionProofFailedLowerBoundViolated,
     #[error("NonInclusionProofFailedHigherBoundViolated")]
     NonInclusionProofFailedHigherBoundViolated,
+    #[error("NonInclusionProofFailed")]
+    NonInclusionProofFailed,
+    #[error("Value is at or above the tree's highest value")]
+    ValueOutsideIndexedRange,
     #[error(transparent)]
     Indexed(#[from] IndexedArrayError),
     #[error(transparent)]
@@ -119,24 +123,49 @@ where
         new_element_next_value: &BigUint,
     ) -> Result<(), IndexedReferenceMerkleTreeError> {
         let new_low_leaf = new_low_element.hash::<H>(&new_element.value)?;
-        self.merkle_tree.update(
+        let new_leaf = new_element.hash::<H>(new_element_next_value)?;
+        self.merkle_tree.replace_and_append(
             &new_low_leaf,
             usize::try_from(new_low_element.index).unwrap(),
+            &new_leaf,
         )?;
-        let new_leaf = new_element.hash::<H>(new_element_next_value)?;
-        self.merkle_tree.append(&new_leaf)?;
 
+        Ok(())
+    }
+
+    /// The exclusion ranges tile `(0, highest_value)`: the greatest element's
+    /// leaf hashes its value against `highest_value`, so an element whose value
+    /// reaches the sentinel would claim an empty range and no non-inclusion
+    /// range could contain the sentinel itself. `zolana_indexed_array` bounds
+    /// the low end only, so the high end is enforced here, at the SDK entry
+    /// points, rather than in the protocol library.
+    fn check_below_highest_value(
+        &self,
+        value: &BigUint,
+    ) -> Result<(), IndexedReferenceMerkleTreeError> {
+        if *value >= self.indexed_array.highest_value {
+            return Err(IndexedReferenceMerkleTreeError::ValueOutsideIndexedRange);
+        }
         Ok(())
     }
 
     // TODO: add append with new value, so that we don't need to compute the lowlevel values manually
     pub fn append(&mut self, value: &BigUint) -> Result<(), IndexedReferenceMerkleTreeError> {
+        self.check_below_highest_value(value)?;
+        let elements = self.indexed_array.elements.clone();
+        let current_node_index = self.indexed_array.current_node_index;
+        let highest_element_index = self.indexed_array.highest_element_index;
         let nullifier_bundle = self.indexed_array.append(value)?;
-        self.update(
+        if let Err(error) = self.update(
             &nullifier_bundle.new_low_element,
             &nullifier_bundle.new_element,
             &nullifier_bundle.new_element_next_value,
-        )?;
+        ) {
+            self.indexed_array.elements = elements;
+            self.indexed_array.current_node_index = current_node_index;
+            self.indexed_array.highest_element_index = highest_element_index;
+            return Err(error);
+        }
 
         Ok(())
     }
@@ -145,6 +174,7 @@ where
         &self,
         value: &BigUint,
     ) -> Result<NonInclusionProof, IndexedReferenceMerkleTreeError> {
+        self.check_below_highest_value(value)?;
         let (low_element, _next_value) =
             self.indexed_array.find_low_element_for_nonexistent(value)?;
         let merkle_proof =
@@ -174,6 +204,10 @@ where
         &self,
         proof: &NonInclusionProof,
     ) -> Result<(), IndexedReferenceMerkleTreeError> {
+        if proof.root != self.root() {
+            return Err(IndexedReferenceMerkleTreeError::NonInclusionProofFailed);
+        }
+
         let value_big_int = BigUint::from_bytes_be(&proof.value);
         let lower_end_value = BigUint::from_bytes_be(&proof.leaf_lower_range_value);
         if lower_end_value >= value_big_int {
@@ -192,8 +226,12 @@ where
             next_index: proof.next_index,
         };
         let leaf_hash = array_element.hash::<H>(&higher_end_value)?;
-        self.merkle_tree
-            .verify(&leaf_hash, &proof.merkle_proof, proof.leaf_index)?;
+        if !self
+            .merkle_tree
+            .verify(&leaf_hash, &proof.merkle_proof, proof.leaf_index)?
+        {
+            return Err(IndexedReferenceMerkleTreeError::NonInclusionProofFailed);
+        }
         Ok(())
     }
 }

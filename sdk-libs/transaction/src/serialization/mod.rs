@@ -48,6 +48,34 @@ pub struct OwnerCx<'a> {
     pub zone_program_id: Option<Address>,
 }
 
+fn single_utxo(utxos: &[Utxo]) -> Result<&Utxo, TransactionError> {
+    if utxos.len() != 1 {
+        return Err(TransactionError::InvalidOutputCount {
+            expected: 1,
+            actual: utxos.len(),
+        });
+    }
+    Ok(&utxos[0])
+}
+
+fn validate_owner(utxo: &Utxo, owner: PublicKey, index: usize) -> Result<(), TransactionError> {
+    if utxo.owner != owner {
+        return Err(TransactionError::OutputOwnerMismatch { index });
+    }
+    Ok(())
+}
+
+fn validate_zone(
+    utxo: &Utxo,
+    zone_program_id: Option<Address>,
+    index: usize,
+) -> Result<(), TransactionError> {
+    if utxo.zone_program_id != zone_program_id {
+        return Err(TransactionError::OutputZoneMismatch { index });
+    }
+    Ok(())
+}
+
 pub trait UtxoSerialization {
     const SCHEME: EncryptedScheme;
     type Plaintext;

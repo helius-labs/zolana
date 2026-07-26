@@ -18,7 +18,7 @@ pub mod serialization;
 pub mod utxo;
 pub mod wallet;
 
-pub use data::{Data, DataRecord};
+pub use data::{DataRecord, OutputData};
 pub use error::TransactionError;
 pub use instructions::transact::{
     EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, ShieldedTransaction,

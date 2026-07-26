@@ -114,10 +114,12 @@ impl ExternalData {
     /// owner tags, so the client and program hash the identical preimage.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         if self.outputs.len() != self.resolved_owner_tags.len() {
-            return Err(TransactionError::Hash(
-                "resolved owner tags do not pair 1:1 with outputs".to_string(),
-            ));
+            return Err(TransactionError::OutputTagMismatch {
+                outputs: self.outputs.len(),
+                tags: self.resolved_owner_tags.len(),
+            });
         }
+        self.check_preimage_prefixes()?;
         let resolved: Vec<ResolvedOutput> = self
             .outputs
             .iter()
@@ -144,5 +146,41 @@ impl ExternalData {
         }
         .hash()
         .map_err(|e| TransactionError::Hash(format!("{e:?}")))
+    }
+
+    /// The interface preimage writes four `u16` prefixes -- the output count,
+    /// each output's `data` length, the message count, and each message's data
+    /// length -- with a cast rather than a check, so an oversized input would
+    /// be hashed over a shortened preimage. The owner ruled that both SDKs
+    /// refuse it instead of reproducing the truncation: no Solana transaction
+    /// has room for the inputs that reach these bounds, so the disagreement
+    /// with the deployed program is unreachable, while a caller who somehow
+    /// gets there learns immediately.
+    fn check_preimage_prefixes(&self) -> Result<(), TransactionError> {
+        const MAX: usize = u16::MAX as usize;
+        let count = |count: usize| (count > MAX).then_some(TransactionError::TooManyOutputs);
+        let length = |field, actual: usize| {
+            (actual > MAX).then_some(TransactionError::ExternalDataLengthOverflow {
+                field,
+                maximum: MAX,
+                actual,
+            })
+        };
+        let overflow = count(self.outputs.len())
+            .or_else(|| count(self.messages.len()))
+            .or_else(|| {
+                self.outputs
+                    .iter()
+                    .find_map(|output| length("output data", output.data.as_deref()?.len()))
+            })
+            .or_else(|| {
+                self.messages
+                    .iter()
+                    .find_map(|message| length("message data", message.data.len()))
+            });
+        match overflow {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }

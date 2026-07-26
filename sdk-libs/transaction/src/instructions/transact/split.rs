@@ -15,7 +15,7 @@ use zolana_keypair::{
 
 use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
 use crate::{
-    data::Data,
+    data::OutputData,
     error::TransactionError,
     instructions::{merge::has_data, types::SppProofInputUtxo},
     serialization::{
@@ -45,9 +45,10 @@ const MIN_PARTS: u8 = 2;
 
 impl ConfidentialSplit {
     /// Validate the split shape and input before assembly: `num_outputs` in
-    /// `2..=8`, the input matches `asset`, the input is a plain utxo (no zone
-    /// binding and no attached data), and `num_outputs * per_output_amount`
-    /// equals the input amount so the circuit balance holds.
+    /// `2..=8`, the input is a real utxo owned by `owner` under `owner`'s
+    /// nullifier key, it matches `asset`, it is plain (no zone binding and no
+    /// attached data), and `num_outputs * per_output_amount` equals the input
+    /// amount so the circuit balance holds.
     pub fn new(
         owner: ShieldedAddress,
         input: SppProofInputUtxo,
@@ -59,6 +60,18 @@ impl ConfidentialSplit {
         let max_parts = Shape::IN1_OUT8.n_outputs() as u8;
         if !(MIN_PARTS..=max_parts).contains(&num_outputs) {
             return Err(TransactionError::SplitInvalidPartCount { num_outputs });
+        }
+        // Split proves ownership in-circuit from the nullifier secret behind
+        // `owner_hash`, so an input the splitter cannot open is unprovable. A
+        // zero-owner slot has no openable owner hash at all.
+        if input.is_dummy() {
+            return Err(TransactionError::SplitInputIsDummy);
+        }
+        if input.utxo.owner != owner.signing_pubkey {
+            return Err(TransactionError::SplitInputOwnerMismatch);
+        }
+        if input.nullifier_key.pubkey()? != owner.nullifier_pubkey {
+            return Err(TransactionError::SplitInputNullifierKeyMismatch);
         }
         if input.utxo.asset != asset {
             return Err(TransactionError::SplitInputAssetMismatch);
@@ -195,7 +208,7 @@ impl PreparedSplit {
             asset_id: assets.asset_id(&self.asset)?,
             asset_amount: self.per_output_amount,
             blinding_seed: self.blinding_seed,
-            data: Data::default(),
+            data: OutputData::default(),
         })
     }
 
@@ -280,7 +293,7 @@ mod tests {
             amount,
             blinding: [5u8; BLINDING_LEN],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
     }
@@ -330,6 +343,45 @@ mod tests {
                 TransactionError::SplitInvalidPartCount { num_outputs: parts }
             );
         }
+    }
+
+    /// Split proves ownership from the nullifier secret behind `owner_hash`, so
+    /// each of these inputs is unprovable and is named as its own rejection.
+    #[test]
+    fn split_input_the_owner_cannot_open_is_rejected() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let other = ShieldedKeypair::new().unwrap();
+        let owner = keypair.shielded_address().unwrap();
+
+        let reject = |input: SppProofInputUtxo| match ConfidentialSplit::new(
+            owner,
+            input,
+            SOL_MINT,
+            2,
+            400,
+            Address::default(),
+        ) {
+            Ok(_) => panic!("unopenable split input was accepted"),
+            Err(err) => err,
+        };
+
+        assert_eq!(
+            reject(SppProofInputUtxo::new_dummy()),
+            TransactionError::SplitInputIsDummy
+        );
+
+        let mut foreign_owner = split_input(&keypair, 800);
+        foreign_owner.utxo.owner = other.signing_pubkey();
+        assert_eq!(
+            reject(foreign_owner),
+            TransactionError::SplitInputOwnerMismatch
+        );
+
+        let foreign_nullifier = SppProofInputUtxo::new(split_input(&keypair, 800).utxo, &other);
+        assert_eq!(
+            reject(foreign_nullifier),
+            TransactionError::SplitInputNullifierKeyMismatch
+        );
     }
 
     #[test]

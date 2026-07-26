@@ -1,0 +1,45 @@
+export {
+  ConfidentialSplit,
+  MERGE_INPUTS,
+  Merge,
+  MergeZone,
+  PreparedMerge,
+  PreparedMergeZone,
+  PreparedSplit,
+  prepareZoneAuthority,
+} from "./builders.js";
+export type { PreparedZoneAuthority } from "./builders.js";
+export {
+  BN254_MODULUS_DEC,
+  ConfidentialTransfer,
+  SENDER_SLOT_COUNT,
+  SPP_SUPPORTED_SHAPES,
+  SppProofInputs,
+  assetField,
+  canonicalShape,
+  createEncryptedTransaction,
+  createExternalData,
+  createInputUtxo,
+  encodeConfidentialSlots,
+  privateTxHash,
+  resolveShape,
+  signedToField,
+  slotOrdinal,
+} from "./transact.js";
+export type {
+  EncryptedTransaction,
+  ExternalData,
+  ExternalDataInit,
+  IndexedShieldedTransaction,
+  InputUtxo,
+  InputUtxoContext,
+  OutputContext,
+  OutputSlot,
+  PreparedTransfer,
+  PrivateTxHashInput,
+  PublicAmounts,
+  Shape,
+  WithdrawalTarget,
+} from "./transact.js";
+export { SppProofInputUtxo, createProofOutput } from "../utxo.js";
+export type { ProofOutputInit, ProofOutputUtxo } from "../utxo.js";
