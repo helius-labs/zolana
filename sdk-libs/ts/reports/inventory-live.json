@@ -1,0 +1,46 @@
+{
+  "schema": "zolana-ts-inventory-live-v1",
+  "note": "Post-baseline paths that the frozen 182-row inventory (pinned at frozenCommit) cannot name. Checked by inventory-check.mjs alongside inventory.json.",
+  "rows": [
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Poseidon digest and rejection vectors under sdk-libs/ts/vectors/, gated by poseidon-parity --check inside fixtures:check.",
+      "marker": "live",
+      "packet": "P00",
+      "path": "sdk-libs/hasher-wasm/Cargo.toml",
+      "responsibility": "Package boundary for the WASM Poseidon crate compiled into @zolana/hasher.",
+      "target": "`@zolana/hasher` · `package.json`",
+      "testResponsibility": "Unit/vector: poseidon-parity and rejection-parity; packaging: exports and api report."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Same Poseidon vectors as Cargo.toml row; artifact.lock.json pins eleven inputs that rebuild the wasm.",
+      "marker": "live",
+      "packet": "P00",
+      "path": "sdk-libs/hasher-wasm/src/lib.rs",
+      "responsibility": "Compiled Poseidon ABI consumed by @zolana/hasher (H15).",
+      "target": "`@zolana/hasher` · `src/core.ts`, `src/index.ts`, `src/slim/index.ts`",
+      "testResponsibility": "Vector: poseidon-parity against zolana-hasher; unit: initialization and slim entry."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "None beyond package exports; root contract is the five names in public-exports.md.",
+      "marker": "live",
+      "packet": "P11",
+      "path": "sdk-libs/ts/test-kit/src/index.ts",
+      "responsibility": "Published test-kit root (TK01); keeps LiteSVM/ZolanaProgramTest off the root.",
+      "target": "`@zolana/test-kit` · `src/index.ts`",
+      "testResponsibility": "Unit: exports.test.ts root allowlist."
+    },
+    {
+      "disposition": "port",
+      "fixtureResponsibility": "Disposition ledger planning/typescript-sdk-port/test-kit-node-dispositions.md; no byte oracle.",
+      "marker": "live",
+      "packet": "P11",
+      "path": "sdk-libs/ts/test-kit/src/node/index.ts",
+      "responsibility": "Node annex star-export surface (TK02); outside SDK semver.",
+      "target": "`@zolana/test-kit/node`",
+      "testResponsibility": "Unit: exports.test.ts keeps annex helpers off root; disposition ledger completeness."
+    }
+  ]
+}

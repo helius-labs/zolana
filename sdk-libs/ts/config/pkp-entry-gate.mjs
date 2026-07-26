@@ -39,7 +39,7 @@ const skipCi = process.argv.includes("--skip-ci");
 const lines = (await readFile(checklistPath, "utf8")).split("\n");
 const rows = [];
 for (const [index, line] of lines.entries()) {
-  if (!/^\| [A-Z]\d{2} \|/.test(line)) continue;
+  if (!/^\| [A-Z]{1,2}\d{2} \|/.test(line)) continue;
   const [, id, , , status, verdict] = line.split("|").map((cell) => cell.trim());
   rows.push({ id, status, verdict, line: index + 1 });
 }
