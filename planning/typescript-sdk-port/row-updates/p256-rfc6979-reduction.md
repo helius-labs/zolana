@@ -66,7 +66,7 @@ depends on is a different decision than this one.
   never hashed into a commitment, stored, or used as a map key. Every
   `tx_signature` in `sdk-libs/wallet` and `sdk-libs/client` is a Solana
   transaction signature, unrelated to this rail.
-- **Committed fixtures: 19 JSON files carry P256 signature material.** Scanned
+- **Committed fixtures: 22 JSON files carry signature material.** Scanned
   all of them for a recorded prehash at or above `n`, since a signature can only
   move if its prehash is at or above `n`. Exactly four hits, all in
   `key-certification-v1.json`, and one of those (`signatureCases.maxDigest`) is
