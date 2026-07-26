@@ -12,10 +12,10 @@ Light's source; five of those are implemented on this branch and the rest are
 recorded with the smallest change that would settle them.
 
 All eleven of Part 1 are now ruled, along with six from Parts 2 and 3, on
-2026-07-25 and 2026-07-26. Each question's status line names its ruling and
-links to the entry in [`authority-rulings.md`](authority-rulings.md) that
-carries the evidence and the reasoning. The question text above each status line
-is left as it was written, so a reader can see what the ruling was made against.
+2026-07-26. Each question's status line names its ruling and links to the entry
+in [`authority-rulings.md`](authority-rulings.md) that carries the evidence and
+the reasoning. The question text above each status line is left as it was
+written, so a reader can see what the ruling was made against.
 
 ## How each answer is classified
 
