@@ -1,3 +1,4 @@
+use borsh::BorshSerialize;
 use pinocchio::{error::ProgramError, Address};
 use shielded_pool_program::{process_instruction, ID};
 use zolana_interface::{
@@ -35,7 +36,9 @@ fn rejects_empty_unknown_and_malformed_instruction_data_exactly() {
 #[test]
 fn valid_create_tree_payload_reaches_account_validation() {
     let mut data = vec![tag::CREATE_TREE];
-    data.extend_from_slice(&[7u8; 32]);
+    zolana_tree::InitAddressTreeAccountsInstructionData::default()
+        .serialize(&mut data)
+        .unwrap();
     assert_eq!(
         process_instruction(&ID, &mut [], &data),
         Err(ProgramError::Custom(20_014))

@@ -115,6 +115,7 @@ fn batch_update_instruction(authority: Pubkey, tree: Pubkey) -> solana_instructi
     BatchUpdateNullifierTree {
         authority,
         tree,
+        reimbursement_recipient: authority,
         new_root: [1u8; 32],
         old_root: [2u8; 32],
         zkp_batch_index: 0,
@@ -200,6 +201,7 @@ fn batch_update_rejects_a_proof_for_an_unready_zkp_batch() {
     let out_of_range = BatchUpdateNullifierTree {
         authority: authority.pubkey(),
         tree: tree.pubkey(),
+        reimbursement_recipient: authority.pubkey(),
         new_root: [1u8; 32],
         old_root: [2u8; 32],
         zkp_batch_index: u16::MAX,

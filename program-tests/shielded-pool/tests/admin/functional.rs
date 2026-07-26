@@ -120,7 +120,6 @@ fn tree_creation_changes_only_the_tree_account() {
     let ix = CreateTree {
         authority: authority.pubkey(),
         tree: tree.pubkey(),
-        owner: authority.pubkey(),
     }
     .instruction();
     let (mollusk, program_id) = setup_mollusk();

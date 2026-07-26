@@ -18,7 +18,8 @@ use zolana_interface::instruction::instruction_data::{
     },
     merge_zone::{MergeZoneIxData, MergeZoneIxDataRef},
     transact::{
-        InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
+        InputUtxo, OwnerTag, P256Proof, TransactIxData, TransactIxDataRef, TransactOutput,
+        TransactProof,
     },
 };
 
@@ -45,13 +46,13 @@ mod strategies {
                 any::<[u8; 32]>(),
             )
                 .prop_map(|(a, b, c, commitment, commitment_pok)| {
-                    TransactProof::P256 {
+                    TransactProof::P256(P256Proof {
                         a,
                         b,
                         c,
                         commitment,
                         commitment_pok,
-                    }
+                    })
                 }),
         ]
     }
@@ -166,7 +167,13 @@ mod strategies {
     pub fn merge_ix_data() -> impl Strategy<Value = MergeTransactIxData> {
         (
             any::<u64>(),
-            prop::collection::vec(any::<u8>(), 192),
+            (
+                any::<[u8; 32]>(),
+                any::<[u8; 64]>(),
+                any::<[u8; 32]>(),
+                any::<[u8; 32]>(),
+                any::<[u8; 32]>(),
+            ),
             any::<[u8; 32]>(),
             prop::collection::vec(any::<[u8; 32]>(), MERGE_INPUT_COUNT),
             prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
@@ -178,7 +185,7 @@ mod strategies {
             .prop_map(
                 |(
                     expiry_unix_ts,
-                    proof,
+                    (a, b, c, commitment, commitment_pok),
                     output_utxo_hash,
                     nullifiers,
                     utxo_tree_root_index,
@@ -187,13 +194,15 @@ mod strategies {
                     encrypted_utxo,
                     eddsa_owner,
                 )| {
-                    let mut proof_bytes = [0u8; 192];
-                    for (slot, byte) in proof_bytes.iter_mut().zip(proof.iter()) {
-                        *slot = *byte;
-                    }
                     MergeTransactIxData {
                         expiry_unix_ts,
-                        proof: proof_bytes,
+                        proof: P256Proof {
+                            a,
+                            b,
+                            c,
+                            commitment,
+                            commitment_pok,
+                        },
                         output_utxo_hash,
                         nullifiers,
                         utxo_tree_root_index,

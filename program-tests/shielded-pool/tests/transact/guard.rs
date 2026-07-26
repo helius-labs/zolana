@@ -25,7 +25,7 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{TransactIxData, TransactProof},
+        instruction_data::transact::{P256Proof, TransactIxData, TransactProof},
         Transact, ZoneAuthorityTransact, ZoneTransact,
     },
     pda,
@@ -210,13 +210,13 @@ fn transact_rejects_a_p256_proof_on_the_eddsa_rail() {
     // uncommitted eddsa rail; a BSB22-committed P256 proof blob must not be
     // accepted by it.
     let mut data = transfer_ix_data(2, 3);
-    data.proof = TransactProof::P256 {
+    data.proof = TransactProof::P256(P256Proof {
         a: [0u8; 32],
         b: [0u8; 64],
         c: [0u8; 32],
         commitment: [0u8; 32],
         commitment_pok: [0u8; 32],
-    };
+    });
     env.expect_rejection(data, ShieldedPoolError::MismatchedTransactProofRail);
 }
 
@@ -356,13 +356,13 @@ fn transact_rejects_a_malformed_wincode_payload() {
         .serialize()
         .expect("serialize eddsa payload");
     let mut p256_data = transfer_ix_data(2, 3);
-    p256_data.proof = TransactProof::P256 {
+    p256_data.proof = TransactProof::P256(P256Proof {
         a: [0u8; 32],
         b: [0u8; 64],
         c: [0u8; 32],
         commitment: [0u8; 32],
         commitment_pok: [0u8; 32],
-    };
+    });
     let p256_bytes = p256_data.serialize().expect("serialize p256 payload");
     let proof_tag_offset = eddsa_bytes
         .iter()
@@ -589,13 +589,13 @@ fn zone_authority_transact_rejects_a_p256_proof_encoding() {
     // input signer indices; the shape (2,2) is square so only the rail fails.
     let zone_config = env.write_zone_config(pda::shielded_pool_program_id(), ZONE_CONFIG, true);
     let mut data = transfer_ix_data(2, 2);
-    data.proof = TransactProof::P256 {
+    data.proof = TransactProof::P256(P256Proof {
         a: [0u8; 32],
         b: [0u8; 64],
         c: [0u8; 32],
         commitment: [0u8; 32],
         commitment_pok: [0u8; 32],
-    };
+    });
     let ix = env.zone_instruction(true, &zone_config, data);
     env.expect_ix_rejection(
         ix,

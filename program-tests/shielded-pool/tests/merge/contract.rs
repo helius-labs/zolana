@@ -13,6 +13,7 @@ use zolana_interface::{
             MergeTransactIxData, MERGE_ENCRYPTED_UTXO_LEN, MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
             MERGE_INPUT_COUNT,
         },
+        instruction_data::transact::P256Proof,
         MergeTransact, MergeZone,
     },
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
@@ -97,7 +98,13 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
     }
     MergeTransactIxData {
         expiry_unix_ts: u64::MAX,
-        proof: [0u8; 192],
+        proof: P256Proof {
+            a: [0u8; 32],
+            b: [0u8; 64],
+            c: [0u8; 32],
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+        },
         output_utxo_hash: fe(41),
         nullifiers: (1..=MERGE_INPUT_COUNT as u64).map(fe).collect(),
         utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
@@ -429,7 +436,13 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     // fails at G1/G2 decompression -- the 7007 encoding error, distinct from
     // the 7008 pairing failure of a well-formed but non-verifying proof.
     let mut data = merge_ix_data(true);
-    data.proof = [0xFF; 192];
+    data.proof = P256Proof {
+        a: [0xFF; 32],
+        b: [0xFF; 64],
+        c: [0xFF; 32],
+        commitment: [0xFF; 32],
+        commitment_pok: [0xFF; 32],
+    };
     let ix = merge_instruction(&rpc, &tree, record, data);
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = rpc

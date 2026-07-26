@@ -404,8 +404,10 @@ fn transact_sends_valid_proof() {
     // nothing. The journaled snapshots must show the tree as the only account
     // whose data changed, every lamport balance unchanged, and the payer
     // debited exactly the transaction fee (one signature at LiteSVM's default
-    // rate), which is paid outside the program.
+    // rate) plus the forester reimbursement fee (2 nullifier insertions at 20
+    // lamports each), which is paid outside the program.
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
+    const FORESTER_FEE_LAMPORTS: u64 = 40;
     let trace = env
         .rpc
         .last_transaction_trace()
@@ -423,15 +425,19 @@ fn transact_sends_valid_proof() {
         let before = transition.before.as_ref().expect("account before transact");
         let after = transition.after.as_ref().expect("account after transact");
         if transition.address == tree {
-            assert_eq!(before.lamports, after.lamports, "tree lamports unchanged");
+            assert_eq!(
+                before.lamports + FORESTER_FEE_LAMPORTS,
+                after.lamports,
+                "tree collects the forester reimbursement fee"
+            );
             assert_eq!(before.owner, after.owner, "tree owner unchanged");
             assert_eq!(before.data_len, after.data_len, "tree size unchanged");
             assert_ne!(before.data_sha256, after.data_sha256, "tree data advanced");
         } else if transition.address == payer {
             assert_eq!(
                 before.lamports,
-                after.lamports + LAMPORTS_PER_SIGNATURE,
-                "payer pays exactly the transaction fee"
+                after.lamports + LAMPORTS_PER_SIGNATURE + FORESTER_FEE_LAMPORTS,
+                "payer pays exactly the transaction fee plus the forester reimbursement fee"
             );
             assert_eq!(
                 before.data_sha256, after.data_sha256,
@@ -683,9 +689,10 @@ fn transact_rejects_a_substituted_input_signer() {
         .airdrop(&substitute_owner.pubkey(), 1_000_000)
         .expect("fund substitute owner account");
 
-    // Prove for `bound_owner` at raw account index 2, then place the signing
-    // substitute there instead.
-    let transact_ix_data = build_valid_transact_ix_for_owner(&env, bound_owner.pubkey(), 2);
+    // Prove for `bound_owner` at raw account index 3 (after payer, tree, and
+    // the system-program account), then place the signing substitute there
+    // instead.
+    let transact_ix_data = build_valid_transact_ix_for_owner(&env, bound_owner.pubkey(), 3);
     let mut ix = Transact {
         payer,
         tree,
@@ -694,7 +701,7 @@ fn transact_rejects_a_substituted_input_signer() {
     }
     .instruction();
     ix.accounts.insert(
-        2,
+        3,
         AccountMeta::new_readonly(substitute_owner.pubkey(), true),
     );
 
@@ -734,7 +741,7 @@ fn transact_rejects_a_substituted_payer() {
 
     // The proof binds the default payer's pubkey hash; the substitute signs at
     // index 0 in its place, so the on-chain recompute disagrees.
-    let transact_ix_data = build_valid_transact_ix_for_owner(&env, input_owner.pubkey(), 2);
+    let transact_ix_data = build_valid_transact_ix_for_owner(&env, input_owner.pubkey(), 3);
     let mut ix = Transact {
         payer: substitute_payer.pubkey(),
         tree,
@@ -743,7 +750,7 @@ fn transact_rejects_a_substituted_payer() {
     }
     .instruction();
     ix.accounts
-        .insert(2, AccountMeta::new_readonly(input_owner.pubkey(), true));
+        .insert(3, AccountMeta::new_readonly(input_owner.pubkey(), true));
 
     let error = env
         .rpc
