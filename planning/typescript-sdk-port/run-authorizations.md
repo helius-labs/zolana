@@ -141,6 +141,28 @@ failing, a worker was dispatched to judge each one, and a clean rebuild passed
 all of them. The tell was a test flipping across a merge whose diff over both
 packages was empty: a merge does not rebuild `dist`.
 
+## When a commit hangs, it is the signing key
+
+`commit.gpgsign` is on. When the agent's cached passphrase expires, `git commit`
+launches pinentry, pinentry finds no terminal it can prompt on, and the command
+sits there until something times it out. Thirty minutes, in the case that
+prompted this note.
+
+The damage is not the wait. An agent that commits incrementally hits this on its
+first commit and stops there, holding everything in its working tree, and it
+looks exactly like a dropped agent: transcript quiet, branch not moving, tree
+dirty. Three agents were diagnosed as dead and relaunched on 2026-07-26 before
+anyone read the actual error, and all three stalled again for the same reason,
+because relaunching does not unlock a key. Two and a half hours.
+
+The tell that separates it from a real drop: the health check reports no branch
+activity while the transcripts keep growing. A dropped agent stops doing both.
+
+`gpgconf --kill gpg-agent` clears a wedged agent and the next commit re-prompts
+cleanly. Signing may then work again. If it does not, commit unsigned and keep
+going. The standing instruction is not to stop when signed checkpoints stop
+working, and an unsigned commit that exists beats a signed one that does not.
+
 ## A failure mode that has already cost us
 
 Do not commit another worktree's uncommitted files. Twice on 2026-07-26 an agent
