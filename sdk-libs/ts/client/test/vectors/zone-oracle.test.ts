@@ -13,6 +13,7 @@ import {
   SppProofInputs,
   Utxo,
   deriveBlinding,
+  prepareZoneAuthority,
   type ProofOutputUtxo,
 } from "@zolana/transaction";
 import { describe, expect, it } from "vitest";
@@ -27,7 +28,12 @@ import {
   poseidon,
 } from "../../src/internal.js";
 import { proverRequest } from "../../src/prover/client.js";
-import { assembleZone, assembleZoneAuthority, assembleZoneP256 } from "../../src/prover/zone.js";
+import {
+  assembleZone,
+  assembleZoneAuthority,
+  assembleZoneAuthorityWitness,
+  assembleZoneP256,
+} from "../../src/prover/zone.js";
 import type { SpendProof } from "../../src/rpc.js";
 import { bytes, hex } from "../helpers/prover-vectors.js";
 import oracle from "../oracles/zone-v1.json" with { type: "json" };
@@ -344,5 +350,45 @@ describe("zone prover rails against the Rust oracle", () => {
     const authority = rails[2].assemble(shape);
     expect(hex(authority.publicInputHash)).not.toBe(hex(transfer.publicInputHash));
     expect(hex(authority.privateTxHash)).toBe(hex(transfer.privateTxHash));
+  });
+
+  /// Rust `ZoneAuthorityWitness`: a caller who prepared the transition in
+  /// `@zolana/transaction` reaches the same proof the raw proof inputs give,
+  /// against the same oracle-pinned hash. The prepared value pins the zone, so
+  /// the bridge takes no zone argument and cannot bind the proof elsewhere.
+  for (const expected of oracle.expected.transferZoneAuthority as readonly Case[]) {
+    const label = `${String(expected.shape.inputs)}x${String(expected.shape.outputs)}`;
+    it(`proves a prepared ${label} zone-authority transition`, () => {
+      const { proofInputs, spendProofs } = buildInputs(false, expected.shape);
+      const prepared = prepareZoneAuthority({
+        inputs: proofInputs.inputUtxos,
+        outputs: proofInputs.outputs,
+        externalData: proofInputs.externalData,
+        zoneProgramId: ZONE,
+        payerPublicKeyHash: proofInputs.payerPublicKeyHash,
+      });
+      const assembled = assembleZoneAuthorityWitness(prepared, spendProofs);
+      expect(hex(assembled.publicInputHash)).toBe(expected.publicInputHashBytes);
+      expect(proverRequest(assembled.proverInputs)).toEqual(JSON.parse(expected.requestBodyJson));
+    });
+  }
+
+  /// One `SpendProof` per real input, in input order: a short list is the same
+  /// refusal at the same index Rust `attach_input_proofs` raises.
+  it("refuses a prepared transition with a missing input proof", () => {
+    const { proofInputs, spendProofs } = buildInputs(false, { inputs: 2, outputs: 2 });
+    const prepared = prepareZoneAuthority({
+      inputs: proofInputs.inputUtxos,
+      outputs: proofInputs.outputs,
+      externalData: proofInputs.externalData,
+      zoneProgramId: ZONE,
+      payerPublicKeyHash: proofInputs.payerPublicKeyHash,
+    });
+    expect(() => assembleZoneAuthorityWitness(prepared, spendProofs.slice(0, 1))).toThrow(
+      expect.objectContaining({
+        code: "CLIENT_MISSING_INPUT_MERKLE_PROOF",
+        details: { index: 1 },
+      }),
+    );
   });
 });

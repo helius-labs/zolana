@@ -53,6 +53,17 @@ const CARRIED: Readonly<Record<string, string>> = {
   TransferP256Inputs: "TransferP256Inputs",
   ZolanaClient: "ZolanaClient",
   ZolanaIndexer: "ZolanaIndexer",
+  // The three zone rails and the zone-authority witness bridge. Rust names each
+  // rail by its prover struct and its result struct; TypeScript names the rail
+  // by the function that builds it, and the two zone result structs are
+  // field-identical, so both carry as AssembledZone.
+  ZoneAuthorityProofResult: "AssembledZone",
+  ZoneAuthorityProver: "assembleZoneAuthority",
+  ZoneAuthorityWitness: "assembleZoneAuthorityWitness",
+  ZoneTransferP256ProofResult: "AssembledZoneP256",
+  ZoneTransferP256Prover: "assembleZoneP256",
+  ZoneTransferProofResult: "AssembledZone",
+  ZoneTransferProver: "assembleZone",
   assemble: "assemble",
   canonical_shape: "canonicalShape",
   into_prover: "intoProver",
@@ -115,17 +126,6 @@ const NOT_CARRIED: Readonly<Record<string, string>> = {
   spawn_prover: "@zolana/test-kit startLocalStack owns local prover processes",
 };
 
-/** Zone prover rails deferred to PKP-05 by review-checklist rows C13, C14, and C18. */
-const DEFERRED_TO_PKP05: readonly string[] = [
-  "ZoneAuthorityProofResult",
-  "ZoneAuthorityProver",
-  "ZoneAuthorityWitness",
-  "ZoneTransferP256ProofResult",
-  "ZoneTransferP256Prover",
-  "ZoneTransferProofResult",
-  "ZoneTransferProver",
-];
-
 /** Root exports with no Rust crate-root counterpart, each with the reason it ships. */
 const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   CANONICAL_CLIENT_ERROR_CODES: "the frozen ClientError variant codes as a runtime value",
@@ -148,6 +148,9 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   ProvedMergeZone: "the zone merge proof result ZolanaClient.proveMergeZone returns",
   RpcAccount: "the account value Rust returns as a tuple",
   RpcContext: "carries Rust rpc::Context",
+  ZoneProverInputs:
+    "the circuit-tagged zone payload the prover client takes; Rust selects the zone " +
+    "circuit by which prover struct built the TransferInputs",
   SignatureStatus:
     "one getSignatureStatuses entry, which Rust takes from solana-transaction-status-client-types",
   attempts: "IndexerPollConfig::attempts as a free function",
@@ -197,7 +200,7 @@ describe("manifest-pinned zolana-client crate root", () => {
     expect([...values].sort()).toEqual(Object.keys(clientRoot).sort());
 
     const undispositioned = libFixture.expected.names.filter(
-      (name) => !(name in CARRIED) && !(name in NOT_CARRIED) && !DEFERRED_TO_PKP05.includes(name),
+      (name) => !(name in CARRIED) && !(name in NOT_CARRIED),
     );
     expect(undispositioned).toEqual([]);
 
@@ -206,7 +209,7 @@ describe("manifest-pinned zolana-client crate root", () => {
     }
 
     const crateRoot = new Set(libFixture.expected.names);
-    for (const name of [...Object.keys(NOT_CARRIED), ...DEFERRED_TO_PKP05]) {
+    for (const name of Object.keys(NOT_CARRIED)) {
       expect(crateRoot, `${name} left the crate root`).toContain(name);
       expect(shipped, `${name} is dispositioned but shipped`).not.toContain(name);
     }

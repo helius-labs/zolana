@@ -1453,6 +1453,14 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
           }),
         ),
       ];
+      const empty = createExternalData({
+        // Outside `externalDataHash` on both sides; only the type needs a key.
+        txViewingPublicKey: owner.viewingPublicKey(),
+        salt: new Uint8Array(16) as Bytes16,
+        outputs: [],
+        resolvedOwnerTags: [],
+        messages: [],
+      });
       const prepare = (): PreparedZoneAuthority =>
         prepareZoneAuthority({
           inputs: [
@@ -1471,11 +1479,15 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
             ProofInputUtxo.dummy(blinding),
           ],
           outputs,
+          externalData:
+            testCase.publicSol === null
+              ? empty
+              : empty.withPublicSol(
+                  BigInt(testCase.publicSol),
+                  "11111111111111111111111111111111" as Address,
+                ),
           zoneProgramId: testCase.pinnedZone as Address,
           payerPublicKeyHash,
-          ...(testCase.publicSol === null
-            ? {}
-            : { publicAmounts: { sol: BigInt(testCase.publicSol) } }),
         });
       if (testCase.error !== null) {
         expect(rejection(prepare)).toEqual({ code: testCase.error, field: null });
@@ -1487,6 +1499,11 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
       const prepared = prepare();
       expect({ inputs: prepared.shape.inputs, outputs: prepared.shape.outputs }).toEqual(
         testCase.shape,
+      );
+      // Rust reads the public leg off the external data rather than taking it
+      // from the caller, so the prepared amounts follow the hashed leg.
+      expect(prepared.publicAmounts).toEqual(
+        testCase.publicSol === null ? {} : { sol: BigInt(testCase.publicSol) },
       );
       expect(hex(prepared.payerPublicKeyHash)).toBe(testCase.payerPublicKeyHashHex);
       expect(

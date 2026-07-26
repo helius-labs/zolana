@@ -21,7 +21,7 @@ import { type AssetRegistry } from "../wallet/asset.js";
 import {
   SppProofInputs,
   createExternalData,
-  exactShape,
+  type ExternalData,
   type InputUtxoContext,
   type Shape,
 } from "./transact.js";
@@ -558,6 +558,12 @@ export interface PreparedZoneAuthority {
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly publicAmounts: Readonly<{ sol?: bigint; spl?: bigint }>;
+  /**
+   * Its `instructionDiscriminator` must be `ZONE_AUTHORITY_TRANSACT` (tag 3) so
+   * the `externalDataHash` the proof commits to matches what the program
+   * recomputes on-chain.
+   */
+  readonly externalData: ExternalData;
   readonly zoneProgramId: Address;
   readonly payerPublicKeyHash: Bytes32;
   readonly shape: Shape;
@@ -568,9 +574,9 @@ export function prepareZoneAuthority(
   input: Readonly<{
     inputs: readonly ProofInputUtxo[];
     outputs: readonly ProofOutputUtxo[];
+    externalData: ExternalData;
     zoneProgramId: Address;
     payerPublicKeyHash: Bytes32;
-    publicAmounts?: Readonly<{ sol?: bigint; spl?: bigint }>;
   }>,
 ): PreparedZoneAuthority {
   // The UTXO owners do not authorize this spend; the zone's `zone_config` PDA
@@ -593,12 +599,19 @@ export function prepareZoneAuthority(
     }
   }
   // The padded slot counts must name a proving system that exists, exactly as
-  // `SppProofInputs` requires of an owner-signed transact.
-  const shape = exactShape(input.inputs.length, input.outputs.length);
+  // `SppProofInputs` requires of an owner-signed transact, and the public leg is
+  // read off the external data rather than taken from the caller so the amounts
+  // the proof commits to cannot contradict the hash the program recomputes.
+  const proofInputs = new SppProofInputs({
+    payerPublicKeyHash: input.payerPublicKeyHash,
+    inputUtxos: input.inputs,
+    outputs: input.outputs,
+    externalData: input.externalData,
+  });
   return Object.freeze({
     ...input,
-    shape,
-    publicAmounts: input.publicAmounts ?? {},
+    shape: proofInputs.checkShape(),
+    publicAmounts: proofInputs.publicAmounts(),
     inputUtxoHashes: (): readonly InputUtxoContext[] =>
       input.inputs
         .filter((spend) => !spend.isDummy())

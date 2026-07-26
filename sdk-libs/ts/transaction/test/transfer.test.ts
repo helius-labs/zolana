@@ -785,10 +785,18 @@ describe("manifest-verified transaction builders", () => {
         zoneProgramId,
       });
     const payerPublicKeyHash = new Uint8Array(32).fill(3) as Bytes32;
+    const externalData = createExternalData({
+      txViewingPublicKey: sender.keypair.viewingPublicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      outputs: [],
+      resolvedOwnerTags: [],
+      messages: [],
+    });
     const prepare = (overrides: Partial<Parameters<typeof prepareZoneAuthority>[0]>) =>
       prepareZoneAuthority({
         inputs: [zoned(zone)],
         outputs: [output(zone)],
+        externalData,
         zoneProgramId: zone,
         payerPublicKeyHash,
         ...overrides,
@@ -809,9 +817,17 @@ describe("manifest-verified transaction builders", () => {
       );
     }
     // A public leg in either direction is gated by neither the program nor the
-    // circuit, so the authority rail must be able to build both.
-    for (const publicAmounts of [{ sol: 10n }, { spl: -10n }]) {
-      expect(prepare({ publicAmounts }).publicAmounts).toEqual(publicAmounts);
+    // circuit, so the authority rail must be able to build both, and the leg it
+    // reports is the one the external-data hash already commits to.
+    const zeroAccount = "11111111111111111111111111111111" as Address;
+    for (const leg of [
+      { externalData: externalData.withPublicSol(10n, zeroAccount), expected: { sol: 10n } },
+      {
+        externalData: externalData.withPublicSpl(-10n, zeroAccount, zeroAccount),
+        expected: { spl: -10n },
+      },
+    ]) {
+      expect(prepare({ externalData: leg.externalData }).publicAmounts).toEqual(leg.expected);
     }
   });
 });
