@@ -44,7 +44,10 @@ use zolana_transaction::{
     Data, Utxo, SOL_MINT,
 };
 
-const FIXTURE: &str = "sdk-libs/ts/fixtures/client/public-input-assembly-v1.json";
+// `sdk-libs/ts/fixtures` belongs to `ts-fixtures`, which requires a P00
+// provenance envelope on every file it finds there. This is a certification
+// vector, so it lives with the other generator outputs instead.
+const FIXTURE: &str = "sdk-libs/ts/vectors/public-input-assembly-v1.json";
 
 const P256_SECRET: [u8; 32] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7,

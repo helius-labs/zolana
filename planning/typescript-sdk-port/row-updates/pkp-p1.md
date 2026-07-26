@@ -57,7 +57,7 @@ itself.
 `MergeZoneProver::build`, then records every named confidential chain element
 via `create_hash_chain_from_slice` / `hash_field`, plus the merge head and the
 two owner-binding tails. The committed fixture is
-`sdk-libs/ts/fixtures/client/public-input-assembly-v1.json`. Its confidential
+`sdk-libs/ts/vectors/public-input-assembly-v1.json`. Its confidential
 final hashes match `prover-shapes-v1.json` on the shared seeds, so the two
 fixtures describe the same logical inputs.
 

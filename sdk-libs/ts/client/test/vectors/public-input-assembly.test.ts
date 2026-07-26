@@ -20,7 +20,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { createProofOutput } from "../../../transaction/src/utxo.js";
-import fixtureJson from "../../../fixtures/client/public-input-assembly-v1.json" with {
+import fixtureJson from "../../../vectors/public-input-assembly-v1.json" with {
   type: "json",
 };
 import {
