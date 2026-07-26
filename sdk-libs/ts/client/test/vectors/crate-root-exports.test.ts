@@ -140,6 +140,8 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
     "the commitment level SendTransactionConfig names, which Rust takes from " +
     "solana-commitment-config",
   CompressedProof: "carries Rust ProofCompressed",
+  compileTransaction:
+    "message assembly Rust gets from solana-message; TypeScript compiles it here so callers can build a transaction the SDK signs and sends",
   DEFAULT_INDEXER_POLL_CONFIG:
     "IndexerPollConfig::default() as a value, since TypeScript has no Default",
   DEFAULT_INDEXER_RPC_CONFIG:

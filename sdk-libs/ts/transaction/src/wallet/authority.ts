@@ -70,7 +70,15 @@ export interface WalletSyncMaterial {
   readonly nullifierKey: NullifierKey;
 }
 
-export interface SyncWalletAuthority {
+/**
+ * The narrow capability wallet sync needs: the material to open notes with.
+ *
+ * Rust spells this `SyncWalletAuthority`, where `Sync` marks the blocking form
+ * of the full `WalletAuthority` trait. TypeScript has no blocking form, and
+ * this is a smaller capability rather than another execution mode of the same
+ * one, so the name reads as "authority for wallet sync" instead.
+ */
+export interface WalletSyncAuthority {
   syncMaterial(): Promise<WalletSyncMaterial>;
 }
 

@@ -1,4 +1,4 @@
-import type { Rpc } from "@zolana/client";
+import { compileTransaction, type Rpc } from "@zolana/client";
 import {
   SPL_TOKEN_PROGRAM_ID,
   type Address,
@@ -9,6 +9,7 @@ import {
   type RequestContext,
   type Signature,
   type Transaction,
+  type TransactionSigner,
 } from "@zolana/interface";
 import { splAssetRegistryAddress, splAssetVaultAddress } from "@zolana/interface/pda";
 import { depositInstruction } from "@zolana/interface/instructions";
@@ -16,8 +17,6 @@ import { randomBlinding, type ShieldedAddress } from "@zolana/keypair";
 import { SOL_MINT, ownerUtxoHash } from "@zolana/transaction";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { compileTransaction } from "./internal.js";
-import type { TransactionSigner } from "./submit.js";
 
 export interface DepositSplAccounts {
   readonly userToken: Address;

@@ -49,6 +49,10 @@ const RENAMES: Readonly<Record<string, string>> = {
   SppProofInputUtxo: "ProofInputUtxo",
   SppProofOutputUtxo: "ProofOutputUtxo",
   SyncConfig: "WalletSyncConfig",
+  // Rust's `Sync` prefix marks the blocking form of WalletAuthority. TypeScript
+  // has no blocking form, and this is the narrower sync-material capability, so
+  // the name reads as "authority for wallet sync" instead.
+  SyncWalletAuthority: "WalletSyncAuthority",
   asset_field: "assetField",
   derive_blinding: "deriveBlinding",
   owner_utxo_hash: "ownerUtxoHash",

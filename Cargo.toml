@@ -30,7 +30,7 @@ members = [
     "sdk-libs/transaction",
     "sdk-libs/wallet",
     "services/photon",
-    "sdk-tests/client",
+    "sdk-tests/rust-client",
     "sdk-tests/dynamic-swap/program",
     "sdk-tests/dynamic-swap/prover",
     "sdk-tests/dynamic-swap/sdk",

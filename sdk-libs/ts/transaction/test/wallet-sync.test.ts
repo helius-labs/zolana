@@ -320,6 +320,18 @@ describe("manifest-verified wallet behavior", () => {
     );
     expect(wallet.lastSynced).toBe(BigInt(fixtureString(sequentialExpected, "lastSynced")));
 
+    // Rust's free `decrypt_transactions` builds the wallet from the authority's
+    // own identity, so the fresh wallet must reach the same state as the one
+    // synced above from a wallet the caller constructed.
+    const fresh = await Wallet.decrypt({
+      authority: value.authority,
+      transactions,
+      assets: new AssetRegistry(),
+    });
+    expect(fresh.identity).toEqual(value.identity);
+    expect(fresh.balance(SOL_MINT).amount).toBe(wallet.balance(SOL_MINT).amount);
+    expect(fresh.utxos()).toEqual(wallet.utxos());
+
     const worker = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
     const workerReport = await syncWalletWorkerEquivalent({
       wallet: worker,

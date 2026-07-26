@@ -16,6 +16,16 @@ function bytes32(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
+/**
+ * A legacy message requiring only `signer`: the three privilege counts, the
+ * account count, that one key, a blockhash, and no instructions. The signer
+ * locates its own slot by scanning these keys, so a stand-in transaction has to
+ * carry a real account list.
+ */
+function oneSignerMessage(signer: Address): Uint8Array {
+  return Uint8Array.from([1, 0, 0, 1, ...decodeBase58(signer), ...new Uint8Array(32), 0]);
+}
+
 function recordData(owner: Address, bump: number, enabled: boolean): Uint8Array {
   const ownerBytes = decodeBase58(owner);
   return Uint8Array.from([
@@ -159,7 +169,7 @@ describe("user registry merge setup", () => {
     rpc.nextSignature = SIGNATURE;
     rpc.setConfirmation(SIGNATURE, true);
     const registration: Transaction = {
-      messageBytes: Uint8Array.of(1),
+      messageBytes: oneSignerMessage(signer.address),
       signatures: [SIGNATURE],
     };
 
@@ -194,7 +204,7 @@ describe("user registry merge setup", () => {
       lamports: 1n,
     });
     const registration: Transaction = {
-      messageBytes: Uint8Array.of(2),
+      messageBytes: oneSignerMessage(signer.address),
       signatures: [SIGNATURE],
     };
 

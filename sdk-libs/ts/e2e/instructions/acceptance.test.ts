@@ -224,11 +224,17 @@ describe("P13 raw instruction acceptance", () => {
       "workflows/instruction-transfer-v1",
     )) as SpendFixture;
     for (const [index, value] of railCases(fixture).entries()) {
-      const transaction = fixtureMessage(value, instructionFor(value));
+      // The fixture payer has no key in the repo, so the signer pays here
+      // instead; what matters is that signing leaves the message untouched.
       const signer = createTestNativeSigner(new Uint8Array(32).fill(index + 1) as Bytes32);
+      const transaction = compileTransaction({
+        feePayer: signer.address,
+        recentBlockhash: BLOCKHASH,
+        instructions: [computeInstruction(COMPUTE_LIMIT_DATA), instructionFor(value)],
+      });
       const signed = await signer.signNativeTransaction(transaction);
       expect(signed.messageBytes).toEqual(transaction.messageBytes);
-      expect(signed.signatures).toHaveLength(1);
+      expect(signed.signatures).toHaveLength(transaction.signatures.length);
       expect(signed.signatures[0]).toBeTypeOf("string");
     }
   });
