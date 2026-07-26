@@ -178,7 +178,7 @@ export function buildProofInputs(
     });
   }
   const tree = encodeBase58(new Uint8Array(32).fill(45)) as Address;
-  const spendProofs = proofInputs.inputContexts().map((context, index) => ({
+  const spendProofs = proofInputs.inputUtxoHashes().map((context, index) => ({
     state: {
       leaf: context.utxoHash,
       merkleContext: { treeType: 1, tree },
@@ -382,7 +382,7 @@ export function buildEdgeCase(
 
 function edgeCaseSpendProofs(proofInputs: SppProofInputs): readonly SpendProof[] {
   const tree = encodeBase58(new Uint8Array(32).fill(45)) as Address;
-  return proofInputs.inputContexts().map((context, index) => ({
+  return proofInputs.inputUtxoHashes().map((context, index) => ({
     state: {
       leaf: context.utxoHash,
       merkleContext: { treeType: 1, tree },

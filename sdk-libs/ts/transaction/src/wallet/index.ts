@@ -15,7 +15,9 @@ export { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "./asset.js";
 export {
   DEFAULT_TAG_WINDOW,
   decryptTransactions,
-  decryptTransactionsWorkerEquivalent,
+  syncWalletWithAuthority,
+  syncWalletWithMaterial,
+  syncWalletWorkerEquivalent,
   type WalletSyncConfig,
 } from "./sync.js";
 export { Wallet } from "./state.js";

@@ -10,7 +10,7 @@ import {
   SOL_MINT,
   Utxo,
   Wallet,
-  decryptTransactions,
+  syncWalletWithAuthority,
   deriveBlinding,
   type EncryptedTransfer,
 } from "../src/index.js";
@@ -57,6 +57,63 @@ function transaction(
     nullifiers: [bytes32(1)],
     proofless: false,
   };
+}
+
+/** Two counterparties, ordered the way the scan orders them. */
+function sortedPair(): readonly [ShieldedKeypair, ShieldedKeypair] {
+  const first = ShieldedKeypair.generate();
+  const second = ShieldedKeypair.generate();
+  const key = (pair: ShieldedKeypair): string => hex(pair.viewingKey().publicKey().toBytes());
+  return key(first) < key(second) ? [first, second] : [second, first];
+}
+
+/** One note the recipient can open, carried under a caller-chosen view tag. */
+async function noteTo(
+  recipient: ShieldedKeypair,
+  sender: ShieldedKeypair,
+  viewTag: Bytes32,
+  amount: bigint,
+): Promise<IndexedShieldedTransaction> {
+  const blinding = randomBlinding();
+  const note = new Utxo({
+    owner: recipient.signingPublicKey(),
+    asset: SOL_MINT,
+    amount,
+    blinding,
+    data: new Data(),
+  });
+  const envelope = await new LocalWalletAuthority({
+    solanaPublicKey: OWNER,
+    keypair: sender,
+  }).encryptAnonymousTransfer({
+    firstNullifier: bytes32(1),
+    senderViewTag: bytes32(3),
+    sender: {
+      ownerPublicKey: sender.signingPublicKey(),
+      splAssetId: SOL_ASSET_ID,
+      splAmount: 0n,
+      solAmount: amount,
+      blindingSeed: randomBlinding(),
+      recipientViewingPublicKeys: [recipient.viewingKey().publicKey()],
+      splData: new Data(),
+      solData: new Data(),
+    },
+    recipients: [
+      {
+        viewTag,
+        recipientPublicKey: recipient.viewingKey().publicKey(),
+        plaintext: {
+          ownerPublicKey: recipient.signingPublicKey(),
+          senderPublicKey: sender.viewingKey().publicKey(),
+          assetId: SOL_ASSET_ID,
+          amount,
+          blinding,
+          data: new Data(),
+        },
+      },
+    ],
+  });
+  return transaction(envelope, [bytes32(0), note.hash(recipient.nullifierKey().publicKey())]);
 }
 
 describe("viewing-key history", () => {
@@ -111,7 +168,7 @@ describe("viewing-key history", () => {
     });
     const target = wallet(keypair);
 
-    await decryptTransactions({
+    await syncWalletWithAuthority({
       wallet: target,
       authority,
       transactions: [transaction(envelope, [])],
@@ -154,7 +211,7 @@ describe("viewing-key history", () => {
       );
     const target = wallet(keypair);
 
-    await decryptTransactions({
+    await syncWalletWithAuthority({
       wallet: target,
       authority,
       transactions: [await bundle(1n), await bundle(3n)],
@@ -208,7 +265,7 @@ describe("viewing-key history", () => {
     });
     const target = wallet(keypair);
 
-    const report = await decryptTransactions({
+    const report = await syncWalletWithAuthority({
       wallet: target,
       authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       transactions: [
@@ -254,7 +311,7 @@ describe("viewing-key history", () => {
     });
     const target = wallet(keypair);
 
-    await decryptTransactions({
+    await syncWalletWithAuthority({
       wallet: target,
       authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       transactions: [transaction(envelope, [])],
@@ -267,5 +324,37 @@ describe("viewing-key history", () => {
         hex(counter.counterparty.toBytes()),
       ),
     ).toEqual([hex(counterparty.shieldedAddress().viewingPublicKey.toBytes())]);
+  });
+
+  // Rust's parallel sync sorts its counterparty keys before probing their
+  // shared streams; its serial sync walks a `HashMap` and so leaves the order
+  // of the UTXOs those streams decode undefined. Sorted is the one order Rust
+  // states, so the port takes it, and the amounts below expose the difference:
+  // discovery order would decode the second-sorting sender's note first.
+  it("probes shared streams in counterparty key order, not discovery order", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const [low, high] = sortedPair();
+    const viewing = keypair.viewingKey();
+    const sharedTag = (sender: ShieldedKeypair) =>
+      viewing.recipientSharedViewTag(sender.viewingKey().publicKey(), 0n);
+    const target = wallet(keypair);
+
+    await syncWalletWithAuthority({
+      wallet: target,
+      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      transactions: [
+        await noteTo(keypair, high, viewing.recipientRequestViewTag(0n), 1n),
+        await noteTo(keypair, low, viewing.recipientRequestViewTag(1n), 2n),
+        await noteTo(keypair, high, sharedTag(high), 3n),
+        await noteTo(keypair, low, sharedTag(low), 4n),
+      ],
+    });
+
+    expect(target.utxos().map((entry) => entry.utxo.amount)).toEqual([1n, 2n, 4n, 3n]);
+    expect(
+      target.viewingKeyHistory[0]?.knownSenders.map((counter) =>
+        hex(counter.counterparty.toBytes()),
+      ),
+    ).toEqual([low, high].map((pair) => hex(pair.viewingKey().publicKey().toBytes())));
   });
 });

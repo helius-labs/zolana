@@ -517,9 +517,14 @@ export class SppProofInputs {
     this.inputUtxos = Object.freeze([...input.inputUtxos]);
     this.outputs = Object.freeze([...input.outputs]);
     this.externalData = input.externalData;
-    this.checkShape();
   }
 
+  /**
+   * Deliberate, never implicit: a caller assembling a proof asks for the shape,
+   * and one that only wants the message hash builds and hashes an unsupported
+   * shape without complaint. Construction validating this would refuse inputs
+   * Rust accepts.
+   */
   checkShape(): Shape {
     return exactShape(this.inputUtxos.length, this.outputs.length);
   }
@@ -557,11 +562,14 @@ export class SppProofInputs {
     return found;
   }
 
-  inputUtxoHashes(): readonly Bytes32[] {
-    return this.inputUtxos.filter((input) => !input.isDummy()).map((input) => input.hash());
-  }
-
-  inputContexts(): readonly InputUtxoContext[] {
+  /**
+   * The real inputs' commitments and nullifiers, indexed over the real inputs
+   * alone so a padded slot does not shift the index a Merkle proof is fetched
+   * against. A dummy cannot reach this point non-canonical: `ProofInputUtxo`
+   * copies its fields and refuses one at construction, where Rust's public
+   * struct has to re-check each slot here.
+   */
+  inputUtxoHashes(): readonly InputUtxoContext[] {
     return this.inputUtxos
       .filter((input) => !input.isDummy())
       .map((input, index) =>
@@ -589,17 +597,21 @@ export class SppProofInputs {
     );
   }
 
-  applyP256Signature(signature: P256Signature): void {
-    const real = this.inputUtxos.filter((input) => !input.isDummy());
-    const p256 = real.filter((input) => input.utxo.owner.signatureType() === "p256");
-    if (p256.length === 0) {
+  /**
+   * The keypair's own rail decides whether it may sign, not the inputs it is
+   * signing over: an owner-signature mismatch is the circuit's to catch, and
+   * refusing one here would reject transactions the prover and the chain
+   * accept.
+   */
+  signP256(keypair: ShieldedKeypair): void {
+    if (keypair.signingPublicKey().signatureType() !== "p256") {
       throw new TransactionError("TRANSACTION_SIGNER_NOT_P256");
     }
-    if (
-      p256.some((input) => !equal(input.utxo.owner.confidentialViewTag(), signature.publicKey.x()))
-    ) {
-      throw new TransactionError("TRANSACTION_SIGNATURE_OWNER_MISMATCH");
-    }
+    this.applyP256Signature(keypair.signP256(this.messageHash()));
+  }
+
+  /** The remote-authority half of `signP256`: a signature produced elsewhere. */
+  applyP256Signature(signature: P256Signature): void {
     this.#p256Signature = Object.freeze({
       publicKey: signature.publicKey,
       r: checked<Bytes32>(signature.r, 32, "signature r"),
@@ -818,7 +830,7 @@ export class ConfidentialTransfer {
       payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
     });
     if (keypair.signingPublicKey().signatureType() === "p256") {
-      signed.applyP256Signature(keypair.signP256(signed.messageHash()));
+      signed.signP256(keypair);
     }
     return signed;
   }

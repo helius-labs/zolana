@@ -48,6 +48,10 @@ Sections carrying their own evidence:
 - [The deposit's discovery tag](#the-deposits-discovery-tag)
 - [The transaction size check](#the-transaction-size-check)
 - [Rail inference when parsing a proof (C08)](#rail-inference-when-parsing-a-proof-c08)
+- [The checks only TypeScript had on `SppProofInputs` (T23)](#the-checks-only-typescript-had-on-sppproofinputs-t23)
+- [The return shape of `input_utxo_hashes` (T23)](#the-return-shape-of-input_utxo_hashes-t23)
+- [One name, two behaviours: `decrypt_transactions`](#one-name-two-behaviours-decrypt_transactions)
+- [Counterparty order during sync (T16)](#counterparty-order-during-sync-t16)
 
 ## Ruled: owner-hash encoding (G7-1)
 
@@ -1997,3 +2001,129 @@ rather than a writer's output. The asymmetry only bites if Photon starts quoting
 The owner's standing rule applies: revalidate, then look at how Light Protocol did it and do the same.
 Light has the identical problem, a Rust indexer and a TypeScript client reading one wire format, so
 whatever they chose was chosen against the same constraint.
+
+### The checks only TypeScript had on `SppProofInputs` (T23)
+
+| Field | Value |
+| --- | --- |
+| Conflict | Three rules lived in TypeScript's `SppProofInputs` that Rust has nowhere: the constructor ran `check_shape`, `applyP256Signature` refused a signature whose signer owned none of the inputs, and `inputUtxoHashes` returned bare hashes where Rust returns contexts. |
+| Ruling | Match Rust for every input, including deleting the checks Rust lacks. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `row-updates/owner-rulings-3.md`, commit `52c118fc` on `port/rulings3` |
+
+This ruling knowingly reduces what the SDK catches. Each deleted check refused
+something real; what it did not do was refuse it in both languages. A rule only
+one language enforces is worse than a rule neither enforces, because the shape
+it rejects is exactly the shape a developer builds while porting working Rust
+into TypeScript, and the rejection reads as a TypeScript bug rather than as the
+protocol speaking. The failures those checks caught now travel downstream to the
+prover, which cannot satisfy an unsupported shape, or to the chain, which cannot
+verify a proof signed by a key the circuit does not bind.
+
+The signature check is the one worth spelling out, because it looks like the
+most valuable of the three. TypeScript walked the inputs and demanded the
+signer own one, raising `TRANSACTION_SIGNATURE_OWNER_MISMATCH`. Rust's
+`sign_p256` checks the keypair's own curve and nothing else. So a P256 authority
+countersigning a bundle whose inputs are all Ed25519-owned succeeded in Rust and
+threw in TypeScript, and the throw was on the interoperable path, not a corner:
+that error code now has no producer anywhere in the SDK and is deleted with it.
+`signP256` carries Rust's curve rule; `applyP256Signature` is the length-checked
+stand-in for assigning Rust's public `p256_signature` field.
+
+The constructor check is the same argument with less at stake. Rust's
+constructor validates nothing and `check_shape` is a method the caller invokes,
+so a Rust caller can hold an unsupported shape, read its message hash, and only
+fail at the prover. TypeScript refused at construction. The check is not gone,
+only moved back to where Rust put it.
+
+The out-of-field Poseidon refusal named in the same ruling turned out not to
+exist as a divergence. TypeScript screens the modulus before calling the hasher,
+but the WebAssembly hasher rejects the same inputs on its own, exactly as
+`light_poseidon` does under Rust, so the screen changes which error surfaces and
+not whether one does. Left alone, and noted here so the next reader does not go
+looking for it.
+
+### The return shape of `input_utxo_hashes` (T23)
+
+| Field | Value |
+| --- | --- |
+| Conflict | Rust's `input_utxo_hashes()` returns `Vec<InputUtxoContext>`. TypeScript returned `Bytes32[]` and split the contexts into a second method, `inputContexts()`, that Rust does not have. |
+| Ruling | Reshape it to Rust's return type, as `public_amounts` was already reshaped. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `row-updates/owner-rulings-3.md`, commit `52c118fc` on `port/rulings3` |
+
+A split like this is the quiet kind of divergence. Neither half was wrong and
+both were reachable, so nothing failed and no test could fail; the cost is only
+paid by someone reading Rust and writing TypeScript, who finds the call they
+know returns half of what it returned and has to discover the other method
+exists. It also drifts: two methods computing over the same inputs are two
+places a later change has to touch, and Rust has one.
+
+`inputUtxoHashes()` now returns the contexts and `inputContexts()` is gone. This
+is the same instinct as the deleted checks above, applied where the divergence is
+a shape rather than a rule: the port matches Rust's surface even when its own
+surface was defensible.
+
+### One name, two behaviours: `decrypt_transactions`
+
+| Field | Value |
+| --- | --- |
+| Conflict | TypeScript's `decryptTransactions` mutated a caller's wallet and returned a `SyncReport`, which is Rust's `Wallet::sync`. Rust's `decrypt_transactions` builds a fresh wallet, syncs it, returns balances, and keeps nothing. Rust's `Wallet::sync` and `sync_with_material` had no TypeScript counterpart under any name. |
+| Ruling | Rename the TypeScript function to what it does and port Rust's real `decrypt_transactions` separately. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `row-updates/owner-rulings-3.md`, commit `cdedac39` on `port/rulings3` |
+
+What made this survive review is that the module-surface crosswalk recorded the
+pair as a plain rename. A crosswalk entry saying `decrypt_transactions` maps to
+`decryptTransactions` is the strongest evidence a reviewer normally wants, and
+here it certified the mismatch instead of exposing it: same name, same
+neighbourhood, opposite ownership of the wallet. The check the crosswalk cannot
+make is whether two functions sharing a name share a behaviour.
+
+The scan is now `syncWalletWithAuthority` and `syncWalletWithMaterial`, one per
+Rust method. They are qualified rather than plain `syncWallet` because
+`@zolana/wallet` already carries Rust's own `sync_wallet` under that name, and a
+second `syncWallet` in a sibling package would trade one collision for another.
+`decryptTransactions` is now the port of the Rust free function and returns the
+balances, and it was already pinned from the Rust side: the fixture generator
+has emitted `decryptTransactionsBalance` from Rust's own call all along, with no
+TypeScript consumer, which is its own small piece of evidence that the port was
+missing.
+
+Rust carries a TODO saying this sequence belongs on `Wallet`. Ported as Rust
+stands, not as its TODO wants; when Rust moves it the port follows.
+
+### Counterparty order during sync (T16)
+
+| Field | Value |
+| --- | --- |
+| Conflict | Rust's serial sync walks `known_senders` as a `HashMap`, so the UTXOs two counterparties' shared streams decode land in an order that varies between processes. Rust's parallel sync sorts the same keys by bytes. TypeScript walked discovery order and matched neither. |
+| Ruling | Check Light Protocol first; failing that, match Rust's sorted parallel ordering, since it is the one order Rust specifies. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `row-updates/owner-rulings-3.md`, commit `666b48c2` on `port/rulings3` |
+
+Light Protocol has nothing to copy here. Its TypeScript SDK has no shielded
+wallet sync at all: `js/stateless.js/src` contains no view tag, no counterparty
+scan, and no decryption pass, because Light's compressed accounts are public
+state the RPC indexes by owner. The question never arises. Where Light does meet
+an ordering question, in the RPC layer that returns account pages, it answers it
+the way this ruling does, sorting explicitly by leaf index rather than trusting
+arrival order. Its Rust SDK has no parallel sync either.
+
+So the fallback applies and TypeScript sorts by counterparty pubkey bytes. This
+picks Rust's parallel path over its serial one deliberately: between an order
+that is stated and an order that is an artifact of a hash map's seed, the stated
+one is the only one a port can be held to.
+
+No oracle pins the undefined order. The fixture generator sorts its counterparty
+rows before emitting them, saying in its own comment that it does so because
+Rust holds them in a hash map and the fixture has to be reproducible, and the
+sync fixtures record UTXO counts and balances rather than an ordered list. One
+Rust-side observation for whoever owns that generator: it asserts
+`sequential.utxos == parallel.utxos`, which holds only because its scenario has
+no counterparty with a shared-stream hit. A scenario with two would make the
+generator itself flaky, and the serial walk is the reason.

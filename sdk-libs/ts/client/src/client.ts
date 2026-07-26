@@ -305,7 +305,7 @@ export class ZolanaClient implements Rpc {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
     try {
-      const proofs = await this.getInputMerkleProofs(proofInputs.inputContexts(), config, context);
+      const proofs = await this.getInputMerkleProofs(proofInputs.inputUtxoHashes(), config, context);
       const assembled = assemble(proofInputs, proofs);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
       return assembled.withProof(compressProof(proof).toTransactProof());

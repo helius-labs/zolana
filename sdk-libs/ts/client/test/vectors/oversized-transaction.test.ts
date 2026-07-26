@@ -102,7 +102,7 @@ function compileTransfer(recipients: number) {
     transfer.send(keypair(index + 20).shieldedAddress(), SOL_MINT, 10n);
   }
   const proofInputs = transfer.sign(sender, new AssetRegistry());
-  const data = assemble(proofInputs, spendProofs(proofInputs.inputContexts())).withProof(
+  const data = assemble(proofInputs, spendProofs(proofInputs.inputUtxoHashes())).withProof(
     transactProof(),
   );
   return buildUnsignedTransaction({

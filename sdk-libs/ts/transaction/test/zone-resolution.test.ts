@@ -9,7 +9,7 @@ import {
   SOL_MINT,
   Utxo,
   Wallet,
-  decryptTransactions,
+  syncWalletWithAuthority,
   deriveBlinding,
 } from "../src/index.js";
 import {
@@ -118,7 +118,7 @@ describe("zone resolution on the read path", () => {
 
     const sync = async (data: Data): Promise<number> => {
       const state = new Wallet({ identity: material.identity, registry: new AssetRegistry() });
-      const report = await decryptTransactions({
+      const report = await syncWalletWithAuthority({
         wallet: state,
         authority,
         transactions: [slot(data, keypair, hash)],

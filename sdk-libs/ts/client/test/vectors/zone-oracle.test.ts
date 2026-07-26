@@ -167,7 +167,7 @@ function buildInputs(
       s: signature.slice(32) as Bytes32,
     });
   }
-  const spendProofs = proofInputs.inputContexts().map((context, index) => ({
+  const spendProofs = proofInputs.inputUtxoHashes().map((context, index) => ({
     state: {
       leaf: context.utxoHash,
       merkleContext: { treeType: 1, tree: TREE },

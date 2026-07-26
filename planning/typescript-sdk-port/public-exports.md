@@ -825,26 +825,54 @@ data/zone fields; the two-argument overload is the direct
 The TypeScript root deliberately names Rust
 `instructions::types::SppProofInputUtxo` as `ProofInputUtxo`; Rust's
 field-encoded `utxo::ProofInputUtxo` stays internal to avoid a public collision.
-`ProofOutputUtxo` maps `SppProofOutputUtxo`. `applyP256Signature` is the checked
-TypeScript replacement for mutating Rust's raw `p256_signature` field: it
-validates the owner key and copies `r || s`.
+`ProofOutputUtxo` maps `SppProofOutputUtxo`. `signP256` maps Rust `sign_p256`
+and carries its one rule, that the keypair's own curve must be P256;
+`applyP256Signature` is the length-checked stand-in for assigning Rust's public
+`p256_signature` field from a remote authority, and inspects nothing else. The
+owner-key check it used to perform was removed under the T23 ruling of
+2026-07-26, because Rust has no such rule and TypeScript was refusing
+transactions the prover and the chain accept.
 
 Also at the `@zolana/transaction` root:
 
 ```ts
-export interface WalletSyncConfig { readonly tagWindow?: bigint }
-export function decryptTransactions(input: Readonly<{
-  wallet: Wallet; authority: WalletAuthority;
+export interface WalletSyncConfig {
+  readonly tagWindow?: bigint;
+  readonly syncedAt?: bigint;
+}
+export function syncWalletWithAuthority(input: Readonly<{
+  wallet: Wallet; authority: SyncWalletAuthority;
   transactions: readonly IndexedShieldedTransaction[];
   config?: WalletSyncConfig;
 }>): Promise<SyncReport>;
+export function syncWalletWithMaterial(input: Readonly<{
+  wallet: Wallet; material: WalletSyncMaterial;
+  transactions: readonly IndexedShieldedTransaction[];
+  config?: WalletSyncConfig;
+}>): SyncReport;
+export function decryptTransactions(input: Readonly<{
+  authority: SyncWalletAuthority;
+  transactions: readonly IndexedShieldedTransaction[];
+  registry: AssetRegistry;
+  config?: WalletSyncConfig;
+}>): Promise<readonly AssetBalance[]>;
 ```
 
-This Promise operation maps the Rust `decrypt_transactions` state transform
-in [`wallet/sync.rs`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/transaction/src/wallet/sync.rs) through the
-single async TypeScript authority. It mutates only the supplied wallet,
-validates ordering/ciphertexts, and rejects with `TransactionError`. Network
-fetching remains in `@zolana/wallet`.
+The first two map Rust's
+[`Wallet::sync` and `Wallet::sync_with_material`](https://github.com/helius-labs/zolana/blob/43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f/sdk-libs/transaction/src/wallet/sync.rs).
+They mutate only the supplied wallet, and they commit once at the end, so a
+rejection leaves it as it was. They are free functions because `Wallet` is
+declared in `wallet/state.ts`, which the scan imports, and they are qualified
+because `@zolana/wallet` already carries Rust's `sync_wallet` under the plain
+name.
+
+`decryptTransactions` maps the Rust free function of that name: it builds a
+fresh wallet from the authority's identity, syncs it, reports its balances, and
+keeps nothing. Rust returns a `Balances` newtype and TypeScript returns the
+array, which is the disposition `Balances` already carries. Until 2026-07-26
+this name was attached to `Wallet::sync` instead, and the module-surface
+crosswalk recorded the pair as a plain rename; the ruling separated them.
+Network fetching remains in `@zolana/wallet`.
 
 ## `@zolana/indexer-api`
 
