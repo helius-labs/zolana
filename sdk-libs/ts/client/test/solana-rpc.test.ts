@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import proverFixture from "../../fixtures/client/prover-shapes-v1.json" with { type: "json" };
 import rpcFixture from "../../fixtures/client/rpc-indexer-v1.json" with { type: "json" };
 import { ClientError, SolanaRpc } from "../src/index.js";
-import { encodeBase58 } from "../src/internal.js";
+import { decodeBase58, decodeBase58Bytes, encodeBase58 } from "../src/internal.js";
 import { bytes, hex } from "./helpers/prover-vectors.js";
 
 const ZERO_ADDRESS = "1".repeat(32) as Address;
@@ -472,5 +472,15 @@ describe("SolanaRpc", () => {
 
     await expectCode(rpc.transactOutputViewTags(ZERO_SIGNATURE), "CLIENT_RPC_TRANSACT_NOT_FOUND");
     expect(rpcFixture.expected.confirmation.missingTransactError.code).toBe("Rpc");
+  });
+
+  it("decodes instruction base58 in one pass for large payloads", () => {
+    for (const length of [711, 805, 1232]) {
+      const payload = new Uint8Array(length).fill(7);
+      const encoded = encodeBase58(payload);
+      const decoded = decodeBase58Bytes(encoded, "instruction.data");
+      expect(decoded).toEqual(payload);
+      expect(decodeBase58(encoded, length, "instruction.data")).toEqual(payload);
+    }
   });
 });

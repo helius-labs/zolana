@@ -17,6 +17,7 @@ import {
   addressBytes,
   composeSignal,
   decodeBase58,
+  decodeBase58Bytes,
   decodeBase64,
   encodeBase64,
   requestError,
@@ -763,27 +764,26 @@ function parsedInstruction(
   });
   const encoded = string(instruction["data"], "instruction.data");
   const height = stackHeight ?? instruction["stackHeight"];
+  const data = decodeBase58Bytes(encoded, "instruction.data");
+  // Instruction data travels inside a transaction, so no decode can be longer
+  // than the packet the validator accepts.
+  if (data.length > TRANSACTION_SIZE_LIMIT) {
+    throw new ClientError("CLIENT_INVALID_BASE58", {
+      details: {
+        field: "instruction.data",
+        expectedLength: TRANSACTION_SIZE_LIMIT,
+        actualLength: data.length,
+      },
+    });
+  }
   return Object.freeze({
     programId,
     accounts: Object.freeze(accounts),
-    data: decodeBase58(encoded, decodeBase58UnknownLength(encoded).length, "instruction.data"),
+    data,
     ...(typeof height === "number"
       ? { stackHeight: safeNumber(height, "instruction.stackHeight") }
       : {}),
   });
-}
-
-function decodeBase58UnknownLength(value: string): Uint8Array {
-  // Instruction data travels inside a transaction, so no decode can be longer
-  // than the packet the validator accepts.
-  for (let length = 1; length <= TRANSACTION_SIZE_LIMIT; length++) {
-    try {
-      return decodeBase58(value, length, "instruction.data");
-    } catch {
-      continue;
-    }
-  }
-  throw new ClientError("CLIENT_INVALID_BASE58");
 }
 
 function compareBytes(left: Uint8Array, right: Uint8Array): number {
