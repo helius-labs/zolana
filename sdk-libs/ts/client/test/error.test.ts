@@ -340,6 +340,24 @@ describe("ClientError", () => {
     expect(JSON.stringify([keypair, transaction])).not.toContain("must not escape");
   });
 
+  it("drops a non-allow-listed detail on the client wrap path", () => {
+    // TransactionError's deny-list would keep `ciphertext`; the client wrap
+    // path must still drop it under the shared fail-closed allow-list.
+    const wrapped = fromClientCause(
+      new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", {
+        requested: "11",
+        available: "10",
+        ciphertext: "deadbeef",
+      }),
+    );
+    expect(wrapped.cause).toEqual({
+      category: "transaction",
+      code: "TRANSACTION_INSUFFICIENT_BALANCE",
+      details: { requested: "11", available: "10" },
+    });
+    expect(JSON.stringify(wrapped)).not.toContain("deadbeef");
+  });
+
   it("translates a keypair rejection at the assembly boundary", () => {
     const proofInputs = Object.assign(Object.create(SppProofInputs.prototype) as object, {
       inputUtxos: [
