@@ -60,6 +60,6 @@ export function mergeCiphertextHash(ciphertext: Uint8Array): Bytes32 {
   try {
     return ciphertextHash(ciphertext);
   } catch (error) {
-    throw wrapKeypairError("KEYPAIR_HASH", error);
+    throw wrapKeypairError("KEYPAIR_POSEIDON", error);
   }
 }

@@ -442,10 +442,10 @@ describe("frozen Rust keypair fixtures", () => {
     tampered[0] ^= 1;
     expectHex(mergeCiphertextHash(tampered), expected.tamperedCiphertextHashBytes);
     expect(() => mergeCiphertextHash(new Uint8Array())).toThrow(
-      expect.objectContaining({ code: "KEYPAIR_HASH" }),
+      expect.objectContaining({ code: "KEYPAIR_POSEIDON" }),
     );
     expect(() => mergeCiphertextHash(new Uint8Array(193))).toThrow(
-      expect.objectContaining({ code: "KEYPAIR_HASH" }),
+      expect.objectContaining({ code: "KEYPAIR_POSEIDON" }),
     );
   });
 

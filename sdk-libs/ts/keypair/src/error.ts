@@ -2,6 +2,12 @@
  * One code per `zolana_keypair::error::KeypairError` variant, plus the two
  * TypeScript-only codes below. Rust encodes lengths and rails in its types, so
  * a JavaScript caller can reach malformed shapes Rust cannot express.
+ *
+ * A TypeScript-only code is justified at a boundary only when the input it
+ * describes cannot be expressed in Rust. Where Rust accepts the same input and
+ * answers with a variant, the boundary must raise the code mirroring that
+ * variant, or the port reports a divergence Rust does not have. The K10 suite
+ * enforces this by scanning the sources for each TypeScript-only code.
  */
 export type KeypairErrorCode =
   | "KEYPAIR_INVALID_PUBLIC_KEY"

@@ -97,15 +97,38 @@ const ledgerOverrides: Readonly<Record<string, () => unknown>> = {
     ShieldedPublicKey.fromBytes(fromHex(recorded.badPrefixBytes) as Bytes34),
 };
 
-function sourceFiles(directory: URL): string[] {
+interface SourceFile {
+  readonly name: string;
+  readonly text: string;
+}
+
+function sourceFiles(directory: URL, prefix = ""): SourceFile[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
-      ? sourceFiles(new URL(`${entry.name}/`, directory))
+      ? sourceFiles(new URL(`${entry.name}/`, directory), `${prefix}${entry.name}/`)
       : entry.name.endsWith(".ts")
-        ? [readFileSync(new URL(entry.name, directory), "utf8")]
+        ? [
+            {
+              name: `${prefix}${entry.name}`,
+              text: readFileSync(new URL(entry.name, directory), "utf8"),
+            },
+          ]
         : [],
   );
 }
+
+/**
+ * The rule this suite enforces: a code whose `rustVariant` is null may be
+ * raised only where Rust cannot express the failing input. Each entry lists the
+ * sources allowed to name it, with the reason Rust has no variant to mirror.
+ * `error.ts` declares the ledger and is on every list for that reason alone.
+ */
+const TYPESCRIPT_ONLY_SITES: Readonly<Record<string, readonly string[]>> = {
+  // Rust carries lengths in array types, so a wrong length has no variant.
+  KEYPAIR_INVALID_LENGTH: ["error.ts", "viewing-key.ts"],
+  // Rust's `pack33` takes `&[u8; 33]` and is infallible.
+  KEYPAIR_HASH: ["error.ts", "hash.ts"],
+};
 
 /** Every rendering of an error a caller, a logger, or a reporter can reach. */
 function renderings(error: KeypairError): string[] {
@@ -179,22 +202,36 @@ describe("K10 error ledger and redaction against current Rust", () => {
     // Scanning the sources is what keeps that claim true as the port grows.
     expect(KEYPAIR_ERROR_RUST_VARIANT.KEYPAIR_NOT_ED25519).toBe("NotEd25519");
     const sources = sourceFiles(new URL("../../src/", import.meta.url));
-    const mentions = sources.filter((source) => source.includes("KEYPAIR_NOT_ED25519"));
+    const mentions = sources.filter((source) => source.text.includes("KEYPAIR_NOT_ED25519"));
     expect(mentions).toHaveLength(1);
-    expect(mentions[0]).toContain("KEYPAIR_ERROR_RUST_VARIANT");
+    expect(mentions[0]?.text).toContain("KEYPAIR_ERROR_RUST_VARIANT");
   });
 
-  it("answers an empty merge ciphertext with a code that maps to no Rust variant", () => {
-    // A known divergence, pinned so it cannot drift further. Rust's
-    // `merge_ciphertext_hash(&[])` reaches the hasher and returns `Poseidon`;
-    // the port wraps every hasher failure at this boundary as the
-    // TypeScript-only `KEYPAIR_HASH`, whose `rustVariant` is null. The input is
-    // expressible in both languages, so the TypeScript-only code is not
-    // justified by the wider input domain the other one covers.
+  it("answers an empty merge ciphertext with the variant Rust answers", () => {
+    // Rust's `merge_ciphertext_hash(&[])` reaches the hasher and returns
+    // `Poseidon`. An empty slice is expressible in both languages, so nothing
+    // here justifies a code Rust has no counterpart for.
     expect(certification.mergeEncryption.emptyCiphertextHashVariant).toBe("Poseidon");
     const error = raise(() => mergeCiphertextHash(new Uint8Array()));
-    expect(error.code).toBe("KEYPAIR_HASH");
-    expect(error.rustVariant).toBeNull();
+    expect(error.code).toBe("KEYPAIR_POSEIDON");
+    expect(error.rustVariant).toBe("Poseidon");
+  });
+
+  it("raises a code with no Rust variant only where Rust cannot express the input", () => {
+    const declared = Object.entries(KEYPAIR_ERROR_RUST_VARIANT)
+      .filter(([, variant]) => variant === null)
+      .map(([code]) => code);
+    expect(declared.sort()).toEqual(Object.keys(TYPESCRIPT_ONLY_SITES).sort());
+    const sources = sourceFiles(new URL("../../src/", import.meta.url));
+    for (const [code, justified] of Object.entries(TYPESCRIPT_ONLY_SITES)) {
+      const naming = sources
+        .filter((source) => source.text.includes(`"${code}"`))
+        .map((source) => source.name)
+        .sort();
+      expect(naming, `${code} is named outside the sites that justify it`).toEqual(
+        [...justified].sort(),
+      );
+    }
   });
 
   it("keeps the variants Rust cannot reach in the mapping rather than dropping them", () => {
