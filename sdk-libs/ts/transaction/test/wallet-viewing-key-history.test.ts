@@ -216,7 +216,7 @@ describe("viewing-key history", () => {
       ],
     });
 
-    expect(report.received).toBe(1);
+    expect(report.storedUtxos).toBe(1);
     const entry = target.viewingKeyHistory[0];
     expect(entry?.requestCount).toBe(1n);
     expect(entry?.knownSenders.map((counter) => hex(counter.counterparty.toBytes()))).toEqual([

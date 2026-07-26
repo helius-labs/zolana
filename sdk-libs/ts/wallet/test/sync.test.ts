@@ -258,8 +258,13 @@ describe("wallet sync", () => {
       expect(
         requested.has(hex(viewingKey.recipientRequestViewTag(counters.requestCount + window - 1n))),
       ).toBe(true);
-      expect(wallet.utxos()).toHaveLength(3);
-      expect(wallet.balance(SOL_MINT).amount).toBe(40n + DEPOSIT_AMOUNT);
+      // Only the recipient-shared family opens what it finds. A wallet derives
+      // its send-shared tags for the notes it pays out, so a note addressed to
+      // it never lands under one: that scan advances the counter and decodes
+      // nothing, exactly as `Wallet::sync` does.
+      const stored = family === "recipientShared";
+      expect(wallet.utxos()).toHaveLength(stored ? 3 : 2);
+      expect(wallet.balance(SOL_MINT).amount).toBe(stored ? 40n + DEPOSIT_AMOUNT : 40n);
     }
   });
 
@@ -350,9 +355,7 @@ describe("wallet sync", () => {
     // The sender is only known once the note decoded, so its shared tags can
     // only have been asked for on a later round.
     expect(
-      requested.has(
-        hex(keypair.viewingKey().recipientSharedViewTag(senderViewingPublicKey, 0n)),
-      ),
+      requested.has(hex(keypair.viewingKey().recipientSharedViewTag(senderViewingPublicKey, 0n))),
     ).toBe(true);
   });
 

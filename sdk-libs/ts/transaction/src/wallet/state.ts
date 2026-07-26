@@ -27,27 +27,49 @@ function matches(filter: Filter, utxo: Utxo): boolean {
  */
 export interface PrivateTransactionId {
   readonly signature: Signature;
+  readonly slot: bigint;
   readonly index: bigint;
 }
 
-export type PrivateTransactionKind = "deposit" | "transfer" | "withdrawal" | "split" | "merge";
+/**
+ * Sender-side aggregate rows are indexed from here, above every leaf index a
+ * tree can hand out, so they cannot collide with a received row.
+ */
+export const SENDER_HISTORY_ROW_BASE = 1n << 63n;
 
-export type PrivateTransactionDirection = "incoming" | "outgoing" | "self";
+export type PrivateTransactionKind =
+  "deposit" | "privateTransfer" | "publicWithdrawal" | "split" | "merge";
 
-export type PrivateTransactionStatus = "pending" | "confirmed";
+export type PrivateTransactionDirection = "inbound" | "outbound" | "selfTransfer";
+
+/**
+ * A history row is reconstructed from an indexed transaction, so it exists only
+ * once that transaction has landed. Nothing stages a locally submitted transfer
+ * into the history ahead of a sync, in either language, so `confirmed` is the
+ * only state a row can be in.
+ */
+export type PrivateTransactionStatus = "confirmed";
 
 export interface PrivateTransaction {
   readonly id: PrivateTransactionId;
   readonly kind: PrivateTransactionKind;
   readonly direction: PrivateTransactionDirection;
   readonly status: PrivateTransactionStatus;
-  readonly slot: bigint;
+  readonly asset: Address;
+  readonly amount: bigint;
+  readonly counterpartyViewingPublicKey?: P256PublicKey;
 }
 
 export interface SyncReport {
-  readonly received: number;
-  readonly spent: number;
-  readonly transactions: number;
+  readonly storedUtxos: number;
+  readonly unparsedTransactions: number;
+  readonly undecryptableCandidates: number;
+  /**
+   * Compact asset ids that failed to decode because the wallet's registry did
+   * not know them, ascending. The client sync layer uses this to lazily
+   * backfill the registry from chain and retry; it stays empty when every id is
+   * known.
+   */
   readonly unknownAssetIds: readonly bigint[];
 }
 

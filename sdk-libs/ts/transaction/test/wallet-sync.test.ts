@@ -1,6 +1,7 @@
-import type { Bytes31, Bytes32, Signature } from "@zolana/interface";
+import type { Bytes31, Bytes32, Bytes33, Signature } from "@zolana/interface";
 import {
   NullifierKey,
+  P256PublicKey,
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
@@ -8,7 +9,16 @@ import {
 } from "@zolana/keypair";
 import { describe, expect, it } from "vitest";
 
-import { AssetRegistry, Data, SOL_MINT, Utxo, Wallet, decryptTransactions } from "../src/index.js";
+import {
+  AssetRegistry,
+  Data,
+  SOL_MINT,
+  Utxo,
+  Wallet,
+  decryptTransactions,
+  type PrivateTransaction,
+  type SyncReport,
+} from "../src/index.js";
 import type { WalletAuthority, WalletSyncMaterial } from "../src/wallet/authority.js";
 import { decryptTransactionsWorkerEquivalent } from "../src/wallet/sync.js";
 import { encodeAddress } from "../src/internal.js";
@@ -73,6 +83,49 @@ function fixtureAuthority(
     signP256: unsupported,
   };
   return { authority, identity, keypair, nullifier, signing, viewing };
+}
+
+/**
+ * TypeScript spells each Rust variant of the history enums in lower camel case
+ * and changes nothing else, so the fixture's `Debug` names convert rather than
+ * map. A variant Rust renames therefore fails here instead of being translated
+ * back into the old spelling by a lookup table.
+ */
+function lowerFirst(variant: string): string {
+  return variant.charAt(0).toLowerCase() + variant.slice(1);
+}
+
+function historyRow(entry: Readonly<Record<string, unknown>>): PrivateTransaction {
+  const id = fixtureObject(entry.id, "history id");
+  const counterparty = entry.counterpartyViewingPkBytes;
+  return {
+    id: {
+      signature: fixtureString(id, "signature") as Signature,
+      slot: BigInt(fixtureString(id, "slot")),
+      index: BigInt(fixtureString(id, "index")),
+    },
+    kind: lowerFirst(fixtureString(entry, "kind")) as PrivateTransaction["kind"],
+    direction: lowerFirst(fixtureString(entry, "direction")) as PrivateTransaction["direction"],
+    status: lowerFirst(fixtureString(entry, "status")) as PrivateTransaction["status"],
+    asset: encodeAddress(hexBytes(fixtureString(entry, "assetBytes"))),
+    amount: BigInt(fixtureString(entry, "amount")),
+    ...(typeof counterparty === "string"
+      ? {
+          counterpartyViewingPublicKey: P256PublicKey.fromBytes(hexBytes(counterparty) as Bytes33),
+        }
+      : {}),
+  };
+}
+
+/** The four counters `SyncReport` carries, read from a Rust-generated report. */
+function reportRow(value: unknown): SyncReport {
+  const report = fixtureObject(value, "sync report");
+  return {
+    storedUtxos: Number(fixtureString(report, "storedUtxos")),
+    unparsedTransactions: Number(fixtureString(report, "unparsedTransactions")),
+    undecryptableCandidates: Number(fixtureString(report, "undecryptableCandidates")),
+    unknownAssetIds: fixtureArray(report, "unknownAssetIds").map((entry) => BigInt(String(entry))),
+  };
 }
 
 function shieldedTransactions(
@@ -176,27 +229,9 @@ describe("manifest-verified wallet behavior", () => {
       };
     });
     const historyExpected = fixtureArray(expected, "history").map((entry) =>
-      fixtureObject(entry, "history row"),
+      historyRow(fixtureObject(entry, "history row")),
     );
-    wallet._replace({
-      utxos,
-      transactions: historyExpected.map((entry) => {
-        const id = fixtureObject(entry.id, "history id");
-        const kind = fixtureString(entry, "kind");
-        const direction = fixtureString(entry, "direction");
-        return {
-          id: {
-            signature: fixtureString(id, "signature") as Signature,
-            index: Number(fixtureString(id, "index")),
-          },
-          kind: kind === "Deposit" ? ("deposit" as const) : ("transfer" as const),
-          direction: direction === "Inbound" ? ("incoming" as const) : ("outgoing" as const),
-          status: "confirmed" as const,
-          slot: BigInt(fixtureString(id, "slot")),
-        };
-      }),
-      nullifiers: new Set(),
-    });
+    wallet._replace({ utxos, transactions: historyExpected, nullifiers: new Set() });
     const balances = fixtureArray(expected, "balances").map((entry) =>
       fixtureObject(entry, "balance"),
     );
@@ -208,11 +243,7 @@ describe("manifest-verified wallet behavior", () => {
         wallet.utxos().filter((entry) => !entry.spent && entry.utxo.asset === balance.mint),
       ).toHaveLength(Number(fixtureString(expectedBalance, "utxoCount")));
     });
-    expect(wallet.privateTransactions().map((entry) => entry.id.signature)).toEqual(
-      historyExpected.map((entry) =>
-        fixtureString(fixtureObject(entry.id, "history id"), "signature"),
-      ),
-    );
+    expect(wallet.privateTransactions()).toEqual(historyExpected);
     expect(wallet.balance(SOL_MINT).amount).toBe(40n);
     expect(wallet.utxos().filter((entry) => entry.spent)).toHaveLength(1);
   });
@@ -224,6 +255,7 @@ describe("manifest-verified wallet behavior", () => {
     const value = fixtureAuthority(inputs);
     const transactions = shieldedTransactions(inputs);
     const wallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
+    const sequentialExpected = fixtureObject(expected.sequential);
 
     // The three timestamps are the ones the fixture generator syncs at, so
     // `lastSynced` below is the value Rust recorded rather than an echo.
@@ -234,12 +266,7 @@ describe("manifest-verified wallet behavior", () => {
         transactions: transactions.slice(0, 1),
         config: { syncedAt: 10n },
       }),
-    ).toEqual({
-      received: 1,
-      spent: 0,
-      transactions: 1,
-      unknownAssetIds: [],
-    });
+    ).toEqual(reportRow(fixtureArray(sequentialExpected, "reports")[0]));
     expect(
       await decryptTransactions({
         wallet,
@@ -247,12 +274,7 @@ describe("manifest-verified wallet behavior", () => {
         transactions: transactions.slice(1),
         config: { syncedAt: 20n },
       }),
-    ).toEqual({
-      received: 1,
-      spent: 0,
-      transactions: 1,
-      unknownAssetIds: [],
-    });
+    ).toEqual(reportRow(fixtureArray(sequentialExpected, "reports")[1]));
     expect(
       await decryptTransactions({
         wallet,
@@ -260,13 +282,7 @@ describe("manifest-verified wallet behavior", () => {
         transactions,
         config: { syncedAt: 30n },
       }),
-    ).toEqual({
-      received: 0,
-      spent: 0,
-      transactions: 0,
-      unknownAssetIds: [],
-    });
-    const sequentialExpected = fixtureObject(expected.sequential);
+    ).toEqual(reportRow(fixtureArray(sequentialExpected, "reports")[2]));
     expect(wallet.utxos()).toHaveLength(Number(fixtureString(sequentialExpected, "utxoCount")));
     expect(wallet.privateTransactions()).toHaveLength(
       Number(fixtureString(sequentialExpected, "historyCount")),
@@ -282,14 +298,7 @@ describe("manifest-verified wallet behavior", () => {
       authority: value.authority,
       transactions,
     });
-    expect(workerReport.received).toBe(
-      Number(
-        fixtureString(
-          fixtureObject(fixtureObject(expected.parallelEquivalent).report),
-          "storedUtxos",
-        ),
-      ),
-    );
+    expect(workerReport).toEqual(reportRow(fixtureObject(expected.parallelEquivalent).report));
     expect(worker.utxos()).toEqual(wallet.utxos());
     expect(worker.privateTransactions()).toEqual(wallet.privateTransactions());
 
@@ -308,9 +317,7 @@ describe("manifest-verified wallet behavior", () => {
       transactions: tampered,
     });
     const tamperExpected = fixtureObject(expected.tamper);
-    expect(tamperReport.received).toBe(
-      Number(fixtureString(fixtureObject(tamperExpected.report), "storedUtxos")),
-    );
+    expect(tamperReport).toEqual(reportRow(tamperExpected.report));
     expect(tamperWallet.utxos()).toHaveLength(Number(fixtureString(tamperExpected, "utxoCount")));
 
     const other = fixtureAuthority(inputs, 1);

@@ -692,7 +692,14 @@ export function encodeOutputData(
   return writer.finish();
 }
 
-export function decodeOutputData(bytes: Uint8Array): Readonly<{
+/**
+ * The encoding tag, scheme byte, and remaining body of a slot payload, without
+ * requiring the pair to agree. Rust's `OutputDataEncoding::try_from_slice`
+ * reads the two independently and every reader dispatches on the pair, so a
+ * mismatched payload has to survive parsing in order to be refused where the
+ * dispatch happens. Prefer [`decodeOutputData`] unless you are that dispatch.
+ */
+export function readOutputData(bytes: Uint8Array): Readonly<{
   encoding: OutputDataEncoding;
   scheme: EncryptedScheme;
   body: Uint8Array;
@@ -708,17 +715,28 @@ export function decodeOutputData(bytes: Uint8Array): Readonly<{
       actual: 0,
     });
   }
-  const scheme = encryptedSchemeFromByte(blob[0] as number);
-  const encoding = outputDataEncodingFromTag(encodingTag);
-  const expectedEncoding = outputDataEncoding(scheme);
-  if (encoding !== expectedEncoding) {
+  return {
+    encoding: outputDataEncodingFromTag(encodingTag),
+    scheme: encryptedSchemeFromByte(blob[0] as number),
+    body: blob.slice(1),
+  };
+}
+
+export function decodeOutputData(bytes: Uint8Array): Readonly<{
+  encoding: OutputDataEncoding;
+  scheme: EncryptedScheme;
+  body: Uint8Array;
+}> {
+  const frame = readOutputData(bytes);
+  const expectedEncoding = outputDataEncoding(frame.scheme);
+  if (frame.encoding !== expectedEncoding) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
-      scheme,
-      encoding,
+      scheme: frame.scheme,
+      encoding: frame.encoding,
       expectedEncoding,
     });
   }
-  return { encoding, scheme, body: blob.slice(1) };
+  return frame;
 }
 
 function outputDataEncodingTag(encoding: OutputDataEncoding): number {
