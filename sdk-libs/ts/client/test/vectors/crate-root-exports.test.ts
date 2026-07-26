@@ -134,6 +134,9 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   ClientErrorCode: "the ClientError code union, including TypeScript-only transport codes",
   ClientErrorDetails: "the structured detail payload per code",
   ClientErrorDetailsMap: "the structured detail payload per code",
+  Commitment:
+    "the commitment level SendTransactionConfig names, which Rust takes from " +
+    "solana-commitment-config",
   CompressedProof: "carries Rust ProofCompressed",
   DEFAULT_INDEXER_POLL_CONFIG:
     "IndexerPollConfig::default() as a value, since TypeScript has no Default",
@@ -151,6 +154,9 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   ZoneProverInputs:
     "the circuit-tagged zone payload the prover client takes; Rust selects the zone " +
     "circuit by which prover struct built the TransferInputs",
+  SendTransactionConfig:
+    "RpcSendTransactionConfig without its encoding field, which Rust takes from " +
+    "solana-rpc-client-api and always sets to base64 on this path",
   SignatureStatus:
     "one getSignatureStatuses entry, which Rust takes from solana-transaction-status-client-types",
   attempts: "IndexerPollConfig::attempts as a free function",

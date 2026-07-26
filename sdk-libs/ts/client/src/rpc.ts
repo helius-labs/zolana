@@ -97,6 +97,17 @@ export interface RpcAccount {
   readonly lamports: bigint;
 }
 
+export type Commitment = "processed" | "confirmed" | "finalized";
+
+/// `RpcSendTransactionConfig` without `encoding`: the transaction goes out
+/// base64 here as it does in Rust, so there is nothing for a caller to choose.
+export interface SendTransactionConfig {
+  readonly skipPreflight?: boolean;
+  readonly preflightCommitment?: Commitment;
+  readonly maxRetries?: number;
+  readonly minContextSlot?: bigint;
+}
+
 export interface Rpc {
   getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined>;
   getProgramAccounts?(
@@ -113,6 +124,11 @@ export interface Rpc {
     context?: RequestContext,
   ): Promise<Readonly<{ blockhash: string; lastValidBlockHeight: bigint }>>;
   sendTransaction(transaction: Transaction, context?: RequestContext): Promise<Signature>;
+  sendTransactionWithConfig?(
+    transaction: Transaction,
+    config: SendTransactionConfig,
+    context?: RequestContext,
+  ): Promise<Signature>;
   confirmTransaction(signature: Signature, context?: RequestContext): Promise<boolean>;
   transactOutputViewTags(
     signature: Signature,
