@@ -6,9 +6,10 @@ disagree, the options with their consequences, and the artifacts a change would
 touch. This is the artifact register `G7-2` reports as missing. It is not a
 statement of the authority order.
 
-The `Ruling` block in each section is left blank for the protocol owner. Fill
-the ruling and the date; leave the evidence untouched so a later reader can see
-what the ruling was made against.
+Every section here is ruled. A new section leaves its `Ruling` block blank for
+the protocol owner, who fills the ruling and the date; the evidence stays
+untouched either way, so a later reader can see what the ruling was made
+against.
 
 Line numbers are as of branch `ts-sdk-port` on 2026-07-25. Claims that could
 not be settled from the repository are labelled unverified with the missing
@@ -16,12 +17,37 @@ piece named.
 
 ## Contents
 
-- [Open: owner-hash encoding (G7-1)](#open-owner-hash-encoding-g7-1)
+Sections carrying their own evidence:
+
+- [Ruled: owner-hash encoding (G7-1)](#ruled-owner-hash-encoding-g7-1)
+- [Ruled: indexer-api schema authority (X01)](#ruled-indexer-api-schema-authority-x01)
+- [Ruled: least-powerful capability at the call sites (K11)](#ruled-least-powerful-capability-at-the-call-sites-k11)
 - [Ruled: confidential owner tag (T23)](#ruled-confidential-owner-tag-t23)
 - [Ruled: ECDSA malleability policy (G2-1)](#ruled-ecdsa-malleability-policy-g2-1)
 - [Ruled: Ed25519 acceptance (G2-2)](#ruled-ed25519-acceptance-g2-2)
-- [Open: the u64 integer domain (C04)](#open-the-u64-integer-domain-c04)
-- [Closed rulings](#closed-rulings)
+- [Ruled: the u64 integer domain (C04)](#ruled-the-u64-integer-domain-c04)
+- [Thirteen rulings from the open-questions register, 2026-07-26](#thirteen-rulings-from-the-open-questions-register-2026-07-26)
+
+[Closed rulings](#closed-rulings), decided with shorter evidence:
+
+- [DataRecord::Memo tag 3](#datarecordmemo-tag-3)
+- [CI tiering](#ci-tiering)
+- [Custody seam](#custody-seam)
+- [Indexer error `method` detail](#indexer-error-method-detail)
+- [Breaking changes to the SDK crates](#breaking-changes-to-the-sdk-crates)
+- [Merge order against PR #158](#merge-order-against-pr-158)
+- [Zone-authority withdrawals](#zone-authority-withdrawals)
+- [The padding-nullifier finding against PR #142](#the-padding-nullifier-finding-against-pr-142)
+- [Where the `user_record` binding defect lands](#where-the-user_record-binding-defect-lands)
+- [Whether the zone prover paths are built now or deferred](#whether-the-zone-prover-paths-are-built-now-or-deferred)
+- [The forester instruction builder on the TypeScript public surface](#the-forester-instruction-builder-on-the-typescript-public-surface)
+- [Poseidon in TypeScript](#poseidon-in-typescript)
+- [Whether the WebAssembly Poseidon may use a module-scope await](#whether-the-webassembly-poseidon-may-use-a-module-scope-await)
+- [The external-data length prefix (T21)](#the-external-data-length-prefix-t21)
+- [Which side is wrong at the indexed-array sentinel (M01)](#which-side-is-wrong-at-the-indexed-array-sentinel-m01)
+- [The deposit's discovery tag](#the-deposits-discovery-tag)
+- [The transaction size check](#the-transaction-size-check)
+- [Rail inference when parsing a proof (C08)](#rail-inference-when-parsing-a-proof-c08)
 
 ## Ruled: owner-hash encoding (G7-1)
 
@@ -249,6 +275,11 @@ two packages. It was deferred to avoid colliding with the workers editing them,
 not because anyone is unsure what to do. It belongs after the transaction and
 wallet rows, and it is real: no consumer can pass a backend today, even though one
 typechecks.
+
+Superseded in part by [Q17](#q17-an-out-of-process-viewing-key-backend-k11). The
+call sites do not go async: the owner ruled an out-of-process viewing-key backend
+unsupported, so `ViewingKeyLike` narrows to synchronous returns instead and the
+signature change across two packages does not happen.
 
 ## Ruled: confidential owner tag (T23)
 
@@ -913,8 +944,548 @@ precision-loss refusal, since silently truncating a slot is the failure this
 prevents. Follow Light in applying the coercion only to fields whose domain can
 actually exceed `2^53`, rather than uniformly, so a field that cannot overflow
 does not acquire a parse path it never needs.
-| Date | |
-| Follow-up artifacts | |
+
+## Thirteen rulings from the open-questions register, 2026-07-26
+
+The protocol owner ruled on thirteen questions in one sitting. The numbering is
+[`open-questions.md`](open-questions.md)'s, and each entry below is the record
+that register's status line points at.
+
+Three went against the recommendation on the table, Q19, Q22 and the shape of
+Q10. Each says so, because an undocumented override reads later as an oversight
+and gets quietly reversed.
+
+One, Q5, authorises editing `docs/spec.md`, which this port's standing constraint
+otherwise forbids. That entry says so, and the authorisation covers that conflict
+only.
+
+### Q5: a zone authority moving value out of a zone
+
+| Field | Value |
+| --- | --- |
+| Conflict | `docs/spec.md:983` states that value cannot leave a zone through a zone-authority transition. The program settles a zone-authority public leg through the same path as an ordinary `transact`, and the protocol's own builder carries a `withdrawal` field for it. |
+| Ruling | Amend the specification to match the program. Same principle as G7-1 and X01: the implementations agree and the document is the stale artifact. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | The `docs/spec.md:983` paragraph. No SDK code moves; the guard was already removed under [Zone-authority withdrawals](#zone-authority-withdrawals). Row T29's text still describes the guard and needs rewriting to the current behaviour. |
+
+This ruling authorises editing `docs/spec.md`. The authorisation covers this
+conflict only.
+
+Three independent readings agree that nothing on chain gates a public leg on the
+zone-authority variant, and [`row-updates/rejection-validation.md`](row-updates/rejection-validation.md)
+collects all three. `zone_authority_transact` calls
+`process_transact_core::<true, true>`
+(`zone_authority_transact/processor.rs:45-52`), and that function settles through
+a match that consults neither const parameter (`transact/processor.rs:170-176`);
+`IS_ZONE` and `IS_AUTHORITY` are read in exactly two places and neither touches
+the public amounts. The circuit applies `assertBalanceConservation`
+(`balance.go:15-72`) to every variant, and the only variant-specific constraints
+in `Define` are the two zone-field assertions at `circuit.go:216-221`. And
+`program-libs/interface/src/instruction/builders/zone_authority_transact.rs:21`
+declares `pub withdrawal: Option<TransactWithdrawal>` and pushes the settlement
+accounts for it, which is a protocol statement about what the instruction can
+carry.
+
+The specification paragraph is not careless, which is why it needs amending
+rather than deleting. `git log -S` places it in `39465e8c`, the commit that added
+the zone circuits, so it predates the port and is not a fixer writing their own
+justification. What it gets wrong is the inference: the mechanism it cites is the
+strict UTXO zone binding, and the conclusion that mechanism supports is that a
+default-zone UTXO can neither be spent nor created. A withdrawal creates no
+default-zone UTXO. It settles to an external account through the public leg,
+which the binding does not touch. The amendment has to state the binding it
+actually has and drop the containment claim, not restate the claim in different
+words.
+
+What would reopen this: someone intending containment as a real invariant. That
+is a program change constraining the public amounts on the authority rail, and
+the key rotation behind it, rather than a document edit. The confirming test the
+register names, a `program-tests` scenario submitting a negative
+`public_sol_amount` with a real proof, is still worth having, but as
+confirmation. [`row-updates/double-spend-analysis.md`](row-updates/double-spend-analysis.md)
+already established that nullification and public-leg settlement happen in one
+instruction with no path that applies one without the other, so the safety
+question that held this open is answered.
+
+### Q6: the frozen-source gate
+
+| Field | Value |
+| --- | --- |
+| Conflict | `npm run fixtures:check` fails when any file under twelve canonical paths differs from a pinned revision, so every row closed by fixing Rust reddens the gate whether or not the fix can change a fixture byte. |
+| Ruling | Drop the source-hash gate entirely, as Light does. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `assert_frozen_sources` and its three revision constants and three path lists in `xtask/src/bin/ts-fixtures.rs`; the `canonicalSourceRevisions` block those constants also feed; the checklist's G8-1 drift line. `xtask` sits outside the `sdk-libs/**` scope rule, so this needs a worker allowed to touch it. |
+
+This went further than the recommendation on the table, which was to narrow the
+frozen set to files whose bytes feed a fixture. The owner chose removal. Record
+it as a choice: a later reader finding no source pin should not conclude it was
+lost.
+
+The gate is `assert_frozen_sources` (`ts-fixtures.rs:268-295`), which runs
+`git diff --quiet <revision> -- <paths>` for three revisions and fails the run on
+any difference. Its baseline list is twelve paths (`ts-fixtures.rs:38-50`) and
+includes `sdk-libs/keypair/src`, `sdk-libs/transaction/src` and
+`sdk-libs/client/src/prover`, so a fix anywhere in three of the packages this
+port is actively repairing turns the gate red. K12 already did it, and the C08
+ruling sends the next worker into `client/src/prover`, another frozen path.
+
+Light's absence here was checked as a negative rather than assumed:
+`BASELINE_SHA`, `frozen_sources` and `assert_frozen` return nothing anywhere in
+that repository, and it does export test data from Rust
+(`xtask/src/export_photon_test_data.rs`) while pinning nothing about the sources
+that produced it.
+
+The consequence, stated plainly: fixture drift will no longer be caught by
+hashing sources. What remains is the fixtures' own comparison, the regenerate
+into `target/ts-fixtures-check` and compare against the committed tree at
+`ts-fixtures.rs:133-145`, plus `EXPECTED_FIXTURE_COUNT` and the manifest hashes.
+That comparison catches a source change that moves a fixture byte and is silent
+about one that does not, which is the trade being accepted: the gate that fired
+on a harmless edit is also the gate that would have caught a fixture nobody
+regenerated. Two things follow for whoever removes it. The regenerate-and-compare
+run has to actually run in CI rather than be assumed. And the three revision
+constants also populate `canonicalSourceRevisions` in the manifest, so the
+removal has to decide whether they stay as provenance labels or go with the
+gate; leaving a constant named `BASELINE_SHA` behind with nothing enforcing it is
+the outcome to avoid.
+
+What would reopen this: a fixture divergence reaching `main` because nobody
+regenerated. If that happens the answer is a stronger comparison, not a restored
+source hash.
+
+### Q7: `@solana/kit` and versioned transactions
+
+| Field | Value |
+| --- | --- |
+| Conflict | Whether to take `@solana/kit`, and with it versioned transactions and address lookup tables, against a hand-written legacy message compiler. |
+| Ruling | Stay on legacy messages. Revisit when a second pool tree ships. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | None to implement. Step A of [`remaining-work.md`](remaining-work.md) closes with this answer. The interim work [`versioned-transactions.md`](versioned-transactions.md) recommends stands on its own merits: the size measurement is landed under [The transaction size check](#the-transaction-size-check), and consolidating the three hand-written compilers is justified by the duplication rather than by v0. |
+
+The measurement is what decides it. A shielded transfer names three accounts at
+any supported shape against a runtime ceiling of 128, and the count does not grow
+with the proof shape, because `InputUtxo` carries a `tree_index: u8` and
+`TransactAccounts` loads exactly one tree (`transact/account.rs:24-27`). Going
+from one input to five adds 38 bytes and no accounts. A lookup table costs a
+shielded transfer 5 bytes and saves an SPL withdrawal 57, because break-even is
+two compressible addresses and a transfer has exactly one: the fee payer is a
+signer, and a program id cannot be loaded from a table.
+
+"Light adopted it" is not an argument its code supports, and this was checked
+twice. Light did not migrate to v0, it started there, with no migration commit
+and so no recorded trigger; its lookup tables are an append-only address registry
+never passed to `compileToV0Message`; and its `@solana/kit` dependency is an
+interop shim that compiles no transactions.
+
+The decision is cheap to defer, which is the other half of the reasoning. The
+boundary type is `Transaction = { messageBytes, signatures }`
+(`interface/src/index.ts:72-75`), so a v0 message is still bytes and adopting v0
+later ripples into no caller, no signer, and no wallet surface. What does accrete
+is the duplication a version change would have to cross: one message compiler
+became three and one `compactU16` became five, in four commits, in a package two
+days old.
+
+The revisit trigger the owner named is a second pool tree, which is Q9. Two
+others from the study are real and should not be crowded out by it:
+`OwnerTag::Account` coming into use, which makes the account list grow with
+output count, and a wallet integration requiring `VersionedTransaction`, which is
+an interoperation reason rather than a size one and belongs with finding F1.
+
+### Q8: the ciphertext format change
+
+| Field | Value |
+| --- | --- |
+| Conflict | Three of the ten supported shapes compile to transfers past the 1232-byte limit today and a fourth joins them as a withdrawal. The already-specified ciphertext format brings nine of the ten under the limit. |
+| Ruling | Not scheduled. Plan as though it is not coming. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `SPP_SUPPORTED_SHAPES` and the resolution that reads it, `sdk-libs/ts/interface/src/shape.ts:12-42` and `program-libs/interface/src/shape.rs:68-79`. Both languages move together or the narrowing becomes a divergence. |
+
+The register recorded the conditional: if the format change slips, narrowing
+`SPP_SUPPORTED_SHAPES` stops being bookkeeping. It has slipped indefinitely, so
+the conditional fires and the narrowing is necessary work.
+
+What is unsendable today, measured rather than modelled
+([`versioned-transactions.md`](versioned-transactions.md)): 4 in 4 out at 1294
+bytes as a transfer, 5 in 4 out at 1332, 1 in 8 out at 2108, and 5 in 3 out at
+1240 as a withdrawal. The last of those is the reason a flat removal of shapes
+from the list would be wrong: 5 in 3 out sends fine as a transfer at 1100 bytes
+and fails only as a withdrawal, so the narrowing has to distinguish the role
+rather than the shape alone. The 1 in 8 out case is reachable from the public API
+without doing anything unusual, because a single-input transfer to six recipients
+resolves to it, and today nothing refuses it: the transaction is built, submitted,
+rejected, and reported as a confirmation timeout.
+
+The interaction with Q7 is the part worth recording. The recommendation against
+versioned transactions rested partly on this change arriving, since it makes v0
+unnecessary for size. That leg is gone. Q7's answer now stands on the size check
+instead: a lookup table costs a transfer 5 bytes and rescues exactly one shape
+across the ten, the 5 in 3 out withdrawal, from 1240 bytes to 1183. Versioned
+transactions were never the fix for the three oversized transfers, and that
+remains true with the format change unscheduled, but the argument is now the
+measured arithmetic alone. [The transaction size check](#the-transaction-size-check)
+ruled the same way from the other direction, on the same day: the check lands and
+is not deferred behind v0.
+
+One thing the size check does not do, and this ruling makes it matter more. It
+measures and does not refuse, so a caller who selects one of the unsendable
+shapes still submits and still gets a confirmation timeout naming the wrong
+cause. With the format change unscheduled, that path is permanent rather than
+temporary, which is the sharpest argument for narrowing what the builder resolves
+to.
+
+Coordinate with Q16 before editing the shape list. Two separate narrowings land
+on the same surface for unrelated reasons: this one for size across the rails,
+Q16's for zone-authority key coverage on one rail.
+
+### Q9: a second pool tree
+
+| Field | Value |
+| --- | --- |
+| Conflict | The account arithmetic behind Q7 rests on `TransactAccounts` loading exactly one tree, and no roadmap statement existed either way. |
+| Ruling | No plan currently. Proceed on the one-tree assumption, recorded as an assumption with a named dependency rather than as a fact. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | None to implement. Q7's answer depends on this, and a second tree is Q7's named revisit trigger. |
+
+The distinction the ruling asks for is the whole content of it. "No plan
+currently" is the absence of a roadmap statement, not a commitment that a second
+tree will never ship, so anything resting on it has to be written as conditional.
+The load-bearing use is Q7: `InputUtxo::tree_index` is a `u8` that is zero
+everywhere today because `TransactAccounts` loads one tree
+(`transact/account.rs:24-27`), and the moment a spend can name two, a transfer
+has two compressible protocol-owned addresses, which is exactly the lookup-table
+break-even. A five-input spend across five trees would put four more 32-byte
+addresses inline, and the account count would start scaling with input count.
+
+Nobody will announce this in a form the SDK sees, so name the tells. A change to
+`TransactAccounts::validate_and_parse` that reads more than one tree account is
+the direct one. The indirect check is one command, `cargo run -p xtask -- tx-size`
+over the shapes of interest, which should be re-run after any change to the
+`transact` account list, the proof layout, or the ciphertext format, and compared
+against the tables in [`versioned-transactions.md`](versioned-transactions.md).
+
+### Q10: an explicitly-passed zero at a zone binding (T28)
+
+| Field | Value |
+| --- | --- |
+| Conflict | T28 proposed refusing an explicitly-passed zero where the SDK constructors take an `Option`. The prepared struct distinguishes `Some(zero)` from `None` and the commitment does not. |
+| Ruling | Normalize an explicitly-passed zero to absent rather than refusing it. The counterargument, that the dummy-canonicity check refuses an explicit zero rather than normalizing, was considered and not taken. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `sdk-libs/transaction/src/instructions/types.rs:124` and the constructors that take these options, with the TypeScript counterparts. Rust first, TypeScript second, per the standing order for a change to what a constructor accepts. Row T28. |
+
+This went against [`row-updates/t28-zone-binding.md`](row-updates/t28-zone-binding.md)
+in shape for one of the two clauses it covers, and the register should be read
+with that in mind: clause one was recommended as a refusal and clause two as a
+normalization. The ruling normalizes.
+
+Read the ruling as a principle over both explicit-zero clauses, because the
+sentence names the zone address while the counterargument it dismisses belongs to
+the zone data hash, and the two clauses had opposite recommendations. The
+principle is that an explicitly-passed zero means absence and is normalized to
+it. The consequence differs by clause and an implementer needs both.
+
+For the zone data hash, normalization is free. The mechanism is
+`types.rs:124`, which takes `spend.zone_data_hash.unwrap_or_default()`, so
+`Some([0u8; 32])` and `None` already reach the commitment as the same value while
+the prepared struct keeps them apart. That gap is the defect. Normalizing closes
+it and moves no commitment, because the committed field was already zero.
+
+For the zone address, normalization changes what is committed. `Some(zero)`
+commits to `pk_field(0) = Poseidon(0, 0)`, a specific non-zero field element, so
+a UTXO built that way is read as zone-bound and held to the public zone rather
+than being unbound. Normalizing makes it unbound instead. That is safe on the
+evidence: no caller in the SDK tests, client tests, program tests or TypeScript
+fixtures passes the zero zone address, and a build that did could not settle,
+because `merge_zone` reads the public zone from a signing `zone_config` and
+`create_zone_config` requires that account to sign and to sit at the
+`zone_auth` PDA derived under the zone program (`zone_config/create.rs:30`,
+`:33-38`, `:76-78`). One trap for whoever implements it: do not cite
+`circuit.go:219-221` as the chain-side equivalent. The circuit compares the field
+element, and `pk_field(0)` is non-zero, so it would accept what the SDK refuses.
+
+The counterargument, recorded because it was close. The SDKs already refuse an
+explicit zero rather than normalize it in the canonical-dummy check
+(`types.rs:79-80`, its test at `:209-211`, mirrored at
+`ts/transaction/src/utxo.ts:284`), so refusing would have been consistent and
+normalizing leaves the SDK doing two different things with the same input in two
+places. What carries the ruling over that is the difference in what the two rules
+are for: the dummy rule exists to catch a caller who built a dummy wrong, where
+masking the mistake is the harm, and no equivalent mistake is being masked on a
+real output. The caller shape is not hypothetical either, since the zone-deposit
+fixtures use a zero `[u8; 32]` as the no-zone-data value in a fixed-width struct
+(`program-tests/zone-test-program/tests/steps/zone_deposit.rs:46`), so an adapter
+onto the `Option` API lands on `Some([0u8; 32])` without meaning anything by it.
+
+What this ruling does not settle, both of which question 10 also carried. T28's
+third clause, refusing a zone data hash at or above the BN254 modulus, is
+untouched; it refuses nothing that succeeds today, relabels a deferred Poseidon
+failure, and can be taken alone in either language first. And S01, the 1232-byte
+guard, is untouched: question 13 supplied Light's partial answer, measure without
+refusing, and the measurement landed in `0e26c397`, but whether Rust gains the
+fallible builder signature is still open.
+
+### Q11: the two program defects
+
+| Field | Value |
+| --- | --- |
+| Conflict | PD-1 and PD-2 are program and circuit defects with executed reproductions, and the port's SDK-only scope forbids fixing either on this branch. |
+| Ruling | Each gets its own pull request against the program, tracked outside this port. Neither blocks this port from landing. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | PD-1 has no branch. PD-2 has branch `fix/merge-user-record-binding`, commit `a811b20e`, and PR #160, which is open rather than merged and whose commit is not an ancestor of `main`. [`scope-and-denominator.md`](scope-and-denominator.md)'s outside-scope table and the checklist's protocol-defect table both carry the route. |
+
+The route is the same one this ledger already set twice, for the padding
+nullifier against PR #142 and for the `user_record` binding defect. Confirming it
+for both defects at once is most of what this ruling does. The new half is that
+neither blocks the port: the completion criteria do not include either fix, so a
+reviewer counting adverse rows should not count PD-1 or PD-2 among them, and a
+worker finding one of them in a file they are porting should not stop.
+
+PD-1 is a liveness risk rather than a double spend, and the distinction matters
+because the investigation that found it answered the double-spend question the
+other way. A padding dummy input's public nullifier column is unconstrained in
+the circuit and the program inserts it anyway, so a padding dummy carrying
+nullifier `0` lands on chain, and `0` is already a nullifier-tree leaf that
+cannot be appended again. A chosen padding nullifier can wedge the queue and
+freeze every shielded balance. Established by execution in
+`program-tests/shielded-pool/tests/transact/double_spend.rs`.
+
+PD-2 is that `merge_transact` does not bind its `user_record` to the owner whose
+UTXOs are merged. [Where the `user_record` binding defect lands](#where-the-user_record-binding-defect-lands)
+carries the analysis and should be read before the fix is attempted, in
+particular that the P256 rail probably does not close without a registry change.
+
+### Q16: zone-authority shapes (C18)
+
+| Field | Value |
+| --- | --- |
+| Conflict | `ZoneAuthorityProver::build` resolves against the ten `SPP_SUPPORTED_SHAPES` while four zone-authority verifying keys exist, so both SDKs build a request the prover cannot serve and the caller learns at proving time. |
+| Ruling | Narrow both SDKs to the four shapes the specification lists and for which keys exist: 1x1, 2x2, 3x3, 4x4. Do not generate the six missing keys. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | Implemented in both languages at `71f7f319`, which refuses the six non-square shapes with a named error naming the supported set. What remains is row C18, reopened as `DIVERGENT` when the gap was found. `prover/` and `program-libs/interface/src/verifying_keys/` did not move. |
+
+The specification decides this one, which is why it needs no balancing of costs.
+`docs/spec.md:1013-1020` lists exactly four supported shapes for the
+zone-authority rail and the keys on disk match it, so the SDKs are the diverging
+side and narrowing them is conformance. That framing belongs in the commit
+message, because the surrounding rows record the opposite pattern, TypeScript
+tightening past Rust, as a regression this project has reverted twice. Here both
+languages move together, and if one moves alone the narrowing becomes the
+divergence it was meant to close.
+
+Light does not answer this and copying it would leave the defect in place:
+`proverRequest` selects among three circuit-type strings and validates no shape
+before sending (`js/stateless.js/src/rpc.ts:356-410`). The standing rule is that
+Light outranks a reviewer's preference and does not outrank the authority order,
+and this is the case that exercises the second half.
+
+Two notes that outlive the implementation.
+[`row-updates/zone-authority-shape-narrowing.md`](row-updates/zone-authority-shape-narrowing.md)
+justifies the four by arguing that a zone-authority transition "cannot move value
+out of the zone", so inputs equal outputs and the missing six are exactly the
+non-square shapes. Q5 ruled that a zone authority can move value out through a
+public leg, so that sentence no longer holds. The conclusion survives without it,
+on the specification and the keys on disk, and a withdrawal spends and rebuilds
+the same number of notes in any case. Do not repeat the sentence. Second, Q8
+narrows the same shape surface for a different reason, so anyone editing
+`SPP_SUPPORTED_SHAPES` should read both.
+
+### Q17: an out-of-process viewing-key backend (K11)
+
+| Field | Value |
+| --- | --- |
+| Conflict | `ViewingKeyLike` returns `T \| Promise<T>` so a backend answering over a wire can implement it, which makes the three remaining call sites `async` when they accept it, propagating across two packages. |
+| Ruling | An out-of-process viewing-key backend is not a supported deployment. `ViewingKeyLike` narrows to synchronous returns and K11 closes without the three call sites becoming async. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `ViewingKeyLike` in `sdk-libs/ts/keypair/src/shielded.ts:145-183` and Rust's `ViewingKeyTrait` if it carries the same option; the `RemoteBackend` case in `keypair/test/api-surface.test.ts:126-256`; the three call sites `transaction/src/wallet/sync.ts`, `transaction/src/serialization/codecs.ts` and `wallet/src/sync.ts`, which now accept the interface and stay synchronous. Owned by the keypair batch. |
+
+This supersedes the disposition in [Ruled: least-powerful capability at the call
+sites (K11)](#ruled-least-powerful-capability-at-the-call-sites-k11), which read
+the remaining work as making the three call sites async. It is not: they stay as
+they are and the interface moves instead.
+
+The scope is viewing-key material, not signing. `ShieldedKeypairLike` keeps
+`T | Promise<T>`, because `sign` is genuinely remote-capable and an HSM that
+signs is a real deployment. Light draws the same line: its capability interface
+for the compiled backend is synchronous and passed as an argument
+(`test-rpc.ts:70-75`, `rpc.ts:495`), and signing is the async one, taken from
+web3.js `Signer` rather than declared. So derivation stays synchronous and the
+propagating `async` never happens.
+
+Read this beside the [Custody seam](#custody-seam) ruling, which already says a
+signing-only custodian is not supported and that a custodian must hold nullifier
+and viewing key material. Together the two fix the seam: a custodian may hold the
+material, and it has to answer in the caller's process.
+
+What the ruling costs, stated plainly: the interface was widened to
+`T | Promise<T>` for exactly the case now ruled out, so narrowing removes the one
+capability it was added for. Two concrete consequences follow. `RemoteBackend`,
+which exists to prove the published interfaces are satisfiable without the
+concrete classes, will no longer typecheck as a `ViewingKeyLike`, so that test
+has to keep the async proof for `ShieldedKeypairLike` and drop it for the viewing
+half rather than be deleted. And the narrowing is a breaking change to a
+published interface in `@zolana/keypair`, which the standing pre-1.0 ruling
+permits.
+
+What would reopen it: a deployment that actually needs a remote viewing-key
+backend. At that point the three call sites go async, the change propagates
+across two packages, and Light's arrangement stops transferring.
+
+### Q19: `sync_wallet` against `sync_wallet_async`
+
+| Field | Value |
+| --- | --- |
+| Conflict | `sync_wallet` blocks waiting for the indexer and `sync_wallet_async` does not, and no comment or document explains the split. |
+| Ruling | The split stays. It is deliberate. Document it. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | Doc comments on `sync_wallet` and `sync_wallet_async` (`sdk-libs/wallet/src/wallet_sync.rs:59-69`, `:135-145`) and on the `SyncWalletConfig::new` against `Default` pair that produces the difference (`:37-57`); the same sentence on the TypeScript side, where `syncWallet` defaults `waitForIndexer` to `false` (`sdk-libs/ts/wallet/src/sync.ts:317`). |
+
+This went against the recommendation, and the dissent matters more than usual
+because the recommendation was an inference about intent. It read Light's single
+always-wait behaviour, `confirmTransactionIndexed` polling `getIndexerSlot` and
+`confirmTx` calling it unconditionally at the end of every confirmation
+(`js/stateless.js/src/rpc.ts:1671-1688`, `send-and-confirm.ts:106-107`), as
+evidence that blocking was the intended behaviour and that the `::default()`
+construction on the async path was an accident. The owner ruled the split is
+deliberate. Light's arrangement is not adopted, and the register's phrasing that
+`::default()` is "the accident" is the recommendation rather than the outcome.
+
+The mechanism, so nobody re-derives it: `sync_wallet` builds
+`SyncWalletConfig::new()`, which sets `wait_for_indexer: true`;
+`sync_wallet_async` builds `::default()`, which sets it `false`. That single
+field is the whole difference in behaviour. The two entry points also differ in
+their authority bound, `SyncWalletAuthority` against `WalletAuthority`.
+
+Documenting the split is now owed work rather than an optional tidy, and that
+follows from the ruling rather than sitting beside it. The absence of any
+explanation is what made the split look like a defect and got it filed as an open
+question. A ruling that it is deliberate, landing with no written reason, leaves
+the same artifact for the next reviewer to file again. So the documentation has to
+say why the two entry points differ, not merely that they do.
+
+One consequence for the port. TypeScript has a single entry point and matches the
+async default, which `wallet/test/vectors/wallet-sync-tags.test.ts:141-147`
+already records in a comment. Under this ruling that is correct rather than
+provisional, but it means the blocking behaviour is reachable in TypeScript only
+by passing `waitForIndexer: true`, and the documentation owed covers that too: a
+caller who wants what Rust's `sync_wallet` does has to ask for it.
+
+What would reopen it: a caller surprised by a sync that returned before the
+indexer caught up. If that happens, the thing to revisit is the default on the
+async path, not the existence of two entry points.
+
+### Q22: merging `@zolana/api` and `@zolana/indexer-api` (F10)
+
+| Field | Value |
+| --- | --- |
+| Conflict | The two packages are the transport and the schema for the same server, both browser-safe, each depending only on the other and on `@zolana/interface`, and nothing consumes one without the other. |
+| Ruling | Keep them separate. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | None. Question 14, the shared home for the compact-u16 and message-compiler helpers, has to be settled on its own now, because the merge was the moment that would have carried it. |
+
+Against the recommendation, which was to merge after parity. Finding F10 counted
+what the split costs: a package, a build step, a typecheck step and six test
+configurations, against `@zolana/api` being a single file whose only dependencies
+are the other two. It also named a cost the README has already paid once, that
+cross-package tests resolve through `exports` and so import `dist` rather than
+`src`, and a stale `dist` produced something that looked exactly like a
+cross-batch regression in secret redaction. Light ships three packages against
+Zolana's ten. The owner kept them separate anyway.
+
+The override is cheap and it is worth saying why, because that is what should
+stop anyone reopening it on a slow afternoon. Every argument for merging is a
+cost argument. None of them is a correctness argument: no behaviour, no fixture
+and no published symbol depends on which of the two packages a symbol lives in.
+The ruling accepts the cost.
+
+What it forbids: merging them opportunistically while doing something else.
+Question 14's shared home for the duplicated wire helpers was going to ride along
+with this merge, and now needs a home that does not rest on it.
+
+F10's other half is unaffected and was never in dispute. `@zolana/test-kit` stays
+a separate package rather than following Light, which puts `test-helpers` on its
+published root surface and so ships a mock RPC and a TypeScript Merkle tree to
+every production consumer.
+
+### Q24: merkle-tree error code mapping (M02)
+
+| Field | Value |
+| --- | --- |
+| Conflict | Eleven `MerkleTreeErrorCode` values face eight `ReferenceMerkleTreeError` variants, and inventing a mapping would assert a correspondence nothing evidences. |
+| Ruling | Close the row without a mapping. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | Row M02's residual line. No code moves. |
+
+M02 is already `done` and `PARITY`, closed at `ecfda044` on the surface gates.
+This clears the residue that survived it.
+
+The row's behavioural half compares outcomes rather than error names, and it is
+satisfied: `xtask/src/bin/merkle-semantics.rs` drives the Rust tree and
+`merkle-tree/test/vectors/merkle-semantics.test.ts` replays the same traces
+through TypeScript, step by step, so a divergence fails at the step that
+introduced it. Nothing in that evidence needs an error-name correspondence.
+
+Light's own taxonomy is a warning rather than a model, and it is the reason there
+is no external answer to adopt: `js/stateless.js/src/errors.ts` defines nine enums
+and nine `MetaError` subclasses under a `// TODO: Clean up` on its first line, and
+none of them is referenced anywhere else in `js/src`, where the real style is
+`throw new Error(...)`, twenty-three of them in `rpc.ts` alone.
+
+What would reopen it: a caller that needs to branch on a merkle-tree error code
+across the two languages. Neither SDK has one today, and a mapping asserted
+without evidence is worth less than the absence of one.
+
+### Q26: publishing
+
+| Field | Value |
+| --- | --- |
+| Conflict | Two repository-external choices the plan has carried from the start: which npm scope to publish under and with whose registry access, and which browser versions are supported. |
+| Ruling | Publish under the `@zolana` scope. State a Browserslist. Do not gate on it. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | Registry access under the scope, which is an operational task rather than a code change; a published Browserslist across the ten publishable packages; the open-questions block in the port README, which carries both as defaults. |
+
+The scope half confirms the default rather than changing anything: every manifest
+already assumes `@zolana/*`, and Light's three packages publish under one
+organisation scope in the same way. What the ruling converts is the operational
+item, from a question into a task with an owner.
+
+The Browserslist half does not follow Light, and the reason should be recorded so
+it does not read as an oversight. None of Light's three manifests declares
+`engines` or `browserslist`, checked by reading all three, so a shipped SDK with
+real users in this ecosystem publishes no browser matrix at all and lets the
+consumer's bundler decide. Zolana holds a stronger property than Light does:
+`sdk-libs/ts/config/browser-check.mjs` scans every source file for `Buffer`,
+`require(`, `node:` and `process`, then bundles the whole graph under the
+`browser` condition and scans the output for the same tokens. A gate that strong
+should say what it implies, so the matrix is published as a claim about the
+target.
+
+"Do not gate on it" is the load-bearing half. The Browserslist documents the
+target; it does not become a second gate. A manifest field tests nothing, and the
+property it would appear to promise, that the bundle loads and runs in those
+browsers, needs a real browser run rather than a static scan. Finding F9 records
+what that would take, roughly fifteen lines of Playwright configuration and one
+spec, and it is a separate decision.
+
+Two practical notes for whoever writes the list. The ten packages already declare
+`engines.node` at `>=20.19.0 <23`, so the manifests have the shape for it. And
+the list should be derived from what the bundle actually uses rather than from
+the README's standing sentence about Web Crypto, `BigInt`, ES2022 modules and
+`fetch`; the compiled Poseidon and the CommonJS build that
+[`poseidon-wasm-and-packaging.md`](poseidon-wasm-and-packaging.md) adds are part
+of what a consumer will load, so the claim should be written after that packaging
+lands.
 
 ## Closed rulings
 
@@ -1142,6 +1713,18 @@ The cost accepted is 585 KB gzipped once per application, and a named error when
 before initialization. A clear failure is the price of the design; a silent wrong digest would not
 have been.
 
+**Amended 2026-07-26: the artifact CI gate is withdrawn, and packaging replaces
+it.** The verification of the compiled hasher left one thing owed, a CI check
+proving `sdk-libs/ts/hasher/src/artifact.ts` was generated from the Rust in the
+tree, since a stale artifact would otherwise ship in silence
+(`row-updates/wasm-verification.md`). Unpacking `@lightprotocol/hasher.rs@0.2.1`
+showed Light making that impossible rather than detectable: the artifact lives in
+a separately versioned package whose build compiles the Rust it wraps, so it
+cannot be built stale. Ours is a committed file no build step regenerates. The
+owner withdrew the gate in favour of that packaging change; a worker holds it on
+`port/hasher-pkg`. The paragraph in `row-updates/wasm-verification.md` calling
+the gate owed predates this and is superseded.
+
 ### The external-data length prefix (T21)
 
 | Field | Value |
@@ -1171,6 +1754,81 @@ by both and exists in neither.
 The revert question hanging over `bc55a9b9` is settled by this: the checked `length_prefix` in
 `program-libs/interface` stays reverted, the program keeps truncating, and the guard lives in the
 SDKs where this branch is allowed to put it.
+
+**Landed at `8ded1d7a`, thirteen minutes after this ruling was recorded**, so
+the sentence above calling the boundary vector owed by both languages is
+superseded rather than wrong. The Rust SDK has the guard, and
+`sdk-libs/transaction/tests/ts_oracle.rs:2757-2762` generates the two cases from
+Rust: `maxOutputs` at 65,535 hashes, `oneOutputPastMax` at 65,536 raises
+`TRANSACTION_TOO_MANY_OUTPUTS`. `transaction/test/vectors/rust-oracle.test.ts`
+replays both. What T21 still owes is its row evidence, not code.
+
+### Which side is wrong at the indexed-array sentinel (M01)
+
+| Field | Value |
+| --- | --- |
+| Conflict | At the highest-value sentinel Rust returned `ok` where TypeScript raised `INDEXED_MERKLE_TREE_INVALID_VALUE`, so the two disagreed about which appends are legal. |
+| Ruling | Rust is the defective side. Tighten it and leave the TypeScript guard alone. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/hashers-b.md`, commit `4d9a39f1`, branch `fix/indexed-array-exclusive-highest-value` |
+
+Recorded here late; it lived in the batch file. The SDK half landed at
+`4d9a39f1`: `check_below_highest_value` is the first statement of both `append`
+and `get_non_inclusion_proof` (`sdk-libs/merkle-tree/src/indexed.rs:142-177`), so
+it runs before any tree state is read and both languages now refuse the same
+value. The `program-libs/indexed-array` half sits on
+`fix/indexed-array-exclusive-highest-value`, which is local, unpushed, and has no
+worktree, so it exists in one place and is one `git gc` from gone.
+
+### The deposit's discovery tag
+
+| Field | Value |
+| --- | --- |
+| Conflict | Both SDKs derived a deposit's discovery tag from the recipient's viewing pubkey x-coordinate, while `docs/spec.md:373` tags every default-zone output by its owner pubkey. |
+| Ruling | The tag is the recipient's signing pubkey. Option A2 of `row-updates/interface-spec-conflicts.md`. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/deposit-tag-change.md`, commits `1ff51a4c` and `114a5140`, `docs/spec.md:373` |
+
+Recorded here late; the ruling was made in conversation and lived in the batch
+file. Both halves have landed. `Deposit::new` derives `view_tag` from
+`ShieldedAddress::confidential_view_tag()`, the three Rust mirrors of that
+derivation follow it, and `docs/spec.md:373` names the owner's signing pubkey
+explicitly, the P256 x-coordinate or the full Ed25519 key.
+
+The divergence was invisible inside this repository, because both Zolana wallets
+scan the signing tag and the bootstrap tag unconditionally. It becomes visible at
+the interoperability boundary: a third-party wallet built to the spec scans owner
+pubkeys and finds no Zolana-SDK deposit. The program copies the tag into the
+output slot without reading it (`deposit/event.rs:44`), so a mistagged deposit is
+accepted, indexed, and never discovered, and no layer on the path raises
+anything. A green suite is therefore weak evidence for this change.
+
+### The transaction size check
+
+| Field | Value |
+| --- | --- |
+| Conflict | Three of the ten supported proof shapes compile past the 1232-byte packet limit and the SDK cannot say so, and the versioned-transaction study asked whether to schedule the check or defer it. |
+| Ruling | Into this pull request. v0 messages are not scheduled for the size problem, since they cost 5 bytes on a pure transfer and save 57 on an SPL withdrawal, and the size check is not deferred behind them. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `versioned-transactions.md`, `remaining-work.md` step A, commit `0e26c397` on `port/open-questions` |
+
+Recorded here late, for the same reason as the deposit tag. The measurement half
+is built and unmerged: `MAX_TRANSACTION_SIZE` and `transactionSize`,
+cross-checked against the bytes `SolanaRpc` submits at five signature counts
+including the 128 where the compact-u16 count grows a byte.
+
+It measures and does not refuse, which follows where Light draws the line: its
+measurement is public and its refusal reaches only the batches it assembles
+itself, whose error says the oversized transaction indicates a bug in batch
+assembly. Zolana's compiler is the generic builder, where an oversized
+transaction is the caller's shape rather than an assembly bug.
+
+What that leaves is the half the step called urgent. A caller hitting one of the
+three unsendable shapes still gets a confirmation timeout, which names the wrong
+cause, and a measurement nothing on the submit path reads does not change that.
 
 ### Rail inference when parsing a proof (C08)
 

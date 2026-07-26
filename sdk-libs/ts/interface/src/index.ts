@@ -14,11 +14,7 @@ import {
   zoneConfigAccountCodec,
 } from "./codecs/index.js";
 
-export {
-  InterfaceError,
-  ShieldedPoolError,
-  decodeShieldedPoolError,
-} from "./errors.js";
+export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";
 export type {
   DecodedShieldedPoolError,
   InterfaceErrorCode,
@@ -33,12 +29,13 @@ export {
   pack33,
   pkFieldCompressed,
 } from "./merge-utils.js";
-export {
-  SPP_SUPPORTED_SHAPES,
-  selectSppShape,
-  validateSppShape,
-} from "./shape.js";
+export { SPP_SUPPORTED_SHAPES, selectSppShape, validateSppShape } from "./shape.js";
 export type { Shape } from "./shape.js";
+export {
+  TRANSACTION_SIZE_LIMIT,
+  checkedTransactionSize,
+  transactionSize,
+} from "./transaction-size.js";
 
 type FixedBytes<Length extends number> = Uint8Array & {
   readonly __fixedBytesLength: Length;

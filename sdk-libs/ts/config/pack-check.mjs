@@ -36,9 +36,15 @@ try {
       throw new Error(`@zolana/${packageName} tarball contains ${buildMetadata.path}`);
     }
     for (const conditions of Object.values(manifest.exports)) {
-      const targets = Object.values(conditions).flatMap((target) =>
-        typeof target === "string" ? [target] : Object.values(target),
-      );
+      // A shipped asset is a bare path rather than a condition map, and it is
+      // the one export whose absence from the tarball a consumer only finds out
+      // about at run time.
+      const targets =
+        typeof conditions === "string"
+          ? [conditions]
+          : Object.values(conditions).flatMap((target) =>
+              typeof target === "string" ? [target] : Object.values(target),
+            );
       for (const target of new Set(targets)) {
         if (!packedPaths.has(target.slice(2))) {
           throw new Error(`@zolana/${packageName} tarball lacks ${target}`);
@@ -104,8 +110,39 @@ void (async () => {
 })();
 `,
   );
+  // The slim build against the artifact the tarball actually carries, in its
+  // own process because the two entry points share one instance: initializing
+  // the inlined one first would leave this proving nothing. The ESM inlined
+  // build is a second module graph and so a second instance, which is what
+  // makes the digest comparison real.
+  const slimConsumer = path.join(directory, "slim-consumer.cjs");
+  await writeFile(
+    slimConsumer,
+    `const { readFileSync } = require("node:fs");
+const slim = require("@zolana/hasher/slim");
+const artifact = readFileSync(require.resolve("@zolana/hasher/poseidon.wasm"));
+const input = [Uint8Array.from([1]), Uint8Array.from([2])];
+const hex = (bytes) => Buffer.from(bytes).toString("hex");
+void (async () => {
+  await slim.initializePoseidon(artifact);
+  const fromFile = hex(slim.poseidon(input));
+  const inlined = await import("@zolana/hasher");
+  await inlined.initializePoseidon();
+  if (artifact.byteLength !== inlined.POSEIDON_ARTIFACT_BYTES) {
+    throw new Error(
+      \`poseidon.wasm is \${artifact.byteLength} bytes where the inlined artifact is \${inlined.POSEIDON_ARTIFACT_BYTES}\`,
+    );
+  }
+  const fromInline = hex(inlined.poseidon(input));
+  if (fromFile !== fromInline) {
+    throw new Error(\`the slim build gives \${fromFile} where the inlined one gives \${fromInline}\`);
+  }
+})();
+`,
+  );
+
   for (const major of ["20", "22"]) {
-    for (const consumer of [nodeConsumer, commonJsConsumer]) {
+    for (const consumer of [nodeConsumer, commonJsConsumer, slimConsumer]) {
       execFileSync("npm", ["exec", "--yes", `--package=node@${major}`, "--", "node", consumer], {
         cwd: directory,
         stdio: "inherit",

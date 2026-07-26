@@ -410,11 +410,7 @@ export function createInputUtxo(
     dataHash?: Bytes32;
   }>,
 ): InputUtxo {
-  const nullifierPublicKey = checked<Bytes32>(
-    input.nullifierPublicKey,
-    32,
-    "nullifier public key",
-  );
+  const nullifierPublicKey = checked<Bytes32>(input.nullifierPublicKey, 32, "nullifier public key");
   const utxo = new Utxo(input.utxo);
   return Object.freeze({
     ...input,
@@ -442,7 +438,10 @@ export interface PrivateTxHashInput {
  * length would silently shift the address chain rather than fail.
  */
 export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
-  if (input.addressHashes !== undefined && input.addressHashes.length !== input.inputHashes.length) {
+  if (
+    input.addressHashes !== undefined &&
+    input.addressHashes.length !== input.inputHashes.length
+  ) {
     throw new TransactionError("TRANSACTION_ADDRESS_HASH_COUNT_MISMATCH", {
       expected: input.inputHashes.length,
       actual: input.addressHashes.length,

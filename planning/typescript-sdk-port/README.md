@@ -66,8 +66,10 @@ another batch's work, and so agents stop contending for one index. The branches
 below converge into `ts-sdk-port`, which is the single pull request. Nothing is
 published from a batch branch.
 
-Live state as of 2026-07-26 01:35, read from `git worktree list` rather than
-from memory.
+Live state as of 2026-07-26 02:20, read from `git worktree list` rather than
+from memory. Nine trees were missing from this table when it was last audited,
+including the two that steps 7 and 8 wait on, so a coordinator reading it saw
+work as unowned that had an owner.
 
 **Four directory names no longer describe their contents.** `zolana-ts-keypair`,
 `zolana-ts-interface-a`, `zolana-ts-programlibs` and `zolana-ts-wallet-misc`
@@ -86,6 +88,14 @@ the collisions recorded below.
 | `zolana-ts-programlibs` | `port/merge-prefix` | discriminator and prefix strictness, the Light way |
 | `zolana-ts-wallet-misc` | `port/plan-rewrite` | restructuring these planning documents |
 | `zolana-ts-ci` | `port/ci-green` | the failing CI jobs |
+| `zolana-ts-interface-b` | `port/interface-b` | `X01`, `S01`, `K12`, `M02`. Unmerged, and steps 7 and 8 wait on it |
+| `zolana-ts-hasher-pkg` | `port/hasher-pkg` | the `@zolana/hasher` packaging change that replaced the withdrawn artifact CI gate |
+| `zolana-ts-questions` | `port/open-questions` | the open-questions register, plus the C04 integer domain and the transaction size measurement. Unmerged |
+| `zolana-ts-spec` | `port/spec-amend` | `docs/spec.md` amendments the owner has authorised |
+| `zolana-ts-reconcile` | `port/reconcile` | folding row updates into the checklist |
+| `zolana-ts-rulings` | `port/rulings` | recorded the G7-1, X01, K11, T23 and C04 rulings. Merged; tree retained until its agent is unresumable |
+| `zolana-ts-stragglers` | `port/stragglers` | leftover `C` and `T` rows |
+| `zolana-ts-rulings-audit` | `port/rulings-audit` | auditing whether each ruling is recorded, reflected, queued, and landed |
 | `zolana-merge-record` | `fix/merge-user-record-binding` | program defect, **separate** pull request off `main` |
 | (no tree) | `fix/indexed-array-exclusive-highest-value` | protocol-library fix relocated out of the port, **separate** pull request off `main` |
 

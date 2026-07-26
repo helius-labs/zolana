@@ -1,0 +1,4527 @@
+{
+  "k1PublicKeys": {
+    "ed25519BodyBytes": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00",
+    "ed25519Padding": [
+      {
+        "bodyBytes": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00",
+        "disposition": {
+          "accepted": true
+        },
+        "paddingByte": 0
+      },
+      {
+        "bodyBytes": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a01",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "paddingByte": 1
+      },
+      {
+        "bodyBytes": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a02",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "paddingByte": 2
+      }
+    ],
+    "ed25519PrefixSweep": [
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "prefix": 0
+      },
+      {
+        "disposition": {
+          "accepted": true
+        },
+        "prefix": 1
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 2
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 3
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 4
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 5
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 6
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 7
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 8
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 9
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 10
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 11
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 12
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 13
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 14
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 15
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 16
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 17
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 18
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 19
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 20
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 21
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 22
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 23
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 24
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 25
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 26
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 27
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 28
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 29
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 30
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 31
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 32
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 33
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 34
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 35
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 36
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 37
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 38
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 39
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 40
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 41
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 42
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 43
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 44
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 45
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 46
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 47
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 48
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 49
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 50
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 51
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 52
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 53
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 54
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 55
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 56
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 57
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 58
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 59
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 60
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 61
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 62
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 63
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 64
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 65
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 66
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 67
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 68
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 69
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 70
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 71
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 72
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 73
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 74
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 75
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 76
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 77
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 78
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 79
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 80
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 81
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 82
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 83
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 84
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 85
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 86
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 87
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 88
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 89
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 90
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 91
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 92
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 93
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 94
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 95
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 96
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 97
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 98
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 99
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 100
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 101
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 102
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 103
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 104
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 105
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 106
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 107
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 108
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 109
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 110
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 111
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 112
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 113
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 114
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 115
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 116
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 117
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 118
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 119
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 120
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 121
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 122
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 123
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 124
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 125
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 126
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 127
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 128
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 129
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 130
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 131
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 132
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 133
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 134
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 135
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 136
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 137
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 138
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 139
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 140
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 141
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 142
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 143
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 144
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 145
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 146
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 147
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 148
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 149
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 150
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 151
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 152
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 153
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 154
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 155
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 156
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 157
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 158
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 159
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 160
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 161
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 162
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 163
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 164
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 165
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 166
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 167
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 168
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 169
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 170
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 171
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 172
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 173
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 174
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 175
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 176
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 177
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 178
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 179
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 180
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 181
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 182
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 183
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 184
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 185
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 186
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 187
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 188
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 189
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 190
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 191
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 192
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 193
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 194
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 195
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 196
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 197
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 198
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 199
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 200
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 201
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 202
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 203
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 204
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 205
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 206
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 207
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 208
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 209
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 210
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 211
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 212
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 213
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 214
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 215
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 216
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 217
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 218
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 219
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 220
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 221
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 222
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 223
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 224
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 225
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 226
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 227
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 228
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 229
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 230
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 231
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 232
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 233
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 234
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 235
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 236
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 237
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 238
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 239
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 240
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 241
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 242
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 243
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 244
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 245
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 246
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 247
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 248
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 249
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 250
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 251
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 252
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 253
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 254
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 255
+      }
+    ],
+    "ed25519RoundTripBytes": "01d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00",
+    "ed25519TaggedBytes": "01d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00",
+    "ed25519ZeroBodyDisposition": {
+      "accepted": true
+    },
+    "p256BodyBytes": "02590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+    "p256BodyLength": 33,
+    "p256Points": [
+      {
+        "bodyBytes": "02590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+        "disposition": {
+          "accepted": true
+        },
+        "name": "recordedKey"
+      },
+      {
+        "bodyBytes": "03590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+        "disposition": {
+          "accepted": true
+        },
+        "name": "flippedParityBit"
+      },
+      {
+        "bodyBytes": "000000000000000000000000000000000000000000000000000000000000000000",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "name": "allZero"
+      },
+      {
+        "bodyBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "name": "allOnes"
+      },
+      {
+        "bodyBytes": "02590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9fa6",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "name": "offCurveX"
+      },
+      {
+        "bodyBytes": "020000000000000000000000000000000000000000000000000000000000000000",
+        "disposition": {
+          "accepted": true
+        },
+        "name": "xZero"
+      },
+      {
+        "bodyBytes": "02ffffffff00000001000000000000000000000000ffffffffffffffffffffffff",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "name": "xAtFieldModulus"
+      },
+      {
+        "bodyBytes": "02ffffffff00000001000000000000000000000001000000000000000000000000",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "name": "xAboveFieldModulus"
+      },
+      {
+        "bodyBytes": "02ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "name": "xAllOnes"
+      },
+      {
+        "bodyBytes": "04590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "name": "uncompressedSec1Prefix"
+      },
+      {
+        "bodyBytes": "00590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "name": "identitySec1Prefix"
+      }
+    ],
+    "p256PrefixSweep": [
+      {
+        "disposition": {
+          "accepted": true
+        },
+        "prefix": 0
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPublicKey"
+        },
+        "prefix": 1
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 2
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 3
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 4
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 5
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 6
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 7
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 8
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 9
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 10
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 11
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 12
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 13
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 14
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 15
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 16
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 17
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 18
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 19
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 20
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 21
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 22
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 23
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 24
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 25
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 26
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 27
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 28
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 29
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 30
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 31
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 32
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 33
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 34
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 35
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 36
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 37
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 38
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 39
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 40
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 41
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 42
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 43
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 44
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 45
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 46
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 47
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 48
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 49
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 50
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 51
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 52
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 53
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 54
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 55
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 56
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 57
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 58
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 59
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 60
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 61
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 62
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 63
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 64
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 65
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 66
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 67
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 68
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 69
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 70
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 71
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 72
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 73
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 74
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 75
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 76
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 77
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 78
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 79
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 80
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 81
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 82
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 83
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 84
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 85
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 86
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 87
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 88
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 89
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 90
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 91
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 92
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 93
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 94
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 95
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 96
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 97
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 98
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 99
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 100
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 101
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 102
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 103
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 104
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 105
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 106
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 107
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 108
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 109
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 110
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 111
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 112
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 113
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 114
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 115
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 116
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 117
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 118
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 119
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 120
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 121
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 122
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 123
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 124
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 125
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 126
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 127
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 128
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 129
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 130
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 131
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 132
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 133
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 134
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 135
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 136
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 137
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 138
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 139
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 140
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 141
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 142
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 143
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 144
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 145
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 146
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 147
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 148
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 149
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 150
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 151
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 152
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 153
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 154
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 155
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 156
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 157
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 158
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 159
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 160
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 161
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 162
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 163
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 164
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 165
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 166
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 167
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 168
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 169
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 170
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 171
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 172
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 173
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 174
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 175
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 176
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 177
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 178
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 179
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 180
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 181
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 182
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 183
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 184
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 185
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 186
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 187
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 188
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 189
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 190
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 191
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 192
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 193
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 194
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 195
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 196
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 197
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 198
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 199
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 200
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 201
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 202
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 203
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 204
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 205
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 206
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 207
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 208
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 209
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 210
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 211
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 212
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 213
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 214
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 215
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 216
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 217
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 218
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 219
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 220
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 221
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 222
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 223
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 224
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 225
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 226
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 227
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 228
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 229
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 230
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 231
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 232
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 233
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 234
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 235
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 236
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 237
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 238
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 239
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 240
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 241
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 242
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 243
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 244
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 245
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 246
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 247
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 248
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 249
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 250
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 251
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 252
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 253
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 254
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSignatureType"
+        },
+        "prefix": 255
+      }
+    ],
+    "p256RoundTripBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+    "p256TaggedBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+    "p256XBytes": "590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+    "p256YIsOdd": false,
+    "taggedLength": 34,
+    "zeroedParsesAsKey": false,
+    "zeroedSignatureType": 0,
+    "zeroedTaggedBytes": "00000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "k2P256Signatures": {
+    "acceptsHighS": true,
+    "canonicalDigestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+    "canonicalSignatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de65bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609b",
+    "digestBoundaries": [
+      {
+        "belowOrder": true,
+        "digestBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "matchesReducedDigestSignature": true,
+        "name": "zero",
+        "reducedDigestBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "signatureBytes": "4767bb85ec32a8c94597edc058c48b28ae9dd7f6230329cc59a623e55556090ed66dba0c2175d97a4f7110153b960c2ee19a0b2c018f1f3bc4021fe3d2721a97",
+        "verified": true,
+        "verifiedUnderReducedDigest": true
+      },
+      {
+        "belowOrder": true,
+        "digestBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+        "matchesReducedDigestSignature": true,
+        "name": "one",
+        "reducedDigestBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+        "signatureBytes": "96a5d3fecfc70a1ad4b53ec94db9a8b77793cf316730801199f8c86a80384842430547ae49066b6549b788dc0745cd0634575c454514a2d3a0478c7738b77ee4",
+        "verified": true,
+        "verifiedUnderReducedDigest": true
+      },
+      {
+        "belowOrder": true,
+        "digestBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550",
+        "matchesReducedDigestSignature": true,
+        "name": "orderMinusOne",
+        "reducedDigestBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550",
+        "signatureBytes": "39abd8dcf71fce5cd3059296e341f5701c724cddf6b90bbf086a3b2456526584d4a5c9ac8b7273aea5204302ea513839fdef0b485b6226f31c3e6381f2a8b5e6",
+        "verified": true,
+        "verifiedUnderReducedDigest": true
+      },
+      {
+        "belowOrder": false,
+        "digestBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+        "matchesReducedDigestSignature": false,
+        "name": "order",
+        "reducedDigestBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "signatureBytes": "8384092411d8ce941f9a4dff23f63f374e88e18c8b5cb6371680e6538bf157159f013d742047b6bce7f4a7454929087e1587c70f71f4d701cf40f6378a3c89d6",
+        "verified": true,
+        "verifiedUnderReducedDigest": true
+      },
+      {
+        "belowOrder": false,
+        "digestBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632552",
+        "matchesReducedDigestSignature": false,
+        "name": "orderPlusOne",
+        "reducedDigestBytes": "0000000000000000000000000000000000000000000000000000000000000001",
+        "signatureBytes": "91f76f6d9299c73f73a0a764c23d287e9d6afe5587b24304c090110496805a697309054fa8f1df67e08b167a5d684b0c0a03fcf8bac8df2aded39e8c164dc5c1",
+        "verified": true,
+        "verifiedUnderReducedDigest": true
+      },
+      {
+        "belowOrder": false,
+        "digestBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "matchesReducedDigestSignature": false,
+        "name": "allOnes",
+        "reducedDigestBytes": "00000000ffffffff00000000000000004319055258e8617b0c46353d039cdaae",
+        "signatureBytes": "6a92bad88754defea3eb88d31ea905b7a009a446de435bb5659ce727d99fcd29351e7022441d290558d57db6c1c9dfad8632401cfdac7627a7d32dbd72cdfa35",
+        "verified": true,
+        "verifiedUnderReducedDigest": true
+      }
+    ],
+    "digestSweep": [
+      {
+        "digestBytes": "81d8e037e3db6d49decd5c7b7485b630345b49d28f7dc23931add1f3c0b68844",
+        "sIsHigh": false,
+        "signatureBytes": "9229402b94ab72b7bd7b062019ffc1214bb87db6c533231cab060a761683af2a4cd6804156b23e33dc7ca0c2324654cb698c40f35b0a27c18579871aada7d137",
+        "verified": true
+      },
+      {
+        "digestBytes": "8c5433ccfc7536b1fdc899aabe33576307ce3b5baf1008c373b100f1aacbbbb7",
+        "sIsHigh": false,
+        "signatureBytes": "51baf45d04f8c89f31a6cf055d8a113c291b51d63d8ed56cd14ac71cd71b04a80fbd54867e8ba38e1a46ccf996de500a3996e20f63bfd1f3b859103888a16c60",
+        "verified": true
+      },
+      {
+        "digestBytes": "2069ea8903c1bf45c7004a87c6e3926b35a05db027464bf1a5e881b9206fb01c",
+        "sIsHigh": false,
+        "signatureBytes": "a690ef3a7ba027cb905ca4eb662f4ab672401c3ed0ea5bcc74ce659ee9c607f15848918cfb8404661600ea17d7a11d84b076d92a4f66971fcf28ab4d3eea9994",
+        "verified": true
+      },
+      {
+        "digestBytes": "7d86dea05b4b2d22a0d9911bc94bd103dd0b2e807ef9faa14dfc08011aad90e1",
+        "sIsHigh": true,
+        "signatureBytes": "020e728f885bcd8c6d1a313b3d34e78a96b85c52de0c6175bda09fb0f51e4f07a8a270b872837b4b6f161f7685a11bbd477731192a399dc7dbbaa892e4fe2dfa",
+        "verified": true
+      },
+      {
+        "digestBytes": "5181698673cca2e4980e83b6302411afe7d409f94810c07eae4f39fb9ca56cf5",
+        "sIsHigh": true,
+        "signatureBytes": "eb8b8f19037d27ac1eece2d6bc373a80d106084fcdaf01d6916ef239fc99a3f59bda6c0f77937683bb82e07b69f6c072a60e42699b3e810ed2c9045732af3f4f",
+        "verified": true
+      },
+      {
+        "digestBytes": "59614ceec5e215e4a1caeee7df2e07e56fcff0a97965b7f29725a3bd3aac4e48",
+        "sIsHigh": false,
+        "signatureBytes": "cac0751c3a930cd320a15a7930de6fed58ffbece25fba501d4c5358f0766e72c61017dfcbbff20262792ac8764896fac8e090521230237b2c8634234c101e62f",
+        "verified": true
+      },
+      {
+        "digestBytes": "5bc8f6e0bbb47ba5e5eb6e887f531dadfebdc427b180eb8b77a3323ef342c4b5",
+        "sIsHigh": false,
+        "signatureBytes": "b119f650f6379dba335bc4aa6b61fe80573f8e9a4441e9e46bcd7634c1bae74e7c01b6246d752ae68aac122a241724c8505af4afc88c846bdae02a06664f6916",
+        "verified": true
+      },
+      {
+        "digestBytes": "da290c774a33d11bb99eac4851e6d5733a44c8f72c622bb5ceabe89a3323c85d",
+        "sIsHigh": false,
+        "signatureBytes": "0f4ef40f4db890c0548c7cd0729a1310be3ae2b90a671d71f5023e1947c9418e14d9af631cb0e7bd0d4f327b774d022be83aff27f85626e3dfa19c1e1ccb287d",
+        "verified": true
+      },
+      {
+        "digestBytes": "6d9d8071db81132b1fe953980ec358c54019bf07198557e6c135dc4436e7514e",
+        "sIsHigh": true,
+        "signatureBytes": "01215b0d6a0fc32e98a975979fae7738374ed8dad2d1be40f6a31a25a546fdaff56ac0745b4f96f7e6fc82834996385246e8f417ece16aa26b3ce918c054df2c",
+        "verified": true
+      },
+      {
+        "digestBytes": "23e15e634584d0c82b7f6a6ebc92e39518325987e4b617d29e532fda6ba887ec",
+        "sIsHigh": false,
+        "signatureBytes": "0e6f10f8175179a26282fc0175b74a915243ea4f13232aa9f70016037ff317626d7b8cc1505b0472a6d6856c34a34b97314e4945484bf60d691cc1fb10c9a16f",
+        "verified": true
+      },
+      {
+        "digestBytes": "9b9d2ac53906a909dc21358fa39ab5fa8b1c87c442e29a98a03b8ab76c8d8e49",
+        "sIsHigh": true,
+        "signatureBytes": "8a18942b90bb57e913c58a9bab5c5c71901845f66534c166903e26f54b912a1ae07451f73bd5be9c9edce4194bb951eab27be5963ee49fd74a9c4e43816cc31c",
+        "verified": true
+      },
+      {
+        "digestBytes": "3b4ffa83c8a2778fbed30d9967395c31fe8cd986291f5b22f481bc4acfd7af93",
+        "sIsHigh": true,
+        "signatureBytes": "9329a40739dde0a9c3525e34374a3b5ade400deeb83275cf32e184ddc6206a32f14fb2c8c09d8a0a9b14318fe3ab0d50cd47bb8416ac6ff3cfe34d0c994da25d",
+        "verified": true
+      },
+      {
+        "digestBytes": "5e12e2b90867aa5f61a805257354fce50730e079455d46bb7d974308314c0dae",
+        "sIsHigh": true,
+        "signatureBytes": "e481d77886952100808e26a1a6aa93edc5a7f6fe032e3acaa4912ee6cc05d266869fc6ee228e5ef8e237304fcd98bb88aa74ffa2e6c11b2609b51866e910aef7",
+        "verified": true
+      },
+      {
+        "digestBytes": "b1ea8340a0880273a138865abb38b699dd8f44ee180bcf5e19f6a54cd2d3c0ce",
+        "sIsHigh": false,
+        "signatureBytes": "b0a4b1d1482ba62477cdf8123e4fce4917d73226a7b8eaf69adf73e991aa8c4a686b5528e733d10e8ce449f2b6390ee8e34b0251e1e939c29b14ca543dbeb178",
+        "verified": true
+      },
+      {
+        "digestBytes": "30b9c9ee36f32f99187f6c08e210d10e16af111c830418f674f781f1af76937a",
+        "sIsHigh": false,
+        "signatureBytes": "041f309d8c6bc67dae7c69751a0484809febceb7b2c752a09b4fa5d3985edd053009147c9e4ac8f367e6deeda257dbedde0ecb9aadf161efc932e73d0b995c63",
+        "verified": true
+      },
+      {
+        "digestBytes": "f419ab598275e002f9919c2a59587c29a55baf8acaad45c74a69d4071b9030f8",
+        "sIsHigh": true,
+        "signatureBytes": "7dfc4711ffcf59e67bf5b3941bd38907c553bea9dda7a7e16a5afca3365a062984f3330238cef3cd109a616999927a576a16d4faabdc04303d3e7fcd487e2534",
+        "verified": true
+      }
+    ],
+    "fieldModulusBytes": "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff",
+    "halfOrderBytes": "7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a8",
+    "keyPublicKeyBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+    "keySecretBytes": "151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef",
+    "orderBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+    "otherKeyPublicKeyBytes": "00028a945f4fcee049fd44073f7d5dee849ee8f32062ca292fe7f968a51f45429fc3",
+    "otherKeySecretBytes": "232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd",
+    "otherKeyVerifiesCanonical": false,
+    "prehashLengths": [
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPrehashLength"
+        },
+        "length": 0
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPrehashLength"
+        },
+        "length": 31
+      },
+      {
+        "disposition": {
+          "accepted": true
+        },
+        "length": 32
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPrehashLength"
+        },
+        "length": 33
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidPrehashLength"
+        },
+        "length": 64
+      }
+    ],
+    "scalars": [
+      {
+        "disposition": {
+          "accepted": true
+        },
+        "name": "one",
+        "publicKeyBytes": "00036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "secretBytes": "0000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "disposition": {
+          "accepted": true
+        },
+        "name": "orderMinusOne",
+        "publicKeyBytes": "00026b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+        "secretBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550"
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSecretKey"
+        },
+        "name": "zero",
+        "publicKeyBytes": null,
+        "secretBytes": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSecretKey"
+        },
+        "name": "order",
+        "publicKeyBytes": null,
+        "secretBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSecretKey"
+        },
+        "name": "orderPlusOne",
+        "publicKeyBytes": null,
+        "secretBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632552"
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "InvalidSecretKey"
+        },
+        "name": "allOnes",
+        "publicKeyBytes": null,
+        "secretBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ],
+    "signatureCases": [
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "canonical",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de65bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609b",
+        "verified": true
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "highSTwin",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de9a451aae1fa6d16fa36f378077d6eb62d26f20f63057ce7fbae279935bf6c4b6",
+        "verified": true
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "rZero",
+        "signatureBytes": "000000000000000000000000000000000000000000000000000000000000000065bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609b",
+        "verified": false
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "sZero",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de0000000000000000000000000000000000000000000000000000000000000000",
+        "verified": false
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "rAtOrder",
+        "signatureBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc63255165bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609b",
+        "verified": false
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "sAtOrder",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05deffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+        "verified": false
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "sAboveOrder",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05deffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632552",
+        "verified": false
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "allZero",
+        "signatureBytes": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "verified": false
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "allOnes",
+        "signatureBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "verified": false
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "flippedRBit",
+        "signatureBytes": "0ecb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de65bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609b",
+        "verified": false
+      },
+      {
+        "digestBytes": "f3b416844ccfb4fe962a29d75ad7541554027d97ea3929c2f433dd3dd6b11a1a",
+        "name": "flippedSBit",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de65bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609a",
+        "verified": false
+      },
+      {
+        "digestBytes": "c1ad373901f88c03bc0530a8177871915f7c2c79cdc399b1d29d74bc60608448",
+        "name": "wrongDigest",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de65bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609b",
+        "verified": false
+      },
+      {
+        "digestBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "name": "zeroDigest",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de65bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609b",
+        "verified": false
+      },
+      {
+        "digestBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "name": "maxDigest",
+        "signatureBytes": "0fcb5060357d0ffdf8fee54d4964e2da95e2937290f4d29b33ffcc492a7d05de65bae550e0592e915c90c87f8829149cea77d9b776bfd00538d7512fa06c609b",
+        "verified": false
+      }
+    ],
+    "wrongRailSignatureBytes": "3a1be066e2e601ed7cc8242d151217c2caa637e60e90b395c418bb9f364e031a7b4259f99338c663296e430f8b8474658c64b524415a3542a57ce751fd635801",
+    "wrongRailVerified": false
+  },
+  "k3Ed25519Signatures": {
+    "acceptancePolicy": "ed25519_dalek::VerifyingKey::verify_strict",
+    "messages": [
+      {
+        "messageBytes": "",
+        "name": "empty",
+        "signatureBytes": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+        "verified": true
+      },
+      {
+        "messageBytes": "2a",
+        "name": "single",
+        "signatureBytes": "28250064cd82196b3acec44bda1a55fe06375406956cad35ba89329db8aa92b568dfa3600010dfba2a74ab4e71bd7cd87a754226eef753a2e0e987e36dbe2c06",
+        "verified": true
+      },
+      {
+        "messageBytes": "e177fbac05fa1c57ef114e83f0f994b0558b7d0927e62dab11baf7baf7f48061",
+        "name": "digestWidth",
+        "signatureBytes": "747d6538064c83f4acba68b1700e0cf995d6b73aa2901430d25110b28c75532d86b277dc8165693992a16b02d6ee86a3ca23c01089816c0b8a8138087bf6ea0a",
+        "verified": true
+      },
+      {
+        "messageBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7",
+        "name": "long",
+        "signatureBytes": "97943dc3a0fdf5fed713ac650720f61ea0efa784d4812e0ce9a2df673c986b4e3cf58eeb90ced07698fffd248434830d111990e5e62b299bc4651c9427015f07",
+        "verified": true
+      }
+    ],
+    "orderLittleEndianBytes": "edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010",
+    "otherKeyVerifiesCanonical": false,
+    "otherSecretBytes": "3f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b1119",
+    "otherTaggedPublicKeyBytes": "01c7f8c9e321f4a72847894e5e20dbc2b211ecb8dd6f7a51a5638d81008fd8955800",
+    "publicKeyIsDerivedFromSecret": true,
+    "rawPublicKeyBytes": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+    "secretBytes": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    "signatureCases": [
+      {
+        "messageBytes": "",
+        "name": "canonical",
+        "signatureBytes": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+        "verified": true
+      },
+      {
+        "messageBytes": "",
+        "name": "smallOrderR",
+        "signatureBytes": "0100000000000000000000000000000000000000000000000000000000000000756cf9b1d6f0d7a979b9d2af3dc2bc1294ec7cb6daa20eaff534c024fc57920f",
+        "verified": false
+      },
+      {
+        "messageBytes": "",
+        "name": "nonCanonicalR",
+        "signatureBytes": "f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+        "verified": false
+      },
+      {
+        "messageBytes": "",
+        "name": "sAtOrder",
+        "signatureBytes": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010",
+        "verified": false
+      },
+      {
+        "messageBytes": "",
+        "name": "sPlusOrder",
+        "signatureBytes": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901554c8c7872aa064e049dbb3013fbf29380d25bf5f0595bbe24655141438e7a101b",
+        "verified": false
+      },
+      {
+        "messageBytes": "",
+        "name": "flippedRBit",
+        "signatureBytes": "e4564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+        "verified": false
+      },
+      {
+        "messageBytes": "",
+        "name": "flippedSBit",
+        "signatureBytes": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555eb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+        "verified": false
+      },
+      {
+        "messageBytes": "",
+        "name": "allZero",
+        "signatureBytes": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "verified": false
+      },
+      {
+        "messageBytes": "",
+        "name": "allOnes",
+        "signatureBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "verified": false
+      },
+      {
+        "messageBytes": "2a",
+        "name": "wrongMessage",
+        "signatureBytes": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+        "verified": false
+      }
+    ],
+    "taggedPublicKeyBytes": "01d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a00",
+    "wrongRailSignatureBytes": "9cea26a93cb1d508ca6a22deecee92c620abf165c5dbfea4944a338d3029f520c387802c7b3bc0fcc2b52c40a7477f0897fda33617dfc849bb04e47a147ca9c3",
+    "wrongRailVerified": false
+  },
+  "k4Nullifiers": {
+    "bn254ModulusBytes": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001",
+    "derivations": [
+      {
+        "blindingBytes": "03030303030303030303030303030303030303030303030303030303030303",
+        "name": "recorded",
+        "nullifierBytes": "2a1fd4c59c814dbb2ca8a644a48a64a82f2fafa0d7be8704af68efa8700dd891",
+        "utxoHashBytes": "009982980b05b72f0b017b45ef7c37ea9fb155134960c1d4ceca580f06c50152"
+      },
+      {
+        "blindingBytes": "00000000000000000000000000000000000000000000000000000000000000",
+        "name": "zeroBlinding",
+        "nullifierBytes": "2d5b1de68128c9232545d74c401a896ec44f799649677aab7a894753cc3fbf38",
+        "utxoHashBytes": "009982980b05b72f0b017b45ef7c37ea9fb155134960c1d4ceca580f06c50152"
+      },
+      {
+        "blindingBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "name": "maxBlinding",
+        "nullifierBytes": "1287dfa2f7c8643001d37177dc91c615b94205a9621389d501945894b0df3a98",
+        "utxoHashBytes": "009982980b05b72f0b017b45ef7c37ea9fb155134960c1d4ceca580f06c50152"
+      },
+      {
+        "blindingBytes": "03030303030303030303030303030303030303030303030303030303030303",
+        "name": "zeroUtxoHash",
+        "nullifierBytes": "16f0a3ffdce3ee79e81a1403bb29b7a272ee6481b0b25811285cd273b631613a",
+        "utxoHashBytes": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ],
+    "fieldBoundary": [
+      {
+        "disposition": {
+          "accepted": true
+        },
+        "name": "modulusMinusOne",
+        "utxoHashBytes": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000"
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "Poseidon"
+        },
+        "name": "modulus",
+        "utxoHashBytes": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "Poseidon"
+        },
+        "name": "modulusPlusOne",
+        "utxoHashBytes": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000002"
+      },
+      {
+        "disposition": {
+          "accepted": false,
+          "variant": "Poseidon"
+        },
+        "name": "allOnes",
+        "utxoHashBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ],
+    "nullifierPublicKeyBytes": "162161f3c64d0d40707662e0c43dd24c02ceb716d9b0bb289b3044f13395ce08",
+    "nullifierSecretBytes": "3e8f8e4317c89287dfa102474361df5a8c2be013b5f90185dc102e4bc039b8",
+    "otherNullifierPublicKeyBytes": "0608480e96e028af0b6b24089cbd0715f75c4ad58c76f26261b44283181834e5",
+    "otherNullifierSecretBytes": "05050505050505050505050505050505050505050505050505050505050505",
+    "ownerHashBytes": "1c0243bf472ec5bed2059ec4666afda212ae431f89fa0700e0344fec835cec85",
+    "ownerHashWithOtherNullifierBytes": "1526809238f25c4fa9cd6085100203018d582ec2b4cc51d697481e57c0c7a654",
+    "ownerPkFieldBytes": "24420fd152b32291bb0b1fdb004cd5f302c252e315d5ff3a1aef63f7cb6277b5",
+    "repeatsIdentically": true,
+    "secretLength": 31,
+    "signingSecretBytes": "151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef"
+  },
+  "k5ViewingKeys": {
+    "bootstrapTagBytes": "be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+    "counterpartyPublicKeyBytes": "02fb274331a8163409c3c6bb3c68cfd3be64392cac14788a3c7a0f11abd207c0af",
+    "counterpartySecretBytes": "a1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f272d353b434951575f656d737b",
+    "ecdhBytes": "5f163071cb484568bf610ce109b6c9b8bd88a90133e2e412fa3964affc7b3681",
+    "ecdhStrangerBytes": "1aae304dc52907e33439bae29d2f01ebedb391a4d98dccfe1aec10f10f20e078",
+    "ecdhWithPConstBytes": "00abc82618bb404a3d08a8e78117ff3ae006dba956c44e1ef59d573c9a5e56d8",
+    "epochs": [
+      {
+        "account": 0,
+        "publicKeyBytes": "03db048948c761e0e5322177d3ab00817d2091eb8ad78b8f3f8dee10900e55e24b",
+        "secretBytes": "b60d01fe2b4c1c7392996adad60cb6981e9ebdb8aecc75d7809e794b6b910a8f",
+        "senderTagBytes": "0051d3e0818fe6fa8bd29cda4743c7571ab9bee6426093e2639ef5db67893df4"
+      },
+      {
+        "account": 1,
+        "publicKeyBytes": "03413acb11b5d3380624f933e85be9ba040ceef187494035ce3ff6e6a70ac3c748",
+        "secretBytes": "f3a13f7fca2b3eb7e2863f5d6e091fc9d2dd188874cd2c762f4c2f9793182ad4",
+        "senderTagBytes": "00838d197f2d7898ce2b2fb9d2bd971e20593af88ea799149bfab118da8ba1ad"
+      },
+      {
+        "account": 2,
+        "publicKeyBytes": "028548331d53535b0a07d16687c3d1ffe5b2c53f4ef9ca3b77ea8b80369e962864",
+        "secretBytes": "30ab05f6b1bd26390dcf274c913acf63a3a840436216d7c7769b2c7ffe0364f5",
+        "senderTagBytes": "00d46dc801d4e166e276a22d0b98fcca24b28a2dcc06ffcda33bde275ec8ee24"
+      },
+      {
+        "account": 7,
+        "publicKeyBytes": "02216eb58966c3231ce17a451828027c53082224cca6e8488644738293bd6c82b3",
+        "secretBytes": "7e3e93ce338b37f7fe1a9dca7625428740511b82bc37032fd455ee989b0f9dd5",
+        "senderTagBytes": "00e0e2a492844eb4076c1703446bcf70bda06baa3d8c1a5413ff8333c6637ee5"
+      },
+      {
+        "account": 65536,
+        "publicKeyBytes": "037cc5d89da09f1dee71a800c64f35ed6faec0953c52179d9407500da3de893999",
+        "secretBytes": "17882e3a853dd01b0ce8ea2f3c3afc477c4cd0b47adf27373f4441eb55579d25",
+        "senderTagBytes": "008c9a48903dcac4a761cf35d7ebc3bcc5ca1ae3fdb5b77e0f7caeb6dc0c6797"
+      },
+      {
+        "account": 4294967295,
+        "publicKeyBytes": "0274c3a5497cbda58273b111f9befb9c94e9471de609fcccfe0dd7eda6211fbbda",
+        "secretBytes": "6333e08fb0d525c60bbdb659e0036d51f0a54cd28d049d75bf0d31d6ed6c8735",
+        "senderTagBytes": "00d0e5eb1150812ab4396bc936215789fcb3391c1cd6c1ed5981ef1130f904e9"
+      }
+    ],
+    "okmDerivations": [
+      {
+        "account": 0,
+        "secretBytes": "7caf66d0462ce2a040c77abfda14e8e94c7c33a30f1728f51c687d8d07b92a38",
+        "seedBytes": "151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7ef"
+      },
+      {
+        "account": 16843009,
+        "secretBytes": "83edd23f3d1acb6726ec4e017da4d7a3723e6a6edb1786db158815db477295b8",
+        "seedBytes": "636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f272d353b"
+      },
+      {
+        "account": 33686018,
+        "secretBytes": "04fc844c0a97076944fcce3a4a47c93dc56ad9f30f74e271501b6de1aa86127f",
+        "seedBytes": "afb7bdc5cbd3d9e1e7eff5fd030b11191f272d353b434951575f656d737b8189"
+      },
+      {
+        "account": 50529027,
+        "secretBytes": "47fbf0ec50aed3eb3cd2c739492ec8eb45b749d8f179127ac4c58daff740dd03",
+        "seedBytes": "fd030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5"
+      },
+      {
+        "account": 67372036,
+        "secretBytes": "5bec9d8d40ce2c39d05046f0292a605d0a1be682f805295815038b583b48c865",
+        "seedBytes": "4951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9ff070d151b23"
+      },
+      {
+        "account": 84215045,
+        "secretBytes": "a855ddc085d0f08b58bc838cf1db01b00d7b10f29eb71e425ff57960f413b1b9",
+        "seedBytes": "979da5abb3b9c1c7cfd5dde3ebf1f9ff070d151b232931373f454d535b61696f"
+      },
+      {
+        "account": 101058054,
+        "secretBytes": "f6bb68f0168b39c21010475fa99a7d36e857047a0ce2863108534c5c64504964",
+        "seedBytes": "e3ebf1f9ff070d151b232931373f454d535b61696f777d858b9399a1a7afb5bd"
+      },
+      {
+        "account": 117901063,
+        "secretBytes": "7a585bef03cd772c1088fb543413a2bbfc8ca7e968ec20808d089424f399d141",
+        "seedBytes": "31373f454d535b61696f777d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb0309"
+      },
+      {
+        "account": 134744072,
+        "secretBytes": "a32e9729ab805c9380a69fde1a76a220c7d1bd5c221f4de75ad433d9a1d85f80",
+        "seedBytes": "7d858b9399a1a7afb5bdc3cbd1d9dfe7edf5fb030911171f252d333b41494f57"
+      },
+      {
+        "account": 151587081,
+        "secretBytes": "d8b5f507477548909f711a52693cd79856c025523b7389e609ab1b1bc7946871",
+        "seedBytes": "cbd1d9dfe7edf5fb030911171f252d333b41494f575d656b737981878f959da3"
+      },
+      {
+        "account": 168430090,
+        "secretBytes": "d722ef2f2c99a9d11c308febb3825a766246fff7095dfc392ccf875d7fc8c2b3",
+        "seedBytes": "171f252d333b41494f575d656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1"
+      },
+      {
+        "account": 185273099,
+        "secretBytes": "2f65f304c6155457815b20355f19f9ad89a69559007a8549b6f43180f0d36473",
+        "seedBytes": "656b737981878f959da3abb1b9bfc7cdd5dbe3e9f1f7ff050d131b21292f373d"
+      },
+      {
+        "account": 202116108,
+        "secretBytes": "c24aa574b23b96e9cbb0861fb53d422d0363525bf8b2294f2dcbff88f3eea351",
+        "seedBytes": "b1b9bfc7cdd5dbe3e9f1f7ff050d131b21292f373d454b535961676f757d838b"
+      },
+      {
+        "account": 218959117,
+        "secretBytes": "8e2152bae6a28f2748b4274835c4973e4a393af445ad61b7a94dfcb3d7f81966",
+        "seedBytes": "ff050d131b21292f373d454b535961676f757d838b91999fa7adb5bbc3c9d1d7"
+      },
+      {
+        "account": 235802126,
+        "secretBytes": "43f8b74a04d1f4147db3bbf8cabc240521b2d7ef1c3cf5fb8745a0891ba8084d",
+        "seedBytes": "4b535961676f757d838b91999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d25"
+      },
+      {
+        "account": 252645135,
+        "secretBytes": "df9e33c44bed3919044efd29208bd3d663925f94be08bccc04041125f5dcb786",
+        "seedBytes": "999fa7adb5bbc3c9d1d7dfe5edf3fb01090f171d252b333941474f555d636b71"
+      },
+      {
+        "account": 269488144,
+        "secretBytes": "d99ea10a3c3a423cd6fd784cdf5d809ec74e752f007d55b05de45ffac2cf712a",
+        "seedBytes": "e5edf3fb01090f171d252b333941474f555d636b71797f878d959ba3a9b1b7bf"
+      },
+      {
+        "account": 286331153,
+        "secretBytes": "05f2ad2c7e6cfe36b280c6c92c35ae2605e2c4f7b918a2ec505f55bdc4c16bbe",
+        "seedBytes": "333941474f555d636b71797f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd050b"
+      },
+      {
+        "account": 303174162,
+        "secretBytes": "38b75ecfa2bdebfb015cdf727afc79093e8c86bde1c002d26c651409f9239257",
+        "seedBytes": "7f878d959ba3a9b1b7bfc5cdd3dbe1e9eff7fd050b131921272f353d434b5159"
+      },
+      {
+        "account": 320017171,
+        "secretBytes": "5e00eb383f3a1ab98d7a8fc18fb6b23109ceb1bde720763a5466ac6c49480118",
+        "seedBytes": "cdd3dbe1e9eff7fd050b131921272f353d434b51595f676d757b838991979fa5"
+      },
+      {
+        "account": 336860180,
+        "secretBytes": "22b1237963bfd42a96de4eff1f483d4b70b41cf781f86393356752739a9e4015",
+        "seedBytes": "1921272f353d434b51595f676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3"
+      },
+      {
+        "account": 353703189,
+        "secretBytes": "ae96a815d4f2481b21470a881d4f861f0779138e36b569e78236af46c57025ee",
+        "seedBytes": "676d757b838991979fa5adb3bbc1c9cfd7dde5ebf3f901070f151d232b31393f"
+      },
+      {
+        "account": 370546198,
+        "secretBytes": "e5f51345d08eeff79c7677275ee4ebcab3d92bb077e1e26ee7f8f2263efa3c5c",
+        "seedBytes": "b3bbc1c9cfd7dde5ebf3f901070f151d232b31393f474d555b636971777f858d"
+      },
+      {
+        "account": 387389207,
+        "secretBytes": "9335d56992ff2ce5d39a55b7d70473727a5f880b0aa48265e83b2cc9cce226e2",
+        "seedBytes": "01070f151d232b31393f474d555b636971777f858d939ba1a9afb7bdc5cbd3d9"
+      }
+    ],
+    "pConstDstBytes": "545350502f766965775f726f6f742f505f636f6e73742f7631",
+    "pConstMessageBytes": "",
+    "pConstSec1Bytes": "030e4df946bce14b95292f13e133d2b0c64e898b5644f620a5bed25a061a42fcdb",
+    "pConstSuite": "P256_XMD:SHA-256_SSWU_RO_",
+    "publicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+    "secretBytes": "4d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f27",
+    "seedBytes": "d9e1e7eff5fd030b11191f272d353b434951575f656d737b81898f979da5abb3",
+    "sharedTagDirectionsAgree": true,
+    "strangerPublicKeyBytes": "02ef8584906f6d9e2fc98a16f03b7b41f4324659101e40519afbb4108102d8f13e",
+    "strangerSecretBytes": "030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd",
+    "strangerSharedTagDiffers": true,
+    "tags": [
+      {
+        "counter": "0",
+        "mergeBytes": "00f87fdc8b96a5b08a6e5290e3e7cc650b8229848c6c697c176edb114b661cf6",
+        "recipientRequestBytes": "00b98cd9216815edb3320e237648cc67fb9c2ddf2558d9d50bf40e0c4ecaf46d",
+        "recipientSharedBytes": "002a6b4256ae5572c7b16d70fa6c6617bdae8c60782a9094ed47a3ef6a1b2de3",
+        "sendSharedBytes": "004e000a8764edca03fb5f582a4b7e548012bc8f28711f766825fdec04ef4da4",
+        "senderBytes": "00ca2c29c034a537c4ec53a6f186a91c3480dd64c21b1998b5efb8e0bbc13c25",
+        "strangerSendSharedBytes": "0026dfeaceef20d6127074cd910a6972a3615d440bfd9b76017a2bdcc6e64960"
+      },
+      {
+        "counter": "1",
+        "mergeBytes": "00d3e7351c73a54cc430d06769ea89435a82f5f0d882d39bf069d12d04bf2961",
+        "recipientRequestBytes": "00f7e14ca6b95b81d8e8787d9ef45e6199100c8fde95c5c240b12155d6fa6ef5",
+        "recipientSharedBytes": "00bbf2919c435c1153049d83d3583f0546cdd9327e5080f3ba23130f4eff3ac7",
+        "sendSharedBytes": "00869795bf1719326e4446955abcb7b6ddec87f4da5c52d43d2795bcfda43ad6",
+        "senderBytes": "0099e198b2fa424cd44f539a34c396f0f0e2088bf6ac08f5849f33aba2f6fee0",
+        "strangerSendSharedBytes": "00bb278b8268ce7c20f2b6fef87de724a041614f99449001eaab7cbc0461f77a"
+      },
+      {
+        "counter": "2",
+        "mergeBytes": "0065acf1765b6711f8a5d1a3f059a1e0d73f5fd59d09ccc5cf5102421284555d",
+        "recipientRequestBytes": "006d462f4b3fdc09adaccdb7dc84b922f699aad11562f6e83241eeb01cb09113",
+        "recipientSharedBytes": "005189821f02db013460187a0787c142e621e6db3bc7eff4aaf7189df7ed2709",
+        "sendSharedBytes": "008737630ccb89a10b32c078b570e22ed50be6467615041eeb4c6fd72502b0ee",
+        "senderBytes": "00b1aa5047a1394864fed169e060618fc6468ca68f2ecb5145ed9eb4e9d5fd93",
+        "strangerSendSharedBytes": "00d6b8c6f0c1cabc138feb782ac64bcbae4f26352a23c2c111d256851791f3b2"
+      },
+      {
+        "counter": "255",
+        "mergeBytes": "002631242df333d37630b35142ceae4fed2ce406681a16ba08ef5b4821acb683",
+        "recipientRequestBytes": "0090615d85db6bc262ad0944b52dda6b364226fd20a5c2ee8c475380a57e0a4a",
+        "recipientSharedBytes": "00453aca5987a4f7a27adb3b862e2348e4df0119c8f5b04e0084e2eda81c6d57",
+        "sendSharedBytes": "0014a8b727a0624a32c984e86cec20e9e6deb70bd5597f07835484a50f8174ea",
+        "senderBytes": "001db2037b125f9037cd781b796822d7a24ae1596670b4ab5ab4e9afce00b706",
+        "strangerSendSharedBytes": "00adf0f1b140f776bb8be15e50f61b451665ee3e92aa044cbece61d4f80f2e42"
+      },
+      {
+        "counter": "256",
+        "mergeBytes": "007af9cb362316c90732e6357770fc849b1f85f388e6b05a7dcaf704ed008eaa",
+        "recipientRequestBytes": "0077a39e3289917d5aed83ef2a4fe13fc14bc0c37e12f05c47304697a77bd935",
+        "recipientSharedBytes": "00765fbe4bbfad967053955f12c310005ff99bd0cea98bc11abea27c8c407e98",
+        "sendSharedBytes": "0028ba0a8c8f4e7784117d8116b8af4ca3d391d285c3034b91ff97c0a6641c4c",
+        "senderBytes": "003cdb1f718d516e57442124dfe98ce8618f2c2300cb0815c5fd5de1821db3f6",
+        "strangerSendSharedBytes": "0051773d5b763652538e74625096ea345e5cf8e5ac66ad3af6648d976a29558c"
+      },
+      {
+        "counter": "4294967295",
+        "mergeBytes": "003acbc8711f0170a5dad3f9fbb7930af26b7d65dcb64d8005a59d4579148fb7",
+        "recipientRequestBytes": "008c8d16f6aaf96afdf23c5330a15c0183942227abf9ff90a37d1cbdd6614770",
+        "recipientSharedBytes": "00052f4afc0659603146760f99a4f52f000b3cb524176ba0baab58ac933a0136",
+        "sendSharedBytes": "00b3380e44110b708cde5a430103c806492194217a19cd372a8c8a3348e3ff42",
+        "senderBytes": "008351cde33ed1fde6bf9b64ff0bc05d70af6be1449fc6dfe7c6d6e4c4d75c7e",
+        "strangerSendSharedBytes": "005792ddd9aa83d21771df27b550a2c4577f91657c603e12fca4ba3847566778"
+      },
+      {
+        "counter": "9223372036854775808",
+        "mergeBytes": "00c3379d17c4f350b262549b91c356131f71efa2a22d79f1208ba1ee2df8a640",
+        "recipientRequestBytes": "00cb5e5b338cd759dde020eb3072e4907263bd6df057024573d23e36395bd40c",
+        "recipientSharedBytes": "002334e240a1790699ac51bd3d72a3c2916879eb1dc9d36ccc6635a65772fa99",
+        "sendSharedBytes": "008c8bb9c2857ff7a85e5d2187f2964293b77b54fba375671924332fb8f4e5c1",
+        "senderBytes": "005f8ca709a866a680936a6f6631aa6432303f50f73fac0efef0ed300c9bea41",
+        "strangerSendSharedBytes": "00a33f2bf96cb56e6a7d34b3baa449178ae3d52006a2ff8090d51cf21218c42f"
+      },
+      {
+        "counter": "18446744073709551615",
+        "mergeBytes": "00de4afe3750552c6878d2ac34beb905304a506b0a19866f61ab18251aa3b9b9",
+        "recipientRequestBytes": "0090f0135c12a89f1593729d9ec5372e94552ccfd742f72374ec3019b3c56c0a",
+        "recipientSharedBytes": "00eddebba1ba1236a1a1b7212f54cc8883a77b8a09d56fe0ec7bda2a5502c398",
+        "sendSharedBytes": "007b5369c142dd9ddde54deba10efd1abf6cfa574e886377db5a9c7511d87938",
+        "senderBytes": "00dbeb766e18f4c6040bcd4885b74e17523398bbe40994207f9e947431639a37",
+        "strangerSendSharedBytes": "00eeea608740e3d90dc74be850dcbb99abb917a1532cf2b18b5a08af8bec5434"
+      }
+    ],
+    "transactionKeyDiffersFromBase": true,
+    "transactionKeyRepeatsForSameNullifier": true,
+    "transactionKeys": [
+      {
+        "firstNullifierBytes": "00a1f8cefb7eeae8c2b843749a6f0a4ef96005345d2c74213608ff12d94003a4",
+        "name": "recorded",
+        "publicKeyBytes": "0357a075804a01dda01247441db082e12adb64c47850deb4c44291ffb0d7fc797b",
+        "secretBytes": "e3fb3dd33bdf4396d845e94496ce62bbfc460064ec948e0c637a73ba8db99d6b"
+      },
+      {
+        "firstNullifierBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "name": "zero",
+        "publicKeyBytes": "0391fa001945fb39582d0254febc20fcd2ad537869b031cfadff2b6773d478bc85",
+        "secretBytes": "8664d0ca77369f8ac7c556cb206834e800e2b0e7f3391a80a70ae6f00c6e7193"
+      },
+      {
+        "firstNullifierBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "name": "allOnes",
+        "publicKeyBytes": "03ac701750f78c01fd3fdd455433ef4e0645e365744c3441bdfcae28d89ca1ef4b",
+        "secretBytes": "0eede506b352a955702e05e151d9110e93f84020a92738fc08a7eddfcc63728c"
+      },
+      {
+        "firstNullifierBytes": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000",
+        "name": "bn254ModulusMinusOne",
+        "publicKeyBytes": "02303d59fcb02874c4172939871edae4ced7420537002d47e16ff9f88415a43904",
+        "secretBytes": "dfcc6225060067bd8e62ea3c9c733d37ede33b6c047660461d20d66261f8d29b"
+      }
+    ],
+    "zeroScalarReachable": false
+  },
+  "note": "Adversarial key-certification corpus for suites K1-K5. Every disposition is produced by the current zolana-keypair crate. Regenerate with UPDATE_KEY_CERTIFICATION_VECTORS=1.",
+  "schema": "zolana-key-certification-v1",
+  "source": "sdk-libs/keypair/tests/key_certification_vectors.rs"
+}

@@ -5,7 +5,6 @@ import { access, mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { SHIELDED_POOL_PROGRAM_ID } from "@zolana/interface";
 import { SMART_ACCOUNT_PROGRAM_ID } from "@zolana/smart-account-client";
@@ -13,6 +12,7 @@ import { SMART_ACCOUNT_PROGRAM_ID } from "@zolana/smart-account-client";
 import { TestKitError } from "../error.js";
 import type { LocalStack } from "../index.js";
 import { ZONE_TEST_PROGRAM_ID } from "../instructions.js";
+import { WORKSPACE_ROOT } from "../paths.js";
 import { writeProgramConfigFixture } from "../standard-accounts.js";
 
 export * from "../admin.js";
@@ -96,7 +96,7 @@ export async function startLocalStack(
 ): Promise<LocalStack> {
   throwIfAborted(input.signal);
   const urls = localStackUrls(input);
-  const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
+  const workspace = WORKSPACE_ROOT;
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "zolana-ts-"));
   const owned: OwnedProcess[] = [];
   let stopped = false;
