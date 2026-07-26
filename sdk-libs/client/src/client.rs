@@ -1494,6 +1494,9 @@ mod tests {
         assert!(matches!(error, ClientError::IndexerTimeout));
     }
 
+    // Mock high element must stay below Fr; all-ones fails checked_be.
+    const MOCK_HIGH_ELEMENT: [u8; 32] = [1u8; 32];
+
     fn state_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {
         MerkleProof {
             leaf,
@@ -1513,7 +1516,7 @@ mod tests {
             path: vec![[0u8; 32]; crate::rpc::NULLIFIER_TREE_HEIGHT],
             low_element: [0u8; 32],
             low_element_index: 0,
-            high_element: [u8::MAX; 32],
+            high_element: MOCK_HIGH_ELEMENT,
             high_element_index: 1,
             root: [4u8; 32],
             root_seq: 1,
@@ -1631,7 +1634,7 @@ mod tests {
                 "path": vec![encode_hash([0u8; 32]); crate::rpc::NULLIFIER_TREE_HEIGHT],
                 "low_element": encode_hash([0u8; 32]),
                 "low_element_index": 0,
-                "high_element": encode_hash([u8::MAX; 32]),
+                "high_element": encode_hash(MOCK_HIGH_ELEMENT),
                 "high_element_index": 1,
                 "root": encode_hash([4u8; 32]),
                 "root_seq": 1,
