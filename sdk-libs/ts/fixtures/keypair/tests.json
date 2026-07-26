@@ -1,0 +1,21 @@
+{
+  "expected": {
+    "allTagDirectionsAgree": true,
+    "ed25519RoundTripVerified": true,
+    "mergeRoundTripVerified": true,
+    "p256RoundTripVerified": true,
+    "slotRoundTripVerified": true
+  },
+  "id": "fx-p00-keypair-tests-v1",
+  "inputs": {
+    "fixedRandomnessOnly": true,
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/tests/bdd.rs",
+  "owningPacket": "P00",
+  "responsibility": "self-verified cross-domain production behavior",
+  "rustPath": "sdk-libs/keypair/tests",
+  "rustSymbol": "production keypair feature and step scenarios",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

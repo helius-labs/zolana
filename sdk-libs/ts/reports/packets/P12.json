@@ -1,0 +1,206 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "blockers": [],
+  "commands": [
+    {
+      "command": "ZOLANA_PORT_OFFSET=300 npm run test:e2e:actions",
+      "exitStatus": "0",
+      "result": "2 files and 9 tests passed, including the fresh validator, Photon, prover, user-registry, and real idempotent ATA lifecycle."
+    },
+    {
+      "command": "ZOLANA_PORT_OFFSET=300 npm run test:e2e:actions (repeated clean start)",
+      "exitStatus": "0",
+      "result": "2 files and 9 tests passed again; stack startup, state isolation, explicit teardown, temporary-key cleanup, and endpoint shutdown were repeatable."
+    },
+    {
+      "command": "npx tsc --ignoreConfig --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck --lib ES2022,DOM --types node,vitest/globals sdk-libs/ts/e2e/actions/actions.test.ts sdk-libs/ts/e2e/actions/live.test.ts",
+      "exitStatus": "0",
+      "result": "Owned E2E tests passed strict standalone TypeScript checking."
+    },
+    {
+      "command": "npx prettier --check sdk-libs/ts/e2e/actions/**/*.ts sdk-libs/ts/reports/packets/P12.json",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "result": "Build, package typecheck, configured lint and formatting, 310 unit tests, inventory, exports, dependency boundaries, and API checks passed."
+    },
+    {
+      "command": "npm run test:browser",
+      "exitStatus": "0"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "result": "All public package archives passed integrity checks."
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "external concurrent-worktree interference",
+      "result": "The first attempt collided with another worker's fixture compiler output. Later retries reached deterministic comparison while the concurrent P13 worker was changing the generator and reported reports/packets/P00.json, then manifest.json, differed. P12 did not modify those paths; every P12 fixture load independently verified the committed manifest SHA before behavioral assertions."
+    },
+    {
+      "command": "git diff --check",
+      "exitStatus": "0"
+    }
+  ],
+  "fixtureCoverage": [
+    {
+      "id": "fx-workflow-action-split-v1",
+      "path": "workflows/action-split-v1.json",
+      "status": "passed",
+      "behavioralAssertions": [
+        "deterministic synchronized deposits select the frozen input hash",
+        "one input becomes two equal outputs and conserves 800 units",
+        "the unavailable-input tamper path returns WALLET_INPUT_UTXO_UNAVAILABLE without adding wallet state"
+      ]
+    },
+    {
+      "id": "fx-workflow-action-merge-v1",
+      "path": "workflows/action-merge-v1.json",
+      "status": "passed",
+      "behavioralAssertions": [
+        "smallest eligible inputs are selected in frozen order and merge to 80",
+        "P256 signing, viewing, and nullifier material match frozen bytes",
+        "merge opt-in, proof, unsigned message construction, external signature, submission signature, and output hash execute in order"
+      ]
+    },
+    {
+      "id": "fx-workflow-action-ata-idempotent-v1",
+      "path": "workflows/action-ata-idempotent-v1.json",
+      "status": "passed",
+      "behavioralAssertions": [
+        "derived address and exact signed transaction bytes match the frozen vector",
+        "two identical submissions preserve the address and message",
+        "RPC rejection is nested under WALLET_CREATE_ASSOCIATED_TOKEN_ACCOUNT"
+      ]
+    },
+    {
+      "id": "fx-workflow-instruction-deposit-v1",
+      "path": "workflows/deposit-v1.json",
+      "status": "passed",
+      "behavioralAssertions": [
+        "SOL omits SPL accounts",
+        "SPL includes user token and interface accounts",
+        "both produce unsigned custody messages through buildDepositTransaction"
+      ]
+    },
+    {
+      "id": "wallet and transaction fixtures",
+      "paths": [
+        "wallet/wallet_authority.json",
+        "wallet/wallet_sync.json",
+        "wallet/submit.json",
+        "wallet/transaction.json",
+        "client/rpc-indexer-v1.json"
+      ],
+      "status": "passed",
+      "behavioralAssertions": [
+        "P256 and EdDSA ownership rails are distinct and mixed use is accepted",
+        "external-custody and convenience signer message bytes are identical",
+        "balances and history are immutable snapshots",
+        "empty repeated sync is idempotent",
+        "lag failure is atomic, retry succeeds, abort and timeout retain exact nested causes"
+      ]
+    }
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "ownedPathsChanged": [
+    "sdk-libs/ts/e2e/actions/actions.test.ts",
+    "sdk-libs/ts/e2e/actions/live.test.ts",
+    "sdk-libs/ts/reports/packets/P12.json"
+  ],
+  "packet": "P12",
+  "prerequisites": {
+    "P01": "dfe3549c",
+    "P11": "e20d0469",
+    "P00": "887675f7"
+  },
+  "readiness": {
+    "actionE2eTestsCollected": 9,
+    "checkpoint": "ready",
+    "gaps": 0,
+    "implementation": "complete",
+    "ready": true
+  },
+  "scenarios": [
+    {
+      "name": "SOL and SPL deposits",
+      "status": "passed",
+      "evidence": "Production createDeposit and buildDepositTransaction route exact account variants and unsigned messages."
+    },
+    {
+      "name": "registered and unregistered SOL/SPL transfers",
+      "status": "passed",
+      "evidence": "Production createTransfer resolves frozen registry data or falls back to the correct public SOL/SPL withdrawal."
+    },
+    {
+      "name": "SOL and SPL withdrawals with external and convenience signers",
+      "status": "passed",
+      "evidence": "Production createWithdrawal builds both settlement suffixes; buildPrivateTransaction and signPrivateTransaction preserve identical message bytes."
+    },
+    {
+      "name": "split creation, conservation, and tamper rejection",
+      "status": "passed",
+      "evidence": "The mandatory split fixture drives synchronized wallet state, exact selection, equal outputs, conservation, and unavailable-input rejection."
+    },
+    {
+      "name": "merge creation and submission",
+      "status": "passed",
+      "evidence": "The mandatory merge fixture drives selection, material verification, merge opt-in, proof invocation, message construction, signature, and submission."
+    },
+    {
+      "name": "idempotent ATA",
+      "status": "passed",
+      "evidence": "Frozen exact bytes pass in TestRpc and two real submissions against a fresh local mint preserve one associated address."
+    },
+    {
+      "name": "authority approval, rejection, registration, rotation, and merge opt-in",
+      "status": "passed",
+      "evidence": "Matching identity approval, identity mismatch rejection, rotation discriminator, real registration, idempotent opt-in, and explicit opt-out cleanup pass."
+    },
+    {
+      "name": "P256, EdDSA, and mixed rails",
+      "status": "passed",
+      "evidence": "Both public key rails and mixed action state are exercised; frozen P256 merge material matches exactly."
+    },
+    {
+      "name": "sync, balances, history, indexer lag, abort, timeout, retry, malformed input, and nested errors",
+      "status": "passed",
+      "evidence": "Production sync and action surfaces preserve atomic state, reject malformed/unavailable inputs, expose exact nested errors, and recover on retry."
+    }
+  ],
+  "schema": "zolana-ts-packet-evidence-v1",
+  "serviceLifecycle": {
+    "cleanup": [
+      "merge opt-in is reverted in finally",
+      "validator, Photon, and prover are stopped by harness.stop()",
+      "temporary SPL payer material is removed in finally",
+      "the RPC endpoint is asserted unreachable after teardown"
+    ],
+    "portOffset": 300,
+    "repeatedCleanStarts": 3,
+    "services": ["solana-test-validator", "photon", "light-prover"],
+    "status": "passed"
+  },
+  "strictOwnership": {
+    "compliant": true,
+    "p13PathsChangedByP12": [],
+    "unauthorizedPathsChangedByP12": [],
+    "unrelatedConcurrentChangesObserved": [
+      "sdk-libs/ts/fixtures/manifest.json",
+      "sdk-libs/ts/fixtures/workflows/instruction-transfer-v1.json",
+      "sdk-libs/ts/fixtures/workflows/instruction-withdraw-sol-v1.json",
+      "sdk-libs/ts/fixtures/workflows/instruction-withdraw-spl-v1.json",
+      "sdk-libs/ts/reports/packets/P00.json",
+      "sdk-libs/ts/reports/packets/P13.json",
+      "xtask/src/bin/ts-fixtures.rs",
+      "xtask/src/ts_fixtures_client.rs"
+    ]
+  }
+}

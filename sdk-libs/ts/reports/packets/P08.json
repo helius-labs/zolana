@@ -1,0 +1,165 @@
+{
+  "apiDiff": {
+    "added": [
+      "@zolana/api root: ApiError",
+      "@zolana/api root: ZolanaApiConfig",
+      "@zolana/api root: ZolanaApi"
+    ],
+    "changed": [],
+    "removed": []
+  },
+  "commands": [
+    {
+      "command": "npm run build --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "ES2022 ESM output and exact public declarations"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "strict transport and schema-boundary type checking"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/api/src/**/*.ts\" \"sdk-libs/ts/api/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "production and test lint"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/api/src/**/*.ts\" \"sdk-libs/ts/api/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "source and test formatting"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "52 URL, API-key, transport, envelope, malformed response, redaction, abort, timeout, retry, export, Rust-backed vector, and property tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "11 Rust-backed request, non-empty response, default, explicit start-sequence, limit, HTTP, JSON-RPC, and missing-result vectors"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "two 100-run HTTP classification and response-field redaction properties"
+    },
+    {
+      "command": "npm run test:cross --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "34 schema-to-transport cross, Rust-backed vector, and malformed-response tests"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "API source and packed-entry graph bundle without Node globals or polyfills"
+    },
+    {
+      "command": "npm pack --dry-run --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "five-file package containing only dist output and manifest"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "P01 API-check scaffold"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "shared packed consumers install all 15 package entry points"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "shared build, typecheck, lint, format, 189 unit tests, inventory, exports, dependencies, and API checks"
+    },
+    {
+      "command": "npm run test:browser",
+      "exitStatus": "0",
+      "responsibility": "shared browser source and packed-entry graph check"
+    }
+  ],
+  "checkpointPrerequisite": "63dc7755944f2f063fe03b3d5cc37645f6c27e15",
+  "currentCommit": "1614ceb2bd86b948f8e01f6f305e7d0e783961b0",
+  "crossValidation": {
+    "methods": [
+      "get_encrypted_utxos_by_tags",
+      "get_shielded_transactions_by_tags",
+      "get_merkle_proofs",
+      "get_non_inclusion_proofs",
+      "get_nullifier_queue_elements"
+    ],
+    "result": "Every method uses the current @zolana/indexer-api MethodDescriptor encoder and decoder; six Rust-backed success cases and 34 cross tests pass."
+  },
+  "dependencies": {
+    "gaps": [],
+    "production": ["@zolana/indexer-api", "@zolana/interface"],
+    "status": "P01 supplies the required vector, property, cross, and browser scripts; no P08 production dependency is missing."
+  },
+  "fixtureIds": [
+    "fx-p00-api-transport-v1",
+    "fx-api-root-class-api-error-v1",
+    "fx-api-root-interface-zolana-api-config-v1",
+    "fx-api-root-class-zolana-api-v1"
+  ],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "fixtureCoverage": {
+    "errorCases": {
+      "http": "ApiError::Response",
+      "invalidOptionalLimit": "ApiError::InvalidRequest",
+      "invalidRequiredLimit": "ApiError::InvalidRequest",
+      "jsonRpc": "ApiError::JsonRpc",
+      "missingResult": "ApiError::MissingResult"
+    },
+    "methods": [
+      "get_encrypted_utxos_by_tags",
+      "get_shielded_transactions_by_tags",
+      "get_merkle_proofs",
+      "get_non_inclusion_proofs",
+      "get_nullifier_queue_elements"
+    ],
+    "oracle": "BlockingZolanaApi against an ephemeral local capture server",
+    "requestCases": "6",
+    "responseCases": "6",
+    "rustDriftFromFrozenCommit": "none in docs/spec.md, program-libs/interface, sdk-libs/indexer-api, or sdk-libs/zolana-api",
+    "startSequenceCases": ["omitted/default 0", "explicit 7"]
+  },
+  "inventoryRows": ["sdk-libs/zolana-api/src/lib.rs"],
+  "ownedChangedPaths": [
+    "sdk-libs/ts/api/src/index.ts",
+    "sdk-libs/ts/api/test/exports.test.ts",
+    "sdk-libs/ts/api/test/fixture.ts",
+    "sdk-libs/ts/api/test/property.test.ts",
+    "sdk-libs/ts/api/test/responses.test.ts",
+    "sdk-libs/ts/api/test/transport.test.ts",
+    "sdk-libs/ts/api/test/vectors.test.ts",
+    "sdk-libs/ts/reports/packets/P08.json"
+  ],
+  "packet": "P08",
+  "qualityPass": {
+    "commentCorrections": [],
+    "edits": [
+      "kept the root export list to ApiError and the async ZolanaApi runtime",
+      "delegated every request encoder and response decoder to @zolana/indexer-api method descriptors",
+      "centralized URL parsing, signal composition, bounded body reads, envelope validation, and safe diagnostics",
+      "copied URL configuration and kept the API key in private class storage",
+      "removed raw request, response, URL, API-key, transport-cause, JSON-RPC-message, content-type, and unknown-field diagnostics",
+      "used browser fetch, URL, AbortController, TextEncoder, TextDecoder, and Uint8Array without Node globals"
+    ],
+    "finalReview": "No production or test simplification was needed after the P01 checkpoint; names, helpers, comments, and error branches remain direct and non-duplicative.",
+    "security": [
+      "responses are limited to 1048576 bytes before UTF-8 and JSON decoding",
+      "JSON-RPC version, request ID, result/error exclusivity, and envelope fields are validated",
+      "transport, HTTP, abort, timeout, JSON-RPC, missing-result, and schema failures have stable API codes and retry metadata",
+      "API keys and reflected request or response values do not survive in errors, details, causes, or messages",
+      "invalid requests fail through the canonical indexer codec before fetch"
+    ]
+  },
+  "readiness": {
+    "aggregateBlockers": [],
+    "implementation": "ready",
+    "packetCheckpoint": "ready"
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}

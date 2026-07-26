@@ -1,0 +1,76 @@
+{
+  "expected": {
+    "custody": {
+      "signerEquivalence": "same message bytes; only the fee-payer signature changes",
+      "unsignedNativeMessageOracle": "client/rpc-indexer-v1.json expected.legacyMessages"
+    },
+    "merge": {
+      "duplicateError": {
+        "code": "DuplicateInputUtxo",
+        "details": "DuplicateInputUtxo { hash: [8, 39, 151, 133, 216, 162, 137, 74, 34, 152, 155, 100, 60, 204, 227, 150, 222, 82, 229, 134, 50, 192, 84, 84, 89, 205, 3, 204, 2, 160, 43, 36] }"
+      },
+      "mergedAmount": "80",
+      "paddedInputCount": "8",
+      "realInputCount": "3",
+      "selectedAmounts": [
+        "10",
+        "20",
+        "50"
+      ]
+    },
+    "ordering": [
+      "encrypt",
+      "approve",
+      "finalize",
+      "p256Sign"
+    ],
+    "publicFallback": {
+      "kind": "publicWithdrawal",
+      "withdrawal": "Some(Sol(TransactSolWithdrawal { recipient: 3S5e9qmNHjhA2G1Ghkk5UWnTniaFFHiX7gzd6gcZtzcT }))"
+    },
+    "registered": {
+      "kind": "private",
+      "selectedInputCount": "2",
+      "treeBytes": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "signed": {
+      "inputContexts": [
+        {
+          "index": "0",
+          "nullifierBytes": "026a9302b84ed423956bf010e9847621b3d2146dea68f9fa01213763c5d9e4eb",
+          "utxoHashBytes": "08279785d8a2894a22989b643ccce396de52e58632c0545459cd03cc02a02b24"
+        },
+        {
+          "index": "1",
+          "nullifierBytes": "26e6fb9f257f03b4e76764bec6582ac931cc22a448fdd62346fa075dd22edf41",
+          "utxoHashBytes": "0756d263539c4f6d38344847cd6086267f73363530774e57d9775583ff7f0e38"
+        }
+      ],
+      "p256SignaturePresent": true
+    },
+    "split": {
+      "inputCount": "1",
+      "outputs": "2",
+      "perOutputAmount": "400"
+    }
+  },
+  "id": "fx-p00-wallet-transaction-v1",
+  "inputs": {
+    "requestedAmount": "60",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000015",
+    "testOnlySecret": true,
+    "viewingSeedBytes": "1616161616161616161616161616161616161616161616161616161616161616",
+    "walletAmounts": [
+      "20",
+      "50",
+      "10"
+    ]
+  },
+  "inventoryRow": "sdk-libs/wallet/src/actions/transaction.rs; sdk-libs/wallet/tests/transaction.rs",
+  "owningPacket": "P00",
+  "responsibility": "registered and public routing, input selection, split, merge, authority ordering, proof inputs, custody boundary, and frozen test expectations",
+  "rustPath": "sdk-libs/wallet/src/actions/transaction.rs; sdk-libs/wallet/tests/transaction.rs",
+  "rustSymbol": "create_transfer_sync; create_withdrawal; create_split; create_merge; sign_shielded_transaction_sync",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

@@ -1,0 +1,86 @@
+{
+  "accepts": [
+    {
+      "accepted": true,
+      "id": "create-empty-signers"
+    },
+    {
+      "accepted": true,
+      "id": "create-duplicate-signers"
+    },
+    {
+      "accepted": true,
+      "id": "create-zero-threshold"
+    },
+    {
+      "accepted": true,
+      "id": "execute-255-signers"
+    },
+    {
+      "accepted": true,
+      "id": "execute-255-inner-instructions"
+    },
+    {
+      "accepted": true,
+      "id": "execute-255-accounts-per-instruction"
+    },
+    {
+      "accepted": true,
+      "id": "execute-256-compiled-accounts"
+    },
+    {
+      "accepted": true,
+      "id": "execute-duplicate-signer-keys"
+    }
+  ],
+  "generatorCommand": "cargo run -p xtask --bin smart-account-rejects",
+  "id": "smart-account-rejects-v1",
+  "rejects": [
+    {
+      "accepted": false,
+      "id": "execute-256-signers",
+      "kind": "tooManySigners",
+      "rustPanic": "signer count exceeds u8: 256"
+    },
+    {
+      "accepted": false,
+      "id": "execute-256-inner-instructions",
+      "kind": "tooManyInstructions",
+      "rustPanic": "inner instruction count exceeds u8: 256"
+    },
+    {
+      "accepted": false,
+      "id": "execute-256-accounts-per-instruction",
+      "kind": "tooManyAccounts",
+      "rustPanic": "inner instruction account count exceeds u8: 256"
+    },
+    {
+      "accepted": false,
+      "id": "execute-257-compiled-accounts",
+      "kind": "tooManyCompiledAccounts",
+      "rustPanic": "compiled account count exceeds u8: 256"
+    },
+    {
+      "accepted": false,
+      "id": "execute-255-distinct-accounts-compiled-overflow",
+      "kind": "tooManyCompiledAccounts",
+      "rustPanic": "compiled account count exceeds u8: 256"
+    }
+  ],
+  "responsibility": "Rust oracle for @zolana/smart-account-client builder rejection and tamper cases: checked_u8 overflows on signer/instruction/account counts, acceptance of shapes the create builder does not refuse, and a create-payload byte flip that regeneration must not follow.",
+  "rustPath": "sdk-libs/smart-account-client/src/lib.rs",
+  "rustSymbol": "checked_u8; create_smart_account_ix; execute_sync_ix",
+  "schema": "zolana-ts-fixtures-v1",
+  "tampers": [
+    {
+      "canonicalDataBytes": "c566fde74d543211000100010000001b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b07000000000000",
+      "id": "tamper-create-discriminator-byte",
+      "kind": "tamper",
+      "mutation": "xorFirstDataByte",
+      "programId": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+      "regeneratedMatchesCanonical": true,
+      "tamperedDataBytes": "3a66fde74d543211000100010000001b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b07000000000000"
+    }
+  ],
+  "version": "1"
+}

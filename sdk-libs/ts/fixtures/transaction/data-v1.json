@@ -1,0 +1,58 @@
+{
+  "expected": {
+    "accessors": {
+      "memoBytes": "66697874757265206d656d6f",
+      "utxoDataBytes": "030405",
+      "zoneDataBytes": "0102"
+    },
+    "errors": [
+      {
+        "code": "DuplicateDataRecord",
+        "details": "DuplicateDataRecord"
+      },
+      {
+        "code": "NonCanonicalDataOrder",
+        "details": "NonCanonicalDataOrder"
+      },
+      {
+        "code": "TrailingBytes",
+        "details": "TrailingBytes"
+      },
+      {
+        "code": "Io",
+        "details": "Io(ReadSizeLimit(12))"
+      }
+    ],
+    "recordCountPrefixBytes": "03",
+    "roundTripVerified": true,
+    "wincodeBytes": "030102000102020300030405030c0066697874757265206d656d6f"
+  },
+  "id": "fx-p00-transaction-data-v1",
+  "inputs": {
+    "records": [
+      {
+        "bytes": "0102",
+        "tag": "ZoneData",
+        "tagByte": "1"
+      },
+      {
+        "bytes": "030405",
+        "tag": "UtxoData",
+        "tagByte": "2"
+      },
+      {
+        "bytes": "66697874757265206d656d6f",
+        "tag": "Memo",
+        "tagByte": "3"
+      }
+    ],
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/transaction/src/data.rs",
+  "owningPacket": "P00",
+  "responsibility": "record order, accessors, u16 lengths, round trips, and malformed data",
+  "rustPath": "sdk-libs/transaction/src/data.rs",
+  "rustSymbol": "DataRecord; OutputData",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

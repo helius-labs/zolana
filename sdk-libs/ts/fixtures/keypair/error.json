@@ -1,0 +1,44 @@
+{
+  "expected": {
+    "invalidEd25519Padding": {
+      "code": "InvalidPublicKey",
+      "details": "InvalidPublicKey"
+    },
+    "invalidP256Point": {
+      "code": "InvalidPublicKey",
+      "details": "InvalidPublicKey"
+    },
+    "invalidSecretScalar": {
+      "code": "InvalidSecretKey",
+      "details": "InvalidSecretKey"
+    },
+    "invalidSignaturePrefix": {
+      "code": "InvalidSignatureType",
+      "details": "InvalidSignatureType(9)"
+    },
+    "notEd25519": {
+      "code": "NotEd25519",
+      "details": "NotEd25519"
+    },
+    "tamperedEd25519SignatureValid": false,
+    "tamperedP256SignatureValid": false,
+    "wrongRail": {
+      "code": "InvalidSignatureType",
+      "details": "InvalidSignatureType(0)"
+    }
+  },
+  "id": "fx-p00-keypair-error-v1",
+  "inputs": {
+    "invalidP256Bytes": "000000000000000000000000000000000000000000000000000000000000000000",
+    "invalidSecretBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+    "invalidSignaturePrefix": "9",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/src/error.rs",
+  "owningPacket": "P00",
+  "responsibility": "malformed key, rail, padding, and tampered-signature evidence",
+  "rustPath": "sdk-libs/keypair/src/error.rs",
+  "rustSymbol": "KeypairError",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

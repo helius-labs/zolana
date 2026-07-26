@@ -1,0 +1,860 @@
+{
+  "accepts": [
+    {
+      "accepted": true,
+      "id": "control-merkle-response",
+      "surface": "merkleProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 1234
+        },
+        "proofs": [
+          {
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": 7,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 1
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 9,
+            "root_seq": 8
+          }
+        ]
+      }
+    },
+    {
+      "accepted": true,
+      "id": "control-rings-request",
+      "surface": "ringsByTagsRequest",
+      "wire": {
+        "cursor": "AQID",
+        "limit": 1,
+        "tags": [
+          "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+        ]
+      }
+    },
+    {
+      "accepted": true,
+      "id": "control-encrypted-response",
+      "surface": "encryptedUtxosResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "matches": [
+          {
+            "output_slot": {
+              "output_context": {
+                "hash": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+                "leaf_index": 0,
+                "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              },
+              "payload": "AA==",
+              "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            },
+            "salt": null,
+            "slot": 0,
+            "tx_signature": "4VZdodJgBy6dxMgm45zusmRzrPvKtiumu5YrK9RLPJADpzeJzgebxHsoQD4B58FCFS6aGUufKZka56xFiBGpB94",
+            "tx_viewing_pk": null
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "accepted": true,
+      "id": "control-non-inclusion-response",
+      "surface": "nonInclusionProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "proofs": [
+          {
+            "high_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "high_element_index": 3,
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "low_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "low_element_index": 2,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 0
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 0,
+            "root_seq": 0
+          }
+        ]
+      }
+    },
+    {
+      "accepted": true,
+      "id": "control-limit-min",
+      "surface": "limit",
+      "wire": 1
+    },
+    {
+      "accepted": true,
+      "id": "control-limit-page",
+      "surface": "limit",
+      "wire": 1000
+    },
+    {
+      "accepted": true,
+      "id": "control-block-time-decimal-string",
+      "surface": "encryptedUtxosResponse",
+      "wire": {
+        "context": {
+          "block_time": "9007199254740993"
+        },
+        "matches": [],
+        "next_cursor": null
+      }
+    },
+    {
+      "accepted": true,
+      "id": "control-seq-decimal-string",
+      "surface": "nullifierQueueResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "elements": [
+          {
+            "seq": "9007199254740993",
+            "value": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+          }
+        ]
+      }
+    }
+  ],
+  "generatorCommand": "cargo run -p xtask --bin indexer-schema-rejects",
+  "id": "indexer-schema-rejects-v1",
+  "rejects": [
+    {
+      "accepted": false,
+      "id": "pubkey-short",
+      "kind": "pubkey",
+      "rustError": "String is the wrong size",
+      "surface": "merkleProofsRequest",
+      "wire": {
+        "leaves": [
+          "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+        ],
+        "tree_account": "short"
+      }
+    },
+    {
+      "accepted": false,
+      "id": "signature-short",
+      "kind": "signature",
+      "rustError": "failed to decode string to signature",
+      "surface": "encryptedUtxosResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "matches": [
+          {
+            "output_slot": {
+              "output_context": {
+                "hash": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+                "leaf_index": 0,
+                "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              },
+              "payload": "AA==",
+              "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            },
+            "salt": null,
+            "slot": 0,
+            "tx_signature": "not-a-signature",
+            "tx_viewing_pk": null
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "accepted": false,
+      "id": "rings-request-bad-cursor",
+      "kind": "invalidBase64",
+      "rustError": "Invalid symbol 45, offset 3.",
+      "surface": "ringsByTagsRequest",
+      "wire": {
+        "cursor": "not-base64",
+        "tags": [
+          "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "rings-request-limit-zero",
+      "kind": "invalidLimit",
+      "rustError": "invalid value: integer `0`, expected a value between 1 and 1000",
+      "surface": "ringsByTagsRequest",
+      "wire": {
+        "limit": 0,
+        "tags": [
+          "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "merkle-request-bad-tree",
+      "kind": "invalidAddress",
+      "rustError": "String is the wrong size",
+      "surface": "merkleProofsRequest",
+      "wire": {
+        "leaves": [
+          "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+        ],
+        "tree_account": "short"
+      }
+    },
+    {
+      "accepted": false,
+      "id": "merkle-request-leaves-wrong-type",
+      "kind": "invalidType",
+      "rustError": "invalid type: string \"bad\", expected a sequence",
+      "surface": "merkleProofsRequest",
+      "wire": {
+        "leaves": "bad",
+        "tree_account": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+      }
+    },
+    {
+      "accepted": false,
+      "id": "non-inclusion-request-leaves-wrong-type",
+      "kind": "invalidType",
+      "rustError": "invalid type: string \"bad\", expected a sequence",
+      "surface": "nonInclusionProofsRequest",
+      "wire": {
+        "leaves": "bad",
+        "tree_account": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+      }
+    },
+    {
+      "accepted": false,
+      "id": "queue-request-limit-above-page",
+      "kind": "invalidLimit",
+      "rustError": "invalid value: integer `1001`, expected a value between 1 and 1000",
+      "surface": "nullifierQueueRequest",
+      "wire": {
+        "limit": 1001,
+        "tree_account": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+      }
+    },
+    {
+      "accepted": false,
+      "id": "queue-request-unknown-cursor",
+      "kind": "unknownField",
+      "rustError": "unknown field `cursor`, expected one of `tree_account`, `start_seq`, `limit`",
+      "surface": "nullifierQueueRequest",
+      "wire": {
+        "cursor": "AA==",
+        "limit": 1,
+        "tree_account": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+      }
+    },
+    {
+      "accepted": false,
+      "id": "encrypted-bad-signature",
+      "kind": "invalidSignature",
+      "rustError": "string decoded to wrong size for signature",
+      "surface": "encryptedUtxosResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "matches": [
+          {
+            "output_slot": {
+              "output_context": {
+                "hash": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+                "leaf_index": 0,
+                "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              },
+              "payload": "AA==",
+              "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            },
+            "salt": null,
+            "slot": 0,
+            "tx_signature": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "tx_viewing_pk": null
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "accepted": false,
+      "id": "encrypted-unknown-field",
+      "kind": "unknownField",
+      "rustError": "unknown field `extra`, expected one of `context`, `matches`, `next_cursor`",
+      "surface": "encryptedUtxosResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "extra": true,
+        "matches": [
+          {
+            "output_slot": {
+              "output_context": {
+                "hash": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+                "leaf_index": 0,
+                "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              },
+              "payload": "AA==",
+              "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            },
+            "salt": null,
+            "slot": 0,
+            "tx_signature": "4VZdodJgBy6dxMgm45zusmRzrPvKtiumu5YrK9RLPJADpzeJzgebxHsoQD4B58FCFS6aGUufKZka56xFiBGpB94",
+            "tx_viewing_pk": null
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "accepted": false,
+      "id": "shielded-message-unknown-field",
+      "kind": "unknownField",
+      "rustError": "unknown field `extra`, expected `view_tag` or `payload`",
+      "surface": "shieldedTransactionsResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "next_cursor": null,
+        "transactions": [
+          {
+            "messages": [
+              {
+                "extra": 1,
+                "payload": "AA==",
+                "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+              }
+            ],
+            "nullifiers": [],
+            "output_slots": [],
+            "proofless": false,
+            "salt": null,
+            "slot": 0,
+            "tx_signature": "4VZdodJgBy6dxMgm45zusmRzrPvKtiumu5YrK9RLPJADpzeJzgebxHsoQD4B58FCFS6aGUufKZka56xFiBGpB94",
+            "tx_viewing_pk": null
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "merkle-path-hash-wrong-size",
+      "kind": "hashWrongSize",
+      "rustError": "string is the wrong size",
+      "surface": "merkleProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 1234
+        },
+        "proofs": [
+          {
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": 7,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 1
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+              "short"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 9,
+            "root_seq": 8
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "merkle-leaf-index-negative",
+      "kind": "invalidInteger",
+      "rustError": "invalid value: integer `-1`, expected u64",
+      "surface": "merkleProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 1234
+        },
+        "proofs": [
+          {
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": -1,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 1
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 9,
+            "root_seq": 8
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "merkle-root-index-above-u16",
+      "kind": "invalidInteger",
+      "rustError": "invalid value: integer `65536`, expected u16",
+      "surface": "merkleProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 1234
+        },
+        "proofs": [
+          {
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": 7,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 1
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 65536,
+            "root_seq": 8
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "merkle-tree-type-above-u16",
+      "kind": "invalidInteger",
+      "rustError": "invalid value: integer `65536`, expected u16",
+      "surface": "merkleProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 1234
+        },
+        "proofs": [
+          {
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": 7,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 65536
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 9,
+            "root_seq": 8
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "merkle-leaf-index-decimal-string",
+      "kind": "boundedIntegerString",
+      "rustError": "invalid type: string \"7\", expected u64",
+      "surface": "merkleProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 1234
+        },
+        "proofs": [
+          {
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": "7",
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 1
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 9,
+            "root_seq": 8
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "non-inclusion-high-index-negative",
+      "kind": "invalidInteger",
+      "rustError": "invalid value: integer `-1`, expected u64",
+      "surface": "nonInclusionProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "proofs": [
+          {
+            "high_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "high_element_index": -1,
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "low_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "low_element_index": 2,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 0
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 0,
+            "root_seq": 0
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "non-inclusion-inclusion-only-leaf-index",
+      "kind": "unknownField",
+      "rustError": "unknown field `leaf_index`, expected one of `leaf`, `merkle_context`, `path`, `low_element`, `low_element_index`, `high_element`, `high_element_index`, `root`, `root_seq`, `root_index`",
+      "surface": "nonInclusionProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "proofs": [
+          {
+            "high_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "high_element_index": 3,
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": 0,
+            "low_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "low_element_index": 2,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 0
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 0,
+            "root_seq": 0
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "queue-seq-negative",
+      "kind": "invalidInteger",
+      "rustError": "invalid type: integer `-1`, expected an unsigned integer or string containing an unsigned integer",
+      "surface": "nullifierQueueResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "elements": [
+          {
+            "seq": -1,
+            "value": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "encrypted-response-unknown-field",
+      "kind": "unknownField",
+      "rustError": "unknown field `unknown`, expected one of `context`, `matches`, `next_cursor`",
+      "surface": "encryptedUtxosResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "matches": [
+          {
+            "output_slot": {
+              "output_context": {
+                "hash": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+                "leaf_index": 0,
+                "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              },
+              "payload": "AA==",
+              "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            },
+            "salt": null,
+            "slot": 0,
+            "tx_signature": "4VZdodJgBy6dxMgm45zusmRzrPvKtiumu5YrK9RLPJADpzeJzgebxHsoQD4B58FCFS6aGUufKZka56xFiBGpB94",
+            "tx_viewing_pk": null
+          }
+        ],
+        "next_cursor": null,
+        "unknown": true
+      }
+    },
+    {
+      "accepted": false,
+      "id": "shielded-response-unknown-field",
+      "kind": "unknownField",
+      "rustError": "unknown field `unknown`, expected one of `context`, `transactions`, `next_cursor`",
+      "surface": "shieldedTransactionsResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "next_cursor": null,
+        "transactions": [],
+        "unknown": true
+      }
+    },
+    {
+      "accepted": false,
+      "id": "merkle-response-unknown-field",
+      "kind": "unknownField",
+      "rustError": "unknown field `unknown`, expected `context` or `proofs`",
+      "surface": "merkleProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 1234
+        },
+        "proofs": [
+          {
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": 7,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 1
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 9,
+            "root_seq": 8
+          }
+        ],
+        "unknown": true
+      }
+    },
+    {
+      "accepted": false,
+      "id": "non-inclusion-response-unknown-field",
+      "kind": "unknownField",
+      "rustError": "unknown field `unknown`, expected `context` or `proofs`",
+      "surface": "nonInclusionProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "proofs": [
+          {
+            "high_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "high_element_index": 3,
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "low_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "low_element_index": 2,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 0
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 0,
+            "root_seq": 0
+          }
+        ],
+        "unknown": true
+      }
+    },
+    {
+      "accepted": false,
+      "id": "queue-response-unknown-field",
+      "kind": "unknownField",
+      "rustError": "unknown field `unknown`, expected `context` or `elements`",
+      "surface": "nullifierQueueResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "elements": [],
+        "unknown": true
+      }
+    }
+  ],
+  "responsibility": "Rust oracle for @zolana/indexer-api schema rejection and tamper cases: production serde Deserialize of every request/response family, scalar bounds, deny_unknown_fields, and mutated success bodies.",
+  "rustPath": "sdk-libs/indexer-api/src/lib.rs",
+  "rustSymbol": "Deserialize for request/response/scalar wire types",
+  "scalars": [
+    {
+      "accepted": false,
+      "id": "invalid-base64",
+      "kind": "base64",
+      "rustError": "Invalid symbol 61, offset 1.",
+      "surface": "base64String",
+      "wire": "A==="
+    },
+    {
+      "accepted": false,
+      "id": "hash-short",
+      "kind": "hash",
+      "rustError": "string is the wrong size",
+      "surface": "hash",
+      "wire": "short"
+    },
+    {
+      "accepted": false,
+      "id": "hash-wrong-byte-length",
+      "kind": "hash",
+      "rustError": "string is the wrong size",
+      "surface": "hash",
+      "wire": "1111111111111111111111111111111"
+    },
+    {
+      "accepted": false,
+      "id": "limit-zero",
+      "kind": "limit",
+      "rustError": "invalid value: integer `0`, expected a value between 1 and 1000",
+      "surface": "limit",
+      "wire": 0
+    },
+    {
+      "accepted": false,
+      "id": "limit-above-page",
+      "kind": "limit",
+      "rustError": "invalid value: integer `1001`, expected a value between 1 and 1000",
+      "surface": "limit",
+      "wire": 1001
+    }
+  ],
+  "schema": "zolana-ts-fixtures-v1",
+  "tampers": [
+    {
+      "accepted": false,
+      "id": "tamper-merkle-path-entry",
+      "kind": "tamper",
+      "rustError": "string is the wrong size",
+      "surface": "merkleProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 1234
+        },
+        "proofs": [
+          {
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": 7,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 1
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+              "short"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 9,
+            "root_seq": 8
+          }
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "tamper-encrypted-add-field",
+      "kind": "tamper",
+      "rustError": "unknown field `forged`, expected one of `slot`, `tx_signature`, `output_slot`, `tx_viewing_pk`, `salt`",
+      "surface": "encryptedUtxosResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "matches": [
+          {
+            "forged": true,
+            "output_slot": {
+              "output_context": {
+                "hash": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+                "leaf_index": 0,
+                "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+              },
+              "payload": "AA==",
+              "view_tag": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            },
+            "salt": null,
+            "slot": 0,
+            "tx_signature": "4VZdodJgBy6dxMgm45zusmRzrPvKtiumu5YrK9RLPJADpzeJzgebxHsoQD4B58FCFS6aGUufKZka56xFiBGpB94",
+            "tx_viewing_pk": null
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "accepted": false,
+      "id": "tamper-rings-limit-past-page",
+      "kind": "tamper",
+      "rustError": "invalid value: integer `1001`, expected a value between 1 and 1000",
+      "surface": "ringsByTagsRequest",
+      "wire": {
+        "cursor": "AQID",
+        "limit": 1001,
+        "tags": [
+          "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+        ]
+      }
+    },
+    {
+      "accepted": false,
+      "id": "tamper-non-inclusion-inject-leaf-index",
+      "kind": "tamper",
+      "rustError": "unknown field `leaf_index`, expected one of `leaf`, `merkle_context`, `path`, `low_element`, `low_element_index`, `high_element`, `high_element_index`, `root`, `root_seq`, `root_index`",
+      "surface": "nonInclusionProofsResponse",
+      "wire": {
+        "context": {
+          "block_time": 0
+        },
+        "proofs": [
+          {
+            "high_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "high_element_index": 3,
+            "leaf": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "leaf_index": 0,
+            "low_element": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "low_element_index": 2,
+            "merkle_context": {
+              "tree": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+              "tree_type": 0
+            },
+            "path": [
+              "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+            ],
+            "root": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+            "root_index": 0,
+            "root_seq": 0
+          }
+        ]
+      }
+    }
+  ],
+  "version": "1"
+}

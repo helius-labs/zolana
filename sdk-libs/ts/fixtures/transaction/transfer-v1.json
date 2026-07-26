@@ -1,0 +1,98 @@
+{
+  "expected": {
+    "conservedAmount": "160",
+    "errors": [
+      {
+        "code": "InsufficientBalance",
+        "details": "InsufficientBalance { requested: 1, available: 0 }"
+      },
+      {
+        "code": "WithdrawalAlreadySet",
+        "details": "WithdrawalAlreadySet"
+      }
+    ],
+    "externalDataHashBytes": "00f1b8317d6460105002bf15307e1181abbae911f31e6d6e9e53cdea642387bc",
+    "firstNullifierBytes": "2d8f2b39e00aa10532ede81c95a9a5bc5634f0f7d9cfd13e94ff0fc39520040f",
+    "messageHashBytes": "533cc6b29ae8fe973554a24cd5d004151081c835cfee5193fe1688062bb04b2b",
+    "outputs": [
+      {
+        "amount": "60",
+        "assetBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+        "blindingBytes": "e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0",
+        "isDummy": false,
+        "ownerHashBytes": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "slot": "0",
+        "utxoHashBytes": "14f19476ad6f31e05a4b3e39a1cf90b5b05795351c943fe9e18949ae7ddd6844"
+      },
+      {
+        "amount": "60",
+        "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "blindingBytes": "15875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df",
+        "isDummy": false,
+        "ownerHashBytes": "2b3c775d28f1c07cd88b2e10bcba92c02680a231d9ed8afe98370d1a54897aa9",
+        "slot": "1",
+        "utxoHashBytes": "29783fcd9873de384eb6b786122ac6d48c59c5b5400317e318c919efb96e00ba"
+      },
+      {
+        "amount": "40",
+        "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "blindingBytes": "4c6a2e8b5ff71af86b3ab97bce0da8cfd29b43991e23bc14048b2f5bc34d12",
+        "isDummy": false,
+        "ownerHashBytes": "2bebd6d08442d58aab7612959892b5c6840e6ee422315d175b8ae08514579df8",
+        "slot": "2",
+        "utxoHashBytes": "1107684a31e909f9976c1edbd29e8b379b7ae590868b96ce87a988dbff263b38"
+      }
+    ],
+    "resolvedOwnerTagBytes": [
+      "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+      "8e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+      "741dd5bda817d95e4626537320e5d55179983028b2f82c99d500c5ee8624e3c4"
+    ],
+    "shape": {
+      "inputs": "2",
+      "outputs": "3"
+    },
+    "txViewingPkBytes": "03ae545af75fdbbd8b987d6899f977999c191f0126da866b02bc175e2563b7a274",
+    "wireOutputs": [
+      {
+        "dataBytes": "0153000000030228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141ef2ff9ad85ec706008d2d9de251136b0e2e30c1725ef05bfb9f864252f0dd8be98313aab8561aa018fb9cb8202670d4d2c",
+        "ownerTag": "P256SigningKey",
+        "slot": "0",
+        "utxoHashBytes": "14f19476ad6f31e05a4b3e39a1cf90b5b05795351c943fe9e18949ae7ddd6844"
+      },
+      {
+        "dataBytes": "0153000000030228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141c30a81112e15d398bdeffaca3d4f2bef86b9feb7c3f3cdb463fa7da252b206e9adc4628cc14e1f3d565ed7f3e6880afe41",
+        "ownerTag": "P256SigningKey",
+        "slot": "1",
+        "utxoHashBytes": "29783fcd9873de384eb6b786122ac6d48c59c5b5400317e318c919efb96e00ba"
+      },
+      {
+        "dataBytes": "01530000000302ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3e75da261767713f9cbe5c2b8da297e19f24f3b1d31c1b6f71894f362797ffc5d8b3d23971be7f56d24430787f6d80043b7",
+        "ownerTag": "Inline([116, 29, 213, 189, 168, 23, 217, 94, 70, 38, 83, 115, 32, 229, 213, 81, 121, 152, 48, 40, 178, 248, 44, 153, 213, 0, 197, 238, 134, 36, 227, 196])",
+        "slot": "2",
+        "utxoHashBytes": "1107684a31e909f9976c1edbd29e8b379b7ae590868b96ce87a988dbff263b38"
+      }
+    ]
+  },
+  "id": "fx-p00-transaction-transfer-v1",
+  "inputs": {
+    "blindingSeedBytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "payerBytes": "1919191919191919191919191919191919191919191919191919191919191919",
+    "recipientAmount": "40",
+    "saltBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
+    "solInputAmount": "100",
+    "splInputAmount": "60",
+    "splMintBytes": "2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c",
+    "testOnlySecret": true,
+    "txViewingSeedBytes": "0909090909090909090909090909090909090909090909090909090909090909",
+    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808"
+  },
+  "inventoryRow": "sdk-libs/transaction/tests/features/transfer.feature",
+  "owningPacket": "P00",
+  "responsibility": "transfer change and recipient slots, conservation, hashes, shapes, and errors",
+  "rustPath": "sdk-libs/transaction/src/instructions/transact/transfer.rs",
+  "rustSymbol": "ConfidentialTransfer; PreparedTransfer; WithdrawalTarget",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

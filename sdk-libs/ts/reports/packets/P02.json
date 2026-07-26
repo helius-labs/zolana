@@ -1,0 +1,115 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "blockers": [],
+  "checkpointReady": true,
+  "commands": [
+    {
+      "command": "npm run build --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "ESM, declarations, declaration maps, and source maps"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "strict TypeScript validation"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/interface/src/**/*.ts\" \"sdk-libs/ts/interface/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "zero-finding strict typed lint for all P02 source and tests"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/interface/src/**/*.ts\" \"sdk-libs/ts/interface/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "source and test formatting"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "15 unit, negative, boundary, ownership, property-loop, and mutation tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "P00 deposit fixture bytes, account order, and account flags"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "browser bundle and forbidden-global validation"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "root and pda, codecs, and instructions export validation"
+    },
+    {
+      "command": "npm pack --dry-run --workspace @zolana/interface",
+      "exitStatus": "0",
+      "responsibility": "interface tarball contents and four entry points"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "fresh packed Node and browser consumers, including cross-package fixed-byte declarations"
+    },
+    {
+      "command": "npm run lint",
+      "exitStatus": "0",
+      "responsibility": "aggregate workspace lint gate"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "aggregate build, typecheck, lint, format, 198 tests, inventory, exports, dependencies, and API checks"
+    },
+    {
+      "command": "git diff --check -- sdk-libs/ts/interface/src sdk-libs/ts/interface/test sdk-libs/ts/reports/packets/P02.json",
+      "exitStatus": "0",
+      "responsibility": "owned-path whitespace validation"
+    }
+  ],
+  "counts": {
+    "accountCodecs": "4",
+    "instructionBuilders": "19",
+    "instructionTags": "18",
+    "interfaceDeclarations": "74",
+    "pdaFunctions": "8",
+    "productionDependenciesAdded": "0",
+    "tests": "15",
+    "vectorTests": "1"
+  },
+  "fixtureIds": ["fx-p00-interface-deposit-v1", "fx-workflow-instruction-deposit-v1"],
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "ownedChangedPaths": [
+    "sdk-libs/ts/interface/src/codecs/index.ts",
+    "sdk-libs/ts/interface/src/errors.ts",
+    "sdk-libs/ts/interface/src/index.ts",
+    "sdk-libs/ts/interface/src/instructions/index.ts",
+    "sdk-libs/ts/interface/src/internal.ts",
+    "sdk-libs/ts/interface/src/pda/index.ts",
+    "sdk-libs/ts/interface/test/fixture.ts",
+    "sdk-libs/ts/interface/test/interface.test.ts",
+    "sdk-libs/ts/interface/test/vectors/interface-vector.test.ts",
+    "sdk-libs/ts/reports/packets/P02.json"
+  ],
+  "packet": "P02",
+  "qualityPass": {
+    "comments": "No production comments were required; names express the layouts and validation.",
+    "dependencyDecision": "No dependency is required. Browser-safe base58, SHA-256, Ed25519 point checks, binary readers/writers, and PDA derivation use existing JavaScript primitives.",
+    "simplifications": [
+      "centralized integer, address, byte, reader, writer, and PDA validation",
+      "centralized typed fixture parsing, hex validation, and required-account access across unit and vector tests",
+      "replaced deprecated exception matchers and non-null assertions with strict equivalents and explicit invariants",
+      "replaced package-local fixed-byte symbols with one numeric structural length marker while retaining checked codec boundaries",
+      "shared SOL/SPL settlement account construction across transact variants",
+      "shared zone transact construction without exporting implementation helpers",
+      "kept exact public entry-point allowlists while leaving generic machinery internal"
+    ]
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}

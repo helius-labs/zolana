@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "note": "Produced by @zolana/keypair; verified by sdk-libs/keypair/tests/key_certification_reverse.rs.",
+  "p256": {
+    "secretBytes": "030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f41",
+    "taggedPublicKeyBytes": "00035dd3f0f7682d149e515dc5e8afc1b263f52f8916865c6e28c92dfaacca7c8ec7",
+    "signatures": [
+      {
+        "digestBytes": "a54a47f65a8c8da6b5b1c513fe6b104e78733b460589e2a5e22c47c8cbb1c399",
+        "signatureBytes": "63f6bc8349bbfdf8ed942585581a43e4df3dd17a1091a9283b14ca3dc6eda6b2edc30623c0b4a81ca589c975eff8beeb97d3189e0a35b28e4652686e89923d26"
+      },
+      {
+        "digestBytes": "9977eca42bd0a98f814a05e75b3188ff2dda76e886a6f905eaae33b879aaed27",
+        "signatureBytes": "ebbf84c4197b65e3aedd76986eae757f8e004d7f865068bdcdf19485466649beb76749eacd6cc49806a332e6c20126c119f9e466d050521fbb67b9328948ffd2"
+      },
+      {
+        "digestBytes": "0050af66372941236d34b7f631c619b224b78745b5f7d2ab7033488d6b5866a9",
+        "signatureBytes": "18f1aa48dfb4f72b68fc5668027bb346d1068fbfb9b1d67af5c27ee8a7d643e1f19cfee91c3156ebd7fc06e2efd81d2280fbaf6ed93087e619b395c12ba8fe7d"
+      },
+      {
+        "digestBytes": "2d5d5d6f7e66a0f76fcce77a828d8898e34ee891bb0ecda929ff8c39d40f786a",
+        "signatureBytes": "a87002e623fd62a82b701dc7f7be77a7e06bd972f715eb77328e3c97134641e8f18c082be001b3d3d5a62506de2a2363a2c2b540b4b96240652f78931f8c2994"
+      }
+    ]
+  },
+  "ed25519": {
+    "secretBytes": "11131517191b1d1f21232527292b2d2f31333537393b3d3f41434547494b4d4f",
+    "taggedPublicKeyBytes": "01815f7bd06df7d751d54c52e43744cfd8ee9b4dc8d882ba25bfe2a77912004fba00",
+    "signatures": [
+      {
+        "messageBytes": "",
+        "signatureBytes": "54b59a56b5ee01083eb3c25a237c8b73eab3e9d191b2c8d7ac95210f84394de7084036133428328ed7cc120d715c07cbda060c3f5b01f73abd1617e2e36ea10a"
+      },
+      {
+        "messageBytes": "2a",
+        "signatureBytes": "fc3777ad9320db23c0f6fac068932fbe41fa60082258b19102ea5acc639f5c6978c65165b62a26c32d6384cd71f1ec94f016bd1098b0e5f7f74bd14fdd04ec06"
+      },
+      {
+        "messageBytes": "c3642041fc7a9562d7e479f8714b4e6c222d519178698bcbf4ccf5c475763468",
+        "signatureBytes": "cb45cb1334f3e362471255052076d0c42fb44350d864bfe9fdf6c9badca5bc989c7fb574570db78ca8fe78a8f7dfc1117fa0987ce522d6c354ce9972f20dd503"
+      }
+    ]
+  },
+  "nullifiers": {
+    "signingSecretBytes": "030507090b0d0f11131517191b1d1f21232527292b2d2f31333537393b3d3f41",
+    "secretBytes": "195c4c4a97b167f6078e98204081faecde42329798dcb0f9585ddfddffe9fd",
+    "publicKeyBytes": "24b34877b42db4dc903661108e1d87488fbc9008c0cf95f5b61cbed943269f15",
+    "derivations": [
+      {
+        "utxoHashBytes": "00e9d9818fced594aecd1edb4857081e62eb63b1ba2325732c4e94a222b5d241",
+        "blindingBytes": "03030303030303030303030303030303030303030303030303030303030303",
+        "nullifierBytes": "2bdf74c58bbf26aa242c7cdb985d8fc688d7d13ef2c440d51fd7c08c90ce023e"
+      },
+      {
+        "utxoHashBytes": "00447e81f55acc3160c0b96b7c122bb05be00fed51c5b3b641395b19c3f3ab01",
+        "blindingBytes": "00000000000000000000000000000000000000000000000000000000000000",
+        "nullifierBytes": "0a40ab4bf4fc36620074794900120ac42e08fb958192ab9591207ed89dea3683"
+      },
+      {
+        "utxoHashBytes": "00cc14342209c5f8674558b98f04c62afcdd170fa728bc059bae73470a5a0155",
+        "blindingBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "nullifierBytes": "27109abd84b4bffb026253f51fe92adbfa300bec1fe1b6126326b05b474a3c70"
+      }
+    ]
+  },
+  "viewing": {
+    "secretBytes": "1d1f21232527292b2d2f31333537393b3d3f41434547494b4d4f51535557595b",
+    "publicKeyBytes": "02ae23c76edcc48949d9d897807dff2d1871fd147cff536df4a0366954dcf7f413",
+    "senderTagBytes": [
+      {
+        "counter": "0",
+        "tagBytes": "00fc497eb68cbe7a9ec2e74efb76a3971dbe5030b02c792f27ad71d6ecc85418"
+      },
+      {
+        "counter": "1",
+        "tagBytes": "00f6212eaace6963097115260d9390316d6c84e43d9b961995e9b8861d20c6c6"
+      },
+      {
+        "counter": "18446744073709551615",
+        "tagBytes": "00cb430534edec149ccf77771fe4c74af9d20876ecfa4d6300dc2c900d2e967b"
+      }
+    ],
+    "transactionKeys": [
+      {
+        "firstNullifierBytes": "002c6c439d154859ec9671fa6834a004ad06c69f53dff7e242812ad20c295ae3",
+        "secretBytes": "7921c9707a9ef32ac7635691d37f7e5d0c4a807c55ec5fe89812c5fe9c4ee54c",
+        "publicKeyBytes": "030859449cd16d286762560c96aa571c3b8aa31979f30697ed900c549d38b00703"
+      },
+      {
+        "firstNullifierBytes": "00a0d0c29c9cbb25e23fdf1f28fa271ef3954b1a8e57249eb47113a3bc8a128d",
+        "secretBytes": "969ddd7e6fc4c349c6eff806be44e92634dedbd08f2cecce16d70258a828ab10",
+        "publicKeyBytes": "036b64d57accccf14808040d2be285fc6c933045724e6d3cd3648a3c899b6726a0"
+      }
+    ]
+  }
+}

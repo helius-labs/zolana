@@ -1,0 +1,144 @@
+{
+  "expected": {
+    "bundleWincodeBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a303010000000000000020000000000000000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b00",
+    "conservedAmount": "96",
+    "errors": [
+      {
+        "code": "SplitInvalidPartCount",
+        "details": "SplitInvalidPartCount { num_outputs: 1 }"
+      },
+      {
+        "code": "SplitAmountMismatch",
+        "details": "SplitAmountMismatch { input: 96, num_outputs: 3, per_output: 31 }"
+      }
+    ],
+    "externalDataHashBytes": "009136cb927a09baaad5b892f6ce94647031cf865dcf6f141034457817745489",
+    "firstNullifierBytes": "07dcca076169645a5297c761a14b91ef5efd4c8dadad2bc3cb5936d3d8f5d439",
+    "outputs": [
+      {
+        "amount": "32",
+        "blindingBytes": "e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0",
+        "ownerBound": true,
+        "slot": "0"
+      },
+      {
+        "amount": "32",
+        "blindingBytes": "15875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df",
+        "ownerBound": true,
+        "slot": "1"
+      },
+      {
+        "amount": "32",
+        "blindingBytes": "4c6a2e8b5ff71af86b3ab97bce0da8cfd29b43991e23bc14048b2f5bc34d12",
+        "ownerBound": true,
+        "slot": "2"
+      },
+      {
+        "amount": "0",
+        "blindingBytes": "b285d1efb215086b976c9baff9bf79be51119ff60d1cb01c010debb818b185",
+        "ownerBound": true,
+        "slot": "3"
+      },
+      {
+        "amount": "0",
+        "blindingBytes": "1d33b6851b0a1c6f5c4aa7c9fcfbd84b9aa6847df2565c7c0d782c55d22a2d",
+        "ownerBound": true,
+        "slot": "4"
+      },
+      {
+        "amount": "0",
+        "blindingBytes": "c1c229a8eca26dfcf6eecebfa1f03ab291157f4e6a9e9565b07df48d596427",
+        "ownerBound": true,
+        "slot": "5"
+      },
+      {
+        "amount": "0",
+        "blindingBytes": "9403d61538488ce1fa84da32a0ea788e96c07717f66e3dd5a920e774c090a0",
+        "ownerBound": true,
+        "slot": "6"
+      },
+      {
+        "amount": "0",
+        "blindingBytes": "b0a95dd297dcbade4493a26f1d95c92bfd65e15553a16d955568d406b7b0cb",
+        "ownerBound": true,
+        "slot": "7"
+      }
+    ],
+    "paddingOutputCount": "5",
+    "shape": {
+      "inputs": "1",
+      "outputs": "8"
+    },
+    "txViewingPkBytes": "03ae545af75fdbbd8b987d6899f977999c191f0126da866b02bc175e2563b7a274",
+    "valueOutputCount": "3",
+    "wireOutputs": [
+      {
+        "dataBytes": "015400000005ed2d77febe83d0df4f94fc6515774ab1fcbfed42d71ea14fab6f3aee0902dc0482ac28c0c7bdb94c6ac05c0b0c22dd4d2c0dec9fb21f00e96fdfd1af7d13e11320db7648f4d49a393d9b210d1fad76c998c48a",
+        "ownerTag": "Inline([142, 83, 59, 111, 160, 191, 123, 70, 37, 187, 48, 102, 124, 1, 251, 96, 126, 249, 248, 184, 168, 15, 239, 91, 48, 6, 40, 112, 49, 135, 178, 163])",
+        "slot": "0",
+        "utxoHashBytes": "25b017067941cf4b460f4338d7a1d5fed84eb147ca38561eb298a6ad4d6d1f2b"
+      },
+      {
+        "dataBytes": null,
+        "ownerTag": "Inline([142, 83, 59, 111, 160, 191, 123, 70, 37, 187, 48, 102, 124, 1, 251, 96, 126, 249, 248, 184, 168, 15, 239, 91, 48, 6, 40, 112, 49, 135, 178, 163])",
+        "slot": "1",
+        "utxoHashBytes": "020b12c5f621d6450f2e897021ec9678d07780ce0c0bbed7ef3404d9b9407a6f"
+      },
+      {
+        "dataBytes": null,
+        "ownerTag": "Inline([142, 83, 59, 111, 160, 191, 123, 70, 37, 187, 48, 102, 124, 1, 251, 96, 126, 249, 248, 184, 168, 15, 239, 91, 48, 6, 40, 112, 49, 135, 178, 163])",
+        "slot": "2",
+        "utxoHashBytes": "2dd2706e13594d4a89ef98fedc14b7d631a9faee22a2f14b66c8dabf5e9da836"
+      },
+      {
+        "dataBytes": null,
+        "ownerTag": "Inline([142, 83, 59, 111, 160, 191, 123, 70, 37, 187, 48, 102, 124, 1, 251, 96, 126, 249, 248, 184, 168, 15, 239, 91, 48, 6, 40, 112, 49, 135, 178, 163])",
+        "slot": "3",
+        "utxoHashBytes": "045d7dd707b26864f02a0cfcb9f1ed2d3d77ed50040b1b825ea1d3d20b626613"
+      },
+      {
+        "dataBytes": null,
+        "ownerTag": "Inline([142, 83, 59, 111, 160, 191, 123, 70, 37, 187, 48, 102, 124, 1, 251, 96, 126, 249, 248, 184, 168, 15, 239, 91, 48, 6, 40, 112, 49, 135, 178, 163])",
+        "slot": "4",
+        "utxoHashBytes": "07561eb66ecc74f103a73cc3c7d6bb21b54afdfa1e7ea7cce231024a7f1b1cdd"
+      },
+      {
+        "dataBytes": null,
+        "ownerTag": "Inline([142, 83, 59, 111, 160, 191, 123, 70, 37, 187, 48, 102, 124, 1, 251, 96, 126, 249, 248, 184, 168, 15, 239, 91, 48, 6, 40, 112, 49, 135, 178, 163])",
+        "slot": "5",
+        "utxoHashBytes": "2d1278482290ebeeec5f52f256cd1bcd8bf7d6dd025662b2aebd9f401ae3a2f7"
+      },
+      {
+        "dataBytes": null,
+        "ownerTag": "Inline([142, 83, 59, 111, 160, 191, 123, 70, 37, 187, 48, 102, 124, 1, 251, 96, 126, 249, 248, 184, 168, 15, 239, 91, 48, 6, 40, 112, 49, 135, 178, 163])",
+        "slot": "6",
+        "utxoHashBytes": "274968092f2ddd248c1a20b3ddb04c3bc95d6eda93affc8a66ed85f14bae04e2"
+      },
+      {
+        "dataBytes": null,
+        "ownerTag": "Inline([142, 83, 59, 111, 160, 191, 123, 70, 37, 187, 48, 102, 124, 1, 251, 96, 126, 249, 248, 184, 168, 15, 239, 91, 48, 6, 40, 112, 49, 135, 178, 163])",
+        "slot": "7",
+        "utxoHashBytes": "29fc76c37aec9d35f2dd9bf0c28401fd9b4e5e1e13849e0b7b9b244a732f6b83"
+      }
+    ]
+  },
+  "id": "fx-p00-transaction-split-v1",
+  "inputs": {
+    "blindingSeedBytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "inputAmount": "96",
+    "partAmount": "32",
+    "partCount": "3",
+    "saltBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
+    "testOnlySecret": true,
+    "txViewingSeedBytes": "0909090909090909090909090909090909090909090909090909090909090909",
+    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808"
+  },
+  "inventoryRow": "sdk-libs/transaction/tests/features/split.feature",
+  "owningPacket": "P00",
+  "responsibility": "split bundle bytes, conservation, owner-bound padding, blindings, and errors",
+  "rustPath": "sdk-libs/transaction/src/instructions/transact/split.rs",
+  "rustSymbol": "ConfidentialSplit; PreparedSplit",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

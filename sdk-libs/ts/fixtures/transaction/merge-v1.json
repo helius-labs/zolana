@@ -1,0 +1,50 @@
+{
+  "expected": {
+    "dummyCount": "6",
+    "errors": [
+      {
+        "code": "NoInputs",
+        "details": "NoInputs"
+      },
+      {
+        "code": "MergeInputOwnerMismatch",
+        "details": "MergeInputOwnerMismatch { index: 0 }"
+      }
+    ],
+    "inputContexts": [
+      {
+        "index": "0",
+        "nullifierBytes": "01f8189e0fa30330daee7c7259ffd5b200577a3e0fbd199b1ffbdf44923ca3d8",
+        "utxoHashBytes": "1b4af7757ee43c3dfc86083b511d2d06642fdeb6b818179856d19a82118d8a46"
+      },
+      {
+        "index": "1",
+        "nullifierBytes": "13ae06eca4a3b42664b46fd9775bbfd42a1c3d27388ddd72c531bbb43fbc7f84",
+        "utxoHashBytes": "2bc7a76ee4d9a4a73a5de2878fe0126906a07fbc7cbe71e7761bc16622ca9aef"
+      }
+    ],
+    "inputCount": "8",
+    "outputAmount": "30",
+    "outputHashBytes": "0df4e996776bc4c3f50a2afa0a89626737e0d6d50697ceee60296a5daed475b8",
+    "realInputCount": "2"
+  },
+  "id": "fx-p00-transaction-merge-v1",
+  "inputs": {
+    "blindingSeedBytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "realInputAmounts": [
+      "10",
+      "20"
+    ],
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
+    "testOnlySecret": true,
+    "txViewingSecretBytes": "000000000000000000000000000000000000000000000000000000000000000f",
+    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808"
+  },
+  "inventoryRow": "sdk-libs/transaction/src/instructions/merge.rs",
+  "owningPacket": "P00",
+  "responsibility": "merge contexts, deterministic padding inputs, output hash, and validation errors",
+  "rustPath": "sdk-libs/transaction/src/instructions/merge.rs",
+  "rustSymbol": "Merge; PreparedMerge; MERGE_INPUTS",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

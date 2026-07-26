@@ -1,0 +1,58 @@
+{
+  "expected": {
+    "depositTag": "1",
+    "instruction": {
+      "accounts": [
+        {
+          "address": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "address": "11111111111111111111111111111111",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "address": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "dataBytes": "0103030303030303030303030303030303030303030303030303030303030303030404040404040404040404040404040404040404040404040404040404040404050505050505050505050505050505050505050505050505050505050505052a000000000000000001070066697874757265",
+      "programId": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+    }
+  },
+  "id": "fx-workflow-instruction-deposit-v1",
+  "inputs": {
+    "amount": "42",
+    "blindingBytes": "05050505050505050505050505050505050505050505050505050505050505",
+    "memoBytes": "66697874757265",
+    "ownerBytes": "0404040404040404040404040404040404040404040404040404040404040404",
+    "rail": "SOL",
+    "testOnlySecret": true,
+    "viewTagBytes": "0303030303030303030303030303030303030303030303030303030303030303"
+  },
+  "inventoryRow": "program-tests/shielded-pool/tests/localnet_deposit.rs",
+  "owningPacket": "P00",
+  "responsibility": "initial instruction workflow oracle",
+  "rustPath": "program-libs/interface/src/instruction/builders/deposit.rs",
+  "rustSymbol": "Deposit::instruction",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

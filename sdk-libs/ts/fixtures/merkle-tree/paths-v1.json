@@ -1,0 +1,946 @@
+{
+  "expected": {
+    "dummyNullifierBytes": "03fab1ba5804db36e0ad61b06ce143b73ac2c9cd9e4f5b3265f7407496a14836",
+    "hashers": [
+      {
+        "canopyDepth": "1",
+        "emptyRootBytes": "07f9d837cb17b0d36320ffe93ba52345f1b728571a568265caac97559dbc952a",
+        "errors": {
+          "capacity": "IntegerOverflow",
+          "invalidIndex": "LeafDoesNotExist(16)",
+          "invalidProofLength": "InvalidProofLength(3, 4)",
+          "missingHistory": "RootHistoryArrayLenNotSet",
+          "missingLeaf": "LeafDoesNotExist(9)"
+        },
+        "failureMutation": {
+          "leafLength": "4",
+          "rightmostIndex": "4",
+          "rootHistoryLength": "5",
+          "sequenceNumber": "4"
+        },
+        "hasher": "poseidon",
+        "hasherId": "0",
+        "height": "4",
+        "historyRootIndex": "0",
+        "historyRootIndexV2": "1",
+        "historyRootLength": "5",
+        "id": "merkle-poseidon",
+        "leafHashBytes": [
+          "05bface581ee6177cc19c6c56363a68882f11e8407ac639db991e0d27f1b75e6",
+          "186ab99ece60e112b37c660eaf7ca6dbcb04dc434e04aa5e106e94abc6c81936",
+          "2b83b0ec2440f1997d21813b4f062a71d44c5b02ded56982d2e18b5ba0d1f504",
+          "302c16f4b1b14dd762d6f7647b80bb54149d0714dda348b60f152c056077d127"
+        ],
+        "leafInputBytes": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202",
+          "0303030303030303030303030303030303030303030303030303030303030303",
+          "0404040404040404040404040404040404040404040404040404040404040404"
+        ],
+        "nextIndex": "4",
+        "pairHashBytes": "0d54e1938f8a8c1c7deb5e0355f26319207b84fe9ca2ce1b26e735c829821990",
+        "pairHashInputBytes": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "proofs": [
+          {
+            "canopyProofBytes": [
+              "186ab99ece60e112b37c660eaf7ca6dbcb04dc434e04aa5e106e94abc6c81936",
+              "0d87f7e4215e3c69cbf62b0ceeceb83dc51d5ad752a88f5dc634b7a5918c1e20",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1"
+            ],
+            "id": "merkle-poseidon-leaf-0",
+            "index": "0",
+            "pathBytes": [
+              "05bface581ee6177cc19c6c56363a68882f11e8407ac639db991e0d27f1b75e6",
+              "0c3e9a97535abbe673d3430bf468d4a0962fecbb657d0859f212761816fed202",
+              "2d1ef171bc58b3792117ec395a07309ce52f57bbfde1157d4739617343c370f7",
+              "1507b65332739450baa2d22e7e6c05f1c9b10be217f94e868fa774660a68604f"
+            ],
+            "proofBytes": [
+              "186ab99ece60e112b37c660eaf7ca6dbcb04dc434e04aa5e106e94abc6c81936",
+              "0d87f7e4215e3c69cbf62b0ceeceb83dc51d5ad752a88f5dc634b7a5918c1e20",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+              "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "05bface581ee6177cc19c6c56363a68882f11e8407ac639db991e0d27f1b75e6",
+              "0d87f7e4215e3c69cbf62b0ceeceb83dc51d5ad752a88f5dc634b7a5918c1e20",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1"
+            ],
+            "id": "merkle-poseidon-leaf-1",
+            "index": "1",
+            "pathBytes": [
+              "186ab99ece60e112b37c660eaf7ca6dbcb04dc434e04aa5e106e94abc6c81936",
+              "0c3e9a97535abbe673d3430bf468d4a0962fecbb657d0859f212761816fed202",
+              "2d1ef171bc58b3792117ec395a07309ce52f57bbfde1157d4739617343c370f7",
+              "1507b65332739450baa2d22e7e6c05f1c9b10be217f94e868fa774660a68604f"
+            ],
+            "proofBytes": [
+              "05bface581ee6177cc19c6c56363a68882f11e8407ac639db991e0d27f1b75e6",
+              "0d87f7e4215e3c69cbf62b0ceeceb83dc51d5ad752a88f5dc634b7a5918c1e20",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+              "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "302c16f4b1b14dd762d6f7647b80bb54149d0714dda348b60f152c056077d127",
+              "0c3e9a97535abbe673d3430bf468d4a0962fecbb657d0859f212761816fed202",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1"
+            ],
+            "id": "merkle-poseidon-leaf-2",
+            "index": "2",
+            "pathBytes": [
+              "2b83b0ec2440f1997d21813b4f062a71d44c5b02ded56982d2e18b5ba0d1f504",
+              "0d87f7e4215e3c69cbf62b0ceeceb83dc51d5ad752a88f5dc634b7a5918c1e20",
+              "2d1ef171bc58b3792117ec395a07309ce52f57bbfde1157d4739617343c370f7",
+              "1507b65332739450baa2d22e7e6c05f1c9b10be217f94e868fa774660a68604f"
+            ],
+            "proofBytes": [
+              "302c16f4b1b14dd762d6f7647b80bb54149d0714dda348b60f152c056077d127",
+              "0c3e9a97535abbe673d3430bf468d4a0962fecbb657d0859f212761816fed202",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+              "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "2b83b0ec2440f1997d21813b4f062a71d44c5b02ded56982d2e18b5ba0d1f504",
+              "0c3e9a97535abbe673d3430bf468d4a0962fecbb657d0859f212761816fed202",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1"
+            ],
+            "id": "merkle-poseidon-leaf-3",
+            "index": "3",
+            "pathBytes": [
+              "302c16f4b1b14dd762d6f7647b80bb54149d0714dda348b60f152c056077d127",
+              "0d87f7e4215e3c69cbf62b0ceeceb83dc51d5ad752a88f5dc634b7a5918c1e20",
+              "2d1ef171bc58b3792117ec395a07309ce52f57bbfde1157d4739617343c370f7",
+              "1507b65332739450baa2d22e7e6c05f1c9b10be217f94e868fa774660a68604f"
+            ],
+            "proofBytes": [
+              "2b83b0ec2440f1997d21813b4f062a71d44c5b02ded56982d2e18b5ba0d1f504",
+              "0c3e9a97535abbe673d3430bf468d4a0962fecbb657d0859f212761816fed202",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+              "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+            ],
+            "verified": true
+          }
+        ],
+        "rootBytes": "15178ae0ada974cc3a0a65feebf806f88081439e7d977dfcfcab01d4ab3be85f",
+        "rootHistoryBytes": [
+          "17b6815489e89e1d9ba07cc81093aab8b78d8e47393be0a71273c64fe43ef1ba",
+          "034fcd8599b8983d69d69736571371ee8a0d841652cc30a297831e93ec2f7ef8",
+          "135a050909d68adc9daa1c2bec080f214ec559ddd89b17bbfa5b2563aa4c8cef",
+          "15178ae0ada974cc3a0a65feebf806f88081439e7d977dfcfcab01d4ab3be85f"
+        ],
+        "sparsePathBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+          "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+          "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+        ],
+        "sparseProofBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+          "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+          "1507b65332739450baa2d22e7e6c05f1c9b10be217f94e868fa774660a68604f"
+        ],
+        "tamperedProofVerified": false,
+        "usizeBits": "64"
+      },
+      {
+        "canopyDepth": "1",
+        "emptyRootBytes": "536d98837f2dd165a55d5eeae91485954472d56f246df256bf3cae19352a123c",
+        "errors": {
+          "capacity": "IntegerOverflow",
+          "invalidIndex": "LeafDoesNotExist(16)",
+          "invalidProofLength": "InvalidProofLength(3, 4)",
+          "missingHistory": "RootHistoryArrayLenNotSet",
+          "missingLeaf": "LeafDoesNotExist(9)"
+        },
+        "failureMutation": {
+          "leafLength": "4",
+          "rightmostIndex": "4",
+          "rootHistoryLength": "5",
+          "sequenceNumber": "4"
+        },
+        "hasher": "sha256",
+        "hasherId": "1",
+        "height": "4",
+        "historyRootIndex": "0",
+        "historyRootIndexV2": "1",
+        "historyRootLength": "5",
+        "id": "merkle-sha256",
+        "leafHashBytes": [
+          "72cd6e8422c407fb6d098690f1130b7ded7ec2f7f5e1d30bd9d521f015363793",
+          "75877bb41d393b5fb8455ce60ecd8dda001d06316496b14dfa7f895656eeca4a",
+          "648aa5c579fb30f38af744d97d6ec840c7a91277a499a0d780f3e7314eca090b",
+          "9f4fb68f3e1dac82202f9aa581ce0bbf1f765df0e9ac3c8c57e20f685abab8ed"
+        ],
+        "leafInputBytes": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202",
+          "0303030303030303030303030303030303030303030303030303030303030303",
+          "0404040404040404040404040404040404040404040404040404040404040404"
+        ],
+        "nextIndex": "4",
+        "pairHashBytes": "f818afd37a6dc3bc92fb44731011277006db4efa6e9023cd7468c02335d22a4d",
+        "pairHashInputBytes": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "proofs": [
+          {
+            "canopyProofBytes": [
+              "75877bb41d393b5fb8455ce60ecd8dda001d06316496b14dfa7f895656eeca4a",
+              "42018a51c58bda52651c7bcfdeb5f93d88c1eed49d7b0800ec481d60d19c8ebc",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71"
+            ],
+            "id": "merkle-sha256-leaf-0",
+            "index": "0",
+            "pathBytes": [
+              "72cd6e8422c407fb6d098690f1130b7ded7ec2f7f5e1d30bd9d521f015363793",
+              "50a27d4746f357cb700cbe9d4883b77fb64f0128828a3489dc6a6f21ddbf2414",
+              "48c73f7821a58a8d2a703e5b39c571c0aa20cf14abcd0af8f2b955bc202998de",
+              "bb221271e183661b286b26585535ad467357744852c611882a6bee6931f45646"
+            ],
+            "proofBytes": [
+              "75877bb41d393b5fb8455ce60ecd8dda001d06316496b14dfa7f895656eeca4a",
+              "42018a51c58bda52651c7bcfdeb5f93d88c1eed49d7b0800ec481d60d19c8ebc",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+              "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "72cd6e8422c407fb6d098690f1130b7ded7ec2f7f5e1d30bd9d521f015363793",
+              "42018a51c58bda52651c7bcfdeb5f93d88c1eed49d7b0800ec481d60d19c8ebc",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71"
+            ],
+            "id": "merkle-sha256-leaf-1",
+            "index": "1",
+            "pathBytes": [
+              "75877bb41d393b5fb8455ce60ecd8dda001d06316496b14dfa7f895656eeca4a",
+              "50a27d4746f357cb700cbe9d4883b77fb64f0128828a3489dc6a6f21ddbf2414",
+              "48c73f7821a58a8d2a703e5b39c571c0aa20cf14abcd0af8f2b955bc202998de",
+              "bb221271e183661b286b26585535ad467357744852c611882a6bee6931f45646"
+            ],
+            "proofBytes": [
+              "72cd6e8422c407fb6d098690f1130b7ded7ec2f7f5e1d30bd9d521f015363793",
+              "42018a51c58bda52651c7bcfdeb5f93d88c1eed49d7b0800ec481d60d19c8ebc",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+              "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "9f4fb68f3e1dac82202f9aa581ce0bbf1f765df0e9ac3c8c57e20f685abab8ed",
+              "50a27d4746f357cb700cbe9d4883b77fb64f0128828a3489dc6a6f21ddbf2414",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71"
+            ],
+            "id": "merkle-sha256-leaf-2",
+            "index": "2",
+            "pathBytes": [
+              "648aa5c579fb30f38af744d97d6ec840c7a91277a499a0d780f3e7314eca090b",
+              "42018a51c58bda52651c7bcfdeb5f93d88c1eed49d7b0800ec481d60d19c8ebc",
+              "48c73f7821a58a8d2a703e5b39c571c0aa20cf14abcd0af8f2b955bc202998de",
+              "bb221271e183661b286b26585535ad467357744852c611882a6bee6931f45646"
+            ],
+            "proofBytes": [
+              "9f4fb68f3e1dac82202f9aa581ce0bbf1f765df0e9ac3c8c57e20f685abab8ed",
+              "50a27d4746f357cb700cbe9d4883b77fb64f0128828a3489dc6a6f21ddbf2414",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+              "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "648aa5c579fb30f38af744d97d6ec840c7a91277a499a0d780f3e7314eca090b",
+              "50a27d4746f357cb700cbe9d4883b77fb64f0128828a3489dc6a6f21ddbf2414",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71"
+            ],
+            "id": "merkle-sha256-leaf-3",
+            "index": "3",
+            "pathBytes": [
+              "9f4fb68f3e1dac82202f9aa581ce0bbf1f765df0e9ac3c8c57e20f685abab8ed",
+              "42018a51c58bda52651c7bcfdeb5f93d88c1eed49d7b0800ec481d60d19c8ebc",
+              "48c73f7821a58a8d2a703e5b39c571c0aa20cf14abcd0af8f2b955bc202998de",
+              "bb221271e183661b286b26585535ad467357744852c611882a6bee6931f45646"
+            ],
+            "proofBytes": [
+              "648aa5c579fb30f38af744d97d6ec840c7a91277a499a0d780f3e7314eca090b",
+              "50a27d4746f357cb700cbe9d4883b77fb64f0128828a3489dc6a6f21ddbf2414",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+              "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+            ],
+            "verified": true
+          }
+        ],
+        "rootBytes": "562f04a24b5713b2e062c5b11a0a04a3b1ddfd71f60b7a63a0e45c7a2725a278",
+        "rootHistoryBytes": [
+          "e2641ba0556370f768ca7442b695f4a5439c1dc8592f821e6b1fa445573f9b44",
+          "093cb2ccc70678918d978133c8284a5ee14c0645094a0e5f3bc8659aeaea10b9",
+          "489ce2c9703b48404e0bd65f84aee6b7e9053f7ba771789dcf9b10aa69993565",
+          "562f04a24b5713b2e062c5b11a0a04a3b1ddfd71f60b7a63a0e45c7a2725a278"
+        ],
+        "sparsePathBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+          "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+          "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+        ],
+        "sparseProofBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+          "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+          "bb221271e183661b286b26585535ad467357744852c611882a6bee6931f45646"
+        ],
+        "tamperedProofVerified": false,
+        "usizeBits": "64"
+      },
+      {
+        "canopyDepth": "1",
+        "emptyRootBytes": "e58769b32a1beaf1ea27375a44095a0d1fb664ce2dd358e7fcbfb78c26a19344",
+        "errors": {
+          "capacity": "IntegerOverflow",
+          "invalidIndex": "LeafDoesNotExist(16)",
+          "invalidProofLength": "InvalidProofLength(3, 4)",
+          "missingHistory": "RootHistoryArrayLenNotSet",
+          "missingLeaf": "LeafDoesNotExist(9)"
+        },
+        "failureMutation": {
+          "leafLength": "4",
+          "rightmostIndex": "4",
+          "rootHistoryLength": "5",
+          "sequenceNumber": "4"
+        },
+        "hasher": "keccak",
+        "hasherId": "2",
+        "height": "4",
+        "historyRootIndex": "0",
+        "historyRootIndexV2": "1",
+        "historyRootLength": "5",
+        "id": "merkle-keccak",
+        "leafHashBytes": [
+          "cebc8882fecbec7fb80d2cf4b312bec018884c2d66667c67a90508214bd8bafc",
+          "ee4a079f5b14a24465181d45af32a8053c2d446446d7019359e210b82e53b8ba",
+          "4a7a4de37def8e10861261f58e1003e6086df449b615bb411c39669548e19dba",
+          "b8bf1e33d35d228e8bf8fabdd5a4f9014038829dd90dbf59127ca095ad65c7cc"
+        ],
+        "leafInputBytes": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202",
+          "0303030303030303030303030303030303030303030303030303030303030303",
+          "0404040404040404040404040404040404040404040404040404040404040404"
+        ],
+        "nextIndex": "4",
+        "pairHashBytes": "346d8c96a2454213fcc0daff3c96ad0398148181b9fa6488f7ae2c0af5b20aa0",
+        "pairHashInputBytes": [
+          "0101010101010101010101010101010101010101010101010101010101010101",
+          "0202020202020202020202020202020202020202020202020202020202020202"
+        ],
+        "proofs": [
+          {
+            "canopyProofBytes": [
+              "ee4a079f5b14a24465181d45af32a8053c2d446446d7019359e210b82e53b8ba",
+              "fea25366faacc54cd55736725f8c84688cb6f523c6356aa79d172f0aa8673ff6",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30"
+            ],
+            "id": "merkle-keccak-leaf-0",
+            "index": "0",
+            "pathBytes": [
+              "cebc8882fecbec7fb80d2cf4b312bec018884c2d66667c67a90508214bd8bafc",
+              "596bf00ace9ca0f06c5f2e307f74f2c1da269fae2461421d15d37b6d0fd565e1",
+              "3df2c0c59f5153b5751383c7ac514416ec1b3085b96fe67b461a3c1893a22b78",
+              "1b8a4e3cedb8629c254d1baaa239d1179486921a8887d4f5e053c2138f1ca849"
+            ],
+            "proofBytes": [
+              "ee4a079f5b14a24465181d45af32a8053c2d446446d7019359e210b82e53b8ba",
+              "fea25366faacc54cd55736725f8c84688cb6f523c6356aa79d172f0aa8673ff6",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+              "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "cebc8882fecbec7fb80d2cf4b312bec018884c2d66667c67a90508214bd8bafc",
+              "fea25366faacc54cd55736725f8c84688cb6f523c6356aa79d172f0aa8673ff6",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30"
+            ],
+            "id": "merkle-keccak-leaf-1",
+            "index": "1",
+            "pathBytes": [
+              "ee4a079f5b14a24465181d45af32a8053c2d446446d7019359e210b82e53b8ba",
+              "596bf00ace9ca0f06c5f2e307f74f2c1da269fae2461421d15d37b6d0fd565e1",
+              "3df2c0c59f5153b5751383c7ac514416ec1b3085b96fe67b461a3c1893a22b78",
+              "1b8a4e3cedb8629c254d1baaa239d1179486921a8887d4f5e053c2138f1ca849"
+            ],
+            "proofBytes": [
+              "cebc8882fecbec7fb80d2cf4b312bec018884c2d66667c67a90508214bd8bafc",
+              "fea25366faacc54cd55736725f8c84688cb6f523c6356aa79d172f0aa8673ff6",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+              "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "b8bf1e33d35d228e8bf8fabdd5a4f9014038829dd90dbf59127ca095ad65c7cc",
+              "596bf00ace9ca0f06c5f2e307f74f2c1da269fae2461421d15d37b6d0fd565e1",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30"
+            ],
+            "id": "merkle-keccak-leaf-2",
+            "index": "2",
+            "pathBytes": [
+              "4a7a4de37def8e10861261f58e1003e6086df449b615bb411c39669548e19dba",
+              "fea25366faacc54cd55736725f8c84688cb6f523c6356aa79d172f0aa8673ff6",
+              "3df2c0c59f5153b5751383c7ac514416ec1b3085b96fe67b461a3c1893a22b78",
+              "1b8a4e3cedb8629c254d1baaa239d1179486921a8887d4f5e053c2138f1ca849"
+            ],
+            "proofBytes": [
+              "b8bf1e33d35d228e8bf8fabdd5a4f9014038829dd90dbf59127ca095ad65c7cc",
+              "596bf00ace9ca0f06c5f2e307f74f2c1da269fae2461421d15d37b6d0fd565e1",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+              "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+            ],
+            "verified": true
+          },
+          {
+            "canopyProofBytes": [
+              "4a7a4de37def8e10861261f58e1003e6086df449b615bb411c39669548e19dba",
+              "596bf00ace9ca0f06c5f2e307f74f2c1da269fae2461421d15d37b6d0fd565e1",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30"
+            ],
+            "id": "merkle-keccak-leaf-3",
+            "index": "3",
+            "pathBytes": [
+              "b8bf1e33d35d228e8bf8fabdd5a4f9014038829dd90dbf59127ca095ad65c7cc",
+              "fea25366faacc54cd55736725f8c84688cb6f523c6356aa79d172f0aa8673ff6",
+              "3df2c0c59f5153b5751383c7ac514416ec1b3085b96fe67b461a3c1893a22b78",
+              "1b8a4e3cedb8629c254d1baaa239d1179486921a8887d4f5e053c2138f1ca849"
+            ],
+            "proofBytes": [
+              "4a7a4de37def8e10861261f58e1003e6086df449b615bb411c39669548e19dba",
+              "596bf00ace9ca0f06c5f2e307f74f2c1da269fae2461421d15d37b6d0fd565e1",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+              "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+            ],
+            "verified": true
+          }
+        ],
+        "rootBytes": "8d30390fe77c77bea697e31239722eb2dce3eb9a364af040197fa36dbfda1883",
+        "rootHistoryBytes": [
+          "24613ff9c7e3cbce6484e5faf0b0b8ab6dca40e0780f2780cbf7158fb4a2c2e1",
+          "ad0e2f62f26c86f8243bd6fe05fcf92727ad71f5c1ae519b319fba71a0400bb2",
+          "2ad7f8736791bbc6c43c90a93ab3ff203cb66682095961269c44407cc10c9641",
+          "8d30390fe77c77bea697e31239722eb2dce3eb9a364af040197fa36dbfda1883"
+        ],
+        "sparsePathBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5",
+          "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+          "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+        ],
+        "sparseProofBytes": [
+          "0000000000000000000000000000000000000000000000000000000000000000",
+          "ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5",
+          "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+          "1b8a4e3cedb8629c254d1baaa239d1179486921a8887d4f5e053c2138f1ca849"
+        ],
+        "tamperedProofVerified": false,
+        "usizeBits": "64"
+      }
+    ],
+    "indexed": [
+      {
+        "customSentinel": {
+          "appendAtSentinel": "Err(ValueOutsideIndexedRange)",
+          "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "proofBytes": [
+            "2b52b90ca9a713e093c3278ea9e3518e5c383a256f790ca473e9fe8dfbe228c2",
+            "2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864",
+            "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+            "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+          ],
+          "rootBytes": "2b9b41dd5f60edee5e62ef2cba595e8a921121bcf8ab1270bbdd5de8d0f8f05f",
+          "sentinelBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023"
+        },
+        "elements": [
+          {
+            "index": "0",
+            "leafHashBytes": "275543cd9fbcdee56ac8c9a937ad062f198be71714077c99e50ee6b5e2328a2c",
+            "nextIndex": "2",
+            "nextValue": "10",
+            "value": "0"
+          },
+          {
+            "index": "1",
+            "leafHashBytes": "1ddc1ab764b20471d3543ca7cf6043179c65488f253417152cc8da0937e9aa68",
+            "nextIndex": "0",
+            "nextValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "value": "30"
+          },
+          {
+            "index": "2",
+            "leafHashBytes": "28f221565db1a6b6ae4ebc44d155767bd3ee30793fee3523df4644fe6f1139ef",
+            "nextIndex": "3",
+            "nextValue": "20",
+            "value": "10"
+          },
+          {
+            "index": "3",
+            "leafHashBytes": "0122508db033d87292d543b89f243618dbf309b51e8a75fe6ed364f6d03e6c10",
+            "nextIndex": "1",
+            "nextValue": "30",
+            "value": "20"
+          }
+        ],
+        "errors": {
+          "existingValue": "Indexed(ElementAlreadyExists)",
+          "higherBound": "NonInclusionProofFailedHigherBoundViolated",
+          "lowerBound": "NonInclusionProofFailedLowerBoundViolated",
+          "shortPath": "Reference(InvalidProofLength(3, 4))",
+          "wrongPath": "NonInclusionProofFailed",
+          "wrongRoot": "NonInclusionProofFailed"
+        },
+        "hasher": "poseidon",
+        "id": "indexed-poseidon",
+        "insertions": [
+          "30",
+          "10",
+          "20"
+        ],
+        "nonInclusionProofs": [
+          {
+            "higherValueBytes": "000000000000000000000000000000000000000000000000000000000000000a",
+            "id": "indexed-poseidon-query-5",
+            "leafIndex": "0",
+            "lowerValueBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "nextIndex": "2",
+            "proofBytes": [
+              "1ddc1ab764b20471d3543ca7cf6043179c65488f253417152cc8da0937e9aa68",
+              "06301eae47256e9469e38786e53e1add589b818c1f35559740444d626a02af97",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+              "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+            ],
+            "rootBytes": "009a133160018d322b056915072fad75a39201d52f2b94eef20a3e0575ce2c20",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000005",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000014",
+            "id": "indexed-poseidon-query-15",
+            "leafIndex": "2",
+            "lowerValueBytes": "000000000000000000000000000000000000000000000000000000000000000a",
+            "nextIndex": "3",
+            "proofBytes": [
+              "0122508db033d87292d543b89f243618dbf309b51e8a75fe6ed364f6d03e6c10",
+              "1febd16d115397bb19e360861591dcf7b73fa4ce21614fda4c5ee03445aec449",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+              "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+            ],
+            "rootBytes": "009a133160018d322b056915072fad75a39201d52f2b94eef20a3e0575ce2c20",
+            "valueBytes": "000000000000000000000000000000000000000000000000000000000000000f",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "000000000000000000000000000000000000000000000000000000000000001e",
+            "id": "indexed-poseidon-query-25",
+            "leafIndex": "3",
+            "lowerValueBytes": "0000000000000000000000000000000000000000000000000000000000000014",
+            "nextIndex": "1",
+            "proofBytes": [
+              "28f221565db1a6b6ae4ebc44d155767bd3ee30793fee3523df4644fe6f1139ef",
+              "1febd16d115397bb19e360861591dcf7b73fa4ce21614fda4c5ee03445aec449",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+              "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+            ],
+            "rootBytes": "009a133160018d322b056915072fad75a39201d52f2b94eef20a3e0575ce2c20",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000019",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "id": "indexed-poseidon-query-35",
+            "leafIndex": "1",
+            "lowerValueBytes": "000000000000000000000000000000000000000000000000000000000000001e",
+            "nextIndex": "0",
+            "proofBytes": [
+              "275543cd9fbcdee56ac8c9a937ad062f198be71714077c99e50ee6b5e2328a2c",
+              "06301eae47256e9469e38786e53e1add589b818c1f35559740444d626a02af97",
+              "1069673dcdb12263df301a6ff584a7ec261a44cb9dc68df067a4774460b1f1e1",
+              "18f43331537ee2af2e3d758d50f72106467c6eea50371dd528d57eb2b856d238"
+            ],
+            "rootBytes": "009a133160018d322b056915072fad75a39201d52f2b94eef20a3e0575ce2c20",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023",
+            "verified": true
+          }
+        ],
+        "orderedIndices": [
+          "0",
+          "2",
+          "3",
+          "1"
+        ],
+        "orderedValues": [
+          "0",
+          "10",
+          "20",
+          "30"
+        ],
+        "rootBytes": "009a133160018d322b056915072fad75a39201d52f2b94eef20a3e0575ce2c20",
+        "rootHistoryBytes": [
+          "1574f306f3c0bddbbded3591b47950921f78b780eebe51219719cf30987f8dc4",
+          "05b0193f545cfc5ef101e8897710b4ab79e37a30d34f98c86f074fa90a0be147",
+          "2a02828c6e7044ceaf4b65af91f41d430273846bacb27a0f69c279015eed78a5",
+          "009a133160018d322b056915072fad75a39201d52f2b94eef20a3e0575ce2c20"
+        ]
+      },
+      {
+        "customSentinel": {
+          "appendAtSentinel": "Err(ValueOutsideIndexedRange)",
+          "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "proofBytes": [
+            "9ebbcf3e7b9e01f8705586896d6cbb48280c6402e2e0a69e98228dd61130c1e8",
+            "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+            "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+            "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+          ],
+          "rootBytes": "ac1b4b05d6165effa6d9b9dfc36e381111ffedd8fc967ff13fe6ee21f307a943",
+          "sentinelBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023"
+        },
+        "elements": [
+          {
+            "index": "0",
+            "leafHashBytes": "c4dc7957f78d2455bb70b49f2d4ecc4b6956357082186b3c8a154ff516dd78c2",
+            "nextIndex": "2",
+            "nextValue": "10",
+            "value": "0"
+          },
+          {
+            "index": "1",
+            "leafHashBytes": "c7fc90b596ba6bbbd28df73e4af95b1dc7aa237c926c8a394c1479ee23cec8cb",
+            "nextIndex": "0",
+            "nextValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "value": "30"
+          },
+          {
+            "index": "2",
+            "leafHashBytes": "e64518ee7aa7578340f43207b116d6493a975f8ef89b3ceb1bb8b6cd30c9bcca",
+            "nextIndex": "3",
+            "nextValue": "20",
+            "value": "10"
+          },
+          {
+            "index": "3",
+            "leafHashBytes": "0bdd8aabaacc16a3651a4a11c7f56864c3367c2d2f15d20dfca02dac52f4d06d",
+            "nextIndex": "1",
+            "nextValue": "30",
+            "value": "20"
+          }
+        ],
+        "errors": {
+          "existingValue": "Indexed(ElementAlreadyExists)",
+          "higherBound": "NonInclusionProofFailedHigherBoundViolated",
+          "lowerBound": "NonInclusionProofFailedLowerBoundViolated",
+          "shortPath": "Reference(InvalidProofLength(3, 4))",
+          "wrongPath": "NonInclusionProofFailed",
+          "wrongRoot": "NonInclusionProofFailed"
+        },
+        "hasher": "sha256",
+        "id": "indexed-sha256",
+        "insertions": [
+          "30",
+          "10",
+          "20"
+        ],
+        "nonInclusionProofs": [
+          {
+            "higherValueBytes": "000000000000000000000000000000000000000000000000000000000000000a",
+            "id": "indexed-sha256-query-5",
+            "leafIndex": "0",
+            "lowerValueBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "nextIndex": "2",
+            "proofBytes": [
+              "c7fc90b596ba6bbbd28df73e4af95b1dc7aa237c926c8a394c1479ee23cec8cb",
+              "cd4a5eacf106b5031628ccbf4ffc7ef551f902ee3ce3e2713f0cf81831ffa138",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+              "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+            ],
+            "rootBytes": "e03db07430fd57ca258a24936d8b9a1e7033b151a4421c916e2484bdc5ad6317",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000005",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000014",
+            "id": "indexed-sha256-query-15",
+            "leafIndex": "2",
+            "lowerValueBytes": "000000000000000000000000000000000000000000000000000000000000000a",
+            "nextIndex": "3",
+            "proofBytes": [
+              "0bdd8aabaacc16a3651a4a11c7f56864c3367c2d2f15d20dfca02dac52f4d06d",
+              "e191d4f7c549e16b261b67b2e260327c55b13c5775c36929fc13c885d319cea0",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+              "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+            ],
+            "rootBytes": "e03db07430fd57ca258a24936d8b9a1e7033b151a4421c916e2484bdc5ad6317",
+            "valueBytes": "000000000000000000000000000000000000000000000000000000000000000f",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "000000000000000000000000000000000000000000000000000000000000001e",
+            "id": "indexed-sha256-query-25",
+            "leafIndex": "3",
+            "lowerValueBytes": "0000000000000000000000000000000000000000000000000000000000000014",
+            "nextIndex": "1",
+            "proofBytes": [
+              "e64518ee7aa7578340f43207b116d6493a975f8ef89b3ceb1bb8b6cd30c9bcca",
+              "e191d4f7c549e16b261b67b2e260327c55b13c5775c36929fc13c885d319cea0",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+              "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+            ],
+            "rootBytes": "e03db07430fd57ca258a24936d8b9a1e7033b151a4421c916e2484bdc5ad6317",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000019",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "id": "indexed-sha256-query-35",
+            "leafIndex": "1",
+            "lowerValueBytes": "000000000000000000000000000000000000000000000000000000000000001e",
+            "nextIndex": "0",
+            "proofBytes": [
+              "c4dc7957f78d2455bb70b49f2d4ecc4b6956357082186b3c8a154ff516dd78c2",
+              "cd4a5eacf106b5031628ccbf4ffc7ef551f902ee3ce3e2713f0cf81831ffa138",
+              "db56114e00fdd4c1f85c892bf35ac9a89289aaecb1ebd0a96cde606a748b5d71",
+              "c78009fdf07fc56a11f122370658a353aaa542ed63e44c4bc15ff4cd105ab33c"
+            ],
+            "rootBytes": "e03db07430fd57ca258a24936d8b9a1e7033b151a4421c916e2484bdc5ad6317",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023",
+            "verified": true
+          }
+        ],
+        "orderedIndices": [
+          "0",
+          "2",
+          "3",
+          "1"
+        ],
+        "orderedValues": [
+          "0",
+          "10",
+          "20",
+          "30"
+        ],
+        "rootBytes": "e03db07430fd57ca258a24936d8b9a1e7033b151a4421c916e2484bdc5ad6317",
+        "rootHistoryBytes": [
+          "8963f89943dcbcb0c35f62d50c2e2004fe7dbf3ac53a1eed74c8003ce0970867",
+          "33f5649dfacab1d3228e20ea2603f4cb7000382adf13d2976d198a9086f56383",
+          "0da066020cc96b4d3145e413a17962d94f713b2d3933df08a6e6a516459d0259",
+          "e03db07430fd57ca258a24936d8b9a1e7033b151a4421c916e2484bdc5ad6317"
+        ]
+      },
+      {
+        "customSentinel": {
+          "appendAtSentinel": "Err(ValueOutsideIndexedRange)",
+          "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "proofBytes": [
+            "65ce8396b736f5da9d881cc6fbcb11ef9721292dc41ec8c40879fd9edea5744d",
+            "ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5",
+            "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+            "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+          ],
+          "rootBytes": "932e8442f984942da612b64a9404a89a0c0184886e4f57c87f2970af6a41751f",
+          "sentinelBytes": "0000000000000000000000000000000000000000000000000000000000000064",
+          "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023"
+        },
+        "elements": [
+          {
+            "index": "0",
+            "leafHashBytes": "13da86008ba1c6922daee3e07db95305ef49ebced9f5467a0b8613fcc6b343e3",
+            "nextIndex": "2",
+            "nextValue": "10",
+            "value": "0"
+          },
+          {
+            "index": "1",
+            "leafHashBytes": "c9902157a60034041d48c376b1b4ca866b96e876b1736292163a1d835d414458",
+            "nextIndex": "0",
+            "nextValue": "452312848583266388373324160190187140051835877600158453279131187530910662655",
+            "value": "30"
+          },
+          {
+            "index": "2",
+            "leafHashBytes": "65f9512343925c57130fd77667cb42fc83560c400ede0c87f3de7c6c27cf09a6",
+            "nextIndex": "3",
+            "nextValue": "20",
+            "value": "10"
+          },
+          {
+            "index": "3",
+            "leafHashBytes": "57f7e17d109c663c1b21f4419ef762bc64baea1b8a757f23e8ca6984e62d52d2",
+            "nextIndex": "1",
+            "nextValue": "30",
+            "value": "20"
+          }
+        ],
+        "errors": {
+          "existingValue": "Indexed(ElementAlreadyExists)",
+          "higherBound": "NonInclusionProofFailedHigherBoundViolated",
+          "lowerBound": "NonInclusionProofFailedLowerBoundViolated",
+          "shortPath": "Reference(InvalidProofLength(3, 4))",
+          "wrongPath": "NonInclusionProofFailed",
+          "wrongRoot": "NonInclusionProofFailed"
+        },
+        "hasher": "keccak",
+        "id": "indexed-keccak",
+        "insertions": [
+          "30",
+          "10",
+          "20"
+        ],
+        "nonInclusionProofs": [
+          {
+            "higherValueBytes": "000000000000000000000000000000000000000000000000000000000000000a",
+            "id": "indexed-keccak-query-5",
+            "leafIndex": "0",
+            "lowerValueBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+            "nextIndex": "2",
+            "proofBytes": [
+              "c9902157a60034041d48c376b1b4ca866b96e876b1736292163a1d835d414458",
+              "728353058f41484a0a16c787042c4b422bb04f21c85b9c856a217ce755fda0c1",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+              "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+            ],
+            "rootBytes": "d681c066b7230b9d56bc1da61905bda3617e4bb5af7edb48502de47240ee4b08",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000005",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "0000000000000000000000000000000000000000000000000000000000000014",
+            "id": "indexed-keccak-query-15",
+            "leafIndex": "2",
+            "lowerValueBytes": "000000000000000000000000000000000000000000000000000000000000000a",
+            "nextIndex": "3",
+            "proofBytes": [
+              "57f7e17d109c663c1b21f4419ef762bc64baea1b8a757f23e8ca6984e62d52d2",
+              "a6f5614b3d34b65bae753f98f97437c6c87de0abb9c16f1979d5acddc3147e87",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+              "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+            ],
+            "rootBytes": "d681c066b7230b9d56bc1da61905bda3617e4bb5af7edb48502de47240ee4b08",
+            "valueBytes": "000000000000000000000000000000000000000000000000000000000000000f",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "000000000000000000000000000000000000000000000000000000000000001e",
+            "id": "indexed-keccak-query-25",
+            "leafIndex": "3",
+            "lowerValueBytes": "0000000000000000000000000000000000000000000000000000000000000014",
+            "nextIndex": "1",
+            "proofBytes": [
+              "65f9512343925c57130fd77667cb42fc83560c400ede0c87f3de7c6c27cf09a6",
+              "a6f5614b3d34b65bae753f98f97437c6c87de0abb9c16f1979d5acddc3147e87",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+              "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+            ],
+            "rootBytes": "d681c066b7230b9d56bc1da61905bda3617e4bb5af7edb48502de47240ee4b08",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000019",
+            "verified": true
+          },
+          {
+            "higherValueBytes": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "id": "indexed-keccak-query-35",
+            "leafIndex": "1",
+            "lowerValueBytes": "000000000000000000000000000000000000000000000000000000000000001e",
+            "nextIndex": "0",
+            "proofBytes": [
+              "13da86008ba1c6922daee3e07db95305ef49ebced9f5467a0b8613fcc6b343e3",
+              "728353058f41484a0a16c787042c4b422bb04f21c85b9c856a217ce755fda0c1",
+              "b4c11951957c6f8f642c4af61cd6b24640fec6dc7fc607ee8206a99e92410d30",
+              "21ddb9a356815c3fac1026b6dec5df3124afbadb485c9ba5a3e3398a04b7ba85"
+            ],
+            "rootBytes": "d681c066b7230b9d56bc1da61905bda3617e4bb5af7edb48502de47240ee4b08",
+            "valueBytes": "0000000000000000000000000000000000000000000000000000000000000023",
+            "verified": true
+          }
+        ],
+        "orderedIndices": [
+          "0",
+          "2",
+          "3",
+          "1"
+        ],
+        "orderedValues": [
+          "0",
+          "10",
+          "20",
+          "30"
+        ],
+        "rootBytes": "d681c066b7230b9d56bc1da61905bda3617e4bb5af7edb48502de47240ee4b08",
+        "rootHistoryBytes": [
+          "fad95ab6dd75917306256af5b1ebdc13f8a1bd4b1df1360d800a5c3eda5135c0",
+          "92e6d3a78add1d69c5b5253645ba7d9f27c9c5390e4c1485179894e584693922",
+          "71ac2be094eb562b74494241216f29bb0d9eb15c4c3f131ed3854f8df792bc76",
+          "d681c066b7230b9d56bc1da61905bda3617e4bb5af7edb48502de47240ee4b08"
+        ]
+      }
+    ],
+    "indexerEmptyRootBytes": "2f68a1c58e257e42a17a6c61dff5551ed560b9922ab119d5ac8e184c9734ead9",
+    "nonInclusionPathLength": "40",
+    "statePathLength": "32",
+    "vectorCounts": {
+      "hasherVectors": "3",
+      "inclusionProofs": "12",
+      "indexedVectors": "3",
+      "nonInclusionProofs": "12"
+    }
+  },
+  "id": "fx-p00-merkle-paths-v1",
+  "inputs": {
+    "canopyDepth": "1",
+    "dummyBlindingBytes": "08080808080808080808080808080808080808080808080808080808080808",
+    "height": "4",
+    "indexedInsertions": [
+      "30",
+      "10",
+      "20"
+    ],
+    "leafBytePatterns": [
+      "01",
+      "02",
+      "03",
+      "04"
+    ],
+    "nonInclusionQueries": [
+      "5",
+      "15",
+      "25",
+      "35"
+    ],
+    "nullifierRootBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "stateRootBytes": "0909090909090909090909090909090909090909090909090909090909090909",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/program-test/src/indexer.rs",
+  "owningPacket": "P00",
+  "responsibility": "exact production hasher, Merkle path, indexed ordering, and non-inclusion proof bytes",
+  "rustPath": "sdk-libs/merkle-tree/src/lib.rs; sdk-libs/merkle-tree/src/indexed.rs; program-libs/hasher/src",
+  "rustSymbol": "MerkleTree; IndexedMerkleTree; Poseidon; Sha256; Keccak",
+  "schema": "zolana-ts-fixtures-v1",
+  "sourceRevision": "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa",
+  "version": "1"
+}

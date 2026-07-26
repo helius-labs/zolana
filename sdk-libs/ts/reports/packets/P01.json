@@ -1,0 +1,398 @@
+{
+  "apiDiff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "qualityPass": {
+    "commentCorrections": [],
+    "edits": [
+      "centralized each package's exact entry points, browser status, and internal dependency allowlist",
+      "reject extra export paths, export conditions, legacy entry fields, dependency drift, and missing package artifacts",
+      "typecheck packed declarations in a fresh ESM consumer and reject tarball build metadata",
+      "invoke the installed TypeScript compiler directly instead of allowing npx resolution",
+      "align Node declarations with the minimum supported Node 20 runtime",
+      "remove unused composite build configuration and keep build metadata out of package tarballs",
+      "add non-vacuous vector and deterministic property test configurations",
+      "scan browser source and bundles for Node globals and built-in imports",
+      "type-check package test files during strict aggregate lint without disabling rules",
+      "run package browser checks in isolation while retaining the aggregate root gate",
+      "select the API schema-to-transport cross-contract suite explicitly",
+      "select the client cross-package and prover suites explicitly through the shared package Vitest configuration",
+      "select the wallet action suite explicitly as its non-vacuous cross-package gate",
+      "route action and instruction E2E suites through independent exact Vitest selectors that reject empty suites",
+      "run live-stack E2E files serially with validated test and hook timeout overrides",
+      "ignore only nested generated package artifacts and caches"
+    ],
+    "cargoXtaskBlocker": {
+      "command": "rustup run 1.97.0 cargo xtask ts-fixtures --check",
+      "exitStatus": "101",
+      "reason": "Cargo reports no such command because .cargo/config.toml defines no xtask alias; the existing xtask binary also has no ts-fixtures dispatch arm.",
+      "futureOwner": "P14",
+      "paths": [".cargo/config.toml", "xtask/src/main.rs"],
+      "scope": "P14 must first receive explicit ownership of the Cargo alias and shared xtask dispatch paths; neither path is P01-owned."
+    },
+    "transientConcurrentFailures": {
+      "P05": "The first post-install workspace build stopped on in-progress transaction exports and branded-byte type errors. The unchanged P01 gate passed after P05 settled.",
+      "P06": "Two fixture checks raced a concurrent fixed-output Merkle oracle build and lost temporary object files. The unchanged canonical fixture gate passed after the concurrent build settled.",
+      "P04": "An initial package lint and pack build observed in-progress keypair edits. Both unchanged root gates passed when rerun sequentially after the keypair build settled."
+    }
+  },
+  "commands": [
+    {
+      "command": "npm ci",
+      "exitStatus": "0",
+      "responsibility": "clean deterministic workspace install"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "build, typecheck, lint, format, unit, inventory, export, dependency, and API scaffold checks"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "nine production tarballs installed, declaration-checked, and imported in fresh Node 20, Node 22, and browser-bundle consumers"
+    },
+    {
+      "command": "npm run test:browser",
+      "exitStatus": "0",
+      "responsibility": "all production roots, subpaths, and admitted crypto entry points bundled for browsers; source and bundles contain no forbidden imports or globals"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "responsibility": "canonical P00 generator verified 12 fixtures and 182 inventory rows"
+    },
+    {
+      "command": "npm run test:inventory",
+      "exitStatus": "0",
+      "responsibility": "root P00 inventory validation"
+    },
+    {
+      "command": "npm run build --workspaces --if-present",
+      "exitStatus": "0",
+      "responsibility": "all ten package build configurations"
+    },
+    {
+      "command": "npm run typecheck --workspaces --if-present",
+      "exitStatus": "0",
+      "responsibility": "all ten strict package TypeScript configurations"
+    },
+    {
+      "command": "npm run test:unit --workspaces --if-present",
+      "exitStatus": "0",
+      "responsibility": "all ten package test configurations"
+    },
+    {
+      "command": "cargo xtask ts-fixtures --check",
+      "exitStatus": "blocked",
+      "responsibility": "the repository has no cargo-xtask dispatcher; npm run fixtures:check invokes the P00-owned binary without modifying P00 code"
+    },
+    {
+      "command": "git diff --check",
+      "exitStatus": "0",
+      "responsibility": "whitespace validation"
+    },
+    {
+      "command": "git diff --exit-code 07b5000e -- planning docs program-libs programs program-tests sdk-libs/ts/fixtures sdk-libs/ts/reports/inventory.json sdk-libs/ts/reports/packets/P00.json xtask",
+      "exitStatus": "0",
+      "responsibility": "planning, P00 artifacts, and Rust production or test code remain unchanged"
+    },
+    {
+      "command": "npm install --workspace @zolana/keypair @noble/ciphers @noble/curves @noble/ed25519 @noble/hashes poseidon-lite bs58",
+      "exitStatus": "0",
+      "responsibility": "resolve current PR #111 keypair dependency candidates through npm"
+    },
+    {
+      "command": "npm uninstall --workspace @zolana/keypair poseidon-lite",
+      "exitStatus": "0",
+      "responsibility": "reject the unaudited CommonJS Poseidon candidate after dependency review"
+    },
+    {
+      "command": "npm install --save-dev fast-check",
+      "exitStatus": "0",
+      "responsibility": "resolve deterministic property-test tooling through npm"
+    },
+    {
+      "command": "npm audit --omit=dev",
+      "exitStatus": "0",
+      "responsibility": "zero known production dependency vulnerabilities"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/keypair",
+      "exitStatus": "1",
+      "responsibility": "intentional readiness probe: an empty P04 vector suite fails instead of passing vacuously"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/keypair",
+      "exitStatus": "1",
+      "responsibility": "intentional readiness probe: an empty P04 property suite fails instead of passing vacuously"
+    },
+    {
+      "command": "npm run test:vectors/property for completed P02, P03, P06, and P07 suites",
+      "exitStatus": "0",
+      "responsibility": "shared vector selectors and deterministic fast-check setup exercised against existing package tests"
+    },
+    {
+      "command": "npm install --workspace @zolana/merkle-tree @noble/curves @noble/hashes",
+      "exitStatus": "0",
+      "responsibility": "add audited synchronous Poseidon, SHA-256, and Keccak primitives directly to the P06 package"
+    },
+    {
+      "command": "npm run build/typecheck/test:unit/test:property --workspace @zolana/merkle-tree",
+      "exitStatus": "0",
+      "responsibility": "P06 package build, strict production types, 17 unit tests, and two deterministic properties"
+    },
+    {
+      "command": "npm run lint --workspace @zolana/merkle-tree",
+      "exitStatus": "1",
+      "responsibility": "aggregate typed lint now loads P06 tests and reports 26 P06-owned rule violations instead of a parser-project error"
+    },
+    {
+      "command": "npm run lint:packages",
+      "exitStatus": "1",
+      "responsibility": "strict aggregate typed lint loads production and test files; its 50 findings remain owned by P02, P04, and P06"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/merkle-tree",
+      "exitStatus": "1",
+      "responsibility": "non-vacuous vector gate correctly rejects the missing P06-owned vector test"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "six exact API request and response-codec vectors"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "two deterministic 100-run API transport properties"
+    },
+    {
+      "command": "npm run test:cross --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "29 API/indexer-schema cross-contract and malformed-response tests from the two explicit suite files"
+    },
+    {
+      "command": "npm run test:cross --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "eight indexer/client and Solana RPC cross-package tests from the two explicit P09 suite files"
+    },
+    {
+      "command": "npm run test:prover --workspace @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "four prover proof conversion tests from the explicit P09 prover suite"
+    },
+    {
+      "command": "npm run build/typecheck/test:unit/test:vectors/test:browser/api:check and npm pack --dry-run for @zolana/client",
+      "exitStatus": "0",
+      "responsibility": "client package build, declarations, 14 unit tests, two vectors, browser bundle, API allowlist, and 49-file tarball"
+    },
+    {
+      "command": "npm run check/lint/lint:packages/format:check/pack:check/api:check/test:exports/test:dependencies/test:browser",
+      "exitStatus": "0",
+      "responsibility": "requested root build, typecheck, lint, format, 213 tests, inventory, package, API, export, dependency, and browser gates"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/api",
+      "exitStatus": "0",
+      "responsibility": "isolated API browser entry graph without dependency on another package's active build"
+    },
+    {
+      "command": "git check-ignore --no-index generated and protected sdk-libs/ts paths",
+      "exitStatus": "0",
+      "responsibility": "nested dependencies, builds, coverage, temporary packs, tarballs, and TypeScript metadata are ignored while source, tests, fixtures, manifests, and reports remain visible"
+    },
+    {
+      "command": "npm run test:cross --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "five wallet action tests exercise client, interface, keypair, transaction, and wallet APIs through the shared package Vitest configuration"
+    },
+    {
+      "command": "npm run build/typecheck/test:unit/test:vectors/test:browser/api:check --workspace=@zolana/wallet; wallet eslint/prettier checks; npm pack --dry-run --workspace=@zolana/wallet",
+      "exitStatus": "0",
+      "responsibility": "wallet build, strict types, six unit tests, frozen vector, browser bundle, API scaffold, lint, format, and 57-file package tarball"
+    },
+    {
+      "command": "npm run check/lint/lint:packages/format:check/test:browser/api:check/test:exports/test:dependencies/pack:check",
+      "exitStatus": "0",
+      "responsibility": "root build, typecheck, configuration and package lint, format, 263 unit tests, browser, API, export, dependency, inventory, and packed-consumer gates"
+    },
+    {
+      "command": "ZOLANA_PORT_OFFSET=300 npm run test:e2e:actions",
+      "exitStatus": "1",
+      "responsibility": "intentional routing probe: Vitest selected sdk-libs/ts/e2e/actions/**/*.test.ts and rejected the not-yet-created P12 suite with no test files found"
+    },
+    {
+      "command": "ZOLANA_PORT_OFFSET=400 npm run test:e2e:instructions",
+      "exitStatus": "1",
+      "responsibility": "independent routing probe: Vitest selected sdk-libs/ts/e2e/instructions/**/*.test.ts and rejected the not-yet-created P13 suite with no test files found"
+    },
+    {
+      "command": "npx eslint sdk-libs/ts/config/vitest.e2e.config.js sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/config/vitest.e2e-instructions.config.js --max-warnings=0",
+      "exitStatus": "0",
+      "responsibility": "targeted E2E configuration lint"
+    },
+    {
+      "command": "npx prettier --check package.json sdk-libs/ts/config/vitest.e2e.config.js sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/config/vitest.e2e-instructions.config.js",
+      "exitStatus": "0",
+      "responsibility": "targeted manifest and E2E configuration format check"
+    },
+    {
+      "command": "ZOLANA_E2E_TEST_TIMEOUT_MS=610000 ZOLANA_E2E_HOOK_TIMEOUT_MS=620000 node --input-type=module -e <assert imported action config timeouts>",
+      "exitStatus": "0",
+      "responsibility": "validated live-stack test and hook timeout environment overrides"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "root build, typecheck, lint, format, 304 unit tests, inventory, exports, dependencies, and API checks after E2E routing changes"
+    }
+  ],
+  "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "@microsoft/api-extractor": "^7.58.12",
+    "@types/node": "^20.19.43",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.7.0",
+    "fast-check": "^4.9.0",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  },
+  "dependencyReview": {
+    "accepted": [
+      {
+        "consumers": ["@zolana/keypair"],
+        "license": "MIT",
+        "manifestRange": "^2.2.0",
+        "name": "@noble/ciphers",
+        "rationale": "Audited ESM cryptography; its Web Crypto adapter supplies browser-native AES-CTR.",
+        "resolvedVersion": "2.2.0",
+        "runtime": "Browser and Node >=20.19.0"
+      },
+      {
+        "consumers": ["@zolana/keypair", "@zolana/merkle-tree"],
+        "license": "MIT",
+        "manifestRange": "^2.2.0",
+        "name": "@noble/curves",
+        "rationale": "Audited ESM P256 ECDSA/ECDH plus the synchronous generic Poseidon permutation and constant generator.",
+        "resolvedVersion": "2.2.0",
+        "runtime": "Browser and Node >=20.19.0"
+      },
+      {
+        "consumers": ["@zolana/keypair"],
+        "license": "MIT",
+        "manifestRange": "^3.1.0",
+        "name": "@noble/ed25519",
+        "rationale": "Small ESM RFC 8032 Ed25519 implementation selected by PR #111.",
+        "resolvedVersion": "3.1.0",
+        "runtime": "Browser and Node"
+      },
+      {
+        "consumers": ["@zolana/keypair", "@zolana/merkle-tree"],
+        "license": "MIT",
+        "manifestRange": "^2.2.0",
+        "name": "@noble/hashes",
+        "rationale": "Audited synchronous ESM SHA-256, SHA-512, Keccak, HMAC, and HKDF implementation.",
+        "resolvedVersion": "2.2.0",
+        "runtime": "Browser and Node >=20.19.0"
+      },
+      {
+        "consumers": ["@zolana/keypair"],
+        "license": "MIT",
+        "manifestRange": "^6.0.0",
+        "name": "bs58",
+        "rationale": "ESM Base58 encoding for Solana address derivation.",
+        "resolvedVersion": "6.0.0",
+        "runtime": "Browser and Node"
+      }
+    ],
+    "rejected": [
+      {
+        "name": "poseidon-lite",
+        "reason": "PR #111 used it, but version 0.3.0 is unaudited and CommonJS. The audited @noble/curves Poseidon primitive remains subject to frozen Rust vector parity in P04."
+      }
+    ],
+    "security": {
+      "audit": "npm audit --omit=dev: zero vulnerabilities",
+      "browser": "The exact admitted Poseidon, SHA-2, SHA-3, P256, Ed25519, HKDF, AES-CTR, and Base58 entry points bundle for ES2022 without Buffer, node: imports, process globals, or require calls.",
+      "installScripts": "No accepted runtime dependency requires an install script."
+    }
+  },
+  "deterministicPropertyTests": {
+    "numRuns": 100,
+    "seed": 1515146305,
+    "tool": "fast-check 4.9.0"
+  },
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "inventoryRows": [
+    "sdk-libs/client/Cargo.toml",
+    "sdk-libs/indexer-api/Cargo.toml",
+    "sdk-libs/keypair/Cargo.toml",
+    "sdk-libs/merkle-tree/Cargo.toml",
+    "sdk-libs/program-test/Cargo.toml",
+    "sdk-libs/smart-account-client/Cargo.toml",
+    "sdk-libs/transaction/Cargo.toml",
+    "sdk-libs/wallet/Cargo.toml",
+    "sdk-libs/zolana-api/Cargo.toml"
+  ],
+  "ownedChangedPaths": [
+    "eslint.config.js",
+    "package-lock.json",
+    "package.json",
+    "prettier.config.js",
+    "sdk-libs/ts/.gitignore",
+    "sdk-libs/ts/api/package.json",
+    "sdk-libs/ts/api/tsconfig.json",
+    "sdk-libs/ts/client/package.json",
+    "sdk-libs/ts/client/tsconfig.json",
+    "sdk-libs/ts/config/browser-check.mjs",
+    "sdk-libs/ts/config/build.mjs",
+    "sdk-libs/ts/config/inventory-check.mjs",
+    "sdk-libs/ts/config/pack-check.mjs",
+    "sdk-libs/ts/config/packages.mjs",
+    "sdk-libs/ts/config/property.setup.mjs",
+    "sdk-libs/ts/config/tsconfig.base.json",
+    "sdk-libs/ts/config/typecheck.mjs",
+    "sdk-libs/ts/config/vitest.api-cross.config.js",
+    "sdk-libs/ts/config/vitest.e2e-actions.config.js",
+    "sdk-libs/ts/config/vitest.e2e-instructions.config.js",
+    "sdk-libs/ts/config/vitest.e2e.config.js",
+    "sdk-libs/ts/config/vitest.package.config.js",
+    "sdk-libs/ts/config/vitest.property.config.js",
+    "sdk-libs/ts/config/vitest.vectors.config.js",
+    "sdk-libs/ts/config/workspace-check.mjs",
+    "sdk-libs/ts/indexer-api/package.json",
+    "sdk-libs/ts/indexer-api/tsconfig.json",
+    "sdk-libs/ts/interface/package.json",
+    "sdk-libs/ts/interface/tsconfig.json",
+    "sdk-libs/ts/keypair/package.json",
+    "sdk-libs/ts/keypair/tsconfig.json",
+    "sdk-libs/ts/merkle-tree/package.json",
+    "sdk-libs/ts/merkle-tree/tsconfig.json",
+    "sdk-libs/ts/reports/packets/P01.json",
+    "sdk-libs/ts/smart-account-client/package.json",
+    "sdk-libs/ts/smart-account-client/tsconfig.json",
+    "sdk-libs/ts/test-kit/package.json",
+    "sdk-libs/ts/test-kit/tsconfig.json",
+    "sdk-libs/ts/transaction/package.json",
+    "sdk-libs/ts/transaction/tsconfig.json",
+    "sdk-libs/ts/wallet/package.json",
+    "sdk-libs/ts/wallet/tsconfig.json",
+    "tsconfig.json",
+    "tsconfig.eslint.json",
+    "vitest.config.js"
+  ],
+  "packet": "P01",
+  "readiness": {
+    "packetCheckpoint": "ready",
+    "reopenedBlocker": "P12-BLOCKER-COMMAND and the matching P13 routing gap made both stable E2E commands pass without collecting tests.",
+    "resolvedBlocker": "The root action and instruction commands now invoke separate exact Vitest selectors, inherit the Zolana service environment, support validated E2E timeout overrides, run files serially, fail on zero tests, and propagate test failures."
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}

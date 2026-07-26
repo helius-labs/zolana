@@ -1,0 +1,167 @@
+{
+  "polls": [
+    {
+      "id": "rejectedResponse",
+      "outcome": {
+        "arm": "err",
+        "attempts": "4",
+        "lastCause": null,
+        "variant": "PollTimedOut"
+      },
+      "requests": "4"
+    },
+    {
+      "id": "retryableIndexer",
+      "outcome": {
+        "arm": "err",
+        "attempts": "4",
+        "lastCause": "Indexer",
+        "variant": "PollTimedOut"
+      },
+      "requests": "4"
+    },
+    {
+      "id": "fatalIndexer",
+      "outcome": {
+        "arm": "err",
+        "retryable": false,
+        "variant": "Indexer"
+      },
+      "requests": "1"
+    },
+    {
+      "id": "retryableRpc",
+      "outcome": {
+        "arm": "err",
+        "attempts": "4",
+        "lastCause": "Rpc",
+        "variant": "PollTimedOut"
+      },
+      "requests": "4"
+    },
+    {
+      "id": "indexerTimeout",
+      "outcome": {
+        "arm": "err",
+        "attempts": "4",
+        "lastCause": "IndexerTimeout",
+        "variant": "PollTimedOut"
+      },
+      "requests": "4"
+    },
+    {
+      "id": "fatalOther",
+      "outcome": {
+        "arm": "err",
+        "variant": "MissingOutput"
+      },
+      "requests": "1"
+    },
+    {
+      "id": "acceptedOnTheThirdRequest",
+      "outcome": {
+        "arm": "ok",
+        "value": "1"
+      },
+      "requests": "3"
+    }
+  ],
+  "schedules": [
+    {
+      "attempts": "11",
+      "delayMs": "400",
+      "delaysMs": [
+        "400",
+        "800",
+        "1600",
+        "3200",
+        "6400",
+        "8000",
+        "8000",
+        "8000",
+        "8000",
+        "8000"
+      ],
+      "id": "default",
+      "maxDelayMs": "8000",
+      "numRetries": "10"
+    },
+    {
+      "attempts": "5",
+      "delayMs": "5",
+      "delaysMs": [
+        "5",
+        "10",
+        "12",
+        "12"
+      ],
+      "id": "doublesThenCaps",
+      "maxDelayMs": "12",
+      "numRetries": "4"
+    },
+    {
+      "attempts": "4",
+      "delayMs": "20",
+      "delaysMs": [
+        "5",
+        "5",
+        "5"
+      ],
+      "id": "firstDelayClampedToCap",
+      "maxDelayMs": "5",
+      "numRetries": "3"
+    },
+    {
+      "attempts": "1",
+      "delayMs": "100",
+      "delaysMs": [],
+      "id": "noRetries",
+      "maxDelayMs": "100",
+      "numRetries": "0"
+    },
+    {
+      "attempts": "3",
+      "delayMs": "0",
+      "delaysMs": [
+        "0",
+        "0"
+      ],
+      "id": "zeroDelay",
+      "maxDelayMs": "0",
+      "numRetries": "2"
+    },
+    {
+      "attempts": "6",
+      "delayMs": "1",
+      "delaysMs": [
+        "1",
+        "2",
+        "4",
+        "8",
+        "16"
+      ],
+      "id": "capNeverReached",
+      "maxDelayMs": "18446744073709551615",
+      "numRetries": "5"
+    },
+    {
+      "attempts": "4",
+      "delayMs": "9223372036854775807",
+      "delaysMs": [
+        "9223372036854775807",
+        "18446744073709551614",
+        "18446744073709551615"
+      ],
+      "id": "doublingLeavesU64",
+      "maxDelayMs": "18446744073709551615",
+      "numRetries": "3"
+    },
+    {
+      "attempts": "4294967296",
+      "delayMs": "0",
+      "id": "retryCountAtU32Max",
+      "maxDelayMs": "0",
+      "numRetries": "4294967295"
+    }
+  ]
+}

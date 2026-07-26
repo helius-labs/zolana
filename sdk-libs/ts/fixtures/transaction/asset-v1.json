@@ -1,0 +1,51 @@
+{
+  "expected": {
+    "assetFieldBytes": "0122a4a4e6fa1fa0ae954d09046aae8c75aaaa590897544b674596ce6c62363c",
+    "errors": [
+      {
+        "code": "ReservedAssetId",
+        "details": "ReservedAssetId(1)"
+      },
+      {
+        "code": "DuplicateAssetId",
+        "details": "DuplicateAssetId(2)"
+      },
+      {
+        "code": "DuplicateMint",
+        "details": "DuplicateMint(36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv)"
+      },
+      {
+        "code": "UnknownAsset",
+        "details": "UnknownAsset(999)"
+      },
+      {
+        "code": "UnknownMint",
+        "details": "UnknownMint(3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3)"
+      }
+    ],
+    "fieldLookupMintBytes": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+    "resolvedAssetId": "2",
+    "resolvedMintBytes": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f",
+    "sol": {
+      "assetId": "1",
+      "mintBytes": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "id": "fx-p00-transaction-asset-v1",
+  "inputs": {
+    "entries": [
+      {
+        "assetId": "2",
+        "mintBytes": "1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f"
+      }
+    ],
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/transaction/tests/features/asset.feature",
+  "owningPacket": "P00",
+  "responsibility": "reserved SOL mapping, insertion, both lookups, field lookup, and conflicts",
+  "rustPath": "sdk-libs/transaction/src/wallet/asset.rs",
+  "rustSymbol": "SOL_ASSET_ID; SOL_MINT; AssetRegistry",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

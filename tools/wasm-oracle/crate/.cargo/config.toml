@@ -1,0 +1,5 @@
+# getrandom 0.3 refuses to build for wasm32-unknown-unknown unless the backend
+# is named here as well as feature-enabled. Scoped to this crate's build so the
+# published workspace never sees the flag.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

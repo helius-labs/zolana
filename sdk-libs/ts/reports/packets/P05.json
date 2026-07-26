@@ -1,0 +1,195 @@
+{
+  "apiDiff": {
+    "added": [
+      "@zolana/transaction|root|class|TransactionError",
+      "@zolana/transaction|root|type|TransactionErrorCode",
+      "@zolana/transaction|root|type|DataRecord",
+      "@zolana/transaction|root|class|OutputData",
+      "@zolana/transaction|root|type|Blinding",
+      "@zolana/transaction|root|class|Utxo",
+      "@zolana/transaction|root|class|SppProofInputUtxo",
+      "@zolana/transaction|root|function|deriveBlinding",
+      "@zolana/transaction|root|function|ownerUtxoHash",
+      "@zolana/transaction|root|const|SOL_ASSET_ID",
+      "@zolana/transaction|root|const|SOL_MINT",
+      "@zolana/transaction|root|class|AssetRegistry",
+      "@zolana/transaction|root|class|Wallet",
+      "@zolana/transaction|root|class|ConfidentialTransfer",
+      "@zolana/transaction|root|class|SppProofInputs",
+      "@zolana/transaction|root|class|PreparedMerge",
+      "@zolana/transaction|root|function|canonicalShape",
+      "@zolana/transaction|root|function|resolveShape",
+      "@zolana/transaction|root|function|decryptTransactions",
+      "@zolana/transaction|serialization|value|EncryptedScheme",
+      "@zolana/transaction|serialization|codecs|all frozen plaintext and encryption families",
+      "@zolana/transaction|instructions|builders|transfer split merge and zone",
+      "@zolana/transaction|wallet|state|authority and sequential/worker-equivalent sync"
+    ],
+    "changed": [],
+    "removed": []
+  },
+  "checkpointReady": true,
+  "commands": [
+    {
+      "command": "npm run typecheck --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "strict production source typecheck"
+    },
+    {
+      "command": "npx tsc --ignoreConfig --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck --lib ES2022,DOM --types vitest/globals \"sdk-libs/ts/transaction/test/fixed-bytes.test.ts\"",
+      "exitStatus": "0",
+      "responsibility": "packed-package consumer type compatibility, bidirectional matching lengths, and cross-length rejection"
+    },
+    {
+      "command": "npm run build --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "ESM and declaration build"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "28 core, mixed-rail signature, manifest-backed codec, tamper, transfer, history, idempotence, and worker-equivalence tests"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "five manifest-verified data, UTXO, transact, asset, client proof, and logical-error vector groups"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "bigint, variable-data, fixed-layout, and blinding properties"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "browser-compatible transaction entry points"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/transaction",
+      "exitStatus": "0",
+      "responsibility": "package API-script contract"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/transaction/src/**/*.ts\" \"sdk-libs/ts/transaction/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "strict P05 source and test lint"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/transaction/{src,test}/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "P05 source and test formatting"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "0",
+      "responsibility": "fresh packed Node and browser consumers"
+    },
+    {
+      "command": "npm run test:exports && npm run test:dependencies && npm run test:browser",
+      "exitStatus": "0",
+      "responsibility": "shared exports, boundaries, and browser gates"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "0",
+      "responsibility": "aggregate build, typecheck, lint, format, 215 tests, inventory, exports, dependencies, and API checks"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "0",
+      "responsibility": "deterministic regeneration of 37 manifest-pinned fixtures and 182 inventory rows"
+    }
+  ],
+  "dependencyGaps": [],
+  "fixtureCoverage": {
+    "client/proof-input-v1.json": "dummy input nullifier plus copied state/nullifier roots",
+    "client/proof-result-compression-v1.json": "P256 proof coordinates, commitment fields, and checked-copy boundary",
+    "transaction/asset-v1.json": "SOL mapping, bidirectional lookup, field lookup, and all conflict errors",
+    "transaction/authority-v1.json": "authority identity, nullifier/viewing material, deterministic P256 signature, and envelope key",
+    "transaction/data-v1.json": "exact wincode bytes, accessors, round trip, canonical order, duplicates, truncation, and trailing bytes",
+    "transaction/frozen-tests-v1.json": "assigned paths, scenario inventory, and persisted property regression amounts",
+    "transaction/merge-v1.json": "real/dummy counts, contexts, output amount/hash, empty input, and owner mismatch",
+    "transaction/serialization-v1.json": "all seven schemes, exact plaintext/encrypted/verifiable/Borsh bytes, round trips, u16 lengths, and malformed inputs",
+    "transaction/split-v1.json": "bundle bytes, eight output hashes/blindings, conservation, encrypted wire data, external hash, and validation errors",
+    "transaction/transact-v1.json": "shape selection, external hash, proof input context, payer hash, and shape-capacity errors",
+    "transaction/transfer-v1.json": "change/recipient outputs, conservation, exact encrypted wire payloads, owner tags, nullifier, external/message hashes, and withdrawal/balance errors",
+    "transaction/utxo-v1.json": "blindings, owner/UTXO hashes, nullifier, proof fields, and missing-zone validation",
+    "transaction/values-and-errors-v1.json": "logical shape/data values and typed shape/data errors",
+    "transaction/wallet-state-v1.json": "UTXOs, nullifiers, spent filtering, ordered balances, compact state, and history ordering",
+    "transaction/wallet-sync-v1.json": "incremental/idempotent sync, exact balances/state, tamper rejection, authority failures, and sequential/worker equivalence",
+    "transaction/zone-v1.json": "zone-bound input/output hashes, context/nullifier, and zone mismatch"
+  },
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "implemented": [
+    "owned OutputData records, checked bigint amounts, deterministic blindings, UTXO commitments, nullifiers, dummy inputs, and exact supported shapes",
+    "wincode and Borsh codecs for confidential, anonymous sender/recipient, plaintext, proofless, split, merge, and output envelopes",
+    "canonical external-data SHA256BE and private transaction hashes with resolved tags, signed public amounts, ciphertext presence, and length boundaries",
+    "prepared confidential transfer, split, merge, and zone operations with conservation, ownership, asset, data, withdrawal, and padding checks",
+    "asset registry plus wallet balances, UTXOs, private history, spend detection, idempotent sync, and worker-equivalent ordering",
+    "Promise authority boundary with no HTTP, RPC, filesystem, Node built-in, or ambient network behavior",
+    "structurally compatible fixed-byte inputs from interface and keypair with direct transaction package consumption and runtime boundary validation",
+    "source-proven mixed EdDSA/P256 input signing that selects the P256 rail while retaining homogeneous rail, signer-owner, and fixed-byte validation"
+  ],
+  "ownedChangedPaths": [
+    "sdk-libs/ts/transaction/src/data.ts",
+    "sdk-libs/ts/transaction/src/error.ts",
+    "sdk-libs/ts/transaction/src/index.ts",
+    "sdk-libs/ts/transaction/src/internal.ts",
+    "sdk-libs/ts/transaction/src/utxo.ts",
+    "sdk-libs/ts/transaction/src/instructions/builders.ts",
+    "sdk-libs/ts/transaction/src/instructions/index.ts",
+    "sdk-libs/ts/transaction/src/instructions/transact.ts",
+    "sdk-libs/ts/transaction/src/serialization/codecs.ts",
+    "sdk-libs/ts/transaction/src/serialization/index.ts",
+    "sdk-libs/ts/transaction/src/transact/index.ts",
+    "sdk-libs/ts/transaction/src/wallet/asset.ts",
+    "sdk-libs/ts/transaction/src/wallet/authority.ts",
+    "sdk-libs/ts/transaction/src/wallet/index.ts",
+    "sdk-libs/ts/transaction/src/wallet/state.ts",
+    "sdk-libs/ts/transaction/src/wallet/sync.ts",
+    "sdk-libs/ts/transaction/test/core.test.ts",
+    "sdk-libs/ts/transaction/test/fixed-bytes.test.ts",
+    "sdk-libs/ts/transaction/test/fixture.ts",
+    "sdk-libs/ts/transaction/test/property/transaction-property.test.ts",
+    "sdk-libs/ts/transaction/test/serialization.test.ts",
+    "sdk-libs/ts/transaction/test/transfer.test.ts",
+    "sdk-libs/ts/transaction/test/vectors/transaction-vectors.test.ts",
+    "sdk-libs/ts/transaction/test/wallet-sync.test.ts",
+    "sdk-libs/ts/reports/packets/P05.json"
+  ],
+  "packet": "P05",
+  "qualityPass": {
+    "commentCorrections": ["kept only the ciphertext-length invariant comment"],
+    "edits": [
+      "centralized checked bytes, SHA256BE, Poseidon, address, integer, and codec primitives",
+      "removed checked-copy and never-cast bridges that existed only for interface/keypair nominal brand incompatibility",
+      "removed proxy dummy state and replaced it with explicit module-private identity tracking",
+      "deduplicated constant-time byte comparison and isolated fixture-only field lookup and codecs from package exports",
+      "kept package entry points free of internal cryptographic helpers and network behavior",
+      "used immutable snapshots for retained wallet, output, history, and data values",
+      "limited mixed-rail signing to filtering real P256 owners, preserving input order, owner tags, proof fields, and checked signature copies"
+    ],
+    "skills": ["code-simplifier", "code-quality", "zolana-comments"]
+  },
+  "reopenedBlocker": {
+    "kind": "P05-api",
+    "resolution": "SppProofInputs.applyP256Signature now accepts mixed real inputs when at least one P256 input exists and every P256 input matches the signing public key. EdDSA-only inputs still reject P256 signing, homogeneous P256 inputs retain owner matching, and malformed signature coordinates retain typed fixed-length errors.",
+    "sourceEvidence": [
+      "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f:sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs::inputs_require_p256",
+      "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f:sdk-libs/transaction/src/instructions/transact/transfer.rs::ConfidentialTransfer::sign",
+      "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f:sdk-libs/client/src/prover/transact/p256_and_eddsa.rs::OwnerMode::ConfidentialP256",
+      "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f:sdk-libs/client/tests/features/eddsa_p256_transaction.feature"
+    ],
+    "tests": [
+      "valid mixed input order with EdDSA first and P256 second",
+      "missing signature state before application",
+      "wrong P256 signing owner",
+      "EdDSA-only rail rejection",
+      "malformed r and s lengths",
+      "homogeneous P256 acceptance",
+      "owner-tag and signature-byte copy preservation"
+    ]
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}

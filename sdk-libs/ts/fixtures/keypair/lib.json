@@ -1,0 +1,25 @@
+{
+  "expected": {
+    "ed25519SignatureLength": "64",
+    "p256SignatureLength": "64",
+    "randomBlindingLength": "31",
+    "randomSaltLength": "16",
+    "signatureTypes": [
+      "p256",
+      "ed25519"
+    ]
+  },
+  "id": "fx-p00-keypair-lib-v1",
+  "inputs": {
+    "recordedRandomBlindingBytes": "08080808080808080808080808080808080808080808080808080808080808",
+    "recordedRandomSaltBytes": "00000000000000000000000000000000",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/src/lib.rs",
+  "owningPacket": "P00",
+  "responsibility": "root aliases, rail variants, and explicit recorded randomness",
+  "rustPath": "sdk-libs/keypair/src/lib.rs",
+  "rustSymbol": "Signature; ECDSASignature; random_blinding; random_salt",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

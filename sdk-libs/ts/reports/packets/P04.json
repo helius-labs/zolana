@@ -1,0 +1,305 @@
+{
+  "apiDiff": {
+    "added": [
+      "@zolana/keypair|root|type|SignatureType",
+      "@zolana/keypair|root|type|ViewTag",
+      "@zolana/keypair|root|type|Salt",
+      "@zolana/keypair|root|type|EcdsaSignature",
+      "@zolana/keypair|root|class|KeypairError",
+      "@zolana/keypair|root|type|KeypairErrorCode",
+      "@zolana/keypair|root|class|P256PublicKey",
+      "@zolana/keypair|root|class|ShieldedPublicKey",
+      "@zolana/keypair|root|class|SigningKey",
+      "@zolana/keypair|root|class|NullifierKey",
+      "@zolana/keypair|root|class|ViewingKey",
+      "@zolana/keypair|root|class|ShieldedAddress",
+      "@zolana/keypair|root|interface|CompressedShieldedAddress",
+      "@zolana/keypair|root|interface|P256Signature",
+      "@zolana/keypair|root|class|ShieldedKeypair",
+      "@zolana/keypair|root|interface|ShieldedKeypairLike",
+      "@zolana/keypair|root|interface|ViewingKeyLike",
+      "@zolana/keypair|root|function|randomBlinding",
+      "@zolana/keypair|root|function|randomSalt",
+      "@zolana/keypair|merge|const|MERGE_INFO",
+      "@zolana/keypair|merge|interface|MergeCiphertextPublicInputs",
+      "@zolana/keypair|merge|function|encryptVerifiable",
+      "@zolana/keypair|merge|function|decryptVerifiable",
+      "@zolana/keypair|merge|function|mergePublicContribution",
+      "@zolana/keypair|merge|function|mergeCiphertextHash"
+    ],
+    "changed": [
+      "ShieldedAddress.fromPublicKeys(signingPublicKey, nullifierPublicKey, viewingPublicKey)",
+      "ShieldedKeypair.viewingKey(): ViewingKey",
+      "ShieldedKeypair.nullifierKey(): NullifierKey",
+      "ShieldedKeypair.signP256(messageHash: Bytes32): P256Signature"
+    ],
+    "removed": []
+  },
+  "checkpointReady": true,
+  "commands": [
+    {
+      "command": "npm run build --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "ESM implementation and declaration build"
+    },
+    {
+      "command": "npm run typecheck --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "strict production source typecheck"
+    },
+    {
+      "command": "npm run test:vectors --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "12 tests load all 12 P00 production keypair fixtures and assert exact bytes, copied capability keys, structured P256 signatures, registered addresses, mapped errors, and tamper outcomes"
+    },
+    {
+      "command": "npm run test:property --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "six deterministic signature, ECDH, slot, tag, nullifier, and merge properties including 100 fast-check runs"
+    },
+    {
+      "command": "npm run test:unit --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "26 fixture-vector, property, validation, tamper, randomness, registered-address, capability-copy, malformed-message, and destruction tests"
+    },
+    {
+      "command": "npx vitest run --config ../config/vitest.package.config.js test/security.test.ts",
+      "exitStatus": "0",
+      "responsibility": "eight dedicated malformed-input/message, rail, tamper, wrong-key, independent secret-copy, destruction, randomness, address-copy, and diagnostic-redaction security tests"
+    },
+    {
+      "command": "npm run test:browser --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "root and merge browser bundles with no Node globals or built-in imports"
+    },
+    {
+      "command": "npm run api:check --workspace @zolana/keypair",
+      "exitStatus": "0",
+      "responsibility": "package API-script contract"
+    },
+    {
+      "command": "npx eslint \"sdk-libs/ts/keypair/src/**/*.ts\" \"sdk-libs/ts/keypair/test/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "strict P04 source and test lint"
+    },
+    {
+      "command": "npx prettier --check \"sdk-libs/ts/keypair/{src,test}/**/*.ts\"",
+      "exitStatus": "0",
+      "responsibility": "P04 source and test formatting"
+    },
+    {
+      "command": "npm run pack:check",
+      "exitStatus": "1",
+      "responsibility": "shared packed-consumer gate reached unrelated @zolana/transaction output and reported a missing dist/index.d.ts; @zolana/keypair npm pack --dry-run passed with 57 files"
+    },
+    {
+      "command": "npm run test:browser",
+      "exitStatus": "0",
+      "responsibility": "aggregate browser source and bundle gate"
+    },
+    {
+      "command": "npm run test:inventory",
+      "exitStatus": "0",
+      "responsibility": "workspace inventory coverage"
+    },
+    {
+      "command": "npm run build && npm run test:exports && npm run test:dependencies && npm run api:check",
+      "exitStatus": "0",
+      "responsibility": "shared export-path, dependency-boundary, and API gates"
+    },
+    {
+      "command": "npm audit --omit=dev",
+      "exitStatus": "0",
+      "responsibility": "zero known production dependency vulnerabilities"
+    },
+    {
+      "command": "npm run check",
+      "exitStatus": "1",
+      "responsibility": "aggregate build, typecheck, lint, and format passed before three unrelated @zolana/client merge tests failed with CLIENT_INVALID_P256_KEY"
+    },
+    {
+      "command": "npm run fixtures:check",
+      "exitStatus": "1",
+      "responsibility": "final retry reported that the generated P00 file set differs from concurrently changed checked-in outputs; P04 changed no fixtures"
+    },
+    {
+      "command": "git diff --check -- sdk-libs/ts/keypair sdk-libs/ts/reports/packets/P04.json",
+      "exitStatus": "0",
+      "responsibility": "P04 whitespace validation"
+    }
+  ],
+  "dependencyGaps": [],
+  "fixtureCoverage": {
+    "constants.json": [
+      "all public lengths",
+      "P_CONST_SEC1",
+      "view-root domain bytes",
+      "merge info bytes",
+      "recorded blinding and salt boundaries"
+    ],
+    "encryption.json": [
+      "exact slot ciphertext",
+      "recipient decryption",
+      "ephemeral decryption",
+      "wrong-slot separation"
+    ],
+    "error.json": [
+      "invalid P256 point",
+      "zero secret scalar",
+      "invalid rail prefix",
+      "invalid Ed25519 padding",
+      "wrong-rail access",
+      "P256 and Ed25519 signature tampering"
+    ],
+    "hash.json": [
+      "SHA-256",
+      "field-sized SHA-256",
+      "big-endian field split",
+      "P256 and Ed25519 public hashes",
+      "P256 and Ed25519 owner fields"
+    ],
+    "lib.json": [
+      "both signature aliases",
+      "both rail variants",
+      "deterministically injected random blinding",
+      "deterministically injected random salt"
+    ],
+    "merge.json": [
+      "ciphertext",
+      "recovery",
+      "transaction viewing public key",
+      "low and high public-key limbs",
+      "ciphertext hash",
+      "tampered ciphertext hash"
+    ],
+    "nullifier_key.json": [
+      "direct public key",
+      "signing-secret derivation",
+      "UTXO hash and blinding-bound nullifier"
+    ],
+    "pubkey.json": [
+      "P256 compressed point and tagged round trip",
+      "P256 x and parity",
+      "Ed25519 tagged round trip",
+      "both confidential tags"
+    ],
+    "shielded.json": [
+      "P256 and Ed25519 signing, nullifier, and viewing public keys",
+      "owner hashes",
+      "confidential tags",
+      "Solana address rail behavior",
+      "compressed fields and hashes"
+    ],
+    "signing_key.json": [
+      "exact P256 prehash signature and verification",
+      "exact RFC 8032 Ed25519 signature and verification",
+      "both tagged public keys"
+    ],
+    "tests.json": [
+      "both signature round trips",
+      "tag-direction agreement",
+      "slot round trip",
+      "merge round trip",
+      "fixed-randomness marking"
+    ],
+    "viewing_key.json": [
+      "public key",
+      "ECDH",
+      "all four purpose roots",
+      "sender, request, merge, bootstrap, send, and recipient tags",
+      "deterministic seed derivation",
+      "transaction viewing secret and public key"
+    ]
+  },
+  "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
+  "inventoryRows": [
+    "sdk-libs/keypair/src/constants.rs",
+    "sdk-libs/keypair/src/encryption.rs",
+    "sdk-libs/keypair/src/error.rs",
+    "sdk-libs/keypair/src/hash.rs",
+    "sdk-libs/keypair/src/lib.rs",
+    "sdk-libs/keypair/src/merge.rs",
+    "sdk-libs/keypair/src/nullifier_key.rs",
+    "sdk-libs/keypair/src/pubkey.rs",
+    "sdk-libs/keypair/src/shielded.rs",
+    "sdk-libs/keypair/src/signing_key.rs",
+    "sdk-libs/keypair/src/traits/mod.rs",
+    "sdk-libs/keypair/src/traits/shielded_keypair.rs",
+    "sdk-libs/keypair/src/traits/view_key.rs",
+    "sdk-libs/keypair/src/viewing_key.rs",
+    "sdk-libs/keypair/tests/bdd.rs",
+    "sdk-libs/keypair/tests/features/hashing.feature",
+    "sdk-libs/keypair/tests/features/nullifier.feature",
+    "sdk-libs/keypair/tests/features/pubkey.feature",
+    "sdk-libs/keypair/tests/features/shielded.feature",
+    "sdk-libs/keypair/tests/features/signing.feature",
+    "sdk-libs/keypair/tests/features/transaction.feature",
+    "sdk-libs/keypair/tests/features/viewing.feature",
+    "sdk-libs/keypair/tests/steps/common.rs",
+    "sdk-libs/keypair/tests/steps/hashing.rs",
+    "sdk-libs/keypair/tests/steps/nullifier.rs",
+    "sdk-libs/keypair/tests/steps/pubkey.rs",
+    "sdk-libs/keypair/tests/steps/shielded.rs",
+    "sdk-libs/keypair/tests/steps/signing.rs",
+    "sdk-libs/keypair/tests/steps/transaction.rs",
+    "sdk-libs/keypair/tests/steps/viewing.rs"
+  ],
+  "implemented": [
+    "checked owned byte, field, scalar, point, counter, slot, and signature boundaries with stable KeypairError codes",
+    "P256 prehash ECDSA, Ed25519 signing, tagged public keys, owner fields, and confidential view tags",
+    "nullifier-key HKDF plus exact Poseidon public-key and nullifier derivation over UTXO hash and blinding",
+    "P256 ECDH, HKDF-SHA256, AES-256-CTR slot encryption, every view-tag stream, transaction viewing keys, and deterministic seed derivation",
+    "shielded address and keypair facades for P256 and Ed25519 ownership rails",
+    "registered P256 and Ed25519 address construction from validated copied public keys",
+    "independently owned viewing and nullifier key extraction from the keypair facade",
+    "deterministic P256 prehash signing returned as public key plus copied r and s coordinates",
+    "browser CSPRNG injection point, owned secret copies, and best-effort destroy semantics",
+    "merge Poseidon KDF, verifiable encryption, ciphertext hash, and three-field public contribution",
+    "Circom-compatible BN254 Poseidon constants generated by audited Noble code and pinned against frozen Rust/circuit vectors",
+    "fixture-backed field-sized SHA-256 and view-root domain constants that were absent from the first P04 checkpoint",
+    "numeric structural fixed-byte brands that remain dependency-free and assignable to matching @zolana/interface lengths"
+  ],
+  "ownedChangedPaths": [
+    "sdk-libs/ts/keypair/src/bytes.ts",
+    "sdk-libs/ts/keypair/src/constants.ts",
+    "sdk-libs/ts/keypair/src/encryption.ts",
+    "sdk-libs/ts/keypair/src/error.ts",
+    "sdk-libs/ts/keypair/src/hash.ts",
+    "sdk-libs/ts/keypair/src/index.ts",
+    "sdk-libs/ts/keypair/src/merge/core.ts",
+    "sdk-libs/ts/keypair/src/merge/index.ts",
+    "sdk-libs/ts/keypair/src/nullifier-key.ts",
+    "sdk-libs/ts/keypair/src/poseidon.ts",
+    "sdk-libs/ts/keypair/src/public-key.ts",
+    "sdk-libs/ts/keypair/src/shielded.ts",
+    "sdk-libs/ts/keypair/src/signing-key.ts",
+    "sdk-libs/ts/keypair/src/viewing-key.ts",
+    "sdk-libs/ts/keypair/test/property/keypair-property.test.ts",
+    "sdk-libs/ts/keypair/test/security.test.ts",
+    "sdk-libs/ts/keypair/test/vectors/keypair-vectors.test.ts",
+    "sdk-libs/ts/reports/packets/P04.json"
+  ],
+  "packet": "P04",
+  "qualityPass": {
+    "commentCorrections": [],
+    "edits": [
+      "kept raw Poseidon, ECDH, HKDF, AES, hash, and merge scheduling helpers outside both package entry points",
+      "centralized checked copying, big-endian encoding, domain constants, and typed error construction",
+      "replaced package-local fixed-byte symbols with the same numeric structural marker used by interface without adding a package dependency",
+      "removed redundant branches and non-null assertions identified by strict lint",
+      "kept production source free of narration comments, Node globals, diagnostics, and secret interpolation",
+      "replaced every hardcoded Rust literal in the vector suite with one of the 12 P00 production fixtures",
+      "shared hex, mapped-error, compressed-address, and fixture-marking assertions without duplicating production cryptography",
+      "kept extracted secret-bearing keys independent so destroying either copy does not invalidate the other",
+      "made registered addresses own validated public-key copies and return a fresh nullifier-public-key copy"
+    ],
+    "skills": ["code-simplifier", "code-quality", "zolana-comments"]
+  },
+  "readiness": {
+    "implementation": "ready",
+    "p10Blocker": "resolved",
+    "p04PackageGates": "pass",
+    "sharedAggregateGates": "blocked outside P04 by @zolana/client merge tests, generated fixture drift, and @zolana/transaction packed output"
+  },
+  "schema": "zolana-ts-packet-evidence-v1"
+}

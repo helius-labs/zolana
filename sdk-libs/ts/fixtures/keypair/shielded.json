@@ -1,0 +1,41 @@
+{
+  "expected": {
+    "ed25519": {
+      "compressedAddressHashBytes": "26e5806661c63daee08d34d94066024da0ae7a82439399b62c20c3ea8baf6936",
+      "compressedOwnerHashBytes": "0a0d6bab49096f5d137603ecc4915112f31a7d1d77464b9120bd20f312b85665",
+      "compressedViewingPublicKeyBytes": "02abd9059faa531e6daa5806e2ca689b6f149523a56a460d663bdf3591bf03d5e5",
+      "confidentialViewTagBytes": "6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1",
+      "nullifierPublicKeyBytes": "0c12bec2cc7c2e66a5cb7616e92b7cf765340456e20abd06791069a84156a38a",
+      "ownerHashBytes": "0a0d6bab49096f5d137603ecc4915112f31a7d1d77464b9120bd20f312b85665",
+      "signingPublicKeyBytes": "016e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf100",
+      "solanaAddress": "8SFqwqnq4whPhs8icwHA2hQg3hUoN1qrCLK1SBx3WKwe",
+      "viewingPublicKeyBytes": "02abd9059faa531e6daa5806e2ca689b6f149523a56a460d663bdf3591bf03d5e5"
+    },
+    "p256": {
+      "compressedAddressHashBytes": "0951f73905fc864b6720fe2778436fb8f8cb927e51aa702b00eeeff4e99b1fde",
+      "compressedOwnerHashBytes": "2e3749dcdfcdfd87233d85f49f88b5e983bdd9bfd06976bf9234970f0d8284df",
+      "compressedViewingPublicKeyBytes": "02e2534a3532d08fbba02dde659ee62bd0031fe2db785596ef509302446b030852",
+      "confidentialViewTagBytes": "5ecbe4d1a6330a44c8f7ef951d4bf165e6c6b721efada985fb41661bc6e7fd6c",
+      "nullifierPublicKeyBytes": "11c05b334df19eeeec863a6821592ab43b61ba32b92b45b241fe528af4284f7f",
+      "ownerHashBytes": "2e3749dcdfcdfd87233d85f49f88b5e983bdd9bfd06976bf9234970f0d8284df",
+      "signingPublicKeyBytes": "00025ecbe4d1a6330a44c8f7ef951d4bf165e6c6b721efada985fb41661bc6e7fd6c",
+      "solanaAddress": null,
+      "viewingPublicKeyBytes": "02e2534a3532d08fbba02dde659ee62bd0031fe2db785596ef509302446b030852"
+    }
+  },
+  "id": "fx-p00-keypair-shielded-v1",
+  "inputs": {
+    "ed25519SecretBytes": "0505050505050505050505050505050505050505050505050505050505050505",
+    "ed25519ViewingAccount": "9",
+    "p256SigningSecretBytes": "0000000000000000000000000000000000000000000000000000000000000003",
+    "p256ViewingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000004",
+    "testOnlySecret": true
+  },
+  "inventoryRow": "sdk-libs/keypair/src/shielded.rs",
+  "owningPacket": "P00",
+  "responsibility": "both ownership rails, address fields, owner hashes, and compression",
+  "rustPath": "sdk-libs/keypair/src/shielded.rs",
+  "rustSymbol": "ShieldedKeypair; ShieldedAddress; CompressedShieldedAddress",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

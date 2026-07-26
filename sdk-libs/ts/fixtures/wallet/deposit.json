@@ -1,0 +1,80 @@
+{
+  "expected": {
+    "sol": {
+      "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+      "blindingBytes": "8094c910c637be3bdb34a7250d60ece82952743b6b13f74a81e8ac93e8c6f3",
+      "instruction": {
+        "accounts": [
+          {
+            "address": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "address": "11111111111111111111111111111111",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "address": "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "address": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "dataBytes": "010e91c7239c2640d7d28a3e39d4583fa63c0bc0a5df64a4fe672e573045ca789609d1f3116af3736f08dc7f6b276ad22308f016c1b448b0f1df04fcb5a44875438094c910c637be3bdb34a7250d60ece82952743b6b13f74a81e8ac93e8c6f32a0000000000000000010e0077616c6c65742066697874757265",
+        "programId": "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA"
+      },
+      "ownerBytes": "09d1f3116af3736f08dc7f6b276ad22308f016c1b448b0f1df04fcb5a4487543",
+      "unsignedTransaction": {
+        "messageBytes": "010002051e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f99cad41cd619aa677fcb1f8138dd4d83d93ec217de626fb3a0b6ffd5d0ec733d00000000000000000000000000000000000000000000000000000000000000000d051e81de5328be3254e424b31a8cea659f448f057d1f2273306184fcc04fb920202020202020202020202020202020202020202020202020202020202020200104060100030200047a010e91c7239c2640d7d28a3e39d4583fa63c0bc0a5df64a4fe672e573045ca789609d1f3116af3736f08dc7f6b276ad22308f016c1b448b0f1df04fcb5a44875438094c910c637be3bdb34a7250d60ece82952743b6b13f74a81e8ac93e8c6f32a0000000000000000010e0077616c6c65742066697874757265",
+        "requiredSignatures": "1",
+        "signatures": [
+          "1111111111111111111111111111111111111111111111111111111111111111"
+        ]
+      },
+      "utxoHashBytes": "29f8b9fbda548a78b607237e09c4f8931c032b64f8730d300f6d1bf6f007afbc",
+      "viewTagBytes": "0e91c7239c2640d7d28a3e39d4583fa63c0bc0a5df64a4fe672e573045ca7896"
+    },
+    "spl": {
+      "missingTokenAccountError": {
+        "code": "MissingSplTokenAccount",
+        "details": "MissingSplTokenAccount { mint: 3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL }"
+      },
+      "registry": "J4xCYrDVgTPk4cUBvYmkFs2WnEzY1TsUcEMYon78YvgN",
+      "vault": "Dcoiykt3NqFwDPHjLMD4tj9jEK6ctZHvoHAZzJwnd5Cz"
+    }
+  },
+  "id": "fx-p00-wallet-deposit-v1",
+  "inputs": {
+    "amount": "42",
+    "blindingSeedBytes": "18181818181818181818181818181818181818181818181818181818181818",
+    "blockhashBytes": "2020202020202020202020202020202020202020202020202020202020202020",
+    "payer": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
+    "recipientSigningSecretBytes": "0000000000000000000000000000000000000000000000000000000000000017",
+    "recipientViewingSeedBytes": "1919191919191919191919191919191919191919191919191919191919191919",
+    "testOnlySecret": true,
+    "tree": "36VASLSKLFD2KokjXG7V28veZvXEsyHRKefLonPaAKzv"
+  },
+  "inventoryRow": "sdk-libs/wallet/src/actions/deposit.rs",
+  "owningPacket": "P00",
+  "responsibility": "SOL and SPL routing, deterministic deposit material, instruction bytes, unsigned transaction, and errors",
+  "rustPath": "sdk-libs/wallet/src/actions/deposit.rs",
+  "rustSymbol": "Deposit; create_deposit; build_deposit_transaction_sync",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}

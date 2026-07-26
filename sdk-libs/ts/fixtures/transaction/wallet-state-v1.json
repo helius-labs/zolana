@@ -1,0 +1,122 @@
+{
+  "expected": {
+    "balances": [
+      {
+        "amount": "40",
+        "assetId": "1",
+        "mintBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "utxoCount": "1"
+      },
+      {
+        "amount": "70",
+        "assetId": "2",
+        "mintBytes": "2525252525252525252525252525252525252525252525252525252525252525",
+        "utxoCount": "1"
+      }
+    ],
+    "compactBalances": [
+      {
+        "amount": "40",
+        "assetId": "1",
+        "utxoCount": "0"
+      },
+      {
+        "amount": "70",
+        "assetId": "2",
+        "utxoCount": "0"
+      }
+    ],
+    "filteredSol": {
+      "amount": "0",
+      "utxoCount": "0"
+    },
+    "history": [
+      {
+        "amount": "40",
+        "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+        "counterpartyViewingPkBytes": null,
+        "direction": "Inbound",
+        "id": {
+          "index": "1",
+          "signature": "fixture-a",
+          "slot": "5"
+        },
+        "kind": "Deposit",
+        "status": "Confirmed"
+      },
+      {
+        "amount": "7",
+        "assetBytes": "2525252525252525252525252525252525252525252525252525252525252525",
+        "counterpartyViewingPkBytes": "02ea196a0c0b6a250b30fb10dd4386d0fb0df3565ef2af80dbf6fc10243851c1c3",
+        "direction": "Outbound",
+        "id": {
+          "index": "2",
+          "signature": "fixture-b",
+          "slot": "6"
+        },
+        "kind": "PrivateTransfer",
+        "status": "Confirmed"
+      }
+    ],
+    "lastSynced": "0",
+    "viewingKeyHistoryCount": "1"
+  },
+  "id": "fx-p00-transaction-wallet-state-v1",
+  "inputs": {
+    "mintBytes": "2525252525252525252525252525252525252525252525252525252525252525",
+    "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
+    "testOnlySecret": true,
+    "viewingSeedBytes": "0808080808080808080808080808080808080808080808080808080808080808",
+    "walletUtxos": [
+      {
+        "hashBytes": "2626262626262626262626262626262626262626262626262626262626262626",
+        "leafIndex": "1",
+        "nullifierBytes": "2d0e5a6cff512220c6fc718c50a335704db58579b66aeb267412567c9f27f667",
+        "spent": false,
+        "utxo": {
+          "amount": "40",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "e53c9fac0a490cfffdcc6ecd0e7f353da83e116a42dc134de57997a90e45d0",
+          "data": [],
+          "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+          "zoneProgramIdBytes": null
+        }
+      },
+      {
+        "hashBytes": "2727272727272727272727272727272727272727272727272727272727272727",
+        "leafIndex": "2",
+        "nullifierBytes": "271b2763a2f5e04b591cd84de9ae3baa9f391229858af0a6f989737fc335901f",
+        "spent": false,
+        "utxo": {
+          "amount": "70",
+          "assetBytes": "2525252525252525252525252525252525252525252525252525252525252525",
+          "blindingBytes": "15875e98abbb4043bbd77fa2d8846e15833eaaae791ab2fe1e7b60aa98b3df",
+          "data": [],
+          "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+          "zoneProgramIdBytes": null
+        }
+      },
+      {
+        "hashBytes": "2828282828282828282828282828282828282828282828282828282828282828",
+        "leafIndex": "3",
+        "nullifierBytes": "111dc2a61309b67176f6044cfde35bbed84dd8abc3f4e3890bf12c54f7d2db34",
+        "spent": true,
+        "utxo": {
+          "amount": "5",
+          "assetBytes": "0000000000000000000000000000000000000000000000000000000000000000",
+          "blindingBytes": "4c6a2e8b5ff71af86b3ab97bce0da8cfd29b43991e23bc14048b2f5bc34d12",
+          "data": [],
+          "ownerBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
+          "zoneProgramIdBytes": null
+        }
+      }
+    ]
+  },
+  "inventoryRow": "sdk-libs/transaction/tests/wallet_history.rs",
+  "owningPacket": "P00",
+  "responsibility": "wallet UTXOs, spent state, filtered balances, compact balances, and history ordering",
+  "rustPath": "sdk-libs/transaction/src/wallet/state.rs",
+  "rustSymbol": "Wallet; WalletUtxo; balances; history",
+  "schema": "zolana-ts-fixtures-v1",
+  "version": "1"
+}
