@@ -4,7 +4,7 @@ import { MAX_POSEIDON_INPUTS, poseidon as hash } from "@zolana/hasher";
 import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "@zolana/interface";
 export { hashField, sha256Be } from "@zolana/keypair/hash";
 
-import { TransactionError } from "./error.js";
+import { TransactionError, type TransactionErrorCode } from "./error.js";
 
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
@@ -81,22 +81,38 @@ export function rightAlign(bytes: Uint8Array): Bytes32 {
   return output as Bytes32;
 }
 
-/**
- * Rust routes every Poseidon and hash-chain failure through `KeypairError`, so
- * an out-of-field input reports the keypair category rather than the hash one.
- * The bounds are checked here rather than left to the module so a rejection
- * still arrives as the error its callers catch.
- */
-export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
+function hashFields(inputs: readonly Uint8Array[], code: TransactionErrorCode): Bytes32 {
   if (inputs.length < 1 || inputs.length > MAX_POSEIDON_INPUTS) {
-    throw new TransactionError("TRANSACTION_KEYPAIR", { inputCount: inputs.length });
+    throw new TransactionError(code, { inputCount: inputs.length });
   }
   inputs.forEach((input, index) => {
     if (input.length > 32 || bytesToBigInt(input) >= BN254_MODULUS) {
-      throw new TransactionError("TRANSACTION_KEYPAIR", { index, reason: "invalidField" });
+      throw new TransactionError(code, { index, reason: "invalidField" });
     }
   });
   return hash(inputs) as Bytes32;
+}
+
+/**
+ * Rust reaches Poseidon through `zolana_keypair` and `zolana_hasher` here, and
+ * both funnel into `KeypairError`, so an out-of-field input reports the keypair
+ * category rather than the hash one. The bounds are checked here rather than
+ * left to the module so a rejection still arrives as the error its callers
+ * catch; the module refuses the same inputs, as `light_poseidon` does for Rust.
+ */
+export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
+  return hashFields(inputs, "TRANSACTION_KEYPAIR");
+}
+
+/**
+ * The UTXO commitment is the one hashing path Rust does not route through
+ * `zolana_keypair`: `sdk-libs/transaction/src/utxo.rs` calls `light_poseidon`
+ * directly and maps every failure to `TransactionError::Poseidon`. A caller
+ * supplying an out-of-field `dataHash` or `zoneDataHash` therefore has to see
+ * that category and not the keypair one.
+ */
+export function commitmentPoseidon(inputs: readonly Uint8Array[]): Bytes32 {
+  return hashFields(inputs, "TRANSACTION_POSEIDON");
 }
 
 export function hashChain(values: readonly Bytes32[]): Bytes32 {

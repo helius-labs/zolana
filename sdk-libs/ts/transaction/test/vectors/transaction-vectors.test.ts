@@ -18,7 +18,6 @@ import { createExternalData } from "../../src/instructions/transact.js";
 import { bytesToBigInt, encodeAddress, hashField, sha256Be } from "../../src/internal.js";
 import { createProofOutput } from "../../src/utxo.js";
 import { decodeData, encodeData } from "../../src/serialization/codecs.js";
-import { addressForAssetField } from "../../src/wallet/asset.js";
 import { fixtureArray, fixtureObject, fixtureString, hexBytes, readFixture } from "../fixture.js";
 
 function hex(bytes: Uint8Array): string {
@@ -238,7 +237,7 @@ describe("manifest-verified Rust transaction vectors", () => {
     expect(registry.resolve(2n)).toBe(mint);
     expect(registry.assetId(mint)).toBe(2n);
     expect(hex(field)).toBe(fixtureString(expected, "assetFieldBytes"));
-    expect(addressForAssetField(registry, field)).toBe(mint);
+    expect(registry.addressForField(field)).toBe(mint);
     expect(
       transactionErrorCode(() => {
         registry.insert(1n, encodeAddress(new Uint8Array(32).fill(32)));

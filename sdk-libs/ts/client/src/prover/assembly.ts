@@ -135,12 +135,9 @@ function assembleUnchecked(
   const p256MessageHash =
     signature === undefined ? 0n : bytesToBigInt(sha256Bytes(bigintToBytes(privateTxHash)));
   const amounts = proofInputs.publicAmounts();
-  const publicSolAmount = signedField(amounts.sol ?? 0n, "public SOL amount");
-  const publicSplAmount = signedField(amounts.spl ?? 0n, "public SPL amount");
-  const publicSplAssetPublicKey =
-    amounts.spl === undefined || amounts.spl === 0n
-      ? 0n
-      : hashField(addressBytes(findPublicSplAsset(proofInputs)));
+  const publicSolAmount = bytesField(amounts.sol, "public SOL amount");
+  const publicSplAmount = bytesField(amounts.spl, "public SPL amount");
+  const publicSplAssetPublicKey = bytesField(amounts.asset, "public SPL asset");
   const payerPublicKeyHash = bytesField(proofInputs.payerPublicKeyHash, "payer public key hash");
   const publicInputHash = hashChain([
     hashChain(nullifiers.map(bytesToBigInt)),
@@ -517,25 +514,6 @@ export function checkedP256Owner(
     });
   }
   return owner;
-}
-
-export function findPublicSplAsset(proofInputs: SppProofInputs): Address {
-  let found: Address | undefined;
-  const assets = [
-    ...proofInputs.inputUtxos.map((input) => input.utxo.asset),
-    ...proofInputs.outputs.map((output) => output.asset),
-  ];
-  for (const asset of assets) {
-    if (asset === SOL_MINT) continue;
-    if (found !== undefined && found !== asset) {
-      throw fromClientCause(new TransactionError("TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS"));
-    }
-    found = asset;
-  }
-  if (found === undefined) {
-    throw fromClientCause(new TransactionError("TRANSACTION_MISSING_PUBLIC_SPL_ASSET"));
-  }
-  return found;
 }
 
 export function signedField(value: bigint, name: string): bigint {

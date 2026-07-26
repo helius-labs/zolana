@@ -329,6 +329,30 @@ describe("manifest-verified wallet behavior", () => {
     expect(worker.utxos()).toEqual(wallet.utxos());
     expect(worker.privateTransactions()).toEqual(wallet.privateTransactions());
 
+    // Rust syncs into a clone and assigns it back only on success, so a failed
+    // sync leaves a populated wallet exactly as it was. Both entry points here
+    // commit once, at the end, and must not half-apply a batch either.
+    const before = {
+      utxos: worker.utxos(),
+      transactions: worker.privateTransactions(),
+      lastSynced: worker.lastSynced,
+    };
+    for (const sync of [decryptTransactions, decryptTransactionsWorkerEquivalent]) {
+      await expect(
+        sync({
+          wallet: worker,
+          authority: value.authority,
+          transactions,
+          config: { tagWindow: 0n },
+        }),
+      ).rejects.toMatchObject({ code: "TRANSACTION_INVALID_TAG_WINDOW" });
+      expect({
+        utxos: worker.utxos(),
+        transactions: worker.privateTransactions(),
+        lastSynced: worker.lastSynced,
+      }).toEqual(before);
+    }
+
     const tampered = transactions.map((transaction, index) => {
       if (index !== 0) return transaction;
       const slot = transaction.outputSlots[0];
