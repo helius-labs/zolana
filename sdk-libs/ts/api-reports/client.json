@@ -287,7 +287,7 @@
         "kind": "value"
       },
       {
-        "name": "waitForIndexer",
+        "name": "wait",
         "kind": "value"
       },
       {
@@ -511,7 +511,7 @@
         "kind": "value"
       },
       {
-        "name": "waitForIndexer",
+        "name": "wait",
         "kind": "value"
       }
     ]

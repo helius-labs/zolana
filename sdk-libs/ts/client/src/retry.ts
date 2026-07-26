@@ -52,7 +52,7 @@ export function createIndexerRpcConfig(
   return Object.freeze({ waitForIndexer, poll: validatePollConfig(poll) });
 }
 
-export function waitForIndexer(
+export function wait(
   poll: IndexerPollConfig = DEFAULT_INDEXER_POLL_CONFIG,
 ): IndexerRpcConfig {
   return createIndexerRpcConfig(true, poll);

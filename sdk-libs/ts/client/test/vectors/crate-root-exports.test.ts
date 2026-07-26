@@ -178,7 +178,7 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   pollUntil: "the retry loop Rust inlines into each caller",
   retryCause: "ClientError::retry_cause as a free function",
   validatePollConfig: "IndexerPollConfig invariant validation",
-  waitForIndexer: "the indexer catch-up loop Rust inlines into each caller",
+  wait: "IndexerRpcConfig::wait as a free function, since TypeScript has no inherent methods on the config type",
 };
 
 function exportedNames(source: string, typeOnly: boolean): ReadonlySet<string> {

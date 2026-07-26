@@ -62,7 +62,7 @@ export {
   pollUntil,
   retryCause,
   validatePollConfig,
-  waitForIndexer,
+  wait,
 } from "./retry.js";
 export type { PollUntilOptions } from "./retry.js";
 export type {
