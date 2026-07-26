@@ -319,6 +319,44 @@ describe("transaction core", () => {
     expect(output.withZoneProgramId(ZERO_ADDRESS).hash()).not.toEqual(output.hash());
   });
 
+  // The commitment is the one hashing path Rust drives through `light_poseidon`
+  // directly (`sdk-libs/transaction/src/utxo.rs:12-18`), so an out-of-field
+  // input reports `Poseidon` there and `Keypair` everywhere else. Both refuse at
+  // hash time, not at construction: nothing has been hashed until then.
+  it("refuses commitment inputs at or above the BN254 modulus as poseidon failures", () => {
+    const { keypair, nullifier } = keyMaterial();
+    const aboveModulus = new Uint8Array(32).fill(0xff) as Bytes32;
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding: new Uint8Array(31).fill(3) as Bytes31,
+      zoneProgramId: ZONE,
+    });
+
+    const zoneBound = new ProofInputUtxo({
+      utxo,
+      nullifierKey: nullifier,
+      zoneDataHash: aboveModulus,
+    });
+    expect(zoneBound.zoneDataHash).toEqual(aboveModulus);
+    expect(() => zoneBound.hash()).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_POSEIDON" }),
+    );
+
+    expect(() =>
+      new ProofInputUtxo({
+        utxo,
+        nullifierKey: nullifier,
+        dataHash: aboveModulus,
+      }).hash(),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_POSEIDON" }));
+
+    expect(() => ownerUtxoHash(aboveModulus, new Uint8Array(31).fill(3) as Bytes31)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_POSEIDON" }),
+    );
+  });
+
   it("derives position-specific blindings and validates their range", () => {
     const seed = new Uint8Array(31).fill(9) as Bytes31;
     expect(deriveBlinding(seed, 0)).not.toEqual(deriveBlinding(seed, 1));

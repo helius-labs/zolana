@@ -7,6 +7,7 @@ import {
   ZERO_32,
   checkU64,
   checked,
+  commitmentPoseidon,
   copy,
   decodeAddress,
   hashField,
@@ -75,8 +76,8 @@ function commitmentFields(
   const zoneProgramId = input.zoneProgramId
     ? hashField(decodeAddress(input.zoneProgramId))
     : ZERO_32;
-  const zoneHash = poseidon([zoneDataHash, zoneProgramId]);
-  const ownerCommitment = poseidon([
+  const zoneHash = commitmentPoseidon([zoneDataHash, zoneProgramId]);
+  const ownerCommitment = commitmentPoseidon([
     checked<Bytes32>(input.owner, 32, "owner hash"),
     rightAlign(checked<Bytes31>(input.blinding, 31, "blinding")),
   ]);
@@ -120,7 +121,7 @@ function fullOwnerUtxoHash(
     zoneProgramId?: Address;
   }>,
 ): Bytes32 {
-  return poseidon(commitmentFields(input));
+  return commitmentPoseidon(commitmentFields(input));
 }
 
 export function ownerUtxoHash(ownerHash: Bytes32, blinding: Bytes31): Bytes32;
@@ -151,7 +152,7 @@ export function ownerUtxoHash(
 ): Bytes32 {
   if (ownerOrInput instanceof Uint8Array) {
     if (!blinding) throw new TransactionError("TRANSACTION_INVALID_BLINDING");
-    return poseidon([
+    return commitmentPoseidon([
       checked<Bytes32>(ownerOrInput, 32, "owner hash"),
       rightAlign(checked<Bytes31>(blinding, 31, "blinding")),
     ]);
