@@ -288,6 +288,9 @@ suite("Gate 3 flows (real prover + validator)", () => {
 
         // Spend proofs live on `ZolanaClient.getInputMerkleProofs`, not on the
         // Photon-facing `ZolanaIndexer` surface.
+        // Merge returns after send; wait for RPC confirm + indexed output leaf.
+        // `confirmPrivateTransaction` is the transfer confirm-by-tags path and
+        // does not recognize `MERGE_TRANSACT` (same in Rust `submit_merge_transaction`).
         const submitted = await submitMergeTransaction({
           rpc: harness.client,
           indexer: harness.client,
@@ -298,7 +301,6 @@ suite("Gate 3 flows (real prover + validator)", () => {
           prepared: createdMerge.prepared,
         });
         await confirm(harness.rpc, submitted.signature);
-        await harness.client.confirmPrivateTransaction(submitted.signature);
         evidence.merge = submitted.signature;
         expect(submitted.outputHash).toEqual(createdMerge.prepared.output.hash());
         await syncUntil(
@@ -384,10 +386,9 @@ suite("Gate 3 flows (real prover + validator)", () => {
         expect(
           owner.wallet.utxos().some((entry) => !entry.spent && entry.utxo.amount === PER_PART),
         ).toBe(true);
-
+      } finally {
         // eslint-disable-next-line no-console -- gate evidence for the row-update report
         console.log("gate3-flow-signatures", JSON.stringify(evidence));
-      } finally {
         await harness.stop();
       }
       await expect(fetch(stack.rpcUrl)).rejects.toThrow();
