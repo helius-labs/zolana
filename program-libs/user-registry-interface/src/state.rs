@@ -18,7 +18,7 @@ pub struct UserRecord {
 }
 
 impl UserRecord {
-    pub const DISCRIMINATOR: u8 = 2;
+    pub const DISCRIMINATOR: u8 = 1;
     pub const DISCRIMINATOR_LEN: usize = 1;
     pub const SIZE: usize = Self::DISCRIMINATOR_LEN
         + 32
