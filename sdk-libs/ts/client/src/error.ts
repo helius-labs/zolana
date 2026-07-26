@@ -202,6 +202,11 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_MERGE_PROOF_COMMITMENT: NoDetails;
   readonly CLIENT_MERGE_OUTPUT_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_TRANSACTION: NoDetails;
+  readonly CLIENT_INCOMPLETE_SIGNATURES: Readonly<{
+    required: number;
+    provided: number;
+    missingIndex?: number;
+  }>;
   readonly CLIENT_CONFIRMATION_TIMEOUT: Readonly<{
     signature: string;
     attempts: number;
@@ -287,6 +292,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_MERGE_PROOF_COMMITMENT",
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
+  "CLIENT_INCOMPLETE_SIGNATURES",
   "CLIENT_CONFIRMATION_TIMEOUT",
   "CLIENT_TOO_MANY_ACCOUNTS",
   "CLIENT_TRANSACTION_ASSEMBLY",
@@ -423,6 +429,11 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_INSUFFICIENT_BALANCE: { requested: "string", available: "string" },
   CLIENT_UNSIGNED_INPUT_UNAVAILABLE: { index: "number" },
   CLIENT_SOLANA_TRANSACTION_SIGNING: { reason: "string" },
+  CLIENT_INCOMPLETE_SIGNATURES: {
+    required: "number",
+    provided: "number",
+    missingIndex: "number",
+  },
   CLIENT_AMBIGUOUS_TREE: { asset: "string", treeCount: "number" },
   CLIENT_TREE_MISMATCH: { transactionTree: "string", clientTree: "string" },
   CLIENT_MISSING_SPL_TOKEN_ACCOUNT: { mint: "string" },
@@ -509,6 +520,7 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_RPC: [],
   CLIENT_FIELD_TOO_LONG: [],
   CLIENT_INDEXER_TIMEOUT: [],
+  CLIENT_INCOMPLETE_SIGNATURES: ["required", "provided"],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],
   CLIENT_POLL_TIMED_OUT: ["attempts"],
   CLIENT_INVALID_CONFIG: [],

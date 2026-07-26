@@ -31,6 +31,7 @@ export {
 } from "./merge-utils.js";
 export { SPP_SUPPORTED_SHAPES, selectSppShape, validateSppShape } from "./shape.js";
 export type { Shape } from "./shape.js";
+export { signerIndex, withSignature } from "./signers.js";
 export {
   TRANSACTION_SIZE_LIMIT,
   checkedTransactionSize,
@@ -74,6 +75,16 @@ export type Transaction = Readonly<{
   messageBytes: Uint8Array;
   signatures: readonly (Signature | undefined)[];
 }>;
+
+/**
+ * Fills this signer's slot in a compiled transaction and leaves every other
+ * slot as it found it, so a transaction needing several signers can be passed
+ * from one to the next.
+ */
+export interface TransactionSigner {
+  readonly address: Address;
+  signNativeTransaction(transaction: Transaction): Promise<Transaction>;
+}
 
 export type Instruction = Readonly<{
   programAddress: Address;

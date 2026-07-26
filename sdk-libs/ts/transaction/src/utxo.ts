@@ -1,5 +1,10 @@
 import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
-import { NullifierKey, ShieldedPublicKey, type ShieldedAddress } from "@zolana/keypair";
+import {
+  NullifierKey,
+  ShieldedPublicKey,
+  type ShieldedAddress,
+  type ShieldedKeypair,
+} from "@zolana/keypair";
 
 import { Data, type DataRecord } from "./data.js";
 import { TransactionError } from "./error.js";
@@ -215,6 +220,23 @@ export class ProofInputUtxo {
       this.zoneDataHash = checked<Bytes32>(input.zoneDataHash, 32, "zone data hash");
     }
     this.checkCanonicalDummy();
+  }
+
+  /**
+   * A spend input for a note this keypair owns, mirroring Rust's
+   * `SppProofInputUtxo::new(utxo, &keypair)`. The nullifier key is taken from
+   * the keypair and destroyed once copied, so the caller never handles it.
+   *
+   * A note carrying program data needs its hashes attached, which the
+   * constructor takes directly.
+   */
+  static fromKeypair(utxo: Utxo, keypair: ShieldedKeypair): ProofInputUtxo {
+    const nullifierKey = keypair.nullifierKey();
+    try {
+      return new ProofInputUtxo({ utxo, nullifierKey });
+    } finally {
+      nullifierKey.destroy();
+    }
   }
 
   static dummy(blinding = random31()): ProofInputUtxo {

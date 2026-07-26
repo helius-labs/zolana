@@ -1,5 +1,5 @@
 export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
-export { ZolanaClient } from "./client.js";
+export { compileTransaction, ZolanaClient } from "./client.js";
 export type {
   MergeMaterialInput,
   ProvedMerge,

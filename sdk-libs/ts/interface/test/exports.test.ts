@@ -51,8 +51,10 @@ describe("public exports", () => {
       "pack33",
       "pkFieldCompressed",
       "selectSppShape",
+      "signerIndex",
       "transactionSize",
       "validateSppShape",
+      "withSignature",
     ]);
     expect(Object.keys(codecs).sort()).toEqual([
       "addressTreeParamsCodec",

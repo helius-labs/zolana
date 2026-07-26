@@ -10,7 +10,7 @@ export {
   type EncryptedSplit,
   type EncryptedTransfer,
   type P256Signature,
-  type SyncWalletAuthority,
+  type WalletSyncAuthority,
   type WalletAuthority,
   type WalletSyncMaterial,
 } from "@zolana/transaction";

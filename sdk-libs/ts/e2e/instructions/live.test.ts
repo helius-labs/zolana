@@ -47,7 +47,8 @@ describe("P13 live raw instruction lifecycle", () => {
     const seed = bytes32(81);
     const signer = createTestNativeSigner(seed);
     try {
-      await confirm(harness.rpc, await airdrop(stack.rpcUrl, signer.address, 5_000_000_000n));
+      const airdropSignature = await airdrop(stack.rpcUrl, signer.address, 5_000_000_000n);
+      await confirm(harness.rpc, airdropSignature);
       const balanceBefore = await harness.rpc.getBalance(signer.address);
       const fixture = await fixtureJson<{
         readonly expected: {
@@ -64,9 +65,15 @@ describe("P13 live raw instruction lifecycle", () => {
         ),
         signatures: [undefined],
       };
-      const signed = await signer.signNativeTransaction(unsigned);
-      expect(signed.messageBytes).toEqual(unsigned.messageBytes);
-      await expect(harness.rpc.sendTransaction(signed)).rejects.toMatchObject({
+      // The fixture message is payed for by an address this signer does not
+      // hold, so it refuses rather than writing over someone else's slot.
+      await expect(signer.signNativeTransaction(unsigned)).rejects.toMatchObject({
+        code: "INTERFACE_SIGNER_NOT_REQUIRED",
+      });
+      // A well-formed signature over some other message has to be caught by the
+      // validator, since nothing local can tell it apart from the real one.
+      const forged: Transaction = { ...unsigned, signatures: [airdropSignature] };
+      await expect(harness.rpc.sendTransaction(forged)).rejects.toMatchObject({
         code: "CLIENT_RPC_ENVELOPE",
       });
       expect(await harness.rpc.getBalance(signer.address)).toBe(balanceBefore);

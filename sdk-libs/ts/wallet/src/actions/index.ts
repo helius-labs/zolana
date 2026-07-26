@@ -24,6 +24,7 @@ export {
   MergeMaterial,
   createAssociatedTokenAccount,
   createMerge,
+  createSolanaSigner,
   submitMergeTransaction,
   type CreatedMerge,
   type MergeParams,

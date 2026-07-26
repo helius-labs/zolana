@@ -16,7 +16,6 @@ import { WORKSPACE_ROOT } from "../paths.js";
 import { writeProgramConfigFixture } from "../standard-accounts.js";
 
 export * from "../admin.js";
-export * from "../base58.js";
 export * from "../events.js";
 export * from "../harness.js";
 export * from "../indexer.js";

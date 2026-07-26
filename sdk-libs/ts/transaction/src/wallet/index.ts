@@ -7,8 +7,8 @@ export {
   type EncryptedTransfer,
   type P256Signature,
   type SplitBundlePlaintext,
-  type SyncWalletAuthority,
   type WalletAuthority,
+  type WalletSyncAuthority,
   type WalletSyncMaterial,
 } from "./authority.js";
 export { AssetRegistry, SOL_ASSET_ID, SOL_MINT } from "./asset.js";

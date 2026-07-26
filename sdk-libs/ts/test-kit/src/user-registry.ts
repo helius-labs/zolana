@@ -9,7 +9,7 @@ import type {
   Transaction,
 } from "@zolana/interface";
 import { ShieldedKeypair } from "@zolana/keypair";
-import type { TransactionSigner } from "@zolana/wallet";
+import { createSolanaSigner, type TransactionSigner } from "@zolana/wallet";
 
 import { TestKitError } from "./error.js";
 
@@ -29,6 +29,7 @@ export type MergingSetupResult =
   | Readonly<{ changed: false; userRecord: Address }>
   | Readonly<{ changed: true; signature: Signature; userRecord: Address }>;
 
+/** Seed-based convenience over `createSolanaSigner` for tests holding raw bytes. */
 export function createTestNativeSigner(seed: Bytes32): TransactionSigner {
   if (!(seed instanceof Uint8Array) || seed.length !== 32) {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
@@ -39,19 +40,7 @@ export function createTestNativeSigner(seed: Bytes32): TransactionSigner {
       },
     });
   }
-  const keypair = ShieldedKeypair.fromEd25519(new Uint8Array(seed) as Bytes32, 0);
-  return Object.freeze({
-    address: keypair.shieldedAddress().solanaAddress() as unknown as Address,
-    signNativeTransaction(transaction: Transaction): Promise<Transaction> {
-      const signature = encodeBase58(keypair.sign(transaction.messageBytes)) as Signature;
-      return Promise.resolve(
-        Object.freeze({
-          messageBytes: new Uint8Array(transaction.messageBytes),
-          signatures: Object.freeze([signature]),
-        }),
-      );
-    },
-  });
+  return createSolanaSigner(ShieldedKeypair.fromEd25519(new Uint8Array(seed) as Bytes32, 0));
 }
 
 export async function userRecordAddress(owner: Address): Promise<UserRecordAddress> {

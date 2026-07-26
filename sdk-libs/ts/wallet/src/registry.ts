@@ -1,4 +1,4 @@
-import type { Rpc, RpcAccount } from "@zolana/client";
+import { compileTransaction, type Rpc, type RpcAccount } from "@zolana/client";
 import {
   type Address,
   type Bytes32,
@@ -7,6 +7,7 @@ import {
   type RequestContext,
   type Signature,
   type Transaction,
+  type TransactionSigner,
 } from "@zolana/interface";
 import {
   P256PublicKey,
@@ -16,15 +17,7 @@ import {
 } from "@zolana/keypair";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import {
-  checkedAddress,
-  compileTransaction,
-  concat,
-  decodeBase58,
-  encodeBase58,
-  equalBytes,
-} from "./internal.js";
-import type { TransactionSigner } from "./submit.js";
+import { checkedAddress, concat, decodeBase58, encodeBase58, equalBytes } from "./internal.js";
 
 const PROGRAM_ID = "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc" as Address;
 const SYSTEM_PROGRAM = "11111111111111111111111111111111" as Address;

@@ -135,6 +135,8 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   ClientErrorDetails: "the structured detail payload per code",
   ClientErrorDetailsMap: "the structured detail payload per code",
   CompressedProof: "carries Rust ProofCompressed",
+  compileTransaction:
+    "message assembly Rust gets from solana-message; TypeScript compiles it here so callers can build a transaction the SDK signs and sends",
   DEFAULT_INDEXER_POLL_CONFIG:
     "IndexerPollConfig::default() as a value, since TypeScript has no Default",
   DEFAULT_INDEXER_RPC_CONFIG:

@@ -23,7 +23,7 @@ import {
   splitBundleUtxos,
 } from "../serialization/codecs.js";
 import { Utxo, deriveBlinding } from "../utxo.js";
-import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
+import type { WalletSyncAuthority, WalletSyncMaterial } from "./authority.js";
 import { SOL_MINT } from "./asset.js";
 import {
   newViewingKeyEntry,
@@ -533,7 +533,7 @@ function advanceViewingKeyEntry(
 export async function decryptTransactions(
   input: Readonly<{
     wallet: Wallet;
-    authority: SyncWalletAuthority;
+    authority: WalletSyncAuthority;
     transactions: readonly IndexedShieldedTransaction[];
     config?: WalletSyncConfig;
   }>,

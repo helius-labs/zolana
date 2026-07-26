@@ -2,9 +2,14 @@ import type { Address, Bytes32, Signature } from "@zolana/interface";
 import type { P256PublicKey, ShieldedAddress } from "@zolana/keypair";
 
 import { TransactionError } from "../error.js";
+import type { IndexedShieldedTransaction } from "../instructions/transact.js";
 import { copy } from "../internal.js";
 import { Utxo } from "../utxo.js";
 import { AssetRegistry } from "./asset.js";
+import type { WalletSyncAuthority } from "./authority.js";
+// sync.js imports this module in turn. The cycle is safe because neither side
+// touches the other while evaluating: the call happens inside a method body.
+import { decryptTransactions, type WalletSyncConfig } from "./sync.js";
 
 export interface AssetBalance {
   readonly assetId: bigint;
@@ -145,6 +150,36 @@ export class Wallet {
     this.identity = input.identity;
     this.#registry = input.registry.clone();
     this.#viewingKeyHistory = [newViewingKeyEntry(input.identity.viewingPublicKey, 0n)];
+  }
+
+  /**
+   * Decrypt `transactions` into a wallet of their own, mirroring Rust's
+   * `decrypt_transactions`. The authority supplies both the identity the wallet
+   * is built around and the viewing keys the notes are opened with, so a caller
+   * holding only keys and a page of transactions reads a balance without
+   * assembling wallet state first.
+   *
+   * This walks exactly the transactions it is given. Finding them is the
+   * caller's problem, and `syncWallet` in `@zolana/wallet` is the incremental
+   * path that queries the indexer and keeps one wallet up to date instead.
+   */
+  static async decrypt(
+    input: Readonly<{
+      authority: WalletSyncAuthority;
+      transactions: readonly IndexedShieldedTransaction[];
+      assets: AssetRegistry;
+      config?: WalletSyncConfig;
+    }>,
+  ): Promise<Wallet> {
+    const material = await input.authority.syncMaterial();
+    const wallet = new Wallet({ identity: material.identity, registry: input.assets });
+    await decryptTransactions({
+      wallet,
+      authority: input.authority,
+      transactions: input.transactions,
+      ...(input.config === undefined ? {} : { config: input.config }),
+    });
+    return wallet;
   }
 
   get registry(): AssetRegistry {
