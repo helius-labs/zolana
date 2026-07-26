@@ -1,0 +1,298 @@
+{
+  "errorLedger": {
+    "badPointBytes": "0002590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9fa6",
+    "badPrefixBytes": "0902590bb8ca2dde096bd49db5384c44341c9fdc97e39d877ca56b177f930b3c9f59",
+    "displaysCarryNoBytes": true,
+    "nonErrors": {
+      "malformedSignatureVerifies": false,
+      "plaintextBytes": "636572742f6c656467657220706c61696e74657874",
+      "tamperedRecoveredBytes": "9c6572742f6c656467657220706c61696e74657874",
+      "wrongSaltRecoveredBytes": "2770095da67715b5fcfd50655593de78bc0ac06a80",
+      "wrongSlotRecoveredBytes": "3117e056bf598c708471bc622d4258d389840af9b7"
+    },
+    "raised": [
+      {
+        "boundary": "SigningKey::from_bytes",
+        "case": "invalidSecretKey",
+        "display": "invalid secret key",
+        "rustVariant": "InvalidSecretKey"
+      },
+      {
+        "boundary": "PublicKey::from_bytes",
+        "case": "invalidPublicKey",
+        "display": "invalid public key",
+        "rustVariant": "InvalidPublicKey"
+      },
+      {
+        "boundary": "PublicKey::from_bytes",
+        "case": "wrongSignatureType",
+        "display": "invalid signature-type prefix: 9",
+        "rustVariant": "InvalidSignatureType"
+      },
+      {
+        "boundary": "ShieldedKeypair::to_solana_keypair",
+        "case": "unsupportedCapability",
+        "display": "signing key is not ed25519",
+        "rustVariant": "NotEd25519"
+      },
+      {
+        "boundary": "NullifierKey::nullifier",
+        "case": "fieldFailure",
+        "display": "poseidon hash failed (code 7002)",
+        "rustVariant": "Poseidon"
+      },
+      {
+        "boundary": "SigningKey::try_sign",
+        "case": "invalidPrehashLength",
+        "display": "p256 prehash must be 32 bytes, got 31",
+        "rustVariant": "InvalidPrehashLength"
+      },
+      {
+        "boundary": "merge::symmetric_apply",
+        "case": "infoTooLong",
+        "display": "key-schedule info exceeds 62 bytes",
+        "rustVariant": "InfoTooLong"
+      }
+    ],
+    "unreachable": [
+      {
+        "case": "zeroScalar",
+        "reason": "reachable only if an HKDF-derived P256 scalar lands on zero, which no fixed input produces"
+      },
+      {
+        "case": "hkdfFailure",
+        "reason": "HKDF-Expand fails only above 255 hash blocks; every call site asks for 31, 32, 44 or 48 bytes"
+      }
+    ]
+  },
+  "mergeEncryption": {
+    "ciphertextBytes": "6ca70870651a8b3e0a852acee464f9436b6261c82fd60ff45e66eccae4c09d919a67c8920640b2928c2b2e4bf1eb437a7738821432cf361bba87e324f78e92ccaa51ef8735d06a",
+    "ciphertextHashChunking": [
+      {
+        "ciphertextBytes": "03",
+        "hashBytes": "0d4e4d24b890fe6799be4cf57ad13078ec0fbaa9fe91423ba8bbd0c2d7043bd4",
+        "length": 1
+      },
+      {
+        "ciphertextBytes": "030e19242f3a45505b66717c87929d",
+        "hashBytes": "046d3eda91659069af87f754aee72cec6b416cd5012ee0843b49716cfe3b2017",
+        "length": 15
+      },
+      {
+        "ciphertextBytes": "030e19242f3a45505b66717c87929da8",
+        "hashBytes": "1c1c916b2b6a27e57dc2103769f988567d98f59e8c4c8f138fd5b1d731bfb1c9",
+        "length": 16
+      },
+      {
+        "ciphertextBytes": "030e19242f3a45505b66717c87929da8b3",
+        "hashBytes": "2672a9b3f1d628afd88ea699c2e54b506a233b0be0d7fcb3989971194547026c",
+        "length": 17
+      },
+      {
+        "ciphertextBytes": "030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d",
+        "hashBytes": "0812681bd4fc5056026790f3ec50e2d8aa73617919b556f691d746da601cade8",
+        "length": 31
+      },
+      {
+        "ciphertextBytes": "030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58",
+        "hashBytes": "2c427f7a96fd4d8e43d77473e193e5cc5d949af77788cc61daf90438edaf0c61",
+        "length": 32
+      },
+      {
+        "ciphertextBytes": "030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d5863",
+        "hashBytes": "151312924713ac970c95762bc0d81a8aae630adfed5940b9eade726d2d23d16d",
+        "length": 33
+      },
+      {
+        "ciphertextBytes": "030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f9aa5b0bbc6d1dce7f2fd",
+        "hashBytes": "21d62853025bcce417e43acc9ddea017f935c3ec0b6f984e5568f0d747a29fc3",
+        "length": 47
+      },
+      {
+        "ciphertextBytes": "030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58636e79848f9aa5b0bbc6d1dce7f2fd08131e29343f4a55606b76818c97a2adb8c3ced9e4effa05",
+        "hashBytes": "101172e9628d7d6db7bc5b7a16028029a8d8371052902c30b7e1d7c97d802b17",
+        "length": 71
+      }
+    ],
+    "ecdhBytes": "7c0e8965e1b9898d60b0df8ac39ebc5d8d7af1879637dae2750119e731f7cba5",
+    "ecdhReverseBytes": "7c0e8965e1b9898d60b0df8ac39ebc5d8d7af1879637dae2750119e731f7cba5",
+    "flippedSharedKeystreamBytes": "72773490f132c3d96f70d7a6b2d75dd612ce0ba19d1866bad2d7ab7c7af705436ad284594959930c521620c8c0adfc2289177bfe6a714c7a7db46c564e265158c5622a5bc4565a51a11b7e7f20afa09a",
+    "flippedSharedSecretBytes": "004bc4f5df9111313e94a060d86ce33bb776521a9b13a8acc0a0882dce221c7a",
+    "infoPacking": [
+      {
+        "infoBytes": "",
+        "keystreamBytes": "eae52a80dc108880d0edd4cfc433f7cc7297bbf9e8561412e1ee497ba4ba3f9558910b1c434fc31d7d540e3e32193d3d9f452285c724d659f51118e2d2231cba27e583224cc86b05a62269cd7d6c3252"
+      },
+      {
+        "infoBytes": "61",
+        "keystreamBytes": "f93e2a2132706b9765bea28326a9dc32bdeaea7b5fcb207be61d6d316f1b597c74799e94393a33c698e190294d14231411afa3425a4e2323d3395eb92869ee1490720c18d466b098684ad16f9cf3ed49"
+      },
+      {
+        "infoBytes": "62",
+        "keystreamBytes": "c230950d42297b8fb75da398d1330ab5acd8a800f40b1d866a61710f29ff0afba819d299d0ba99f67e90363f13b442abc3456b524c226af74996c040a454359ba39af0625ef168dc3546bedb91ca7d17"
+      },
+      {
+        "infoBytes": "61616161616161616161616161616161616161616161616161616161616161",
+        "keystreamBytes": "e2b393d910fb13720cb3f3dd4e6829ef1ae277743175df82b851210874f0515f5554235797d28ee04d31c758c83a74acd7ed7126b145ec42b297361ab066809d61aa182683ca5ec8fe92be448034d2a0"
+      },
+      {
+        "infoBytes": "6161616161616161616161616161616161616161616161616161616161616162",
+        "keystreamBytes": "b9787a9e5497a47f3384eb8ff89faeb2c7c9ad05f6f770f7e00e48c20b973d54d2fbe197b55294e86042fe0dfef97bb1ccd3c8fee25946d8d2b4d7d19d10f09843649a7d5f3a7ab92c43b4f96825f12a"
+      },
+      {
+        "infoBytes": "6261616161616161616161616161616161616161616161616161616161616161",
+        "keystreamBytes": "fc3809af66168b1e568cc6e396c2c1e98cdc2a8b4693a6c463b8534813559edac444cfef280c7b45c49849432264614dc773f2fa4efd8cfa5433ceda373cc7192876eca533f66451d914925601417454"
+      }
+    ],
+    "keystreamLength": 80,
+    "mergeKeystreamBytes": "6ca60a73611f8d39028c20c5e869f74c7b7373db3bc319e3467ff6d1f8dd838eba46eab1226594b5a4020460ddc66d554709b02706fa002c82bed91fcbb3acf3ea10adc471952c78119ede7dda220706",
+    "plaintextBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546",
+    "publicContributions": [
+      {
+        "ciphertextHashBytes": "282c51249bb83efbc30037597f88fa9b95828632064cd60cfddb4d1bd627f9dd",
+        "highBytes": "000000000000000000000000000000000000000000000000000000000000e0cc",
+        "lowBytes": "000272a6a66fbad2ce29d0f1643c21c4e5b800ea931e8a81587164289ccc4791",
+        "publicKeyBytes": "0272a6a66fbad2ce29d0f1643c21c4e5b800ea931e8a81587164289ccc4791e0cc",
+        "yIsOdd": false
+      },
+      {
+        "ciphertextHashBytes": "282c51249bb83efbc30037597f88fa9b95828632064cd60cfddb4d1bd627f9dd",
+        "highBytes": "00000000000000000000000000000000000000000000000000000000000056e8",
+        "lowBytes": "00033194b50fc31514633250e9422da580f94815c2190b6bb7dcaa35e98dae26",
+        "publicKeyBytes": "033194b50fc31514633250e9422da580f94815c2190b6bb7dcaa35e98dae2656e8",
+        "yIsOdd": true
+      }
+    ],
+    "recoveredBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546",
+    "strangerSecretBytes": "d5dde3ebf1f9ff070d151b232931373f454d535b61696f777d858b9399a1a7af",
+    "symmetricKeystreamBytes": "8375a4f746d770504f8a7e7afa2524634ac3ff6cb936f0ed0cda97352d7946dbf9e414aed1364ab31ee4248c63367095ec5a736864fb454f1eb6e0d535397b0bb8f205d5996834dc26fa3ded7ea2720e",
+    "symmetricSharedSecretBytes": "004bc4f5df9111313e94a060d86ce33bb776521a9b13a8acc0a0882dce221c7b",
+    "tamperedCiphertextBytes": "93a70870651a8b3e0a852acee464f9436b6261c82fd60ff45e66eccae4c09d919a67c8920640b2928c2b2e4bf1eb437a7738821432cf361bba87e324f78e92ccaa51ef8735d06a",
+    "tamperedHashBytes": "256943f7fbafc00214310fff8d648d718e85e774e932336f49ec512b0c5ac39e",
+    "tamperedRecoveredBytes": "ff0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546",
+    "txSecretBytes": "1f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9",
+    "txViewingPublicKeyBytes": "037bed4876638198685d05fb150a851c6f2d9c786401155cdf0d6e8df4765395d6",
+    "userPublicKeyBytes": "03d2b1a411534610409c6fc5240cde01ed2fa9e3f935d9597aea513dea169ce79d",
+    "userSecretBytes": "737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9ff070d151b232931373f454d",
+    "wrongTxKeyRecoveredBytes": "2dc0b06908e3d37feb9150c6f19e01c6977be89ac996eefdf42a4596c88d4d9f412d12b9c2ccb96214f17b8ae6c48ad349e823643a61868ac233fd1d467d70a532297e9671b766",
+    "wrongUserRecoveredBytes": "0ae9beabd7dd55f4603de7dd16dd8cf408474fffb0385eac96c8d9dee1329b8a5ed0e24224a5c67edf7a0ef553c03343f465a57ddb621dbd6a83be18b7d1ad92ad07a72f7cb847"
+  },
+  "note": "Every value is produced by the current zolana-keypair crate through its public API. Secrets are fixed test material. Regenerate with UPDATE_KEYPAIR_VECTORS=1.",
+  "schema": "zolana-keypair-crypto-cert-v1",
+  "secretLifecycle": {
+    "nullifierSecretAccessor": "borrow",
+    "nullifierSecretBytes": "05050505050505050505050505050505050505050505050505050505050505",
+    "rustHasExplicitDestroy": false,
+    "signingSecretExportIsIndependent": true,
+    "viewingKeyCloneCarriesSecret": true,
+    "viewingSecretExportIsIndependent": true
+  },
+  "source": "sdk-libs/keypair/tests/crypto_certification.rs",
+  "suites": [
+    "K6",
+    "K7",
+    "K8",
+    "K10"
+  ],
+  "testOnlySecret": true,
+  "transferEncryption": {
+    "baseSaltBytes": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+    "baseSlot": 3,
+    "boundaries": [
+      {
+        "case": "base",
+        "keystreamBytes": "80893cd2948b1b2e65097a27de698a404ae491be6bb98875aa4a9775606742492675dc42bb76907cdf9774adb233a0b05fbc6bd39229976eea672270e47943fec47c87bbd5e0c61f90f2298e39394b89",
+        "recipientPublicKeyBytes": "02fb274331a8163409c3c6bb3c68cfd3be64392cac14788a3c7a0f11abd207c0af",
+        "saltBytes": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+        "senderPublicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+        "slot": 3
+      },
+      {
+        "case": "slot",
+        "keystreamBytes": "d2fbaef004bef23a861db4658347b3faad14fe3fa822c1eeb0a71be4f7ab5770cb22e7edc13d26923789d79bc7f763868f473becb4dea47db4c0b07b92e4a07ad02e660231d7779543f321f7c3cf2d36",
+        "recipientPublicKeyBytes": "02fb274331a8163409c3c6bb3c68cfd3be64392cac14788a3c7a0f11abd207c0af",
+        "saltBytes": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+        "senderPublicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+        "slot": 4
+      },
+      {
+        "case": "salt",
+        "keystreamBytes": "22626ab9c2044c32f758e6d2cafd2a7cae0337c5475470164c265c2a6da7b34717a82c55b7300bf09596cf54f415aaf23b295339cdb5b51095f712f3531ed608347ede024fed7ea9b9179de4b1707e88",
+        "recipientPublicKeyBytes": "02fb274331a8163409c3c6bb3c68cfd3be64392cac14788a3c7a0f11abd207c0af",
+        "saltBytes": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5b",
+        "senderPublicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+        "slot": 3
+      },
+      {
+        "case": "recipient",
+        "keystreamBytes": "0027af41094d03d402f6c0c428df5c7f1e3fa0157cda20a9a980450b5d7cf7e3e030f1bd8253cdc01ac6771f53832ed67c31871dfd88b967b03fe6847f3f230128c23f82e4a18ec7d12c43fe2e73ea5c",
+        "recipientPublicKeyBytes": "02ef8584906f6d9e2fc98a16f03b7b41f4324659101e40519afbb4108102d8f13e",
+        "saltBytes": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+        "senderPublicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+        "slot": 3
+      },
+      {
+        "case": "ephemeral",
+        "keystreamBytes": "a57c690482ee817907c767aaa3512aa73e1df92a0ebf863d8e25702fe93cfd2c28bebdf5d256d7c671cfec68c62dc5ceb2a8df9cee30acd04df58f28e73e9655536d817d644c81967e8dcb086f150ae2",
+        "recipientPublicKeyBytes": "02fb274331a8163409c3c6bb3c68cfd3be64392cac14788a3c7a0f11abd207c0af",
+        "saltBytes": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+        "senderPublicKeyBytes": "02ef8584906f6d9e2fc98a16f03b7b41f4324659101e40519afbb4108102d8f13e",
+        "slot": 3
+      }
+    ],
+    "ciphertextBytes": "e3ec4ea6bbff694f0b7a1c42ac49ff34328bb1dc1ed7ec19cf",
+    "ecdhBytes": "5f163071cb484568bf610ce109b6c9b8bd88a90133e2e412fa3964affc7b3681",
+    "ecdhReverseBytes": "5f163071cb484568bf610ce109b6c9b8bd88a90133e2e412fa3964affc7b3681",
+    "ephemeralRecoveredBytes": "636572742f7472616e73666572207574786f2062756e646c65",
+    "flippedSaltBytes": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5b",
+    "keystreamLength": 80,
+    "plaintextBytes": "636572742f7472616e73666572207574786f2062756e646c65",
+    "recipientPublicKeyBytes": "02fb274331a8163409c3c6bb3c68cfd3be64392cac14788a3c7a0f11abd207c0af",
+    "recipientSecretBytes": "a1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f272d353b434951575f656d737b",
+    "recoveredBytes": "636572742f7472616e73666572207574786f2062756e646c65",
+    "saltPositions": [
+      {
+        "keystreamBytes": "704c79c192e24d5a64cd6af2a66b0054ef5f9a5e1a8dd170224dfe0f11a3d60eb0dfa5a3d55bfd6b8ae70a1746baf051df9dae0fb1393e00659a2b3405a70be7510a8b6bef799339649875d1f4d0b391",
+        "saltBytes": "01000000000000000000000000000000"
+      },
+      {
+        "keystreamBytes": "aac50c4ad1e855c3dded44065ec775095f542ccf04ceaaa4981cf704303a58d4b1fda44e2d9239e655c4078c0aff51f8b0bcb12bc32dde30ee56e4b45535bc91024a47cd801e4b848beb3efc88cf716c",
+        "saltBytes": "00000000000000000000000000000001"
+      }
+    ],
+    "senderPublicKeyBytes": "03be2ea569cc5bfd5f4a145f637f4cf742f269e11b80ad30a715e0b62bb94d6fb3",
+    "senderSecretBytes": "4d555b636971777f858d939ba1a9afb7bdc5cbd3d9e1e7eff5fd030b11191f27",
+    "slotEncoding": [
+      {
+        "keystreamBytes": "7a99822cfdc75c562547b8881679ee200dc402aba037c822d508a0fdbba18c37a5624c76d6da1d8217dee213bee02e464c58134ba43f1ac55b404f7df3fecbdcf2afb2b7f7b96f70f2ed8b51b436c93e",
+        "slot": 1
+      },
+      {
+        "keystreamBytes": "30d9164bb3e9252774d9f095cd5f3b63e38e9f5b8448e3794b996327b22df43b80f1dc6d6736e17bf2a4d19ea60ce9ccfa78f2039f629019284bbd194c8cca2790c991d10fbb6860c25a92a4ae0cb37d",
+        "slot": 256
+      },
+      {
+        "keystreamBytes": "0e0d02529efb4aab418cf8e4a6a4a13bf98c83094c7e9a3d827149a4b9ba8c3258da49b5c3cd7c11b0b520bb517762ec2849eb2ed647b7ca0fae090bfa6aeb923a57ca1c240c163629a44255edb49874",
+        "slot": 65536
+      },
+      {
+        "keystreamBytes": "5fb14d0e718574a2edc70ca0e14a12f7a94c1c2389c0300aa15dbb8ce9382a1156180359401948ab0bbcc699c456e7cc64fc820f048ea47b5651cdbaff68d6ca801eb36fa1a6f0c991cd50890592d4c8",
+        "slot": 16777216
+      },
+      {
+        "keystreamBytes": "5c8d0b3fbc19ebe75d964d8d1f14d93d5946601197a7e25dec5650a37b5d89998d281732548ee5a1ca131ff7140069026cf463dd9e5951167553b3b514150ce25c551304a41e6e1a8c350a328f4584c3",
+        "slot": 4294967295
+      }
+    ],
+    "strangerPublicKeyBytes": "02ef8584906f6d9e2fc98a16f03b7b41f4324659101e40519afbb4108102d8f13e",
+    "strangerSecretBytes": "030b11191f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dd",
+    "transactionViewingKey": {
+      "ciphertextBytes": "45eb1c350daba2427a66446f2dd294eab2bd56ef27fd2f3689",
+      "firstNullifierBytes": "009199c6b576cc1ce68bbe5e17e0eb80176c12cc58a574233edfd28b96f79690",
+      "publicKeyBytes": "033181b9f2710910b475a4682a1958d237d25ffd61056f07274331d5bf2d707b62",
+      "recoveredBytes": "636572742f7472616e73666572207574786f2062756e646c65"
+    },
+    "wrongEphemeralRecoveredBytes": "469027a23911e8360cbd7be80f18d5930c9648f610686a2441",
+    "wrongRecipientRecoveredBytes": "e3cbe1e7b2b26a9b098cdc868496a34b2cb411c9620dccb066"
+  }
+}
