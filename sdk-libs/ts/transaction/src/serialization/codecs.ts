@@ -315,15 +315,32 @@ function dataRecordTag(kind: DataRecord["kind"]): number {
   }
 }
 
+function dataRecordKind(tag: number): DataRecord["kind"] | undefined {
+  switch (tag) {
+    case 1:
+      return "zoneData";
+    case 2:
+      return "utxoData";
+    case 3:
+      return "memo";
+    default:
+      return undefined;
+  }
+}
+
 function readData(reader: Reader): Data {
   const count = reader.u8();
   const records: DataRecord[] = [];
   for (let index = 0; index < count; index++) {
     const tag = reader.u8();
-    const bytes = reader.take(reader.u16());
-    const kind = tag === 1 ? "zoneData" : tag === 2 ? "utxoData" : tag === 3 ? "memo" : undefined;
-    if (!kind) throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { tag });
-    records.push({ kind, bytes });
+    const kind = dataRecordKind(tag);
+    // wincode refuses an unrecognised enum tag as a read failure, and refuses
+    // it before reading the payload behind it. The discriminator code belongs
+    // to the scheme and type-prefix bytes, which Rust checks itself.
+    if (kind === undefined) {
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "dataRecordTag", tag });
+    }
+    records.push({ kind, bytes: reader.take(reader.u16()) });
   }
   return new Data(records);
 }
@@ -430,15 +447,22 @@ export function decodeAnonymousRecipient(bytes: Uint8Array): AnonymousRecipientP
   return result;
 }
 
+/**
+ * Rust `AnonymousTransferRecipientPlaintext::into_utxo`. Both steps below can
+ * fail on one payload, and Rust's struct literal resolves the asset first, so
+ * an unregistered asset id reported alongside unresolvable zone data has to
+ * surface as the asset refusal here too.
+ */
 export function anonymousRecipientUtxo(
   value: AnonymousRecipientPlaintext,
   assets: AssetRegistry,
   zoneProgramId?: Address,
 ): Utxo {
+  const asset = assets.resolve(value.assetId);
   const zone = resolveZoneProgramId(zoneProgramId, value.data);
   return new Utxo({
     owner: value.ownerPublicKey,
-    asset: assets.resolve(value.assetId),
+    asset,
     amount: value.amount,
     blinding: value.blinding,
     data: value.data,
@@ -447,8 +471,14 @@ export function anonymousRecipientUtxo(
 }
 
 export function encodeAnonymousSender(value: AnonymousSenderPlaintext): Uint8Array {
+  // Viewing keys are not outputs: Rust lets the `FixIntLen<u8>` prefix refuse
+  // the overlong list as a write failure, the same category `writeData` uses.
   if (value.recipientViewingPublicKeys.length > 0xff) {
-    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+    throw new TransactionError("TRANSACTION_SERIALIZE", {
+      field: "recipientViewingPublicKeys",
+      maximum: 0xff,
+      actual: value.recipientViewingPublicKeys.length,
+    });
   }
   const writer = new Writer();
   writer.bytes(value.ownerPublicKey.toBytes());
@@ -503,11 +533,14 @@ export function anonymousSenderUtxos(
   }
   const values: Utxo[] = [];
   if (value.splAmount > 0n) {
+    // The SPL leg resolves its asset before its zone, as the Rust struct
+    // literal does; a payload that fails both reports the asset refusal.
+    const asset = assets.resolve(value.splAssetId);
     const zone = resolveZoneProgramId(zoneProgramId, value.splData);
     values.push(
       new Utxo({
         owner: value.ownerPublicKey,
-        asset: assets.resolve(value.splAssetId),
+        asset,
         amount: value.splAmount,
         blinding: deriveBlinding(value.blindingSeed, 0),
         data: value.splData,
@@ -927,9 +960,10 @@ export function encryptConfidential(
   salt: Bytes16,
   slotIndex: number,
 ): Uint8Array {
+  const body = encodeConfidential(value);
   return concat(
     recipient.toBytes(),
-    tx.encryptSlot(recipient, encodeConfidential(value), salt, slotIndex),
+    inTransactionCategory(() => tx.encryptSlot(recipient, body, salt, slotIndex)),
   );
 }
 
@@ -940,7 +974,7 @@ export function encryptAnonymous(
   salt: Bytes16,
   slotIndex: number,
 ): Uint8Array {
-  return tx.encryptSlot(recipient, plaintext, salt, slotIndex);
+  return inTransactionCategory(() => tx.encryptSlot(recipient, plaintext, salt, slotIndex));
 }
 
 export function decryptAnonymous(
@@ -950,7 +984,9 @@ export function decryptAnonymous(
   salt: Bytes16,
   slotIndex: number,
 ): Uint8Array {
-  return key.decryptUtxo(ciphertext, txViewingPublicKey, salt, slotIndex);
+  return inTransactionCategory(() =>
+    key.decryptUtxo(ciphertext, txViewingPublicKey, salt, slotIndex),
+  );
 }
 
 export const encryptSplit = encryptAnonymous;

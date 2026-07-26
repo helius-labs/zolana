@@ -16,6 +16,7 @@ import {
   EncryptedScheme,
   TRANSFER_PLAINTEXT,
   anonymousRecipientUtxo,
+  anonymousSenderUtxos,
   encodeOutputData,
   encodePlaintextTransfer,
   plaintextTransferUtxos,
@@ -206,6 +207,72 @@ describe("zone resolution on the read path", () => {
       ZONE,
     );
     expect(recipient.zoneProgramId).toBe(ZONE);
+  });
+
+  /**
+   * A payload can fail the asset lookup and the zone resolution at once, and
+   * the two rails disagree on which refusal wins unless the order is pinned.
+   * Rust's `AnonymousTransferRecipientPlaintext::into_utxo` and
+   * `AnonymousTransferSenderPlaintext::into_utxos` build a struct literal whose
+   * fields evaluate in written order, `asset` before `zone_program_id`
+   * (`sdk-libs/transaction/src/serialization/anonymous.rs:47,50` and
+   * `:99,102`), so both report `UnknownAsset`. Rust's `Split::into_utxos`
+   * resolves the zone first (`split.rs:61-62`) and reports the zone refusal,
+   * which is why the split case below expects the other code.
+   */
+  it("reports the asset refusal before the zone refusal on the anonymous rails", () => {
+    const assets = new AssetRegistry();
+    const owner = ShieldedKeypair.fromKeys(
+      SigningKey.fromBytes(SEED),
+      NullifierKey.fromSigningKey(SigningKey.fromBytes(SEED)),
+      ViewingKey.fromSeed(SEED, 0),
+    ).signingPublicKey();
+    const unregistered = 4242n;
+
+    expect(() =>
+      anonymousRecipientUtxo(
+        {
+          ownerPublicKey: owner,
+          senderPublicKey: ViewingKey.fromSeed(SEED, 1).publicKey(),
+          assetId: unregistered,
+          amount: 7n,
+          blinding: deriveBlinding(BLINDING_SEED, 0),
+          data: zoneData(),
+        },
+        assets,
+      ),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_UNKNOWN_ASSET" }));
+
+    expect(() =>
+      anonymousSenderUtxos(
+        {
+          ownerPublicKey: owner,
+          splAssetId: unregistered,
+          splAmount: 5n,
+          solAmount: 0n,
+          blindingSeed: BLINDING_SEED,
+          recipientViewingPublicKeys: [],
+          splData: zoneData(),
+          solData: new Data(),
+        },
+        assets,
+        SOL_MINT,
+      ),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_UNKNOWN_ASSET" }));
+
+    expect(() =>
+      splitBundleUtxos(
+        {
+          ownerPublicKey: owner,
+          numOutputs: 1,
+          assetId: unregistered,
+          assetAmount: 7n,
+          blindingSeed: BLINDING_SEED,
+          data: zoneData(),
+        },
+        assets,
+      ),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_MISSING_ZONE_PROGRAM_ID" }));
   });
 
   /**

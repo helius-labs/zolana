@@ -189,27 +189,39 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, Readonly<Record<string, string>>>
 };
 
 /**
- * Names a barrel publishes. Both halves matter: a re-export block carries most
- * of the surface, and the root also declares its own constants inline.
+ * Every name a barrel or a shipped declaration file publishes, and whether it
+ * survives to run time. Both halves matter: a re-export block carries most of
+ * the surface, and the root also declares its own constants inline. The kind
+ * matters because a name that turns into a type-only export still matches the
+ * Rust oracle while breaking every consumer that called it.
  */
-function exportedNames(source: string): ReadonlySet<string> {
-  const names = new Set<string>();
-  for (const [, block] of source.matchAll(/export(?:\s+type)?\s*\{([^}]*)\}/gu)) {
+function declaredExports(source: string): ReadonlyMap<string, "value" | "type"> {
+  const kinds = new Map<string, "value" | "type">();
+  for (const [, blockMarker, block] of source.matchAll(/export\s+(type\s+)?\{([^}]*)\}/gu)) {
     for (const specifier of block.split(",")) {
-      const name = specifier
-        .trim()
+      const trimmed = specifier.trim();
+      if (trimmed.length === 0) continue;
+      const name = trimmed
         .replace(/^type\s+/u, "")
         .split(/\s+as\s+/u)
         .at(-1);
-      if (name) names.add(name);
+      if (name === undefined) continue;
+      kinds.set(name, blockMarker !== undefined || /^type\s/u.test(trimmed) ? "type" : "value");
     }
   }
-  for (const [, name] of source.matchAll(
-    /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gmu,
+  for (const [, keyword, name] of source.matchAll(
+    /^export\s+(?:declare\s+)?(?:abstract\s+)?(const|let|var|function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gmu,
   )) {
-    names.add(name);
+    kinds.set(name, keyword === "interface" || keyword === "type" ? "type" : "value");
   }
-  return names;
+  return kinds;
+}
+
+function valueNames(kinds: ReadonlyMap<string, "value" | "type">): readonly string[] {
+  return [...kinds]
+    .filter(([, kind]) => kind === "value")
+    .map(([name]) => name)
+    .sort();
 }
 
 interface ModuleSurface {
@@ -231,7 +243,7 @@ async function shipped(entryPoint: string): Promise<ReadonlySet<string>> {
     source = await readFile(path.join(sourceRoot, file), "utf8");
     sources.set(file, source);
   }
-  return exportedNames(source);
+  return new Set(declaredExports(source).keys());
 }
 
 /**
@@ -423,6 +435,73 @@ describe("UtxoSerialization capability contract", () => {
         expect(exports, `${implementor.type}.${operation} must ship as ${name}`).toContain(name);
       }
     }
+  });
+});
+
+/** The entry point specifier a consumer resolves, per barrel. */
+const ENTRY_POINT_SPECIFIERS: Readonly<Record<string, string>> = {
+  ".": "@zolana/transaction",
+  "./serialization": "@zolana/transaction/serialization",
+  "./wallet": "@zolana/transaction/wallet",
+  "./instructions": "@zolana/transaction/instructions",
+  "./transact": "@zolana/transaction/transact",
+};
+
+/**
+ * The two halves of the export allowlist the source checks above cannot reach:
+ * what the built package hands a consumer at run time, and what its shipped
+ * declarations promise. Both read the build rather than the sources beside it,
+ * so they need `npm run build` first, as every suite in this workspace does.
+ */
+async function builtModule(specifier: string): Promise<Readonly<Record<string, unknown>>> {
+  return (await import(specifier)) as Readonly<Record<string, unknown>>;
+}
+
+describe("built entry-point surface", () => {
+  for (const [entryPoint, specifier] of Object.entries(ENTRY_POINT_SPECIFIERS)) {
+    const stem = entryPoint === "." ? "index" : `${entryPoint.slice(2)}/index`;
+
+    it(`${entryPoint} exports exactly its barrel's value names at run time`, async () => {
+      const file = ENTRY_POINT_SOURCES[entryPoint];
+      if (file === undefined) throw new Error(`no barrel recorded for ${entryPoint}`);
+      const barrel = declaredExports(await readFile(path.join(sourceRoot, file), "utf8"));
+      expect(Object.keys(await builtModule(specifier)).sort()).toEqual(valueNames(barrel));
+    });
+
+    it(`${entryPoint} ships declarations for exactly its barrel's names`, async () => {
+      const file = ENTRY_POINT_SOURCES[entryPoint];
+      if (file === undefined) throw new Error(`no barrel recorded for ${entryPoint}`);
+      const barrel = declaredExports(await readFile(path.join(sourceRoot, file), "utf8"));
+      const shipped = declaredExports(
+        await readFile(path.resolve(sourceRoot, `../dist/es/${stem}.d.ts`), "utf8"),
+      );
+      expect([...shipped].sort()).toEqual([...barrel].sort());
+    });
+  }
+
+  /**
+   * The runtime half of "one declaration per exported name". Two barrels may
+   * publish one name only by re-exporting the module that declares it, so a
+   * name two entry points both carry has to be the same binding: that is what
+   * makes `@zolana/transaction` and `@zolana/transaction/serialization`
+   * interchangeable for a consumer that imports it from either.
+   */
+  it("binds a name two entry points share to one value", async () => {
+    const modules = await Promise.all(
+      Object.entries(ENTRY_POINT_SPECIFIERS).map(
+        async ([entryPoint, specifier]) => [entryPoint, await builtModule(specifier)] as const,
+      ),
+    );
+    const owners = new Map<string, readonly [string, unknown]>();
+    const conflicts: string[] = [];
+    for (const [entryPoint, module] of modules) {
+      for (const [name, value] of Object.entries(module)) {
+        const owner = owners.get(name);
+        if (owner === undefined) owners.set(name, [entryPoint, value]);
+        else if (owner[1] !== value) conflicts.push(`${name}: ${owner[0]} and ${entryPoint}`);
+      }
+    }
+    expect(conflicts).toEqual([]);
   });
 });
 

@@ -15,8 +15,10 @@ import {
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
+  decryptAnonymous,
   decryptConfidential,
   decryptMerge,
+  decryptSplit,
   encodeAnonymousRecipient,
   encodeAnonymousSender,
   encodeConfidential,
@@ -308,6 +310,123 @@ describe("manifest-verified transaction serialization", () => {
     });
     expect(hex(splitEncrypted)).toBe(fixtureString(splitEncryptedExpected, "wincodeBytes"));
     expect(decodeSplitEncrypted(splitEncrypted).ciphertext).toEqual(Uint8Array.of(1, 2, 3, 4, 5));
+  });
+
+  /**
+   * A published anonymous slot is attacker-chosen bytes, so the category the
+   * reader sorts a malformed body into is part of the protocol. Each expected
+   * code below is the category Rust produced for the same input, read from
+   * `AnonymousTransferRecipientPlaintext::{serialize,deserialize}` at the
+   * frozen revision: wincode's `ReadError` and `WriteError` both land in
+   * `TransactionError::{Deserialize,Serialize}`
+   * (`sdk-libs/transaction/src/error.rs:250-260`), and `Data::validate` runs
+   * inside `serialize` (`serialization/anonymous.rs:29-38`).
+   */
+  it("sorts a malformed anonymous body into the category Rust does", () => {
+    const fixture = load();
+    const { keypair, recipient } = keys(section(fixture, "inputs"));
+    const seed = hexBytes(fixtureString(section(fixture, "inputs"), "blindingSeedBytes")) as Bytes31;
+    const plaintext = {
+      ownerPublicKey: recipient.signingPublicKey(),
+      senderPublicKey: keypair.viewingPublicKey(),
+      assetId: 1n,
+      amount: 19n,
+      blinding: deriveBlinding(seed, 2),
+      data: new Data([{ kind: "memo", bytes: new TextEncoder().encode("hi") }]),
+    };
+    const bytes = encodeAnonymousRecipient(plaintext);
+
+    // Rust: Deserialize("Trailing bytes remain after deserialization"). The
+    // finer TypeScript code is recorded as deliberate and widened to the
+    // deserialize family by the oracle's category map.
+    expect(() => decodeAnonymousRecipient(new Uint8Array([...bytes, 0]))).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_TRAILING_BYTES" }),
+    );
+
+    for (const truncated of [bytes.slice(0, -1), new Uint8Array()]) {
+      expect(() => decodeAnonymousRecipient(truncated)).toThrow(
+        expect.objectContaining({ code: "TRANSACTION_DESERIALIZE" }),
+      );
+    }
+
+    // The record tag sits after owner (34), sender (33), asset id (8),
+    // amount (8), blinding (31) and the record count (1).
+    const badTag = new Uint8Array(bytes);
+    const tagOffset = 34 + 33 + 8 + 8 + 31 + 1;
+    expect(badTag[tagOffset]).toBe(3);
+    badTag[tagOffset] = 9;
+    expect(() => decodeAnonymousRecipient(badTag)).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_DESERIALIZE",
+        details: { field: "dataRecordTag", tag: 9 },
+      }),
+    );
+
+    // Rust: Serialize("Sequence length would overflow length encoding
+    // scheme: u8"), not the output-count refusal.
+    expect(() =>
+      encodeAnonymousSender({
+        ownerPublicKey: keypair.signingPublicKey(),
+        splAssetId: 0n,
+        splAmount: 0n,
+        solAmount: 1n,
+        blindingSeed: seed,
+        recipientViewingPublicKeys: Array.from(
+          { length: 256 },
+          () => recipient.viewingPublicKey(),
+        ),
+        splData: new Data(),
+        solData: new Data(),
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_SERIALIZE",
+        details: { field: "recipientViewingPublicKeys", maximum: 0xff, actual: 256 },
+      }),
+    );
+  });
+
+  /**
+   * Rust reaches the cipher through `?` on every rail (`anonymous.rs:135-143`,
+   * `:175-179`; `confidential.rs:139-147`), so a key or cipher failure arrives
+   * as `TransactionError::Keypair`. The trigger below is a destroyed key
+   * because a typed TypeScript caller cannot build the off-curve key that
+   * reaches Rust's own refusal; the category the caller sees is the point.
+   */
+  it("reports a cipher failure in Rust's category on every rail", () => {
+    const fixture = load();
+    const inputs = section(fixture, "inputs");
+    const { recipient, tx } = keys(inputs);
+    const salt = hexBytes(fixtureString(inputs, "saltBytes")) as Bytes16;
+    const seed = hexBytes(fixtureString(inputs, "blindingSeedBytes")) as Bytes31;
+    const spent = ViewingKey.fromSeed(hexBytes(fixtureString(inputs, "viewingSeedBytes")), 0);
+    const recipientPublicKey = recipient.viewingPublicKey();
+    const txPublicKey = tx.publicKey();
+    spent.destroy();
+
+    const calls = [
+      () => encryptAnonymous(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
+      () => encryptSplit(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
+      () => decryptAnonymous(spent, txPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
+      () => decryptSplit(spent, txPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
+      () =>
+        encryptConfidential(
+          spent,
+          recipientPublicKey,
+          { assetId: 1n, amount: 55n, blinding: deriveBlinding(seed, 1), data: new Data() },
+          salt,
+          0,
+        ),
+    ];
+    for (const call of calls) {
+      expect(call).toThrow(
+        expect.objectContaining({
+          name: "TransactionError",
+          code: "TRANSACTION_KEYPAIR",
+          details: { keypair: "KEYPAIR_INVALID_SECRET_KEY" },
+        }),
+      );
+    }
   });
 
   it("rejects every malformed fixture family", () => {
