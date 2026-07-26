@@ -1,4 +1,4 @@
-# 2026-07-26 03:30 UTC | reconciliation: the eight unowned rows fold in | `C01`, `C02`, `C03`, `C05`, `T14`, `T15`, `W02`, `W04`
+# 2026-07-26 01:30 UTC | reconciliation: the eight unowned rows fold in | `C01`, `C02`, `C03`, `C05`, `T14`, `T15`, `W02`, `W04`
 
 - Baseline: HEAD `767dc271`, the `ts-sdk-port` tip, merged into `port/reconcile3`
 - Worker: reconciler, fourth holder of the role

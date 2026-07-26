@@ -3753,30 +3753,30 @@
       {
         "belowOrder": false,
         "digestBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
-        "matchesReducedDigestSignature": false,
+        "matchesReducedDigestSignature": true,
         "name": "order",
         "reducedDigestBytes": "0000000000000000000000000000000000000000000000000000000000000000",
-        "signatureBytes": "8384092411d8ce941f9a4dff23f63f374e88e18c8b5cb6371680e6538bf157159f013d742047b6bce7f4a7454929087e1587c70f71f4d701cf40f6378a3c89d6",
+        "signatureBytes": "4767bb85ec32a8c94597edc058c48b28ae9dd7f6230329cc59a623e55556090ed66dba0c2175d97a4f7110153b960c2ee19a0b2c018f1f3bc4021fe3d2721a97",
         "verified": true,
         "verifiedUnderReducedDigest": true
       },
       {
         "belowOrder": false,
         "digestBytes": "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632552",
-        "matchesReducedDigestSignature": false,
+        "matchesReducedDigestSignature": true,
         "name": "orderPlusOne",
         "reducedDigestBytes": "0000000000000000000000000000000000000000000000000000000000000001",
-        "signatureBytes": "91f76f6d9299c73f73a0a764c23d287e9d6afe5587b24304c090110496805a697309054fa8f1df67e08b167a5d684b0c0a03fcf8bac8df2aded39e8c164dc5c1",
+        "signatureBytes": "96a5d3fecfc70a1ad4b53ec94db9a8b77793cf316730801199f8c86a80384842430547ae49066b6549b788dc0745cd0634575c454514a2d3a0478c7738b77ee4",
         "verified": true,
         "verifiedUnderReducedDigest": true
       },
       {
         "belowOrder": false,
         "digestBytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        "matchesReducedDigestSignature": false,
+        "matchesReducedDigestSignature": true,
         "name": "allOnes",
         "reducedDigestBytes": "00000000ffffffff00000000000000004319055258e8617b0c46353d039cdaae",
-        "signatureBytes": "6a92bad88754defea3eb88d31ea905b7a009a446de435bb5659ce727d99fcd29351e7022441d290558d57db6c1c9dfad8632401cfdac7627a7d32dbd72cdfa35",
+        "signatureBytes": "482c9bc15f8f528734498d77a501be6000d5484b784b743b604e413746d6dd2e904039f1d2ffc69a0f968c2e663f71e5d7cfacb9b2ec39de0ecd2b38349bc8a0",
         "verified": true,
         "verifiedUnderReducedDigest": true
       }
