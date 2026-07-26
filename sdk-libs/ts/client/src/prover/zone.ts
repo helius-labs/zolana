@@ -1,4 +1,4 @@
-import type { Address, Bytes32 } from "@zolana/interface";
+import type { Address, Bytes32, Shape } from "@zolana/interface";
 import { SppProofInputs } from "@zolana/transaction";
 
 import { ClientError, fromClientCause } from "../error.js";
@@ -55,6 +55,28 @@ function zoneField(zoneProgramId: Address): bigint {
   return hashField(addressBytes(zoneProgramId));
 }
 
+/// Rust `zone_authority::SUPPORTED_SHAPES`. A zone-authority transition proves
+/// no owner authorization and cannot move value out of the zone, so it
+/// re-randomizes or reshuffles a fixed set of UTXOs rather than splitting or
+/// merging them: inputs always equal outputs. `docs/spec.md`, "Zone-authority
+/// instantiation", lists these four and `program-libs/interface/src/
+/// verifying_keys/` holds exactly the four matching keys. The other six members
+/// of `SPP_SUPPORTED_SHAPES` are the non-square ones, and a request in any of
+/// them can never verify.
+const ZONE_AUTHORITY_SHAPES: readonly Shape[] = Object.freeze([
+  Object.freeze({ inputs: 1, outputs: 1 }),
+  Object.freeze({ inputs: 2, outputs: 2 }),
+  Object.freeze({ inputs: 3, outputs: 3 }),
+  Object.freeze({ inputs: 4, outputs: 4 }),
+]);
+
+function checkedProofInputs(proofInputs: SppProofInputs): SppProofInputs {
+  if (!(proofInputs instanceof SppProofInputs)) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  return proofInputs;
+}
+
 interface Common {
   readonly nullifiers: readonly Bytes32[];
   readonly outputHashes: readonly bigint[];
@@ -79,10 +101,7 @@ function common(
   zoneProgramId: Address,
   ownerField: (input: Parameters<Parameters<typeof assembleSlots>[2]>[0], index: number) => bigint,
 ): Common {
-  if (!(proofInputs instanceof SppProofInputs)) {
-    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-  }
-  proofInputs.checkShape();
+  checkedProofInputs(proofInputs).checkShape();
   if (proofInputs.inputUtxos.every((input) => input.isDummy())) {
     throw new ClientError("CLIENT_NO_INPUTS");
   }
@@ -261,6 +280,14 @@ export function assembleZoneAuthority(
   zoneProgramId: Address,
 ): AssembledZone {
   try {
+    const shape = checkedProofInputs(proofInputs).checkShape();
+    if (
+      !ZONE_AUTHORITY_SHAPES.some((c) => c.inputs === shape.inputs && c.outputs === shape.outputs)
+    ) {
+      throw new ClientError("CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE", {
+        details: { nIn: shape.inputs, nOut: shape.outputs },
+      });
+    }
     if (proofInputs.p256Signature() !== undefined) {
       throw new ClientError("CLIENT_PROOF_RAIL_MISMATCH");
     }

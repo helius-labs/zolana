@@ -154,6 +154,44 @@ describe("indexer integer domain", () => {
     ).toBe(7n);
   });
 
+  // The union was adopted on the promise that it costs an existing caller
+  // nothing, so the number path is pinned at the edge of what a JSON number can
+  // carry, on a field of each kind, rather than at the zero every other fixture
+  // here happens to use.
+  it("reads a JSON number at the safe-integer bound on a field of either kind", () => {
+    expect(
+      getNullifierQueueElementsMethod.decodeResponse({
+        context: { block_time: -Number.MAX_SAFE_INTEGER },
+        elements: [{ seq: Number.MAX_SAFE_INTEGER, value: HASH }],
+      }),
+    ).toMatchObject({
+      context: { blockTime: -9_007_199_254_740_991n },
+      elements: [{ seq: 9_007_199_254_740_991n }],
+    });
+
+    expect(
+      getMerkleProofsMethod.decodeResponse({
+        context: CONTEXT,
+        proofs: [{ ...PROOF, leaf_index: 4_294_967_295, root_index: 65_535 }],
+      }).proofs[0],
+    ).toMatchObject({ leafIndex: 4_294_967_295n, rootIndex: 65_535 });
+
+    expect(
+      getNonInclusionProofsMethod.decodeResponse({
+        context: CONTEXT,
+        proofs: [{ ...NON_INCLUSION_PROOF, low_element_index: 3, high_element_index: 4 }],
+      }).proofs[0],
+    ).toMatchObject({ lowElementIndex: 3n, highElementIndex: 4n });
+
+    expect(
+      getNullifierQueueElementsMethod.decodeRequest({
+        tree_account: HASH,
+        start_seq: 9_007_199_254_740_991,
+        limit: 1000,
+      }),
+    ).toMatchObject({ startSeq: 9_007_199_254_740_991n, limit: 1000n });
+  });
+
   it("still refuses a JSON number that has already lost precision", () => {
     expectSchemaError(
       () =>
@@ -273,6 +311,33 @@ describe("indexer integer domain", () => {
         }),
       "INDEXER_SCHEMA_INVALID_LIMIT",
       "$.limit",
+    );
+  });
+});
+
+// The string form is a reader's tolerance, not a shape this package writes:
+// `zolana-indexer-api` installs no string acceptor on its `u64` and `i64`
+// fields, and `encodeRequest` feeds the body Photon parses.
+describe("the encoder writes one wire form", () => {
+  it("emits a JSON number for an uncapped field the decoder would read as a string", () => {
+    const wire = getNullifierQueueElementsMethod.encodeResponse({
+      context: { blockTime: -1_700_000_000n },
+      elements: [{ seq: 7n, value: HASH }],
+    }) as { context: { block_time: unknown }; elements: readonly { seq: unknown }[] };
+
+    expect(wire.context.block_time).toBe(-1_700_000_000);
+    expect(wire.elements[0]?.seq).toBe(7);
+  });
+
+  it("reports a value with no JSON-number encoding rather than rounding it", () => {
+    expectSchemaError(
+      () =>
+        getNullifierQueueElementsMethod.encodeResponse({
+          context: { blockTime: 0n },
+          elements: [{ seq: PAST_SAFE_VALUE, value: HASH }],
+        }),
+      "INDEXER_SCHEMA_UNSAFE_INTEGER",
+      "$.elements.seq",
     );
   });
 });

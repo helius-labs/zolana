@@ -71,6 +71,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      - uses: ./.github/actions/setup-rust
+        with:
+          install-just: "false"
+          shared-key: ts-build
+          wasm-target: "true"
       - run: npm ci
       - run: npm run check:static
 
@@ -85,6 +90,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      - uses: ./.github/actions/setup-rust
+        with:
+          install-just: "false"
+          shared-key: ts-build
+          wasm-target: "true"
       - run: npm ci
       - run: npm run build
       - run: npm run check:suites
@@ -100,6 +110,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      - uses: ./.github/actions/setup-rust
+        with:
+          install-just: "false"
+          shared-key: ts-build
+          wasm-target: "true"
       - run: npm ci
       - run: npm run check:packaging
 
@@ -145,6 +160,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: localnet-photon
+          wasm-target: "true"
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
         run: |

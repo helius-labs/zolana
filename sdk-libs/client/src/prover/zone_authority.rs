@@ -50,6 +50,21 @@ pub struct ZoneAuthorityProver {
     pub shape: Option<Shape>,
 }
 
+/// A zone-authority transition proves no owner authorization and cannot move
+/// value out of the zone, so it re-randomizes or reshuffles a fixed set of UTXOs
+/// rather than splitting or merging them: inputs always equal outputs.
+/// `docs/spec.md`, "Zone-authority instantiation", lists these four shapes and
+/// `program-libs/interface/src/verifying_keys/` holds exactly the four matching
+/// keys, `transfer_zone_authority_{1_1,2_2,3_3,4_4}`. The other six members of
+/// [`SPP_SUPPORTED_SHAPES`](zolana_transaction::instructions::transact::SPP_SUPPORTED_SHAPES)
+/// are the non-square ones, and a request in any of them can never verify.
+pub(crate) const SUPPORTED_SHAPES: [Shape; 4] = [
+    Shape::IN1_OUT1,
+    Shape::IN2_OUT2,
+    Shape::IN3_OUT3,
+    Shape::IN4_OUT4,
+];
+
 #[derive(Debug, Clone)]
 pub struct ZoneAuthorityProofResult {
     pub inputs: TransferInputs,
@@ -64,7 +79,13 @@ pub struct ZoneAuthorityProofResult {
 
 impl ZoneAuthorityProver {
     pub fn build(self) -> Result<ZoneAuthorityProofResult, ClientError> {
-        resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        if !SUPPORTED_SHAPES.contains(&shape) {
+            return Err(ClientError::UnsupportedZoneAuthorityShape {
+                n_in: shape.n_inputs(),
+                n_out: shape.n_outputs(),
+            });
+        }
 
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ZoneAuthority)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
