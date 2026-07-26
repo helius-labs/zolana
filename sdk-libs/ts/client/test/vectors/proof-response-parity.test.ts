@@ -18,6 +18,8 @@ type ValidCase = Readonly<{
   id: string;
   clause: string;
   unavailable?: boolean;
+  /** Why the generator could not produce this case; present only when `unavailable`. */
+  reason?: string;
   requireCommitment?: boolean;
   gnark?: Readonly<Record<string, unknown>>;
   uncompressed?: Readonly<{
@@ -75,9 +77,7 @@ describe("P3 proof-response parity (Rust-generated)", () => {
   for (const testCase of fixture.valid as ValidCase[]) {
     if (testCase.unavailable) {
       it.skip(
-        `valid ${testCase.id} (${testCase.clause}) — ${String(
-          (testCase as { reason?: string }).reason ?? "unavailable",
-        )}`,
+        `valid ${testCase.id} (${testCase.clause}) — ${testCase.reason ?? "unavailable"}`,
         () => {},
       );
       continue;
