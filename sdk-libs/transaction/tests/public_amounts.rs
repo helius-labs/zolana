@@ -106,7 +106,7 @@ fn four_active_assets_are_rejected() {
 }
 
 #[test]
-fn mixed_directions_cancel_before_active_asset_limit() {
+fn mixed_directions_retain_the_zero_net_slot() {
     let cancelled = Address::new_from_array([41; 32]);
     let active = Address::new_from_array([42; 32]);
     let movements = proof_inputs(vec![
@@ -120,11 +120,34 @@ fn mixed_directions_cancel_before_active_asset_limit() {
 
     assert_eq!(
         movements.assets,
-        [asset_field(&active).unwrap(), SOL_ASSET_FIELD, [0; 32]]
+        [
+            asset_field(&cancelled).unwrap(),
+            asset_field(&active).unwrap(),
+            SOL_ASSET_FIELD
+        ]
     );
     assert_eq!(
         movements.amounts,
-        [signed_to_field(7), signed_to_field(-5), [0; 32]]
+        [[0; 32], signed_to_field(7), signed_to_field(-5)]
+    );
+}
+
+#[test]
+fn cancelled_asset_still_counts_toward_the_slot_limit() {
+    let cancelled = Address::new_from_array([43; 32]);
+    let first = Address::new_from_array([44; 32]);
+    let second = Address::new_from_array([45; 32]);
+    let legs = vec![
+        spl_leg(cancelled, true, 9, 1),
+        spl_leg(first, true, 1, 2),
+        spl_leg(cancelled, false, 9, 3),
+        spl_leg(second, true, 2, 4),
+        sol_leg(false, 3, 5),
+    ];
+
+    assert_eq!(
+        proof_inputs(legs).public_movements(),
+        Err(TransactionError::TooManyPublicAssets { got: 4, max: 3 })
     );
 }
 
@@ -142,19 +165,17 @@ fn same_asset_sum_overflow_is_rejected() {
 }
 
 #[test]
-fn transient_sum_above_u64_can_cancel_back_into_range() {
+fn transient_sum_above_u64_is_rejected_before_later_cancellation() {
     let mint = Address::new_from_array([52; 32]);
-    let movements = proof_inputs(vec![
+    let inputs = proof_inputs(vec![
         spl_leg(mint, true, u64::MAX, 1),
         spl_leg(mint, true, u64::MAX, 2),
         spl_leg(mint, false, u64::MAX, 3),
-    ])
-    .public_movements()
-    .expect("only the final aggregate magnitude is range checked");
+    ]);
 
     assert_eq!(
-        movements.amounts.first().copied(),
-        Some(signed_magnitude_to_field(true, u64::MAX))
+        inputs.public_movements(),
+        Err(TransactionError::PublicMovementOverflow { asset: mint })
     );
 }
 

@@ -81,8 +81,8 @@ pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
 }
 
 /// Uniform public movement slots: ordered settlement legs are accumulated per
-/// asset in first-appearance order. Net-zero assets are omitted and idle slots
-/// are `(0, 0)`.
+/// asset in first-appearance order. Once assigned, a slot remains occupied even
+/// if its net amount returns to zero; only never-assigned slots are `(0, 0)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PublicMovements {
     pub assets: [[u8; 32]; N_PUBLIC_SLOTS],
@@ -179,11 +179,12 @@ impl SppProofInputs {
                 *total = total
                     .checked_add(signed)
                     .ok_or(TransactionError::PublicMovementOverflow { asset })?;
+                u64::try_from(total.unsigned_abs())
+                    .map_err(|_| TransactionError::PublicMovementOverflow { asset })?;
             } else {
                 aggregated.push((asset, signed));
             }
         }
-        aggregated.retain(|(_, amount)| *amount != 0);
         if aggregated.len() > N_PUBLIC_SLOTS {
             return Err(TransactionError::TooManyPublicAssets {
                 got: aggregated.len(),

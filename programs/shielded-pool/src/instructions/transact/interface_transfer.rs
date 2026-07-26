@@ -12,8 +12,8 @@ use crate::instructions::{
 };
 
 // Settles each public leg and aggregates its asset into the number of public
-// slots compiled into the selected circuit. A slot whose net cancels to zero is
-// cleared but not reclaimed.
+// slots compiled into the selected circuit. Once assigned, a slot remains
+// occupied by its first-seen asset even if its net amount returns to zero.
 pub(crate) fn process_public_legs(
     public_legs: &[PublicLeg],
     settlements: &[Settlement<'_>],

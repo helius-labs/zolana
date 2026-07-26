@@ -270,7 +270,6 @@ fn public_slots(
             aggregates.push((asset, amount));
         }
     }
-    aggregates.retain(|(_, amount)| *amount != 0);
     assert!(aggregates.len() <= N_PUBLIC_SLOTS);
     let mut assets = [[0u8; 32]; N_PUBLIC_SLOTS];
     let mut amounts = [[0u8; 32]; N_PUBLIC_SLOTS];

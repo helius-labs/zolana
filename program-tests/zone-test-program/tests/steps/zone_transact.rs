@@ -385,7 +385,7 @@ impl ZoneLifecycleWorld {
             }
             // The P256 rail is removed; kept as a placeholder arm so the
             // instruction-data variant mapping stays exhaustive.
-            Variant::P256 => return Err(anyhow!("P256 rail removed")),
+            Variant::P256 => Err(anyhow!("P256 rail removed")),
         }
     }
 
