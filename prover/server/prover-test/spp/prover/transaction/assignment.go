@@ -101,17 +101,11 @@ func buildProofAssignment(
 		return proofAssignment{}, err
 	}
 	// The P256 ownership rail is removed; only Solana-owned inputs can be
-	// proven. The message-hash preimage slot is the canonical hash of 32 zero
-	// bytes, which is also Poseidon(0, 0).
-	// Solana-only circuits bake into the public input hash.
+	// proven.
 	if inputs.requiresP256OwnerWitness {
 		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
 	}
-	p256MessageHashField, err := protocol.HashBytes(make([]byte, 32))
-	if err != nil {
-		return proofAssignment{}, err
-	}
-	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash, p256MessageHashField)
+	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash)
 	publicInputHash, err := protocol.PublicInputHash(publicInputs)
 	if err != nil {
 		return proofAssignment{}, err
@@ -268,7 +262,6 @@ func buildPublicInputs(
 	outputs outputWitnesses,
 	external externalValues,
 	privateTxHash *big.Int,
-	p256MessageHash *big.Int,
 ) protocol.PublicInputs {
 	return protocol.PublicInputs{
 		Nullifiers:         inputs.nullifiers,
@@ -276,7 +269,6 @@ func buildPublicInputs(
 		UtxoTreeRoots:      inputs.utxoRoots,
 		NullifierTreeRoots: inputs.nullifierTreeRoots,
 		PrivateTxHash:      privateTxHash,
-		P256MessageHash:    p256MessageHash,
 		ExternalDataHash:   external.hash,
 		PublicAssets:       external.publicSlots.assets,
 		PublicAmounts:      external.publicSlots.amounts,

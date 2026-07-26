@@ -63,16 +63,12 @@ type Transaction struct {
 	// variant-dependent, in this order and count, mirroring the program's
 	// recomputation (transact/verify.rs):
 	//
-	//	default zone:      P256 message, input owner chain, output owner chain,
-	//	                   P256 signing key (the last two are the 0 the host feeds
-	//	                   on the eddsa rail)
-	//	custom zone:       P256 message, input owner chain
-	//	zone authority:    P256 message, owner tags stay private
+	//	default zone:      input owner chain, output owner chain
+	//	custom zone:       input owner chain
+	//	zone authority:    owner tags stay private
 	//
-	// The P256 message is Poseidon(low, high) on the P256 rails and the constant
-	// Poseidon(0, 0) the host feeds on the Solana-only rails. Constrain only
-	// chains these, never reads them: the count varies, so naming them as fields
-	// would need nil-means-omit branching in here instead.
+	// Constrain only chains these, never reads them: the count varies, so naming
+	// them as fields would need nil-means-omit branching in here instead.
 	PreimageTail []frontend.Variable
 }
 

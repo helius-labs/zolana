@@ -48,14 +48,12 @@ impl TransferProver {
             &external_data_hash,
         )
         .hash()?;
-        let p256_message_hash = [0u8; 32];
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
             utxo_roots: &assembled_inputs.utxo_roots,
             nullifier_tree_roots: &assembled_inputs.nullifier_tree_roots,
             private_tx: &private_tx,
-            p256_message_hash: &p256_message_hash,
             external_data_hash: &external_data_hash,
             public_movements: &self.public_movements,
             zone_program_id: &[0u8; 32],

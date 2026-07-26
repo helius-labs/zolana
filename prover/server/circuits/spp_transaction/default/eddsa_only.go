@@ -79,7 +79,6 @@ func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
-			gadget.PoseidonHash(api, []frontend.Variable{0, 0}),
 			gadget.HashChain(api, c.Public.InputOwnerPkHashes),
 			gadget.HashChain(api, c.Public.OutputOwnerPkHashes),
 		},

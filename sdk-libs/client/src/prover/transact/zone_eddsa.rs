@@ -8,13 +8,12 @@
 //! owner pk_field chain stays in the public-input preimage so SPP can route the
 //! per-input signer check. This matches the Go `Confidential=false,
 //! ZoneAuthority=false` case in
-//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the 12-element base
-//! chain, then a tail of the P256 message and `input_owner_pk_hashes`, EXCLUDING
-//! the output-owner chain.
+//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the base chain
+//! followed by `input_owner_pk_hashes`, excluding the output-owner chain.
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::{hash_chain::create_hash_chain_from_slice, primitives::hash_bytes};
+use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicMovements},
     utxo::program_id_proof_input_hash,
@@ -77,11 +76,9 @@ impl ZoneTransferProver {
         let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
 
         // Zone eddsa-rail public-input layout (Confidential=false,
-        // ZoneAuthority=false in public_inputs.go): the 12-element base, then the
-        // tail of the P256 message and create_hash_chain_from_slice(
-        // input_owner_pk_hashes), with NO confidential appendix (no output-owner
-        // chain). hash_bytes(&[0;32]) == Poseidon(0, 0), matching the circuit's
-        // zeroed P256 message on the eddsa rail.
+        // ZoneAuthority=false in public_inputs.go): the base followed by
+        // create_hash_chain_from_slice(input_owner_pk_hashes), with no
+        // confidential appendix (no output-owner chain).
         let slots = self.public_movements.interleaved();
         let mut elements = Vec::with_capacity(10 + slots.len());
         elements.extend([
@@ -97,7 +94,6 @@ impl ZoneTransferProver {
             zone_program_id,
             self.payer_pubkey_hash,
             super::assembly::bool_field(self.allow_dummy_inputs),
-            hash_bytes(&[0u8; 32])?,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
         ]);
         let public_input = create_hash_chain_from_slice(&elements)?;

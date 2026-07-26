@@ -23,8 +23,7 @@ func MustNewCustomZoneEddsaOnlyCircuit(shape Shape) *customzone.CustomZoneEddsaO
 	return circuit
 }
 
-// The Solana-only custom-zone circuit (no P256 gadget) proves a Solana-owned
-// transaction. P256MessageHash must be 0 on this rail (no signature).
+// The Solana-only custom-zone circuit proves a Solana-owned transaction.
 func TestCustomZoneEddsaOnlySolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

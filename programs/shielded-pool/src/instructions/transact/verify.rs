@@ -193,7 +193,6 @@ impl<'a> TransactProof<'a> {
             self.derived.zone_program_id,
             self.derived.payer_pubkey_hash,
             self.derived.allow_dummy_inputs,
-            hash_bytes(&[0u8; 32])?,
         ]);
         if self.ix.circuit.requires_input_signatures() {
             fields.push(create_hash_chain_from_slice(input_owner_pk_hashes)?);

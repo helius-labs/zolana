@@ -8,9 +8,7 @@ import (
 )
 
 // CustomZoneEddsaOnlyPublic is the anonymous zone Solana-only rail's
-// public-input-hash preimage. The rail carries no P256 witness: the
-// p256_message_hash preimage slot is the constant the host feeds
-// (Poseidon(0, 0)), baked into publicInputHash.
+// public-input-hash preimage.
 type CustomZoneEddsaOnlyPublic struct {
 	Nullifiers         []frontend.Variable
 	OutputHashes       []frontend.Variable
@@ -64,7 +62,7 @@ func NewCustomZoneEddsaOnlyCircuit(shape shared.Shape) (*CustomZoneEddsaOnlyCirc
 
 // transaction views this rail's witness as the shared transaction. Output owners
 // stay private here, so the preimage tail publishes only the input owner-tag
-// chain; the message slot is the constant Poseidon(0, 0) the host feeds.
+// chain.
 func (c *CustomZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
 		Shape:              c.Shape,
@@ -83,7 +81,6 @@ func (c *CustomZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
-			gadget.PoseidonHash(api, []frontend.Variable{0, 0}),
 			gadget.HashChain(api, c.Public.InputOwnerPkHashes),
 		},
 	}

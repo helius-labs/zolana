@@ -246,9 +246,9 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 		spptest.AsBigInt(in.NullifierSecret),
 	)
 
-	// The dummy contributes 0 to the private-tx-hash chain, so recompute it (and
-	// the derived P256 message hash) with the input hash zeroed, then refresh the
-	// public-input hash from the now-canonical witness.
+	// The dummy contributes 0 to the private-tx-hash chain, so recompute it with
+	// the input hash zeroed, then refresh the public-input hash from the
+	// now-canonical witness.
 	OutputHashes := spptest.ToBigInts(assignment.OutputHashes())
 	privateTxHash := spptest.MustPrivateTxHash(
 		t,

@@ -15,7 +15,6 @@ type publicInputHashVector struct {
 	UtxoTreeRoots      []string `json:"utxo_tree_roots"`
 	NullifierTreeRoots []string `json:"nullifier_tree_roots"`
 	PrivateTxHash      string   `json:"private_tx_hash"`
-	P256MessageHash    string   `json:"p256_message_hash"`
 	ExternalDataHash   string   `json:"external_data_hash"`
 	PublicAssets       []string `json:"public_assets"`
 	PublicAmounts      []string `json:"public_amounts"`
@@ -38,7 +37,6 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 		UtxoTreeRoots:      parseFields(t, vector.UtxoTreeRoots),
 		NullifierTreeRoots: parseFields(t, vector.NullifierTreeRoots),
 		PrivateTxHash:      parseField(t, vector.PrivateTxHash),
-		P256MessageHash:    parseField(t, vector.P256MessageHash),
 		ExternalDataHash:   parseField(t, vector.ExternalDataHash),
 		ZoneProgramID:      parseField(t, vector.ZoneProgramID),
 		PayerPubkeyHash:    parseField(t, vector.PayerPubkeyHash),

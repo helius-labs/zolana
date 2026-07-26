@@ -247,7 +247,6 @@ pub(crate) struct PublicInputs<'a> {
     pub utxo_roots: &'a [[u8; 32]],
     pub nullifier_tree_roots: &'a [[u8; 32]],
     pub private_tx: &'a [u8; 32],
-    pub p256_message_hash: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
     pub public_movements: &'a PublicMovements,
     /// Per-tx zone program (pk_field-encoded); 0 on default transact.
@@ -278,8 +277,6 @@ impl PublicInputs<'_> {
             *self.zone_program_id,
             *self.payer_pubkey_hash,
             *self.allow_dummy_inputs,
-            // Variant-dependent tail: the P256 message, then the owner tags.
-            zolana_hasher::primitives::hash_bytes(self.p256_message_hash)?,
             create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
             // Confidential appendix (the client always uses the confidential variant).
             create_hash_chain_from_slice(self.output_owner_pk_hashes)?,

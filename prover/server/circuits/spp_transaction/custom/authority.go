@@ -1,7 +1,6 @@
 package customzone
 
 import (
-	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
@@ -9,9 +8,7 @@ import (
 
 // CustomZoneAuthorityPublic is the zone-authority rail's public-input-hash
 // preimage: the zone authority controls its zone-owned UTXOs, so no owner pk
-// hash is published (input owner tags stay private) and no P256 witness
-// exists; the p256_message_hash preimage slot is the constant the host feeds
-// (Poseidon(0, 0)), baked into publicInputHash.
+// hash is published (input owner tags stay private).
 type CustomZoneAuthorityPublic struct {
 	Nullifiers         []frontend.Variable
 	OutputHashes       []frontend.Variable
@@ -67,8 +64,8 @@ func NewCustomZoneAuthorityCircuit(shape shared.Shape) (*CustomZoneAuthorityCirc
 
 // transaction views this rail's witness as the shared transaction. Neither the
 // input nor the output owner tags are published on this rail, so the preimage
-// tail is empty; the message slot is the constant Poseidon(0, 0) the host feeds.
-func (c *CustomZoneAuthorityCircuit) transaction(api frontend.API) shared.Transaction {
+// tail is empty.
+func (c *CustomZoneAuthorityCircuit) transaction() shared.Transaction {
 	return shared.Transaction{
 		Shape:              c.Shape,
 		Nullifiers:         c.Public.Nullifiers,
@@ -85,14 +82,11 @@ func (c *CustomZoneAuthorityCircuit) transaction(api frontend.API) shared.Transa
 		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
-		PreimageTail: []frontend.Variable{
-			gadget.PoseidonHash(api, []frontend.Variable{0, 0}),
-		},
 	}
 }
 
 func (c *CustomZoneAuthorityCircuit) Define(api frontend.API) error {
-	tx := c.transaction(api)
+	tx := c.transaction()
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 	); err != nil {

@@ -340,7 +340,6 @@ func buildCircuitAssignmentExact(
 		UtxoTreeRoots:      utxoTreeRoots,
 		NullifierTreeRoots: nullifierTreeRoots,
 		PrivateTxHash:      privateTxHash,
-		P256MessageHash:    zeroP256MessageHashField(t),
 		ExternalDataHash:   externalDataHash,
 		PublicAssets:       publicAssets,
 		PublicAmounts:      signedAmounts,
@@ -418,14 +417,6 @@ func fillStateProofElements(pathElements []frontend.Variable, proofElements []*b
 	}
 }
 
-// zeroP256MessageHashField is the constant P256-message preimage slot the
-// eddsa-only rails bake into the public input hash: Poseidon(0, 0).
-func zeroP256MessageHashField(t testing.TB) *big.Int {
-	t.Helper()
-	value, err := protocol.HashBytes(make([]byte, 32))
-	return spptest.MustHash(t, value, err)
-}
-
 func refreshPublicInputHash(t testing.TB, assignment *testAssignment) {
 	refreshPublicInputHashVariant(t, assignment, false, false)
 }
@@ -438,7 +429,6 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, con
 		UtxoTreeRoots:      spptest.ToBigInts(assignment.InputUtxoRoots()),
 		NullifierTreeRoots: spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
 		PrivateTxHash:      spptest.AsBigInt(assignment.PrivateTxHash),
-		P256MessageHash:    zeroP256MessageHashField(t),
 		ExternalDataHash:   spptest.AsBigInt(assignment.ExternalDataHash),
 		ZoneProgramID:      spptest.AsBigInt(assignment.ZoneProgramID),
 		PayerPubkeyHash:    spptest.AsBigInt(assignment.PayerPubkeyHash),

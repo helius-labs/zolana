@@ -113,7 +113,6 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"utxo_tree_roots",
 		"nullifier_tree_roots",
 		"private_tx_hash",
-		"p256_message_hash",
 		"external_data_hash",
 		"public_asset_0",
 		"public_amount_0",

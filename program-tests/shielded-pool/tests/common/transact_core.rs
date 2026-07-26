@@ -85,7 +85,6 @@ pub fn public_input_hash(
         zero,
         *payer_pubkey_hash,
         one,
-        hash_bytes(&zero).expect("p256 message field"),
         create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
         create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
     ]);
