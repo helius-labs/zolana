@@ -2,8 +2,12 @@
 
 The single authoritative statement of what this work is, where it stands, and
 what is left. Everything needed to pick it up or review it is here or linked
-from here. Written at `efcd3bbc` on `ts-sdk-port`, pull request
+from here. Written against `ts-sdk-port` at `02e76a03`, pull request
 [#159](https://github.com/helius-labs/zolana/pull/159).
+
+`planning/` is stripped from the pull request branch so the diff shows only
+code, tests, fixtures, and spec amendments. This record lives on the side
+branch `ts-sdk-port-planning-record` (refresh branch `port/handover-refresh`).
 
 Other documents in this directory are working records and go stale. This one is
 refreshed deliberately. Where they disagree, this one wins, and the commands in
@@ -31,16 +35,23 @@ The port is 11 npm packages mirroring the Rust crates, plus `@zolana/hasher`,
 which has no Rust twin and carries the Rust Poseidon compiled to WebAssembly so
 five hand-written copies could be deleted.
 
+**Ready for production** means a green, reviewable pull request with correct
+publish metadata. Publishing happens separately after merge.
+
 ## Status
+
+Pinned to `ts-sdk-port` `02e76a03`. TypeScript CI run
+[30212983164](https://github.com/helius-labs/zolana/actions/runs/30212983164)
+is green end to end, including `typescript / e2e` and `typescript / merge gate`.
 
 | | |
 | --- | --- |
-| Review rows | 148 examined, 0 adverse. The 3 reopened interface rows closed, and the two uncounted packages gained seats |
-| Full SDK gates | 14 of 16 checked. The 2 open are named under [Remaining steps](#remaining-steps) |
+| Review rows | 148 examined, 0 adverse. All seats filled; `E03`/`E05`/`E06` closed |
+| Full SDK gates | 16 of 16 checked in [`review-checklist.md`](review-checklist.md) with named evidence. Several live-prove lines were recorded outside CI; see [What is not true yet](#what-is-not-true-yet) |
 | Package gates | 15 of 15 bullets closed on named evidence for every one of the eleven packages, walked in [`gate-packages.md`](row-updates/gate-packages.md) |
 | Cryptographic certification | All 15 suites landed: key-handling `K1` to `K10`, proof `P1` to `P5`, closing evidence `PKP-08` |
-| Branch health | Unit 2372 passing / 9 skipped, static clean, no fixture drift, packaging clean including a real `api:check`, `check:scope` clean, `rustfmt` clean |
-| External review | 44 findings, 0 invalid. Every row is now landed except the two filed as issues: 12 were already fixed, 16 landed here, 1 deferred to [#168](https://github.com/helius-labs/zolana/issues/168), 1 dismissed as pre-release |
+| Branch health | Unit 2392 passing / 9 skipped (`test:unit` in that CI run). Static, fixtures, packaging (including `api:check`), `check:scope`, `rustfmt`, and browser-runtime all green. Suites and e2e no longer red |
+| External review | 44 findings were raised against the PR. High and blocker rows were handled on this branch. Owner ruling for the remaining Medium and Low findings (~two dozen): file as follow-up issues after merge, do not fix in this PR. Program defects already filed: [#168](https://github.com/helius-labs/zolana/issues/168), [#169](https://github.com/helius-labs/zolana/issues/169) |
 
 ### What is proven
 
@@ -48,13 +59,31 @@ Each line below has a named artifact behind it, not a judgement.
 
 | Claim | Evidence |
 | --- | --- |
-| All eight flows work against real components | [`gate3-flows.md`](row-updates/gate3-flows.md): deposit, registration, sync on a live validator and Photon; split, merge, transfer, withdraw against the real prover. No flow rests on a mock |
-| Instruction bytes execute on same-revision programs | [`gate-submit.md`](row-updates/gate-submit.md): four spend flows landed on chain with recorded signatures, through pure TypeScript compression, no Rust fallback |
-| The indexer contract matches | [`gate6-photon.md`](row-updates/gate6-photon.md): 11 tests against a same-revision Photon, no field-shape disagreement; the suite fails when a field is deliberately renamed or retyped |
+| All eight flows work against real components | [`gate3-flows.md`](row-updates/gate3-flows.md): deposit, registration, sync on a live validator and Photon; split, merge, transfer, withdraw against the real prover. No flow rests on a mock. Suite still skips in CI until the opt-in wiring lands |
+| Instruction bytes execute on same-revision programs | [`gate-submit.md`](row-updates/gate-submit.md): four spend flows submitted and confirmed with recorded signatures, through pure TypeScript compression, no Rust fallback |
+| The indexer contract matches | [`gate6-photon.md`](row-updates/gate6-photon.md): 11 tests against a same-revision Photon, no field-shape disagreement; the suite fails when a field is deliberately renamed or retyped. A later local-only failure was a stale SBF binary, not a branch defect (harness now honours `CARGO_TARGET_DIR` and names the `just` recipe when a stack binary is missing) |
 | Both rails cover every shape | [`gate-shapes.md`](row-updates/gate-shapes.md): ten shapes, zone-authority restricted to the four squares, no drift across the four places the set is duplicated |
 | Browser support is real | `test:browser-runtime` runs Poseidon, SHA-256, HKDF, AES-CTR, Ed25519, and P256 vectors in headless Chromium, not a static import scan |
 | Secret-adjacent accessors don't alias | `keypair/test/vectors/aliasing-census.test.ts` mutates every returned buffer and asserts internal state holds |
-| CI runs the tier on pull requests | `.github/workflows/typescript.yml`: eight jobs plus an aggregating `merge-gate` |
+| CI runs the merge tier on pull requests, and it is green | `.github/workflows/typescript.yml`: nine jobs plus aggregating `merge-gate`. Latest run on `ts-sdk-port` succeeded for every job including e2e |
+| Paired SDK examples run in CI | TypeScript example via `test:e2e:example`; Rust `deposit_transfer_withdraw` via `cargo run -p client-example` in the e2e job (both green in run 30212983164) |
+
+CI posture versus Light Protocol is recorded in
+[`ci-comparison.md`](ci-comparison.md).
+
+### Landed since the last accurate handover
+
+Do not re-do these; they are on `ts-sdk-port` at the pin above.
+
+| Change | Why it mattered |
+| --- | --- |
+| Suites CI timeout fixed | Cold `cargo` compile of `groth16-verify` inside a test timed out the suites job. Vitest `globalSetup` (and a CI pre-build step) now build the oracle once |
+| E2e negative-signer test fixed | `createTestNativeSigner` had a catch-all that signed signature slot zero for a key that was not a required signer. It now refuses via the production signer path |
+| Base58, base64, compact-u16 on `@zolana/interface` | Wallet base64 accepted unpadded and non-canonical input; both compact-u16 decoders accepted Solana Alias encodings and u16 overflow that `solana_short_vec` rejects. Hex left duplicated on purpose |
+| Paired-example surface alignment | Actors are `sender`/`recipient` in both languages; TypeScript uses `SppProofInputUtxo`, `wait()`, and `assets`; `decryptTransactions` returns `Balances` with `getBalance(mint)`; Rust `WithdrawalTarget::Sol` field is `recipient`. Earlier: `assembleZoneAuthorityProofInputs`, `VIEW_TAG_LEN` |
+| Photon e2e harness hardening | Honours `CARGO_TARGET_DIR`; refuses loudly with the matching `just` recipe when a stack binary is missing; `ClientError.message` carries structured details for runners that only print the message |
+| `planning/` stripped from the PR branch | Record kept on `ts-sdk-port-planning-record` |
+| Fail-closed error-detail allow-list | Shared allow-list across keypair, client, wallet, and transaction (`port/redaction-close`) |
 
 ### The one defect worth knowing about
 
@@ -66,25 +95,30 @@ writes `c1` first, so correct bytes parsed into a genuinely off-curve point and
 the curve check refused valid proofs.
 
 Fixed at `c1a9b35e` by reading the limbs in gnark's order; curve validity now
-sits with the on-chain verifier, where Rust leaves it. All 16 live proofs
-compress in pure TypeScript and match Solana. This had blocked four spend flows
-from reaching the chain at all.
+sits with the Solana program verifier (`groth16-solana`), where Rust leaves it.
+All 16 live proofs compress in pure TypeScript and match Solana. This had
+blocked four spend flows from submitting at all.
 
 The lesson generalises, and it is why the remaining work is framed as evidence
 collection rather than documentation: **a comfortable explanation for a failing
-check is the most expensive thing in this port.**
+check is the most expensive thing in this port.** It is also why P4 must run the
+**full** shape set on every pull request once wired: P4 is the only suite that
+proves a TypeScript-produced and TypeScript-compressed proof verifies through
+the same `groth16-solana` path the program uses, and this class of bug slipped
+through while that suite stayed opt-in.
 
 ### What is not true yet
 
-Claims previously recorded that do not hold, all found by adversarial re-checks:
-
 | Claim | Reality |
 | --- | --- |
-| The export ledger is enforced | Was a scaffold that never parsed `public-exports.md`. Now real: `api:check` caught twelve undeclared differences on the surface reconciliation and reports a match for all eleven packages |
-| Fixture provenance is fresh | The manifest's `frozenCommit` is a deliberate historical pin, hundreds of commits behind current Rust. It is now defined in one file, `sdk-libs/ts/config/historical-baseline-commit`, so moving it moves all eighteen consumers together instead of leaving copies to rot |
-| All 145 rows are closed | Three interface rows, `E03`, `E05`, and `E06`, went back to `needs_re_review` and have since closed. 148 rows now, because the two uncounted packages gained seats |
-| Nine workspace packages | Eleven. `@zolana/hasher` and `@zolana/test-kit` were never counted, so they have had the least scrutiny of anything here |
-| `check:scope` describes CI | It omitted the Photon suite that `package.json` already ran. Fixed |
+| The four opt-in live suites run on every PR | Still env-gated and skipped in CI. Latest green e2e run skipped `prove-to-chain.live.test.ts` and `gate3-flows.live.test.ts`. Wiring is in flight on `port/surface-close` |
+| P4's full shape set is a PR gate | Local evidence exists (`test:p4:full` in [`gate-prover.md`](row-updates/gate-prover.md)). CI does not set `ZOLANA_TEST_P4` / `_FULL` yet. Owner ruling: when wired, PRs run the **full** set, not the fast subset |
+| `typescript / merge-gate` is a required status check | Jobs run on every matching PR but none is required. Needs repository admin. [`ci-comparison.md`](ci-comparison.md) §6: Light Protocol also has no API-visible required checks on `main`, so this is not a gap relative to them |
+| The pull request description is the review map | The nine-bucket reading-order skeleton is already in the PR body. A fuller description organized into those buckets (this handover promoted into the PR) is still to be written |
+| Packages are published / production-shipped | Publish metadata and pack checks exist. Publishing is a separate step after a green, reviewable PR |
+| The export ledger is enforced | Was a scaffold. Now real: `api:check` matches for all eleven packages |
+| Fixture provenance is "current Rust" | The manifest's `frozenCommit` is a deliberate historical pin. Defined once in `sdk-libs/ts/config/historical-baseline-commit` for all consumers |
+| Early gate adjudications still describe HEAD | [`gates.md`](row-updates/gates.md) marked gates OPEN/PARTIAL on an older revision. Prefer the checked boxes and evidence links in `review-checklist.md`, then re-run the commands below before citing a gate |
 
 ## Remaining steps
 
@@ -95,31 +129,18 @@ agent.** Do not touch a path another worker owns; report a gap in it instead.
 
 | Branch | Scope |
 | --- | --- |
-| `port/redaction-close` | Convert the last fail-open error-detail sanitizer, in `transaction`, to the same allow-list `keypair` and `client` now use, and audit the other eight packages for a third door |
+| `port/surface-close` | (1) Wire P4 (full shapes), P5, P5-hybrid, Gate 3, and live user-registry into CI on every PR. (2) Keep `initializePoseidon` on `@zolana/hasher` only. (3) Move `attempts` / `backoff` / `pollUntil` to `@zolana/client/retry`; rename over-generic `Data` to `OutputData`; document which `createAndSendTransaction` to prefer. Rust paired example already runs green in CI on `ts-sdk-port`; treat that confirmation as done unless the worker finds a regression |
 
-Everything else has landed and merged: the client surface reconciled onto the
-example shape, Rust-generated rejection and tamper fixtures, the coordination
-tooling deleted with CI path-filtered onto one shared build, the twelve ruled
-behavioural and smaller fixes, the fixture baseline commit defined in one file
-that eighteen machine-readable consumers now read, and the per-package gate walk
-closing all fifteen bullets on named evidence.
+### Queued after this PR merges (owner rulings)
 
-The merged branch is green: 2372 unit tests passing, 9 skipped, static, packaging
-with all eleven API reports matching, `check:scope`, `rustfmt`, and fixture
-provenance all clean.
-
-### Queued
-
-1. **Strip `planning/` to a side branch.** The last step, once the four live
-   branches merge. Owner ruling: the record survives, the pull request diff shows
-   only code, tests, fixtures, and spec amendments. That removes ~40,000 lines.
-   Promote this file to the pull request description before deleting the
-   directory.
-
-2. **Write these buckets into the pull request description**, exactly as below.
-   A conceptual map of what lives where, so a reviewer can find things. Not prose,
-   not a commit sequence, no explanation per bucket. Counts are approximate and
-   only worth refreshing if a bucket has drifted noticeably.
+1. **File the remaining Medium and Low findings as follow-up issues.** Roughly
+   two dozen. Do not fix them in [#159](https://github.com/helius-labs/zolana/pull/159).
+2. **Follow-up PRs for CI hygiene:** actionlint, Dependabot, and CodeQL. Wanted;
+   not part of this PR. Context and prioritization in
+   [`ci-comparison.md`](ci-comparison.md) §8.
+3. **Write the fuller pull request description** as a reading order over the
+   diff, organized into the nine buckets below. Not a commit sequence. The
+   skeleton is already in the PR body; promote substance from this file.
 
    ```text
    1  chore(spec): protocol authority updates              9 files   ~0.9k
@@ -160,10 +181,11 @@ provenance all clean.
 
 | Item | Why it is blocked |
 | --- | --- |
-| Make `typescript / merge-gate` a required status check on the default branch | Needs repository admin. All eight jobs run on every pull request but none is required, so a red suite does not block a merge today. Requiring the one aggregating job covers the whole tier and survives job renames |
+| Make `typescript / merge-gate` a required status check on the default branch | Needs repository admin. All tier jobs run on matching pull requests but none is required, so a red suite does not block a merge today. Requiring the one aggregating job covers the whole tier and survives job renames. Not a relative gap versus Light Protocol (see [`ci-comparison.md`](ci-comparison.md) §6) |
 
-Nothing else is waiting on a decision. Every register row is ruled, every gate
-line is owned, and the two open gate lines have workers on them.
+Nothing else is waiting on a decision. Every register row is ruled. Opt-in-suite
+CI policy (full P4 on PRs, plus P5 / hybrid / Gate 3 / user-registry) is ruled
+and owned by `port/surface-close`.
 
 ### Filed as follow-up work
 
@@ -199,11 +221,11 @@ this order and it is tractable.
 | Bucket | Lines | What it is |
 | --- | --- | --- |
 | TypeScript source | 25,408 | **The port. Start here.** |
-| TypeScript tests | 39,775 | Vector, property, oracle, and e2e suites |
+| TypeScript tests | 39,875 | Vector, property, oracle, and e2e suites |
 | Fixtures and vectors | 40,678 | Rust-generated. Do not read; regenerate and diff |
-| Markdown | 40,374 | Working records. Being stripped before merge |
+| Markdown | stripped from PR | Working records on `ts-sdk-port-planning-record` |
 | Rust SDK | 13,996 | Genuine Rust changes. Read these closely; see below |
-| `xtask` generators | 19,147 | Rust programs that emit the fixtures |
+| `xtask` generators | 19,147 | Rust programs that write the fixtures |
 | Other JSON, config, lockfiles | ~27,000 | Manifests and inventories |
 
 Two things deserve a reviewer's attention disproportionate to their size.
@@ -214,7 +236,7 @@ alter shipping behaviour rather than adding a second implementation of it. They
 exist because parity is symmetric: where TypeScript was right and Rust was wrong,
 Rust moved. The two that matter are the P256 RFC 6979 nonce derivation, where
 Rust passed an unreduced digest to `generate_k`, and a zero-length dummy
-ciphertext that made padded outputs distinguishable on the wire.
+ciphertext that made padded outputs distinguishable in the serialized bytes.
 
 A reviewer asked for these to be release-noted and versioned separately. The
 owner dismissed that: the crates are pre-release with no consumers, so there is
@@ -233,7 +255,7 @@ Do not trust the status table. Run these; they are the actual gates.
 
 ```bash
 npm install && npm run build      # build first; stale dist/ causes phantom failures
-npm run test:unit                 # 2290 pass / 9 skip
+npm run test:unit                 # 2392 pass / 9 skip at the CI pin above
 npm run check:static              # lint and typecheck
 npm run fixtures:check            # regenerates from Rust and diffs
 npm run check:packaging           # exports, dependencies, publish metadata, pack
@@ -245,8 +267,16 @@ Live suites need a validator, a same-revision Photon, and the prover. Set
 
 ```bash
 just build-programs
-ZOLANA_PORT_OFFSET=300 npm run test:e2e:gate3    # spend flows to chain
+ZOLANA_PORT_OFFSET=300 npm run test:e2e:gate3    # spend flows to chain (needs ZOLANA_TEST_GATE3=1 via the script)
 ZOLANA_PORT_OFFSET=800 npm run test:e2e:photon   # indexer contract
+```
+
+Opt-in prove suites (not yet in CI on `ts-sdk-port` HEAD):
+
+```bash
+npm run test:e2e:p5            # prove-to-chain
+npm run test:e2e:p5:hybrid     # same with Rust compress path
+# P4 full shape set: see @zolana/client scripts test:p4:full / ZOLANA_TEST_P4=1 ZOLANA_TEST_P4_FULL=1
 ```
 
 ## Working rules
@@ -260,6 +290,10 @@ Learned the expensive way; each carries the failure that produced it.
 - **Commit with an explicit pathspec.** `git commit -m "..." -- path1 path2`.
   A bare `git add` swept another agent's work into an unrelated commit.
 - **Resolve an open question the way Light Protocol resolved it,** unless we have
-  a specific reason not to. Recorded when it applies.
+  a specific reason not to. Recorded when it applies. CI comparison:
+  [`ci-comparison.md`](ci-comparison.md).
 - **Verify a finding before acting on it.** External reviews and prior sessions
   both produced claims that did not survive a check.
+- **Opt-in suites that catch compression or prove bugs must run on PRs.** The G2
+  limb-order defect is the proof. Coverage beats wall-clock for P4's full shape
+  set.
