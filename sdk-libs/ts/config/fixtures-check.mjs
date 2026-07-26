@@ -17,6 +17,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // `xtask` dispatch binary. A generator added there without a row here leaves
 // committed fixtures ungated.
 const generators = [
+  "indexer-schema-rejects",
   "merkle-semantics",
   "poseidon-parity",
   "program-libs-parity",
@@ -24,6 +25,7 @@ const generators = [
   "prover-request",
   "public-input-assembly",
   "retry-schedule",
+  "smart-account-rejects",
   "solana-rpc-groups",
   "solana-rpc-reads",
   "solana-rpc-send",
