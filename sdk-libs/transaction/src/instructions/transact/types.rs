@@ -8,7 +8,7 @@ use super::external_data::ExternalData;
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
-    utxo::{Blinding, ProofInputUtxo, Utxo},
+    utxo::{normalized_zone_data_hash, Blinding, ProofInputUtxo, Utxo},
 };
 
 /// Canonical ordering key for data records: `ZoneData` < `UtxoData` < `Memo`,
@@ -78,7 +78,7 @@ impl SppProofOutputUtxo {
         zone_data: Vec<u8>,
         zone_data_hash: [u8; 32],
     ) -> Self {
-        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_data_hash = normalized_zone_data_hash(zone_data_hash);
         self.zone_program_id = Some(zone_program_id);
         self.set_data_record(DataRecord::ZoneData(zone_data));
         self
@@ -98,7 +98,7 @@ impl SppProofOutputUtxo {
         zone_data_hash: [u8; 32],
     ) -> Self {
         self.zone_program_id = Some(zone_program_id);
-        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_data_hash = normalized_zone_data_hash(zone_data_hash);
         self
     }
 
@@ -303,6 +303,40 @@ mod tests {
             .expect("private tx hash");
 
         assert_eq!(transaction.hash().expect("transaction hash"), expected);
+    }
+
+    fn zone_output(zone_data_hash: [u8; 32]) -> SppProofOutputUtxo {
+        SppProofOutputUtxo {
+            asset: Address::default(),
+            amount: 7,
+            blinding: [5u8; 31],
+            ..Default::default()
+        }
+        .with_zone_data_hash(Address::new_from_array([9u8; 32]), zone_data_hash)
+    }
+
+    /// A zone that computes a policy digest generically may hand over an empty
+    /// one. The commitment cannot tell it from an absent digest, so the builder
+    /// stores absence and the two states stay in step.
+    #[test]
+    fn an_explicit_zero_zone_data_hash_is_stored_as_absence() {
+        let explicit = zone_output([0u8; 32]);
+        let absent = SppProofOutputUtxo {
+            asset: Address::default(),
+            amount: 7,
+            blinding: [5u8; 31],
+            zone_program_id: Some(Address::new_from_array([9u8; 32])),
+            ..Default::default()
+        };
+
+        assert_eq!(explicit.zone_data_hash, None);
+        assert_eq!(explicit, absent);
+        assert_eq!(explicit.hash().expect("hash"), absent.hash().expect("hash"));
+    }
+
+    #[test]
+    fn a_non_zero_zone_data_hash_is_kept() {
+        assert_eq!(zone_output([3u8; 32]).zone_data_hash, Some([3u8; 32]));
     }
 }
 

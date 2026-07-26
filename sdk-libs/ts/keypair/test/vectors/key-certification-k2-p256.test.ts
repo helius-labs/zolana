@@ -121,9 +121,10 @@ describe("K2 P256 signing and verification", () => {
     const signer = key();
     const digest = fromHex(recorded.canonicalDigestBytes);
     for (const length of [0, 32, 63, 65, 128]) {
-      expect(signer.verify(digest, new Uint8Array(length) as Bytes64), `width ${String(length)}`).toBe(
-        false,
-      );
+      expect(
+        signer.verify(digest, new Uint8Array(length) as Bytes64),
+        `width ${String(length)}`,
+      ).toBe(false);
     }
     const signature = fromHex(recorded.canonicalSignatureBytes) as Bytes64;
     expect(signer.verify(digest, signature.subarray(0, 63) as Bytes64)).toBe(false);

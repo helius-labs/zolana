@@ -68,7 +68,9 @@ describe("K3 Ed25519 signing and verification", () => {
     for (const width of [0, 1, 32, 63, 65, 128]) {
       const candidate = new Uint8Array(width);
       candidate.set(canonical.subarray(0, Math.min(width, 64)));
-      expect(signer.verify(new Uint8Array(), candidate as Bytes64), `width ${String(width)}`).toBe(false);
+      expect(signer.verify(new Uint8Array(), candidate as Bytes64), `width ${String(width)}`).toBe(
+        false,
+      );
     }
   });
 

@@ -33,8 +33,8 @@ const HISTORICAL_BASELINE_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f"
 /// last regenerated against. These stamp the output; they do not gate it. What
 /// catches drift is `--check`, which regenerates every fixture from the working
 /// tree and compares it byte for byte with the committed one.
-const BASELINE_SHA: &str = "dd497dcef14ae4d8bb5e60a68d178c2064ad635d";
-const INTERFACE_SHA: &str = "dd497dcef14ae4d8bb5e60a68d178c2064ad635d";
+const BASELINE_SHA: &str = "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71";
+const INTERFACE_SHA: &str = "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71";
 const MERKLE_SHA: &str = "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
