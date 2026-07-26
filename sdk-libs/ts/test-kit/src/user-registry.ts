@@ -10,7 +10,7 @@ import type {
 } from "@zolana/interface";
 import { findProgramAddress } from "@zolana/interface/pda";
 import { ShieldedKeypair } from "@zolana/keypair";
-import type { TransactionSigner } from "@zolana/wallet";
+import { createSolanaSigner, type TransactionSigner } from "@zolana/wallet";
 
 import { TestKitError } from "./error.js";
 
@@ -38,33 +38,7 @@ export function createTestNativeSigner(seed: Bytes32): TransactionSigner {
       },
     });
   }
-  const keypair = ShieldedKeypair.fromEd25519(new Uint8Array(seed) as Bytes32, 0);
-  const address = keypair.shieldedAddress().solanaAddress() as unknown as Address;
-  return Object.freeze({
-    address,
-    signNativeTransaction(transaction: Transaction): Promise<Transaction> {
-      try {
-        return Promise.resolve(placeNativeSignature(transaction, address, keypair));
-      } catch {
-        // Hand-built TestRpc messages often omit a complete legacy header.
-        // Fall back to a single-slot overwrite so those doubles keep working;
-        // real create-tree / createAndSendTransaction paths hit the placed path.
-        const signature = encodeBase58(keypair.sign(transaction.messageBytes)) as Signature;
-        return Promise.resolve(
-          Object.freeze({
-            messageBytes: new Uint8Array(transaction.messageBytes),
-            signatures: Object.freeze(
-              transaction.signatures.length <= 1
-                ? [signature]
-                : transaction.signatures.map((existing, index) =>
-                    index === 0 ? signature : existing,
-                  ),
-            ),
-          }),
-        );
-      }
-    },
-  });
+  return createSolanaSigner(ShieldedKeypair.fromEd25519(new Uint8Array(seed) as Bytes32, 0));
 }
 
 /**
@@ -87,72 +61,6 @@ export async function signTestTransaction(
     });
   }
   return signed;
-}
-
-function placeNativeSignature(
-  transaction: Transaction,
-  address: Address,
-  keypair: ShieldedKeypair,
-): Transaction {
-  const required = transaction.messageBytes[0] ?? 0;
-  if (required === 0 || transaction.signatures.length !== required) {
-    throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-      details: {
-        field: "transaction",
-        reason: "signatureCount",
-        required,
-        provided: transaction.signatures.length,
-      },
-    });
-  }
-  const index = signerSlot(transaction.messageBytes, required, address);
-  if (index === undefined) {
-    throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-      details: { field: "signer", reason: "notRequired", address },
-    });
-  }
-  const signatures = [...transaction.signatures];
-  signatures[index] = encodeBase58(keypair.sign(transaction.messageBytes)) as Signature;
-  return Object.freeze({
-    messageBytes: new Uint8Array(transaction.messageBytes),
-    signatures: Object.freeze(signatures),
-  });
-}
-
-function signerSlot(
-  messageBytes: Uint8Array,
-  required: number,
-  address: Address,
-): number | undefined {
-  let cursor = 3;
-  const [accountCount, afterCount] = readCompactU16(messageBytes, cursor);
-  cursor = afterCount;
-  for (let index = 0; index < accountCount; index++) {
-    const key = encodeBase58(messageBytes.subarray(cursor, cursor + 32));
-    cursor += 32;
-    if (index < required && key === address) return index;
-  }
-  return undefined;
-}
-
-function readCompactU16(bytes: Uint8Array, offset: number): readonly [number, number] {
-  let value = 0;
-  let shift = 0;
-  let cursor = offset;
-  for (let index = 0; index < 3; index++) {
-    const byte = bytes[cursor++];
-    if (byte === undefined) {
-      throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-        details: { field: "transaction", reason: "compactU16" },
-      });
-    }
-    value |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) return [value, cursor];
-    shift += 7;
-  }
-  throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-    details: { field: "transaction", reason: "compactU16" },
-  });
 }
 
 export function userRecordAddress(owner: Address): UserRecordAddress {
@@ -527,19 +435,6 @@ function decodeBase58(value: string, field: string): Uint8Array {
     });
   }
   return result;
-}
-
-function encodeBase58(value: Uint8Array): string {
-  let encoded = 0n;
-  for (const byte of value) encoded = encoded * 256n + BigInt(byte);
-  let result = "";
-  while (encoded > 0n) {
-    result = (BASE58[Number(encoded % 58n)] ?? "") + result;
-    encoded /= 58n;
-  }
-  let zeros = 0;
-  while (zeros < value.length && value[zeros] === 0) zeros++;
-  return "1".repeat(zeros) + result;
 }
 
 function concat(...parts: readonly Uint8Array[]): Uint8Array {

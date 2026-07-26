@@ -36,6 +36,7 @@ const DEFAULT_INDEXER_PORT = 8784;
 const DEFAULT_PROVER_PORT = 3001;
 const DEFAULT_FAUCET_PORT = 9900;
 const DEFAULT_METRICS_PORT = 9998;
+const DEFAULT_GOSSIP_PORT = 8000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const USER_REGISTRY_PROGRAM_ID = "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc";
 
@@ -73,17 +74,19 @@ export function localStackUrls(input: Readonly<{ portOffset?: number }> = {}): S
 }
 
 /**
- * The validator and the prover each open a second port that no URL names: the
- * faucet, which `solana-test-validator` defaults to 9900, and the prover's
- * metrics endpoint at 9998. Neither moves with `ZOLANA_PORT_OFFSET` unless it
- * is passed on the command line, so two clones running at different offsets
- * would both bind the defaults and the second stack would fail to start.
+ * The validator and the prover each open ports that no URL names: the faucet
+ * (default 9900), gossip (default 8000), and the prover's metrics endpoint
+ * (default 9998). None of those move with `ZOLANA_PORT_OFFSET` unless they are
+ * passed on the command line, so two clones at different offsets would both
+ * bind the defaults and the second stack would fail to start.
  */
 export function sidecarPorts(
   input: Readonly<{ rpcPort: number; proverPort: number }>,
-): Readonly<{ faucet: number; proverMetrics: number }> {
+): Readonly<{ faucet: number; gossip: number; proverMetrics: number }> {
+  const offset = input.rpcPort - DEFAULT_RPC_PORT;
   return Object.freeze({
-    faucet: DEFAULT_FAUCET_PORT + (input.rpcPort - DEFAULT_RPC_PORT),
+    faucet: DEFAULT_FAUCET_PORT + offset,
+    gossip: DEFAULT_GOSSIP_PORT + offset,
     proverMetrics: DEFAULT_METRICS_PORT + (input.proverPort - DEFAULT_PROVER_PORT),
   });
 }
@@ -132,11 +135,12 @@ export async function startLocalStack(
       const accountDirectory = path.join(temporaryDirectory, "accounts");
       await writeProgramConfigFixture(accountDirectory);
       await assertPortAvailable(urls.rpcUrl);
-      const faucetPort = sidecarPorts({
+      const sidecars = sidecarPorts({
         rpcPort: port(urls.rpcUrl),
         proverPort: port(urls.proverUrl),
-      }).faucet;
-      await assertPortAvailable(new URL(`http://127.0.0.1:${String(faucetPort)}`));
+      });
+      await assertPortAvailable(new URL(`http://127.0.0.1:${String(sidecars.faucet)}`));
+      await assertPortAvailable(new URL(`http://127.0.0.1:${String(sidecars.gossip)}`));
       owned.push(
         spawnOwned(
           process.env["SOLANA_TEST_VALIDATOR_BIN"] ?? "solana-test-validator",
@@ -144,7 +148,8 @@ export async function startLocalStack(
             "--reset",
             "--limit-ledger-size=10000",
             `--rpc-port=${String(port(urls.rpcUrl))}`,
-            `--faucet-port=${String(faucetPort)}`,
+            `--faucet-port=${String(sidecars.faucet)}`,
+            `--gossip-port=${String(sidecars.gossip)}`,
             "--bind-address=127.0.0.1",
             "--quiet",
             "--ledger",
