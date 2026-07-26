@@ -61,6 +61,7 @@
     - [subscribe_to_shielded_transactions_by_tags](#subscribe_to_shielded_transactions_by_tags)
     - [get_merkle_proofs](#get_merkle_proofs)
     - [get_non_inclusion_proofs](#get_non_inclusion_proofs)
+    - [get_nullifier_queue_elements](#get_nullifier_queue_elements)
   - [Prover](#prover)
   - [Relayer](#relayer)
   - [Zone RPC](#zone-rpc)
@@ -1950,11 +1951,11 @@ struct GetEncryptedUtxosByTagsResponse {
 struct EncryptedUtxoMatch {
     slot: u64,
     tx_signature: Signature,
-    tag: [u8; 32],
+    output_slot: OutputSlot,
     /// `None` when there is nothing to decrypt; see `ShieldedTransaction`.
     tx_viewing_pk: Option<P256Pubkey>,
-    /// Plaintext payload bytes when `tx_viewing_pk` is `None`.
-    ciphertext: Vec<u8>,
+    /// Transaction-level AES salt shared by every output ciphertext.
+    salt: Option<Vec<u8>>,
 }
 ```
 
@@ -1981,18 +1982,35 @@ struct ShieldedTransaction {
     /// `None` when there is nothing to decrypt: `proofless`, or a
     /// [Plaintext Transfer](#plaintext-transfer) blob.
     tx_viewing_pk: Option<P256Pubkey>,
+    /// Transaction-level AES salt shared by every output ciphertext.
+    salt: Option<Vec<u8>>,
     /// Output slots in UTXO-tree-append order. For `deposit`,
     /// each slot's `payload` is the serialized [`ProoflessOutput`](#general-event)
     /// from the emitted [`GeneralEvent`](#general-event); for
     /// [Plaintext Transfer](#plaintext-transfer), the plaintext bytes.
     output_slots: Vec<OutputSlot>,
+    /// Published data slots bound to no output commitment, republished verbatim.
+    messages: Vec<Message>,
     /// Public nullifiers consumed by this transaction.
     nullifiers: Vec<[u8; 32]>,
+    /// True when at least one output in this transaction is proofless.
+    proofless: bool,
+}
+
+struct OutputContext {
+    hash: [u8; 32],
+    tree: Address,
+    leaf_index: u64,
 }
 
 struct OutputSlot {
-    tag: [u8; 32],
-    hash: [u8;32],
+    view_tag: [u8; 32],
+    output_context: OutputContext,
+    payload: Vec<u8>,
+}
+
+struct Message {
+    view_tag: [u8; 32],
     payload: Vec<u8>,
 }
 ```
@@ -2078,6 +2096,35 @@ struct NonInclusionProof {
     /// directly into the corresponding `*_root_index` field on the consuming
     /// instruction.
     root_index: u16,
+}
+```
+
+### `get_nullifier_queue_elements`
+
+Returns queued nullifier values for the given nullifier tree with
+`input_queue_seq >= start_seq`, ordered ascending, up to `limit` elements. The
+nullifier tree forester replays these into its reference indexed Merkle tree to
+build batch address-append proofs; the on-chain queue keeps only bloom filters
+and hash chains, so the raw values must come from the indexer.
+
+```rust
+struct GetNullifierQueueElementsRequest {
+    tree_account: Address,
+    /// Return elements with `input_queue_seq >= start_seq` (default 0).
+    start_seq: u64,
+    /// Maximum number of elements to return.
+    limit: u32,
+}
+
+struct GetNullifierQueueElementsResponse {
+    context: Context,
+    elements: Vec<NullifierQueueElement>,
+}
+
+/// One queued nullifier, in on-chain input-queue order.
+struct NullifierQueueElement {
+    seq: u64,
+    value: [u8; 32],
 }
 ```
 
