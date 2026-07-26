@@ -1,6 +1,11 @@
 export const packageConfigurations = {
   hasher: {
-    entryPoints: ["."],
+    entryPoints: [".", "./slim"],
+    // The compiled artifact as a file, for consumers who can load one and
+    // would rather not download the base64 that expands to it. Not an entry
+    // point: nothing imports it, and the browser and packing checks would try
+    // to bundle it as JavaScript if it were listed as one.
+    assets: { "./poseidon.wasm": "./dist/poseidon.wasm" },
     dependencies: [],
     browser: true,
   },

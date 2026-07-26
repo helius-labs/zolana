@@ -2727,8 +2727,9 @@ fn oracle() -> Value {
 /// narrows the notes that count, and `skip_utxos` drops the note list while
 /// leaving the amount alone. An unregistered mint is a rejection on both calls.
 fn wallet_balances_section() -> Value {
-    let keypair = ShieldedKeypair::from_ed25519(&[71; 32], ViewingKey::from_seed(&[72; 32], 0).unwrap())
-        .expect("wallet keypair");
+    let keypair =
+        ShieldedKeypair::from_ed25519(&[71; 32], ViewingKey::from_seed(&[72; 32], 0).unwrap())
+            .expect("wallet keypair");
     let second = Address::new_from_array([73; 32]);
     let empty = Address::new_from_array([74; 32]);
     let unregistered = Address::new_from_array([75; 32]);
