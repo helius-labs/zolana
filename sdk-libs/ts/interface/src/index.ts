@@ -215,12 +215,6 @@ export interface MessageData {
   readonly data: Uint8Array;
 }
 
-export interface OutputUtxo {
-  readonly viewTag: Bytes32;
-  readonly utxoHash: Bytes32;
-  readonly data: Uint8Array;
-}
-
 export interface ResolvedOutput {
   readonly utxoHash: Bytes32;
   readonly ownerTag: Bytes32;

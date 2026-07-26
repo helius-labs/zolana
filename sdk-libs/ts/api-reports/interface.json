@@ -191,10 +191,6 @@
         "kind": "type"
       },
       {
-        "name": "OutputUtxo",
-        "kind": "type"
-      },
-      {
         "name": "ownerPkFieldCompressed",
         "kind": "value"
       },
