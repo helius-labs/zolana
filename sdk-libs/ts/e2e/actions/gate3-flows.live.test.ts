@@ -55,7 +55,7 @@ const DEPOSIT_AMOUNT = 1_000_000_000n;
 const SPLIT_PARTS = 2;
 const PER_PART = DEPOSIT_AMOUNT / BigInt(SPLIT_PARTS);
 const TRANSFER_AMOUNT = 100_000_000n;
-/** Distinct from P5 so two suites can run on one machine. */
+/** Same pin as P5 / actions; CI runs these suites sequentially. */
 const DEFAULT_OFFSET = 300;
 
 const suite = LIVE ? describe : describe.skip;

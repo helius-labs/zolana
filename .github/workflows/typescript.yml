@@ -358,6 +358,21 @@ jobs:
       # No log-collection step follows: the test kit keeps the last 8 KB of each
       # service's output in memory and attaches it to the failure it throws.
       - run: npm run check:e2e
+      # Opt-in live suites. Sequential on purpose: P5, P5-hybrid, and Gate 3 each
+      # assert ZOLANA_PORT_OFFSET=300 (same as test:e2e:actions), and the
+      # user-registry lifecycle hardcodes portOffset 500 (same as the paired TS
+      # example). Parallel jobs would collide on those ports. Each suite starts
+      # and tears down its own stack, so reuse after check:e2e is safe.
+      - name: Run P4 live cryptographic verification
+        run: npm run test:e2e:p4
+      - name: Run P5 prove-to-chain
+        run: npm run test:e2e:p5
+      - name: Run P5 hybrid (Rust compress)
+        run: npm run test:e2e:p5:hybrid
+      - name: Run Gate 3 flows
+        run: npm run test:e2e:gate3
+      - name: Run user-registry live lifecycle
+        run: npm run test:e2e:user-registry
       # Rust half of the paired SDK example. Step-scoped env only: must not set
       # job-level ZOLANA_PORT_OFFSET / service URLs (see comment above). Offset
       # 600 avoids 300/400/500/800 used by the TypeScript suites. setup() boots

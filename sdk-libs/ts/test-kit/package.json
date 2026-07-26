@@ -60,6 +60,7 @@
     "build": "node ../config/build.mjs test-kit",
     "typecheck": "node ../config/typecheck.mjs test-kit",
     "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:live:user-registry": "vitest run --config ../config/vitest.package.config.js test/user-registry.live.test.ts",
     "api:check": "node ../config/workspace-check.mjs api"
   }
 }
