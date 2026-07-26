@@ -7,10 +7,15 @@ reports were right; the corrections to them are in the sections below.
 
 | Row | Was | Now |
 | --- | --- | --- |
-| C03 `rpc.rs` | needs_fix / DIVERGENT | PARITY, one surface reduction recorded |
-| C04 `indexer.rs` | needs_fix / PARTIAL | PARITY on the decoder; one ruling unmet in `@zolana/api` |
+| C03 `rpc.rs` | needs_fix / DIVERGENT | PARTIAL: one implemented method has no port |
+| C04 `indexer.rs` | needs_fix / PARTIAL | PARTIAL: the decoder is parity, two items open |
 | C05 `solana_rpc.rs` | needs_fix / PARTIAL | PARITY, one decided divergence pinned |
 | C18 `prover/zone_authority.rs` | needs_fix / DIVERGENT | PARITY |
+
+A second pass over C03 and C04 found one more item on each, both after the
+sections below were first written and both verified in the Rust source. They are
+in **The one method that is not a stub** and **The two Rust twins disagree**, and
+they are why those two rows read PARTIAL here rather than PARITY.
 
 **Worktree collision.** A second agent was committing to `port/client-c` in this
 same worktree while this ran. It landed `c3ed4dac` on top of `3ab3f3dc`, and it
@@ -24,7 +29,7 @@ later, because the other agent's build had emptied that package's output
 mid-run. That is the stale-`dist/` trap the brief warns about, arriving from a
 direction rebuilding does not fix.
 
-## C03 `rpc.rs`: PARITY
+## C03 `rpc.rs`: PARTIAL
 
 ### The eight stubs hold up
 
@@ -35,6 +40,14 @@ implementor and no caller. Re-derived rather than credited: every method body in
 exceptions, `create_and_send_transaction` at `:222-233`, which reads a
 blockhash, compiles and sends, and `should_retry` at `:258-260`, whose default
 is the literal `false`.
+
+The defaulting is therefore not the evidence, and the earlier report reads as if
+it were. Because near enough every declaration on both traits defaults to
+`unsupported(..)`, including the ones that are real, what separates a stub from a
+method is whether a concrete implementor overrides the default. The implementors
+are `SolanaRpc` and `AsyncSolanaRpc` (`solana_rpc.rs:410`, `:553`),
+`ZolanaIndexer` and `AsyncZolanaIndexer`, and `ZolanaProgramTest`, which
+overrides five reads and nothing else (`sdk-libs/program-test/src/rpc.rs:67-105`).
 
 Searching the whole tree for each of the eight named methods finds them only in
 `rpc.rs` and in `client.rs`, where `ZolanaClient` forwards to another default:
@@ -86,7 +99,35 @@ straight off the RPC envelope. No capability is lost; the field is. Widening
 `RpcAccount` is a one-line change if the reconciler wants the row to be exact
 rather than equivalent.
 
-## C04 `indexer.rs`: PARITY on the decoder, one ruling unmet upstream
+### The one method that is not a stub, and it holds the row open
+
+`send_transaction_with_config` was counted with the eight and does not belong
+there. Both Solana adapters override it (`solana_rpc.rs:525-537` blocking, and
+the async twin at `:663`), `ZolanaClient` forwards it at `client.rs:611-616`, and
+the body passes a real `RpcSendTransactionConfig` to
+`send_and_confirm_transaction_with_spinner_and_config`, so `skip_preflight`,
+`preflight_commitment`, `encoding`, `max_retries` and `min_context_slot` all
+reach the node. TypeScript's `sendTransaction` hardcodes
+`{ encoding: "base64", preflightCommitment: "confirmed" }`
+(`sdk-libs/ts/client/src/solana-rpc.ts:277-284`) and takes no configuration
+parameter. A caller who needs preflight skipped, or a bound on the node's
+retries, can express that in Rust and cannot here.
+
+Not built on this branch, deliberately. The wire shape is chosen by
+`solana_rpc_client`, not by anything in this repository: which field names it
+emits, which it omits when unset, and what the spinner variant does with the
+`CommitmentConfig::confirmed()` argument that sits beside the config. Guessing
+would reintroduce the class of wrong request shape the reads oracle already
+caught twice.
+
+**What blocks C03:** an oracle case recording the request bytes
+`send_transaction_with_config` puts on the wire, for a default config and for one
+with `skip_preflight` and `max_retries` set. `xtask/src/bin/solana-rpc-reads.rs`
+cannot host it as it stands, because its listener answers once and this call
+confirms as well as sends, so it keeps polling. The repeated-answer listener in
+`solana-rpc-groups.rs` added here is the shape it needs.
+
+## C04 `indexer.rs`: PARTIAL
 
 ### The per-field split is intact
 
@@ -132,7 +173,40 @@ digits stay exact, but the behaviour is not the one ruled. `sdk-libs/ts/api`
 is row A01's file and the checklist already assigns the quoting there, so this is
 recorded rather than changed. **If the reconciler scores C04 against the ruling
 end to end, it stays PARTIAL until A01 stops quoting the five unbounded fields.**
-Scored against `indexer.rs` and its decoder alone, it is PARITY.
+Scored against the decoder alone, the integer domain is parity.
+
+### The two Rust twins disagree about merkle-proof completeness
+
+Blocking `ZolanaIndexer::get_merkle_proofs` (`sdk-libs/client/src/indexer.rs:284-301`)
+does something its async twin does not. On the branch where `wait_for_indexer` is
+**not** asked for, it polls `MERKLE_PROOF_POLL_INTERVAL` for up to
+`MERKLE_PROOF_POLL_TIMEOUT` (`:33-34`, 500 ms and 60 s) until
+`response.proofs.len() >= leaves.len()`, and on expiry returns the last transport
+error or a synthesized `merkle proofs for N leaves not indexed within 60s`.
+`AsyncZolanaIndexer::get_merkle_proofs` (`:409-439`) is one call through
+`wait_for_indexer_async` and whatever came back is the answer. The two constants
+are read by the blocking body alone.
+
+`getMerkleProofs` (`sdk-libs/ts/client/src/indexer.ts:95-117`) matches the async
+twin: `pollIndexer`, one request. So a caller asking for two proofs while the
+indexer is still catching up gets a one-proof response here, failing downstream
+at `CLIENT_MISSING_INPUT_MERKLE_PROOF`, where the blocking Rust caller waits and
+gets two.
+
+Q19 does not settle this and should not be used to close it. Q19 ruled on
+`sync_wallet` blocking where `sync_wallet_async` does not, and there the
+difference is one config field, so the blocking behaviour stays reachable from
+TypeScript by asking for it. Here the loop is hardcoded in the blocking body and
+gated on `wait_for_indexer` being *absent*, so no argument reaches it. The port
+carries the blocking twin's name.
+
+**What blocks C04:** a ruling on which twin `getMerkleProofs` follows. If the
+blocking one, the change is contained: poll the same interval until
+`proofs.length >= leaves.length` or the same timeout, only on the branch where
+`waitForIndexer` is unset, reusing the abort-aware `sleep`. It needs a
+`ClientError` code for the synthesized expiry, because Rust's is a bare
+`ClientError::Rpc(String)` with no variant to carry over. If the async one, the
+fix is a comment on both Rust bodies saying so, which is outside this branch.
 
 ### `with_http_trace` and `api()`
 
@@ -241,8 +315,43 @@ guarding the subpath. Fixed in `3ab3f3dc`.
 zone rails are reached through the prover module in both languages, so that is
 parity rather than a gap.
 
+Control edits, each observed to fail before the fix was kept: zeroing the payer
+hash the bridge passes through, caught at all four shapes; dropping the derived
+public leg in `prepareZoneAuthority`, caught by the two Rust oracle leg cases and
+by the transaction-package test.
+
+### Two asymmetries that are not divergences
+
+`assembleZoneAuthority` refuses an `SppProofInputs` carrying a P256 signature
+with `CLIENT_PROOF_RAIL_MISMATCH`, which Rust has no counterpart for.
+`ZoneAuthorityProver` takes `Vec<TransferSpendInput>` directly and has no field
+such a signature could arrive in, so the input is not expressible there.
+
+`resolve_shape(Some(shape), n_in, n_out)` returns the *declared* shape when the
+actual counts are no larger, so a hand-built `PreparedZoneAuthority` declaring
+2x2 while holding one input would be proved as 2x2. The bridge rebuilds
+`SppProofInputs`, whose constructor requires the slot counts to *be* a supported
+shape exactly, so it refuses. Neither `PreparedZoneAuthority::new` nor
+`prepareZoneAuthority` can produce that mismatch; it exists only for a struct
+literal, and the narrower side is the safe one.
+
+### The Rust-side hazard that still stands
+
+`ZoneAuthorityProver::zone_program_id` is `Option<Address>`
+(`zone_authority.rs:49`) and `program_id_field` maps `None` to the literal zero a
+default-zone transfer carries, so a Rust caller can build a zone-authority proof
+bound to no zone. TypeScript requires an `Address` and makes it unrepresentable
+(`zone.ts:48-56`). Already recorded on `port/client-b`; repeated because it is
+the only remaining asymmetry on the rail and it is Rust's to fix.
+
 ## Handoffs
 
+- **The owner, C04.** Rule on which `get_merkle_proofs` twin the port follows.
+  The row cannot close either way without it, and the blocking answer needs a new
+  `ClientError` code for the expiry.
+- **Whoever picks up C03.** Record `send_transaction_with_config`'s request bytes
+  with a repeated-answer oracle listener, then give `sendTransaction` the
+  configuration parameter. Both are described above.
 - **A01 (`sdk-libs/ts/api`).** Stop quoting unsafe integers for the five
   unbounded fields, or ask the owner to amend the ruling to allow the transport
   to preserve them. Today the ruled precision-loss refusal is unreachable
@@ -264,8 +373,9 @@ From `sdk-libs/ts`, after `npm run build`:
   that caught a real error on this branch lives in `lint:packages`, which only
   `check:static` reaches.
 
-`cargo build -p xtask --bin solana-rpc-groups` and
-`cargo run -p xtask --bin solana-rpc-groups -- --check` both clean, so the
+`cargo fmt -p xtask -- --check`, `cargo clippy -p xtask --bin solana-rpc-groups`
+under `-D warnings`, and
+`cargo run -p xtask --bin solana-rpc-groups -- --check` are all clean, so the
 grouping fixture is current against the Rust it was generated from.
 
 Not run: `cargo test -p zolana-client`, for the reason
