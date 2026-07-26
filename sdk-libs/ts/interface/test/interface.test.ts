@@ -374,7 +374,7 @@ describe("external data hash", () => {
       ...overrides,
     });
 
-    it.each([
+    it.each<[string, Partial<ExternalDataHashInput>]>([
       ["outputs", { outputs: Array.from({ length: MAX + 1 }, () => output) }],
       ["messages", { messages: Array.from({ length: MAX + 1 }, () => message) }],
       ["outputs[0].data", { outputs: [{ ...output, data: new Uint8Array(MAX + 1) }] }],
@@ -384,7 +384,7 @@ describe("external data hash", () => {
       expect(() => externalDataHash(bounded(overrides))).toThrow(
         expect.objectContaining({
           code: "INTERFACE_INVALID_INTEGER",
-          details: expect.objectContaining({ name, maximum: MAX, actual: MAX + 1 }),
+          details: { name, minimum: 0, maximum: MAX, actual: MAX + 1 },
         }),
       );
     });
