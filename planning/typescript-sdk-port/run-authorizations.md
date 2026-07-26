@@ -99,11 +99,10 @@ than the parallelism returned. Four is the cap until something finishes.
 
 ## The pull request at the end
 
-**Leave PR 159 open and green for review; do not merge it.** It carries more than
-450 commits, so it also needs its history grouped conceptually. A reviewer has to
-be able to find the deposit work, or the Poseidon work, without reading the whole
-log. Group by subject with commit ranges rather than rewriting history, which
-would be unsafe while agents are still committing.
+**Leave PR 159 open and green for review; do not merge it.** Grouping its history
+by subject was considered and dropped on 2026-07-26: finishing the stages is
+worth more than a navigable log, and rewriting history under agents that are
+still committing would be unsafe anyway.
 
 ## A failure mode that has already cost us
 
