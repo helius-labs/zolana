@@ -248,27 +248,38 @@ export class SolanaRpc implements Rpc {
   }
 
   /// The confirmed transaction, retried until the confirmation timeout while the
-  /// RPC still reports it as unknown.
+  /// RPC still reports it as unknown or fails to answer.
   async getConfirmedTransaction(
     signature: Signature,
     context?: RequestContext,
   ): Promise<JsonObject> {
     signatureBytes(signature);
     const started = Date.now();
-    for (let attempt = 1; ; attempt++) {
-      const result = await this.#call(
-        "getTransaction",
-        [
-          signature,
-          { commitment: "confirmed", encoding: "json", maxSupportedTransactionVersion: 0 },
-        ],
-        context,
-      );
+    const expired = (): boolean => Date.now() - started >= this.#confirmationTimeoutMs;
+    for (;;) {
+      let result: unknown;
+      try {
+        result = await this.#call(
+          "getTransaction",
+          [
+            signature,
+            { commitment: "confirmed", encoding: "json", maxSupportedTransactionVersion: 0 },
+          ],
+          context,
+        );
+      } catch (error) {
+        // `fetch_confirmed_transaction` retries every failure until the
+        // deadline, not only the unknown-transaction answer, so a validator
+        // that drops a request mid-confirmation does not fail the fetch. The
+        // sleep below ends the wait on an abort.
+        if (expired()) throw error;
+        await sleep(BigInt(CONFIRMATION_INTERVAL_MS), context);
+        continue;
+      }
       if (result !== null) return object(result, "result");
-      if (Date.now() - started >= this.#confirmationTimeoutMs) {
+      if (expired()) {
         throw new ClientError("CLIENT_RPC_TRANSACTION_NOT_FOUND", { details: { signature } });
       }
-      void attempt;
       await sleep(BigInt(CONFIRMATION_INTERVAL_MS), context);
     }
   }
