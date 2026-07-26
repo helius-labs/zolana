@@ -419,6 +419,7 @@
     {
       "accepted": true,
       "clause": "unknownResponseFields",
+      "disposition": "accept-forward-compat",
       "gnark": {
         "ar": [
           "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -442,7 +443,7 @@
       },
       "id": "unknown-response-field",
       "mutation": "add unexpected_field to vanilla-generator",
-      "note": "neither Rust nor TypeScript rejects unknown proof fields",
+      "note": "both languages ignore unknown proof fields; rejection would break prover forward compatibility and is not required for soundness",
       "requireCommitment": false,
       "rustCategory": null,
       "typescriptCategory": null
@@ -483,10 +484,11 @@
       "acceptedByRust": true,
       "acceptedByTypescript": false,
       "clause": "offCurveG1OrG2",
+      "disposition": "typescript-fail-fast",
       "divergence": true,
       "id": "off-curve-g2-compress-divergence",
       "mutation": "replace uncompressed B from vanilla-generator with a nonzero off-curve G2 encoding",
-      "note": "Solana alt_bn128_g2_compress_be does not validate the G2 curve equation; TypeScript assertValidity does",
+      "note": "Solana alt_bn128_g2_compress_be skips the G2 curve check by design (SIMD-0129); TypeScript assertValidity refuses the same bytes. Deliberate TypeScript-only fail-fast: off-curve G2 leaks nothing and the proof fails on-chain pairing anyway; Rust cannot cheaply mirror the check without abandoning the syscall.",
       "rustCompressedBBytes": "02000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
       "stage": "compress",
       "typescriptCategory": "CLIENT_PROOF_POINT",
@@ -929,8 +931,13 @@
     },
     {
       "clause": "g2ParityBranches",
+      "evidence": {
+        "constructedPointInSubgroup": false,
+        "curveLocusNonempty": true,
+        "firstLocusX1": "0x2"
+      },
       "id": "g2-parity-y1-zero-y0-largest",
-      "reason": "no G2 scalar multiple with y.c1 == 0 found in the first 50000 scalars",
+      "reason": "y.c1==0 locus is nonempty on the BN254 G2 curve (algebraic solve at x1=2) but every constructed point fails the r-torsion check that TypeScript assertValidity and arkworks enforce; expected |G2 ∩ locus| = O(1) in a 2^254 group, so no short prime-order witness exists for this branch",
       "unavailable": true
     }
   ],

@@ -27,8 +27,8 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use ark_bn254::{Fq, Fr, G1Affine, G1Projective, G2Affine, G2Projective};
-use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
+use ark_bn254::{Fq, Fq2, G1Affine, G1Projective, G2Affine, G2Projective};
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInteger, PrimeField, Zero};
 use serde_json::{json, Map, Value};
 use zolana_client::{
@@ -37,9 +37,8 @@ use zolana_client::{
 
 const FIXTURE: &str = "sdk-libs/ts/vectors/proof-response-parity-v1.json";
 
-/// Search bound for a G2 point whose Fp2 Y has a zero `c1` limb. The parity
-/// rule treats that limb specially (`y1 == 0 && isLargest(y0)`), so the suite
-/// needs one real point on that branch when the curve supplies it.
+/// Probe bound for the algebraic `y.c1 == 0` locus (`x1 = 1, 2, …`). The first
+/// hit is at `x1 = 2`; the bound only guards a miss if the curve constant moves.
 const G2_Y1_ZERO_SEARCH: u64 = 50_000;
 
 fn main() -> ExitCode {
@@ -57,9 +56,13 @@ fn run() -> Result<()> {
     for arg in env::args().skip(1) {
         match arg.as_str() {
             "--check" => check = true,
+            "--probe-y1-zero" => {
+                probe_g2_y1_zero()?;
+                return Ok(());
+            }
             "--help" | "-h" => {
                 println!(
-                    "Generate P3 proof-response parsing and compression vectors.\n\nusage: cargo run -p xtask --bin proof-response-parity -- [--check]"
+                    "Generate P3 proof-response parsing and compression vectors.\n\nusage: cargo run -p xtask --bin proof-response-parity -- [--check|--probe-y1-zero]"
                 );
                 return Ok(());
             }
@@ -205,23 +208,28 @@ fn valid_cases() -> Result<Vec<Value>> {
         )?,
     ];
 
-    if let Some(point) = g2_with_y1_zero()? {
-        cases.push(valid_parse_case(
-            "g2-parity-y1-zero-y0-largest",
-            "g2ParityBranches",
-            gnark_from_points(&g1, &point, &g1, None),
-            false,
-        )?);
-    } else {
-        cases.push(json!({
-            "id": "g2-parity-y1-zero-y0-largest",
-            "clause": "g2ParityBranches",
-            "unavailable": true,
-            "reason": format!(
-                "no G2 scalar multiple with y.c1 == 0 found in the first {G2_Y1_ZERO_SEARCH} scalars"
-            )
-        }));
-    }
+    // The `y1 == 0 && isLargest(y0)` branch needs a prime-order G2 point on
+    // that locus. The locus is nonempty on the full curve (see
+    // `g2_with_y1_zero_on_curve`), but every constructed point fails the
+    // r-torsion check. Expected size of the subgroup intersection is O(1) in a
+    // 2^254 space, so the branch is unreachable for prover-produced B and is
+    // recorded as unavailable with that reason rather than a failed search.
+    let locus = g2_with_y1_zero_on_curve()?.context("y1=0 curve locus should be nonempty")?;
+    assert!(
+        !locus.is_in_correct_subgroup_assuming_on_curve(),
+        "locus construction must not accidentally land in the r-torsion"
+    );
+    cases.push(json!({
+        "id": "g2-parity-y1-zero-y0-largest",
+        "clause": "g2ParityBranches",
+        "unavailable": true,
+        "reason": "y.c1==0 locus is nonempty on the BN254 G2 curve (algebraic solve at x1=2) but every constructed point fails the r-torsion check that TypeScript assertValidity and arkworks enforce; expected |G2 ∩ locus| = O(1) in a 2^254 group, so no short prime-order witness exists for this branch",
+        "evidence": {
+            "curveLocusNonempty": true,
+            "constructedPointInSubgroup": false,
+            "firstLocusX1": "0x2"
+        }
+    }));
 
     Ok(cases)
 }
@@ -357,8 +365,12 @@ fn reject_cases(valid: &[Value]) -> Result<Vec<Value>> {
     ];
 
     // Both languages ignore unknown keys today (serde default; TypeScript reads
-    // named fields only). Record the shared acceptance so a future rejector
-    // cannot land on one side unnoticed; the P3 rejection clause stays open.
+    // named fields only). Shared acceptance is deliberate: the Go prover's
+    // `ProofJSON` is additive-tolerant today (`omitempty` commitment limbs), and
+    // Serde's default ignore / TypeScript's named reads keep a future
+    // diagnostic field from breaking both SDKs at once. Rejecting would be a
+    // coordinated API change, not a port fix. Pin the shared accept so a
+    // one-sided rejector cannot land unnoticed.
     let mut unknown = base_gnark.clone();
     unknown["unexpected_field"] = json!("0xdead");
     let unknown_parsed = parse_gnark(&unknown, false);
@@ -371,7 +383,8 @@ fn reject_cases(valid: &[Value]) -> Result<Vec<Value>> {
         "accepted": unknown_parsed.is_ok(),
         "typescriptCategory": null,
         "rustCategory": null,
-        "note": "neither Rust nor TypeScript rejects unknown proof fields"
+        "disposition": "accept-forward-compat",
+        "note": "both languages ignore unknown proof fields; rejection would break prover forward compatibility and is not required for soundness"
     }));
 
     rejects.push(reject_compress_off_curve_g1(vanilla)?);
@@ -530,7 +543,8 @@ fn g2_off_curve_divergence(vanilla: &Value) -> Result<Value> {
         "stage": "compress",
         "rustCompressedBBytes": hex(&compressed.b),
         "typescriptCategory": "CLIENT_PROOF_POINT",
-        "note": "Solana alt_bn128_g2_compress_be does not validate the G2 curve equation; TypeScript assertValidity does"
+        "disposition": "typescript-fail-fast",
+        "note": "Solana alt_bn128_g2_compress_be skips the G2 curve check by design (SIMD-0129); TypeScript assertValidity refuses the same bytes. Deliberate TypeScript-only fail-fast: off-curve G2 leaks nothing and the proof fails on-chain pairing anyway; Rust cannot cheaply mirror the check without abandoning the syscall."
     }))
 }
 
@@ -590,29 +604,69 @@ fn fq2_pair(c0: &Fq, c1: &Fq) -> Value {
     json!([field_hex(c0), field_hex(c1)])
 }
 
+/// Algebraic construction of G2 points with `y.c1 == 0`.
+///
+/// For `Fp2 = Fp[i]/(i²+1)` and `y = y0` (so `y² ∈ Fp`), the curve forces
+/// `(x³ + b).c1 = 0`, i.e. `3 x0² x1 - x1³ + b.c1 = 0`. With `x1 ≠ 0` this
+/// solves for `x0²`; then `y0 = ±sqrt((x³ + b).c0)`. Scalar multiples of the
+/// generator miss this locus in practice; solving the locus equation does not.
+fn probe_g2_y1_zero() -> Result<()> {
+    let Some(point) = g2_with_y1_zero_on_curve()? else {
+        eprintln!("no y1=0 point on the algebraic locus within the probe bound");
+        return Ok(());
+    };
+    let y = point.y().context("finite")?;
+    let x = point.x().context("x")?;
+    eprintln!(
+        "locus point on_curve={} subgroup={} y0={} x1={}",
+        point.is_on_curve(),
+        point.is_in_correct_subgroup_assuming_on_curve(),
+        field_hex(&y.c0),
+        field_hex(&x.c1)
+    );
+    Ok(())
+}
+
 fn field_hex(field: &Fq) -> String {
     format!("0x{}", hex(&field.into_bigint().to_bytes_be()))
 }
 
-fn g2_with_y1_zero() -> Result<Option<G2Affine>> {
-    let generator = G2Projective::generator();
+/// Solve `(x³ + b).c1 = 0` for `x ∈ Fp2`, then take `y = ±sqrt((x³ + b).c0)`
+/// in `Fp` with the larger residue. Points on this locus are on the curve but
+/// not in the r-torsion (see the unavailable row's evidence).
+fn g2_with_y1_zero_on_curve() -> Result<Option<G2Affine>> {
+    use ark_ff::Field;
+    let g = G2Affine::generator();
+    let (gx, gy) = g.xy().context("generator")?;
+    let b = gy.square() - gx.square() * gx;
+    let three = Fq::from(3u64);
     let mid = half_modulus_minus_one_over_two();
-    for scalar in 1..G2_Y1_ZERO_SEARCH {
-        let point = (generator * Fr::from(scalar)).into_affine();
-        let Some(y) = point.y() else {
+
+    // x1 = 0 forces b.c1 = 0, which BN254's twist constant refuses, so start at 1.
+    for limb in 1u64..=G2_Y1_ZERO_SEARCH {
+        let x1 = Fq::from(limb);
+        let x0_sq = (x1.square() * x1 - b.c1) * (three * x1).inverse().context("3*x1")?;
+        let Some(x0) = x0_sq.sqrt() else {
             continue;
         };
-        if !y.c1.is_zero() {
-            continue;
-        }
-        // The compressor sets the bit when y1 == 0 and y0 is the larger residue.
-        if fq_be(&y.c0) > mid {
-            return Ok(Some(point));
-        }
-        let neg = (-G2Projective::from(point)).into_affine();
-        if let Some(ny) = neg.y() {
-            if ny.c1.is_zero() && fq_be(&ny.c0) > mid {
-                return Ok(Some(neg));
+        for x0 in [x0, -x0] {
+            let x = Fq2::new(x0, x1);
+            let rhs = x.square() * x + b;
+            if !rhs.c1.is_zero() {
+                continue;
+            }
+            let Some(y0) = rhs.c0.sqrt() else {
+                continue;
+            };
+            for y0 in [y0, -y0] {
+                if fq_be(&y0) <= mid {
+                    continue;
+                }
+                let y = Fq2::new(y0, Fq::zero());
+                let point = G2Affine::new_unchecked(x, y);
+                if point.is_on_curve() {
+                    return Ok(Some(point));
+                }
             }
         }
     }

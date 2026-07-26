@@ -399,9 +399,14 @@ impl PreparedTransfer {
             inputs.push(SppProofInputUtxo::new_dummy());
         }
 
-        // Length-matched random ciphertext for every position without a real
-        // encoding: padded slots and zero-value change slots.
-        let dummy_len = if slots.iter().any(|slot| slot.is_none()) || dummy_recipient_count > 0 {
+        // Dummy length is derived only when some final output position lacks an
+        // encoding. Index by output position (not `slots.iter()`): a short
+        // all-`Some` payload has no `None` entries, yet missing indices still
+        // need length-matched dummies — otherwise the wire carries empty
+        // ciphertexts distinguishable from real ones.
+        let needs_dummy_ciphertext = (0..outputs.len())
+            .any(|index| slots.get(index).and_then(|slot| slot.as_ref()).is_none());
+        let dummy_len = if needs_dummy_ciphertext {
             let throwaway = ViewingKey::new();
             dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt)?
         } else {
@@ -711,5 +716,115 @@ mod tests {
                 SignatureType::Ed25519
             );
         }
+    }
+
+    fn transfer_input(
+        sender: &ShieldedKeypair,
+        amount: u64,
+    ) -> crate::instructions::types::SppProofInputUtxo {
+        use crate::{instructions::types::SppProofInputUtxo, utxo::Utxo};
+
+        SppProofInputUtxo::new(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: SOL_MINT,
+                amount,
+                blinding: random_blinding(),
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            sender,
+        )
+    }
+
+    fn ciphertext_lens(proof: &SppProofInputs) -> Vec<usize> {
+        proof
+            .external_data
+            .outputs
+            .iter()
+            .map(|output| output.data.as_ref().map(|data| data.len()).unwrap_or(0))
+            .collect()
+    }
+
+    /// A short finalize payload used to omit encodings without inserting `None`
+    /// entries. Indexing only the payload's existing slots would miss those
+    /// holes and emit zero-length dummies; indexing by output position does not.
+    #[test]
+    fn short_finalize_payload_length_matches_real_ciphertexts() {
+        use crate::AssetRegistry;
+
+        let sender = ShieldedKeypair::new().unwrap();
+        let owner = sender.shielded_address().unwrap();
+        let transfer = ConfidentialTransfer::new(
+            owner,
+            vec![transfer_input(&sender, 100)],
+            Address::default(),
+        )
+        .with_shape(Shape::IN1_OUT2);
+        let prepared = transfer.prepare().unwrap();
+        assert_eq!(prepared.outputs.len(), prepared.shape.n_outputs());
+
+        let salt = [9u8; SALT_LEN];
+        let short = prepared
+            .finalize(ViewingKey::new().pubkey(), salt, vec![])
+            .expect("sender-slot dummies finalize without a payload");
+        let honest = ConfidentialTransfer::new(
+            owner,
+            vec![transfer_input(&sender, 100)],
+            Address::default(),
+        )
+        .with_shape(Shape::IN1_OUT2)
+        .sign(&sender, &AssetRegistry::default())
+        .unwrap();
+
+        let short_lens = ciphertext_lens(&short);
+        let honest_lens = ciphertext_lens(&honest);
+        assert_eq!(short_lens.len(), 2);
+        assert_eq!(short_lens, honest_lens);
+        assert!(short_lens.iter().all(|len| *len > 0));
+    }
+
+    /// Shape padding is routine (`canonical_shape` rounds up). Real and dummy
+    /// output ciphertexts must share one derived length so padding cannot reveal
+    /// the recipient count.
+    #[test]
+    fn padded_finalize_keeps_real_and_dummy_ciphertext_lengths_equal() {
+        use crate::AssetRegistry;
+
+        let sender = ShieldedKeypair::new().unwrap();
+        let owner = sender.shielded_address().unwrap();
+        let recipient = ShieldedKeypair::new()
+            .unwrap()
+            .shielded_address()
+            .unwrap();
+
+        let change_only = ConfidentialTransfer::new(
+            owner,
+            vec![transfer_input(&sender, 100)],
+            Address::default(),
+        )
+        .with_shape(Shape::IN2_OUT3)
+        .sign(&sender, &AssetRegistry::default())
+        .unwrap();
+
+        let mut with_recipient = ConfidentialTransfer::new(
+            owner,
+            vec![transfer_input(&sender, 100)],
+            Address::default(),
+        )
+        .with_shape(Shape::IN2_OUT3);
+        with_recipient.send(&recipient, SOL_MINT, 60).unwrap();
+        let with_recipient = with_recipient
+            .sign(&sender, &AssetRegistry::default())
+            .unwrap();
+
+        let change_lens = ciphertext_lens(&change_only);
+        let recipient_lens = ciphertext_lens(&with_recipient);
+        assert_eq!(change_lens.len(), 3);
+        assert_eq!(recipient_lens.len(), 3);
+        let expected = recipient_lens[0];
+        assert!(expected > 0);
+        assert!(change_lens.iter().all(|len| *len == expected));
+        assert!(recipient_lens.iter().all(|len| *len == expected));
     }
 }
