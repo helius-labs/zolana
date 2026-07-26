@@ -416,4 +416,41 @@ describe("wallet actions", () => {
       }),
     ).rejects.toThrow(expect.objectContaining({ code: "WALLET_UNSIGNED_INPUT_UNAVAILABLE" }));
   });
+
+  // The caller's signer stands in for `Transaction::try_sign`, whose failure
+  // `sign_private_transaction` reports as `SolanaTransactionSigning`. A fee
+  // payer that cannot sign must be identifiable by the same code here.
+  it("names a fee payer that cannot sign as Rust's signing failure", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = fundedWallet([10n], SOL_MINT, keypair);
+    const client = {
+      rpc: rpc(),
+      finishSubmissionUnsigned: () =>
+        Promise.resolve({ messageBytes: Uint8Array.of(1), signatures: [undefined] }),
+    } as unknown as ZolanaClient;
+
+    await expect(
+      signPrivateTransaction({
+        transaction: createWithdrawal({
+          wallet,
+          payer: OWNER,
+          recipient: TREE,
+          asset: SOL_MINT,
+          amount: 5n,
+        }).transaction,
+        wallet,
+        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        client,
+        feePayer: {
+          address: OWNER,
+          signNativeTransaction: () => Promise.reject(new Error("keystore locked")),
+        },
+      }),
+    ).rejects.toThrow(
+      expect.objectContaining({
+        code: "WALLET_SIGN_PRIVATE_TRANSACTION",
+        causeCode: "CLIENT_SOLANA_TRANSACTION_SIGNING",
+      }),
+    );
+  });
 });

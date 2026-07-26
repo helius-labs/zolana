@@ -62,8 +62,6 @@ const NARROWED_INTO_FINER_CODES: Readonly<
 
 /** Canonical variants no TypeScript path reaches, each with the Rust producer that has no port. */
 const NO_TYPESCRIPT_PRODUCER: Readonly<Partial<Record<CanonicalClientErrorCode, string>>> = {
-  CLIENT_SOLANA_TRANSACTION_SIGNING:
-    "sdk-libs/wallet/src/actions/transaction.rs signs natively; @zolana/wallet delegates to the caller's TransactionSigner and propagates its rejection",
   CLIENT_ACCOUNT_NOT_FOUND:
     "constructed only by program-tests/spp-test-validator/tests/deposit_action.rs, not by either SDK",
   CLIENT_DEPOSIT_SENDER_NOT_SIGNER:

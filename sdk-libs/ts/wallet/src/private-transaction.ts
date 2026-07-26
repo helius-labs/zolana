@@ -1,4 +1,4 @@
-import { type SignedPrivateTransaction, type ZolanaClient } from "@zolana/client";
+import { ClientError, type SignedPrivateTransaction, type ZolanaClient } from "@zolana/client";
 import type { Address, Bytes32, RequestContext, Transaction } from "@zolana/interface";
 import type { ShieldedAddress } from "@zolana/keypair";
 import {
@@ -210,10 +210,25 @@ export async function signPrivateTransaction(
       { ...input, feePayer: input.feePayer.address },
       context,
     );
-    return await input.feePayer.signNativeTransaction(transaction);
+    try {
+      return await input.feePayer.signNativeTransaction(transaction);
+    } catch (signingCause) {
+      // The signer stands in for `Transaction::try_sign`, whose failure Rust
+      // reports as `ClientError::SolanaTransactionSigning`. Naming the same
+      // error here keeps a fee payer that cannot sign identifiable across both
+      // SDKs instead of arriving as whatever the caller's signer threw.
+      throw new ClientError("CLIENT_SOLANA_TRANSACTION_SIGNING", {
+        details: { reason: reasonOf(signingCause) },
+        cause: signingCause,
+      });
+    }
   } catch (cause) {
     throw wrapWalletError("WALLET_SIGN_PRIVATE_TRANSACTION", cause);
   }
+}
+
+function reasonOf(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function p256SignatureBytes(signature: Readonly<{ r: Bytes32; s: Bytes32 }>): Uint8Array {
