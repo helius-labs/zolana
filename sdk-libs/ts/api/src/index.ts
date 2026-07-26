@@ -632,8 +632,10 @@ function hasControlCharacter(value: string): boolean {
 }
 
 function safeSchemaPath(path: string): string | undefined {
+  // Wire fields are snake_case; request builders also surface camelCase paths
+  // (`cursor`, `treeAccount`, `nextCursor`) when validation fails before encode.
   const knownField =
-    "(?:block_time|context|elements|hash|high_element|high_element_index|leaf|leaf_index|leaves|limit|low_element|low_element_index|matches|merkle_context|next_cursor|nullifiers|output_context|output_slot|output_slots|path|payload|proofless|proofs|root|root_index|root_seq|salt|seq|slot|start_seq|tags|transactions|tree|tree_account|tree_type|tx_signature|tx_viewing_pk|value|view_tag)";
+    "(?:block_time|blockTime|context|cursor|elements|hash|high_element|highElement|high_element_index|highElementIndex|leaf|leaf_index|leafIndex|leaves|limit|low_element|lowElement|low_element_index|lowElementIndex|matches|merkle_context|merkleContext|next_cursor|nextCursor|nullifiers|output_context|outputContext|output_slot|outputSlot|output_slots|outputSlots|path|payload|proofless|proofs|root|root_index|rootIndex|root_seq|rootSeq|salt|seq|slot|start_seq|startSeq|tags|transactions|tree|tree_account|treeAccount|tree_type|treeType|tx_signature|txSignature|tx_viewing_pk|txViewingPk|value|view_tag|viewTag)";
   const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
   return path.length <= 256 && pattern.test(path) ? path : undefined;
 }

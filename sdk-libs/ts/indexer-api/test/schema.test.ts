@@ -7,6 +7,8 @@ import {
   GET_NULLIFIER_QUEUE_ELEMENTS,
   GET_SHIELDED_TRANSACTIONS_BY_TAGS,
   IndexerSchemaError,
+  MIN_PAGE_LIMIT,
+  PAGE_LIMIT,
   base64String,
   hash,
   hashBytes,
@@ -85,8 +87,8 @@ describe("indexer schema", () => {
     const first = hashBytes(encoded);
     first[0] = 7;
     expect(hashBytes(encoded)).toEqual(new Uint8Array(32));
-    expect(limit(1n)).toBe(1n);
-    expect(limit(1000n)).toBe(1000n);
+    expect(limit(MIN_PAGE_LIMIT)).toBe(MIN_PAGE_LIMIT);
+    expect(limit(PAGE_LIMIT)).toBe(PAGE_LIMIT);
   });
 
   it("rejects malformed scalar values and limit boundaries", () => {
@@ -97,8 +99,26 @@ describe("indexer schema", () => {
       "INDEXER_SCHEMA_HASH_WRONG_SIZE",
       "$",
     );
-    expectSchemaError(() => limit(0n), "INDEXER_SCHEMA_INVALID_LIMIT", "$");
-    expectSchemaError(() => limit(1001n), "INDEXER_SCHEMA_INVALID_LIMIT", "$");
+    expectSchemaError(() => limit(MIN_PAGE_LIMIT - 1n), "INDEXER_SCHEMA_INVALID_LIMIT", "$");
+    expectSchemaError(() => limit(PAGE_LIMIT + 1n), "INDEXER_SCHEMA_INVALID_LIMIT", "$");
+  });
+
+  it("keeps page-limit validation on the exported constants", () => {
+    expect(() =>
+      getNullifierQueueElementsMethod.encodeRequest({
+        treeAccount: HASH,
+        limit: PAGE_LIMIT,
+      }),
+    ).not.toThrow();
+    expectSchemaError(
+      () =>
+        getNullifierQueueElementsMethod.encodeRequest({
+          treeAccount: HASH,
+          limit: PAGE_LIMIT + 1n,
+        }),
+      "INDEXER_SCHEMA_INVALID_LIMIT",
+      "$.limit",
+    );
   });
 
   it("does not retain rejected wire strings in errors", () => {

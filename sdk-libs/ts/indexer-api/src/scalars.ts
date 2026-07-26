@@ -224,7 +224,12 @@ export function hashBytes(value: Hash): Bytes32 {
 
 export function limit(value: bigint): Limit {
   if (typeof value !== "bigint" || value < MIN_PAGE_LIMIT || value > PAGE_LIMIT) {
-    return fail("INDEXER_SCHEMA_INVALID_LIMIT", "$", "an integer from 1 through 1000", value);
+    return fail(
+      "INDEXER_SCHEMA_INVALID_LIMIT",
+      "$",
+      `an integer from ${MIN_PAGE_LIMIT.toString()} through ${PAGE_LIMIT.toString()}`,
+      value,
+    );
   }
   return value as Limit;
 }
