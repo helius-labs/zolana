@@ -743,9 +743,12 @@ part needs, plus a `gate scope` job that fails when `check` grows a sub-script t
 run and a `merge gate` job that fails unless the five succeeded. The tier layout is recorded under
 [continuous integration tiers](testing-and-conformance.md#continuous-integration-tiers).
 
-Remaining: the gate is red at the revision that added it, on G8-1 fixture drift, the `lint:packages`
-backlog, and a `globalThis.process` read in the client prover bundle. Those are the defects the gate
-exists to surface, so each is reported rather than excluded.
+Remaining at the revision that added the workflow included `lint:packages` and a
+`globalThis.process` read in the client prover bundle. The G8-1 fixture-drift
+failure described when this finding was first recorded no longer occurs:
+`fixtures:check` regenerates from the working tree and exits 0, and the
+source-hash pin against `43fde8e4` was removed under
+[Q6](authority-rulings.md#q6-the-frozen-source-gate).
 
 ### G9-2 The aggregate `check` script omits most certification gates (`blocker`)
 

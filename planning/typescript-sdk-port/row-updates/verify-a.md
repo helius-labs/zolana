@@ -33,12 +33,11 @@ The interface half the row also named is present: `interface/src/index.ts`
 exports the root constants, and `interface/test/vectors/rust-oracle.test.ts`
 pins `SHIELDED_POOL_PROGRAM_ID` against the Rust oracle.
 
-**True but out of scope for the port:**
-[production-readiness-issues.md](../production-readiness-issues.md) G8-1 and
-[testing-and-conformance.md](../testing-and-conformance.md) still describe the
-old red gate and the old `43fde8e4` baseline pin. That is planning prose, not an
-`interface` behaviour gap, and it is what the fixture-gate / docs owners should
-update.
+**Planning prose, corrected elsewhere:**
+[production-readiness-issues.md](../production-readiness-issues.md) G9-1 and
+[testing-and-conformance.md](../testing-and-conformance.md) no longer describe
+`fixtures:check` as failing on a `43fde8e4` source pin. That was documentation
+drift, not an `interface` behaviour gap.
 
 ## K11 `sdk-libs/keypair/src/traits/view_key.rs` -> PARITY
 

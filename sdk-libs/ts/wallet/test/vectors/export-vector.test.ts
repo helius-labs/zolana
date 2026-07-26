@@ -140,9 +140,15 @@ describe("wallet export vectors", () => {
         amount: 1n,
       }),
     ).toThrow(expect.objectContaining({ code: "WALLET_INSUFFICIENT_BALANCE" }));
+    // Rust `ConfidentialTransfer::new` accepts an empty list; `NoInputs` is
+    // raised later from `prepare` / `first_nullifier`.
     let transactionCode = "";
     try {
-      new ConfidentialTransfer(empty.identity, [], "11111111111111111111111111111111" as Address);
+      new ConfidentialTransfer(
+        empty.identity,
+        [],
+        "11111111111111111111111111111111" as Address,
+      ).prepare();
     } catch (error) {
       transactionCode = (error as { code?: string }).code ?? "";
     }

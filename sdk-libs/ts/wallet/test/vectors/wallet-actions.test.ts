@@ -220,9 +220,8 @@ async function signCapturing(
 
 describe("signing rail selection against the Rust wallet", () => {
   // `apply_p256_signature` reads the rail off the authority's own shielded
-  // address and never off the notes. The two `sameKey` cases are where the port
-  // has to agree with that outcome; the two mixed ones are where the rule would
-  // show, and TypeScript refuses them a step earlier (below).
+  // address and never off the notes. Same-key and mixed-rail cases both follow
+  // that rule now that construction no longer refuses a foreign-owned input.
   for (const entry of fixture.rails.filter((candidate) => candidate.sameKey)) {
     const outcome = entry.outcome as Outcome;
     it(`a ${entry.authorityRail} authority spending its own notes`, async () => {
@@ -240,22 +239,22 @@ describe("signing rail selection against the Rust wallet", () => {
     });
   }
 
-  // Rust signs or declines purely on the authority's rail, so it builds both of
-  // these. TypeScript cannot be driven to either: `ConfidentialTransfer` rejects
-  // an input owned by another key first, which is the recorded TypeScript-only
-  // `TRANSACTION_INPUT_OWNER_MISMATCH` guard. The rail rule is therefore not
-  // discriminable through the public TypeScript surface, and both candidate
-  // rules agree everywhere it can be driven. Pinned rather than fixed: the
-  // refusal is the safer side and closing the gap belongs to Rust.
+  // Rust signs or declines purely on the authority's rail, including when the
+  // notes are owned on the other rail. TypeScript used to refuse those at
+  // `ConfidentialTransfer` construction; with that guard removed, the mixed
+  // cases are driven the same way as the same-key ones.
   for (const entry of fixture.rails.filter((candidate) => !candidate.sameKey)) {
-    it(`refuses a ${entry.authorityRail} authority spending ${entry.noteRail} notes that Rust builds`, async () => {
-      expect(entry.outcome.arm).toBe("ok");
+    const outcome = entry.outcome as Outcome;
+    it(`a ${entry.authorityRail} authority spending ${entry.noteRail} notes`, async () => {
       const authority = railKeypair(entry.authorityRail, 61);
       const noteOwner = railKeypair(entry.noteRail, 62);
       expect(noteOwner.signingPublicKey().signatureType()).toBe(entry.noteRail);
-      await expect(signCapturing(railWallet(authority, noteOwner), authority)).rejects.toThrow(
-        expect.objectContaining({ causeCode: "TRANSACTION_INPUT_OWNER_MISMATCH" }),
-      );
+      expect(
+        await observeAsync(outcome, async () => {
+          const signed = await signCapturing(railWallet(authority, noteOwner), authority);
+          return { p256Signature: signed.transaction.p256Signature() !== undefined };
+        }),
+      ).toEqual(expected(outcome));
     });
   }
 });

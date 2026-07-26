@@ -642,4 +642,46 @@ describe("ZolanaIndexer and ZolanaClient", () => {
     await vi.runAllTimersAsync();
     await rejection;
   });
+
+  // End-to-end through `ZolanaIndexer`, not the decoder alone: the transport
+  // must leave an unsafe capped-field literal unquoted so the ruled
+  // precision-loss refusal still fires after `quoteUnsafeIntegers`.
+  it("refuses an unsafe leaf_index through ZolanaIndexer as a precision-loss error", async () => {
+    const pastSafe = "9007199254740992";
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":1,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":${pastSafe},"root":"${HASH}","root_seq":0,"root_index":0}]}}`;
+    const indexer = new ZolanaIndexer(
+      new ZolanaApi({
+        url: "https://indexer.example.test",
+        fetch: () =>
+          Promise.resolve(
+            new Response(body, { headers: { "content-type": "application/json; charset=utf-8" } }),
+          ),
+      }),
+    );
+
+    await expect(indexer.getMerkleProofs(TREE, [ZERO])).rejects.toMatchObject({
+      code: "CLIENT_INVALID_RPC_RESPONSE",
+      details: {
+        method: "getMerkleProofs",
+        path: "$.proofs[0].leaf_index",
+      },
+    });
+  });
+
+  it("still reads an unsafe root_seq through ZolanaIndexer without precision loss", async () => {
+    const rootSeq = (1n << 60n) + 7n;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":1,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":0,"root":"${HASH}","root_seq":${rootSeq.toString()},"root_index":0}]}}`;
+    const indexer = new ZolanaIndexer(
+      new ZolanaApi({
+        url: "https://indexer.example.test",
+        fetch: () =>
+          Promise.resolve(
+            new Response(body, { headers: { "content-type": "application/json; charset=utf-8" } }),
+          ),
+      }),
+    );
+
+    const response = await indexer.getMerkleProofs(TREE, [ZERO]);
+    expect(response.proofs[0]?.rootSeq).toBe(rootSeq);
+  });
 });

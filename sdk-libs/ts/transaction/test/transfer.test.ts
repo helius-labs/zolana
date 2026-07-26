@@ -226,9 +226,11 @@ describe("manifest-verified transaction builders", () => {
     expect(inputs.p256Signature()?.s).toEqual(compact.slice(32));
   });
 
-  it("retains P256 rail signature and owner validation for mixed and homogeneous inputs", () => {
+  // Rust `sign_p256` stores the signature without inspecting input ownership.
+  // Length checks on r and s remain; the owner-mismatch and ed25519-only
+  // refusals were TypeScript-only and are gone.
+  it("stores a P256 signature for mixed and ed25519-only inputs", () => {
     const p256 = SigningKey.fromBytes(new Uint8Array(32).fill(3) as Bytes32);
-    const otherP256 = SigningKey.fromBytes(new Uint8Array(32).fill(4) as Bytes32);
     const ed25519 = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(5) as Bytes32);
     const p256Input = inputFor(p256, 0);
     const ed25519Input = inputFor(ed25519, 1);
@@ -240,15 +242,9 @@ describe("manifest-verified transaction builders", () => {
     };
 
     expect(proofInputs([p256Input, ed25519Input]).p256Signature()).toBeUndefined();
-    expect(() => {
-      proofInputs([p256Input, ed25519Input]).applyP256Signature({
-        ...valid,
-        publicKey: otherP256.publicKey().p256(),
-      });
-    }).toThrow(expect.objectContaining({ code: "TRANSACTION_SIGNATURE_OWNER_MISMATCH" }));
-    expect(() => {
-      proofInputs([ed25519Input, ed25519Input]).applyP256Signature(valid);
-    }).toThrow(expect.objectContaining({ code: "TRANSACTION_SIGNER_NOT_P256" }));
+    const ed25519Only = proofInputs([ed25519Input, ed25519Input]);
+    ed25519Only.applyP256Signature(valid);
+    expect(ed25519Only.p256Signature()).toEqual(valid);
     expect(() => {
       proofInputs([p256Input, p256Input]).applyP256Signature({
         ...valid,
@@ -855,5 +851,35 @@ describe("manifest-verified transaction builders", () => {
       spl: signedToField(-10n),
       asset: assetField(token(7)),
     });
+  });
+});
+
+// Rust `ConfidentialTransfer::new` validates nothing. The three inputs below are
+// ones TypeScript used to refuse at construction; each must reach the same
+// later site Rust reaches, or be accepted outright.
+describe("ConfidentialTransfer constructor matches Rust", () => {
+  const SPL = encodeAddress(new Uint8Array(32).fill(9));
+
+  it("accepts an empty input list and names WithdrawalAssetMismatch on withdraw", () => {
+    const ownerAddress = ShieldedKeypair.generate().shieldedAddress();
+    const transfer = new ConfidentialTransfer(ownerAddress, [], SOL_MINT);
+    expect(() => {
+      transfer.withdraw(SPL, 100n, { kind: "sol", recipient: SOL_MINT });
+    }).toThrow(expect.objectContaining({ code: "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH" }));
+  });
+
+  it("accepts a dummy input", () => {
+    const ownerAddress = ShieldedKeypair.generate().shieldedAddress();
+    expect(
+      () => new ConfidentialTransfer(ownerAddress, [ProofInputUtxo.dummy()], SOL_MINT),
+    ).not.toThrow();
+  });
+
+  it("accepts an input owned by another key", () => {
+    const ownerAddress = ShieldedKeypair.generate().shieldedAddress();
+    const foreign = SigningKey.generate("ed25519");
+    expect(
+      () => new ConfidentialTransfer(ownerAddress, [inputFor(foreign, 0)], SOL_MINT),
+    ).not.toThrow();
   });
 });

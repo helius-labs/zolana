@@ -589,17 +589,10 @@ export class SppProofInputs {
     );
   }
 
+  // Rust `sign_p256` checks the keypair's curve and stores the signature. It
+  // does not inspect input ownership; the wallet already gates on the authority
+  // rail before calling here.
   applyP256Signature(signature: P256Signature): void {
-    const real = this.inputUtxos.filter((input) => !input.isDummy());
-    const p256 = real.filter((input) => input.utxo.owner.signatureType() === "p256");
-    if (p256.length === 0) {
-      throw new TransactionError("TRANSACTION_SIGNER_NOT_P256");
-    }
-    if (
-      p256.some((input) => !equal(input.utxo.owner.confidentialViewTag(), signature.publicKey.x()))
-    ) {
-      throw new TransactionError("TRANSACTION_SIGNATURE_OWNER_MISMATCH");
-    }
     this.#p256Signature = Object.freeze({
       publicKey: signature.publicKey,
       r: checked<Bytes32>(signature.r, 32, "signature r"),
@@ -658,19 +651,9 @@ export class ConfidentialTransfer {
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
 
+  // Rust `ConfidentialTransfer::new` stores the fields and returns; empty,
+  // dummy, and foreign-owned inputs are refused later or not at all.
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], payer: Address) {
-    if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    inputs.forEach((input, index) => {
-      if (input.isDummy()) {
-        throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
-      }
-      if (
-        !equal(input.utxo.owner.toBytes(), owner.signingPublicKey.toBytes()) ||
-        !equal(input.nullifierKey.publicKey(), owner.nullifierPublicKey)
-      ) {
-        throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
-      }
-    });
     this.#owner = owner;
     this.#inputs = [...inputs];
     this.#payerPublicKeyHash = sha256Be(decodeAddress(payer));
