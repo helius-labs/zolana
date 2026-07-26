@@ -88,6 +88,7 @@ fn error_vectors() -> Value {
         ClientError::Transaction(TransactionError::NoInputs),
         ClientError::Hasher(HasherError::EmptyInput),
         ClientError::UnsupportedShape { n_in: 2, n_out: 3 },
+        ClientError::UnsupportedZoneAuthorityShape { n_in: 2, n_out: 3 },
         ClientError::TooManyInputs { got: 9, max: 8 },
         ClientError::TooManyOutputs { got: 9, max: 8 },
         ClientError::InsufficientBalance {
@@ -209,6 +210,10 @@ fn client_error_json(error: ClientError) -> Value {
         ClientError::UnsupportedShape { n_in, n_out } => {
             ("CLIENT_UNSUPPORTED_SHAPE", json!({"nIn":n_in,"nOut":n_out}))
         }
+        ClientError::UnsupportedZoneAuthorityShape { n_in, n_out } => (
+            "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
+            json!({"nIn":n_in,"nOut":n_out}),
+        ),
         ClientError::TooManyInputs { got, max } => {
             ("CLIENT_TOO_MANY_INPUTS", json!({"got":got,"max":max}))
         }

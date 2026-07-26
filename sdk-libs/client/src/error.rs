@@ -25,6 +25,11 @@ pub enum ClientError {
     #[error("no supported circuit shape holds {n_in} inputs and {n_out} outputs")]
     UnsupportedShape { n_in: usize, n_out: usize },
 
+    #[error(
+        "the zone-authority rail supports only 1x1, 2x2, 3x3 and 4x4; got {n_in} inputs and {n_out} outputs"
+    )]
+    UnsupportedZoneAuthorityShape { n_in: usize, n_out: usize },
+
     #[error("too many inputs: got {got}, shape holds at most {max}")]
     TooManyInputs { got: usize, max: usize },
 

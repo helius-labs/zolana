@@ -1935,9 +1935,9 @@ fn verify_client_vectors(vectors: &Value) -> Result<()> {
     }
     if vectors["errors"]["expected"]["variants"]
         .as_array()
-        .is_none_or(|variants| variants.len() != 58)
+        .is_none_or(|variants| variants.len() != 59)
     {
-        bail!("client oracle must emit all 58 ClientError variants");
+        bail!("client oracle must emit all 59 ClientError variants");
     }
     Ok(())
 }

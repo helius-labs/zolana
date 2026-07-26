@@ -27,6 +27,13 @@
         }
       },
       {
+        "code": "CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE",
+        "details": {
+          "nIn": 2,
+          "nOut": 3
+        }
+      },
+      {
         "code": "CLIENT_TOO_MANY_INPUTS",
         "details": {
           "got": 9,
