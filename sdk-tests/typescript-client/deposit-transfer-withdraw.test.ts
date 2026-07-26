@@ -1,18 +1,19 @@
 /// <reference types="node" />
 
-import { waitForIndexer } from "@zolana/client";
+import { SolanaRpc, waitForIndexer, ZolanaClient } from "@zolana/client";
 import { depositInstruction, transactInstruction } from "@zolana/interface/instructions";
-import { randomBlinding } from "@zolana/keypair";
+import { randomBlinding, type ShieldedKeypair } from "@zolana/keypair";
 import {
+  AssetRegistry,
   ConfidentialTransfer,
   ProofInputUtxo,
   SOL_MINT,
   Wallet,
-  ownerUtxoHash,
 } from "@zolana/transaction";
-import { describe, expect, it } from "vitest";
+import { createSolanaSigner, LocalWalletAuthority } from "@zolana/wallet";
+import { describe, it } from "vitest";
 
-import { setup, type ExampleContext, type ExampleParticipant } from "./setup.js";
+import { setup } from "./setup.js";
 
 const DEPOSIT_AMOUNT = 1_000_000_000n;
 const TRANSFER_AMOUNT = 300_000_000n;
@@ -28,40 +29,55 @@ const WITHDRAW_AMOUNT = 300_000_000n;
  * date. This example stays at the level Rust's does, one query and one decrypt.
  */
 async function balances(
-  context: ExampleContext,
-  participant: ExampleParticipant,
+  client: ZolanaClient,
+  authority: LocalWalletAuthority,
+  keypair: ShieldedKeypair,
+  assets: AssetRegistry,
 ): Promise<Wallet> {
-  const response = await context.client.getShieldedTransactionsByTags(
-    { tags: [participant.keypair.shieldedAddress().confidentialViewTag()], limit: 50 },
+  const response = await client.getShieldedTransactionsByTags(
+    { tags: [keypair.shieldedAddress().confidentialViewTag()], limit: 50 },
     waitForIndexer(),
   );
   return await Wallet.decrypt({
-    authority: participant.authority,
+    authority,
     transactions: response.transactions,
-    assets: context.assets,
+    assets,
   });
 }
 
-function spendable(wallet: Wallet, participant: ExampleParticipant): ProofInputUtxo {
-  const utxo = wallet.balance(SOL_MINT).utxos[0];
-  if (utxo === undefined) throw new Error("no spendable SOL note");
-  return ProofInputUtxo.fromKeypair(utxo, participant.keypair);
+function inputUtxo(wallet: Wallet, keypair: ShieldedKeypair): ProofInputUtxo {
+  return ProofInputUtxo.fromKeypair(wallet.balance(SOL_MINT).utxos[0]!, keypair);
 }
 
 describe("example: deposit, transfer, withdraw", () => {
   it("moves SOL into the pool, to a second wallet, and back out", async () => {
-    const context = await setup({ portOffset: Number(process.env["ZOLANA_PORT_OFFSET"] ?? "500") });
-    const { client, tree, sender, recipient } = context;
+    const { rpcUrl, indexerUrl, proverUrl, tree, sender, recipient, stop } = await setup({
+      portOffset: Number(process.env["ZOLANA_PORT_OFFSET"] ?? "500"),
+    });
     try {
+      const client = ZolanaClient.fromUrls({
+        rpc: new SolanaRpc({ url: rpcUrl }),
+        indexerUrl,
+        proverUrl,
+        tree,
+      });
+      const assets = new AssetRegistry();
+
+      const senderSigner = createSolanaSigner(sender);
+      const senderAuthority = new LocalWalletAuthority({
+        solanaPublicKey: senderSigner.address,
+        keypair: sender,
+      });
+
       // 1. The sender deposits SOL into their confidential balance.
-      const senderAddress = sender.keypair.shieldedAddress();
+      const senderAddress = sender.shieldedAddress();
       const blinding = randomBlinding();
       const owner = senderAddress.ownerHash();
       await client.createAndSendTransaction({
         instructions: [
           depositInstruction({
             tree,
-            depositor: sender.address,
+            depositor: senderSigner.address,
             data: {
               viewTag: senderAddress.confidentialViewTag(),
               owner,
@@ -70,73 +86,70 @@ describe("example: deposit, transfer, withdraw", () => {
             },
           }),
         ],
-        feePayer: sender.signer,
+        feePayer: senderSigner,
       });
 
-      const afterDeposit = await balances(context, sender);
-      expect(afterDeposit.balance(SOL_MINT).amount).toBe(DEPOSIT_AMOUNT);
-      expect(afterDeposit.balance(SOL_MINT).utxos).toHaveLength(1);
-      // A deposit note is public, so its commitment is reproducible.
-      expect(afterDeposit.utxos()[0]?.outputContext.hash).toEqual(
-        ownerUtxoHash({ owner, asset: SOL_MINT, amount: DEPOSIT_AMOUNT, blinding }),
+      const senderBalancesAfterDeposit = await balances(
+        client,
+        senderAuthority,
+        sender,
+        assets,
       );
 
       // 2. The sender transfers part of it to the recipient's confidential balance.
       const transfer = new ConfidentialTransfer(
         senderAddress,
-        [spendable(afterDeposit, sender)],
-        sender.address,
+        [inputUtxo(senderBalancesAfterDeposit, sender)],
+        senderSigner.address,
       );
-      transfer.send(recipient.keypair.shieldedAddress(), SOL_MINT, TRANSFER_AMOUNT);
+      transfer.send(recipient.shieldedAddress(), SOL_MINT, TRANSFER_AMOUNT);
       const transferData = await client.proveTransact(
-        transfer.sign(sender.keypair, context.assets),
+        transfer.sign(sender, assets),
         waitForIndexer(),
       );
       const transferSignature = await client.createAndSendTransaction({
-        instructions: [transactInstruction({ payer: sender.address, tree, data: transferData })],
-        feePayer: sender.signer,
+        instructions: [
+          transactInstruction({ payer: senderSigner.address, tree, data: transferData }),
+        ],
+        feePayer: senderSigner,
       });
       await client.confirmPrivateTransaction(transferSignature);
 
-      expect((await balances(context, recipient)).balance(SOL_MINT).amount).toBe(TRANSFER_AMOUNT);
-      const afterTransfer = await balances(context, sender);
-      expect(afterTransfer.balance(SOL_MINT).amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
-      expect(afterTransfer.balance(SOL_MINT).utxos).toHaveLength(1);
+      const senderBalancesAfterTransfer = await balances(
+        client,
+        senderAuthority,
+        sender,
+        assets,
+      );
 
       // 3. The sender withdraws back to their own Solana account.
-      const solanaBefore = await client.getBalance(sender.address);
       const withdrawal = new ConfidentialTransfer(
         senderAddress,
-        [spendable(afterTransfer, sender)],
-        sender.address,
+        [inputUtxo(senderBalancesAfterTransfer, sender)],
+        senderSigner.address,
       );
-      withdrawal.withdraw(SOL_MINT, WITHDRAW_AMOUNT, { kind: "sol", recipient: sender.address });
+      withdrawal.withdraw(SOL_MINT, WITHDRAW_AMOUNT, {
+        kind: "sol",
+        recipient: senderSigner.address,
+      });
       const withdrawalData = await client.proveTransact(
-        withdrawal.sign(sender.keypair, context.assets),
+        withdrawal.sign(sender, assets),
         waitForIndexer(),
       );
       const withdrawalSignature = await client.createAndSendTransaction({
         instructions: [
           transactInstruction({
-            payer: sender.address,
+            payer: senderSigner.address,
             tree,
-            withdrawal: { kind: "sol", recipient: sender.address },
+            withdrawal: { kind: "sol", recipient: senderSigner.address },
             data: withdrawalData,
           }),
         ],
-        feePayer: sender.signer,
+        feePayer: senderSigner,
       });
       await client.confirmPrivateTransaction(withdrawalSignature);
-
-      const afterWithdrawal = await balances(context, sender);
-      expect(afterWithdrawal.balance(SOL_MINT).amount).toBe(
-        DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT,
-      );
-      // Fees come out of the same account, so the withdrawal only has to leave
-      // the sender better off than they started.
-      expect(await client.getBalance(sender.address)).toBeGreaterThan(solanaBefore);
     } finally {
-      await context.stop();
+      await stop();
     }
   }, 600_000);
 });

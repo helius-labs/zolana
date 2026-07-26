@@ -10,8 +10,7 @@ import {
 import { createTreeInstruction } from "@zolana/interface/instructions";
 import { ShieldedKeypair } from "@zolana/keypair";
 import { executeSyncInstruction } from "@zolana/smart-account-client";
-import { AssetRegistry } from "@zolana/transaction";
-import { createSolanaSigner, LocalWalletAuthority } from "@zolana/wallet";
+import { createSolanaSigner } from "@zolana/wallet";
 import { startLocalStack, type LocalStack } from "@zolana/test-kit";
 import {
   confirm,
@@ -36,25 +35,17 @@ const PROTOCOL_VAULT_LAMPORTS = 5_000_000_000n;
 const PARTICIPANT_LAMPORTS = 10_000_000_000n;
 
 /**
- * One participant in the example: the shielded key material, the authority that
- * decrypts its notes, and the signer that pays its fees. All three come from a
- * single ed25519 seed, so the participant's Solana address and its shielded
- * address share one key.
+ * Infra for the example: localnet URLs, one live state tree, and two funded
+ * shielded keypairs. The example constructs the client and participant wiring.
  */
-export interface ExampleParticipant {
-  readonly keypair: ShieldedKeypair;
-  readonly authority: LocalWalletAuthority;
-  readonly signer: TransactionSigner;
-  readonly address: Address;
-}
-
 export interface ExampleContext {
   readonly stack: LocalStack;
-  readonly client: ZolanaClient;
+  readonly rpcUrl: URL;
+  readonly indexerUrl: URL;
+  readonly proverUrl: URL;
   readonly tree: Address;
-  readonly assets: AssetRegistry;
-  readonly sender: ExampleParticipant;
-  readonly recipient: ExampleParticipant;
+  readonly sender: ShieldedKeypair;
+  readonly recipient: ShieldedKeypair;
   stop(): Promise<void>;
 }
 
@@ -66,22 +57,16 @@ function signer(seed: number): TransactionSigner {
   return createSolanaSigner(ShieldedKeypair.fromEd25519(seedBytes(seed), 0));
 }
 
-function participant(seed: number): ExampleParticipant {
+function fundedKeypair(seed: number): { keypair: ShieldedKeypair; address: Address } {
   const keypair = ShieldedKeypair.fromEd25519(seedBytes(seed), 0);
-  const solanaSigner = createSolanaSigner(keypair);
-  return Object.freeze({
-    keypair,
-    authority: new LocalWalletAuthority({ solanaPublicKey: solanaSigner.address, keypair }),
-    signer: solanaSigner,
-    address: solanaSigner.address,
-  });
+  return { keypair, address: createSolanaSigner(keypair).address };
 }
 
 /**
  * Brings up a validator, prover, and indexer, then puts the protocol into the
  * state the example needs: the Squads settings accounts exist, the protocol
  * config names the protocol vault as the protocol, forester, merge, tree, and
- * zone authority, and one state tree is live. Returns two funded participants
+ * zone authority, and one state tree is live. Returns two funded keypairs
  * sharing that tree.
  */
 export async function setup(
@@ -95,11 +80,10 @@ export async function setup(
     const payer = signer(PAYER_SEED);
     const authority = signer(AUTHORITY_SEED);
     const tree = signer(TREE_SEED);
-    const sender = participant(SENDER_SEED);
-    const recipient = participant(RECIPIENT_SEED);
+    const sender = fundedKeypair(SENDER_SEED);
+    const recipient = fundedKeypair(RECIPIENT_SEED);
 
-    // The tree address comes from a keypair the example holds, so the client
-    // can be wired before the account it points at exists.
+    // Temporary client for setup RPCs only; the example builds its own.
     const client = ZolanaClient.fromUrls({
       rpc: new SolanaRpc({ url: stack.rpcUrl }),
       indexerUrl: stack.indexerUrl,
@@ -183,11 +167,12 @@ export async function setup(
 
     return Object.freeze({
       stack,
-      client,
+      rpcUrl: stack.rpcUrl,
+      indexerUrl: stack.indexerUrl,
+      proverUrl: stack.proverUrl,
       tree: tree.address,
-      assets: new AssetRegistry(),
-      sender,
-      recipient,
+      sender: sender.keypair,
+      recipient: recipient.keypair,
       stop: () => stack.stop(),
     });
   } catch (cause) {
