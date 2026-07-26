@@ -65,8 +65,13 @@ export async function ensureLocalProver(): Promise<OwnedProver> {
       `127.0.0.1:${String(metricsPort)}`,
       "--auto-download=true",
     ],
-    { cwd: workspaceRoot, stdio: "ignore" },
+    {
+      cwd: workspaceRoot,
+      stdio: "ignore",
+      detached: true,
+    },
   );
+  child.unref();
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
