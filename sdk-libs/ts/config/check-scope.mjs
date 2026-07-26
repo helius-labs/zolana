@@ -44,8 +44,9 @@ export const CHECK_PARTS = Object.freeze([
   },
   {
     name: "check:e2e",
-    contains: "test:e2e:actions, test:e2e:instructions, test:e2e:photon",
-    needs: "Solana validator, same-revision Photon, local prover, built programs",
+    contains: "test:e2e:actions, test:e2e:instructions, test:e2e:photon, test:e2e:example",
+    needs:
+      "Solana validator, same-revision Photon, local prover, built programs; CI e2e job also runs the Rust paired example (cargo run -p client-example --example deposit_transfer_withdraw) after this script",
   },
 ]);
 

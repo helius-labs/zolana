@@ -39,6 +39,12 @@ jobs:
           filters: |
             typescript:
               - 'sdk-libs/**'
+              # Paired SDK examples (TS + Rust). The e2e job runs both; without
+              # these globs an example-only edit would skip the only job that
+              # exercises them. sdk-libs/** already covers the Rust client the
+              # example imports.
+              - 'sdk-tests/typescript-client/**'
+              - 'sdk-tests/rust-client/**'
               - 'program-libs/**'
               - 'programs/**'
               - 'prover/**'
@@ -327,6 +333,10 @@ jobs:
       # Same-revision Photon at target/debug/photon, which is where the test kit
       # looks when ZOLANA_PHOTON_BIN is unset.
       - run: just build-photon
+      # CLI binary for the Rust paired example (LocalnetValidator shells out to
+      # it). Incremental after the Photon/program builds; cold cost is one
+      # `cargo build -p zolana-cli`.
+      - run: just build-cli
       - run: npm ci
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -334,32 +344,38 @@ jobs:
       - name: Restore TypeScript build output
         run: tar -xzf ts-dist.tar.gz
       # ZOLANA_PORT_OFFSET and the three service URLs stay unset: each suite
-      # asserts its own offset (300 for actions, 400 for instructions, 800 for
-      # the Photon contract suite) and starts the validator, prover, and Photon
-      # it needs. A set URL would make the test kit treat that service as
-      # external and skip starting it.
+      # asserts its own offset (300 for actions, 400 for instructions, 500 for
+      # the paired TS example, 800 for the Photon contract suite) and starts the
+      # validator, prover, and Photon it needs. A set URL would make the test
+      # kit treat that service as external and skip starting it.
       # No log-collection step follows: the test kit keeps the last 8 KB of each
       # service's output in memory and attaches it to the failure it throws.
       - run: npm run check:e2e
+      # Rust half of the paired SDK example. Step-scoped env only: must not set
+      # job-level ZOLANA_PORT_OFFSET / service URLs (see comment above). Offset
+      # 600 avoids 300/400/500/800 used by the TypeScript suites. setup() boots
+      # its own validator, Photon, and prover; failure fails the job (and thus
+      # merge-gate).
+      - name: Run Rust SDK paired example
+        env:
+          ZOLANA_PORT_OFFSET: "600"
+          ZOLANA_LOCALNET_RPC_PORT: "9499"
+          ZOLANA_LOCALNET_PHOTON_PORT: "9384"
+          ZOLANA_LOCALNET_URL: "http://127.0.0.1:9499"
+          ZOLANA_INDEXER_URL: "http://127.0.0.1:9384"
+          ZOLANA_PROVER_URL: "http://127.0.0.1:3601"
+          ZOLANA_PHOTON_BIN: ${{ github.workspace }}/target/debug/photon
+          ZOLANA_CLI_BIN: ${{ github.workspace }}/target/debug/zolana
+        run: cargo run -p client-example --example deposit_transfer_withdraw
 
   merge-gate:
     name: typescript / merge gate
     runs-on: ubuntu-latest
     # Always conclude on non-draft events. Path filtering skips the expensive
     # jobs; this job must still succeed so the required check is satisfiable.
-    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    needs:
-      [
-        changes,
-        build,
-        gate-scope,
-        static,
-        suites,
-        packaging,
-        browser-runtime,
-        fixtures,
-        e2e,
-      ]
+    if:
+      always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    needs: [changes, build, gate-scope, static, suites, packaging, browser-runtime, fixtures, e2e]
     steps:
       - name: Require the TypeScript tier, or accept a deliberate skip
         run: |
