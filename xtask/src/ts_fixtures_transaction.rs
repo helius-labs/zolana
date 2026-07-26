@@ -835,14 +835,14 @@ fn transfer_vectors(
         SOL_MINT,
         1,
         WithdrawalTarget::Sol {
-            user_sol_account: Address::new_from_array([26; 32]),
+            recipient: Address::new_from_array([26; 32]),
         },
     )?;
     let duplicate_withdrawal_error = match duplicate_withdrawal.withdraw(
         SOL_MINT,
         1,
         WithdrawalTarget::Sol {
-            user_sol_account: Address::new_from_array([26; 32]),
+            recipient: Address::new_from_array([26; 32]),
         },
     ) {
         Ok(_) => panic!("duplicate withdrawal accepted"),

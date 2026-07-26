@@ -1098,7 +1098,7 @@ fn workflow_case(
                 SOL_MINT,
                 30,
                 WithdrawalTarget::Sol {
-                    user_sol_account: Address::new_from_array([80; 32]),
+                    recipient: Address::new_from_array([80; 32]),
                 },
             )?;
         }
