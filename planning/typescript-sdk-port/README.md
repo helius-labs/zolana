@@ -146,6 +146,16 @@ reported back. And transcript writes lag behind the work, badly enough that one
 agent appeared silent for seventeen minutes while committing at two-minute
 intervals. Quiet is a reason to check the branch, not a death certificate.
 
+**The branch guard has a blind spot, and it was found the hard way.** It compares
+the current branch against the expected one, which catches a worktree taken over
+by an agent that checks out something else. It does not catch two agents working
+the same branch in the same tree, because the branch name stays right the whole
+time; what changes underneath is the working tree. That happened twice tonight,
+once when a coordinator relaunched agents it had wrongly judged dead. The signal
+in that case is a file you have open being rewritten by someone else, or commits
+appearing on your branch that you did not make. Check `git log` for authorship
+you do not recognise, not just `git branch --show-current`.
+
 **What made the recoveries cheap.** Each of the three cost work only in the time
 spent recovering, because commits were guarded by a branch check before landing.
 In the third case that guard is what saved it: two code commits landed correctly
