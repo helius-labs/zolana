@@ -160,6 +160,9 @@ impl SppProofInputs {
     }
 
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
+        for spend in &self.input_utxos {
+            spend.check_canonical_dummy()?;
+        }
         self.input_utxos
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -179,6 +182,7 @@ impl SppProofInputs {
         let mut input_hashes = Vec::with_capacity(self.input_utxos.len());
         for spend in &self.input_utxos {
             if spend.is_dummy() {
+                spend.check_canonical_dummy()?;
                 input_hashes.push([0u8; 32]);
             } else {
                 input_hashes.push(spend.hash()?);

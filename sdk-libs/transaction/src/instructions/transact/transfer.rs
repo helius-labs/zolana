@@ -130,6 +130,16 @@ impl ConfidentialTransfer {
         if self.withdrawal.is_some() {
             return Err(TransactionError::WithdrawalAlreadySet);
         }
+        // The public leg and the external accounts are chosen by the target, so a
+        // SOL withdrawal routed at a token account (or the reverse) would debit
+        // one leg and credit an account the program never reads.
+        let target_matches_asset = match target {
+            WithdrawalTarget::Sol { .. } => asset == SOL_MINT,
+            WithdrawalTarget::Spl { .. } => asset != SOL_MINT,
+        };
+        if !target_matches_asset {
+            return Err(TransactionError::WithdrawalAssetMismatch);
+        }
         self.withdrawal = Some(Withdrawal {
             asset,
             amount,
@@ -210,7 +220,12 @@ impl ConfidentialTransfer {
         });
 
         for (i, recipient) in self.recipients.iter().enumerate() {
-            let position = RECIPIENT_POSITION_BASE + i as u8;
+            // Blindings are derived from a `u8` position, so a wrapped position
+            // would silently reuse an earlier slot's blinding.
+            let position = usize::from(RECIPIENT_POSITION_BASE)
+                .checked_add(i)
+                .and_then(|position| u8::try_from(position).ok())
+                .ok_or(TransactionError::TooManyOutputs)?;
             outputs.push(SppProofOutputUtxo {
                 owner_address: Some(recipient.address),
                 asset: recipient.asset,
@@ -338,6 +353,15 @@ impl PreparedTransfer {
             ..
         } = self;
 
+        // Slots are read by output position, so a longer list would be dropped
+        // without a trace rather than encrypted into the transaction.
+        if slots.len() > shape.n_outputs() {
+            return Err(TransactionError::ExcessOutputSlots {
+                got: slots.len(),
+                outputs: shape.n_outputs(),
+            });
+        }
+
         // The sender owns every change position; its resolved tag is the owner
         // view tag folded into the proof's owner-tag chain. The wire tag is the
         // most compact form that resolves to it: `P256SigningKey` on the P256
@@ -375,9 +399,14 @@ impl PreparedTransfer {
             inputs.push(SppProofInputUtxo::new_dummy());
         }
 
-        // Length-matched random ciphertext for every position without a real
-        // encoding: padded slots and zero-value change slots.
-        let dummy_len = if slots.iter().any(|slot| slot.is_none()) || dummy_recipient_count > 0 {
+        // Dummy length is derived only when some final output position lacks an
+        // encoding. Index by output position (not `slots.iter()`): a short
+        // all-`Some` payload has no `None` entries, yet missing indices still
+        // need length-matched dummies — otherwise the wire carries empty
+        // ciphertexts distinguishable from real ones.
+        let needs_dummy_ciphertext = (0..outputs.len())
+            .any(|index| slots.get(index).and_then(|slot| slot.as_ref()).is_none());
+        let dummy_len = if needs_dummy_ciphertext {
             let throwaway = ViewingKey::new();
             dummy_ciphertext_len(&throwaway, throwaway.pubkey(), salt)?
         } else {
@@ -546,9 +575,94 @@ fn dummy_ciphertext_len(
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::SigningKey;
+    use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 
     use super::*;
+    use crate::{data::Data, utxo::Utxo};
+
+    const SPL_MINT: Address = Address::new_from_array([4u8; 32]);
+
+    /// A zero-amount withdrawal keeps the recipient on `PreparedTransfer` but
+    /// finalize must not fold that account into `external_data_hash`: the public
+    /// amount is `None`, so `with_public_sol` is never called.
+    #[test]
+    fn zero_amount_withdrawal_leaves_settlement_accounts_unset_on_finalize() {
+        let keypair = ShieldedKeypair::from_ed25519(
+            &[9u8; 32],
+            ViewingKey::from_seed(&[10u8; 32], 0).unwrap(),
+        )
+        .unwrap();
+        let owner = keypair.shielded_address().unwrap();
+        let recipient = Address::new_from_array([20u8; 32]);
+        let mut transfer = ConfidentialTransfer::new(
+            owner,
+            vec![SppProofInputUtxo::new(
+                Utxo {
+                    owner: keypair.signing_pubkey(),
+                    asset: SOL_MINT,
+                    amount: 100,
+                    blinding: derive_blinding(&[11u8; 31], 0),
+                    zone_program_id: None,
+                    data: Data::default(),
+                },
+                &keypair,
+            )],
+            Address::default(),
+        );
+        transfer
+            .withdraw(
+                SOL_MINT,
+                0,
+                WithdrawalTarget::Sol {
+                    user_sol_account: recipient,
+                },
+            )
+            .unwrap();
+        let prepared = transfer.prepare().unwrap();
+        assert!(prepared.public_sol_amount.is_none());
+        assert_eq!(prepared.user_sol_account, recipient);
+
+        let tx = keypair
+            .get_transaction_viewing_key(&prepared.first_nullifier)
+            .unwrap();
+        let signed = prepared
+            .finalize(tx.pubkey(), [0u8; SALT_LEN], Vec::new())
+            .unwrap();
+        assert!(signed.external_data.public_sol_amount.is_none());
+        assert_eq!(signed.external_data.user_sol_account, Address::default());
+    }
+
+    /// The public leg the program debits is chosen by the asset while the account
+    /// it credits is chosen by the target, so a crossed pair pays the wrong rail.
+    #[test]
+    fn a_withdrawal_target_must_match_the_asset() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let owner = keypair.shielded_address().unwrap();
+        let sol_target = WithdrawalTarget::Sol {
+            user_sol_account: Address::default(),
+        };
+        let spl_target = WithdrawalTarget::Spl {
+            user_spl_token: Address::default(),
+            spl_token_interface: Address::default(),
+        };
+
+        for (asset, target) in [
+            (SPL_MINT, sol_target.clone()),
+            (SOL_MINT, spl_target.clone()),
+        ] {
+            let mut transfer = ConfidentialTransfer::new(owner, Vec::new(), Address::default());
+            let err = match transfer.withdraw(asset, 100, target) {
+                Ok(_) => panic!("a crossed asset and target was accepted"),
+                Err(err) => err,
+            };
+            assert_eq!(err, TransactionError::WithdrawalAssetMismatch);
+        }
+
+        for (asset, target) in [(SOL_MINT, sol_target), (SPL_MINT, spl_target)] {
+            let mut transfer = ConfidentialTransfer::new(owner, Vec::new(), Address::default());
+            assert!(transfer.withdraw(asset, 100, target).is_ok());
+        }
+    }
 
     /// An ed25519 owner who is also the fee payer at account index 0 is tagged
     /// `Account(0)`; the resolved value is the owner's view tag (the ed25519 key).
@@ -653,5 +767,112 @@ mod tests {
                 SignatureType::Ed25519
             );
         }
+    }
+
+    fn transfer_input(
+        sender: &ShieldedKeypair,
+        amount: u64,
+    ) -> crate::instructions::types::SppProofInputUtxo {
+        use crate::{instructions::types::SppProofInputUtxo, utxo::Utxo};
+
+        SppProofInputUtxo::new(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: SOL_MINT,
+                amount,
+                blinding: random_blinding(),
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            sender,
+        )
+    }
+
+    fn ciphertext_lens(proof: &SppProofInputs) -> Vec<usize> {
+        proof
+            .external_data
+            .outputs
+            .iter()
+            .map(|output| output.data.as_ref().map(|data| data.len()).unwrap_or(0))
+            .collect()
+    }
+
+    /// A short finalize payload used to omit encodings without inserting `None`
+    /// entries. Indexing only the payload's existing slots would miss those
+    /// holes and emit zero-length dummies; indexing by output position does not.
+    #[test]
+    fn short_finalize_payload_length_matches_real_ciphertexts() {
+        use crate::AssetRegistry;
+
+        let sender = ShieldedKeypair::new().unwrap();
+        let owner = sender.shielded_address().unwrap();
+        let transfer = ConfidentialTransfer::new(
+            owner,
+            vec![transfer_input(&sender, 100)],
+            Address::default(),
+        )
+        .with_shape(Shape::IN1_OUT2);
+        let prepared = transfer.prepare().unwrap();
+        assert_eq!(prepared.outputs.len(), prepared.shape.n_outputs());
+
+        let salt = [9u8; SALT_LEN];
+        let short = prepared
+            .finalize(ViewingKey::new().pubkey(), salt, vec![])
+            .expect("sender-slot dummies finalize without a payload");
+        let honest = ConfidentialTransfer::new(
+            owner,
+            vec![transfer_input(&sender, 100)],
+            Address::default(),
+        )
+        .with_shape(Shape::IN1_OUT2)
+        .sign(&sender, &AssetRegistry::default())
+        .unwrap();
+
+        let short_lens = ciphertext_lens(&short);
+        let honest_lens = ciphertext_lens(&honest);
+        assert_eq!(short_lens.len(), 2);
+        assert_eq!(short_lens, honest_lens);
+        assert!(short_lens.iter().all(|len| *len > 0));
+    }
+
+    /// Shape padding is routine (`canonical_shape` rounds up). Real and dummy
+    /// output ciphertexts must share one derived length so padding cannot reveal
+    /// the recipient count.
+    #[test]
+    fn padded_finalize_keeps_real_and_dummy_ciphertext_lengths_equal() {
+        use crate::AssetRegistry;
+
+        let sender = ShieldedKeypair::new().unwrap();
+        let owner = sender.shielded_address().unwrap();
+        let recipient = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+
+        let change_only = ConfidentialTransfer::new(
+            owner,
+            vec![transfer_input(&sender, 100)],
+            Address::default(),
+        )
+        .with_shape(Shape::IN2_OUT3)
+        .sign(&sender, &AssetRegistry::default())
+        .unwrap();
+
+        let mut with_recipient = ConfidentialTransfer::new(
+            owner,
+            vec![transfer_input(&sender, 100)],
+            Address::default(),
+        )
+        .with_shape(Shape::IN2_OUT3);
+        with_recipient.send(&recipient, SOL_MINT, 60).unwrap();
+        let with_recipient = with_recipient
+            .sign(&sender, &AssetRegistry::default())
+            .unwrap();
+
+        let change_lens = ciphertext_lens(&change_only);
+        let recipient_lens = ciphertext_lens(&with_recipient);
+        assert_eq!(change_lens.len(), 3);
+        assert_eq!(recipient_lens.len(), 3);
+        let expected = recipient_lens[0];
+        assert!(expected > 0);
+        assert!(change_lens.iter().all(|len| *len == expected));
+        assert!(recipient_lens.iter().all(|len| *len == expected));
     }
 }

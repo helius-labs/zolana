@@ -5,7 +5,7 @@ use zolana_keypair::{
     P256Pubkey, PublicKey, ViewingKey,
 };
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use super::{validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
@@ -130,8 +130,25 @@ impl UtxoSerialization for Split {
         let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
         let num_outputs =
             u8::try_from(utxos.len()).map_err(|_| TransactionError::TooManyOutputs)?;
+        for (index, utxo) in utxos.iter().enumerate() {
+            validate_owner(utxo, owner.owner, index)?;
+            validate_zone(utxo, owner.zone_program_id, index)?;
+            if utxo.asset != first.asset {
+                return Err(TransactionError::OutputAssetMismatch { index });
+            }
+            if utxo.amount != first.amount {
+                return Err(TransactionError::OutputAmountMismatch { index });
+            }
+            if utxo.data != first.data {
+                return Err(TransactionError::OutputDataMismatch { index });
+            }
+            let position = u8::try_from(index).map_err(|_| TransactionError::TooManyOutputs)?;
+            if utxo.blinding != derive_blinding(&cx.blinding_seed, position) {
+                return Err(TransactionError::OutputBlindingMismatch { index });
+            }
+        }
         Ok(SplitBundlePlaintext {
-            owner_pubkey: first.owner,
+            owner_pubkey: owner.owner,
             num_outputs,
             asset_id: owner.assets.asset_id(&first.asset)?,
             asset_amount: first.amount,

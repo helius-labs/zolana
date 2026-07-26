@@ -2,7 +2,7 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::ProoflessOutput;
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
@@ -55,10 +55,12 @@ impl UtxoSerialization for Proofless {
 
     fn from_utxos(
         utxos: &[Utxo],
-        _owner: &OwnerCx,
+        owner: &OwnerCx,
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
-        let utxo = utxos.first().ok_or(TransactionError::MissingOutput)?;
+        let utxo = single_utxo(utxos)?;
+        validate_owner(utxo, owner.owner, 0)?;
+        validate_zone(utxo, owner.zone_program_id, 0)?;
         Ok(ProoflessOutput {
             owner: cx.owner_hash,
             blinding: utxo.blinding,

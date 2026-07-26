@@ -5,7 +5,7 @@ use zolana_keypair::{
     P256Pubkey, PublicKey, ViewingKey,
 };
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{data::Data, error::TransactionError, utxo::Utxo, AssetRegistry, EncryptedScheme};
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
@@ -120,7 +120,9 @@ impl UtxoSerialization for Confidential {
         owner: &OwnerCx,
         _cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
-        let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
+        let first = single_utxo(utxos)?;
+        validate_owner(first, owner.owner, 0)?;
+        validate_zone(first, owner.zone_program_id, 0)?;
         Ok(ConfidentialOutputPlaintext {
             asset_id: owner.assets.asset_id(&first.asset)?,
             amount: first.amount,

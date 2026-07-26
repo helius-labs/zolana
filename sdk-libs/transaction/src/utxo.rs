@@ -72,6 +72,21 @@ pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], Transa
     }
 }
 
+/// An explicit zero zone data hash is stored as absence.
+///
+/// The commitment folds both to the same field, so the two states the builders
+/// keep apart are one state on chain. A zone that computes a policy digest
+/// generically then need not special-case the empty digest before calling: the
+/// prepared value agrees with what is committed either way.
+///
+/// The hash only. The zone address is deliberately left as it is, because
+/// `Some(Address::default())` commits to `pk_field(0)`, a non-zero field the
+/// circuit reads as zone-bound, so folding it to absence would move a
+/// commitment rather than settle a spelling.
+pub fn normalized_zone_data_hash(zone_data_hash: [u8; 32]) -> Option<[u8; 32]> {
+    (zone_data_hash != [0u8; 32]).then_some(zone_data_hash)
+}
+
 pub fn owner_utxo_hash(
     owner_hash: &[u8; 32],
     blinding: &Blinding,
@@ -121,12 +136,21 @@ impl ProofInputUtxo {
         zone_data_hash: [u8; 32],
         zone_program_id: &Option<Address>,
     ) -> Result<Self, TransactionError> {
+        if zone_data_hash != [0u8; 32] && zone_program_id.is_none() {
+            return Err(TransactionError::MissingZoneProgramId);
+        }
         self.zone_data_hash = zone_data_hash;
         self.zone_program_id = program_id_field(zone_program_id)?;
         Ok(self)
     }
 
+    /// The fields are public, so the zone rule is re-checked here rather than
+    /// only in [`Self::with_zone`]: zone data bound to no zone program would
+    /// commit to a policy nobody can enforce.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
+        if self.zone_data_hash != [0u8; 32] && self.zone_program_id == [0u8; 32] {
+            return Err(TransactionError::MissingZoneProgramId);
+        }
         let zone_hash = poseidon(&[&self.zone_data_hash, &self.zone_program_id])?;
         let owner_utxo_hash = poseidon(&[&self.owner_hash, &self.blinding])?;
         poseidon(&[
@@ -182,5 +206,37 @@ impl Utxo {
             zone_program_id: self.zone_program_id,
             data: self.data.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nonzero_zone_hash_requires_zone_program() {
+        let proof_input =
+            ProofInputUtxo::new([1u8; 32], &Address::default(), 1, &[2u8; BLINDING_LEN])
+                .expect("proof input");
+
+        assert_eq!(
+            proof_input.with_zone([3u8; 32], &None).unwrap_err(),
+            TransactionError::MissingZoneProgramId
+        );
+    }
+
+    /// The fields are public, so the rule has to hold for a directly assembled
+    /// value too, not only for one built through `with_zone`.
+    #[test]
+    fn hashing_rejects_zone_data_without_a_zone_program() {
+        let mut proof_input =
+            ProofInputUtxo::new([1u8; 32], &Address::default(), 1, &[2u8; BLINDING_LEN])
+                .expect("proof input");
+        proof_input.zone_data_hash = [3u8; 32];
+
+        assert_eq!(
+            proof_input.hash().unwrap_err(),
+            TransactionError::MissingZoneProgramId
+        );
     }
 }

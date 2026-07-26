@@ -12,6 +12,17 @@ use crate::{
     AssetRegistry, SOL_ASSET_ID, SOL_MINT,
 };
 
+/// The ciphertext ordinal that keys AES-CTR for the slot at `position`.
+///
+/// The spec defines it as the number of `data = Some` outputs preceding this
+/// one. Every published output of a confidential transfer carries a ciphertext
+/// (padded and zero-value slots get a length-matched random one), so the ordinal
+/// is the output position. It is a `u32` in the HKDF `info` string, and a
+/// wrapped value would reuse a `(key, nonce)` pair across two slots.
+pub fn slot_ordinal(position: usize) -> Result<u32, TransactionError> {
+    u32::try_from(position).map_err(|_| TransactionError::OutputSlotOverflow { position })
+}
+
 pub struct EncryptedTransactionData {
     pub salt: [u8; SALT_LEN],
     pub output_utxos: Vec<SppProofOutputUtxo>,
@@ -65,7 +76,7 @@ pub fn encrypt_transaction_data(
             asset_id,
             transaction_viewing_key,
             salt,
-            slot_index as u32,
+            slot_ordinal(slot_index)?,
         )?;
         transact_outputs.push(TransactOutput {
             utxo_hash: output.hash()?,
@@ -111,7 +122,7 @@ pub fn encode_confidential_slots(
                 asset_id,
                 tx,
                 salt,
-                slot_index as u32,
+                slot_ordinal(slot_index)?,
             )?))
         })
         .collect()

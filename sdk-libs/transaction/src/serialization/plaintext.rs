@@ -2,7 +2,7 @@ use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey};
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use super::{validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
@@ -203,13 +203,23 @@ impl UtxoSerialization for PlaintextTransfer {
         let mut spl_data = Data::default();
         let mut sol_data = Data::default();
         let mut recipients: Vec<(u8, TransferPlaintextRecipient)> = Vec::new();
-        for utxo in utxos {
+        let mut seen_positions = [false; u8::MAX as usize + 1];
+        for (index, utxo) in utxos.iter().enumerate() {
+            validate_zone(utxo, owner.zone_program_id, index)?;
             let position = (0..=u8::MAX)
                 .find(|&p| derive_blinding(&cx.blinding_seed, p) == utxo.blinding)
                 .ok_or(TransactionError::MissingOutput)?;
+            if seen_positions[position as usize] {
+                return Err(TransactionError::InvalidOutputPosition { position });
+            }
+            seen_positions[position as usize] = true;
             match position {
                 0 => {
-                    sender_owner = Some(utxo.owner);
+                    validate_owner(utxo, owner.owner, index)?;
+                    if utxo.asset == SOL_MINT {
+                        return Err(TransactionError::OutputAssetMismatch { index });
+                    }
+                    sender_owner = Some(owner.owner);
                     spl = Some(TransferPlaintextSplChange {
                         amount: utxo.amount,
                         asset_id: owner.assets.asset_id(&utxo.asset)?,
@@ -217,7 +227,11 @@ impl UtxoSerialization for PlaintextTransfer {
                     spl_data = utxo.data.clone();
                 }
                 1 => {
-                    sender_owner = Some(utxo.owner);
+                    validate_owner(utxo, owner.owner, index)?;
+                    if utxo.asset != SOL_MINT {
+                        return Err(TransactionError::OutputAssetMismatch { index });
+                    }
+                    sender_owner = Some(owner.owner);
                     sol_amount = Some(utxo.amount);
                     sol_data = utxo.data.clone();
                 }
@@ -233,6 +247,15 @@ impl UtxoSerialization for PlaintextTransfer {
             }
         }
         recipients.sort_by_key(|(position, _)| *position);
+        for (offset, (position, _)) in recipients.iter().enumerate() {
+            let expected =
+                u8::try_from(offset + 2).map_err(|_| TransactionError::TooManyOutputs)?;
+            if *position != expected {
+                return Err(TransactionError::InvalidOutputPosition {
+                    position: *position,
+                });
+            }
+        }
         let recipient_slots = recipients
             .into_iter()
             .map(|(_, recipient)| recipient)

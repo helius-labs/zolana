@@ -34,7 +34,10 @@ pub enum TransactionError {
     #[error("data attached to an output with zero amount")]
     DataWithoutOutput,
 
-    #[error("too many outputs to derive blinding positions")]
+    /// Raised where an output count or position outgrows the width the wire
+    /// format gives it: the `u8` blinding position in the serialization rails,
+    /// and the `u16` output and message counts in the external-data preimage.
+    #[error("too many outputs to encode")]
     TooManyOutputs,
 
     #[error("duplicate data record")]
@@ -58,14 +61,65 @@ pub enum TransactionError {
     #[error("transaction has no output slots")]
     MissingOutput,
 
+    #[error("invalid output count: expected {expected}, got {actual}")]
+    InvalidOutputCount { expected: usize, actual: usize },
+
+    #[error("output {index} has a different owner")]
+    OutputOwnerMismatch { index: usize },
+
+    #[error("output {index} has a different asset")]
+    OutputAssetMismatch { index: usize },
+
+    #[error("output {index} has a different amount")]
+    OutputAmountMismatch { index: usize },
+
+    #[error("output {index} has a different blinding")]
+    OutputBlindingMismatch { index: usize },
+
+    #[error("output {index} has different data")]
+    OutputDataMismatch { index: usize },
+
+    #[error("output {index} has a different zone program id")]
+    OutputZoneMismatch { index: usize },
+
+    #[error("output position {position} is duplicated or noncanonical")]
+    InvalidOutputPosition { position: u8 },
+
+    #[error("merge asset field has no matching asset: {0:?}")]
+    UnknownAssetField([u8; 32]),
+
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
 
     #[error("transaction has no inputs")]
     NoInputs,
 
+    #[error("dummy input carries a noncanonical {field}")]
+    NoncanonicalDummyInput { field: &'static str },
+
+    #[error("address hash count {actual} does not match input count {expected}")]
+    AddressHashCountMismatch { expected: usize, actual: usize },
+
     #[error("withdrawal already set")]
     WithdrawalAlreadySet,
+
+    #[error("withdrawal target does not match the withdrawn asset")]
+    WithdrawalAssetMismatch,
+
+    #[error("output slot {position} exceeds the addressable ciphertext ordinal range")]
+    OutputSlotOverflow { position: usize },
+
+    #[error("got {got} output slot encodings for {outputs} outputs")]
+    ExcessOutputSlots { got: usize, outputs: usize },
+
+    #[error("zone authority requires a nonzero zone program id")]
+    MissingZoneAuthorityProgramId,
+
+    #[error("zone authority input {index} is not bound to the pinned zone")]
+    ZoneAuthorityInputZoneMismatch { index: usize },
+
+    #[error("zone authority output {index} is not bound to the pinned zone")]
+    ZoneAuthorityOutputZoneMismatch { index: usize },
 
     #[error("public sol leg already set")]
     PublicSolAlreadySet,
@@ -75,6 +129,23 @@ pub enum TransactionError {
 
     #[error("zone hashes already set")]
     ZoneHashesAlreadySet,
+
+    /// The external-data preimage writes payload lengths behind `u16` prefixes,
+    /// and `program-libs/interface` casts rather than checking, so an oversized
+    /// payload hashes a silently shortened preimage. By owner ruling the SDKs
+    /// refuse it instead; see the T21 entry in
+    /// `planning/typescript-sdk-port/authority-rulings.md`. The count prefixes
+    /// at the same boundary raise [`Self::TooManyOutputs`], which is the code
+    /// TypeScript already raises there.
+    #[error("{outputs} outputs are paired with {tags} resolved owner tags")]
+    OutputTagMismatch { outputs: usize, tags: usize },
+
+    #[error("{field} is {actual} bytes, over the {maximum} the external data preimage encodes")]
+    ExternalDataLengthOverflow {
+        field: &'static str,
+        maximum: usize,
+        actual: usize,
+    },
 
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
@@ -115,6 +186,12 @@ pub enum TransactionError {
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
+    #[error("wallet balance overflow")]
+    WalletBalanceOverflow,
+
+    #[error("tag scan window must be nonzero")]
+    InvalidTagWindow,
+
     #[error("merge input {index} carries program or zone data, which is not supported")]
     MergeInputHasData { index: usize },
 
@@ -129,6 +206,15 @@ pub enum TransactionError {
 
     #[error("split input is bound to a zone, which is not supported")]
     SplitInputZoneMismatch,
+
+    #[error("split input is a dummy")]
+    SplitInputIsDummy,
+
+    #[error("split input has a different owner than the splitting address")]
+    SplitInputOwnerMismatch,
+
+    #[error("split input has a different nullifier key than the splitting address")]
+    SplitInputNullifierKeyMismatch,
 
     #[error(
         "split amount mismatch: {num_outputs} parts of {per_output} do not sum to input {input}"
