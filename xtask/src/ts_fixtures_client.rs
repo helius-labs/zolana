@@ -144,6 +144,7 @@ fn error_vectors() -> Value {
         ClientError::SplitInputZoneMismatch { hash: [9; 32] },
         ClientError::P256Signature("invalid signature".into()),
         ClientError::FieldTooLong,
+        ClientError::InvalidField,
         ClientError::ProverServer("server rejected request".into()),
         ClientError::ProofParse("invalid proof".into()),
         ClientError::Prover("process exited".into()),
@@ -169,6 +170,7 @@ fn error_vectors() -> Value {
         },
         ClientError::UnsupportedRpcMethod("get_slot"),
         ClientError::IndexerTimeout,
+        ClientError::ConfirmationTimeout,
         ClientError::IndexerNotCaughtUp {
             target: 100,
             latest: 99,
@@ -321,6 +323,7 @@ fn client_error_json(error: ClientError) -> Value {
         ),
         ClientError::P256Signature(reason) => ("CLIENT_P256_SIGNATURE", json!({"reason":reason})),
         ClientError::FieldTooLong => ("CLIENT_FIELD_TOO_LONG", Value::Null),
+        ClientError::InvalidField => ("CLIENT_INVALID_FIELD", Value::Null),
         ClientError::ProverServer(reason) => ("CLIENT_PROVER_SERVER", json!({"reason":reason})),
         ClientError::ProofParse(reason) => ("CLIENT_PROOF_PARSE", json!({"reason":reason})),
         ClientError::Prover(reason) => ("CLIENT_PROVER", json!({"reason":reason})),
@@ -363,6 +366,7 @@ fn client_error_json(error: ClientError) -> Value {
             ("CLIENT_UNSUPPORTED_RPC_METHOD", json!({"method":method}))
         }
         ClientError::IndexerTimeout => ("CLIENT_INDEXER_TIMEOUT", Value::Null),
+        ClientError::ConfirmationTimeout => ("CLIENT_CONFIRMATION_TIMEOUT", Value::Null),
         ClientError::IndexerNotCaughtUp {
             target,
             latest,

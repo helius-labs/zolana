@@ -224,6 +224,10 @@
         "details": null
       },
       {
+        "code": "CLIENT_INVALID_FIELD",
+        "details": null
+      },
+      {
         "code": "CLIENT_PROVER_SERVER",
         "details": {
           "reason": "server rejected request"
@@ -311,6 +315,10 @@
       },
       {
         "code": "CLIENT_INDEXER_TIMEOUT",
+        "details": null
+      },
+      {
+        "code": "CLIENT_CONFIRMATION_TIMEOUT",
         "details": null
       },
       {

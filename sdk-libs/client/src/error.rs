@@ -148,6 +148,9 @@ pub enum ClientError {
     #[error("field element exceeds 32 bytes")]
     FieldTooLong,
 
+    #[error("value is not a BN254 scalar field element")]
+    InvalidField,
+
     #[error("prover server error: {0}")]
     ProverServer(String),
 
@@ -202,6 +205,9 @@ pub enum ClientError {
 
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
+
+    #[error("rpc did not confirm the signature before the poll timeout")]
+    ConfirmationTimeout,
 
     #[error("indexer did not reach block_time {target} within {attempts} attempts; latest indexed block_time is {latest}")]
     IndexerNotCaughtUp {

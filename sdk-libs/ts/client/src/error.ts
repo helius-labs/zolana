@@ -61,6 +61,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_SPLIT_INPUT_ZONE_MISMATCH",
   "CLIENT_P256_SIGNATURE",
   "CLIENT_FIELD_TOO_LONG",
+  "CLIENT_INVALID_FIELD",
   "CLIENT_PROVER_SERVER",
   "CLIENT_PROOF_PARSE",
   "CLIENT_PROVER",
@@ -76,6 +77,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INDEXER",
   "CLIENT_UNSUPPORTED_RPC_METHOD",
   "CLIENT_INDEXER_TIMEOUT",
+  "CLIENT_CONFIRMATION_TIMEOUT",
   "CLIENT_INDEXER_NOT_CAUGHT_UP",
   "CLIENT_POLL_TIMED_OUT",
   "CLIENT_PROOF_PATH_LENGTH",
@@ -135,6 +137,12 @@ export interface ClientErrorDetailsMap {
         maximum?: number;
       }>
     | undefined;
+  readonly CLIENT_INVALID_FIELD:
+    | Readonly<{
+        field?: string;
+        value?: string;
+      }>
+    | undefined;
   readonly CLIENT_PROVER_SERVER: Readonly<{
     method?: string;
     status?: number | "failed";
@@ -165,6 +173,12 @@ export interface ClientErrorDetailsMap {
     | Readonly<{
         signature?: string;
         expectedTags?: number;
+        attempts?: number;
+      }>
+    | undefined;
+  readonly CLIENT_CONFIRMATION_TIMEOUT:
+    | Readonly<{
+        signature?: string;
         attempts?: number;
       }>
     | undefined;
@@ -202,10 +216,6 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_MERGE_PROOF_COMMITMENT: NoDetails;
   readonly CLIENT_MERGE_OUTPUT_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_TRANSACTION: NoDetails;
-  readonly CLIENT_CONFIRMATION_TIMEOUT: Readonly<{
-    signature: string;
-    attempts: number;
-  }>;
   readonly CLIENT_TOO_MANY_ACCOUNTS: NoDetails;
   readonly CLIENT_TRANSACTION_ASSEMBLY: NoDetails;
   readonly CLIENT_INCOMPLETE_SIGNATURES: Readonly<{
@@ -218,7 +228,6 @@ export interface ClientErrorDetailsMap {
     expected: number;
     actual: number;
   }>;
-  readonly CLIENT_INVALID_FIELD: Readonly<{ field: string; value: string }>;
   readonly CLIENT_INVALID_BASE58:
     | Readonly<{
         field?: string;
@@ -292,12 +301,10 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_MERGE_PROOF_COMMITMENT",
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
-  "CLIENT_CONFIRMATION_TIMEOUT",
   "CLIENT_TOO_MANY_ACCOUNTS",
   "CLIENT_TRANSACTION_ASSEMBLY",
   "CLIENT_INCOMPLETE_SIGNATURES",
   "CLIENT_INVALID_LENGTH",
-  "CLIENT_INVALID_FIELD",
   "CLIENT_INVALID_BASE58",
   "CLIENT_INVALID_BASE64",
   "CLIENT_INVALID_P256_KEY",
@@ -409,7 +416,9 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
 
 const OPTIONAL_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_FIELD_TOO_LONG",
+  "CLIENT_INVALID_FIELD",
   "CLIENT_INDEXER_TIMEOUT",
+  "CLIENT_CONFIRMATION_TIMEOUT",
   "CLIENT_INVALID_CONFIG",
   "CLIENT_INVALID_INTEGER",
   "CLIENT_INVALID_INPUT_CONTEXT",
@@ -519,7 +528,9 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_PROOF_PARSE: [],
   CLIENT_RPC: [],
   CLIENT_FIELD_TOO_LONG: [],
+  CLIENT_INVALID_FIELD: [],
   CLIENT_INDEXER_TIMEOUT: [],
+  CLIENT_CONFIRMATION_TIMEOUT: [],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],
   CLIENT_POLL_TIMED_OUT: ["attempts"],
   CLIENT_INVALID_CONFIG: [],

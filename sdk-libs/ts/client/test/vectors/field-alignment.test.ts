@@ -65,9 +65,9 @@ describe("Rust-generated field alignment", () => {
       expect(hex(align(input))).toBe(expected.alignedBytes);
       expect(bytesToBigInt(align(input))).toBe(value);
 
-      // The one difference: `be` hands back whatever the 32 bytes say, while
-      // `bytesField` runs the result through the BN254 range check. Pin the
-      // asymmetry rather than describe it; the case below reaches it.
+      // Raw `be` still accepts these (it mirrors `bytesToBigInt`); production
+      // assembly reads merkle witnesses through `checked_be`, which matches
+      // `bytesField`. Pin both sides of that split.
       if (value >= BN254_MODULUS) {
         expect(thrownCode(() => bytesField(input, "case"))).toBe("CLIENT_INVALID_FIELD");
         return;
@@ -77,19 +77,12 @@ describe("Rust-generated field alignment", () => {
   }
 
   /**
-   * The range check is reachable from an indexer response. A merkle witness is
-   * not hashed before it becomes a field, so no earlier guard sees it:
-   * `validate_spend_proofs` compares leaves and tree addresses only
-   * (`sdk-libs/client/src/client.rs:884-904`). Rust reads the same bytes with
-   * `be` and carries the value to the prover
-   * (`sdk-libs/client/src/prover/transact/p256_and_eddsa.rs:320-327`,
-   * `sdk-libs/client/src/prover/field.rs:21-23`), where the proof it builds
-   * cannot verify.
-   *
-   * Recorded divergence, not a target: which side should move is the owner's
-   * call. Widening `bytesField` or narrowing Rust both fail this case.
+   * Merkle witness bytes come off the indexer and are never hashed before they
+   * become fields. Both languages refuse a root at the modulus at assembly:
+   * TypeScript through `bytesField`, Rust through `checked_be`
+   * (`p256_and_eddsa.rs` input assembly).
    */
-  it("refuses a merkle root at the modulus, which Rust carries to the prover", () => {
+  it("refuses a merkle root at the modulus at assembly", () => {
     const shapes = proverShapesJson as unknown as ProverShapesFixture;
     const source = buildProofInputs(shapes, "eddsa", { inputs: 1, outputs: 2 });
     const [spend, ...rest] = source.spendProofs;
