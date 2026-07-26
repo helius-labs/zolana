@@ -8,6 +8,7 @@ import {
   type Signature,
   type Transaction,
 } from "@zolana/interface";
+import { findProgramAddress } from "@zolana/interface/pda";
 import {
   P256PublicKey,
   ShieldedAddress,
@@ -29,9 +30,6 @@ import type { TransactionSigner } from "./submit.js";
 const PROGRAM_ID = "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc" as Address;
 const SYSTEM_PROGRAM = "11111111111111111111111111111111" as Address;
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
-const PDA_MARKER = new TextEncoder().encode("ProgramDerivedAddress");
-const P = (1n << 255n) - 19n;
-const D = mod(-121665n * inverse(121666n));
 
 export interface ResolvedAddress {
   readonly owner: Address;
@@ -70,71 +68,19 @@ export function senderViewingPublicKey(record: UserRecord): Bytes33 {
   return record.entries.at(-1)?.viewingPublicKey ?? record.viewingPublicKey;
 }
 
-function mod(value: bigint): bigint {
-  const result = value % P;
-  return result < 0n ? result + P : result;
-}
-
-function power(base: bigint, exponent: bigint): bigint {
-  let result = 1n;
-  let factor = mod(base);
-  let remaining = exponent;
-  while (remaining > 0n) {
-    if ((remaining & 1n) === 1n) result = mod(result * factor);
-    factor = mod(factor * factor);
-    remaining >>= 1n;
-  }
-  return result;
-}
-
-function inverse(value: bigint): bigint {
-  return power(value, P - 2n);
-}
-
-function littleEndianInteger(bytes: Uint8Array): bigint {
-  let result = 0n;
-  for (let index = bytes.length - 1; index >= 0; index--) {
-    result = (result << 8n) | BigInt(bytes[index] ?? 0);
-  }
-  return result;
-}
-
-function isEd25519Point(bytes: Uint8Array): boolean {
-  const encoded = new Uint8Array(bytes);
-  encoded[31] = (encoded[31] ?? 0) & 0x7f;
-  const y = littleEndianInteger(encoded);
-  if (y >= P) return false;
-  const y2 = mod(y * y);
-  const x2 = mod((y2 - 1n) * inverse(D * y2 + 1n));
-  let x = power(x2, (P + 3n) / 8n);
-  if (mod(x * x - x2) !== 0n) {
-    x = mod(x * power(2n, (P - 1n) / 4n));
-  }
-  return mod(x * x - x2) === 0n;
-}
-
-async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
-  const owned = Uint8Array.from(bytes);
-  return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", owned));
-}
-
 async function userRecordAddress(owner: Address): Promise<
   Readonly<{
     address: Address;
     bump: number;
   }>
 > {
-  const ownerBytes = decodeBase58(owner, 32, "owner");
-  const program = decodeBase58(PROGRAM_ID, 32, "programId");
-  for (let bump = 255; bump >= 0; bump--) {
-    const digest = await sha256(
-      concat(RECORD_SEED, ownerBytes, Uint8Array.of(bump), program, PDA_MARKER),
-    );
-    if (!isEd25519Point(digest)) {
-      return { address: encodeBase58(digest) as Address, bump };
-    }
+  try {
+    const ownerBytes = decodeBase58(owner, 32, "owner");
+    const [address, bump] = findProgramAddress([RECORD_SEED, ownerBytes], PROGRAM_ID);
+    return { address, bump };
+  } catch {
+    throw new WalletError("WALLET_PDA_DERIVATION");
   }
-  throw new WalletError("WALLET_PDA_DERIVATION");
 }
 
 export async function internalUserRecordAddress(owner: Address): Promise<Address> {

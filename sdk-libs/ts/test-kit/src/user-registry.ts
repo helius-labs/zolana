@@ -8,6 +8,7 @@ import type {
   Signature,
   Transaction,
 } from "@zolana/interface";
+import { findProgramAddress } from "@zolana/interface/pda";
 import { ShieldedKeypair } from "@zolana/keypair";
 import type { TransactionSigner } from "@zolana/wallet";
 
@@ -15,10 +16,7 @@ import { TestKitError } from "./error.js";
 
 const USER_REGISTRY_PROGRAM_ID = "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc" as Address;
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
-const PDA_MARKER = new TextEncoder().encode("ProgramDerivedAddress");
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const ED25519_P = (1n << 255n) - 19n;
-const ED25519_D = modulo(-121665n * inverse(121666n));
 
 export interface UserRecordAddress {
   readonly address: Address;
@@ -55,22 +53,15 @@ export function createTestNativeSigner(seed: Bytes32): TransactionSigner {
 }
 
 export async function userRecordAddress(owner: Address): Promise<UserRecordAddress> {
-  const ownerBytes = decodeBase58(owner, "owner");
-  const programBytes = decodeBase58(USER_REGISTRY_PROGRAM_ID, "programId");
-  for (let bump = 255; bump >= 0; bump--) {
-    const digest = new Uint8Array(
-      await globalThis.crypto.subtle.digest(
-        "SHA-256",
-        concat(RECORD_SEED, ownerBytes, Uint8Array.of(bump), programBytes, PDA_MARKER),
-      ),
-    );
-    if (!isEd25519Point(digest)) {
-      return Object.freeze({ address: encodeBase58(digest) as Address, bump });
-    }
+  try {
+    const ownerBytes = decodeBase58(owner, "owner");
+    const [address, bump] = findProgramAddress([RECORD_SEED, ownerBytes], USER_REGISTRY_PROGRAM_ID);
+    return Object.freeze({ address, bump });
+  } catch {
+    throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
+      details: { field: "owner", reason: "pdaDerivation" },
+    });
   }
-  throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-    details: { field: "owner", reason: "pdaDerivation" },
-  });
 }
 
 export function setMergingEnabledInstruction(
@@ -467,45 +458,3 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-function modulo(value: bigint): bigint {
-  const result = value % ED25519_P;
-  return result < 0n ? result + ED25519_P : result;
-}
-
-function power(base: bigint, exponent: bigint): bigint {
-  let result = 1n;
-  let factor = modulo(base);
-  let remaining = exponent;
-  while (remaining > 0n) {
-    if ((remaining & 1n) === 1n) result = modulo(result * factor);
-    factor = modulo(factor * factor);
-    remaining >>= 1n;
-  }
-  return result;
-}
-
-function inverse(value: bigint): bigint {
-  return power(value, ED25519_P - 2n);
-}
-
-function littleEndianInteger(bytes: Uint8Array): bigint {
-  let result = 0n;
-  for (let index = bytes.length - 1; index >= 0; index--) {
-    result = (result << 8n) | BigInt(bytes[index] ?? 0);
-  }
-  return result;
-}
-
-function isEd25519Point(bytes: Uint8Array): boolean {
-  const encoded = new Uint8Array(bytes);
-  encoded[31] = (encoded[31] ?? 0) & 0x7f;
-  const y = littleEndianInteger(encoded);
-  if (y >= ED25519_P) return false;
-  const ySquared = modulo(y * y);
-  const xSquared = modulo((ySquared - 1n) * inverse(ED25519_D * ySquared + 1n));
-  let x = power(xSquared, (ED25519_P + 3n) / 8n);
-  if (modulo(x * x - xSquared) !== 0n) {
-    x = modulo(x * power(2n, (ED25519_P - 1n) / 4n));
-  }
-  return modulo(x * x - xSquared) === 0n;
-}

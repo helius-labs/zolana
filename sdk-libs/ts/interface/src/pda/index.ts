@@ -6,7 +6,9 @@ import {
   SPL_TOKEN_PROGRAM_ID,
   type Address,
 } from "../index.js";
-import { addressBytes, checkedAddress, findProgramAddress } from "../internal.js";
+import { addressBytes, checkedAddress, findProgramAddress, isEd25519Point } from "../internal.js";
+
+export { findProgramAddress, isEd25519Point };
 
 const encoder = new TextEncoder();
 
