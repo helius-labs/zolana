@@ -218,4 +218,28 @@ describe("JSON-RPC envelope failures", () => {
     }
     throw new Error("expected request validation to fail");
   });
+
+  it("retains cursor paths on schema failures", async () => {
+    const api = new ZolanaApi({
+      url: `https://rpc.example.test?api-key=${SECRET}`,
+      fetch: () => Promise.resolve(new Response()),
+    });
+    try {
+      await api.getShieldedTransactionsByTags({
+        tags: [HASH],
+        cursor: "not-base64!",
+      } as never);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).code).toBe("API_INVALID_REQUEST");
+      expect((error as ApiError).details).toEqual({
+        method: "get_shielded_transactions_by_tags",
+        retryable: false,
+        schemaCode: "INDEXER_SCHEMA_INVALID_BASE64",
+        path: "$.cursor",
+      });
+      return;
+    }
+    throw new Error("expected request validation to fail");
+  });
 });

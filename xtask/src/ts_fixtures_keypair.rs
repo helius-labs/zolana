@@ -211,6 +211,8 @@ fn sections() -> Result<Value, KeypairError> {
                 "splitLowBytes": hex(&hash::split_be_128(&message).0)
             },
             "inputs": {
+                "ed25519SecretBytes": hex(&ed25519_secret),
+                "p256SecretBytes": hex(&p256_secret),
                 "preimageBytes": hex(b"same"),
                 "testOnlySecret": true
             }

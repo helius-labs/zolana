@@ -83,6 +83,7 @@ import {
   type ProoflessOutput,
   type SplitEncryptedUtxos,
 } from "../../src/serialization/index.js";
+import { encodeAddress } from "../../src/internal.js";
 import oracle from "../oracles/transaction-parity-v1.json" with { type: "json" };
 
 /// `sdk-libs/transaction/tests/ts_oracle.rs` produced every value in
@@ -1428,9 +1429,8 @@ interface ZoneAuthorityCase {
 describe("the Rust oracle and TypeScript agree on the zone-authority rail", () => {
   const owner = shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex);
   const blinding = bytes(oracle.transactTypes.blindingHex) as Bytes31;
-  const payerPublicKeyHash = bytes(
-    (oracle.zoneAuthority as readonly ZoneAuthorityCase[])[0]?.payerPublicKeyHashHex ?? "",
-  ) as Bytes32;
+  // Rust `address(PAYER_BYTE)` with `PAYER_BYTE = 15`.
+  const payer = encodeAddress(new Uint8Array(32).fill(15));
   const emptyExternalData = createExternalData({
     txViewingPublicKey: owner.viewingPublicKey(),
     salt: new Uint8Array(16) as Bytes16,
@@ -1493,7 +1493,7 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
                   "11111111111111111111111111111111" as Address,
                 ),
           zoneProgramId: testCase.pinnedZone as Address,
-          payerPublicKeyHash,
+          payer,
           externalData:
             testCase.publicSol === null
               ? emptyExternalData

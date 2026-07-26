@@ -27,6 +27,9 @@ import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey, decodeBase58 } from "./internal.js";
 import type { WalletAuthority } from "./wallet-authority.js";
 
+/** Matches Photon's `PAGE_LIMIT` / `@zolana/indexer-api` default page size. */
+const DEFAULT_PAGE_LIMIT = 1_000;
+
 export interface SyncWalletConfig {
   readonly tagWindow?: bigint;
   readonly tagQueryChunk?: number;
@@ -310,7 +313,7 @@ export async function syncWallet(
       });
     }
     const chunkSize = atLeastOne(input.config?.tagQueryChunk ?? 64, "tagQueryChunk");
-    const pageLimit = atLeastOne(input.config?.pageLimit ?? 1_000, "pageLimit");
+    const pageLimit = atLeastOne(input.config?.pageLimit ?? DEFAULT_PAGE_LIMIT, "pageLimit");
     const rounds = atLeastOne(input.config?.rounds ?? 6, "rounds");
     const poll = input.config?.retry ?? DEFAULT_INDEXER_POLL_CONFIG;
     const rpcConfig: IndexerRpcConfig = Object.freeze({

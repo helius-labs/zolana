@@ -21,7 +21,7 @@ import {
   validateMergeZoneInputs,
 } from "../src/instructions/builders.js";
 import { assetField, createExternalData, signedToField } from "../src/instructions/transact.js";
-import { encodeAddress } from "../src/internal.js";
+import { decodeAddress, encodeAddress, sha256Be } from "../src/internal.js";
 import { createProofOutput } from "../src/utxo.js";
 import {
   EncryptedScheme,
@@ -823,7 +823,7 @@ describe("manifest-verified transaction builders", () => {
         blinding: deriveBlinding(seed, 1),
         zoneProgramId,
       });
-    const payerPublicKeyHash = new Uint8Array(32).fill(3) as Bytes32;
+    const payer = encodeAddress(new Uint8Array(32).fill(3));
     const externalData = createExternalData({
       txViewingPublicKey: sender.keypair.viewingPublicKey(),
       salt: new Uint8Array(16) as Bytes16,
@@ -837,12 +837,13 @@ describe("manifest-verified transaction builders", () => {
         outputs: [output(zone)],
         externalData,
         zoneProgramId: zone,
-        payerPublicKeyHash,
+        payer,
         ...overrides,
       });
 
     expect(prepare({}).zoneProgramId).toBe(zone);
     expect(prepare({}).inputUtxoHashes()).toHaveLength(1);
+    expect(prepare({}).payerPublicKeyHash).toEqual(sha256Be(decodeAddress(payer)));
 
     expect(() => prepare({ zoneProgramId: SOL_MINT })).toThrow(
       expect.objectContaining({ code: "TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID" }),

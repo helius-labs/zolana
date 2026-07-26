@@ -207,8 +207,13 @@ export class Wallet {
     return wallet;
   }
 
+  /**
+   * The live asset registry. Mutations land on the wallet, matching Rust's
+   * public `registry` field; use `registerAsset` when the typed wallet path is
+   * preferred.
+   */
   get registry(): AssetRegistry {
-    return this.#registry.clone();
+    return this.#registry;
   }
 
   get viewingKeyHistory(): readonly ViewingKeyEntry[] {

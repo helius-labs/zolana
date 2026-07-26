@@ -18,6 +18,7 @@ import {
   composeSignal,
   compareBytes,
   decodeBase58,
+  decodeBase58Bytes,
   decodeBase64,
   encodeBase64,
   requestError,
@@ -770,30 +771,28 @@ function parsedInstruction(
   });
   const encoded = string(instruction["data"], "instruction.data");
   const height = stackHeight ?? instruction["stackHeight"];
+  // Rust's bs58 decode maps "" to an empty byte array; match that so a
+  // confirmed transaction that includes a zero-data instruction still parses.
+  const data = encoded.length === 0 ? new Uint8Array(0) : decodeBase58Bytes(encoded, "instruction.data");
+  // Instruction data travels inside a transaction, so no decode can be longer
+  // than the packet the validator accepts.
+  if (data.length > TRANSACTION_SIZE_LIMIT) {
+    throw new ClientError("CLIENT_INVALID_BASE58", {
+      details: {
+        field: "instruction.data",
+        expectedLength: TRANSACTION_SIZE_LIMIT,
+        actualLength: data.length,
+      },
+    });
+  }
   return Object.freeze({
     programId,
     accounts: Object.freeze(accounts),
-    data: decodeBase58(encoded, decodeBase58UnknownLength(encoded).length, "instruction.data"),
+    data,
     ...(typeof height === "number"
       ? { stackHeight: safeNumber(height, "instruction.stackHeight") }
       : {}),
   });
-}
-
-function decodeBase58UnknownLength(value: string): Uint8Array {
-  // Rust's bs58 decode maps "" to an empty byte array; match that so a
-  // confirmed transaction that includes a zero-data instruction still parses.
-  if (value.length === 0) return new Uint8Array(0);
-  // Instruction data travels inside a transaction, so no decode can be longer
-  // than the packet the validator accepts.
-  for (let length = 1; length <= TRANSACTION_SIZE_LIMIT; length++) {
-    try {
-      return decodeBase58(value, length, "instruction.data");
-    } catch {
-      continue;
-    }
-  }
-  throw new ClientError("CLIENT_INVALID_BASE58");
 }
 
 function concat(...parts: readonly Uint8Array[]): Uint8Array {

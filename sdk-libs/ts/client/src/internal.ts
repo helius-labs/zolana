@@ -150,12 +150,8 @@ export function sha256Bytes(bytes: Uint8Array): Bytes32 {
   return new Uint8Array(sha256(bytes)) as Bytes32;
 }
 
-export function decodeBase58(value: unknown, length: number, fieldName: string): Uint8Array {
-  // Empty base58 is the empty byte string in bs58 and in the sibling base64
-  // decoder. Instruction data can be empty; addresses and signatures cannot.
-  if (typeof value === "string" && value.length === 0 && length === 0) {
-    return new Uint8Array(0);
-  }
+/** Decode base58 once; length is whatever the encoding represents. */
+export function decodeBase58Bytes(value: unknown, fieldName: string): Uint8Array {
   if (typeof value !== "string" || value.length === 0) {
     throw new ClientError("CLIENT_INVALID_BASE58", { details: { field: fieldName } });
   }
@@ -183,7 +179,22 @@ export function decodeBase58(value: unknown, length: number, fieldName: string):
   for (let index = 0; index < extra; index++) {
     result[result.length - 1 - index] = bytes[index] ?? 0;
   }
-  if (result.length !== length || encodeBase58(result) !== value) {
+  if (encodeBase58(result) !== value) {
+    throw new ClientError("CLIENT_INVALID_BASE58", {
+      details: { field: fieldName, actualLength: result.length },
+    });
+  }
+  return result;
+}
+
+export function decodeBase58(value: unknown, length: number, fieldName: string): Uint8Array {
+  // Empty base58 is the empty byte string in bs58 and in the sibling base64
+  // decoder. Instruction data can be empty; addresses and signatures cannot.
+  if (typeof value === "string" && value.length === 0 && length === 0) {
+    return new Uint8Array(0);
+  }
+  const result = decodeBase58Bytes(value, fieldName);
+  if (result.length !== length) {
     throw new ClientError("CLIENT_INVALID_BASE58", {
       details: { field: fieldName, expectedLength: length, actualLength: result.length },
     });

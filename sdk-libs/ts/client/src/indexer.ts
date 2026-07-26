@@ -1,5 +1,12 @@
 import { ZolanaApi } from "@zolana/api";
-import { base64String, hash, hashBytes, limit } from "@zolana/indexer-api";
+import {
+  base64String,
+  hash,
+  hashBytes,
+  limit,
+  MIN_PAGE_LIMIT,
+  PAGE_LIMIT,
+} from "@zolana/indexer-api";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse as WireGetEncryptedUtxosByTagsResponse,
@@ -156,8 +163,12 @@ function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
   });
 }
 
-function checkedPageLimit(value: number): number {
-  if (!Number.isSafeInteger(value) || value < 1 || value > 1000) {
+function checkedPageLimit(
+  value: number,
+  min: number = Number(MIN_PAGE_LIMIT),
+  max: number = Number(PAGE_LIMIT),
+): number {
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
     throw new ClientError("CLIENT_INVALID_INTEGER", {
       details: { field: "limit", value: String(value) },
     });

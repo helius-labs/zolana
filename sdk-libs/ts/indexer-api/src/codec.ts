@@ -24,6 +24,8 @@ import {
   checkedHash,
   checkedSignature,
   limit,
+  MIN_PAGE_LIMIT,
+  PAGE_LIMIT,
   schemaFailure,
 } from "./scalars.js";
 
@@ -137,23 +139,19 @@ function u16(value: unknown, path: string): number {
   return Number(integer);
 }
 
-function checkedPageLimit(value: unknown, path: string) {
+function checkedPageLimit(
+  value: unknown,
+  path: string,
+  min: bigint = MIN_PAGE_LIMIT,
+  max: bigint = PAGE_LIMIT,
+) {
+  const expected = `an integer from ${min.toString()} through ${max.toString()}`;
   if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    return schemaFailure(
-      "INDEXER_SCHEMA_INVALID_LIMIT",
-      path,
-      "an integer from 1 through 1000",
-      value,
-    );
+    return schemaFailure("INDEXER_SCHEMA_INVALID_LIMIT", path, expected, value);
   }
   const integer = BigInt(value);
-  if (integer < 1n || integer > 1000n) {
-    return schemaFailure(
-      "INDEXER_SCHEMA_INVALID_LIMIT",
-      path,
-      "an integer from 1 through 1000",
-      value,
-    );
+  if (integer < min || integer > max) {
+    return schemaFailure("INDEXER_SCHEMA_INVALID_LIMIT", path, expected, value);
   }
   return limit(integer);
 }

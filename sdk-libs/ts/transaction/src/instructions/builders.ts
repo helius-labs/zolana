@@ -577,7 +577,7 @@ export function prepareZoneAuthority(
     outputs: readonly ProofOutputUtxo[];
     externalData: ExternalData;
     zoneProgramId: Address;
-    payerPublicKeyHash: Bytes32;
+    payer: Address;
   }>,
 ): PreparedZoneAuthority {
   // The UTXO owners do not authorize this spend; the zone's `zone_config` PDA
@@ -599,19 +599,26 @@ export function prepareZoneAuthority(
       throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH", { index });
     }
   }
+  // Derive the payer hash here so a caller-supplied digest cannot disagree with
+  // the payer address, matching Rust `PreparedZoneAuthority::new`.
+  const payerPublicKeyHash = sha256Be(decodeAddress(input.payer));
   // The padded slot counts must name a proving system that exists, exactly as
   // `SppProofInputs` requires of an owner-signed transact, and the public leg is
   // read off the external data rather than taken from the caller so the amounts
   // the proof commits to cannot contradict the hash the program recomputes.
   // Both come from `SppProofInputs` so the two rails cannot drift.
   const proofInputs = new SppProofInputs({
-    payerPublicKeyHash: input.payerPublicKeyHash,
+    payerPublicKeyHash,
     inputUtxos: input.inputs,
     outputs: input.outputs,
     externalData: input.externalData,
   });
   return Object.freeze({
-    ...input,
+    inputs: input.inputs,
+    outputs: input.outputs,
+    externalData: input.externalData,
+    zoneProgramId: input.zoneProgramId,
+    payerPublicKeyHash,
     shape: proofInputs.checkShape(),
     publicAmounts: proofInputs.publicAmounts(),
     inputUtxoHashes: (): readonly InputUtxoContext[] =>
