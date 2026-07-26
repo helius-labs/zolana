@@ -61,6 +61,26 @@
       "responsibility": "Kit Instruction wrappers for the @zolana/interface instruction builders. No separate encoding.",
       "target": "`@zolana/kit/instructions`",
       "testResponsibility": "Unit: export names match @zolana/interface/instructions so new builders are not omitted."
+    },
+    {
+      "disposition": "addition",
+      "fixtureResponsibility": "None: star-re-exports of published @zolana/* packages.",
+      "marker": "live",
+      "packet": "P12",
+      "path": "sdk-libs/ts/zolana/src/index.ts",
+      "responsibility": "Umbrella `@helius/zolana` root: default app surface over fine-grained packages.",
+      "target": "`@helius/zolana` · `src/index.ts`",
+      "testResponsibility": "Unit: exports.test.ts entry points and dependency graph. Packaging: api report."
+    },
+    {
+      "disposition": "addition",
+      "fixtureResponsibility": "None: re-exports `@zolana/kit` adapters beside the app surface.",
+      "marker": "live",
+      "packet": "P12",
+      "path": "sdk-libs/ts/zolana/src/kit/index.ts",
+      "responsibility": "Umbrella `@helius/zolana/kit` entry for Kit consumers.",
+      "target": "`@helius/zolana/kit`",
+      "testResponsibility": "Unit: exports.test.ts keeps Kit on the subpath. Packaging: api report."
     }
   ]
 }

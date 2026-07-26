@@ -80,7 +80,9 @@ async function checkExports() {
       "default",
     ];
 
-    assert(value.name === `@zolana/${packageName}`, `${packageName} package name`);
+    const publishedName =
+      configuration.publishedName ?? `@zolana/${packageName}`;
+    assert(value.name === publishedName, `${packageName} package name`);
     assert(value.type === "module", `${value.name} must be ESM`);
     assert(value.sideEffects === false, `${value.name} must declare sideEffects`);
     assert(

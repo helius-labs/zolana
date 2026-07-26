@@ -155,7 +155,7 @@ async function packageReport(packageName) {
     entryPoints[exportPath] = normalize(fromDeclarations);
   }
   return {
-    package: `@zolana/${packageName}`,
+    package: packageConfigurations[packageName].publishedName ?? `@zolana/${packageName}`,
     entryPoints,
   };
 }

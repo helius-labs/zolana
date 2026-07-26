@@ -85,6 +85,20 @@ export const packageConfigurations = {
     peerDependencies: ["@solana/kit"],
     browser: true,
   },
+  zolana: {
+    entryPoints: [".", "./kit"],
+    dependencies: [
+      "@zolana/client",
+      "@zolana/interface",
+      "@zolana/keypair",
+      "@zolana/kit",
+      "@zolana/transaction",
+      "@zolana/wallet",
+    ],
+    // Published as `@helius/zolana`; Kit stays behind the `./kit` entry.
+    publishedName: "@helius/zolana",
+    browser: true,
+  },
   "test-kit": {
     entryPoints: [".", "./node", "./fixtures"],
     dependencies: [

@@ -1,0 +1,165 @@
+{
+  "package": "@helius/zolana",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "AssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "ConfidentialTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "createSolanaSigner",
+        "kind": "value"
+      },
+      {
+        "name": "decryptTransactions",
+        "kind": "value"
+      },
+      {
+        "name": "depositInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "Instruction",
+        "kind": "type"
+      },
+      {
+        "name": "LocalWalletAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "randomBlinding",
+        "kind": "value"
+      },
+      {
+        "name": "ShieldedKeypair",
+        "kind": "type"
+      },
+      {
+        "name": "Signature",
+        "kind": "type"
+      },
+      {
+        "name": "SOL_MINT",
+        "kind": "value"
+      },
+      {
+        "name": "SolanaRpc",
+        "kind": "value"
+      },
+      {
+        "name": "SppProofInputUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "syncWallet",
+        "kind": "value"
+      },
+      {
+        "name": "transactInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "wait",
+        "kind": "value"
+      },
+      {
+        "name": "Wallet",
+        "kind": "value"
+      },
+      {
+        "name": "ZolanaClient",
+        "kind": "value"
+      }
+    ],
+    "./kit": [
+      {
+        "name": "AssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "ConfidentialTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "createKitRpc",
+        "kind": "value"
+      },
+      {
+        "name": "createSolanaSigner",
+        "kind": "value"
+      },
+      {
+        "name": "decryptTransactions",
+        "kind": "value"
+      },
+      {
+        "name": "depositInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "fromKitInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "fromKitSigner",
+        "kind": "value"
+      },
+      {
+        "name": "Instruction",
+        "kind": "type"
+      },
+      {
+        "name": "LocalWalletAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "randomBlinding",
+        "kind": "value"
+      },
+      {
+        "name": "ShieldedKeypair",
+        "kind": "type"
+      },
+      {
+        "name": "Signature",
+        "kind": "type"
+      },
+      {
+        "name": "SOL_MINT",
+        "kind": "value"
+      },
+      {
+        "name": "SppProofInputUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "syncWallet",
+        "kind": "value"
+      },
+      {
+        "name": "toKitSigner",
+        "kind": "value"
+      },
+      {
+        "name": "transactInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "wait",
+        "kind": "value"
+      },
+      {
+        "name": "Wallet",
+        "kind": "value"
+      },
+      {
+        "name": "ZolanaClient",
+        "kind": "value"
+      }
+    ]
+  }
+}
