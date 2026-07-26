@@ -88,10 +88,11 @@ describe("HTTP and body failures", () => {
   });
 
   it("rejects oversized bodies before retaining them", async () => {
+    const limit = 10 * 1024 * 1024;
     const error = await apiError(
       new Response("{}", {
         headers: {
-          "content-length": String(1024 * 1024 + 1),
+          "content-length": String(limit + 1),
           "content-type": "application/json",
         },
       }),
@@ -100,8 +101,8 @@ describe("HTTP and body failures", () => {
 
     expect(error.details).toEqual({
       method: "get_merkle_proofs",
-      bodyBytes: 1024 * 1024 + 1,
-      maxBodyBytes: 1024 * 1024,
+      bodyBytes: limit + 1,
+      maxBodyBytes: limit,
       retryable: false,
     });
   });
