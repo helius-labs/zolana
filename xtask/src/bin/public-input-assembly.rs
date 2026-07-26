@@ -373,11 +373,27 @@ fn zone_eddsa_chain(
     nullifiers: &[[u8; 32]],
     output_hashes: &[[u8; 32]],
 ) -> Result<Value> {
-    let utxo_roots = fields_to_bytes(&inputs.inputs.iter().map(|i| &i.utxo_tree_root).collect::<Vec<_>>());
-    let nullifier_roots =
-        fields_to_bytes(&inputs.inputs.iter().map(|i| &i.nullifier_tree_root).collect::<Vec<_>>());
-    let input_owners =
-        fields_to_bytes(&inputs.inputs.iter().map(|i| &i.owner_pk_hash).collect::<Vec<_>>());
+    let utxo_roots = fields_to_bytes(
+        &inputs
+            .inputs
+            .iter()
+            .map(|i| &i.utxo_tree_root)
+            .collect::<Vec<_>>(),
+    );
+    let nullifier_roots = fields_to_bytes(
+        &inputs
+            .inputs
+            .iter()
+            .map(|i| &i.nullifier_tree_root)
+            .collect::<Vec<_>>(),
+    );
+    let input_owners = fields_to_bytes(
+        &inputs
+            .inputs
+            .iter()
+            .map(|i| &i.owner_pk_hash)
+            .collect::<Vec<_>>(),
+    );
     Ok(json!({
         "nullifierChain": hex(&create_hash_chain_from_slice(nullifiers)?),
         "outputHashChain": hex(&create_hash_chain_from_slice(output_hashes)?),
@@ -402,11 +418,27 @@ fn zone_p256_chain(
     nullifiers: &[[u8; 32]],
     output_hashes: &[[u8; 32]],
 ) -> Result<Value> {
-    let utxo_roots = fields_to_bytes(&inputs.inputs.iter().map(|i| &i.utxo_tree_root).collect::<Vec<_>>());
-    let nullifier_roots =
-        fields_to_bytes(&inputs.inputs.iter().map(|i| &i.nullifier_tree_root).collect::<Vec<_>>());
-    let input_owners =
-        fields_to_bytes(&inputs.inputs.iter().map(|i| &i.owner_pk_hash).collect::<Vec<_>>());
+    let utxo_roots = fields_to_bytes(
+        &inputs
+            .inputs
+            .iter()
+            .map(|i| &i.utxo_tree_root)
+            .collect::<Vec<_>>(),
+    );
+    let nullifier_roots = fields_to_bytes(
+        &inputs
+            .inputs
+            .iter()
+            .map(|i| &i.nullifier_tree_root)
+            .collect::<Vec<_>>(),
+    );
+    let input_owners = fields_to_bytes(
+        &inputs
+            .inputs
+            .iter()
+            .map(|i| &i.owner_pk_hash)
+            .collect::<Vec<_>>(),
+    );
     let private_tx = field_to_bytes(&inputs.private_tx_hash);
     let p256_message = sha256(&private_tx);
     Ok(json!({
@@ -461,7 +493,11 @@ fn zone_real_input(keypair: &ShieldedKeypair, position: u8) -> SppProofInputUtxo
     )
 }
 
-fn zone_proof_inputs(keypair: &ShieldedKeypair, n_inputs: usize, n_outputs: usize) -> SppProofInputs {
+fn zone_proof_inputs(
+    keypair: &ShieldedKeypair,
+    n_inputs: usize,
+    n_outputs: usize,
+) -> SppProofInputs {
     let real = if n_inputs >= 2 { 2 } else { 1 };
     let input_utxos = (0..n_inputs)
         .map(|index| {

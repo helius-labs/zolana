@@ -79,9 +79,9 @@ ran. Compression behaviour was not changed.
 
 The overlay exit asks for each supported family through the program. This pass
 delivers confidential Ed25519 only. Zone / zone-authority / P256 / merge paths
-through the program were not stood up. Pure TypeScript submission remains blocked until G2
-compression matches Solana’s `alt_bn128_g2_compress_be` acceptance (fnd-d5 /
-P3).
+through the program were not stood up. Pure TypeScript submission remains blocked
+until G2 compression matches Solana’s `alt_bn128_g2_compress_be` acceptance
+(fnd-d5 / P3).
 
 ## PKP-06: full shape matrix
 
@@ -92,12 +92,12 @@ npm run test:p4:full
 # ZOLANA_TEST_P4=1 ZOLANA_TEST_P4_FULL=1 …
 ```
 
-Result: 53 passed, 0 failed, duration ~536s. Always-on oracle cases plus the
-full confidential (both rails × `SPP_SUPPORTED_SHAPES`), full zone (both rails ×
-shapes), remaining zone-authority shapes, and `merge_zone` 8×1. No shape failed
-on first execution. Compressed verification still uses the P4 Rust compress
-fallback when TypeScript refuses a point; uncompressed verify does not need that
-path.
+Result: 53 passed, 0 failed, duration ~536s. Prover-free oracle self-check cases
+plus the full confidential set (both rails × `SPP_SUPPORTED_SHAPES`), full zone
+set (both rails × shapes), remaining zone-authority shapes, and `merge_zone`
+8×1. No shape failed on first execution. Compressed verification still uses the
+P4 Rust compress fallback when TypeScript refuses a point; uncompressed verify
+does not need that path.
 
 ## PKP-08: G2 characterisation (no behaviour change)
 
@@ -138,7 +138,7 @@ Requires prior `just build-programs`, `build-prover-server`, `ensure-photon`,
 1. **Release wire path:** wallets that only call production TypeScript
    `compressProof` cannot submit live proofs until G2 policy matches the
    program. Hybrid e2e must not be cited as TypeScript G2 certification.
-2. **Family coverage on chain:** confidential Ed25519 only.
+2. **Family coverage through the program:** confidential Ed25519 only.
 3. **Matrix vs program:** full-matrix green is still oracle verify, not program
    execution per shape.
 4. Workspace `check:static` remains red on unrelated pre-existing client/wallet/
