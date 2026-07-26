@@ -22,8 +22,9 @@ use solana_signature::Signature;
 use zolana_indexer_api::{
     Base64String, GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetMerkleProofsResponse,
     GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByTagsRequest, GetShieldedTransactionsByTagsResponse,
-    Hash, Limit, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
+    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
+    GetShieldedTransactionsByTagsResponse, Hash, Limit, SerializablePubkey, SerializableSignature,
+    PAGE_LIMIT,
 };
 
 const FIXTURE: &str = "sdk-libs/ts/vectors/indexer-schema-rejects-v1.json";
@@ -157,12 +158,7 @@ fn fixture() -> Result<Value> {
             json!(encoded)
         }),
         probe_scalar::<Limit>("limit-zero", "limit", "limit", json!(0)),
-        probe_scalar::<Limit>(
-            "limit-above-page",
-            "limit",
-            "limit",
-            json!(PAGE_LIMIT + 1),
-        ),
+        probe_scalar::<Limit>("limit-above-page", "limit", "limit", json!(PAGE_LIMIT + 1)),
     ];
 
     let rejects = vec![
