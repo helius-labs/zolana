@@ -13,7 +13,7 @@ use zolana_interface::{
 /// return its bump (needed to sign the withdrawal transfer).
 #[inline(always)]
 pub fn validate_sol_interface(account: &AccountView) -> Result<u8, ProgramError> {
-    if address_eq(account.address(), &Address::new_from_array(SOL_INTERFACE)) {
+    if !address_eq(account.address(), &Address::new_from_array(SOL_INTERFACE)) {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
     Ok(zolana_interface::SOL_INTERFACE_BUMP)

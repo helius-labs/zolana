@@ -770,4 +770,3 @@ fn eddsa_signer_authorized(world: &mut ZoneLifecycleWorld) {
         "zone transfer should take the eddsa rail (ed25519 signer authorizes the spend)"
     );
 }
-

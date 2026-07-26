@@ -466,4 +466,3 @@ fn eddsa_signer_authorized(world: &mut LifecycleWorld) {
         "transfer should take the eddsa rail (ed25519 signer authorizes the spend)"
     );
 }
-

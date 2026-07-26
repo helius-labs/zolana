@@ -14,8 +14,8 @@ use crate::{
     prover::{
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_zone,
-            to_json_zone, to_json_zone_authority,
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_zone, to_json_zone,
+            to_json_zone_authority,
         },
         proof::{proof_from_gnark_json, Proof},
     },

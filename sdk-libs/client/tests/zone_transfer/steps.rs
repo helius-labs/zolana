@@ -11,8 +11,8 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, ProverClient, PublicMovements, Rpc, Shape,
-    TransferSpendInput, ZoneTransferProver,
+    spawn_prover, InputUtxoContext, ProverClient, PublicMovements, Rpc, Shape, TransferSpendInput,
+    ZoneTransferProver,
 };
 use zolana_interface::{
     instruction::{
@@ -25,9 +25,7 @@ use zolana_interface::{
         transfer_zone_5_3, transfer_zone_5_4,
     },
 };
-use zolana_keypair::{
-    random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey,
-};
+use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
     instructions::types::SppProofInputUtxo, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
@@ -297,7 +295,6 @@ fn eddsa_zone_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'sta
         _ => panic!("unsupported zone-transfer shape {n_in}x{n_out}"),
     }
 }
-
 
 fn start_prover() {
     static INIT: Once = Once::new();
