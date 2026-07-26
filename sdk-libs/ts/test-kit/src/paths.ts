@@ -30,3 +30,13 @@ export const FIXTURES_ROOT = path.resolve(packageRoot(), "../fixtures");
 
 /** The repository root, which the local stack reads built binaries from. */
 export const WORKSPACE_ROOT = path.resolve(packageRoot(), "../../..");
+
+export function programBinaryPath(
+  workspace: string,
+  input: Readonly<{ environmentVariable: string; fileName: string }>,
+): string {
+  const override = process.env[input.environmentVariable]?.trim();
+  return override && override !== ""
+    ? path.resolve(override)
+    : path.resolve(workspace, "target/deploy", input.fileName);
+}
