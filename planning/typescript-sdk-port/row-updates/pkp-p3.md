@@ -6,13 +6,13 @@ rail, and the rejection surface for malformed prover responses.
 
 ## Bottom line
 
-**P3 does not fully certify.** The shared accept and reject surface for parsing
-and compression is strong where both languages already agreed, and the new
+P3 does not fully certify. The shared accept and reject surface for parsing and
+compression is strong where both languages already agreed, and the new
 Rust-generated fixture closes the parity-bit, identity, leading-zero, structural
 row-count, truncated/extended, and rail-confusion gaps that the older suites
 only partly covered. Two clauses remain open: unknown response fields are
 accepted by both languages rather than rejected, and no frozen G2 point was
-found for the `y1 == 0 && isLargest(y0)` compression branch within a 50 000
+found for the `y1 == 0 && isLargest(y0)` compression branch within a 50000
 scalar search. One real divergence is recorded: TypeScript refuses an off-curve
 G2 at compress while Rust's `alt_bn128_g2_compress_be` accepts it.
 
