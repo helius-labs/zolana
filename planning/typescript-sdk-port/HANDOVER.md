@@ -80,7 +80,7 @@ Claims previously recorded that do not hold, all found by adversarial re-checks:
 
 | Claim | Reality |
 | --- | --- |
-| The export ledger is enforced | `api:check` is a scaffold. It never parsed `public-exports.md`, so nothing has been guarding the export surface |
+| The export ledger is enforced | Was a scaffold that never parsed `public-exports.md`. Now real: `api:check` caught twelve undeclared differences on the surface reconciliation and reports a match for all eleven packages |
 | Fixture provenance is fresh | The manifest's `frozenCommit` is ~456 commits behind current Rust. True for no package |
 | All 145 rows are closed | Three interface rows, `E03`, `E05`, and `E06`, sit at `needs_re_review` |
 | Nine workspace packages | Eleven. `@zolana/hasher` and `@zolana/test-kit` were never counted, so they have had the least scrutiny of anything here |
@@ -95,33 +95,20 @@ agent.** Do not touch a path another worker owns; report a gap in it instead.
 
 | Branch | Scope |
 | --- | --- |
-| `port/example-surface` | Reconcile the client surface onto the example branch, per the ruling below |
-| `port/reject-fixtures` | Rust-generated rejection and tamper fixtures for `indexer-api` and `smart-account-client`, closing the last fixture gate line |
+| `port/tail-fixes` | The six behavioural fixes plus the `F130` redaction unification |
+| `port/tail-small` | The six smaller fixes: page limits, dead fixture field, unverifiable fixture, registry copy, payer hash, base58 length search |
 | `port/ci-infra` | Strip this port's coordination tooling from the repository and scope the CI graph by path with shared build output |
-| `port/f130-light` | Research only: how Light Protocol keeps secret material out of error payloads, before we unify our two contradictory rules |
+
+Landed since the last refresh: `port/example-surface` (client surface reconciled
+onto the example shape, `api:check` matching for all eleven packages),
+`port/reject-fixtures` (Rust-generated rejection and tamper fixtures, closing the
+last fixture gate line), and `port/f130-light` (research only). The merged branch
+is green: 2359 unit tests passing, 9 skipped, static, packaging, and fixture
+provenance all clean.
 
 ### Queued, in order
 
-1. **The twelve small behavioural fixes**, ruled row by row and recorded in
-   [`authority-rulings.md`](authority-rulings.md#register-tail-the-six-behavioural-rows-are-fixed-in-this-pull-request).
-   They are held rather than dispatched because most touch files
-   `port/example-surface` is rewriting, and fixing a function while another
-   branch moves it means resolving the same conflict twice. Six change
-   behaviour: a zero-amount deposit the program always rejects, empty
-   instruction data that throws where Rust returns empty bytes, RPC faults
-   TypeScript treats as fatal where Rust retries, a byte comparison that calls
-   a prefix equal, an airdrop that rounds large amounts, and drift oracles that
-   overwrite the baseline they exist to check. Six are smaller: hardcoded page
-   limits, a wrong offset in an unread fixture field, an unverifiable fixture,
-   a registry copy whose `insert` silently does nothing, an unchecked payer
-   hash, and a base58 length brute-force.
-
-2. **Unify error-detail redaction** once the Light Protocol finding lands.
-   `keypair` admits an allow-list, `client` keeps arbitrary scalars, so an error
-   on the client path can carry data the keypair path would strip. This SDK
-   handles secret keys, viewing keys, and decrypted amounts.
-
-3. **Centralize the fixture baseline commit**, which is copied into many files
+1. **Centralize the fixture baseline commit**, which is copied into many files
    instead of defined once. Held until `port/reject-fixtures` releases the
    fixture config.
 
