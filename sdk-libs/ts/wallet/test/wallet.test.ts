@@ -236,11 +236,12 @@ describe("wallet actions", () => {
       utxos: state.utxos.map((entry, index) => (index === 0 ? { ...entry, spent: true } : entry)),
       transactions: [
         {
-          id: { signature: SIGNATURE, index: 0n },
+          id: { signature: SIGNATURE, slot: 1n, index: 0n },
           kind: "deposit",
-          direction: "incoming",
+          direction: "inbound",
           status: "confirmed",
-          slot: 1n,
+          asset: SOL_MINT,
+          amount: 2n,
         },
       ],
       nullifiers: state.nullifiers,
