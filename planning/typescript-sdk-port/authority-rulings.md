@@ -2144,3 +2144,38 @@ Rust-side observation for whoever owns that generator: it asserts
 `sequential.utxos == parallel.utxos`, which holds only because its scenario has
 no counterparty with a shared-stream hit. A scenario with two would make the
 generator itself flaky, and the serial walk is the reason.
+
+## D2 / F122, Merkle-proof completeness: fail immediately, ruling unchanged
+
+An external review of pull request 159 recommends the opposite of the ruling
+already recorded here: retry by default for wallet spend flows, on the grounds
+that a note indexed moments ago is a normal case rather than an error. The
+owner considered that argument and kept the original ruling. TypeScript fails
+immediately, matching Light and the async Rust client, and the blocking Rust
+client's sixty-second wait stays unrestored.
+
+The reviewer's case is about what a wallet user experiences; the ruling is about
+what two SDKs can be held to jointly. A default that retries in one language and
+not the other is a divergence that no fixture can pin, and the caller who needs
+the wait can write it. Recorded so the disagreement is visible rather than
+resolved twice.
+
+## D5 / F103, strictness on privacy-relevant checks: harden Rust, not TypeScript
+
+This narrows the standing `match_rust` ruling. `match_rust` was given for T23
+and S01, where TypeScript refused inputs Rust accepts and the refusals protected
+nothing the protocol cares about. It does not extend to a check whose absence
+leaks.
+
+The external review found that Rust can emit a zero-length dummy ciphertext.
+That is distinguishable on the wire from a real one, which defeats the padding
+whose entire purpose is to make dummy and real slots indistinguishable. Deleting
+the TypeScript check that refuses it would reproduce the leak in a second
+language rather than close it.
+
+So the direction reverses for this class: Rust hardens to match TypeScript's
+fail-closed behaviour for the zero-length dummy ciphertext, and TypeScript keeps
+its check. `match_rust` still governs the non-privacy strictness differences in
+the same finding, extra signatures and excess ciphertext slots, unless one of
+those turns out to leak too. This is Rust SDK work in `sdk-libs`, not a program
+or circuit change, so it stays inside the port's scope.
