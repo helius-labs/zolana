@@ -277,12 +277,18 @@ async function requireFile(file: string, field: string): Promise<void> {
   try {
     await access(file);
   } catch {
-    // Path is part of the refusal so a custom `CARGO_TARGET_DIR` or a skipped
-    // `just build-programs` / `just build-photon` is obvious in the failure.
+    // Path and recipe are part of the refusal so a custom `CARGO_TARGET_DIR`
+    // or a skipped build is obvious, rather than a later program error.
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-      details: { field, reason: "missing", path: file },
+      details: { field, reason: "missing", path: file, hint: binaryBuildHint(field) },
     });
   }
+}
+
+function binaryBuildHint(field: string): string {
+  if (field === "photonBinary") return "just build-photon";
+  if (field === "proverBinary") return "just build-prover-server";
+  return "just build-programs";
 }
 
 async function assertPortAvailable(url: URL): Promise<void> {
