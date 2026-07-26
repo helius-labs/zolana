@@ -37,10 +37,10 @@ five hand-written copies could be deleted.
 | --- | --- |
 | Review rows | 148 examined, 0 adverse. The 3 reopened interface rows closed, and the two uncounted packages gained seats |
 | Full SDK gates | 14 of 16 checked. The 2 open are named under [Remaining steps](#remaining-steps) |
-| Package gates | 5 of 15 bullets checked across all eleven packages |
+| Package gates | 15 of 15 bullets closed on named evidence for every one of the eleven packages, walked in [`gate-packages.md`](row-updates/gate-packages.md) |
 | Cryptographic certification | All 15 suites landed: key-handling `K1` to `K10`, proof `P1` to `P5`, closing evidence `PKP-08` |
-| Branch health | Unit 2301 passing / 9 skipped, static clean, no fixture drift, packaging clean including a real `api:check`, `check:scope` clean |
-| External review | 44 findings, 0 invalid. Blockers and High closed. The 31-row tail is triaged and ruled row by row: 12 were already fixed, 16 land here, 1 defers, 1 is dismissed, 1 waits on a Light Protocol check |
+| Branch health | Unit 2372 passing / 9 skipped, static clean, no fixture drift, packaging clean including a real `api:check`, `check:scope` clean, `rustfmt` clean |
+| External review | 44 findings, 0 invalid. Every row is now landed except the two filed as issues: 12 were already fixed, 16 landed here, 1 deferred to [#168](https://github.com/helius-labs/zolana/issues/168), 1 dismissed as pre-release |
 
 ### What is proven
 
@@ -81,8 +81,8 @@ Claims previously recorded that do not hold, all found by adversarial re-checks:
 | Claim | Reality |
 | --- | --- |
 | The export ledger is enforced | Was a scaffold that never parsed `public-exports.md`. Now real: `api:check` caught twelve undeclared differences on the surface reconciliation and reports a match for all eleven packages |
-| Fixture provenance is fresh | The manifest's `frozenCommit` is ~456 commits behind current Rust. True for no package |
-| All 145 rows are closed | Three interface rows, `E03`, `E05`, and `E06`, sit at `needs_re_review` |
+| Fixture provenance is fresh | The manifest's `frozenCommit` is a deliberate historical pin, hundreds of commits behind current Rust. It is now defined in one file, `sdk-libs/ts/config/historical-baseline-commit`, so moving it moves all eighteen consumers together instead of leaving copies to rot |
+| All 145 rows are closed | Three interface rows, `E03`, `E05`, and `E06`, went back to `needs_re_review` and have since closed. 148 rows now, because the two uncounted packages gained seats |
 | Nine workspace packages | Eleven. `@zolana/hasher` and `@zolana/test-kit` were never counted, so they have had the least scrutiny of anything here |
 | `check:scope` describes CI | It omitted the Photon suite that `package.json` already ran. Fixed |
 
@@ -95,19 +95,18 @@ agent.** Do not touch a path another worker owns; report a gap in it instead.
 
 | Branch | Scope |
 | --- | --- |
-| `port/tail-fixes` | The six behavioural fixes plus the `F130` redaction unification |
-| `port/tail-small` | The six smaller fixes: page limits, dead fixture field, unverifiable fixture, registry copy, payer hash, base58 length search |
-| `port/baseline-hash` | Define the fixture baseline commit once and have every generator and check read it from there |
-| `port/gate-packages` | Walk the per-package gate bullets and close each on named evidence or record what it needs |
+| `port/redaction-close` | Convert the last fail-open error-detail sanitizer, in `transaction`, to the same allow-list `keypair` and `client` now use, and audit the other eight packages for a third door |
 
-Landed since the last refresh: `port/example-surface` (client surface reconciled
-onto the example shape, `api:check` matching for all eleven packages),
-`port/reject-fixtures` (Rust-generated rejection and tamper fixtures, closing the
-last fixture gate line), `port/f130-light` (research only), and `port/ci-infra`
-(coordination tooling deleted, CI path-filtered onto one shared build with
-`merge-gate` still conclusive on every non-draft pull request). The merged branch
-is green: 2359 unit tests passing, 9 skipped, static, packaging, `check:scope`,
-and fixture provenance all clean.
+Everything else has landed and merged: the client surface reconciled onto the
+example shape, Rust-generated rejection and tamper fixtures, the coordination
+tooling deleted with CI path-filtered onto one shared build, the twelve ruled
+behavioural and smaller fixes, the fixture baseline commit defined in one file
+that eighteen machine-readable consumers now read, and the per-package gate walk
+closing all fifteen bullets on named evidence.
+
+The merged branch is green: 2372 unit tests passing, 9 skipped, static, packaging
+with all eleven API reports matching, `check:scope`, `rustfmt`, and fixture
+provenance all clean.
 
 ### Queued
 
