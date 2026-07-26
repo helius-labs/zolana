@@ -704,7 +704,12 @@ Apply these gates to each package. Record evidence beside a gate or in a
       ([G6-2](production-readiness-issues.md#g6-2-defensive-copy-discipline-is-not-uniformly-verified-medium)).
       Evidence: `keypair/test/vectors/aliasing-census.test.ts` names the accessor census and mutates
       each returned buffer; `CompressedShieldedAddress.ownerHash` is a copying getter.
-- [ ] No package row has `PARTIAL`, `MISSING`, `DIVERGENT`, `STALE`, or `BLOCKED`.
+- [x] No package row has `PARTIAL`, `MISSING`, `DIVERGENT`, `STALE`, or `BLOCKED`.
+      Evidence: 145-row recount at the gate1 walk HEAD — 135 `done`/`PARITY`, 7
+      `done`/`NOT_APPLICABLE`, 3 `needs_re_review`/`NOT_APPLICABLE` (`E03`, `E05`,
+      `E06`), zero of the listed adverse verdicts
+      ([row-updates/gate1-walk.md](row-updates/gate1-walk.md)). `needs_re_review` is
+      outside this bullet and still blocks the "each package row is `done`" line.
 
 ## Full SDK completion gates
 
