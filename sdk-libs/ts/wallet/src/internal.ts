@@ -1,3 +1,4 @@
+import { checkedTransactionSize } from "@zolana/interface";
 import type { Address, Bytes32, Instruction, Signature, Transaction } from "@zolana/interface";
 
 import { WalletError } from "./error.js";
@@ -202,12 +203,14 @@ export function compileTransaction(
       new Uint8Array(instruction.data),
     );
   }
-  return Object.freeze({
-    messageBytes: concat(...parts),
-    signatures: Object.freeze(
-      Array.from({ length: requiredSignatures }, (): Signature | undefined => undefined),
-    ),
-  });
+  return checkedTransactionSize(
+    Object.freeze({
+      messageBytes: concat(...parts),
+      signatures: Object.freeze(
+        Array.from({ length: requiredSignatures }, (): Signature | undefined => undefined),
+      ),
+    }),
+  );
 }
 
 export function base64Bytes(value: string): Uint8Array {

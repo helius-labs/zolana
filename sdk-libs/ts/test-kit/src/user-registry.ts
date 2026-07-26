@@ -1,4 +1,5 @@
 import type { Rpc } from "@zolana/client";
+import { checkedTransactionSize } from "@zolana/interface";
 import type {
   Address,
   Bytes32,
@@ -379,12 +380,14 @@ function compileTransaction(
       instruction.data,
     );
   }
-  return Object.freeze({
-    messageBytes: concat(...parts),
-    signatures: Object.freeze(
-      Array.from({ length: requiredSignatures }, (): Signature | undefined => undefined),
-    ),
-  });
+  return checkedTransactionSize(
+    Object.freeze({
+      messageBytes: concat(...parts),
+      signatures: Object.freeze(
+        Array.from({ length: requiredSignatures }, (): Signature | undefined => undefined),
+      ),
+    }),
+  );
 }
 
 function compactU16(value: number): Uint8Array {
