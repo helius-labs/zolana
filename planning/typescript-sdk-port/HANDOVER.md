@@ -117,13 +117,10 @@ and fixture provenance all clean.
    Promote this file to the pull request description before deleting the
    directory.
 
-2. **Write the reading order into the pull request description.** Owner-specified
-   buckets, below, verbatim except the last. This is a description only: the
-   commit history is not being rewritten to match, so the buckets are a reading
-   order over the diff, not a commit sequence. Recompute every file count and
-   line total against `git merge-base origin/main HEAD` at the time of writing,
-   because the four live branches move them. The `e2e` bucket is already 10 files
-   and ~3.2k rather than the 6 and ~1.7k recorded when the buckets were drafted.
+2. **Write these buckets into the pull request description**, exactly as below.
+   A conceptual map of what lives where, so a reviewer can find things. Not prose,
+   not a commit sequence, no explanation per bucket. Counts are approximate and
+   only worth refreshing if a bucket has drifted noticeably.
 
    ```text
    1  chore(spec): protocol authority updates              9 files   ~0.9k
