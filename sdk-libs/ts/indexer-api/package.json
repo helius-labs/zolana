@@ -1,0 +1,80 @@
+{
+  "name": "@zolana/indexer-api",
+  "version": "0.1.0",
+  "description": "Strict Zolana indexer request and response schemas.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/indexer-api"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/indexer-api",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19.0 <23"
+  },
+  "browserslist": [
+    "chrome >= 94",
+    "edge >= 94",
+    "firefox >= 93",
+    "safari >= 16.4",
+    "ios >= 16.4"
+  ],
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/es/index.js"
+    },
+    "./methods": {
+      "browser": {
+        "types": "./dist/es/methods/index.d.ts",
+        "default": "./dist/es/methods/index.js"
+      },
+      "import": {
+        "types": "./dist/es/methods/index.d.ts",
+        "default": "./dist/es/methods/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/methods/index.d.ts",
+        "default": "./dist/cjs/methods/index.js"
+      },
+      "default": "./dist/es/methods/index.js"
+    }
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
+  "dependencies": {
+    "@zolana/interface": "0.1.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs indexer-api",
+    "typecheck": "node ../config/typecheck.mjs indexer-api",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
+    "test:property": "vitest run --config ../config/vitest.property.config.js",
+    "test:browser": "node ../config/browser-check.mjs indexer-api",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}
