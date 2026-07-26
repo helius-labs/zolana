@@ -271,8 +271,13 @@ func asDefaultZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 }
 
 func noPublicSlots() ([NPublicSlots]*big.Int, [NPublicSlots]*big.Int) {
-	return [NPublicSlots]*big.Int{big.NewInt(0), big.NewInt(0)},
-		[NPublicSlots]*big.Int{big.NewInt(0), big.NewInt(0)}
+	assets := [NPublicSlots]*big.Int{}
+	amounts := [NPublicSlots]*big.Int{}
+	for i := 0; i < NPublicSlots; i++ {
+		assets[i] = big.NewInt(0)
+		amounts[i] = big.NewInt(0)
+	}
+	return assets, amounts
 }
 
 func solPublicSlot(amount int64) ([NPublicSlots]*big.Int, [NPublicSlots]*big.Int) {
@@ -409,7 +414,9 @@ func buildCircuitAssignmentExact(
 		ExternalDataHash:   externalDataHash,
 		PublicAssets:       publicAssets,
 		PublicAmounts:      signedAmounts,
-		ZoneProgramID:      spptest.Fe(0),
+		// Nonzero test zone id: the custom-zone circuits assert ZoneProgramID
+		// != 0; the default-zone refresh overrides it back to 0.
+		ZoneProgramID:      spptest.Fe(0x5A),
 		PayerPubkeyHash:    payerPubkeyHash,
 		InputOwnerPkHashes: inputOwnerPkHashes,
 	}

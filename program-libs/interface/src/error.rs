@@ -72,8 +72,6 @@ pub enum ShieldedPoolError {
     MismatchedTransactProofRail = 7021,
     #[error("zone_authority_transact is disabled for this zone")]
     ZoneAuthorityTransactDisabled = 7022,
-    #[error("transact sets both public_sol_amount and public_spl_amount; at most one is allowed")]
-    BothPublicAmountsSet = 7023,
     #[error("output owner tag references the p256 signing key but p256_signing_pk_x is absent")]
     MissingP256SigningKey = 7024,
     #[error("output owner tag account index is out of range")]
@@ -90,6 +88,14 @@ pub enum ShieldedPoolError {
     UnreferencedDepositAsset = 7030,
     #[error("deposit batch exceeds the maximum number of assets")]
     TooManyDepositAssets = 7031,
+    #[error("transact public settlement leg count exceeds the u8 wire encoding")]
+    TooManyPublicLegs = 7032,
+    #[error("transact public settlement legs must have nonzero amounts")]
+    ZeroPublicLegAmount = 7033,
+    #[error("transact exceeds the maximum number of distinct public assets")]
+    TooManyPublicAssets = 7034,
+    #[error("transact public settlement amounts overflow while aggregating an asset")]
+    PublicAssetAmountOverflow = 7035,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -114,6 +120,7 @@ impl From<TreeError> for ShieldedPoolError {
     fn from(error: TreeError) -> Self {
         match error {
             TreeError::Paused => ShieldedPoolError::TreePaused,
+            TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed,
             _ => ShieldedPoolError::InvalidTreeAccounts,
         }
     }
@@ -150,7 +157,6 @@ mod tests {
             (InvalidMergeOutputScheme as u32, 7020),
             (MismatchedTransactProofRail as u32, 7021),
             (ZoneAuthorityTransactDisabled as u32, 7022),
-            (BothPublicAmountsSet as u32, 7023),
             (MissingP256SigningKey as u32, 7024),
             (OwnerTagAccountMissing as u32, 7025),
             (EmptyDepositBatch as u32, 7026),
@@ -159,6 +165,10 @@ mod tests {
             (DepositAmountOverflow as u32, 7029),
             (UnreferencedDepositAsset as u32, 7030),
             (TooManyDepositAssets as u32, 7031),
+            (TooManyPublicLegs as u32, 7032),
+            (ZeroPublicLegAmount as u32, 7033),
+            (TooManyPublicAssets as u32, 7034),
+            (PublicAssetAmountOverflow as u32, 7035),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

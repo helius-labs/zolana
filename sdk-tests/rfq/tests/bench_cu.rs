@@ -109,7 +109,7 @@ fn build_tree_fixture(
         )
         .expect("init tree account");
         for leaf in leaves {
-            account.utxo_tree().append(*leaf);
+            account.utxo_tree().append(*leaf).expect("append leaf");
         }
         (
             account.get_utxo_tree_root(root_index).expect("utxo root"),
@@ -445,7 +445,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
     let mut ix = Transact {
         payer: maker_payer.pubkey(),
         tree,
-        withdrawal: None,
+        legs: Vec::new(),
         data: transact,
     }
     .instruction();

@@ -96,6 +96,7 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	}
 
 	shared.AssertZoneMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.ZoneProgramID)
+	api.AssertIsDifferent(c.Public.ZoneProgramID, 0)
 
 	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Public.InputOwnerPkHashes)
 	signerOwners := shared.SignerOwners(api, tx.Inputs)

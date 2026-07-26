@@ -41,7 +41,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     assemble, ConfidentialTransfer, MerkleContext, MerkleProof, NonInclusionProof, ProverClient,
-    ProverInputs, SpendProof, SppProofInputUtxo, WithdrawalTarget, STATE_TREE_HEIGHT,
+    ProverInputs, SettlementTarget, SpendProof, SppProofInputUtxo, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_keypair::{hash::owner_hash, shielded::ShieldedKeypair};
@@ -149,7 +149,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         .withdraw(
             SOL_MINT,
             AMOUNT,
-            WithdrawalTarget::Sol {
+            SettlementTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
         )
@@ -287,11 +287,12 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
     {
         use zolana_hasher::{hash_chain::create_hash_chain_from_slice, sha256::Sha256BE, Hasher};
         use zolana_interface::instruction::{
-            instruction_data::transact::{ExternalDataHash, ResolvedOutput},
+            instruction_data::transact::{ExternalDataHash, ResolvedOutput, ResolvedPublicLeg},
             tag,
         };
+        use zolana_interface::N_PUBLIC_SLOTS;
         use zolana_keypair::hash::{hash_field, sha256};
-        use zolana_transaction::instructions::transact::spp_proof_inputs::signed_to_field;
+        use zolana_transaction::instructions::transact::spp_proof_inputs::signed_magnitude_to_field;
 
         // The program derives the P256 public input by hashing the raw x-coordinate
         // on-chain; mirror that here.
@@ -302,8 +303,9 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         let n_in = ix_data.inputs.len();
         let nullifiers: Vec<[u8; 32]> = ix_data.inputs.iter().map(|i| i.nullifier_hash).collect();
         // Every input is P256-owned (`eddsa_signer_index == 255`), so the program
-        // routes its owner tag to the shared P256 signing key field.
-        let input_owner: Vec<[u8; 32]> = vec![p256_field; n_in];
+        // publishes the zero sentinel here; the shared key is bound separately
+        // by `p256_signing_pk_field`.
+        let input_owner: Vec<[u8; 32]> = vec![zero; n_in];
         let output_utxo_hashes: Vec<[u8; 32]> =
             ix_data.outputs.iter().map(|o| o.utxo_hash).collect();
         let output_owner = crate::transact_common::output_owner_pk_hashes(
@@ -320,15 +322,25 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
                     .expect("resolve owner tag")
             })
             .collect();
+        let amount = ix_data
+            .public_legs
+            .first()
+            .map(|leg| leg.amount())
+            .expect("SOL public leg");
+        let is_deposit = ix_data
+            .public_legs
+            .first()
+            .map(|leg| leg.is_deposit())
+            .expect("SOL public leg");
+        let resolved_public_legs = [ResolvedPublicLeg::Sol {
+            is_deposit,
+            amount,
+            recipient: recipient.to_bytes(),
+        }];
         let external_data_hash = ExternalDataHash {
             spp_instruction_discriminator: tag::TRANSACT,
             expiry_unix_ts: ix_data.expiry_unix_ts,
-            relayer_fee: ix_data.relayer_fee,
-            public_sol_amount: ix_data.public_sol_amount,
-            public_spl_amount: ix_data.public_spl_amount,
-            user_sol_account: &recipient.to_bytes(),
-            user_spl_token_account: &zero,
-            spl_token_interface: &zero,
+            public_legs: &resolved_public_legs,
             data_hash: None,
             zone_data_hash: None,
             outputs: &resolved_outputs,
@@ -338,28 +350,31 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         .expect("external data hash");
         let payer_pubkey_hash = Sha256BE::hash(&payer.pubkey().to_bytes()).expect("payer hash");
         let p256_message_hash = sha256(&ix_data.private_tx_hash);
-        let chain = [
+        let mut public_assets = [zero; N_PUBLIC_SLOTS];
+        let mut public_amounts = [zero; N_PUBLIC_SLOTS];
+        *public_assets.first_mut().expect("public slot exists") = zolana_interface::SOL_ASSET_FIELD;
+        *public_amounts.first_mut().expect("public slot exists") =
+            signed_magnitude_to_field(is_deposit, amount);
+        let mut chain = vec![
             create_hash_chain_from_slice(&nullifiers).unwrap(),
             create_hash_chain_from_slice(&output_utxo_hashes).unwrap(),
             create_hash_chain_from_slice(&vec![utxo_root; n_in]).unwrap(),
             create_hash_chain_from_slice(&vec![nullifier_root; n_in]).unwrap(),
             ix_data.private_tx_hash,
             external_data_hash,
-            if ix_data.public_sol_amount.unwrap_or(0) != 0 {
-                zolana_interface::SOL_ASSET_FIELD
-            } else {
-                zero
-            },
-            signed_to_field(ix_data.public_sol_amount.unwrap_or(0)),
-            zero, // spl slot asset (no mint)
-            signed_to_field(ix_data.public_spl_amount.unwrap_or(0)),
-            zero, // zone_program_id
+        ];
+        for (asset, amount) in public_assets.iter().zip(public_amounts.iter()) {
+            chain.push(*asset);
+            chain.push(*amount);
+        }
+        chain.extend_from_slice(&[
+            zero,
             payer_pubkey_hash,
             hash_field(&p256_message_hash).unwrap(),
             create_hash_chain_from_slice(&input_owner).unwrap(),
             create_hash_chain_from_slice(&output_owner).unwrap(),
             p256_field,
-        ];
+        ]);
         let program_public_input = create_hash_chain_from_slice(&chain).unwrap();
         assert_eq!(
             program_public_input, expected_pi,

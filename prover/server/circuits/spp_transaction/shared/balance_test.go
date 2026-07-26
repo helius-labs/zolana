@@ -160,15 +160,16 @@ func TestCircuitRejectsPublicSplAssetMismatch(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-// Two active slots must name distinct assets: splitting one public movement
-// across both slots on the same asset is rejected even though the sums balance.
 func TestCircuitRejectsDuplicateActivePublicAssets(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
 	asset := spptest.Fe(77)
-	assets := [NPublicSlots]*big.Int{new(big.Int).Set(asset), new(big.Int).Set(asset)}
-	amounts := [NPublicSlots]*big.Int{big.NewInt(10), big.NewInt(15)}
+	assets, amounts := noPublicSlots()
+	assets[0] = new(big.Int).Set(asset)
+	assets[1] = new(big.Int).Set(asset)
+	amounts[0] = big.NewInt(10)
+	amounts[1] = big.NewInt(15)
 	assignment := buildCircuitAssignmentExact(
 		t,
 		shape,
@@ -290,12 +291,6 @@ func TestCircuitAcceptsPublicSplWithdraw(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
-// C-01: the balance circuit conserves each active slot on independent per-asset
-// equations with no mutual-exclusion constraint, so one proof may carry both a
-// positive SOL amount and a positive SPL amount and mint value in both assets
-// at once. This is the enabling condition for the on-chain settlement bug (the
-// program settles only the SPL leg, leaving the SOL leg unbacked). A
-// mutual-exclusion constraint here would make this witness unsatisfiable.
 func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
@@ -303,8 +298,11 @@ func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 	solAsset := protocol.SolAsset()
 	splAsset := spptest.Fe(77)
 
-	assets := [NPublicSlots]*big.Int{protocol.SolAsset(), new(big.Int).Set(splAsset)}
-	amounts := [NPublicSlots]*big.Int{big.NewInt(25), big.NewInt(25)}
+	assets, amounts := noPublicSlots()
+	assets[0] = protocol.SolAsset()
+	assets[1] = new(big.Int).Set(splAsset)
+	amounts[0] = big.NewInt(25)
+	amounts[1] = big.NewInt(25)
 
 	// No prior value: both inputs are zero-amount; the two outputs are funded
 	// entirely by the two simultaneous public deposits (25 SOL and 25 SPL).
@@ -326,6 +324,32 @@ func TestCircuitAcceptsSimultaneousSolAndSplDeposit(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
 }
 
+func TestCircuitAcceptsThreeDistinctPublicAssets(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	assets := [NPublicSlots]*big.Int{protocol.SolAsset(), spptest.Fe(77), spptest.Fe(91)}
+	amounts := [NPublicSlots]*big.Int{big.NewInt(25), big.NewInt(30), big.NewInt(35)}
+	assignment := buildCircuitAssignmentExact(
+		t,
+		shape,
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(10, assets[0], spptest.Fe(100)),
+			sampleUtxoWithAssetAndAmount(20, assets[1], spptest.Fe(200)),
+			sampleUtxoWithAssetAndAmount(30, assets[2], spptest.Fe(300)),
+		},
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(100, assets[0], spptest.Fe(125)),
+			sampleUtxoWithAssetAndAmount(110, assets[1], spptest.Fe(230)),
+			sampleUtxoWithAssetAndAmount(120, assets[2], spptest.Fe(335)),
+		},
+		assets,
+		amounts,
+	)
+
+	assert.SolvingSucceeded(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+}
+
 // An asset id is public only while it moves: a balanced, otherwise-valid
 // transfer carrying a stray asset id in a zero-amount slot is rejected, so a
 // no-public-movement transaction cannot leak an asset id into the transcript.
@@ -333,7 +357,7 @@ func TestCircuitRejectsNonZeroPublicAssetWithoutAmount(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	asset := spptest.Fe(7)
 
-	for name, slot := range map[string]int{"first_slot": 0, "second_slot": 1} {
+	for name, slot := range map[string]int{"first_slot": 0, "second_slot": 1, "third_slot": 2} {
 		t.Run(name, func(t *testing.T) {
 			assert := test.NewAssert(t)
 			circuit := MustNewCustomZoneP256Circuit(Shape(shape))

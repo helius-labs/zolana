@@ -1,6 +1,6 @@
 use pinocchio::ProgramResult;
 use zolana_interface::{
-    event::{encode_output_data, DepositWithdraw, EventKind, GeneralEvent, ProoflessOutput},
+    event::{encode_output_data, EventKind, GeneralEvent, Movement, ProoflessOutput},
     instruction::{DepositEntry, OutputUtxo},
 };
 
@@ -47,7 +47,7 @@ pub(crate) fn proofless_output_utxo(
 
 pub(crate) struct DepositEvent {
     pub outputs: Vec<OutputUtxo>,
-    pub deposit_withdraws: Vec<DepositWithdraw>,
+    pub movements: Vec<Movement>,
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
 }
@@ -61,8 +61,7 @@ pub(crate) fn emit_deposit_event(e: DepositEvent) -> ProgramResult {
         salt: [0u8; 16],
         first_output_leaf_index: e.first_output_leaf_index,
         output_tree: e.output_tree,
-        relay_fee: None,
-        deposit_withdraws: e.deposit_withdraws,
+        movements: e.movements,
     };
     emit_general_event(EventKind::Deposit, event)
 }

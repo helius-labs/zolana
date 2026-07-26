@@ -146,7 +146,9 @@ fn apply_tree(
     }
 
     let output_leaf_index = tree.utxo_tree().next_index();
-    tree.utxo_tree().append(*ix.output_utxo_hash);
+    tree.utxo_tree()
+        .append(*ix.output_utxo_hash)
+        .map_err(tree_error)?;
 
     Ok(MergeTreeWrite {
         inputs,
@@ -159,6 +161,7 @@ fn tree_error(e: TreeError) -> ProgramError {
     match e {
         TreeError::Paused => ShieldedPoolError::TreePaused.into(),
         TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
+        TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
         _ => ShieldedPoolError::InvalidTreeAccounts.into(),
     }
 }

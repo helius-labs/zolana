@@ -87,7 +87,11 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	external, err := buildExternalData(tx)
+	realOutputHashes, err := instructionOutputHashes(outputs.hashes, len(tx.Outputs))
+	if err != nil {
+		return proofAssignment{}, err
+	}
+	external, err := buildExternalData(tx, realOutputHashes)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -159,6 +163,20 @@ func buildProofAssignment(
 		outputUtxos:       outputs.responses,
 		transcript:        transcript,
 	}, nil
+}
+
+// instructionOutputHashes selects exactly the hashes represented by
+// TransactIxData.outputs. Circuit-only dummy padding is not serialized into the
+// instruction and therefore must not enter the canonical ExternalDataHash.
+func instructionOutputHashes(outputHashes []*big.Int, realOutputCount int) ([]*big.Int, error) {
+	if realOutputCount < 0 || realOutputCount > len(outputHashes) {
+		return nil, fmt.Errorf(
+			"real output count %d exceeds derived output hash count %d",
+			realOutputCount,
+			len(outputHashes),
+		)
+	}
+	return outputHashes[:realOutputCount:realOutputCount], nil
 }
 
 // customZoneWitness materializes the rail-specific circuit assignment. This

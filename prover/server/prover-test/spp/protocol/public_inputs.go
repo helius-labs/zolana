@@ -5,10 +5,8 @@ import (
 	"math/big"
 )
 
-// NPublicSlots mirrors the circuit constant of the same name: the number of
-// public (asset, amount) movement slots in every transaction circuit. Host
-// convention: slot 0 is the SOL leg, slot 1 the SPL leg.
-const NPublicSlots = 2
+// NPublicSlots mirrors the circuit constant of the same name.
+const NPublicSlots = 3
 
 var publicInputNames = [...]string{
 	"nullifiers",
@@ -22,6 +20,8 @@ var publicInputNames = [...]string{
 	"public_amount_0",
 	"public_asset_1",
 	"public_amount_1",
+	"public_asset_2",
+	"public_amount_2",
 	"zone_program_id",
 	"payer_pubkey_hash",
 	"input_owner_pk_hashes",

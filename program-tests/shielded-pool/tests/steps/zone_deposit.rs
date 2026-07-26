@@ -4,7 +4,7 @@ use cucumber::{then, when};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::DepositWithdraw;
+use zolana_event::Movement;
 use zolana_interface::{
     instruction::{AssetDeposit, UtxoData, ZoneAssetDeposit, ZoneDeposit},
     pda,
@@ -187,8 +187,8 @@ fn zone_batch_shield_sol(world: &mut ShieldedPoolWorld, count: u64, amount: u64)
         .zone_deposit_batch(&tree, &depositor, deposits)
         .expect("zone batch deposit");
     assert_eq!(
-        batch.deposit_withdraws,
-        vec![DepositWithdraw {
+        batch.movements,
+        vec![Movement {
             is_deposit: true,
             amount: amount * count,
             asset: None,
@@ -246,14 +246,14 @@ fn zone_batch_shield_mixed(world: &mut ShieldedPoolWorld, lamports: u64, tokens:
         .expect("mixed zone batch");
 
     assert_eq!(
-        batch.deposit_withdraws,
+        batch.movements,
         vec![
-            DepositWithdraw {
+            Movement {
                 is_deposit: true,
                 amount: lamports * 2,
                 asset: None,
             },
-            DepositWithdraw {
+            Movement {
                 is_deposit: true,
                 amount: tokens,
                 asset: Some(mint.to_bytes()),

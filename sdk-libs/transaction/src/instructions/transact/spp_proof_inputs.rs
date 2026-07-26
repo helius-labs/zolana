@@ -1,6 +1,6 @@
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
+use zolana_interface::{MAX_WIRE_PUBLIC_LEGS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_keypair::{
     hash::{hash_field, sha256, sha256_be},
     ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
@@ -31,11 +31,18 @@ fn right_align_slice(bytes: &[u8]) -> [u8; 32] {
 }
 
 pub fn signed_to_field(value: i64) -> [u8; 32] {
-    let magnitude = BigUint::from(value.unsigned_abs());
-    let field = if value < 0 {
-        modulus() - magnitude
-    } else {
+    signed_magnitude_to_field(value >= 0, value.unsigned_abs())
+}
+
+pub fn signed_magnitude_to_field(is_deposit: bool, amount: u64) -> [u8; 32] {
+    if amount == 0 {
+        return [0u8; 32];
+    }
+    let magnitude = BigUint::from(amount);
+    let field = if is_deposit {
         magnitude
+    } else {
+        modulus() - magnitude
     };
     right_align_slice(&field.to_bytes_be())
 }
@@ -72,12 +79,26 @@ pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
     Ok(keypair.get_transaction_viewing_key(&first_nullifier)?)
 }
 
-/// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg): a signed
-/// net flow per asset id. Idle slots are (0, 0).
+/// Uniform public movement slots: ordered settlement legs are accumulated per
+/// asset in first-appearance order. Net-zero assets are omitted and idle slots
+/// are `(0, 0)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PublicAmounts {
+pub struct PublicMovements {
     pub assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub amounts: [[u8; 32]; N_PUBLIC_SLOTS],
+}
+
+impl PublicMovements {
+    pub fn interleaved(&self) -> [[u8; 32]; 2 * N_PUBLIC_SLOTS] {
+        core::array::from_fn(|index| {
+            let slot = index / 2;
+            if index % 2 == 0 {
+                self.assets.get(slot).copied().unwrap_or_default()
+            } else {
+                self.amounts.get(slot).copied().unwrap_or_default()
+            }
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -126,39 +147,66 @@ impl SppProofInputs {
             .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
     }
 
-    pub fn public_amounts(&self) -> Result<PublicAmounts, TransactionError> {
-        let sol = self.external_data.public_sol_amount.unwrap_or(0);
-        let spl = self.external_data.public_spl_amount.unwrap_or(0);
-        let sol_asset = if sol != 0 { SOL_ASSET_FIELD } else { [0u8; 32] };
-        let spl_asset = if spl != 0 {
-            asset_field(&self.check_public_spl_asset()?)?
-        } else {
-            [0u8; 32]
-        };
-        Ok(PublicAmounts {
-            assets: [sol_asset, spl_asset],
-            amounts: [signed_to_field(sol), signed_to_field(spl)],
-        })
-    }
+    pub fn public_movements(&self) -> Result<PublicMovements, TransactionError> {
+        if self.external_data.public_legs.len() > MAX_WIRE_PUBLIC_LEGS {
+            return Err(TransactionError::TooManyPublicLegs {
+                got: self.external_data.public_legs.len(),
+                max: MAX_WIRE_PUBLIC_LEGS,
+            });
+        }
 
-    fn check_public_spl_asset(&self) -> Result<Address, TransactionError> {
-        let mut found: Option<Address> = None;
-        let assets = self
-            .input_utxos
-            .iter()
-            .map(|spend| spend.utxo.asset)
-            .chain(self.output_utxos.iter().map(|output| output.asset));
-        for asset in assets {
-            if asset != SOL_MINT {
-                match found {
-                    Some(existing) if existing != asset => {
-                        return Err(TransactionError::MultiplePublicSplAssets)
-                    }
-                    _ => found = Some(asset),
-                }
+        let mut aggregated: Vec<(Address, i128)> = Vec::new();
+        for leg in &self.external_data.public_legs {
+            let asset = leg.asset();
+            let amount = leg.amount();
+            if amount == 0 {
+                return Err(TransactionError::ZeroPublicLegAmount);
+            }
+            if leg.public_leg().is_spl() && asset == SOL_MINT {
+                return Err(TransactionError::SettlementTargetMismatch { asset });
+            }
+            let magnitude = i128::from(amount);
+            let signed = if leg.is_deposit() {
+                magnitude
+            } else {
+                -magnitude
+            };
+            if let Some((_, total)) = aggregated
+                .iter_mut()
+                .find(|(existing, _)| *existing == asset)
+            {
+                *total = total
+                    .checked_add(signed)
+                    .ok_or(TransactionError::PublicMovementOverflow { asset })?;
+            } else {
+                aggregated.push((asset, signed));
             }
         }
-        found.ok_or(TransactionError::MissingPublicSplAsset)
+        aggregated.retain(|(_, amount)| *amount != 0);
+        if aggregated.len() > N_PUBLIC_SLOTS {
+            return Err(TransactionError::TooManyPublicAssets {
+                got: aggregated.len(),
+                max: N_PUBLIC_SLOTS,
+            });
+        }
+
+        let mut movements = PublicMovements::default();
+        for ((asset_slot, amount_slot), (asset, amount)) in movements
+            .assets
+            .iter_mut()
+            .zip(movements.amounts.iter_mut())
+            .zip(aggregated)
+        {
+            let magnitude = u64::try_from(amount.unsigned_abs())
+                .map_err(|_| TransactionError::PublicMovementOverflow { asset })?;
+            *asset_slot = if asset == SOL_MINT {
+                SOL_ASSET_FIELD
+            } else {
+                asset_field(&asset)?
+            };
+            *amount_slot = signed_magnitude_to_field(amount > 0, magnitude);
+        }
+        Ok(movements)
     }
 
     /// Nullifiers of the padding (dummy) input slots, in slot order. The circuit

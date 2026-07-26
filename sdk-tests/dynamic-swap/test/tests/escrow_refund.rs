@@ -152,7 +152,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         let split_ix = Transact {
             payer: user_solana.pubkey(),
             tree: env.tree,
-            withdrawal: None,
+            legs: Vec::new(),
             data: split_transact,
         }
         .instruction();

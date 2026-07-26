@@ -24,6 +24,7 @@ use zolana_interface::{
         transfer_zone_5_4, transfer_zone_authority_1_1, transfer_zone_authority_2_2,
         transfer_zone_authority_3_3, transfer_zone_authority_4_4,
     },
+    N_PUBLIC_SLOTS,
 };
 
 use crate::instructions::verifier;
@@ -42,7 +43,8 @@ pub struct TransactProofInputs {
     pub output_owner_pk_hashes: [[u8; 32]; MAX_OUTPUTS],
     pub p256_signing_pk_field: [u8; 32],
     pub external_data_hash: [u8; 32],
-    pub spl_mint: Option<[u8; 32]>,
+    pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
+    pub public_slot_amounts: [i128; N_PUBLIC_SLOTS],
     pub zone_program_id: [u8; 32],
     pub payer_pubkey_hash: [u8; 32],
 }
@@ -156,26 +158,13 @@ impl<'a> TransactProof<'a> {
             [0u8; 32]
         };
 
-        // Public movement slots interleaved as (asset, amount) pairs, slot 0 the
-        // SOL leg and slot 1 the SPL leg. A slot's asset id is public only while
-        // its amount moves; idle slots are pinned to (0, 0) by the circuit.
-        let sol_slot_asset = if self.ix.public_sol_amount.unwrap_or(0) != 0 {
-            zolana_interface::SOL_ASSET_FIELD
-        } else {
-            [0u8; 32]
-        };
-        let spl_slot_asset = match self.derived.spl_mint {
-            Some(mint) if self.ix.public_spl_amount.unwrap_or(0) != 0 => hash_field(&mint)?,
-            _ => [0u8; 32],
-        };
-
-        // Mirrors `shared.Transaction.publicInputHash` (Go): a 12-element base
+        // Mirrors `shared.Transaction.publicInputHash` (Go): a shared base
         // every variant shares, then the variant-dependent tail — the P256 message
         // (`Poseidon(0, 0)` on the Solana-only rails), then `input_owner_pk_hashes`
         // for every variant except the zone-authority one (owners stay private and
         // do not sign), then the confidential appendix (`output_owner_pk_hashes`,
         // `p256_signing_pk_field`) only for the confidential (non-zone) variant.
-        let mut fields: ArrayVec<[[u8; 32]; 16]> = ArrayVec::new();
+        let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
         fields.extend_from_slice(&[
             self.nullifier_chain()?,
             self.output_chain()?,
@@ -183,10 +172,17 @@ impl<'a> TransactProof<'a> {
             hash_chain(nullifier_tree_roots)?,
             *self.ix.private_tx_hash,
             self.derived.external_data_hash,
-            sol_slot_asset,
-            amount_field(self.ix.public_sol_amount),
-            spl_slot_asset,
-            amount_field(self.ix.public_spl_amount),
+        ]);
+        for (asset, amount) in self
+            .derived
+            .public_slot_assets
+            .iter()
+            .zip(self.derived.public_slot_amounts.iter())
+        {
+            fields.push(*asset);
+            fields.push(amount_field(*amount)?);
+        }
+        fields.extend_from_slice(&[
             self.derived.zone_program_id,
             self.derived.payer_pubkey_hash,
             hash_field(&p256_message_hash)?,
@@ -226,14 +222,20 @@ impl<'a> TransactProof<'a> {
     }
 }
 
-fn amount_field(amount: Option<i64>) -> [u8; 32] {
-    let limbs = Fr::from(amount.unwrap_or(0)).into_bigint().0;
+fn amount_field(amount: i128) -> Result<[u8; 32], ProgramError> {
+    let magnitude = u64::try_from(amount.unsigned_abs())
+        .map_err(|_| ShieldedPoolError::PublicAssetAmountOverflow)?;
+    let value = Fr::from(magnitude);
+    let limbs = if amount.is_negative() {
+        (-value).into_bigint().0
+    } else {
+        value.into_bigint().0
+    };
     let mut out = [0u8; 32];
-    for (i, limb) in limbs.iter().enumerate() {
-        let start = (limbs.len() - 1 - i) * 8;
-        out[start..start + 8].copy_from_slice(&limb.to_be_bytes());
+    for (target, limb) in out.chunks_exact_mut(8).rev().zip(limbs.iter()) {
+        target.copy_from_slice(&limb.to_be_bytes());
     }
-    out
+    Ok(out)
 }
 
 const PROOF_ERR: ShieldedPoolError = ShieldedPoolError::TransactProofVerificationFailed;

@@ -675,8 +675,8 @@ mod merge_tests {
             }],
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
-            public_assets: [BigUint::ZERO, BigUint::ZERO],
-            public_amounts: [BigUint::ZERO, BigUint::ZERO],
+            public_assets: core::array::from_fn(|_| BigUint::ZERO),
+            public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             zone_program_id: BigUint::from(0x55u8),
             payer_pubkey_hash: BigUint::from(8u8),
             public_input_hash: BigUint::from(9u8),
@@ -700,8 +700,14 @@ mod merge_tests {
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
-        assert_eq!(value["publicAssets"].as_array().map(|a| a.len()), Some(2));
-        assert_eq!(value["publicAmounts"].as_array().map(|a| a.len()), Some(2));
+        assert_eq!(
+            value["publicAssets"].as_array().map(|a| a.len()),
+            Some(zolana_interface::N_PUBLIC_SLOTS)
+        );
+        assert_eq!(
+            value["publicAmounts"].as_array().map(|a| a.len()),
+            Some(zolana_interface::N_PUBLIC_SLOTS)
+        );
         // Solana-only rail: no P256 fields on the request.
         assert!(value.get("p256PubX").is_none());
         assert_eq!(value["zoneProgramId"], "0x55");

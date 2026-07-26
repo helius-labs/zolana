@@ -232,7 +232,7 @@ impl LifecycleWorld {
         let transfer_ix = Transact {
             payer: fee_payer.pubkey(),
             tree: self.tree,
-            withdrawal: None,
+            legs: Vec::new(),
             data: ix_data,
         }
         .instruction();

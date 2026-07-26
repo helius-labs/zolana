@@ -8,8 +8,8 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
-    SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
+    spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicMovements, Rpc,
+    Shape, SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
 };
 use zolana_interface::{
     instruction::{
@@ -23,8 +23,8 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::{shape::Shape as TxShape, PublicAmounts as TxPublicAmounts},
-    Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    instructions::transact::shape::Shape as TxShape, Data, ExternalData, SppProofOutputUtxo, Utxo,
+    SOL_MINT,
 };
 
 use crate::{
@@ -160,7 +160,7 @@ fn boundary_prover() -> ZoneAuthorityProver {
             SppProofInputUtxo::new_dummy(),
         ],
         outputs: vec![dummy_output(), dummy_output()],
-        public_amounts: TxPublicAmounts::default(),
+        public_movements: PublicMovements::default(),
         external_data: zone_external_data(2),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone),
@@ -218,7 +218,7 @@ fn assemble_prover(
         inputs,
         outputs,
         external_data: zone_external_data(n_out),
-        public_amounts: PublicAmounts::transfer(),
+        public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
@@ -338,12 +338,7 @@ fn zone_external_data(n_out: usize) -> ExternalData {
     ExternalData {
         instruction_discriminator: ZONE_AUTHORITY_TRANSACT,
         expiry_unix_ts: 0,
-        relayer_fee: 0,
-        public_sol_amount: None,
-        public_spl_amount: None,
-        user_sol_account: Address::default(),
-        user_spl_token: Address::default(),
-        spl_token_interface: Address::default(),
+        public_legs: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],

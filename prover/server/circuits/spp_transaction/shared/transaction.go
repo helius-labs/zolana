@@ -192,8 +192,8 @@ func (s Shape) Validate() error {
 }
 
 // publicSlots returns the public movement slots interleaved as
-// [asset_0, amount_0, asset_1, amount_1] — the canonical public-input-hash
-// preimage order every variant and host mirror must share.
+// [asset_0, amount_0, asset_1, amount_1, asset_2, amount_2] — the canonical
+// public-input-hash preimage order every variant and host mirror must share.
 func publicSlots(assets, amounts [NPublicSlots]frontend.Variable) []frontend.Variable {
 	slots := make([]frontend.Variable, 0, 2*NPublicSlots)
 	for i := 0; i < NPublicSlots; i++ {
@@ -215,10 +215,9 @@ func validateLength(name string, got, want int) error {
 // depends on no host code (see circuits/CLAUDE.md). They must stay in sync with
 // prover/spp/protocol.
 const (
-	// NPublicSlots is the number of public (asset, amount) movement slots in
-	// every transaction circuit. Host convention: slot 0 is the SOL leg, slot 1
-	// the SPL leg.
-	NPublicSlots = 2
+	// NPublicSlots is the number of distinct public assets whose aggregate
+	// movement can be proven in one transaction.
+	NPublicSlots = 3
 	// DummyDomain is the domain tag for dummy (padding) utxos.
 	DummyDomain = 1
 	// AddressDomain is the domain tag for address utxos, separating address

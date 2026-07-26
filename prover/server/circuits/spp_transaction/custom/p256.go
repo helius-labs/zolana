@@ -105,6 +105,7 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 	}
 
 	shared.AssertZoneMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.ZoneProgramID)
+	api.AssertIsDifferent(c.Public.ZoneProgramID, 0)
 
 	p256, err := shared.NewP256Signer(
 		api,

@@ -603,7 +603,7 @@ mod tests {
         instructions::{
             merge::Merge as MergePlan,
             transact::{
-                ConfidentialTransfer, SppProofInputs, WithdrawalTarget, SPP_SUPPORTED_SHAPES,
+                ConfidentialTransfer, SettlementTarget, SppProofInputs, SPP_SUPPORTED_SHAPES,
             },
             types::SppProofInputUtxo,
         },
@@ -1196,7 +1196,7 @@ mod tests {
             .withdraw(
                 withdraw_asset,
                 withdraw_amount,
-                WithdrawalTarget::Sol {
+                SettlementTarget::Sol {
                     user_sol_account: Address::new_from_array([9u8; 32]),
                 },
             )
@@ -1220,7 +1220,7 @@ mod tests {
             .withdraw(
                 asset,
                 amount,
-                WithdrawalTarget::Sol {
+                SettlementTarget::Sol {
                     user_sol_account: Address::new_from_array([9u8; 32]),
                 },
             )

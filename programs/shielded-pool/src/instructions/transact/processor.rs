@@ -11,10 +11,13 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::{EventKind, Input},
     instruction::{
-        instruction_data::transact::{ExternalDataHash, ResolvedOutput, TransactIxDataRef},
+        instruction_data::transact::{
+            ExternalDataHash, PublicLeg, ResolvedOutput, ResolvedPublicLeg, TransactIxDataRef,
+        },
         tag::TRANSACT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 use zolana_tree::{TreeAccount, TreeError};
 
@@ -119,11 +122,8 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     discriminator: u8,
     resolved_outputs: &[ResolvedOutput],
 ) -> ProgramResult {
-    // The parser picks one settlement branch, so both amounts set would move only
-    // SPL while the proven SOL leg never settles: an unbacked note. Reject first.
-    if ix.public_sol_amount.is_some() && ix.public_spl_amount.is_some() {
-        return Err(ShieldedPoolError::BothPublicAmountsSet.into());
-    }
+    fill_public_slots(ix, &transact_accounts.settlements, proof_inputs)?;
+    let resolved_public_legs = resolve_public_legs(ix, &transact_accounts.settlements)?;
 
     let tree_write = {
         let output_tree = transact_accounts.tree.address().to_bytes();
@@ -138,17 +138,10 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
         apply_tree(&mut tree, ix, output_tree, proof_inputs)?
     };
 
-    let (user_sol_account, user_spl_token_account, spl_token_interface) =
-        settlement_accounts(&transact_accounts);
     proof_inputs.external_data_hash = ExternalDataHash {
         spp_instruction_discriminator: discriminator,
         expiry_unix_ts: ix.expiry_unix_ts,
-        relayer_fee: ix.relayer_fee,
-        public_sol_amount: ix.public_sol_amount,
-        public_spl_amount: ix.public_spl_amount,
-        user_sol_account: &user_sol_account,
-        user_spl_token_account: &user_spl_token_account,
-        spl_token_interface: &spl_token_interface,
+        public_legs: &resolved_public_legs,
         data_hash: ix.data_hash,
         zone_data_hash: ix.zone_data_hash,
         outputs: resolved_outputs,
@@ -160,40 +153,128 @@ pub(crate) fn process_transact_core<const IS_ZONE: bool, const IS_AUTHORITY: boo
     proof_inputs.payer_pubkey_hash = Sha256BE::hash(&transact_accounts.payer.address().to_bytes())
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    proof_inputs.spl_mint = transact_accounts.spl_mint;
-    // TODO: add prop test with full event assert.
-    let event = build_transact_event(ix, proof_inputs, tree_write, resolved_outputs);
+    let event = build_transact_event(
+        ix,
+        &transact_accounts.settlements,
+        tree_write,
+        resolved_outputs,
+    );
     TransactProof::new(ix, proof_inputs).verify::<IS_ZONE, IS_AUTHORITY>()?;
 
-    match transact_accounts.settlement.as_ref() {
-        Some(Settlement::Sol(sol)) => {
-            settle_sol(sol, public_amount(ix.public_sol_amount)?, ix.is_deposit())?
+    for (leg, settlement) in ix
+        .public_legs
+        .iter()
+        .zip(transact_accounts.settlements.iter())
+    {
+        match settlement {
+            Settlement::Sol(sol) => settle_sol(sol, leg.amount(), leg.is_deposit())?,
+            Settlement::Spl(spl) => settle_spl(spl, leg.amount())?,
         }
-        Some(Settlement::Spl(spl)) => settle_spl(spl, public_amount(ix.public_spl_amount)?)?,
-        None => {}
     }
     emit_general_event(EventKind::Transact, event)
 }
 
-fn public_amount(amount: Option<i64>) -> Result<u64, ProgramError> {
-    Ok(amount
-        .ok_or(ShieldedPoolError::InvalidTransactShape)?
-        .unsigned_abs())
+struct PublicAssetAggregate {
+    asset: [u8; 32],
+    amount: i128,
 }
 
-// The settlement account addresses bound into `external_data_hash`: the external
-// SOL recipient, the user's SPL token account, and the pool's SPL interface
-// vault. Zeroed for a pure shielded transfer (no settlement).
-fn settlement_accounts(accounts: &TransactAccounts) -> ([u8; 32], [u8; 32], [u8; 32]) {
-    match accounts.settlement.as_ref() {
-        Some(Settlement::Sol(sol)) => (sol.recipient.address().to_bytes(), [0u8; 32], [0u8; 32]),
-        Some(Settlement::Spl(spl)) => (
-            [0u8; 32],
-            spl.user_token_account.address().to_bytes(),
-            spl.vault.address().to_bytes(),
-        ),
-        None => ([0u8; 32], [0u8; 32], [0u8; 32]), // TODO: return proper type
+fn fill_public_slots(
+    ix: &TransactIxDataRef<'_>,
+    settlements: &[Settlement<'_>],
+    proof_inputs: &mut TransactProofInputs,
+) -> Result<(), ProgramError> {
+    if ix.public_legs.len() != settlements.len() {
+        return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
+
+    // Distinct assets can cancel to zero, so retain them until aggregation is
+    // complete. This lives on the heap: the u8 wire ceiling must not turn into
+    // a large fixed SBF stack allocation.
+    let mut aggregates: Vec<PublicAssetAggregate> = Vec::new();
+    for (leg, settlement) in ix.public_legs.iter().zip(settlements.iter()) {
+        let asset = match (leg, settlement) {
+            (PublicLeg::Sol { .. }, Settlement::Sol(_)) => SOL_ASSET_FIELD,
+            (PublicLeg::Spl { .. }, Settlement::Spl(spl)) => verifier::hash_field(
+                &spl.mint,
+                ShieldedPoolError::TransactProofVerificationFailed,
+            )?,
+            _ => return Err(ShieldedPoolError::InvalidSettlementAccounts.into()),
+        };
+        if let Some(existing) = aggregates.iter_mut().find(|entry| entry.asset == asset) {
+            existing.amount = existing
+                .amount
+                .checked_add(signed_amount(*leg))
+                .ok_or(ShieldedPoolError::PublicAssetAmountOverflow)?;
+        } else {
+            aggregates.push(PublicAssetAggregate {
+                asset,
+                amount: signed_amount(*leg),
+            });
+        }
+    }
+
+    let active_count = aggregates.iter().filter(|entry| entry.amount != 0).count();
+    if active_count > N_PUBLIC_SLOTS {
+        return Err(ShieldedPoolError::TooManyPublicAssets.into());
+    }
+    for ((asset_slot, amount_slot), aggregate) in proof_inputs
+        .public_slot_assets
+        .iter_mut()
+        .zip(proof_inputs.public_slot_amounts.iter_mut())
+        .zip(aggregates.iter().filter(|entry| entry.amount != 0))
+    {
+        let magnitude = u64::try_from(aggregate.amount.unsigned_abs())
+            .map_err(|_| ShieldedPoolError::PublicAssetAmountOverflow)?;
+        *asset_slot = aggregate.asset;
+        *amount_slot = if aggregate.amount.is_negative() {
+            -i128::from(magnitude)
+        } else {
+            i128::from(magnitude)
+        };
+    }
+    Ok(())
+}
+
+fn signed_amount(leg: PublicLeg) -> i128 {
+    let amount = i128::from(leg.amount());
+    if leg.is_deposit() {
+        amount
+    } else {
+        -amount
+    }
+}
+
+fn resolve_public_legs(
+    ix: &TransactIxDataRef<'_>,
+    settlements: &[Settlement<'_>],
+) -> Result<Vec<ResolvedPublicLeg>, ProgramError> {
+    if ix.public_legs.len() != settlements.len() {
+        return Err(ShieldedPoolError::InvalidTransactShape.into());
+    }
+    let mut resolved = Vec::with_capacity(ix.public_legs.len());
+    for (leg, settlement) in ix.public_legs.iter().zip(settlements.iter()) {
+        let public_leg = match (leg, settlement) {
+            (PublicLeg::Sol { is_deposit, amount }, Settlement::Sol(sol)) => {
+                ResolvedPublicLeg::Sol {
+                    is_deposit: *is_deposit,
+                    amount: *amount,
+                    recipient: sol.recipient.address().to_bytes(),
+                }
+            }
+            (PublicLeg::Spl { is_deposit, amount }, Settlement::Spl(spl)) => {
+                ResolvedPublicLeg::Spl {
+                    is_deposit: *is_deposit,
+                    amount: *amount,
+                    user_token_account: spl.user_token_account.address().to_bytes(),
+                    vault: spl.vault.address().to_bytes(),
+                }
+            }
+            _ => return Err(ShieldedPoolError::InvalidSettlementAccounts.into()),
+        };
+        resolved.push(public_leg);
+    }
+    Ok(resolved)
 }
 
 #[profile]
@@ -226,7 +307,8 @@ fn apply_tree(
     // Leaf index the first output lands at; the rest follow sequentially.
     let first_output_leaf_index = tree.utxo_tree().next_index();
     tree.utxo_tree()
-        .append_batch(ix.outputs.iter().map(|o| o.utxo_hash));
+        .append_batch(ix.outputs.iter().map(|o| o.utxo_hash))
+        .map_err(tree_error)?;
     Ok(TreeWrite {
         inputs,
         first_output_leaf_index,
@@ -238,6 +320,7 @@ fn tree_error(e: TreeError) -> ProgramError {
     match e {
         TreeError::Paused => ShieldedPoolError::TreePaused.into(),
         TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
+        TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
         _ => ShieldedPoolError::InvalidTreeAccounts.into(),
     }
 }

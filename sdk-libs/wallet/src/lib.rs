@@ -31,7 +31,7 @@ pub use actions::{
     sign_private_transaction, sign_private_transaction_sync, submit_merge_transaction,
     CreatedMerge, CreatedSplit, CreatedTransfer, CreatedWithdrawal, Deposit, DepositParams,
     MergeParams, ResolvedAddress, SplitParams, SubmitMergeTransaction, SubmittedMerge,
-    TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalParams,
+    TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalLeg, WithdrawalParams,
 };
 pub use user_registry::{
     build_registration_transaction, build_registration_transaction_sync,

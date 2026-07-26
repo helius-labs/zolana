@@ -10,7 +10,10 @@ use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::{
-    instructions::{transact::PrivateTxHash, zone_authority::PreparedZoneAuthority},
+    instructions::{
+        transact::{PrivateTxHash, PublicMovements},
+        zone_authority::PreparedZoneAuthority,
+    },
     utxo::program_id_field,
     ExternalData, SppProofOutputUtxo,
 };
@@ -21,9 +24,7 @@ use crate::{
         field::be,
         resolve_shape,
         transact::{
-            p256_and_eddsa::{
-                assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, TransferSpendInput,
-            },
+            p256_and_eddsa::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
             witness::{attach_input_proofs, SpendProof},
         },
         Shape, TransferInputs,
@@ -43,7 +44,7 @@ pub struct ZoneAuthorityProver {
     /// Transaction-level public data; its `instruction_discriminator` must be
     /// `ZONE_AUTHORITY_TRANSACT` (Tag 3) so `external_data_hash` matches on-chain.
     pub external_data: ExternalData,
-    pub public_amounts: PublicAmounts,
+    pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
@@ -86,30 +87,31 @@ impl ZoneAuthorityProver {
         // only the P256 message — input owner pk_fields stay private (no owner
         // chain) and there is no confidential appendix. hash_field(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256 message.
-        let slots = self.public_amounts.interleaved();
-        let public_input = create_hash_chain_from_slice(&[
+        let slots = self.public_movements.interleaved();
+        let mut elements = Vec::with_capacity(9 + slots.len());
+        elements.extend([
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             external_data_hash,
-            slots[0],
-            slots[1],
-            slots[2],
-            slots[3],
+        ]);
+        elements.extend(slots);
+        elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
             hash_field(&[0u8; 32])?,
-        ])?;
+        ]);
+        let public_input = create_hash_chain_from_slice(&elements)?;
 
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_assets: self.public_amounts.assets.map(|asset| be(&asset)),
-            public_amounts: self.public_amounts.amounts.map(|amount| be(&amount)),
+            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             public_input_hash: be(&public_input),
@@ -150,7 +152,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
         let PreparedZoneAuthority {
             inputs,
             outputs,
-            public_amounts,
+            public_movements,
             external_data,
             payer_pubkey_hash,
             zone_program_id,
@@ -163,10 +165,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             inputs: spends,
             outputs,
             external_data,
-            public_amounts: PublicAmounts {
-                assets: public_amounts.assets,
-                amounts: public_amounts.amounts,
-            },
+            public_movements,
             payer_pubkey_hash,
             zone_program_id,
             shape: Some(shape),

@@ -2,7 +2,7 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 pub use zolana_event::{MessageData, OutputUtxo};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-use crate::error::ShieldedPoolError;
+use crate::{error::ShieldedPoolError, MAX_WIRE_PUBLIC_LEGS};
 
 /// The BSB22-committed Groth16 proof of the P256 rail: `a || b || c ||
 /// commitment || commitment_pok`, 192 bytes on the wire (compressed points,
@@ -87,6 +87,41 @@ pub struct InputUtxo {
     pub eddsa_signer_index: u8,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[wincode(tag_encoding = "u8")]
+pub enum PublicLeg {
+    Sol { is_deposit: bool, amount: u64 },
+    Spl { is_deposit: bool, amount: u64 },
+}
+
+impl PublicLeg {
+    pub const fn amount(self) -> u64 {
+        match self {
+            Self::Sol { amount, .. } | Self::Spl { amount, .. } => amount,
+        }
+    }
+
+    pub const fn is_spl(self) -> bool {
+        matches!(self, Self::Spl { .. })
+    }
+
+    pub const fn is_deposit(self) -> bool {
+        match self {
+            Self::Sol { is_deposit, .. } | Self::Spl { is_deposit, .. } => is_deposit,
+        }
+    }
+}
+
+pub fn validate_public_legs(legs: &[PublicLeg]) -> Result<(), ShieldedPoolError> {
+    if legs.len() > MAX_WIRE_PUBLIC_LEGS {
+        return Err(ShieldedPoolError::TooManyPublicLegs);
+    }
+    if legs.iter().any(|leg| leg.amount() == 0) {
+        return Err(ShieldedPoolError::ZeroPublicLegAmount);
+    }
+    Ok(())
+}
+
 /// How an output's owner tag is carried on the wire (spec: `transact`
 /// `OwnerTag`). The resolved 32-byte value is hashed into the OWNER public input
 /// and republished as the event `view_tag`. `Inline` embeds the tag directly
@@ -118,7 +153,6 @@ pub struct TransactOutput {
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct TransactIxData {
     pub expiry_unix_ts: u64,
-    pub relayer_fee: u16,
     pub private_tx_hash: [u8; 32],
     // TODO: explore lifting the one-shared-P256-key-per-tx limit. P256 ownership
     // stays in-circuit (never program-native/precompile), so the circuit shape
@@ -150,10 +184,8 @@ pub struct TransactIxData {
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
-    /// Signed public amount: positive deposits into the pool, negative
-    /// withdraws. `None` for a pure shielded transfer.
-    pub public_sol_amount: Option<i64>,
-    pub public_spl_amount: Option<i64>,
+    #[wincode(with = "containers::Vec<PublicLeg, FixIntLen<u8>>")]
+    pub public_legs: Vec<PublicLeg>,
     /// Optional transaction-level application- and zone-specific external data
     /// digests folded into `external_data_hash`; `None` (`[0; 32]`) for a
     /// default-zone `transact`. Distinct from the per-UTXO `data_hash` /
@@ -217,7 +249,6 @@ pub struct OutputDataRef<'a> {
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct TransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
-    pub relayer_fee: u16,
     pub private_tx_hash: &'a [u8; 32],
     pub p256_signing_pk_x: Option<[u8; 32]>,
     pub tx_viewing_pk: &'a [u8; 33],
@@ -225,8 +256,8 @@ pub struct TransactIxDataRef<'a> {
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
-    pub public_sol_amount: Option<i64>,
-    pub public_spl_amount: Option<i64>,
+    #[wincode(with = "containers::Vec<PublicLeg, FixIntLen<u8>>")]
+    pub public_legs: Vec<PublicLeg>,
     pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     #[wincode(with = "containers::Vec<TransactOutputRef<'a>, FixIntLen<u8>>")]
@@ -238,28 +269,6 @@ pub struct TransactIxDataRef<'a> {
 impl<'a> TransactIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
         wincode::config::deserialize(data, RefConfig::new())
-    }
-
-    /// True when the public amount is an SPL token amount; false for SOL or a
-    /// pure shielded transfer (no public amount).
-    pub fn is_spl(&self) -> bool {
-        self.public_spl_amount.is_some()
-    }
-
-    /// True for a shield or unshield (a public amount is present); false for a
-    /// pure shielded transfer.
-    pub fn is_deposit_or_withdrawal(&self) -> bool {
-        self.public_sol_amount.is_some() || self.public_spl_amount.is_some()
-    }
-
-    /// Direction of the public amount: `true` deposits into the pool (positive
-    /// amount), `false` withdraws (negative amount). Meaningless for a pure
-    /// shielded transfer, where no public amount is present.
-    pub fn is_deposit(&self) -> bool {
-        self.public_spl_amount
-            .or(self.public_sol_amount)
-            .unwrap_or(0)
-            > 0
     }
 }
 
@@ -357,15 +366,25 @@ impl OutputDataBytes for OutputDataRef<'_> {
 /// instruction's external fields, the resolved outputs, and the messages, but
 /// never `private_tx_hash` (which already commits this hash) or the input UTXOs
 /// (bound through `private_tx_hash`). Used in both the program and the client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResolvedPublicLeg {
+    Sol {
+        is_deposit: bool,
+        amount: u64,
+        recipient: [u8; 32],
+    },
+    Spl {
+        is_deposit: bool,
+        amount: u64,
+        user_token_account: [u8; 32],
+        vault: [u8; 32],
+    },
+}
+
 pub struct ExternalDataHash<'a, M: OutputDataBytes> {
     pub spp_instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
-    pub relayer_fee: u16,
-    pub public_sol_amount: Option<i64>,
-    pub public_spl_amount: Option<i64>,
-    pub user_sol_account: &'a [u8; 32],
-    pub user_spl_token_account: &'a [u8; 32],
-    pub spl_token_interface: &'a [u8; 32],
+    pub public_legs: &'a [ResolvedPublicLeg],
     pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: Option<[u8; 32]>,
     pub outputs: &'a [ResolvedOutput<'a>],
@@ -377,12 +396,34 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
         let mut preimage = Vec::new();
         preimage.push(self.spp_instruction_discriminator);
         preimage.extend_from_slice(&self.expiry_unix_ts.to_be_bytes());
-        preimage.extend_from_slice(&self.relayer_fee.to_be_bytes());
-        preimage.extend_from_slice(&self.public_sol_amount.unwrap_or(0).to_be_bytes());
-        preimage.extend_from_slice(&self.public_spl_amount.unwrap_or(0).to_be_bytes());
-        preimage.extend_from_slice(self.user_sol_account);
-        preimage.extend_from_slice(self.user_spl_token_account);
-        preimage.extend_from_slice(self.spl_token_interface);
+        preimage
+            .push(u8::try_from(self.public_legs.len()).map_err(|_| HasherError::IntegerOverflow)?);
+        for leg in self.public_legs {
+            match leg {
+                ResolvedPublicLeg::Sol {
+                    is_deposit,
+                    amount,
+                    recipient,
+                } => {
+                    preimage.push(0);
+                    preimage.push(u8::from(*is_deposit));
+                    preimage.extend_from_slice(&amount.to_be_bytes());
+                    preimage.extend_from_slice(recipient);
+                }
+                ResolvedPublicLeg::Spl {
+                    is_deposit,
+                    amount,
+                    user_token_account,
+                    vault,
+                } => {
+                    preimage.push(1);
+                    preimage.push(u8::from(*is_deposit));
+                    preimage.extend_from_slice(&amount.to_be_bytes());
+                    preimage.extend_from_slice(user_token_account);
+                    preimage.extend_from_slice(vault);
+                }
+            }
+        }
         preimage.extend_from_slice(&self.data_hash.unwrap_or([0u8; 32]));
         preimage.extend_from_slice(&self.zone_data_hash.unwrap_or([0u8; 32]));
         // Count and per-datum length prefixes plus a strict {0,1} `data` presence
@@ -478,7 +519,6 @@ mod tests {
         TransactIxData {
             proof,
             expiry_unix_ts: 7,
-            relayer_fee: 11,
             private_tx_hash: [9u8; 32],
             p256_signing_pk_x: Some([20u8; 32]),
             inputs: vec![InputUtxo {
@@ -488,8 +528,16 @@ mod tests {
                 tree_index: 0,
                 eddsa_signer_index: 0,
             }],
-            public_sol_amount: Some(-5),
-            public_spl_amount: None,
+            public_legs: vec![
+                PublicLeg::Sol {
+                    is_deposit: false,
+                    amount: 5,
+                },
+                PublicLeg::Spl {
+                    is_deposit: true,
+                    amount: 7,
+                },
+            ],
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: [4u8; 33],
@@ -506,15 +554,13 @@ mod tests {
     /// serialized, so the swap program's owned-reserialize CPI path is byte-exact.
     fn assert_ref_matches_owned(view: &TransactIxDataRef, owned: &TransactIxData) {
         assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
-        assert_eq!(view.relayer_fee, owned.relayer_fee);
         assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
         assert_eq!(view.p256_signing_pk_x, owned.p256_signing_pk_x);
         assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
         assert_eq!(view.salt, &owned.salt);
         assert_eq!(view.proof, owned.proof);
         assert_eq!(view.inputs, owned.inputs);
-        assert_eq!(view.public_sol_amount, owned.public_sol_amount);
-        assert_eq!(view.public_spl_amount, owned.public_spl_amount);
+        assert_eq!(view.public_legs, owned.public_legs);
         assert_eq!(view.data_hash, owned.data_hash);
         assert_eq!(view.zone_data_hash, owned.zone_data_hash);
         assert_eq!(view.outputs.len(), owned.outputs.len());
@@ -559,6 +605,90 @@ mod tests {
         let eddsa = ix_data(eddsa_proof()).serialize().unwrap();
         let p256 = ix_data(p256_proof()).serialize().unwrap();
         assert_eq!(eddsa.len() + 64, p256.len());
+    }
+
+    #[test]
+    fn public_leg_wire_sizes_and_helpers_are_stable() {
+        let sol = PublicLeg::Sol {
+            is_deposit: false,
+            amount: u64::MAX,
+        };
+        let spl = PublicLeg::Spl {
+            is_deposit: true,
+            amount: 9,
+        };
+        assert_eq!(wincode::serialize(&sol).unwrap().len(), 10);
+        assert_eq!(wincode::serialize(&spl).unwrap().len(), 10);
+        assert_eq!(sol.amount(), u64::MAX);
+        assert_eq!(spl.amount(), 9);
+        assert!(!sol.is_spl());
+        assert!(spl.is_spl());
+        assert!(!sol.is_deposit());
+        assert!(spl.is_deposit());
+    }
+
+    #[test]
+    fn public_leg_validation_accepts_many_legs_up_to_wire_limit() {
+        let repeated = vec![
+            PublicLeg::Sol {
+                is_deposit: true,
+                amount: 1,
+            };
+            MAX_WIRE_PUBLIC_LEGS
+        ];
+        assert_eq!(validate_public_legs(&repeated), Ok(()));
+
+        let too_many = vec![
+            PublicLeg::Spl {
+                is_deposit: false,
+                amount: 1,
+            };
+            MAX_WIRE_PUBLIC_LEGS + 1
+        ];
+        assert_eq!(
+            validate_public_legs(&too_many),
+            Err(ShieldedPoolError::TooManyPublicLegs)
+        );
+        assert_eq!(
+            validate_public_legs(&[PublicLeg::Sol {
+                is_deposit: true,
+                amount: 0,
+            }]),
+            Err(ShieldedPoolError::ZeroPublicLegAmount)
+        );
+    }
+
+    #[test]
+    fn public_leg_wire_count_rejects_256_during_serialization_and_hashing() {
+        let mut data = ix_data(eddsa_proof());
+        data.public_legs = vec![
+            PublicLeg::Sol {
+                is_deposit: true,
+                amount: 1,
+            };
+            MAX_WIRE_PUBLIC_LEGS + 1
+        ];
+        assert!(data.serialize().is_err());
+
+        let resolved = vec![
+            ResolvedPublicLeg::Sol {
+                is_deposit: true,
+                amount: 1,
+                recipient: [1u8; 32],
+            };
+            MAX_WIRE_PUBLIC_LEGS + 1
+        ];
+        let result = ExternalDataHash::<MessageData> {
+            spp_instruction_discriminator: 2,
+            expiry_unix_ts: 3,
+            public_legs: &resolved,
+            data_hash: None,
+            zone_data_hash: None,
+            outputs: &[],
+            messages: &[],
+        }
+        .hash();
+        assert_eq!(result, Err(HasherError::IntegerOverflow));
     }
 
     /// Per-`OwnerTag` serialized size of a single `None`-data output:
@@ -629,12 +759,7 @@ mod tests {
         ExternalDataHash {
             spp_instruction_discriminator: 0,
             expiry_unix_ts: 0,
-            relayer_fee: 0,
-            public_sol_amount: None,
-            public_spl_amount: None,
-            user_sol_account: &[0u8; 32],
-            user_spl_token_account: &[0u8; 32],
-            spl_token_interface: &[0u8; 32],
+            public_legs: &[],
             data_hash: None,
             zone_data_hash: None,
             outputs,
@@ -642,6 +767,137 @@ mod tests {
         }
         .hash()
         .unwrap()
+    }
+
+    fn hash_with_legs(public_legs: &[ResolvedPublicLeg]) -> [u8; 32] {
+        ExternalDataHash::<MessageData> {
+            spp_instruction_discriminator: 2,
+            expiry_unix_ts: 3,
+            public_legs,
+            data_hash: None,
+            zone_data_hash: None,
+            outputs: &[],
+            messages: &[],
+        }
+        .hash()
+        .unwrap()
+    }
+
+    #[test]
+    fn external_data_hash_binds_leg_count_order_tags_and_accounts() {
+        let sol = ResolvedPublicLeg::Sol {
+            is_deposit: false,
+            amount: u64::MAX,
+            recipient: [1u8; 32],
+        };
+        let spl = ResolvedPublicLeg::Spl {
+            is_deposit: false,
+            amount: u64::MAX,
+            user_token_account: [1u8; 32],
+            vault: [2u8; 32],
+        };
+        assert_ne!(hash_with_legs(&[sol]), hash_with_legs(&[sol, sol]));
+        assert_ne!(hash_with_legs(&[sol, spl]), hash_with_legs(&[spl, sol]));
+        assert_ne!(hash_with_legs(&[sol]), hash_with_legs(&[spl]));
+
+        let other_recipient = ResolvedPublicLeg::Sol {
+            is_deposit: false,
+            amount: u64::MAX,
+            recipient: [3u8; 32],
+        };
+        let other_vault = ResolvedPublicLeg::Spl {
+            is_deposit: false,
+            amount: u64::MAX,
+            user_token_account: [1u8; 32],
+            vault: [3u8; 32],
+        };
+        let opposite_direction = ResolvedPublicLeg::Sol {
+            is_deposit: true,
+            amount: u64::MAX,
+            recipient: [1u8; 32],
+        };
+        assert_ne!(hash_with_legs(&[sol]), hash_with_legs(&[other_recipient]));
+        assert_ne!(hash_with_legs(&[spl]), hash_with_legs(&[other_vault]));
+        assert_ne!(
+            hash_with_legs(&[sol]),
+            hash_with_legs(&[opposite_direction])
+        );
+    }
+
+    #[test]
+    fn external_data_hash_leg_fields_have_fixed_boundaries() {
+        let first = ResolvedPublicLeg::Spl {
+            is_deposit: true,
+            amount: 1,
+            user_token_account: [2u8; 32],
+            vault: [3u8; 32],
+        };
+        let second = ResolvedPublicLeg::Spl {
+            is_deposit: true,
+            amount: 2,
+            user_token_account: [1u8; 32],
+            vault: [3u8; 32],
+        };
+        assert_ne!(hash_with_legs(&[first]), hash_with_legs(&[second]));
+    }
+
+    #[test]
+    fn external_data_hash_matches_go_harness_vector() {
+        let sender_tag = core::array::from_fn(|i| i as u8);
+        let sol_recipient = core::array::from_fn(|i| 0x20 + i as u8);
+        let spl_user = core::array::from_fn(|i| 0x40 + i as u8);
+        let spl_vault = core::array::from_fn(|i| 0x60 + i as u8);
+        let mut first_hash = [0u8; 32];
+        *first_hash.last_mut().unwrap() = 1;
+        let mut second_hash = [0u8; 32];
+        *second_hash.last_mut().unwrap() = 2;
+        let encrypted = [
+            0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0xaa, 0xbb, 0xcc, 0xdd,
+            0xee, 0xff,
+        ];
+        let outputs = [
+            ResolvedOutput {
+                utxo_hash: &first_hash,
+                owner_tag: sender_tag,
+                data: Some(&encrypted),
+            },
+            ResolvedOutput {
+                utxo_hash: &second_hash,
+                owner_tag: sender_tag,
+                data: None,
+            },
+        ];
+        let legs = [
+            ResolvedPublicLeg::Sol {
+                is_deposit: false,
+                amount: 1_234_567_890,
+                recipient: sol_recipient,
+            },
+            ResolvedPublicLeg::Spl {
+                is_deposit: true,
+                amount: 987_654_321,
+                user_token_account: spl_user,
+                vault: spl_vault,
+            },
+        ];
+        let got = ExternalDataHash::<MessageData> {
+            spp_instruction_discriminator: 0,
+            expiry_unix_ts: 1_234_567_890,
+            public_legs: &legs,
+            data_hash: None,
+            zone_data_hash: None,
+            outputs: &outputs,
+            messages: &[],
+        }
+        .hash()
+        .unwrap();
+        assert_eq!(
+            got,
+            [
+                0, 202, 22, 143, 174, 123, 166, 237, 238, 46, 107, 236, 45, 239, 126, 92, 152, 26,
+                250, 176, 203, 236, 146, 118, 54, 179, 246, 220, 43, 46, 50, 248,
+            ]
+        );
     }
 
     /// A length-prefixed message vector means a 32-byte value cannot shift from a

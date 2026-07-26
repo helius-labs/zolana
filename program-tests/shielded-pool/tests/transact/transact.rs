@@ -36,7 +36,7 @@ use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, set_output_owner_tags,
-    start_prover, TransferProverInputsArgs,
+    sol_public_slots, start_prover, TransferProverInputsArgs,
 };
 
 /// The (utxo, nullifier) tree roots at history index 0, exactly as the program
@@ -114,7 +114,7 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
             .iter()
             .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
             .collect(),
-        None,
+        Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
         None,
     );
@@ -129,7 +129,7 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
     // external_data_hash via the shared interface struct: the program computes
     // the identical value on-chain. No settlement, so the account fields are 0.
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &zero).expect("external data hash");
+        external_data_hash(&transact_ix_data, &[]).expect("external data hash");
 
     // Dummy inputs and outputs contribute zero hashes to private_tx_hash.
     let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
@@ -139,6 +139,7 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
     // Values the program reconstructs from accounts[0] (the payer).
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = public_input_hash(
         &nullifiers,
         &output_hashes,
@@ -146,7 +147,8 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
         &[nullifier_root, nullifier_root],
         &private_tx,
         &external_data_hash,
-        &zero,
+        &public_slot_assets,
+        &public_slot_amounts,
         &payer_pubkey_hash,
         &[owner_hash, owner_hash],
         &owner_pk_hashes,
@@ -158,7 +160,8 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
-        public_sol_amount: zero,
+        public_slot_assets,
+        public_slot_amounts,
         payer_pubkey_hash,
         public_input_hash,
     });
@@ -183,7 +186,7 @@ fn transact_sends_valid_proof() {
     let ix = Transact {
         payer,
         tree: env.tree.pubkey(),
-        withdrawal: None,
+        legs: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
@@ -217,7 +220,7 @@ fn transact_rejects_tampered_output_view_tag() {
     let ix = Transact {
         payer,
         tree: env.tree.pubkey(),
-        withdrawal: None,
+        legs: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();

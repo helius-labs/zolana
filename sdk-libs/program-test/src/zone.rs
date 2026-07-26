@@ -206,7 +206,7 @@ impl ZolanaProgramTest {
         })?;
         Ok(DepositBatch {
             outputs: crate::deposit_outputs_from_event(event)?,
-            deposit_withdraws: general_event.deposit_withdraws.clone(),
+            movements: general_event.movements.clone(),
         })
     }
 }

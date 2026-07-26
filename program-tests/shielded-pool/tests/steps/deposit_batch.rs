@@ -5,7 +5,7 @@ use cucumber::{then, when};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::DepositWithdraw;
+use zolana_event::Movement;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -133,8 +133,8 @@ fn batch_shield_sol(world: &mut ShieldedPoolWorld, count: u64, amount: u64) {
 
     assert_eq!(outputs.len(), usize::try_from(count).expect("small batch"));
     assert_eq!(
-        batch.deposit_withdraws,
-        vec![DepositWithdraw {
+        batch.movements,
+        vec![Movement {
             is_deposit: true,
             amount: amount * count,
             asset: None,
@@ -186,14 +186,14 @@ fn batch_shield_multi_asset(world: &mut ShieldedPoolWorld, lamports: u64, tokens
 
     assert_eq!(outputs.len(), 3, "three outputs across two assets");
     assert_eq!(
-        batch.deposit_withdraws,
+        batch.movements,
         vec![
-            DepositWithdraw {
+            Movement {
                 is_deposit: true,
                 amount: lamports * 2,
                 asset: None,
             },
-            DepositWithdraw {
+            Movement {
                 is_deposit: true,
                 amount: tokens,
                 asset: Some(mint.to_bytes()),

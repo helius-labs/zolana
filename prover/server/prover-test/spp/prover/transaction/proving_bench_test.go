@@ -98,7 +98,6 @@ func benchmarkTransaction(shape protocol.Shape, p256 bool) (ProofTransactionRequ
 		InstructionDiscriminator: 1,
 		ExpiryUnixTs:             123,
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
-		PublicAmountMode:         0,
 		EncryptedUtxos:           "00",
 		DataHash:                 proofFieldInput(big.NewInt(0)),
 		ZoneDataHash:             proofFieldInput(big.NewInt(0)),

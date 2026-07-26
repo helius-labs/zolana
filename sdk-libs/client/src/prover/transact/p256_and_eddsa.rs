@@ -1,13 +1,13 @@
 use num_bigint::BigUint;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_interface::N_PUBLIC_SLOTS;
 use zolana_keypair::{
     hash::{hash_field, sha256, split_be_128},
     NullifierKey, P256Pubkey, PublicKey, SignatureType,
 };
 use zolana_transaction::{
-    instructions::transact::PrivateTxHash, ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
+    instructions::transact::{PrivateTxHash, PublicMovements},
+    ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{
@@ -36,33 +36,6 @@ pub struct TransferSpendInput {
     pub nullifier_proof: Option<NonInclusionProof>,
 }
 
-/// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg): a signed
-/// net flow per asset id. Idle slots are (0, 0).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublicAmounts {
-    pub assets: [[u8; 32]; N_PUBLIC_SLOTS],
-    pub amounts: [[u8; 32]; N_PUBLIC_SLOTS],
-}
-
-impl PublicAmounts {
-    pub fn transfer() -> Self {
-        Self {
-            assets: [[0u8; 32]; N_PUBLIC_SLOTS],
-            amounts: [[0u8; 32]; N_PUBLIC_SLOTS],
-        }
-    }
-
-    /// The public-input-hash preimage order: `asset_0, amount_0, asset_1,
-    /// amount_1`, shared by every host mirror and the circuit.
-    pub(crate) fn interleaved(&self) -> [[u8; 32]; 2 * N_PUBLIC_SLOTS] {
-        [
-            self.assets[0],
-            self.amounts[0],
-            self.assets[1],
-            self.amounts[1],
-        ]
-    }
-}
 /// The P256 ownership signature, computed once over the finalized transaction in
 /// [`zolana_transaction::instructions::transact::Transaction::sign`]. The prover only converts it
 /// into witness coordinates; it never signs.
@@ -77,7 +50,7 @@ pub struct TransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub public_amounts: PublicAmounts,
+    pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
     pub p256_owner: P256Owner,
     pub shape: Option<Shape>,
@@ -132,7 +105,7 @@ impl TransferP256Prover {
             private_tx: &private_tx,
             p256_message_hash: &p256_message_hash,
             external_data_hash: &external_data_hash,
-            public_amounts: &self.public_amounts,
+            public_movements: &self.public_movements,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
@@ -152,8 +125,8 @@ impl TransferP256Prover {
             private_tx_hash: be(&private_tx),
             p256_message_hash_low: be(&p256_message_low),
             p256_message_hash_high: be(&p256_message_high),
-            public_assets: self.public_amounts.assets.map(|asset| be(&asset)),
-            public_amounts: self.public_amounts.amounts.map(|amount| be(&amount)),
+            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             p256_signing_pk_field: be(&p256_signing_pk_field),
@@ -435,7 +408,7 @@ pub(crate) struct PublicInputs<'a> {
     pub private_tx: &'a [u8; 32],
     pub p256_message_hash: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
-    pub public_amounts: &'a PublicAmounts,
+    pub public_movements: &'a PublicMovements,
     /// Per-tx zone program (pk_field-encoded); 0 on default transact.
     pub zone_program_id: &'a [u8; 32],
     pub payer_pubkey_hash: &'a [u8; 32],
@@ -449,18 +422,18 @@ pub(crate) struct PublicInputs<'a> {
 
 impl PublicInputs<'_> {
     pub(crate) fn hash(&self) -> Result<[u8; 32], ClientError> {
-        let slots = self.public_amounts.interleaved();
-        let elements = [
+        let slots = self.public_movements.interleaved();
+        let mut elements = Vec::with_capacity(12 + slots.len());
+        elements.extend([
             create_hash_chain_from_slice(self.nullifiers)?,
             create_hash_chain_from_slice(self.output_hashes)?,
             create_hash_chain_from_slice(self.utxo_roots)?,
             create_hash_chain_from_slice(self.nullifier_tree_roots)?,
             *self.private_tx,
             *self.external_data_hash,
-            slots[0],
-            slots[1],
-            slots[2],
-            slots[3],
+        ]);
+        elements.extend(slots);
+        elements.extend([
             *self.zone_program_id,
             *self.payer_pubkey_hash,
             // Variant-dependent tail: the P256 message, then the owner tags.
@@ -469,7 +442,7 @@ impl PublicInputs<'_> {
             // Confidential appendix (the client always uses the confidential variant).
             create_hash_chain_from_slice(self.output_owner_pk_hashes)?,
             *self.p256_signing_pk_field,
-        ];
+        ]);
         Ok(create_hash_chain_from_slice(&elements)?)
     }
 }

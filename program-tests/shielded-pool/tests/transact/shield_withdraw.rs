@@ -25,7 +25,10 @@ use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
-    instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal},
+    instruction::{
+        instruction_data::transact::{PublicLeg, ResolvedPublicLeg},
+        Transact, TransactLegAccounts, TransactSolLeg,
+    },
     pda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
@@ -38,8 +41,8 @@ use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_sol_field,
-    real_output, set_output_owner_tags, spend_input, start_prover, transfer_output, SpendInputArgs,
-    TransferProverInputsArgs,
+    real_output, set_output_owner_tags, sol_public_slots, spend_input, start_prover,
+    transfer_output, SpendInputArgs, TransferProverInputsArgs,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -188,7 +191,10 @@ fn shield_then_withdraw_sol() {
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
-        Some(-(AMOUNT as i64)),
+        vec![PublicLeg::Sol {
+            is_deposit: false,
+            amount: AMOUNT,
+        }],
         inline_outputs(&output_hashes, &view_tags),
         None,
     );
@@ -199,8 +205,13 @@ fn shield_then_withdraw_sol() {
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
+    let resolved_legs = [ResolvedPublicLeg::Sol {
+        is_deposit: false,
+        amount: AMOUNT,
+        recipient: recipient.to_bytes(),
+    }];
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &recipient.to_bytes()).expect("external data hash");
+        external_data_hash(&transact_ix_data, &resolved_legs).expect("external data hash");
 
     // private_tx_hash uses the real input's utxo hash; the dummy input and all
     // outputs contribute zero.
@@ -208,7 +219,8 @@ fn shield_then_withdraw_sol() {
         PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
             .hash()
             .expect("private tx hash");
-    let public_sol_field = public_sol_field(transact_ix_data.public_sol_amount);
+    let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash(
@@ -218,7 +230,8 @@ fn shield_then_withdraw_sol() {
         &[nullifier_root, nullifier_root],
         &private_tx,
         &external_data_hash,
-        &public_sol_field,
+        &public_slot_assets,
+        &public_slot_amounts,
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
@@ -230,7 +243,8 @@ fn shield_then_withdraw_sol() {
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
-        public_sol_amount: public_sol_field,
+        public_slot_assets,
+        public_slot_amounts,
         payer_pubkey_hash,
         public_input_hash,
     });
@@ -245,7 +259,7 @@ fn shield_then_withdraw_sol() {
     let ix = Transact {
         payer: payer.pubkey(),
         tree,
-        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+        legs: vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })],
         data: transact_ix_data,
     }
     .instruction();
@@ -393,7 +407,7 @@ fn shield_transfer_then_withdraw_sol() {
             eddsa_input_utxo(payer_nullifier, 1),
             eddsa_input_utxo(transfer_dummy_nullifier, 1),
         ],
-        None,
+        Vec::new(),
         inline_outputs(
             &[change_hash, recipient_hash, transfer_dummy_hash],
             &transfer_view_tags,
@@ -415,7 +429,7 @@ fn shield_transfer_then_withdraw_sol() {
         &[payer_nullifier_pk, recipient_nullifier_pk, zero],
     );
     let transfer_external_hash =
-        external_data_hash(&transfer_ix_data, &zero).expect("transfer external data hash");
+        external_data_hash(&transfer_ix_data, &[]).expect("transfer external data hash");
     let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
@@ -424,6 +438,7 @@ fn shield_transfer_then_withdraw_sol() {
     .hash()
     .expect("transfer private tx hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let (transfer_public_slot_assets, transfer_public_slot_amounts) = sol_public_slots(zero);
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
         &[change_hash, recipient_hash, transfer_dummy_hash],
@@ -431,7 +446,8 @@ fn shield_transfer_then_withdraw_sol() {
         &[nullifier_root, nullifier_root],
         &transfer_private_tx,
         &transfer_external_hash,
-        &zero,
+        &transfer_public_slot_assets,
+        &transfer_public_slot_amounts,
         &payer_pubkey_hash,
         &[payer_owner_pk_hash, payer_owner_pk_hash],
         &transfer_owner_pk_hashes,
@@ -442,7 +458,8 @@ fn shield_transfer_then_withdraw_sol() {
         outputs: transfer_outputs,
         external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
-        public_sol_amount: zero,
+        public_slot_assets: transfer_public_slot_assets,
+        public_slot_amounts: transfer_public_slot_amounts,
         payer_pubkey_hash,
         public_input_hash: transfer_public_input_hash,
     });
@@ -457,7 +474,7 @@ fn shield_transfer_then_withdraw_sol() {
     let transfer_ix = Transact {
         payer: payer.pubkey(),
         tree,
-        withdrawal: None,
+        legs: Vec::new(),
         data: transfer_ix_data,
     }
     .instruction();
@@ -473,7 +490,7 @@ fn shield_transfer_then_withdraw_sol() {
     state_tree
         .append(&transfer_dummy_hash)
         .expect("append dummy leaf");
-    let (transfer_utxo_root, transfer_nullifier_root) = on_chain_roots(&env.rpc, &tree, 4);
+    let (transfer_utxo_root, transfer_nullifier_root) = on_chain_roots(&env.rpc, &tree, 2);
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
     assert_eq!(transfer_nullifier_root, nullifier_root);
 
@@ -555,10 +572,13 @@ fn shield_transfer_then_withdraw_sol() {
     let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(recipient_nullifier, 4),
-            eddsa_input_utxo(withdraw_dummy_nullifier, 4),
+            eddsa_input_utxo(recipient_nullifier, 2),
+            eddsa_input_utxo(withdraw_dummy_nullifier, 2),
         ],
-        Some(-(TRANSFER_AMOUNT as i64)),
+        vec![PublicLeg::Sol {
+            is_deposit: false,
+            amount: TRANSFER_AMOUNT,
+        }],
         inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
         None,
     );
@@ -569,9 +589,13 @@ fn shield_transfer_then_withdraw_sol() {
         &withdraw_owner_pk_hashes,
         &[zero, zero, zero],
     );
-    let withdraw_external_hash =
-        external_data_hash(&withdraw_ix_data, &public_recipient.to_bytes())
-            .expect("withdraw external data hash");
+    let withdraw_resolved_legs = [ResolvedPublicLeg::Sol {
+        is_deposit: false,
+        amount: TRANSFER_AMOUNT,
+        recipient: public_recipient.to_bytes(),
+    }];
+    let withdraw_external_hash = external_data_hash(&withdraw_ix_data, &withdraw_resolved_legs)
+        .expect("withdraw external data hash");
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],
@@ -579,7 +603,8 @@ fn shield_transfer_then_withdraw_sol() {
     )
     .hash()
     .expect("withdraw private tx hash");
-    let public_sol_field = public_sol_field(withdraw_ix_data.public_sol_amount);
+    let public_sol_field = public_sol_field(Some(-(TRANSFER_AMOUNT as i64)));
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
     let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes).expect("recipient payer hash");
     let withdraw_public_input_hash = public_input_hash(
         &[recipient_nullifier, withdraw_dummy_nullifier],
@@ -588,7 +613,8 @@ fn shield_transfer_then_withdraw_sol() {
         &[transfer_nullifier_root, transfer_nullifier_root],
         &withdraw_private_tx,
         &withdraw_external_hash,
-        &public_sol_field,
+        &public_slot_assets,
+        &public_slot_amounts,
         &recipient_pubkey_hash,
         &[recipient_owner_pk_hash, recipient_owner_pk_hash],
         &withdraw_owner_pk_hashes,
@@ -599,7 +625,8 @@ fn shield_transfer_then_withdraw_sol() {
         outputs: withdraw_outputs,
         external_data_hash: withdraw_external_hash,
         private_tx_hash: withdraw_private_tx,
-        public_sol_amount: public_sol_field,
+        public_slot_assets,
+        public_slot_amounts,
         payer_pubkey_hash: recipient_pubkey_hash,
         public_input_hash: withdraw_public_input_hash,
     });
@@ -614,9 +641,9 @@ fn shield_transfer_then_withdraw_sol() {
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
         tree,
-        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
+        legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
             recipient: public_recipient,
-        })),
+        })],
         data: withdraw_ix_data,
     }
     .instruction();

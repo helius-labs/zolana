@@ -23,10 +23,15 @@ pub const DUMMY_DOMAIN: u16 = 1;
 pub const ADDRESS_DOMAIN: u16 = 2;
 pub const UTXO_DOMAIN: u16 = 3;
 
-/// Number of public (asset, amount) movement slots in every SPP transaction
-/// circuit. Host convention: slot 0 is the SOL leg, slot 1 the SPL leg. The
-/// prover mirrors this as `NPublicSlots` (Go `circuits/spp_transaction/shared`).
-pub const N_PUBLIC_SLOTS: usize = 2;
+/// Number of distinct public asset movement slots in every SPP transaction
+/// circuit. Ordered settlement legs are aggregated by resolved asset before
+/// filling these slots.
+pub const N_PUBLIC_SLOTS: usize = 3;
+
+/// Largest public-leg count representable by the instruction's
+/// `FixIntLen<u8>` wire prefix. This is an encoding bound, not a protocol
+/// transaction-shape limit; Solana's transaction size is normally tighter.
+pub const MAX_WIRE_PUBLIC_LEGS: usize = u8::MAX as usize;
 
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The
@@ -75,6 +80,10 @@ pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] = [
     88, 254, 248, 74, 86, 156, 76, 98, 4, 160, 29, 78, 152, 238, 8, 247, 252, 20, 54, 18, 242, 184,
     160, 99, 112, 248, 135, 246, 47, 245, 181, 43,
 ];
+
+/// [`SHIELDED_POOL_CPI_AUTHORITY`] as a `Pubkey`.
+pub const SHIELDED_POOL_CPI_AUTHORITY_PUBKEY: solana_pubkey::Pubkey =
+    solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
 
 /// Bump for `SHIELDED_POOL_CPI_AUTHORITY`.
 pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 254;

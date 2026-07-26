@@ -16,7 +16,7 @@ use zolana_event::{
 };
 use zolana_interface::pda;
 
-const RINGS_PARSE_VERSION: i16 = 1;
+const RINGS_PARSE_VERSION: i16 = 2;
 
 struct EventSite {
     source_instruction_tag: u8,

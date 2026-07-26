@@ -39,7 +39,6 @@ pub fn build_merge_event(
         salt: [0u8; 16], // TODO: send salt in instruction data
         first_output_leaf_index: tree_write.output_leaf_index,
         output_tree: tree_write.output_tree,
-        relay_fee: None,
-        deposit_withdraws: Vec::new(),
+        movements: Vec::new(),
     }
 }

@@ -24,4 +24,6 @@ pub enum TreeError {
     InvalidRootIndex,
     #[error("tree account data is already borrowed")]
     Borrowed,
+    #[error("tree is full")]
+    TreeIsFull,
 }

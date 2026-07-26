@@ -70,11 +70,21 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         Ok(())
     }
 
-    pub fn append(&mut self, leaf: [u8; 32]) {
-        self.append_batch([&leaf]);
+    /// Number of leaves the tree can hold (`2^HEIGHT`).
+    pub const fn capacity(&self) -> u64 {
+        1u64 << HEIGHT
     }
 
-    pub fn append_batch<'l, I>(&mut self, leaves: I)
+    pub fn append(&mut self, leaf: [u8; 32]) -> Result<(), TreeError> {
+        self.append_batch([&leaf])
+    }
+
+    /// Appends a batch of leaves. Returns [`TreeError::TreeIsFull`] once the
+    /// tree holds `2^HEIGHT` leaves; without the guard a full tree silently
+    /// overwrites every subtree and produces a garbage root. On error the
+    /// leaves appended so far stay appended (on-chain the error aborts the
+    /// whole instruction, so there is no partial state).
+    pub fn append_batch<'l, I>(&mut self, leaves: I) -> Result<(), TreeError>
     where
         I: IntoIterator<Item = &'l [u8; 32]>,
     {
@@ -82,6 +92,9 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
         let mut leaves = leaves.into_iter().peekable();
 
         while let Some(leaf) = leaves.next() {
+            if self.next_index() >= self.capacity() {
+                return Err(TreeError::TreeIsFull);
+            }
             let is_last = leaves.peek().is_none();
             let mut current_index = self.next_index();
             let mut current_level_hash = *leaf;
@@ -101,14 +114,16 @@ impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
                 current_index /= 2;
             }
 
+            // Only the batch-final root enters the history. Pushing per-leaf
+            // placeholders would evict real roots batch_size times faster and
+            // `root_by_index` rejects zero slots, so they are never usable.
             if is_last {
                 self.root = current_level_hash;
                 self.push_root(current_level_hash);
-            } else {
-                self.push_root([0u8; 32]);
             }
             self.set_next_index(self.next_index() + 1);
         }
+        Ok(())
     }
 
     pub fn root(&self) -> [u8; 32] {

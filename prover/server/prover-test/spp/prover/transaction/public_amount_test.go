@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -9,138 +10,274 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 )
 
-func TestDerivePublicSlotsRejectsInvalidMode(t *testing.T) {
-	_, err := derivePublicSlots(ProofTransactionRequest{PublicAmountMode: 3})
-	if err == nil || !strings.Contains(err.Error(), "invalid public_amount_mode") {
-		t.Fatalf("error = %v", err)
+const (
+	testMintA = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	testMintB = "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+	testMintC = "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+)
+
+func TestDerivePublicSlotsKeepsEmptySlotsIdle(t *testing.T) {
+	slots, err := derivePublicSlots(ProofTransactionRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range slots.assets {
+		expectIdleSlot(t, slots, i)
 	}
 }
 
-func TestDerivePublicSlotsRejectsTransferWithPublicAmount(t *testing.T) {
-	amount := uint64(1)
-	_, err := derivePublicSlots(ProofTransactionRequest{
-		PublicAmountMode: 0,
-		PublicSolAmount:  &amount,
-	})
-	if err == nil || !strings.Contains(err.Error(), "transfer mode carries public settlement") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestDerivePublicSlotsRejectsTransferRelayerFee(t *testing.T) {
-	_, err := derivePublicSlots(ProofTransactionRequest{
-		PublicAmountMode: publicAmountTransfer,
-		RelayerFee:       5,
-	})
-	if err == nil || !strings.Contains(err.Error(), "transfer mode carries public settlement") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestDerivePublicSlotsRejectsShieldRelayerFee(t *testing.T) {
-	_, err := derivePublicSlots(ProofTransactionRequest{
-		PublicAmountMode: 1,
-		RelayerFee:       1,
-	})
-	if err == nil || !strings.Contains(err.Error(), "shield mode carries relayer fee") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestDerivePublicSlotsSignsAmounts(t *testing.T) {
-	sol := uint64(10)
-	spl := uint64(7)
+func TestDerivePublicSlotsSingleSplUsesSlotZero(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicAmountMode: 2,
-		PublicSolAmount:  &sol,
-		PublicSplAmount:  &spl,
-		RelayerFee:       3,
-		PublicSplAssetPubkey: "" +
-			"000102030405060708090a0b0c0d0e0f" +
-			"101112131415161718191a1b1c1d1e1f",
+		PublicLegs: []PublicLegRequest{{
+			IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 17,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	expectSplAsset(t, slots.assets[0], testMintA)
+	expectSignedAmount(t, slots.amounts[0], true, 17)
+	expectIdleSlot(t, slots, 1)
+	expectIdleSlot(t, slots, 2)
+}
 
-	if slots.amounts[0].Cmp(protocol.SignedToField(big.NewInt(-13))) != 0 {
-		t.Fatalf("sol slot amount = %s", slots.amounts[0])
+func TestDerivePublicSlotsAggregatesMixedDirectionsByFirstAppearance(t *testing.T) {
+	slots, err := derivePublicSlots(ProofTransactionRequest{
+		PublicLegs: []PublicLegRequest{
+			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 11},
+			{Amount: 8},
+			{IsSpl: true, Asset: testMintA, Amount: 6},
+			{IsDeposit: true, Amount: 3},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectSplAsset(t, slots.assets[0], testMintA)
+	expectSignedAmount(t, slots.amounts[0], true, 5)
+	if slots.assets[1].Cmp(protocol.SolAsset()) != 0 {
+		t.Fatalf("SOL asset = %s", slots.assets[1])
+	}
+	expectSignedAmount(t, slots.amounts[1], false, 5)
+	expectIdleSlot(t, slots, 2)
+}
+
+func TestDerivePublicSlotsAcceptsSixSameAssetLegs(t *testing.T) {
+	slots, err := derivePublicSlots(ProofTransactionRequest{
+		PublicLegs: []PublicLegRequest{
+			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 10},
+			{IsSpl: true, Asset: testMintA, Amount: 2},
+			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 7},
+			{IsSpl: true, Asset: testMintA, Amount: 4},
+			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 1},
+			{IsSpl: true, Asset: testMintA, Amount: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectSplAsset(t, slots.assets[0], testMintA)
+	expectSignedAmount(t, slots.amounts[0], true, 11)
+	expectIdleSlot(t, slots, 1)
+	expectIdleSlot(t, slots, 2)
+}
+
+func TestDerivePublicSlotsAcceptsU8LegCountBoundary(t *testing.T) {
+	legs := make([]PublicLegRequest, MaxEncodedPublicLegs)
+	for i := range legs {
+		legs[i] = PublicLegRequest{IsDeposit: true, Amount: 1}
+	}
+	slots, err := derivePublicSlots(ProofTransactionRequest{PublicLegs: legs})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if slots.assets[0].Cmp(protocol.SolAsset()) != 0 {
-		t.Fatalf("sol slot asset = %s", slots.assets[0])
+		t.Fatalf("SOL asset = %s", slots.assets[0])
 	}
-	if slots.amounts[1].Cmp(protocol.SignedToField(big.NewInt(-7))) != 0 {
-		t.Fatalf("spl slot amount = %s", slots.amounts[1])
-	}
-
-	mint, err := parse.Hex32("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
-	if err != nil {
-		t.Fatal(err)
-	}
-	expectedAsset, err := protocol.SolanaPkField(mint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if slots.assets[1].Cmp(expectedAsset) != 0 {
-		t.Fatalf("spl slot asset = %s", slots.assets[1])
-	}
+	expectSignedAmount(t, slots.amounts[0], true, MaxEncodedPublicLegs)
+	expectIdleSlot(t, slots, 1)
+	expectIdleSlot(t, slots, 2)
 }
 
-func TestDerivePublicSlotsSignsShield(t *testing.T) {
-	sol := uint64(10)
-	spl := uint64(7)
-	shield, err := derivePublicSlots(ProofTransactionRequest{
-		PublicAmountMode: publicAmountShield,
-		PublicSolAmount:  &sol,
-		PublicSplAmount:  &spl,
-		PublicSplAssetPubkey: "" +
-			"000102030405060708090a0b0c0d0e0f" +
-			"101112131415161718191a1b1c1d1e1f",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if shield.amounts[0].Cmp(big.NewInt(10)) != 0 {
-		t.Fatalf("shield sol slot amount = %s", shield.amounts[0])
-	}
-	if shield.assets[0].Cmp(protocol.SolAsset()) != 0 {
-		t.Fatalf("shield sol slot asset = %s", shield.assets[0])
-	}
-	if shield.amounts[1].Cmp(big.NewInt(7)) != 0 {
-		t.Fatalf("shield spl slot amount = %s", shield.amounts[1])
-	}
-}
-
-// Pure transfers keep every slot at (0, 0) so the transcript reveals no asset id.
-func TestDerivePublicSlotsTransferKeepsSlotsIdle(t *testing.T) {
-	slots, err := derivePublicSlots(ProofTransactionRequest{PublicAmountMode: publicAmountTransfer})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < protocol.NPublicSlots; i++ {
-		if slots.assets[i].Sign() != 0 || slots.amounts[i].Sign() != 0 {
-			t.Fatalf("slot %d = (%s, %s), want (0, 0)", i, slots.assets[i], slots.amounts[i])
-		}
-	}
-}
-
-// A fee-only unshield has no request SOL amount but still moves SOL: the
-// SOL slot must carry the SolAsset id, or the circuit's slot pinning fails.
-func TestDerivePublicSlotsFeeOnlyUnshieldActivatesSolSlot(t *testing.T) {
+func TestDerivePublicSlotsAcceptsThreeDistinctAssets(t *testing.T) {
 	slots, err := derivePublicSlots(ProofTransactionRequest{
-		PublicAmountMode: publicAmountUnshield,
-		RelayerFee:       3,
+		PublicLegs: []PublicLegRequest{
+			{IsSpl: true, Asset: testMintB, Amount: 9},
+			{IsDeposit: true, Amount: 4},
+			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 7},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if slots.amounts[0].Cmp(protocol.SignedToField(big.NewInt(-3))) != 0 {
-		t.Fatalf("sol slot amount = %s", slots.amounts[0])
+	expectSplAsset(t, slots.assets[0], testMintB)
+	expectSignedAmount(t, slots.amounts[0], false, 9)
+	if slots.assets[1].Cmp(protocol.SolAsset()) != 0 {
+		t.Fatalf("SOL asset = %s", slots.assets[1])
 	}
-	if slots.assets[0].Cmp(protocol.SolAsset()) != 0 {
-		t.Fatalf("sol slot asset = %s", slots.assets[0])
+	expectSignedAmount(t, slots.amounts[1], true, 4)
+	expectSplAsset(t, slots.assets[2], testMintA)
+	expectSignedAmount(t, slots.amounts[2], true, 7)
+}
+
+func TestDerivePublicSlotsNetZeroAssetsDoNotConsumeSlots(t *testing.T) {
+	slots, err := derivePublicSlots(ProofTransactionRequest{
+		PublicLegs: []PublicLegRequest{
+			{IsDeposit: true, Amount: 5},
+			{IsSpl: true, IsDeposit: true, Asset: testMintA, Amount: 2},
+			{IsSpl: true, IsDeposit: true, Asset: testMintB, Amount: 3},
+			{IsSpl: true, IsDeposit: true, Asset: testMintC, Amount: 4},
+			{Amount: 5},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if slots.assets[1].Sign() != 0 || slots.amounts[1].Sign() != 0 {
-		t.Fatalf("spl slot = (%s, %s), want (0, 0)", slots.assets[1], slots.amounts[1])
+	expectSplAsset(t, slots.assets[0], testMintA)
+	expectSplAsset(t, slots.assets[1], testMintB)
+	expectSplAsset(t, slots.assets[2], testMintC)
+	expectSignedAmount(t, slots.amounts[0], true, 2)
+	expectSignedAmount(t, slots.amounts[1], true, 3)
+	expectSignedAmount(t, slots.amounts[2], true, 4)
+}
+
+func TestDerivePublicSlotsSupportsFullU64Bounds(t *testing.T) {
+	slots, err := derivePublicSlots(ProofTransactionRequest{
+		PublicLegs: []PublicLegRequest{
+			{IsDeposit: true, Amount: math.MaxUint64},
+			{IsSpl: true, Asset: testMintA, Amount: math.MaxUint64},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectSignedAmount(t, slots.amounts[0], true, math.MaxUint64)
+	expectSignedAmount(t, slots.amounts[1], false, math.MaxUint64)
+	expectIdleSlot(t, slots, 2)
+}
+
+func TestDerivePublicSlotsRejectsAggregateOverflow(t *testing.T) {
+	tests := []struct {
+		name string
+		legs []PublicLegRequest
+	}{
+		{
+			name: "positive",
+			legs: []PublicLegRequest{
+				{IsDeposit: true, Amount: math.MaxUint64},
+				{IsDeposit: true, Amount: 1},
+			},
+		},
+		{
+			name: "negative",
+			legs: []PublicLegRequest{{Amount: math.MaxUint64}, {Amount: 1}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := derivePublicSlots(ProofTransactionRequest{PublicLegs: tt.legs})
+			if err == nil || !strings.Contains(err.Error(), "aggregate magnitude exceeds u64") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDerivePublicSlotsChecksFinalNetMagnitude(t *testing.T) {
+	slots, err := derivePublicSlots(ProofTransactionRequest{
+		PublicLegs: []PublicLegRequest{
+			{IsDeposit: true, Amount: math.MaxUint64},
+			{IsDeposit: true, Amount: math.MaxUint64},
+			{Amount: math.MaxUint64},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectSignedAmount(t, slots.amounts[0], true, math.MaxUint64)
+}
+
+func TestDerivePublicSlotsRejectsInvalidLegs(t *testing.T) {
+	tooManyEncodedLegs := make([]PublicLegRequest, MaxEncodedPublicLegs+1)
+	for i := range tooManyEncodedLegs {
+		tooManyEncodedLegs[i].Amount = 1
+	}
+	tests := []struct {
+		name    string
+		legs    []PublicLegRequest
+		wantErr string
+	}{
+		{
+			name:    "u8 leg count overflow",
+			legs:    tooManyEncodedLegs,
+			wantErr: "public_legs length 256 exceeds u8 encoding maximum 255",
+		},
+		{
+			name:    "zero amount",
+			legs:    []PublicLegRequest{{Amount: 0}},
+			wantErr: "public_legs[0].amount must be nonzero",
+		},
+		{
+			name:    "missing SPL asset",
+			legs:    []PublicLegRequest{{IsSpl: true, Amount: 1}},
+			wantErr: "public_legs[0].asset",
+		},
+		{
+			name:    "SOL asset",
+			legs:    []PublicLegRequest{{Asset: testMintA, Amount: 1}},
+			wantErr: "asset must be empty for SOL",
+		},
+		{
+			name: "four distinct nonzero assets",
+			legs: []PublicLegRequest{
+				{Amount: 1},
+				{IsSpl: true, Asset: testMintA, Amount: 2},
+				{IsSpl: true, Asset: testMintB, Amount: 3},
+				{IsSpl: true, Asset: testMintC, Amount: 4},
+			},
+			wantErr: "aggregate to more than 3 distinct nonzero assets",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := derivePublicSlots(ProofTransactionRequest{PublicLegs: tt.legs})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func expectSplAsset(t *testing.T, got *big.Int, mintHex string) {
+	t.Helper()
+	mint, err := parse.Hex32(mintHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := protocol.SolanaPkField(mint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cmp(want) != 0 {
+		t.Fatalf("SPL asset = %s, want %s", got, want)
+	}
+}
+
+func expectSignedAmount(t *testing.T, got *big.Int, isDeposit bool, amount uint64) {
+	t.Helper()
+	want := new(big.Int).SetUint64(amount)
+	if !isDeposit {
+		want.Neg(want)
+	}
+	want = protocol.SignedToField(want)
+	if got.Cmp(want) != 0 {
+		t.Fatalf("amount = %s, want %s", got, want)
+	}
+}
+
+func expectIdleSlot(t *testing.T, slots publicSlots, index int) {
+	t.Helper()
+	if slots.assets[index].Sign() != 0 || slots.amounts[index].Sign() != 0 {
+		t.Fatalf("slot %d = (%s, %s), want (0, 0)", index, slots.assets[index], slots.amounts[index])
 	}
 }

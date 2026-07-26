@@ -12,21 +12,18 @@ pub use transact_core::{
     build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
     inline_outputs, new_transact_ix_data, output_owner_pk_hashes, pack_proof,
     prove_and_verify_transfer, public_input_hash, resolve_outputs, set_output_owner_tags,
-    start_prover, TransferProverInputsArgs,
+    sol_public_slots, spl_public_slots, start_prover, TransferProverInputsArgs,
 };
 use zolana_client::{
     prover::field::{be, right_align_slice},
     ProofInputUtxo, TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT,
     STATE_TREE_HEIGHT,
 };
-use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Poseidon};
-use zolana_interface::instruction::{
-    instruction_data::transact::{ExternalDataHash, TransactIxData},
-    tag,
+use zolana_hasher::Poseidon;
+use zolana_interface::instruction::instruction_data::transact::{
+    ResolvedPublicLeg, TransactIxData,
 };
-use zolana_keypair::{
-    hash::hash_field, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
-};
+use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey};
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
@@ -69,9 +66,6 @@ pub fn real_output(
     }
 }
 
-/// Mirror of `public_input_hash` for the SPL rail: the SPL slot (chain indices
-/// 9-10, as `hash_field(mint)` then the signed amount) carries real values while
-/// the SOL slot stays idle at (0, 0).
 #[allow(dead_code, clippy::too_many_arguments)]
 pub fn public_input_hash_spl(
     nullifiers: &[[u8; 32]],
@@ -80,55 +74,40 @@ pub fn public_input_hash_spl(
     nullifier_tree_roots: &[[u8; 32]],
     private_tx: &[u8; 32],
     external_data_hash: &[u8; 32],
-    public_spl_amount: &[u8; 32],
+    spl_amount: &[u8; 32],
     mint: &[u8; 32],
     payer_pubkey_hash: &[u8; 32],
     input_owner_pk_hashes: &[[u8; 32]],
     output_owner_pk_hashes: &[[u8; 32]],
     p256_signing_pk_field: &[u8; 32],
 ) -> [u8; 32] {
-    let zero = [0u8; 32];
-    let chain = [
-        create_hash_chain_from_slice(nullifiers).expect("nullifier chain"),
-        create_hash_chain_from_slice(output_hashes).expect("output chain"),
-        create_hash_chain_from_slice(utxo_roots).expect("utxo root chain"),
-        create_hash_chain_from_slice(nullifier_tree_roots).expect("nullifier root chain"),
-        *private_tx,
-        *external_data_hash,
-        zero, // sol slot asset
-        zero, // sol slot amount
-        hash_field(mint).expect("public spl asset pubkey"),
-        *public_spl_amount,
-        zero, // zone_program_id
-        *payer_pubkey_hash,
-        hash_field(&zero).expect("p256 message field"),
-        create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
-        create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
-        *p256_signing_pk_field,
-    ];
-    create_hash_chain_from_slice(&chain).expect("public input hash spl")
+    let (assets, amounts) = spl_public_slots(*spl_amount, mint).expect("public SPL slots");
+    public_input_hash(
+        nullifiers,
+        output_hashes,
+        utxo_roots,
+        nullifier_tree_roots,
+        private_tx,
+        external_data_hash,
+        &assets,
+        &amounts,
+        payer_pubkey_hash,
+        input_owner_pk_hashes,
+        output_owner_pk_hashes,
+        p256_signing_pk_field,
+    )
 }
 
-/// Mirror of `build_transfer_prover_inputs` for the SPL rail: the witness carries
-/// the real `public_spl_amount` and `public_spl_asset_pubkey` (the mint).
 #[allow(dead_code)]
 pub fn build_transfer_prover_inputs_spl(
-    args: TransferProverInputsArgs,
-    public_spl_amount: [u8; 32],
+    mut args: TransferProverInputsArgs,
+    spl_amount: [u8; 32],
     mint: [u8; 32],
 ) -> TransferInputs {
-    let zero = [0u8; 32];
-    TransferInputs {
-        inputs: args.inputs,
-        outputs: args.outputs,
-        external_data_hash: be(&args.external_data_hash),
-        private_tx_hash: be(&args.private_tx_hash),
-        public_assets: [be(&zero), be(&hash_field(&mint).expect("spl asset field"))],
-        public_amounts: [be(&zero), be(&public_spl_amount)],
-        zone_program_id: be(&zero),
-        payer_pubkey_hash: be(&args.payer_pubkey_hash),
-        public_input_hash: be(&args.public_input_hash),
-    }
+    let (assets, amounts) = spl_public_slots(spl_amount, &mint).expect("public SPL slots");
+    args.public_slot_assets = assets;
+    args.public_slot_amounts = amounts;
+    build_transfer_prover_inputs(args)
 }
 
 /// `external_data_hash` for an SPL settlement: zeroes `user_sol_account` and
@@ -140,23 +119,19 @@ pub fn external_data_hash_spl(
     user_spl_token_account: &[u8; 32],
     spl_token_interface: &[u8; 32],
 ) -> Result<[u8; 32]> {
-    let zero = [0u8; 32];
-    let outputs = resolve_outputs(transact_ix_data)?;
-    Ok(ExternalDataHash {
-        spp_instruction_discriminator: tag::TRANSACT,
-        expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-        relayer_fee: transact_ix_data.relayer_fee,
-        public_sol_amount: transact_ix_data.public_sol_amount,
-        public_spl_amount: transact_ix_data.public_spl_amount,
-        user_sol_account: &zero,
-        user_spl_token_account,
-        spl_token_interface,
-        data_hash: None,
-        zone_data_hash: None,
-        outputs: &outputs,
-        messages: &transact_ix_data.messages,
-    }
-    .hash()?)
+    let leg = transact_ix_data
+        .public_legs
+        .first()
+        .context("external_data_hash_spl requires one public SPL leg")?;
+    external_data_hash(
+        transact_ix_data,
+        &[ResolvedPublicLeg::Spl {
+            is_deposit: leg.is_deposit(),
+            amount: leg.amount(),
+            user_token_account: *user_spl_token_account,
+            vault: *spl_token_interface,
+        }],
+    )
 }
 
 pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon, usize>> {

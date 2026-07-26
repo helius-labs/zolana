@@ -13,7 +13,9 @@ use zolana_keypair::{
     PublicKey,
 };
 use zolana_transaction::{
-    instructions::transact::PrivateTxHash, utxo::program_id_field, ExternalData, SppProofOutputUtxo,
+    instructions::transact::{PrivateTxHash, PublicMovements},
+    utxo::program_id_field,
+    ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
@@ -22,8 +24,7 @@ use crate::{
         field::be,
         resolve_shape,
         transact::p256_and_eddsa::{
-            assemble_inputs, assemble_outputs, OwnerMode, P256Owner, PublicAmounts,
-            TransferSpendInput,
+            assemble_inputs, assemble_outputs, OwnerMode, P256Owner, TransferSpendInput,
         },
         Shape, TransferP256Inputs,
     },
@@ -39,7 +40,7 @@ pub struct ZoneTransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub public_amounts: PublicAmounts,
+    pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
     pub p256_owner: P256Owner,
     /// The zone program; bound to the public `zone_program_id` and to each
@@ -102,23 +103,24 @@ impl ZoneTransferP256Prover {
         // private). No output-owner chain and no p256_signing_pk_field.
         // Mirrors PublicInputHash with ZoneAuthority=false, Confidential=false in
         // prover/server/prover-test/spp/protocol/public_inputs.go.
-        let slots = self.public_amounts.interleaved();
-        let public_input = create_hash_chain_from_slice(&[
+        let slots = self.public_movements.interleaved();
+        let mut elements = Vec::with_capacity(10 + slots.len());
+        elements.extend([
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             external_data_hash,
-            slots[0],
-            slots[1],
-            slots[2],
-            slots[3],
+        ]);
+        elements.extend(slots);
+        elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
             hash_field(&p256_message_hash)?,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
-        ])?;
+        ]);
+        let public_input = create_hash_chain_from_slice(&elements)?;
 
         let inputs = TransferP256Inputs {
             inputs: assembled_inputs.inputs,
@@ -131,8 +133,8 @@ impl ZoneTransferP256Prover {
             private_tx_hash: be(&private_tx),
             p256_message_hash_low: be(&p256_message_low),
             p256_message_hash_high: be(&p256_message_high),
-            public_assets: self.public_amounts.assets.map(|asset| be(&asset)),
-            public_amounts: self.public_amounts.amounts.map(|amount| be(&amount)),
+            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
             p256_signing_pk_field: be(&p256_signing_pk_field),

@@ -12,7 +12,7 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, P256Owner, ProverClient, PublicAmounts, Rpc, Shape,
+    spawn_prover, InputUtxoContext, P256Owner, ProverClient, PublicMovements, Rpc, Shape,
     TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
 };
 use zolana_interface::{
@@ -106,7 +106,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
         inputs,
         outputs,
         external_data: zone_external_data(n_out),
-        public_amounts: zero_public_amounts(),
+        public_movements: zero_public_movements(),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
@@ -129,7 +129,7 @@ fn eddsa_multi_real() -> ZoneTransferProver {
         inputs,
         outputs,
         external_data: zone_external_data(3),
-        public_amounts: zero_public_amounts(),
+        public_movements: zero_public_movements(),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(3, 3)),
@@ -155,7 +155,7 @@ fn p256_multi_real() -> ZoneTransferP256Prover {
             inputs,
             outputs,
             external_data: zone_external_data(3),
-            public_amounts: zero_public_amounts(),
+            public_movements: zero_public_movements(),
             payer_pubkey_hash: [0u8; 32],
             p256_owner,
             zone_program_id: Some(zone_program()),
@@ -208,7 +208,7 @@ fn p256_prover(n_in: usize, n_out: usize) -> ZoneTransferP256Prover {
             inputs,
             outputs,
             external_data: zone_external_data(n_out),
-            public_amounts: zero_public_amounts(),
+            public_movements: zero_public_movements(),
             payer_pubkey_hash: [0u8; 32],
             p256_owner,
             zone_program_id: Some(zone_program()),
@@ -397,12 +397,7 @@ fn zone_external_data(n_out: usize) -> ExternalData {
     ExternalData {
         instruction_discriminator: ZONE_TRANSACT,
         expiry_unix_ts: 0,
-        relayer_fee: 0,
-        public_sol_amount: None,
-        public_spl_amount: None,
-        user_sol_account: Address::default(),
-        user_spl_token: Address::default(),
-        spl_token_interface: Address::default(),
+        public_legs: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
@@ -419,8 +414,8 @@ fn zone_external_data(n_out: usize) -> ExternalData {
     }
 }
 
-fn zero_public_amounts() -> PublicAmounts {
-    PublicAmounts::transfer()
+fn zero_public_movements() -> PublicMovements {
+    PublicMovements::default()
 }
 
 /// A placeholder owner used only to recover `private_tx_hash` (independent of the

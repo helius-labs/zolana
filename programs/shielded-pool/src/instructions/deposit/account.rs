@@ -119,6 +119,7 @@ impl<'a> DepositAccounts<'a> {
                         asset_field: solana_pk_hash(&mint)?,
                         settlement: Settlement::Spl(SettlementAccountsSpl {
                             cpi_authority: None,
+                            mint,
                             vault,
                             recipient: depositor,
                             user_token_account: user_token,

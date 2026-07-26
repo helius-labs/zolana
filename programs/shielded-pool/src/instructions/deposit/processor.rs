@@ -4,7 +4,7 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::DepositWithdraw,
+    event::Movement,
     instruction::{
         DepositAssetKind, DepositEntry, DepositIxData, ZoneDepositIxData, MAX_DEPOSIT_ASSETS,
     },
@@ -153,7 +153,9 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
 
     // One batch append: only the last leaf hashes up to the root, so a batch
     // costs one root recomputation instead of one per entry.
-    tree.utxo_tree().append_batch(utxo_hashes.iter());
+    tree.utxo_tree()
+        .append_batch(utxo_hashes.iter())
+        .map_err(ShieldedPoolError::from)?;
     drop(tree);
 
     // Every settlement group must be funded by at least one entry; unused
@@ -162,7 +164,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
         return Err(ShieldedPoolError::UnreferencedDepositAsset.into());
     }
 
-    let mut deposit_withdraws = Vec::with_capacity(asset_sums.len());
+    let mut movements = Vec::with_capacity(asset_sums.len());
     for slot in 0..asset_sums.len() {
         let (asset_index, total) = asset_sums
             .get_by_index(slot)
@@ -177,7 +179,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
                 if *total > 0 {
                     settle_sol(sol, *total, true)?;
                 }
-                deposit_withdraws.push(DepositWithdraw {
+                movements.push(Movement {
                     is_deposit: true,
                     amount: *total,
                     asset: None,
@@ -187,7 +189,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
                 if *total > 0 {
                     settle_spl(spl, *total)?;
                 }
-                deposit_withdraws.push(DepositWithdraw {
+                movements.push(Movement {
                     is_deposit: true,
                     amount: *total,
                     asset: Some(group.asset),
@@ -198,7 +200,7 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
 
     emit_deposit_event(DepositEvent {
         outputs,
-        deposit_withdraws,
+        movements,
         first_output_leaf_index,
         output_tree,
     })

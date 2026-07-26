@@ -17,9 +17,9 @@ use zolana_batched_merkle_tree::{
     constants::{
         ADDRESS_BLOOM_FILTER_CAPACITY, ADDRESS_BLOOM_FILTER_NUM_HASHES,
         DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
-        DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
+        DEFAULT_ADDRESS_ZKP_BATCH_SIZE, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
-    initialize_address_tree::init_batched_nullifier_merkle_tree_into_layout,
+    initialize_address_tree::{init_batched_nullifier_merkle_tree_into_layout, match_circuit_size},
     merkle_tree::BatchedMerkleTreeAccount,
     zero_copy::TreeAccountLayout as NullifierLayout,
 };
@@ -129,7 +129,19 @@ impl<'a> TreeAccount<'a> {
         if utxo_tree_height as usize != POOL_UTXO_HEIGHT {
             return Err(TreeError::HeightTooLarge);
         }
-        if nullifier_params.root_history_capacity as usize != NULLIFIER_RH
+        // Validate before dividing: the params are untrusted instruction data,
+        // so a zero zkp batch size must not reach the quotient below (or the
+        // `%` in `QueueBatches::init`), and an arbitrary height must not reach
+        // `2u64.pow(height)` in the nullifier init. The zkp batch size must
+        // have a verifying key, otherwise no batch update can ever be proven
+        // and the queue wedges once both batches fill.
+        if nullifier_params.height != DEFAULT_BATCH_ADDRESS_TREE_HEIGHT
+            || nullifier_params.input_queue_batch_size == 0
+            || !match_circuit_size(nullifier_params.input_queue_zkp_batch_size)
+            || !nullifier_params
+                .input_queue_batch_size
+                .is_multiple_of(nullifier_params.input_queue_zkp_batch_size)
+            || nullifier_params.root_history_capacity as usize != NULLIFIER_RH
             || (nullifier_params.input_queue_batch_size
                 / nullifier_params.input_queue_zkp_batch_size) as usize
                 != NULLIFIER_ZKP
@@ -342,7 +354,7 @@ mod layout_equivalence {
             layout.utxo.init(POOL_UTXO_HEIGHT).unwrap();
             let mut leaf = [0u8; 32];
             leaf[31] = 9;
-            layout.utxo.append(leaf);
+            layout.utxo.append(leaf).unwrap();
             layout.nullifier.root_history.data[3] = [7u8; 32];
         }
         let reloaded: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");

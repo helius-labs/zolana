@@ -3,13 +3,13 @@ use client_example::{setup, SetupContext};
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
 use zolana_interface::instruction::{
-    AssetDeposit, Deposit, DepositAsset, Transact, TransactSolWithdrawal, TransactWithdrawal,
+    AssetDeposit, Deposit, DepositAsset, Transact, TransactLegAccounts, TransactSolLeg,
 };
 use zolana_keypair::random_blinding;
 use zolana_transaction::{
     decrypt_transactions,
     instructions::{
-        transact::{ConfidentialTransfer, WithdrawalTarget},
+        transact::{ConfidentialTransfer, SettlementTarget},
         types::SppProofInputUtxo,
     },
     AssetRegistry, SOL_MINT,
@@ -106,7 +106,7 @@ fn main() -> Result<()> {
         let transfer_ix = Transact {
             payer: alice_solana_keypair.pubkey(),
             tree,
-            withdrawal: None,
+            legs: Vec::new(),
             data: transfer_data,
         }
         .instruction();
@@ -175,7 +175,7 @@ fn main() -> Result<()> {
         withdrawal.withdraw(
             SOL_MINT,
             WITHDRAW_AMOUNT,
-            WithdrawalTarget::Sol {
+            SettlementTarget::Sol {
                 user_sol_account: alice_solana_keypair.pubkey(),
             },
         )?;
@@ -189,9 +189,9 @@ fn main() -> Result<()> {
         let withdraw_ix = Transact {
             payer: alice_solana_keypair.pubkey(),
             tree,
-            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
+            legs: vec![TransactLegAccounts::Sol(TransactSolLeg {
                 recipient: alice_solana_keypair.pubkey(),
-            })),
+            })],
             data: withdrawal_data,
         }
         .instruction();

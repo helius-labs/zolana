@@ -115,7 +115,7 @@ fn build_tree_fixture(
         )
         .expect("init tree account");
         for leaf in leaves {
-            account.utxo_tree().append(*leaf);
+            account.utxo_tree().append(*leaf).expect("append leaf");
         }
         (
             account.get_utxo_tree_root(root_index).expect("utxo root"),

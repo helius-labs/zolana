@@ -91,5 +91,9 @@ name = "p256"
 path = "tests/transact/p256.rs"
 
 [[test]]
-name = "both_amounts"
-path = "tests/transact/both_amounts.rs"
+name = "public_legs"
+path = "tests/transact/public_legs.rs"
+
+[[test]]
+name = "mixed_legs"
+path = "tests/transact/mixed_legs.rs"

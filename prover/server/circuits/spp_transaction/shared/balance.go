@@ -34,8 +34,8 @@ func assertBalanceConservation(
 		abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: amountIsZero[i], V: publicAssets[i]})
 	}
 
-	// Active slots must name distinct assets so each public movement maps to
-	// exactly one settlement leg.
+	// Active slots must name distinct assets. The host aggregates all public
+	// movements for one asset before constructing these fixed proof slots.
 	for i := 0; i < len(publicAssets); i++ {
 		for j := i + 1; j < len(publicAssets); j++ {
 			bothActive := api.Mul(api.Sub(1, amountIsZero[i]), api.Sub(1, amountIsZero[j]))
@@ -93,8 +93,9 @@ func rangeCheck64(api frontend.API, value frontend.Variable) {
 	abstractor.CallVoid(api, RangeCheck64{Value: value})
 }
 
-// RangeCheckSigned64 constrains value to a signed 64-bit range by shifting it
-// into the unsigned domain before the bit decomposition.
+// RangeCheckSigned64 constrains value to [-2^64, 2^64-1] by shifting it into
+// the unsigned domain before the bit decomposition. Host aggregation uses a
+// direction plus a u64 magnitude, so it never supplies the extra -2^64 value.
 type RangeCheckSigned64 struct {
 	Value frontend.Variable
 }

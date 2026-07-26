@@ -44,8 +44,7 @@ impl DepositOutput {
             salt: [0u8; 16],
             first_output_leaf_index: self.leaf_index,
             output_tree: self.output_tree,
-            relay_fee: None,
-            deposit_withdraws: vec![zolana_event::DepositWithdraw {
+            movements: vec![zolana_event::Movement {
                 is_deposit: true,
                 amount: self.output.amount,
                 asset: Some(self.output.asset),

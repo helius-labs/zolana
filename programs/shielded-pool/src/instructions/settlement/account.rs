@@ -15,6 +15,7 @@ pub struct SettlementAccountsSol<'a> {
 
 pub struct SettlementAccountsSpl<'a> {
     pub cpi_authority: Option<&'a AccountView>,
+    pub mint: [u8; 32],
     pub vault: &'a AccountView,
     pub recipient: &'a AccountView,
     pub user_token_account: &'a AccountView,

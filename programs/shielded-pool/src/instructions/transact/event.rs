@@ -1,12 +1,12 @@
 use zolana_interface::{
-    event::{DepositWithdraw, GeneralEvent, Input, MessageData},
+    event::{GeneralEvent, Input, MessageData, Movement},
     instruction::{
         instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
         OutputUtxo,
     },
 };
 
-use super::verify::TransactProofInputs;
+use crate::instructions::settlement::Settlement;
 
 pub struct TreeWrite {
     pub inputs: Vec<Input>,
@@ -20,7 +20,7 @@ pub struct TreeWrite {
 /// slot is covered by a preceding bundle). `messages` are republished verbatim.
 pub fn build_transact_event(
     ix: &TransactIxDataRef<'_>,
-    proof_inputs: &TransactProofInputs,
+    settlements: &[Settlement<'_>],
     tree_write: TreeWrite,
     resolved_outputs: &[ResolvedOutput],
 ) -> GeneralEvent {
@@ -42,15 +42,19 @@ pub fn build_transact_event(
         })
         .collect();
 
-    let deposit_withdraw = ix.is_deposit_or_withdrawal().then(|| DepositWithdraw {
-        is_deposit: ix.is_deposit(),
-        amount: ix
-            .public_spl_amount
-            .or(ix.public_sol_amount)
-            .unwrap_or(0)
-            .unsigned_abs(),
-        asset: proof_inputs.spl_mint,
-    });
+    let movements = ix
+        .public_legs
+        .iter()
+        .zip(settlements.iter())
+        .map(|(leg, settlement)| Movement {
+            is_deposit: leg.is_deposit(),
+            amount: leg.amount(),
+            asset: match settlement {
+                Settlement::Sol(_) => None,
+                Settlement::Spl(spl) => Some(spl.mint),
+            },
+        })
+        .collect();
 
     GeneralEvent {
         inputs: tree_write.inputs,
@@ -60,7 +64,6 @@ pub fn build_transact_event(
         salt: *ix.salt,
         first_output_leaf_index: tree_write.first_output_leaf_index,
         output_tree: tree_write.output_tree,
-        relay_fee: (ix.relayer_fee != 0).then_some(u64::from(ix.relayer_fee)),
-        deposit_withdraws: deposit_withdraw.into_iter().collect(),
+        movements,
     }
 }

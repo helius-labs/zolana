@@ -34,7 +34,7 @@ pub use prover::{
     transact::{assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof},
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
     CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness,
-    P256Owner, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicAmounts, Shape,
+    P256Owner, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicMovements, Shape,
     TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TransferP256ProofResult,
     TransferP256Prover, TransferProofResult, TransferProver, TransferSpendInput,
     ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness,
@@ -54,7 +54,7 @@ pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
         merge_zone::{MergeZone, PreparedMergeZone},
-        transact::{ConfidentialTransfer, SppProofInputs, WithdrawalTarget},
+        transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},
         types::{InputUtxoContext, SppProofInputUtxo},
         zone_authority::PreparedZoneAuthority,
     },

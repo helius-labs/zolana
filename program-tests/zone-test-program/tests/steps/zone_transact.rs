@@ -34,21 +34,22 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ConfidentialTransfer, P256Owner, ProverClient, PublicAmounts, Rpc, Shape, SpendProof,
-    SppProofInputUtxo, SppProofInputs, TransferSpendInput, WithdrawalTarget,
-    ZoneTransferP256Prover, ZoneTransferProver,
+    ConfidentialTransfer, P256Owner, ProverClient, Rpc, Shape, SpendProof, SppProofInputUtxo,
+    SppProofInputs, TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
 };
 use zolana_interface::instruction::{
     instruction_data::transact::{InputUtxo, TransactIxData, TransactProof},
     tag::ZONE_TRANSACT,
-    TransactSolWithdrawal, TransactWithdrawal, ZoneTransact,
+    TransactLegAccounts, TransactSolLeg, ZoneTransact,
 };
 use zolana_keypair::{hash::sha256, ShieldedKeypair, SignatureType};
 use zolana_test_utils::test_validator_asserts::{
     assert_zone_transact, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
 };
-use zolana_transaction::{ShieldedTransaction, Utxo, SOL_MINT};
+use zolana_transaction::{
+    instructions::transact::SettlementTarget, ShieldedTransaction, Utxo, SOL_MINT,
+};
 
 use crate::{
     localnet::{
@@ -302,7 +303,7 @@ impl ZoneLifecycleWorld {
                 transfer.withdraw(
                     send_asset,
                     amount,
-                    WithdrawalTarget::Sol {
+                    SettlementTarget::Sol {
                         user_sol_account: Address::new_from_array(recipient.to_bytes()),
                     },
                 )?;
@@ -323,15 +324,16 @@ impl ZoneLifecycleWorld {
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
         let data = self.prove_and_assemble(&proof_inputs, zone, rail)?;
 
-        let withdrawal_meta = withdrawal
-            .map(|recipient| TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }));
+        let legs = withdrawal
+            .map(|recipient| vec![TransactLegAccounts::Sol(TransactSolLeg { recipient })])
+            .unwrap_or_default();
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = ZoneTransact {
             payer: fee_payer.pubkey(),
             tree: self.tree,
             zone_program_id: self.zone_program_id,
-            withdrawal: withdrawal_meta,
+            legs,
             data: data.clone(),
         }
         .instruction();
@@ -376,7 +378,7 @@ impl ZoneLifecycleWorld {
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
-                    public_amounts: client_public_amounts(proof_inputs.public_amounts()?),
+                    public_movements: proof_inputs.public_movements()?,
                     payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
                     zone_program_id: Some(zone),
                     shape: Some(shape),
@@ -399,7 +401,7 @@ impl ZoneLifecycleWorld {
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
-                    public_amounts: client_public_amounts(proof_inputs.public_amounts()?),
+                    public_movements: proof_inputs.public_movements()?,
                     payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
                     p256_owner,
                     zone_program_id: Some(zone),
@@ -434,7 +436,7 @@ impl ZoneLifecycleWorld {
             inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
-            public_amounts: client_public_amounts(proof_inputs.public_amounts()?),
+            public_movements: proof_inputs.public_movements()?,
             payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
             p256_owner: P256Owner {
                 pubkey,
@@ -673,7 +675,7 @@ impl ZoneLifecycleWorld {
             inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
-            public_amounts: client_public_amounts(proof_inputs.public_amounts()?),
+            public_movements: proof_inputs.public_movements()?,
             payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
@@ -693,7 +695,7 @@ impl ZoneLifecycleWorld {
             payer: fee_payer.pubkey(),
             tree: self.tree,
             zone_program_id: self.zone_program_id,
-            withdrawal: None,
+            legs: Vec::new(),
             data,
         }
         .instruction();
@@ -712,17 +714,6 @@ impl ZoneLifecycleWorld {
                 Ok(())
             }
         }
-    }
-}
-
-/// Convert the transaction crate's `PublicAmounts` into the prover client's
-/// identically-shaped type (both are `{ assets, amounts }` slot arrays).
-fn client_public_amounts(
-    amounts: zolana_transaction::instructions::transact::PublicAmounts,
-) -> PublicAmounts {
-    PublicAmounts {
-        assets: amounts.assets,
-        amounts: amounts.amounts,
     }
 }
 
@@ -791,12 +782,14 @@ fn assemble_ix_data(
     Ok(TransactIxData {
         proof,
         expiry_unix_ts: external.expiry_unix_ts,
-        relayer_fee: external.relayer_fee,
         private_tx_hash,
         p256_signing_pk_x,
         inputs,
-        public_sol_amount: external.public_sol_amount,
-        public_spl_amount: external.public_spl_amount,
+        public_legs: external
+            .public_legs
+            .iter()
+            .map(|leg| leg.public_leg())
+            .collect(),
         data_hash: external.data_hash,
         zone_data_hash: external.zone_data_hash,
         tx_viewing_pk: external.tx_viewing_pk,

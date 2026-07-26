@@ -16,7 +16,7 @@ use super::{
     shape::{resolve_shape, Shape},
     slots::encode_confidential_slots,
     spp_proof_inputs::{first_nullifier, inputs_require_p256, SppProofInputs},
-    ExternalData, SppProofOutputUtxo,
+    ExternalData, SettlementLeg, SppProofOutputUtxo,
 };
 use crate::{
     data::Data,
@@ -45,11 +45,7 @@ pub struct PreparedTransfer {
     pub first_nullifier: [u8; 32],
     pub shape: Shape,
     pub payer_pubkey_hash: [u8; 32],
-    pub public_sol_amount: Option<i64>,
-    pub public_spl_amount: Option<i64>,
-    pub user_sol_account: Address,
-    pub user_spl_token: Address,
-    pub spl_token_interface: Address,
+    pub public_legs: Vec<SettlementLeg>,
 }
 
 pub struct Recipient {
@@ -58,8 +54,8 @@ pub struct Recipient {
     pub amount: u64,
 }
 
-#[derive(Clone)]
-pub enum WithdrawalTarget {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SettlementTarget {
     Sol {
         user_sol_account: Address,
     },
@@ -69,17 +65,19 @@ pub enum WithdrawalTarget {
     },
 }
 
-pub struct Withdrawal {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PublicMovementRequest {
     pub asset: Address,
+    pub is_deposit: bool,
     pub amount: u64,
-    pub target: WithdrawalTarget,
+    pub target: SettlementTarget,
 }
 
 pub struct ConfidentialTransfer {
     pub owner: ShieldedAddress,
     pub inputs: Vec<SppProofInputUtxo>,
     pub recipients: Vec<Recipient>,
-    pub withdrawal: Option<Withdrawal>,
+    pub public_movements: Vec<PublicMovementRequest>,
     pub payer_pubkey_hash: [u8; 32],
     pub blinding_seed: [u8; BLINDING_LEN],
     pub shape: Option<Shape>,
@@ -91,7 +89,7 @@ impl ConfidentialTransfer {
             owner,
             inputs,
             recipients: Vec::new(),
-            withdrawal: None,
+            public_movements: Vec::new(),
             payer_pubkey_hash: sha256_be(payer.as_array()),
             blinding_seed: random_blinding(),
             shape: None,
@@ -125,13 +123,46 @@ impl ConfidentialTransfer {
         &mut self,
         asset: Address,
         amount: u64,
-        target: WithdrawalTarget,
+        target: SettlementTarget,
     ) -> Result<&mut Self, TransactionError> {
-        if self.withdrawal.is_some() {
-            return Err(TransactionError::WithdrawalAlreadySet);
+        self.settle(asset, false, amount, target)
+    }
+
+    pub fn deposit(
+        &mut self,
+        asset: Address,
+        amount: u64,
+        target: SettlementTarget,
+    ) -> Result<&mut Self, TransactionError> {
+        self.settle(asset, true, amount, target)
+    }
+
+    pub fn settle(
+        &mut self,
+        asset: Address,
+        is_deposit: bool,
+        amount: u64,
+        target: SettlementTarget,
+    ) -> Result<&mut Self, TransactionError> {
+        if amount == 0 {
+            return Err(TransactionError::ZeroPublicLegAmount);
         }
-        self.withdrawal = Some(Withdrawal {
+        validate_settlement_target(asset, target)?;
+        let next_len = self.public_movements.len().checked_add(1).ok_or(
+            TransactionError::TooManyPublicLegs {
+                got: usize::MAX,
+                max: zolana_interface::MAX_WIRE_PUBLIC_LEGS,
+            },
+        )?;
+        if next_len > zolana_interface::MAX_WIRE_PUBLIC_LEGS {
+            return Err(TransactionError::TooManyPublicLegs {
+                got: next_len,
+                max: zolana_interface::MAX_WIRE_PUBLIC_LEGS,
+            });
+        }
+        self.public_movements.push(PublicMovementRequest {
             asset,
+            is_deposit,
             amount,
             target,
         });
@@ -170,8 +201,28 @@ impl ConfidentialTransfer {
     }
 
     pub fn prepare(self) -> Result<PreparedTransfer, TransactionError> {
+        if self.public_movements.len() > zolana_interface::MAX_WIRE_PUBLIC_LEGS {
+            return Err(TransactionError::TooManyPublicLegs {
+                got: self.public_movements.len(),
+                max: zolana_interface::MAX_WIRE_PUBLIC_LEGS,
+            });
+        }
+        if self
+            .public_movements
+            .iter()
+            .any(|movement| movement.amount == 0)
+        {
+            return Err(TransactionError::ZeroPublicLegAmount);
+        }
+        for movement in &self.public_movements {
+            validate_settlement_target(movement.asset, movement.target)?;
+        }
         let spl_asset = self.spl_asset()?;
-        let (public_sol, public_spl) = self.public_amounts();
+        let public_sol = self.public_amount(&SOL_MINT)?;
+        let public_spl = match spl_asset {
+            Some(asset) => self.public_amount(&asset)?,
+            None => 0,
+        };
         let sol_change = self.change(&SOL_MINT, public_sol)?;
         let spl_change = match spl_asset {
             Some(asset) => self.change(&asset, public_spl)?,
@@ -222,7 +273,12 @@ impl ConfidentialTransfer {
 
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
         let first_nullifier = first_nullifier(&self.inputs)?;
-        let (user_sol_account, user_spl_token, spl_token_interface) = self.external_accounts();
+        let public_legs = self
+            .public_movements
+            .iter()
+            .copied()
+            .map(PublicMovementRequest::settlement_leg)
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(PreparedTransfer {
             owner: self.owner,
@@ -231,11 +287,7 @@ impl ConfidentialTransfer {
             first_nullifier,
             shape,
             payer_pubkey_hash: self.payer_pubkey_hash,
-            public_sol_amount: (public_sol != 0).then_some(public_sol as i64),
-            public_spl_amount: (public_spl != 0).then_some(public_spl as i64),
-            user_sol_account,
-            user_spl_token,
-            spl_token_interface,
+            public_legs,
         })
     }
 
@@ -246,7 +298,7 @@ impl ConfidentialTransfer {
             .iter()
             .map(|spend| spend.utxo.asset)
             .chain(self.recipients.iter().map(|recipient| recipient.asset))
-            .chain(self.withdrawal.iter().map(|withdrawal| withdrawal.asset));
+            .chain(self.public_movements.iter().map(|movement| movement.asset));
         for asset in assets {
             if asset != SOL_MINT {
                 match found {
@@ -260,12 +312,21 @@ impl ConfidentialTransfer {
         Ok(found)
     }
 
-    fn public_amounts(&self) -> (i128, i128) {
-        match &self.withdrawal {
-            Some(withdrawal) if withdrawal.asset == SOL_MINT => (-i128::from(withdrawal.amount), 0),
-            Some(withdrawal) => (0, -i128::from(withdrawal.amount)),
-            None => (0, 0),
-        }
+    fn public_amount(&self, asset: &Address) -> Result<i128, TransactionError> {
+        let total = self
+            .public_movements
+            .iter()
+            .filter(|movement| &movement.asset == asset)
+            .try_fold(0i128, |total, movement| {
+                let amount = i128::from(movement.amount);
+                let signed = if movement.is_deposit { amount } else { -amount };
+                total
+                    .checked_add(signed)
+                    .ok_or(TransactionError::PublicMovementOverflow { asset: *asset })
+            })?;
+        u64::try_from(total.unsigned_abs())
+            .map_err(|_| TransactionError::PublicMovementOverflow { asset: *asset })?;
+        Ok(total)
     }
 
     fn input_sum(&self, asset: &Address) -> i128 {
@@ -296,24 +357,45 @@ impl ConfidentialTransfer {
                 available: 0,
             });
         }
-        Ok(leftover as u64)
+        u64::try_from(leftover).map_err(|_| TransactionError::SelectedBalanceOverflow)
     }
+}
 
-    fn external_accounts(&self) -> (Address, Address, Address) {
-        match self
-            .withdrawal
-            .as_ref()
-            .map(|withdrawal| &withdrawal.target)
-        {
-            Some(WithdrawalTarget::Sol { user_sol_account }) => {
-                (*user_sol_account, Address::default(), Address::default())
-            }
-            Some(WithdrawalTarget::Spl {
+impl PublicMovementRequest {
+    fn settlement_leg(self) -> Result<SettlementLeg, TransactionError> {
+        validate_settlement_target(self.asset, self.target)?;
+        match self.target {
+            SettlementTarget::Sol { user_sol_account } => Ok(SettlementLeg::Sol {
+                is_deposit: self.is_deposit,
+                amount: self.amount,
+                user_sol_account,
+            }),
+            SettlementTarget::Spl {
                 user_spl_token,
                 spl_token_interface,
-            }) => (Address::default(), *user_spl_token, *spl_token_interface),
-            None => (Address::default(), Address::default(), Address::default()),
+            } => Ok(SettlementLeg::Spl {
+                mint: self.asset,
+                is_deposit: self.is_deposit,
+                amount: self.amount,
+                user_spl_token,
+                spl_token_interface,
+            }),
         }
+    }
+}
+
+fn validate_settlement_target(
+    asset: Address,
+    target: SettlementTarget,
+) -> Result<(), TransactionError> {
+    let matches = matches!(
+        (asset == SOL_MINT, target),
+        (true, SettlementTarget::Sol { .. }) | (false, SettlementTarget::Spl { .. })
+    );
+    if matches {
+        Ok(())
+    } else {
+        Err(TransactionError::SettlementTargetMismatch { asset })
     }
 }
 
@@ -330,11 +412,7 @@ impl PreparedTransfer {
             mut outputs,
             shape,
             payer_pubkey_hash,
-            public_sol_amount,
-            public_spl_amount,
-            user_sol_account,
-            user_spl_token,
-            spl_token_interface,
+            public_legs,
             ..
         } = self;
 
@@ -424,20 +502,14 @@ impl PreparedTransfer {
             resolved_owner_tags.push(resolved);
         }
 
-        let mut external_data = ExternalData::new(
+        let external_data = ExternalData::new(
             *tx_viewing_pk.as_bytes(),
             salt,
             transact_outputs,
             resolved_owner_tags,
             vec![],
-        );
-        if let Some(amount) = public_sol_amount {
-            external_data = external_data.with_public_sol(amount, user_sol_account)?;
-        }
-        if let Some(amount) = public_spl_amount {
-            external_data =
-                external_data.with_public_spl(amount, user_spl_token, spl_token_interface)?;
-        }
+        )
+        .with_public_legs(public_legs)?;
 
         Ok(SppProofInputs {
             input_utxos: inputs,
@@ -546,7 +618,7 @@ fn dummy_ciphertext_len(
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::SigningKey;
+    use zolana_keypair::{ShieldedKeypair, SigningKey};
 
     use super::*;
 
@@ -653,5 +725,109 @@ mod tests {
                 SignatureType::Ed25519
             );
         }
+    }
+
+    #[test]
+    fn transfer_accepts_more_than_five_same_asset_settlements_up_to_wire_limit() {
+        let owner = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+        let mut transfer = ConfidentialTransfer::new(owner, vec![], Address::default());
+        for seed in 1..=zolana_interface::MAX_WIRE_PUBLIC_LEGS {
+            let address_seed = u8::try_from(seed).expect("wire leg index fits u8");
+            transfer
+                .withdraw(
+                    SOL_MINT,
+                    1,
+                    SettlementTarget::Sol {
+                        user_sol_account: Address::new_from_array([address_seed; 32]),
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            transfer.public_movements.len(),
+            zolana_interface::MAX_WIRE_PUBLIC_LEGS
+        );
+        assert!(matches!(
+            transfer.withdraw(
+                SOL_MINT,
+                1,
+                SettlementTarget::Sol {
+                    user_sol_account: Address::default(),
+                },
+            ),
+            Err(TransactionError::TooManyPublicLegs {
+                got,
+                max
+            }) if got == zolana_interface::MAX_WIRE_PUBLIC_LEGS + 1
+                && max == zolana_interface::MAX_WIRE_PUBLIC_LEGS
+        ));
+    }
+
+    #[test]
+    fn transfer_rejects_target_mismatch_and_zero_but_accepts_full_u64() {
+        let owner = ShieldedKeypair::new().unwrap().shielded_address().unwrap();
+        let mut transfer = ConfidentialTransfer::new(owner, vec![], Address::default());
+        assert!(matches!(
+            transfer.deposit(
+                SOL_MINT,
+                1,
+                SettlementTarget::Spl {
+                    user_spl_token: Address::default(),
+                    spl_token_interface: Address::default(),
+                },
+            ),
+            Err(TransactionError::SettlementTargetMismatch { asset: SOL_MINT })
+        ));
+        assert!(matches!(
+            transfer.settle(
+                SOL_MINT,
+                false,
+                0,
+                SettlementTarget::Sol {
+                    user_sol_account: Address::default(),
+                },
+            ),
+            Err(TransactionError::ZeroPublicLegAmount)
+        ));
+        transfer
+            .withdraw(
+                SOL_MINT,
+                u64::MAX,
+                SettlementTarget::Sol {
+                    user_sol_account: Address::default(),
+                },
+            )
+            .expect("full-u64 withdrawal is supported");
+        transfer
+            .deposit(
+                SOL_MINT,
+                u64::MAX,
+                SettlementTarget::Sol {
+                    user_sol_account: Address::new_from_array([1; 32]),
+                },
+            )
+            .expect("full-u64 deposit is supported");
+        assert_eq!(
+            transfer.public_movements.first(),
+            Some(&PublicMovementRequest {
+                asset: SOL_MINT,
+                is_deposit: false,
+                amount: u64::MAX,
+                target: SettlementTarget::Sol {
+                    user_sol_account: Address::default(),
+                },
+            })
+        );
+        assert_eq!(
+            transfer.public_movements.get(1),
+            Some(&PublicMovementRequest {
+                asset: SOL_MINT,
+                is_deposit: true,
+                amount: u64::MAX,
+                target: SettlementTarget::Sol {
+                    user_sol_account: Address::new_from_array([1; 32]),
+                },
+            })
+        );
     }
 }

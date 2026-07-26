@@ -49,6 +49,9 @@ func makeDefaultZone(t testing.TB, assignment *testAssignment, p256SigningPkFiel
 }
 
 func refreshDefaultZonePublicInputHash(t testing.TB, assignment *testAssignment) {
+	// The shared builder defaults to a nonzero zone id for the custom-zone
+	// circuits; the default-zone variants pin it to 0.
+	assignment.ZoneProgramID = spptest.Fe(0)
 	refreshPublicInputHashVariant(t, assignment, true, false)
 }
 

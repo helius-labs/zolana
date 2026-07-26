@@ -50,7 +50,7 @@ pub enum EventDecodeError {
     InvalidEventKind(u8),
     InvalidOutputData,
     MissingOutput,
-    MissingDepositWithdraw,
+    MissingDepositMovement,
 }
 
 pub fn decode_event_instruction(data: &[u8]) -> Result<GeneralEvent, EventDecodeError> {
@@ -114,13 +114,8 @@ pub fn proofless_outputs(event: &GeneralEvent) -> Result<Vec<ProoflessOutput>, E
 }
 
 fn require_deposit(event: &GeneralEvent) -> Result<(), EventDecodeError> {
-    if event.deposit_withdraws.is_empty()
-        || !event
-            .deposit_withdraws
-            .iter()
-            .all(|deposit_withdraw| deposit_withdraw.is_deposit)
-    {
-        return Err(EventDecodeError::MissingDepositWithdraw);
+    if event.movements.is_empty() || !event.movements.iter().all(|movement| movement.is_deposit) {
+        return Err(EventDecodeError::MissingDepositMovement);
     }
     Ok(())
 }

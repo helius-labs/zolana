@@ -81,6 +81,11 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		assignment.P256MessageHashLow = spptest.Fe(0)
 		assignment.P256MessageHashHigh = spptest.Fe(0)
 	}
+	if confidential {
+		// The default-zone variants pin the public zone id to 0 (the shared
+		// builder defaults to a nonzero zone id for the custom-zone circuits).
+		assignment.ZoneProgramID = spptest.Fe(0)
+	}
 	refreshPublicInputHashVariant(t, assignment, confidential, false)
 }
 

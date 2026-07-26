@@ -19,7 +19,7 @@ pub use merge::{MergeProofResult, MergeProver};
 pub use merge_zone::{MergeZoneProver, MergeZoneWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use transact::{
-    P256Owner, PublicAmounts, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
+    P256Owner, PublicMovements, TransferP256ProofResult, TransferP256Prover, TransferProofResult,
     TransferProver, TransferSpendInput, ZoneTransferP256ProofResult, ZoneTransferP256Prover,
     ZoneTransferProofResult, ZoneTransferProver,
 };

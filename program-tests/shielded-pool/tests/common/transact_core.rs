@@ -10,13 +10,13 @@ use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            ExternalDataHash, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData, TransactOutput,
-            TransactProof,
+            ExternalDataHash, InputUtxo, OwnerTag, PublicLeg, ResolvedOutput, ResolvedPublicLeg,
+            TransactIxData, TransactOutput, TransactProof,
         },
         tag,
     },
     verifying_keys::transfer_confidential_2_3,
-    SOL_ASSET_FIELD,
+    N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 use zolana_keypair::hash::hash_field;
 use zolana_transaction::SppProofOutputUtxo;
@@ -52,8 +52,7 @@ pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
 /// elements: `[15] HashChain(output_owner_pk_hashes)` and `[16]
 /// p256_signing_pk_field` (zero on the eddsa rail). Mirrors the client
 /// `PublicInputs::hash()` exactly. Public movement slots interleave as
-/// (asset, amount): slot 0 is the SOL leg (asset = SOL_ASSET_FIELD while the
-/// amount moves), slot 1 the idle SPL leg.
+/// `(asset, amount)` and idle slots are `(0, 0)`.
 #[allow(clippy::too_many_arguments)]
 pub fn public_input_hash(
     nullifiers: &[[u8; 32]],
@@ -62,37 +61,61 @@ pub fn public_input_hash(
     nullifier_tree_roots: &[[u8; 32]],
     private_tx: &[u8; 32],
     external_data_hash: &[u8; 32],
-    public_sol_amount: &[u8; 32],
+    public_slot_assets: &[[u8; 32]; N_PUBLIC_SLOTS],
+    public_slot_amounts: &[[u8; 32]; N_PUBLIC_SLOTS],
     payer_pubkey_hash: &[u8; 32],
     input_owner_pk_hashes: &[[u8; 32]],
     output_owner_pk_hashes: &[[u8; 32]],
     p256_signing_pk_field: &[u8; 32],
 ) -> [u8; 32] {
     let zero = [0u8; 32];
-    let sol_slot_asset = if *public_sol_amount == zero {
-        zero
-    } else {
-        SOL_ASSET_FIELD
-    };
-    let chain = [
+    let mut chain = vec![
         create_hash_chain_from_slice(nullifiers).expect("nullifier chain"),
         create_hash_chain_from_slice(output_hashes).expect("output chain"),
         create_hash_chain_from_slice(utxo_roots).expect("utxo root chain"),
         create_hash_chain_from_slice(nullifier_tree_roots).expect("nullifier root chain"),
         *private_tx,
         *external_data_hash,
-        sol_slot_asset,
-        *public_sol_amount,
-        zero, // spl slot asset
-        zero, // spl slot amount
-        zero, // zone_program_id
+    ];
+    for (asset, amount) in public_slot_assets.iter().zip(public_slot_amounts.iter()) {
+        chain.push(*asset);
+        chain.push(*amount);
+    }
+    chain.extend_from_slice(&[
+        zero,
         *payer_pubkey_hash,
         hash_field(&zero).expect("p256 message field"),
         create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
         create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
         *p256_signing_pk_field,
-    ];
+    ]);
     create_hash_chain_from_slice(&chain).expect("public input hash")
+}
+
+pub type PublicSlots = ([[u8; 32]; N_PUBLIC_SLOTS], [[u8; 32]; N_PUBLIC_SLOTS]);
+
+#[allow(dead_code)]
+pub fn sol_public_slots(amount: [u8; 32]) -> PublicSlots {
+    let zero = [0u8; 32];
+    let mut assets = [zero; N_PUBLIC_SLOTS];
+    let mut amounts = [zero; N_PUBLIC_SLOTS];
+    if amount != zero {
+        *assets.first_mut().expect("public slot exists") = SOL_ASSET_FIELD;
+        *amounts.first_mut().expect("public slot exists") = amount;
+    }
+    (assets, amounts)
+}
+
+pub fn spl_public_slots(amount: [u8; 32], mint: &[u8; 32]) -> Result<PublicSlots> {
+    let zero = [0u8; 32];
+    let mut assets = [zero; N_PUBLIC_SLOTS];
+    let mut amounts = [zero; N_PUBLIC_SLOTS];
+    if amount != zero {
+        *assets.first_mut().expect("public slot exists") =
+            hash_field(mint).map_err(|e| anyhow!("public SPL asset field: {e:?}"))?;
+        *amounts.first_mut().expect("public slot exists") = amount;
+    }
+    Ok((assets, amounts))
 }
 
 /// Per-output owner `pk_field` the program reconstructs as
@@ -182,19 +205,17 @@ pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> 
 
 pub fn new_transact_ix_data(
     inputs: Vec<InputUtxo>,
-    public_sol_amount: Option<i64>,
+    public_legs: Vec<PublicLeg>,
     outputs: Vec<TransactOutput>,
     p256_signing_pk_x: Option<[u8; 32]>,
 ) -> TransactIxData {
     TransactIxData {
         proof: TransactProof::zeroed_eddsa(),
         expiry_unix_ts: u64::MAX,
-        relayer_fee: 0,
         private_tx_hash: [0u8; 32],
         p256_signing_pk_x,
         inputs,
-        public_sol_amount,
-        public_spl_amount: None,
+        public_legs,
         data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
@@ -206,19 +227,13 @@ pub fn new_transact_ix_data(
 
 pub fn external_data_hash(
     transact_ix_data: &TransactIxData,
-    user_sol_account: &[u8; 32],
+    public_legs: &[ResolvedPublicLeg],
 ) -> Result<[u8; 32]> {
-    let zero = [0u8; 32];
     let outputs = resolve_outputs(transact_ix_data)?;
     Ok(ExternalDataHash {
         spp_instruction_discriminator: tag::TRANSACT,
         expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-        relayer_fee: transact_ix_data.relayer_fee,
-        public_sol_amount: transact_ix_data.public_sol_amount,
-        public_spl_amount: transact_ix_data.public_spl_amount,
-        user_sol_account,
-        user_spl_token_account: &zero,
-        spl_token_interface: &zero,
+        public_legs,
         data_hash: None,
         zone_data_hash: None,
         outputs: &outputs,
@@ -262,25 +277,21 @@ pub struct TransferProverInputsArgs {
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
-    pub public_sol_amount: [u8; 32],
+    pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
+    pub public_slot_amounts: [[u8; 32]; N_PUBLIC_SLOTS],
     pub payer_pubkey_hash: [u8; 32],
     pub public_input_hash: [u8; 32],
 }
 
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
-    let sol_slot_asset = if args.public_sol_amount == zero {
-        zero
-    } else {
-        SOL_ASSET_FIELD
-    };
     TransferInputs {
         inputs: args.inputs,
         outputs: args.outputs,
         external_data_hash: be(&args.external_data_hash),
         private_tx_hash: be(&args.private_tx_hash),
-        public_assets: [be(&sol_slot_asset), be(&zero)],
-        public_amounts: [be(&args.public_sol_amount), be(&zero)],
+        public_assets: args.public_slot_assets.map(|asset| be(&asset)),
+        public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
         public_input_hash: be(&args.public_input_hash),

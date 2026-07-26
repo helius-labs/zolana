@@ -38,8 +38,7 @@ fn sample_transact_event() -> GeneralEvent {
         salt: [0x55; 16],
         first_output_leaf_index: 0,
         output_tree: [0x66; 32],
-        relay_fee: None,
-        deposit_withdraws: Vec::new(),
+        movements: Vec::new(),
     }
 }
 

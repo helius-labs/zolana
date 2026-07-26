@@ -19,10 +19,9 @@ mod test_indexer;
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
-use solana_address::Address;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, ProverClient, PublicAmounts, Rpc, Shape, TransferProver,
+    spawn_prover, InputUtxoContext, ProverClient, PublicMovements, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
 use zolana_interface::{
@@ -101,12 +100,7 @@ fn dummy_external_data() -> ExternalData {
     ExternalData {
         instruction_discriminator: 0,
         expiry_unix_ts: 0,
-        relayer_fee: 0,
-        public_sol_amount: None,
-        public_spl_amount: None,
-        user_sol_account: Address::default(),
-        user_spl_token: Address::default(),
-        spl_token_interface: Address::default(),
+        public_legs: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
@@ -248,7 +242,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         inputs,
         outputs,
         external_data: dummy_external_data(),
-        public_amounts: PublicAmounts::transfer(),
+        public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
         shape: Some(Shape::new(n_in, n_out)),
     };
@@ -305,7 +299,7 @@ fn dummy_transfer_2_3_proof_verifies() {
         inputs: vec![real_input(), dummy_input()],
         outputs: vec![dummy_output(), dummy_output(), dummy_output()],
         external_data: dummy_external_data(),
-        public_amounts: PublicAmounts::transfer(),
+        public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
         shape: Some(Shape::new(2, 3)),
     };
