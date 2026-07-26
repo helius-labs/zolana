@@ -11,7 +11,7 @@ import {
   Wallet,
 } from "@zolana/transaction";
 import { createSolanaSigner, LocalWalletAuthority, syncWallet } from "@zolana/wallet";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { setup } from "./setup.js";
 
@@ -53,6 +53,16 @@ describe("example: deposit, transfer, withdraw", () => {
         registry: assets,
       });
 
+      const recipientSigner = createSolanaSigner(recipient);
+      const recipientAuthority = new LocalWalletAuthority({
+        solanaPublicKey: recipientSigner.address,
+        keypair: recipient,
+      });
+      const recipientWallet = new Wallet({
+        identity: recipient.shieldedAddress(),
+        registry: assets,
+      });
+
       // 1. The sender deposits SOL into their confidential balance.
       const blinding = randomBlinding();
       const owner = senderAddress.ownerHash();
@@ -78,6 +88,8 @@ describe("example: deposit, transfer, withdraw", () => {
         indexer: client.indexer,
         config: { waitForIndexer: true },
       });
+      expect(senderWallet.balance(SOL_MINT).amount).toBe(DEPOSIT_AMOUNT);
+      expect(senderWallet.balance(SOL_MINT).utxos).toHaveLength(1);
 
       // 2. The sender transfers part of it to the recipient's confidential balance.
       const transfer = new ConfidentialTransfer(
@@ -99,11 +111,22 @@ describe("example: deposit, transfer, withdraw", () => {
       await client.confirmPrivateTransaction(transferSignature);
 
       await syncWallet({
+        wallet: recipientWallet,
+        authority: recipientAuthority,
+        indexer: client.indexer,
+        config: { waitForIndexer: true },
+      });
+      expect(recipientWallet.balance(SOL_MINT).amount).toBe(TRANSFER_AMOUNT);
+      expect(recipientWallet.balance(SOL_MINT).utxos).toHaveLength(1);
+
+      await syncWallet({
         wallet: senderWallet,
         authority: senderAuthority,
         indexer: client.indexer,
         config: { waitForIndexer: true },
       });
+      expect(senderWallet.balance(SOL_MINT).amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
+      expect(senderWallet.balance(SOL_MINT).utxos).toHaveLength(1);
 
       // 3. The sender withdraws back to their own Solana account.
       const withdrawal = new ConfidentialTransfer(
@@ -131,6 +154,21 @@ describe("example: deposit, transfer, withdraw", () => {
         feePayer: senderSigner,
       });
       await client.confirmPrivateTransaction(withdrawalSignature);
+
+      await syncWallet({
+        wallet: senderWallet,
+        authority: senderAuthority,
+        indexer: client.indexer,
+        config: { waitForIndexer: true },
+      });
+      expect(senderWallet.balance(SOL_MINT).amount).toBe(
+        DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT,
+      );
+      expect(senderWallet.balance(SOL_MINT).utxos).toHaveLength(1);
+
+      // Same shape as Rust: confirm the Solana account still holds funds after the
+      // withdrawal (fees make the exact lamports non-deterministic).
+      expect(await client.getBalance(senderSigner.address)).toBeGreaterThan(0n);
     } finally {
       await stack.stop();
     }
