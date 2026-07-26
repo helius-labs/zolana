@@ -178,9 +178,18 @@ Use sources in this order. A lower source cannot override a higher source:
    copying stale names or ownership.
 5. PR #111 is implementation reference material only.
 
-This order settles what a source may decide. It does not settle a conflict
-between two implementations that both claim to follow it; that is what
-[`authority-rulings.md`](authority-rulings.md) is for.
+This order settles which revision of a source to read for the frozen plan, and
+it stops at the SDK. It leaves out the deployed program, the circuit, and the Go
+prover, which are the authorities that decide the hardest conflicts, so it is
+the shorter of the two orders this plan carries and the narrower one. Where the
+two appear to disagree, the full order in
+[`proof-and-key-parity.md`](proof-and-key-parity.md#authority-and-conflict-policy)
+governs, and the list above extends it at the bottom rather than competing with
+it. That reconciliation is the first half of finding G7-2.
+
+Neither order settles a conflict between two implementations that both claim to
+follow it. That is what [`authority-rulings.md`](authority-rulings.md) is for,
+and it is the second half of G7-2.
 
 ## Planning documents
 
