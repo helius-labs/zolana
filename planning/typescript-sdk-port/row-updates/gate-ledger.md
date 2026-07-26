@@ -147,12 +147,15 @@ After `npm install` and `npm run build` in this worktree:
 | `npm run test:exports` | pass |
 | `npm run api:check` | pass |
 | Export disposition tests (client / transaction / wallet) | pass |
-| `npm run build && npm run test:unit` | (recorded in final pass below) |
-| `npm run check:static` | (recorded in final pass below) |
-| `npm run fixtures:check` | (recorded in final pass below) |
-| `npm run check:packaging` | (recorded in final pass below) |
+| `npm run build && npm run test:unit` | **pass** — 2284 passed, 9 skipped (one cold-cargo flake on `g2-eip197-limbs.test.ts` timed out on first suite run, passed alone and on re-run) |
+| `npm run check:static` | **pass** |
+| `npm run fixtures:check` | **pass** — all generators `--check`, then `fixture provenance ok` |
+| `npm run check:packaging` | **pass** |
+| `npm run check:scope` | **pass** (after photon `contains` + token asserts) |
 
 ## Commits on this branch for this cluster
 
 1. `a9508d05` — `fix(client): drop unused @noble/curves after G2 compress fix`
-2. (docs) public-exports hasher section + checklist + this report
+2. `dcddb5ed` — `docs(port): record @zolana/hasher on the public-export ledger`
+3. `bbae13cb` — `docs(port): close gate-ledger lines and drop the obsolete G2 carve-out`
+4. `9b98e037` — `fix(ts): assert check-scope contains tokens against package.json`
