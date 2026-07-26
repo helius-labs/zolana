@@ -9,6 +9,7 @@ import {
   ProofInputUtxo,
   SOL_MINT,
   Wallet,
+  decryptTransactions,
 } from "@zolana/transaction";
 import { createSolanaSigner, LocalWalletAuthority, syncWallet } from "@zolana/wallet";
 import { describe, expect, it } from "vitest";
@@ -18,6 +19,10 @@ import { setup } from "./setup.js";
 const DEPOSIT_AMOUNT = 1_000_000_000n;
 const TRANSFER_AMOUNT = 300_000_000n;
 const WITHDRAW_AMOUNT = 300_000_000n;
+// The fee payer pays ordinary Solana fees on the withdraw transaction, so the
+// on-chain lamport delta is WITHDRAW_AMOUNT minus those fees. Cap the slack so
+// a missed or under-sized withdrawal still fails the lower-bound check.
+const WITHDRAW_FEE_ALLOWANCE = 1_000_000n;
 
 function inputUtxo(wallet: Wallet, keypair: ShieldedKeypair): ProofInputUtxo {
   const utxo = wallet.balance(SOL_MINT).utxos[0];
@@ -58,10 +63,7 @@ describe("example: deposit, transfer, withdraw", () => {
         solanaPublicKey: recipientSigner.address,
         keypair: recipient,
       });
-      const recipientWallet = new Wallet({
-        identity: recipient.shieldedAddress(),
-        registry: assets,
-      });
+      const recipientAddress = recipient.shieldedAddress();
 
       // 1. The sender deposits SOL into their confidential balance.
       const blinding = randomBlinding();
@@ -82,6 +84,7 @@ describe("example: deposit, transfer, withdraw", () => {
         feePayer: senderSigner,
       });
 
+      // High-level read: keep a Wallet current with syncWallet (sender path).
       await syncWallet({
         wallet: senderWallet,
         authority: senderAuthority,
@@ -97,7 +100,7 @@ describe("example: deposit, transfer, withdraw", () => {
         [inputUtxo(senderWallet, sender)],
         senderSigner.address,
       );
-      transfer.send(recipient.shieldedAddress(), SOL_MINT, TRANSFER_AMOUNT);
+      transfer.send(recipientAddress, SOL_MINT, TRANSFER_AMOUNT);
       const transferData = await client.proveTransact(
         transfer.sign(sender, assets),
         waitForIndexer(),
@@ -110,15 +113,22 @@ describe("example: deposit, transfer, withdraw", () => {
       });
       await client.confirmPrivateTransaction(transferSignature);
 
-      await syncWallet({
-        wallet: recipientWallet,
+      // Low-level read (matches Rust Bob): fetch by view tag, then
+      // decryptTransactions over that page — no long-lived Wallet.
+      const recipientResponse = await client.getShieldedTransactionsByTags(
+        { tags: [recipientAddress.confidentialViewTag()] },
+        waitForIndexer(),
+      );
+      const recipientBalances = await decryptTransactions({
         authority: recipientAuthority,
-        indexer: client.indexer,
-        config: { waitForIndexer: true },
+        transactions: recipientResponse.transactions,
+        registry: assets,
       });
-      expect(recipientWallet.balance(SOL_MINT).amount).toBe(TRANSFER_AMOUNT);
-      expect(recipientWallet.balance(SOL_MINT).utxos).toHaveLength(1);
+      const recipientBalance = recipientBalances.find((balance) => balance.mint === SOL_MINT);
+      expect(recipientBalance?.amount).toBe(TRANSFER_AMOUNT);
+      expect(recipientBalance?.utxos).toHaveLength(1);
 
+      // High-level read: syncWallet again for the sender's change note.
       await syncWallet({
         wallet: senderWallet,
         authority: senderAuthority,
@@ -129,6 +139,7 @@ describe("example: deposit, transfer, withdraw", () => {
       expect(senderWallet.balance(SOL_MINT).utxos).toHaveLength(1);
 
       // 3. The sender withdraws back to their own Solana account.
+      const solanaBalanceBefore = await client.getBalance(senderSigner.address);
       const withdrawal = new ConfidentialTransfer(
         senderAddress,
         [inputUtxo(senderWallet, sender)],
@@ -155,6 +166,7 @@ describe("example: deposit, transfer, withdraw", () => {
       });
       await client.confirmPrivateTransaction(withdrawalSignature);
 
+      // High-level read: syncWallet for the sender's post-withdraw note.
       await syncWallet({
         wallet: senderWallet,
         authority: senderAuthority,
@@ -166,9 +178,10 @@ describe("example: deposit, transfer, withdraw", () => {
       );
       expect(senderWallet.balance(SOL_MINT).utxos).toHaveLength(1);
 
-      // Same shape as Rust: confirm the Solana account still holds funds after the
-      // withdrawal (fees make the exact lamports non-deterministic).
-      expect(await client.getBalance(senderSigner.address)).toBeGreaterThan(0n);
+      const solanaBalanceAfter = await client.getBalance(senderSigner.address);
+      expect(solanaBalanceAfter - solanaBalanceBefore).toBeGreaterThanOrEqual(
+        WITHDRAW_AMOUNT - WITHDRAW_FEE_ALLOWANCE,
+      );
     } finally {
       await stack.stop();
     }
