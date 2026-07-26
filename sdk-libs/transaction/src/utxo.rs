@@ -72,6 +72,16 @@ pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], Transa
     }
 }
 
+/// An explicit zero zone data hash is stored as absence.
+///
+/// The commitment folds both to the same field, so the two states the builders
+/// keep apart are one state on chain. A zone that computes a policy digest
+/// generically then need not special-case the empty digest before calling: the
+/// prepared value agrees with what is committed either way.
+pub fn normalized_zone_data_hash(zone_data_hash: [u8; 32]) -> Option<[u8; 32]> {
+    (zone_data_hash != [0u8; 32]).then_some(zone_data_hash)
+}
+
 pub fn owner_utxo_hash(
     owner_hash: &[u8; 32],
     blinding: &Blinding,

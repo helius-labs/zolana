@@ -6,7 +6,7 @@ use zolana_keypair::{
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{ProofInputUtxo, Utxo},
+    utxo::{normalized_zone_data_hash, ProofInputUtxo, Utxo},
 };
 
 #[derive(Clone)]
@@ -33,7 +33,7 @@ impl SppProofInputUtxo {
     }
 
     pub fn with_zone_data_hash(mut self, zone_data_hash: [u8; 32]) -> Self {
-        self.zone_data_hash = Some(zone_data_hash);
+        self.zone_data_hash = normalized_zone_data_hash(zone_data_hash);
         self
     }
 
@@ -230,6 +230,31 @@ mod tests {
             spend.nullifier(),
             Err(TransactionError::NoncanonicalDummyInput { field: "amount" })
         );
+    }
+
+    /// The commitment folds an explicit zero zone data hash into absence, so
+    /// the builder stores absence: a zone passing a generically computed empty
+    /// digest prepares the same input as one passing no digest at all.
+    #[test]
+    fn an_explicit_zero_zone_data_hash_is_stored_as_absence() {
+        let mut absent = SppProofInputUtxo::new_dummy();
+        absent.utxo.owner = PublicKey::from_ed25519(&[1u8; 32]);
+        absent.utxo.amount = 5;
+        let explicit = absent.clone().with_zone_data_hash([0u8; 32]);
+
+        assert_eq!(explicit.zone_data_hash, None);
+        assert_eq!(
+            ProofInputUtxo::try_from(&explicit),
+            ProofInputUtxo::try_from(&absent)
+        );
+        assert_eq!(explicit.hash(), absent.hash());
+        assert_eq!(explicit.nullifier(), absent.nullifier());
+    }
+
+    #[test]
+    fn a_non_zero_zone_data_hash_is_kept() {
+        let spend = SppProofInputUtxo::new_dummy().with_zone_data_hash([4u8; 32]);
+        assert_eq!(spend.zone_data_hash, Some([4u8; 32]));
     }
 
     /// A real input is untouched by the dummy rule.
