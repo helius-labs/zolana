@@ -24,11 +24,10 @@ use zolana_transaction::{
     derive_blinding, instructions::transact::canonical_shape, AssetRegistry, Data, DataRecord,
 };
 
-/// The frozen plan baseline. It pins history the fixtures quote -- the 182-path
-/// `sdk-libs` inventory, `docs/spec.md`, the proving-key lockfile -- and so it
-/// does not move when the port changes a source the fixtures are generated
-/// from.
-const HISTORICAL_BASELINE_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
+/// Single source of truth for the historical fixture baseline commit. Pins the
+/// 182-path `sdk-libs` inventory, `docs/spec.md`, and the proving-key lockfile.
+/// Generators and TypeScript checks read this path; do not copy the SHA.
+const HISTORICAL_BASELINE_COMMIT_PATH: &str = "sdk-libs/ts/config/historical-baseline-commit";
 /// Provenance the manifest records: the revision each family of fixtures was
 /// last regenerated against. These stamp the output; they do not gate it.
 /// `--check` regenerates fixture bodies from the working tree and compares
@@ -104,13 +103,19 @@ fn run() -> Result<()> {
     if current_client {
         return generate_current_client_fixtures(&root, check);
     }
+    let baseline = historical_baseline_commit(&root)?;
     // The reports are a pure function of the inventory tables, so they can be
     // regenerated without the full fixture run behind them.
     if reports_only {
         let inventory = inventory(&root)?;
         let out = root.join("sdk-libs/ts");
-        write_inventory_report(&out.join("reports/inventory.json"), &inventory)?;
-        write_packet_report(&out, &inventory)?;
+        write_inventory_report(
+            &out.join("reports/inventory.json"),
+            &inventory,
+            &baseline,
+        )?;
+        write_packet_report(&out, &inventory, &baseline)?;
+        stamp_packet_frozen_commits(&out.join("reports/packets"), &baseline)?;
         println!("regenerated reports for {} inventory rows", inventory.len());
         return Ok(());
     }
@@ -121,7 +126,7 @@ fn run() -> Result<()> {
         if generated.exists() {
             fs::remove_dir_all(&generated)?;
         }
-        generate(&root, &generated, &inventory)?;
+        generate(&root, &generated, &inventory, &baseline)?;
         compare_outputs(&generated, &root.join("sdk-libs/ts"))?;
         fs::remove_dir_all(&generated)?;
         println!(
@@ -130,7 +135,9 @@ fn run() -> Result<()> {
             inventory.len()
         );
     } else {
-        generate(&root, &root.join("sdk-libs/ts"), &inventory)?;
+        let out = root.join("sdk-libs/ts");
+        generate(&root, &out, &inventory, &baseline)?;
+        stamp_packet_frozen_commits(&out.join("reports/packets"), &baseline)?;
         println!(
             "generated {} fixtures and {} inventory rows",
             EXPECTED_FIXTURE_COUNT,
@@ -297,16 +304,24 @@ fn workspace_root() -> Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 
+/// Load the historical baseline commit from [`HISTORICAL_BASELINE_COMMIT_PATH`].
+fn historical_baseline_commit(root: &Path) -> Result<String> {
+    let path = root.join(HISTORICAL_BASELINE_COMMIT_PATH);
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let sha = raw.trim();
+    if sha.len() != 40 || !sha.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        bail!(
+            "{HISTORICAL_BASELINE_COMMIT_PATH} must contain one 40-char lowercase hex commit SHA"
+        );
+    }
+    Ok(sha.to_string())
+}
+
 fn inventory(root: &Path) -> Result<Vec<InventoryRow>> {
+    let baseline = historical_baseline_commit(root)?;
     let frozen_paths = command_lines(
         root,
-        &[
-            "ls-tree",
-            "-r",
-            "--name-only",
-            HISTORICAL_BASELINE_SHA,
-            "sdk-libs",
-        ],
+        &["ls-tree", "-r", "--name-only", &baseline, "sdk-libs"],
     )?;
     if frozen_paths.len() != 182 {
         bail!(
@@ -419,14 +434,14 @@ fn marker_path(line: &str, marker: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn generate(root: &Path, out: &Path, inventory: &[InventoryRow]) -> Result<()> {
+fn generate(root: &Path, out: &Path, inventory: &[InventoryRow], baseline: &str) -> Result<()> {
     let fixtures = out.join("fixtures");
     for dir in FIXTURE_DIRS {
         fs::create_dir_all(fixtures.join(dir))?;
     }
     fs::create_dir_all(out.join("reports/packets"))?;
 
-    let (records, client_revision) = production_fixtures(root)?;
+    let (records, client_revision) = production_fixtures(root, baseline)?;
     if records.len() != EXPECTED_FIXTURE_COUNT {
         bail!(
             "generated {} fixtures, expected {EXPECTED_FIXTURE_COUNT}",
@@ -436,10 +451,14 @@ fn generate(root: &Path, out: &Path, inventory: &[InventoryRow]) -> Result<()> {
     for (relative, record) in records {
         write_json(&fixtures.join(relative), &record)?;
     }
-    write_inventory_report(&out.join("reports/inventory.json"), inventory)?;
-    write_manifest(root, &fixtures, &client_revision)?;
-    verify_manifest(&fixtures, &client_revision)?;
-    write_packet_report(out, inventory)?;
+    write_inventory_report(
+        &out.join("reports/inventory.json"),
+        inventory,
+        baseline,
+    )?;
+    write_manifest(root, &fixtures, &client_revision, baseline)?;
+    verify_manifest(&fixtures, &client_revision, baseline)?;
+    write_packet_report(out, inventory, baseline)?;
     Ok(())
 }
 
@@ -469,7 +488,10 @@ macro_rules! fixture_base {
     };
 }
 
-fn production_fixtures(root: &Path) -> Result<(Vec<(&'static str, Value)>, String)> {
+fn production_fixtures(
+    root: &Path,
+    baseline: &str,
+) -> Result<(Vec<(&'static str, Value)>, String)> {
     let tree = Address::new_from_array([1; 32]);
     let depositor = Address::new_from_array([2; 32]);
     let deposit = Deposit {
@@ -830,7 +852,7 @@ fn production_fixtures(root: &Path) -> Result<(Vec<(&'static str, Value)>, Strin
     merkle_fixture["sourceRevision"] = Value::String(MERKLE_SHA.to_string());
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
-    fixtures.push(api_fixture(&api_vectors)?);
+    fixtures.push(api_fixture(&api_vectors, baseline)?);
     let (client_fixtures, client_revision) = stamp_current_client(
         client_fixtures(root, &client_vectors)?,
         &current_client_revision(root)?,
@@ -1822,7 +1844,7 @@ fn verify_api_vectors(vectors: &Value) -> Result<()> {
     Ok(())
 }
 
-fn api_fixture(vectors: &Value) -> Result<(&'static str, Value)> {
+fn api_fixture(vectors: &Value, baseline: &str) -> Result<(&'static str, Value)> {
     if !vectors["inputs"].is_object() || !vectors["expected"].is_object() {
         bail!("API oracle lacks inputs or expected values");
     }
@@ -1836,7 +1858,7 @@ fn api_fixture(vectors: &Value) -> Result<(&'static str, Value)> {
         vectors["inputs"].clone(),
         vectors["expected"].clone(),
     );
-    fixture["sourceRevision"] = Value::String(HISTORICAL_BASELINE_SHA.to_string());
+    fixture["sourceRevision"] = Value::String(baseline.to_string());
     Ok(("api/transport-v1.json", fixture))
 }
 
@@ -2489,7 +2511,7 @@ fn error_json(error: &impl std::fmt::Debug) -> Value {
     json!({"code":code,"details":debug})
 }
 
-fn write_inventory_report(path: &Path, rows: &[InventoryRow]) -> Result<()> {
+fn write_inventory_report(path: &Path, rows: &[InventoryRow], baseline: &str) -> Result<()> {
     let mut packet_counts = BTreeMap::<String, usize>::new();
     let mut disposition_counts = BTreeMap::<String, usize>::new();
     for row in rows {
@@ -2512,7 +2534,7 @@ fn write_inventory_report(path: &Path, rows: &[InventoryRow]) -> Result<()> {
                 "unknownPackets":"0"
             },
             "dispositionCounts":disposition_counts,
-            "frozenCommit":HISTORICAL_BASELINE_SHA,
+            "frozenCommit":baseline,
             "packetCounts":packet_counts,
             "rows":rows.iter().map(|row| json!({
                 "disposition":row.disposition,
@@ -2577,10 +2599,15 @@ fn revision_compatibility() -> Value {
     })
 }
 
-fn write_manifest(root: &Path, fixtures: &Path, client_revision: &str) -> Result<()> {
-    let spec = git_blob(root, &format!("{HISTORICAL_BASELINE_SHA}:docs/spec.md"))?;
+fn write_manifest(
+    root: &Path,
+    fixtures: &Path,
+    client_revision: &str,
+    baseline: &str,
+) -> Result<()> {
+    let spec = git_blob(root, &format!("{baseline}:docs/spec.md"))?;
     let lock_path = "prover/server/prover/provingkeys/proving-keys.lock";
-    let proving_lock = git_blob(root, &format!("{HISTORICAL_BASELINE_SHA}:{lock_path}"))?;
+    let proving_lock = git_blob(root, &format!("{baseline}:{lock_path}"))?;
     let mut entries = fixture_entries(fixtures)?;
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let rustc = command_text(root, "rustup", &["run", "1.97.0", "rustc", "--version"])
@@ -2597,10 +2624,10 @@ fn write_manifest(root: &Path, fixtures: &Path, client_revision: &str) -> Result
             "interface":INTERFACE_SHA,
             "merkleTree":MERKLE_SHA
         },
-        "frozenCommit":HISTORICAL_BASELINE_SHA,
+        "frozenCommit":baseline,
         "generatorCommand":GENERATOR_COMMAND,
-        "historicalBaselineCommit":HISTORICAL_BASELINE_SHA,
-        "photonSchemaRevision":HISTORICAL_BASELINE_SHA,
+        "historicalBaselineCommit":baseline,
+        "photonSchemaRevision":baseline,
         "provingKeyRelease":{
             "lockPath":lock_path,
             "lockSha256":sha256(&proving_lock)
@@ -2644,7 +2671,7 @@ fn committed_drift_review(root: &Path) -> Result<Option<Value>> {
     Ok(manifest.get("driftReview").cloned())
 }
 
-fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
+fn write_packet_report(out: &Path, inventory: &[InventoryRow], baseline: &str) -> Result<()> {
     let p00_rows = inventory
         .iter()
         .filter(|row| row.packet == "P00")
@@ -2656,6 +2683,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
         .map(|(path, _)| format!("sdk-libs/ts/fixtures/{path}"))
         .collect::<Vec<_>>();
     changed_paths.extend([
+        "sdk-libs/ts/config/historical-baseline-commit".to_string(),
         "sdk-libs/ts/fixtures/manifest.json".to_string(),
         "sdk-libs/ts/reports/inventory.json".to_string(),
         "sdk-libs/ts/reports/packets/P00.json".to_string(),
@@ -2719,7 +2747,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                 "p00Rows":p00_rows.len().to_string()
             },
             "fixtureIds":fixture_ids(&out.join("fixtures"))?,
-            "frozenCommit":HISTORICAL_BASELINE_SHA,
+            "frozenCommit":baseline,
             "ownedChangedPaths":changed_paths,
             "packet":"P00",
             "p00InventoryRows":p00_rows,
@@ -2862,7 +2890,7 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                         "test":"e2e-action-ata-idempotent"
                     }
                 ],
-                "sourceRevision":HISTORICAL_BASELINE_SHA
+                "sourceRevision":baseline
             },
             "p13FollowUp":{
                 "blocker":"P00-owned missing workflow fixtures in sdk-libs/ts/reports/packets/P13.json",
@@ -2901,17 +2929,76 @@ fn write_packet_report(out: &Path, inventory: &[InventoryRow]) -> Result<()> {
                         "test":"e2e-instruction-withdraw-spl-wire"
                     }
                 ],
-                "sourceRevision":HISTORICAL_BASELINE_SHA
+                "sourceRevision":baseline
             },
             "schema":"zolana-ts-packet-evidence-v1"
         }),
     )
 }
 
-fn verify_manifest(fixtures: &Path, client_revision: &str) -> Result<()> {
+/// Stamp `frozenCommit` on every packet report without rewriting other fields.
+/// Hand-authored P01–P13 keep their body; only the pin moves with the baseline.
+fn stamp_packet_frozen_commits(packets_dir: &Path, baseline: &str) -> Result<()> {
+    if !packets_dir.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(packets_dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let text = fs::read_to_string(&path)
+            .with_context(|| format!("read {}", path.display()))?;
+        let Some(updated) = replace_frozen_commit_value(&text, baseline) else {
+            continue;
+        };
+        if updated != text {
+            fs::write(&path, updated.as_bytes())
+                .with_context(|| format!("write {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Replace every `"frozenCommit": "<40-hex>"` value in place. Returns `None`
+/// when the file has no such field.
+fn replace_frozen_commit_value(text: &str, baseline: &str) -> Option<String> {
+    const KEY: &str = "\"frozenCommit\"";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut found = false;
+    while let Some(key_at) = rest.find(KEY) {
+        found = true;
+        out.push_str(&rest[..key_at]);
+        out.push_str(KEY);
+        rest = &rest[key_at + KEY.len()..];
+        let colon = rest.find(':')?;
+        out.push_str(&rest[..=colon]);
+        rest = &rest[colon + 1..];
+        let quote_at = rest.find('"')?;
+        out.push_str(&rest[..quote_at]);
+        out.push('"');
+        rest = &rest[quote_at + 1..];
+        let end_quote = rest.find('"')?;
+        let old = &rest[..end_quote];
+        if old.len() != 40 || !old.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return None;
+        }
+        out.push_str(baseline);
+        out.push('"');
+        rest = &rest[end_quote + 1..];
+    }
+    if !found {
+        return None;
+    }
+    out.push_str(rest);
+    Some(out)
+}
+
+fn verify_manifest(fixtures: &Path, client_revision: &str, baseline: &str) -> Result<()> {
     let manifest: Value = serde_json::from_slice(&fs::read(fixtures.join("manifest.json"))?)?;
-    if manifest["frozenCommit"] != HISTORICAL_BASELINE_SHA
-        || manifest["historicalBaselineCommit"] != HISTORICAL_BASELINE_SHA
+    if manifest["frozenCommit"] != baseline
+        || manifest["historicalBaselineCommit"] != baseline
         || manifest["canonicalSourceRevisions"]["baseline"] != BASELINE_SHA
         || manifest["canonicalSourceRevisions"]["client"] != client_revision
         || manifest["canonicalSourceRevisions"]["interface"] != INTERFACE_SHA
@@ -3169,7 +3256,9 @@ mod tests {
     #[test]
     fn production_fixture_ids_are_unique_and_secrets_are_marked() {
         let root = workspace_root().expect("workspace root");
-        let (fixtures, _) = production_fixtures(&root).expect("production fixtures");
+        let baseline = historical_baseline_commit(&root).expect("historical baseline");
+        let (fixtures, _) =
+            production_fixtures(&root, &baseline).expect("production fixtures");
         assert_eq!(fixtures.len(), EXPECTED_FIXTURE_COUNT);
         let ids = fixtures
             .iter()

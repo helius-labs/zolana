@@ -3,14 +3,28 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const reports = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../reports");
+const here = path.dirname(fileURLToPath(import.meta.url));
+const reports = path.resolve(here, "../reports");
 const inventory = JSON.parse(await readFile(path.join(reports, "inventory.json"), "utf8"));
 const live = JSON.parse(await readFile(path.join(reports, "inventory-live.json"), "utf8"));
 const manifest = JSON.parse(
   await readFile(path.join(root, "sdk-libs/ts/fixtures/manifest.json"), "utf8"),
 );
+const historicalBaseline = (
+  await readFile(path.join(here, "historical-baseline-commit"), "utf8")
+).trim();
 
-// Baseline lives in the fixture manifest; inventory must quote the same pin.
+// Single source of truth is config/historical-baseline-commit; manifest and
+// inventory must both quote it.
+if (!/^[0-9a-f]{40}$/u.test(historicalBaseline)) {
+  throw new Error("historical-baseline-commit must be a 40-char lowercase hex SHA");
+}
+if (manifest.frozenCommit !== historicalBaseline) {
+  throw new Error("fixture manifest frozen commit diverges from historical-baseline-commit");
+}
+if (inventory.frozenCommit !== historicalBaseline) {
+  throw new Error("inventory frozen commit diverges from historical-baseline-commit");
+}
 if (inventory.frozenCommit !== manifest.frozenCommit) {
   throw new Error("inventory frozen commit diverges from fixture manifest");
 }

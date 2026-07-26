@@ -4,13 +4,30 @@
 //   node sdk-libs/ts/config/fixtures-provenance.mjs
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const fixturesRoot = path.join(root, "sdk-libs/ts/fixtures");
+const packetsRoot = path.join(root, "sdk-libs/ts/reports/packets");
+const inventoryPath = path.join(root, "sdk-libs/ts/reports/inventory.json");
+/** Single source of truth for the historical fixture baseline commit. */
+const HISTORICAL_BASELINE_COMMIT_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "historical-baseline-commit",
+);
 const vkRoot = path.join(root, "program-libs/interface/src/verifying_keys");
+
+function readHistoricalBaselineCommit() {
+  const sha = readFileSync(HISTORICAL_BASELINE_COMMIT_PATH, "utf8").trim();
+  if (!/^[0-9a-f]{40}$/u.test(sha)) {
+    throw new Error(
+      "sdk-libs/ts/config/historical-baseline-commit must contain one 40-char lowercase hex commit SHA",
+    );
+  }
+  return sha;
+}
 
 const REQUIRED_REVISION_KEYS = [
   "baseline",
@@ -188,7 +205,34 @@ function checkProofVerifyingKeys() {
   }
 }
 
+function checkHistoricalBaselinePin(manifest) {
+  const pin = readHistoricalBaselineCommit();
+  for (const key of ["frozenCommit", "historicalBaselineCommit", "photonSchemaRevision"]) {
+    if (manifest[key] !== pin) {
+      throw new Error(
+        `manifest.${key} ${manifest[key]} diverges from historical-baseline-commit ${pin}`,
+      );
+    }
+  }
+  const inventory = JSON.parse(readFileSync(inventoryPath, "utf8"));
+  if (inventory.frozenCommit !== pin) {
+    throw new Error(
+      `inventory.frozenCommit ${inventory.frozenCommit} diverges from historical-baseline-commit ${pin}`,
+    );
+  }
+  for (const name of readdirSync(packetsRoot).sort()) {
+    if (!name.endsWith(".json")) continue;
+    const packet = JSON.parse(readFileSync(path.join(packetsRoot, name), "utf8"));
+    if (packet.frozenCommit !== pin) {
+      throw new Error(
+        `reports/packets/${name} frozenCommit ${packet.frozenCommit} diverges from historical-baseline-commit ${pin}`,
+      );
+    }
+  }
+}
+
 const manifest = readJson("manifest.json");
+checkHistoricalBaselinePin(manifest);
 checkRevisionCompatibility(manifest);
 checkDriftReview(manifest);
 checkProofVerifyingKeys();
