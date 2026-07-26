@@ -5,9 +5,13 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const reports = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../reports");
 const inventory = JSON.parse(await readFile(path.join(reports, "inventory.json"), "utf8"));
+const manifest = JSON.parse(
+  await readFile(path.join(root, "sdk-libs/ts/fixtures/manifest.json"), "utf8"),
+);
 
-if (inventory.frozenCommit !== "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f") {
-  throw new Error("inventory frozen commit changed");
+// Baseline lives in the fixture manifest; inventory must quote the same pin.
+if (inventory.frozenCommit !== manifest.frozenCommit) {
+  throw new Error("inventory frozen commit diverges from fixture manifest");
 }
 if (inventory.rows?.length !== 182) throw new Error("inventory must contain 182 rows");
 
