@@ -72,10 +72,7 @@ describe.skipIf(!LIVE)("P5 live G2 compression characterisation", () => {
         })),
       };
       const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
-      const out = path.join(
-        workspace,
-        "planning/typescript-sdk-port/row-updates/g2-compression-live.json",
-      );
+      const out = path.join(workspace, "sdk-libs/ts/reports/g2-compression-live.json");
       writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
       expect(report, JSON.stringify(report.all.slice(0, 3))).toMatchObject({
         samples: SAMPLES,

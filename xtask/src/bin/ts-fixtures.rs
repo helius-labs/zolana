@@ -41,12 +41,12 @@ const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
 const EXPECTED_FIXTURE_COUNT: usize = 58;
 const INVENTORY_FILES: [&str; 6] = [
-    "planning/typescript-sdk-port/inventory-client.md",
-    "planning/typescript-sdk-port/inventory-wallet.md",
-    "planning/typescript-sdk-port/inventory-transaction.md",
-    "planning/typescript-sdk-port/inventory-keypair.md",
-    "planning/typescript-sdk-port/inventory-support.md",
-    "planning/typescript-sdk-port/inventory-indexer-and-smart-account.md",
+    "sdk-libs/ts/config/inventory/inventory-client.md",
+    "sdk-libs/ts/config/inventory/inventory-wallet.md",
+    "sdk-libs/ts/config/inventory/inventory-transaction.md",
+    "sdk-libs/ts/config/inventory/inventory-keypair.md",
+    "sdk-libs/ts/config/inventory/inventory-support.md",
+    "sdk-libs/ts/config/inventory/inventory-indexer-and-smart-account.md",
 ];
 const FIXTURE_DIRS: [&str; 11] = [
     "interface",
