@@ -30,6 +30,7 @@ describe("public exports", () => {
       "STATE_HEIGHT",
       "STATE_ROOT_OFFSET",
       "ShieldedPoolError",
+      "ShieldedPoolErrorMessages",
       "StateDiscriminator",
       "TRANSACTION_SIZE_LIMIT",
       "TREE_ACCOUNT_SIZE",

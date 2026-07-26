@@ -25,6 +25,7 @@ import {
   STATE_HEIGHT,
   STATE_ROOT_OFFSET,
   ShieldedPoolError,
+  ShieldedPoolErrorMessages,
   StateDiscriminator,
   TREE_ACCOUNT_SIZE,
   UTXO_DOMAIN,
@@ -175,20 +176,27 @@ describe("constants and tags", () => {
 
 describe("errors", () => {
   it("matches every Rust error code and message", () => {
+    expect(Object.keys(oracle.errors)).toHaveLength(29);
     const actual = Object.fromEntries(
-      Object.entries(oracle.errors).map(([name]) => [
-        name,
-        { code: ShieldedPoolError[name as keyof typeof ShieldedPoolError] },
-      ]),
+      Object.entries(oracle.errors).map(([name]) => {
+        const key = name as keyof typeof ShieldedPoolError;
+        return [
+          name,
+          {
+            code: ShieldedPoolError[key],
+            message: ShieldedPoolErrorMessages[key],
+          },
+        ];
+      }),
     );
-    const expected = Object.fromEntries(
-      Object.entries(oracle.errors).map(([name, value]) => [name, { code: value.code }]),
-    );
-    expect(actual).toEqual(expected);
+    expect(actual).toEqual(oracle.errors);
   });
 
   it("exports no code Rust does not define and omits none Rust does", () => {
     expect(Object.keys(ShieldedPoolError).sort()).toEqual(Object.keys(oracle.errors).sort());
+    expect(Object.keys(ShieldedPoolErrorMessages).sort()).toEqual(
+      Object.keys(oracle.errors).sort(),
+    );
   });
 });
 

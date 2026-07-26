@@ -45,6 +45,47 @@ export const ShieldedPoolError = Object.freeze({
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;
 export type ShieldedPoolErrorCode = (typeof ShieldedPoolError)[ShieldedPoolErrorName];
 
+/**
+ * Static `Display` strings from Rust `ShieldedPoolError` (`thiserror`). None
+ * interpolate values; a caller mapping codes across languages can compare these
+ * literally against `error.to_string()` on the Rust side.
+ */
+export const ShieldedPoolErrorMessages = Object.freeze({
+  InvalidInstructionData: "invalid instruction data",
+  InvalidTreeAccounts: "pool tree accounts are invalid",
+  NullifierTreeUpdateFailed: "nullifier tree maintenance failed",
+  UnauthorizedCaller: "caller is not authorized",
+  StateAppendFailed: "state sub-tree append failed",
+  ExpiredTransaction: "transaction has expired",
+  InvalidTransactShape: "transact instruction shape is invalid",
+  InvalidTransactProofEncoding: "transact proof encoding is invalid",
+  TransactProofVerificationFailed: "transact proof verification failed",
+  InvalidSettlementAccounts: "transact settlement accounts are invalid",
+  PublicSettlementFailed: "transact public settlement failed",
+  InvalidSplAssetRegistry: "SPL asset registry account is invalid",
+  InvalidProtocolConfig: "protocol config account is invalid",
+  TreePaused: "pool tree is paused",
+  InvalidZoneConfig: "zone config account is invalid",
+  StaleNullifierRoot: "nullifier root index references a zeroed (stale) root-history slot",
+  InvalidPda: "account address does not match its canonical PDA derivation",
+  MergeDisabled: "merging is not enabled for this user",
+  InvalidUserRecord: "user record account is invalid",
+  InvalidMergeShape: "merge_transact instruction shape is invalid",
+  InvalidMergeOutputScheme: "merge output ciphertext must be verifiably encrypted",
+  MismatchedTransactProofRail: "transact proof rail does not match the instruction inputs",
+  ZoneAuthorityTransactDisabled: "zone_authority_transact is disabled for this zone",
+  BothPublicAmountsSet:
+    "transact sets both public_sol_amount and public_spl_amount; at most one is allowed",
+  MissingP256SigningKey:
+    "output owner tag references the p256 signing key but p256_signing_pk_x is absent",
+  OwnerTagAccountMissing: "output owner tag account index is out of range",
+  InvalidForesterFee:
+    "forester fee calculation overflowed or used an invalid tree configuration",
+  InsufficientForesterFeeBalance:
+    "tree does not contain enough fee funds to reimburse the forester",
+  InvalidSystemProgram: "system program account is invalid",
+} as const satisfies Record<ShieldedPoolErrorName, string>);
+
 const shieldedPoolErrorNames = new Map<number, ShieldedPoolErrorName>(
   Object.entries(ShieldedPoolError).map(([name, code]) => [code, name as ShieldedPoolErrorName]),
 );
@@ -54,6 +95,7 @@ export type DecodedShieldedPoolError =
       kind: "known";
       code: ShieldedPoolErrorCode;
       name: ShieldedPoolErrorName;
+      message: string;
     }>
   | Readonly<{
       kind: "unknown";
@@ -72,7 +114,12 @@ export function decodeShieldedPoolError(code: number): DecodedShieldedPoolError 
   const name = shieldedPoolErrorNames.get(code);
   return name === undefined
     ? Object.freeze({ kind: "unknown", code })
-    : Object.freeze({ kind: "known", code: code as ShieldedPoolErrorCode, name });
+    : Object.freeze({
+        kind: "known",
+        code: code as ShieldedPoolErrorCode,
+        name,
+        message: ShieldedPoolErrorMessages[name],
+      });
 }
 
 export class InterfaceError extends Error {

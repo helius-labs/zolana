@@ -18,7 +18,7 @@ verdicts, so I built a generator instead.
 
 `xtask/src/bin/ts-interface-oracle.rs` links against the real `zolana-interface`
 crate and prints, as JSON, what current Rust actually does: every constant and
-tag, all 26 error codes and messages, the supported shape list in order,
+tag, all 29 error codes and messages, the supported shape list in order,
 `ciphertext_hash` / `pk_field` / `pack33` outputs across chunk boundaries, every
 PDA and bump, the `bytemuck` byte image of each state account, `wincode` bytes
 for each instruction-data type, the full `Instruction` (program id, data,
@@ -109,7 +109,7 @@ All test names below are in
 
 | Rows | Backed by |
 | --- | --- |
-| I01 | `errors > matches every Rust error code and message`, plus a set-equality test that the package exports no code Rust does not define and omits none it does. 26 codes, names, and messages. |
+| I01 | `errors > matches every Rust error code and message`, plus a set-equality test that the package exports no code Rust does not define and omits none it does. 29 codes, names, and messages. |
 | I02 | `shape > matches the Rust supported-shape list in order` and `selects the first shape that covers the request`. Order matters and is asserted, not just membership. |
 | I03 | `merge utils > matches Rust ciphertext_hash across chunk boundaries`, `matches Rust pk_field, owner_pk_field, and pack33`, and two rejection tests pinning the chunk counts and compressed prefixes Rust rejects. |
 | I04 | `pda > derives every canonical address and bump Rust derives`, across all canonical routes with the Rust bump. |

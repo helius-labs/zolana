@@ -234,6 +234,8 @@ describe("program errors and shapes", () => {
       kind: "known",
       code: 7023,
       name: "BothPublicAmountsSet",
+      message:
+        "transact sets both public_sol_amount and public_spl_amount; at most one is allowed",
     });
     expect(decodeShieldedPoolError(7999)).toEqual({ kind: "unknown", code: 7999 });
     expect(() => decodeShieldedPoolError(-1)).toThrow(

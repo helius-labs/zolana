@@ -130,7 +130,13 @@ describe("SolanaRpc", () => {
     expect(known.details).toEqual({
       method: "getBalance",
       instructionIndex: 3,
-      programError: { kind: "known", code: 7023, name: "BothPublicAmountsSet" },
+      programError: {
+        kind: "known",
+        code: 7023,
+        name: "BothPublicAmountsSet",
+        message:
+          "transact sets both public_sol_amount and public_spl_amount; at most one is allowed",
+      },
     });
     const unknown = await expectCode(rpc.getBalance(ZERO_ADDRESS), "CLIENT_RPC_PROGRAM_ERROR");
     expect(unknown.details).toEqual({

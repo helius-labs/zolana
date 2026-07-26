@@ -14,7 +14,12 @@ import {
   zoneConfigAccountCodec,
 } from "./codecs/index.js";
 
-export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";
+export {
+  InterfaceError,
+  ShieldedPoolError,
+  ShieldedPoolErrorMessages,
+  decodeShieldedPoolError,
+} from "./errors.js";
 export type {
   DecodedShieldedPoolError,
   InterfaceErrorCode,
