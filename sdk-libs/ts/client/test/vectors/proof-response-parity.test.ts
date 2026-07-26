@@ -56,16 +56,12 @@ type RejectCase = Readonly<{
   }>;
 }>;
 
-function category(operation: () => unknown): string | null {
-  try {
-    operation();
-    return null;
-  } catch (error) {
-    if (typeof error === "object" && error !== null && "code" in error) {
-      return String((error as { code: string }).code);
-    }
-    throw error;
-  }
+function expectCode(operation: () => unknown, code: string): void {
+  expect(operation).toThrow(expect.objectContaining({ code }));
+}
+
+function expectAccept(operation: () => unknown): void {
+  expect(operation).not.toThrow();
 }
 
 describe("P3 proof-response parity (Rust-generated)", () => {
@@ -123,18 +119,19 @@ describe("P3 proof-response parity (Rust-generated)", () => {
     if (testCase.divergence) {
       it(`records the off-curve G2 compress divergence (${testCase.id})`, () => {
         const point = testCase.uncompressed;
-        if (!point) throw new Error(`divergence case ${testCase.id} lacks uncompressed bytes`);
+        const code = testCase.typescriptCategory;
+        if (!point || !code) throw new Error(`divergence case ${testCase.id} is incomplete`);
         expect(testCase.acceptedByRust).toBe(true);
         expect(testCase.acceptedByTypescript).toBe(false);
-        expect(
-          category(() =>
+        expectCode(
+          () =>
             compressProof({
               a: bytes(point.aBytes) as Bytes64,
               b: bytes(point.bBytes) as Bytes128,
               c: bytes(point.cBytes) as Bytes64,
             }),
-          ),
-        ).toBe(testCase.typescriptCategory);
+          code,
+        );
       });
       continue;
     }
@@ -145,7 +142,7 @@ describe("P3 proof-response parity (Rust-generated)", () => {
         if (!gnark) throw new Error(`accept case ${testCase.id} lacks gnark`);
         // Unknown fields are ignored today; pinning the shared acceptance is
         // what makes a future one-sided rejector fail this suite.
-        expect(category(() => parseProof(gnark, testCase.requireCommitment === true))).toBeNull();
+        expectAccept(() => parseProof(gnark, testCase.requireCommitment === true));
       });
       continue;
     }
@@ -153,26 +150,26 @@ describe("P3 proof-response parity (Rust-generated)", () => {
     if (testCase.stage === "compress") {
       it(`rejects ${testCase.id} at compress (${testCase.clause})`, () => {
         const point = testCase.uncompressed;
-        if (!point) throw new Error(`compress reject ${testCase.id} lacks uncompressed bytes`);
-        expect(
-          category(() =>
+        const code = testCase.typescriptCategory;
+        if (!point || !code) throw new Error(`compress reject ${testCase.id} is incomplete`);
+        expectCode(
+          () =>
             compressProof({
               a: bytes(point.aBytes) as Bytes64,
               b: bytes(point.bBytes) as Bytes128,
               c: bytes(point.cBytes) as Bytes64,
             }),
-          ),
-        ).toBe(testCase.typescriptCategory);
+          code,
+        );
       });
       continue;
     }
 
     it(`rejects ${testCase.id} at parse (${testCase.clause})`, () => {
       const gnark = testCase.gnark;
-      if (!gnark) throw new Error(`parse reject ${testCase.id} lacks gnark`);
-      expect(category(() => parseProof(gnark, testCase.requireCommitment === true))).toBe(
-        testCase.typescriptCategory,
-      );
+      const code = testCase.typescriptCategory;
+      if (!gnark || !code) throw new Error(`parse reject ${testCase.id} is incomplete`);
+      expectCode(() => parseProof(gnark, testCase.requireCommitment === true), code);
     });
   }
 });
