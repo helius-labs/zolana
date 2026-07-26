@@ -1,5 +1,5 @@
 import type { Rpc } from "@zolana/client";
-import { checkedTransactionSize } from "@zolana/interface";
+import { checkedTransactionSize, decodeBase58 as decodeBase58Canonical, encodeBase58 } from "@zolana/interface";
 import type {
   Address,
   Bytes32,
@@ -16,7 +16,6 @@ import { TestKitError } from "./error.js";
 
 const USER_REGISTRY_PROGRAM_ID = "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc" as Address;
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
-const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export interface UserRecordAddress {
   readonly address: Address;
@@ -505,41 +504,18 @@ function decodeBase58(value: string, field: string): Uint8Array {
   if (typeof value !== "string" || value.length === 0) {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
   }
-  let decoded = 0n;
-  for (const character of value) {
-    const digit = BASE58.indexOf(character);
-    if (digit < 0) {
-      throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
-    }
-    decoded = decoded * 58n + BigInt(digit);
+  let result: Uint8Array;
+  try {
+    result = decodeBase58Canonical(value);
+  } catch {
+    throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
   }
-  const bytes: number[] = [];
-  while (decoded > 0n) {
-    bytes.push(Number(decoded & 255n));
-    decoded >>= 8n;
-  }
-  let zeros = 0;
-  while (zeros < value.length && value[zeros] === "1") zeros++;
-  const result = Uint8Array.from([...new Array<number>(zeros).fill(0), ...bytes.reverse()]);
-  if (result.length !== 32) {
+  if (encodeBase58(result) !== value || result.length !== 32) {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
       details: { field, expected: 32, actual: result.length },
     });
   }
   return result;
-}
-
-function encodeBase58(value: Uint8Array): string {
-  let encoded = 0n;
-  for (const byte of value) encoded = encoded * 256n + BigInt(byte);
-  let result = "";
-  while (encoded > 0n) {
-    result = (BASE58[Number(encoded % 58n)] ?? "") + result;
-    encoded /= 58n;
-  }
-  let zeros = 0;
-  while (zeros < value.length && value[zeros] === 0) zeros++;
-  return "1".repeat(zeros) + result;
 }
 
 function concat(...parts: readonly Uint8Array[]): Uint8Array {

@@ -1,9 +1,21 @@
+import bs58Import from "bs58";
+
 import { InterfaceError } from "./errors.js";
 import type { Address } from "./index.js";
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const BASE58_INDEX = new Map(Array.from(BASE58_ALPHABET, (character, index) => [character, index]));
 const PDA_MARKER = new TextEncoder().encode("ProgramDerivedAddress");
+/** Max Bitcoin-base58 length of a 32-byte payload (Solana addresses / hashes). */
+const MAX_BASE58_32_LEN = 44;
+
+/**
+ * bs58's CJS build is `exports.default = …` with `__esModule`. The CommonJS
+ * transpile of a default import therefore sometimes yields the module namespace
+ * (`{ default: api }`) instead of the api; unwrap once so both halves work.
+ */
+const bs58 =
+  typeof (bs58Import as { encode?: unknown }).encode === "function"
+    ? bs58Import
+    : (bs58Import as unknown as { default: typeof bs58Import }).default;
 
 export function fail(
   code: InterfaceError["code"],
@@ -63,7 +75,16 @@ export function addressBytes(value: Address, name = "address"): Uint8Array {
   if (typeof value !== "string") {
     fail("INTERFACE_INVALID_ADDRESS", { name, actual: typeof value });
   }
-  const bytes = decodeBase58(value);
+  // Addresses are 32 bytes; reject empty and over-long encodings before decode.
+  if (value.length === 0 || value.length > MAX_BASE58_32_LEN) {
+    fail("INTERFACE_INVALID_ADDRESS", { name, actual: value });
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = decodeBase58(value);
+  } catch (cause) {
+    fail("INTERFACE_INVALID_ADDRESS", { name, actual: value }, cause);
+  }
   if (bytes.length !== 32 || encodeBase58(bytes) !== value) {
     fail("INTERFACE_INVALID_ADDRESS", { name, actual: value });
   }
@@ -75,37 +96,17 @@ export function checkedAddress(value: string, name = "address"): Address {
   return value as Address;
 }
 
-export function encodeBase58(bytes: Uint8Array): Address {
-  let value = 0n;
-  for (const byte of bytes) value = value * 256n + BigInt(byte);
-  let encoded = "";
-  while (value > 0n) {
-    encoded = arrayValue(BASE58_ALPHABET, Number(value % 58n)) + encoded;
-    value /= 58n;
-  }
-  let zeros = 0;
-  while (zeros < bytes.length && bytes[zeros] === 0) zeros += 1;
-  return ("1".repeat(zeros) + encoded) as Address;
+/** Bitcoin-base58 encode. Empty input is the empty string. */
+export function encodeBase58(bytes: Uint8Array): string {
+  return bs58.encode(bytes);
 }
 
-function decodeBase58(value: string): Uint8Array {
-  if (value.length === 0 || value.length > 44) {
-    fail("INTERFACE_INVALID_ADDRESS", { actual: value });
-  }
-  let decoded = 0n;
-  for (const character of value) {
-    const digit = BASE58_INDEX.get(character);
-    if (digit === undefined) fail("INTERFACE_INVALID_ADDRESS", { actual: value });
-    decoded = decoded * 58n + BigInt(digit);
-  }
-  const bytes: number[] = [];
-  while (decoded > 0n) {
-    bytes.push(Number(decoded & 255n));
-    decoded >>= 8n;
-  }
-  let zeros = 0;
-  while (zeros < value.length && value[zeros] === "1") zeros += 1;
-  return Uint8Array.from([...new Array<number>(zeros).fill(0), ...bytes.reverse()]);
+/**
+ * Bitcoin-base58 decode. Empty string is empty bytes (bs58 / Rust). Invalid
+ * alphabet characters throw; callers that need typed errors must catch.
+ */
+export function decodeBase58(value: string): Uint8Array {
+  return bs58.decode(value);
 }
 
 export function findProgramAddress(
@@ -124,7 +125,7 @@ function createProgramAddress(seeds: readonly Uint8Array[], program: Address): A
     fail("INTERFACE_INVALID_PDA", { reason: "seed bounds" });
   }
   const digest = sha256(concat([...seeds, addressBytes(program), PDA_MARKER]));
-  return isEd25519Point(digest) ? undefined : encodeBase58(digest);
+  return isEd25519Point(digest) ? undefined : (encodeBase58(digest) as Address);
 }
 
 /**

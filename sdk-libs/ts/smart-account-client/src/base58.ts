@@ -1,5 +1,5 @@
 import type { Address } from "@zolana/interface";
-import bs58 from "bs58";
+import { decodeBase58, encodeBase58 } from "@zolana/interface";
 
 import { SmartAccountClientError } from "./error.js";
 
@@ -11,11 +11,11 @@ export function decodeAddress(address: Address): Uint8Array {
   }
   let decoded: Uint8Array;
   try {
-    decoded = bs58.decode(address);
+    decoded = decodeBase58(address);
   } catch {
     throw invalidAddress(address);
   }
-  if (decoded.length !== ADDRESS_LENGTH || encodeAddress(decoded) !== address) {
+  if (decoded.length !== ADDRESS_LENGTH || encodeBase58(decoded) !== address) {
     throw invalidAddress(address);
   }
   return decoded;
@@ -29,7 +29,7 @@ export function encodeAddress(bytes: Uint8Array): Address {
       { details: { actualLength: bytes.length, expectedLength: ADDRESS_LENGTH } },
     );
   }
-  return bs58.encode(bytes) as Address;
+  return encodeBase58(bytes) as Address;
 }
 
 function invalidAddress(value: unknown): SmartAccountClientError {

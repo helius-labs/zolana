@@ -1,6 +1,8 @@
 export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
 import { encodeBase58 } from "./internal.js";
 import { InterfaceError } from "./errors.js";
+
+export { decodeBase58, encodeBase58 } from "./internal.js";
 import {
   ADDRESS_TREE_HEIGHT,
   ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
@@ -113,13 +115,13 @@ export const SOL_INTERFACE = encodeBase58(
     153, 202, 212, 28, 214, 25, 170, 103, 127, 203, 31, 129, 56, 221, 77, 131, 217, 62, 194, 23,
     222, 98, 111, 179, 160, 182, 255, 213, 208, 236, 115, 61,
   ]),
-);
+) as Address;
 export const SHIELDED_POOL_CPI_AUTHORITY = encodeBase58(
   Uint8Array.from([
     88, 254, 248, 74, 86, 156, 76, 98, 4, 160, 29, 78, 152, 238, 8, 247, 252, 20, 54, 18, 242, 184,
     160, 99, 112, 248, 135, 246, 47, 245, 181, 43,
   ]),
-);
+) as Address;
 export const SPL_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address;
 export const ASSOCIATED_TOKEN_PROGRAM_ID =
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL" as Address;

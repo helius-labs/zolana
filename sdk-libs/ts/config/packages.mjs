@@ -11,7 +11,8 @@ export const packageConfigurations = {
   },
   interface: {
     entryPoints: [".", "./pda", "./codecs", "./instructions"],
-    dependencies: ["@zolana/hasher"],
+    dependencies: ["@zolana/hasher", "bs58"],
+    browserDependencies: ["bs58"],
     browser: true,
   },
   keypair: {
@@ -22,7 +23,6 @@ export const packageConfigurations = {
       "@noble/hashes",
       "@zolana/hasher",
       "@zolana/interface",
-      "bs58",
     ],
     browserDependencies: [
       "@noble/ciphers/webcrypto.js",
@@ -30,7 +30,6 @@ export const packageConfigurations = {
       "@noble/hashes/hkdf.js",
       "@noble/hashes/sha2.js",
       "@zolana/interface",
-      "bs58",
     ],
     browser: true,
   },
@@ -81,8 +80,8 @@ export const packageConfigurations = {
   },
   "smart-account-client": {
     entryPoints: ["."],
-    dependencies: ["@noble/hashes", "@zolana/interface", "bs58"],
-    browserDependencies: ["@noble/hashes/sha2.js", "bs58"],
+    dependencies: ["@noble/hashes", "@zolana/interface"],
+    browserDependencies: ["@noble/hashes/sha2.js"],
     browser: true,
   },
   "test-kit": {

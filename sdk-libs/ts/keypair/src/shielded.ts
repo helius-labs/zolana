@@ -1,4 +1,4 @@
-import bs58 from "bs58";
+import { encodeBase58 } from "@zolana/interface";
 
 import {
   type Address,
@@ -62,7 +62,7 @@ export class ShieldedAddress {
   }
 
   solanaAddress(): Address {
-    return bs58.encode(this.signingPublicKey.ed25519()) as Address;
+    return encodeBase58(this.signingPublicKey.ed25519()) as Address;
   }
 
   confidentialViewTag(): ViewTag {

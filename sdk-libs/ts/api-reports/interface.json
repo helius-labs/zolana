@@ -79,6 +79,10 @@
         "kind": "type"
       },
       {
+        "name": "decodeBase58",
+        "kind": "value"
+      },
+      {
         "name": "DecodedShieldedPoolError",
         "kind": "type"
       },
@@ -113,6 +117,10 @@
       {
         "name": "DepositSplAccounts",
         "kind": "type"
+      },
+      {
+        "name": "encodeBase58",
+        "kind": "value"
       },
       {
         "name": "externalDataHash",

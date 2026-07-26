@@ -771,10 +771,8 @@ function parsedInstruction(
   });
   const encoded = string(instruction["data"], "instruction.data");
   const height = stackHeight ?? instruction["stackHeight"];
-  // Rust's bs58 decode maps "" to an empty byte array; match that so a
-  // confirmed transaction that includes a zero-data instruction still parses.
-  const data =
-    encoded.length === 0 ? new Uint8Array(0) : decodeBase58Bytes(encoded, "instruction.data");
+  // Empty base58 is empty bytes (bs58 / Rust); zero-data instructions still parse.
+  const data = decodeBase58Bytes(encoded, "instruction.data");
   // Instruction data travels inside a transaction, so no decode can be longer
   // than the packet the validator accepts.
   if (data.length > TRANSACTION_SIZE_LIMIT) {

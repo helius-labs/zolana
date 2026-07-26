@@ -104,6 +104,7 @@
     "api:check": "node ../config/workspace-check.mjs api"
   },
   "dependencies": {
-    "@zolana/hasher": "0.1.0"
+    "@zolana/hasher": "0.1.0",
+    "bs58": "^6.0.0"
   }
 }

@@ -2,13 +2,16 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { MAX_POSEIDON_INPUTS, poseidon as hash } from "@zolana/hasher";
 
 import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "@zolana/interface";
+import {
+  decodeBase58 as decodeBase58Canonical,
+  encodeBase58 as encodeBase58Canonical,
+} from "@zolana/interface";
 export { hashField, sha256Be } from "@zolana/keypair/hash";
 
 import { TransactionError, type TransactionErrorCode } from "./error.js";
 
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
-const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export const ZERO_32 = new Uint8Array(32) as Bytes32;
 export const U64_MAX = 0xffff_ffff_ffff_ffffn;
@@ -150,38 +153,24 @@ export function random16(): Bytes16 {
 }
 
 export function decodeAddress(address: Address): Bytes32 {
-  let value = 0n;
-  for (const character of address) {
-    const digit = BASE58.indexOf(character);
-    if (digit < 0) throw new TransactionError("TRANSACTION_INVALID_ADDRESS", { address });
-    value = value * 58n + BigInt(digit);
+  if (typeof address !== "string") {
+    throw new TransactionError("TRANSACTION_INVALID_ADDRESS", { address });
   }
-  const decoded: number[] = [];
-  while (value > 0n) {
-    decoded.push(Number(value & 0xffn));
-    value >>= 8n;
+  let decoded: Uint8Array;
+  try {
+    decoded = decodeBase58Canonical(address);
+  } catch {
+    throw new TransactionError("TRANSACTION_INVALID_ADDRESS", { address });
   }
-  for (const character of address) {
-    if (character !== "1") break;
-    decoded.push(0);
+  if (encodeBase58Canonical(decoded) !== address) {
+    throw new TransactionError("TRANSACTION_INVALID_ADDRESS", { address });
   }
-  decoded.reverse();
-  return checked<Bytes32>(Uint8Array.from(decoded), 32, "address");
+  return checked<Bytes32>(decoded, 32, "address");
 }
 
 export function encodeAddress(bytes: Uint8Array): Address {
   const input = checked<Bytes32>(bytes, 32, "address");
-  let value = bytesToBigInt(input);
-  let output = "";
-  while (value > 0n) {
-    output = BASE58.charAt(Number(value % 58n)) + output;
-    value /= 58n;
-  }
-  for (const byte of input) {
-    if (byte !== 0) break;
-    output = `1${output}`;
-  }
-  return (output || "1") as Address;
+  return encodeBase58Canonical(input) as Address;
 }
 
 export function checked33(bytes: Uint8Array): Bytes33 {

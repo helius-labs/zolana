@@ -543,8 +543,8 @@ export const createZoneConfigDataCodec = strictCodec<CreateZoneConfigData>(
       .bytes(addressBytes(value.authority, "authority"))
       .bool(value.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled"),
   (reader) => ({
-    programId: encodeBase58(reader.bytes(32, "programId")),
-    authority: encodeBase58(reader.bytes(32, "authority")),
+    programId: encodeBase58(reader.bytes(32, "programId")) as Address,
+    authority: encodeBase58(reader.bytes(32, "authority")) as Address,
     zoneAuthorityTransactIsEnabled: reader.bool("zoneAuthorityTransactIsEnabled"),
   }),
   65,
@@ -552,7 +552,7 @@ export const createZoneConfigDataCodec = strictCodec<CreateZoneConfigData>(
 
 export const updateZoneConfigOwnerDataCodec = strictCodec<UpdateZoneConfigOwnerData>(
   (writer, value) => writer.bytes(addressBytes(value.newAuthority, "newAuthority")),
-  (reader) => ({ newAuthority: encodeBase58(reader.bytes(32, "newAuthority")) }),
+  (reader) => ({ newAuthority: encodeBase58(reader.bytes(32, "newAuthority")) as Address }),
   32,
 );
 
@@ -605,7 +605,7 @@ function writeAddress(writer: Writer, value: Address, name: string): void {
 }
 
 function readAddress(reader: Reader, name: string): Address {
-  return encodeBase58(reader.bytes(32, name));
+  return encodeBase58(reader.bytes(32, name)) as Address;
 }
 
 export const protocolConfigAccountCodec: Codec<ProtocolConfigAccount> = accountCodec(

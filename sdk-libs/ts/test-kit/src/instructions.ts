@@ -1,6 +1,10 @@
 import type { Rpc } from "@zolana/client";
 import type { Address, Instruction, RequestContext } from "@zolana/interface";
-import { SHIELDED_POOL_PROGRAM_ID } from "@zolana/interface";
+import {
+  SHIELDED_POOL_PROGRAM_ID,
+  decodeBase58,
+  encodeBase58,
+} from "@zolana/interface";
 import { createTreeInstruction } from "@zolana/interface/instructions";
 
 import { TestKitError } from "./error.js";
@@ -79,23 +83,15 @@ function writeU64(bytes: Uint8Array, offset: number, value: bigint, field: strin
 
 /** Decode a 32-byte Solana address from base58; refuse invalid alphabet, empty, and wrong length. */
 export function decodeBase58Address(value: string, field: string): Uint8Array {
-  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  const bytes = [0];
-  for (const character of value) {
-    let carry = alphabet.indexOf(character);
-    if (carry < 0) throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
-    for (let index = 0; index < bytes.length; index++) {
-      const next = (bytes[index] ?? 0) * 58 + carry;
-      bytes[index] = next & 0xff;
-      carry = next >> 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
+  let result: Uint8Array;
+  try {
+    result = decodeBase58(value);
+  } catch {
+    throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
   }
-  for (let index = 0; index < value.length - 1 && value[index] === "1"; index++) bytes.push(0);
-  const result = Uint8Array.from(bytes.reverse());
+  if (encodeBase58(result) !== value) {
+    throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
+  }
   if (result.length !== 32) {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
       details: { field, expected: 32, actual: result.length },
