@@ -90,6 +90,51 @@ fail-closed rule.
 client wrap path" (`ciphertext` kept by transaction deny-list, dropped by
 client allow-list).
 
+## F130 close — transaction + shared allow-list (`port/redaction-close`)
+
+**Wrong.** After the client wrap path moved to fail-closed, `@zolana/transaction`
+still used a deny-list that kept arbitrary scalars (including `ciphertext`).
+Wallet and other packages either copied details raw or had no bag at all, so a
+third contradictory rule defeated "one fail-closed rule everywhere."
+
+**Change.** Export one shared allow-list and sanitizer from `@zolana/keypair`
+(`SAFE_ERROR_DETAIL_KEYS` / `sanitizeSafeErrorDetails`): keypair descriptors
+plus the union of diagnostic keys transaction and wallet call sites already
+emit (`requested`, `available`, `inputs`, `outputs`, and siblings). Values are
+`string` | `number` only. `@zolana/transaction`, `@zolana/client` (wrap path),
+and `@zolana/wallet` all call that helper. Nested `payload` bags no longer
+survive; `unknownTransactionError` flattens allow-listed keys to the top level.
+Wallet commitment hashes in details are hex strings via `bytesKey`, not
+`Uint8Array`.
+
+**Shared definition.** One copy in `@zolana/keypair` (transaction, client, and
+wallet already depend on it). No new dependency edges.
+
+### Final redaction state
+
+| Package | Rule before | Rule after | Test that proves it |
+| --- | --- | --- | --- |
+| `@zolana/keypair` | Fail-closed allow-list (own keys) | Same policy; also exports the shared union sanitizer | `keypair/test/api-surface.test.ts` — "drops a non-allow-listed detail on KeypairError and the shared sanitizer" |
+| `@zolana/client` | Fail-closed wrap-path allow-list (local copy) | Same rule via `sanitizeSafeErrorDetails` from keypair | `client/test/error.test.ts` — "drops a non-allow-listed detail on the client wrap path" |
+| `@zolana/transaction` | Fail-open deny-list (regex drop, keep other scalars / nests) | Fail-closed shared allow-list | `transaction/test/core.test.ts` — "drops a non-allow-listed detail on TransactionError" |
+| `@zolana/wallet` | Raw pass-through of `details` | Fail-closed shared allow-list | `wallet/test/wallet.test.ts` — "drops a non-allow-listed detail on WalletError" |
+
+### Audit of all eleven packages
+
+| Package | Findings |
+| --- | --- |
+| `keypair` | Allow-list (canonical). Converted earlier; now owns the shared union. |
+| `client` | Constructor uses per-code `DETAIL_SHAPES`; wrap path now shared allow-list. |
+| `transaction` | Converted from deny-list to shared allow-list. |
+| `wallet` | Converted from raw pass-through; secret-adjacent (hashes / amounts). |
+| `smart-account-client` | Raw `details` shallow copy. No `@zolana/keypair` dependency; adding one would be a new edge. Call sites only pass bounds (`name`, `value`, `maximum`, `actual`, `index`, lengths) — not viewing keys, nullifiers, or decrypted amounts. Left as a separate copy candidate if that package later grows secret surfaces. |
+| `test-kit` | Raw `details` pass-through. Test harness only; not a production secret path. |
+| `api` | `ApiError.details` for RPC/schema diagnostics (`status`, `retryable`, `path`). No shielded key material; no sanitizer today. |
+| `indexer-api` | `IndexerSchemaError.details` for JSON path / expected / actual shape. Schema validation only. |
+| `merkle-tree` | `MerkleTreeError` / `IndexedMerkleTreeError` optional `details` pass-through for tree geometry. No shielded secrets. |
+| `interface` | Error codes / `ShieldedPoolError` constants; no structured `details` bag sanitizer. |
+| `hasher` | No `details` bag. |
+
 ## Invalid items
 
 None of the seven failed verification; all were real defects.

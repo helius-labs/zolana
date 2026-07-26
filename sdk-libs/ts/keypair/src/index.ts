@@ -8,8 +8,11 @@ export type { Salt } from "./viewing-key.js";
 export {
   KeypairError,
   KEYPAIR_ERROR_RUST_VARIANT,
+  SAFE_ERROR_DETAIL_KEYS,
+  sanitizeSafeErrorDetails,
   type KeypairErrorCode,
   type KeypairErrorDetails,
+  type SafeErrorDetailKey,
 } from "./error.js";
 // The Rust-public constants from `zolana_keypair::constants`. The `INFO_*`
 // labels and the HPKE prefixes stay internal because Rust keeps them

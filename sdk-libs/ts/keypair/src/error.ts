@@ -71,6 +71,95 @@ const DETAIL_KEYS: readonly (keyof KeypairErrorDetails)[] = [
 ];
 
 /**
+ * SDK-wide fail-closed allow-list for structured error `details`. Union of the
+ * keypair descriptors and the diagnostic keys transaction / wallet / client
+ * wrap paths already emit. Unknown keys and non-primitives drop.
+ */
+export const SAFE_ERROR_DETAIL_KEYS = Object.freeze([
+  "name",
+  "expected",
+  "actual",
+  "minimum",
+  "maximum",
+  "index",
+  "prefix",
+  "reason",
+  "type",
+  "requested",
+  "available",
+  "inputs",
+  "outputs",
+  "address",
+  "amount",
+  "asset",
+  "assetField",
+  "assetId",
+  "bits",
+  "byte",
+  "byteLength",
+  "code",
+  "declared",
+  "encoding",
+  "encodingTag",
+  "expectedEncoding",
+  "expectedMaximum",
+  "expectedMinimum",
+  "field",
+  "got",
+  "hash",
+  "input",
+  "inputCount",
+  "keypair",
+  "kind",
+  "max",
+  "mint",
+  "missing",
+  "numOutputs",
+  "offset",
+  "optionTag",
+  "owner",
+  "parts",
+  "perOutput",
+  "position",
+  "proofTree",
+  "provided",
+  "required",
+  "scheme",
+  "signed",
+  "spendTree",
+  "submitTree",
+  "tag",
+  "trailing",
+  "treeCount",
+  "typePrefix",
+  "utxoTree",
+  "value",
+  "variant",
+] as const);
+
+export type SafeErrorDetailKey = (typeof SAFE_ERROR_DETAIL_KEYS)[number];
+
+/**
+ * Copies only allow-listed keys and only `string` / `number` values, so a
+ * caller cannot smuggle a `Uint8Array` of key material into a thrown error.
+ */
+export function sanitizeSafeErrorDetails(
+  details: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, string | number>> | undefined {
+  if (details === undefined) return undefined;
+  const output: Record<string, string | number> = {};
+  let present = false;
+  for (const key of SAFE_ERROR_DETAIL_KEYS) {
+    const value = details[key];
+    if (typeof value === "number" || typeof value === "string") {
+      output[key] = value;
+      present = true;
+    }
+  }
+  return present ? Object.freeze(output) : undefined;
+}
+
+/**
  * Copies only the known keys and only primitive values, so a caller cannot
  * smuggle a `Uint8Array` of key material into a thrown error.
  */

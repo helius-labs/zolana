@@ -1,5 +1,9 @@
 import type { DecodedShieldedPoolError } from "@zolana/interface";
-import { KeypairError, type KeypairErrorCode } from "@zolana/keypair";
+import {
+  KeypairError,
+  sanitizeSafeErrorDetails,
+  type KeypairErrorCode,
+} from "@zolana/keypair";
 import { TransactionError, type TransactionErrorCode } from "@zolana/transaction";
 
 type NoDetails = undefined;
@@ -706,39 +710,10 @@ function cloneSafeValue(value: unknown): unknown {
   throw new TypeError("ClientError details must contain safe data");
 }
 
-/**
- * Fail-closed allow-list for wrapped cause details. Matches `@zolana/keypair`'s
- * policy (known keys, primitives only) and admits the small set of transaction
- * diagnostic keys the wrap path already forwards. Unknown keys and nested
- * values drop rather than surviving a deny-list walk.
- */
-const CAUSE_DETAIL_KEYS = Object.freeze([
-  "name",
-  "expected",
-  "actual",
-  "minimum",
-  "maximum",
-  "index",
-  "prefix",
-  "reason",
-  "type",
-  "requested",
-  "available",
-  "inputs",
-  "outputs",
-] as const);
-
 function sanitizeDetails(
   details: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
-  const safe: Record<string, string | number> = {};
-  for (const key of CAUSE_DETAIL_KEYS) {
-    const value = details[key];
-    if (typeof value === "number" || typeof value === "string") {
-      safe[key] = value;
-    }
-  }
-  return Object.freeze(safe);
+  return sanitizeSafeErrorDetails(details) ?? Object.freeze({});
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

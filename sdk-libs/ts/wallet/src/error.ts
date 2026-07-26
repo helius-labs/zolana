@@ -1,3 +1,5 @@
+import { sanitizeSafeErrorDetails } from "@zolana/keypair";
+
 /**
  * Closed set of wallet error codes. Rust has no wallet error type and returns
  * `ClientError` and `TransactionError` unchanged, so a wrapped code must stay
@@ -60,7 +62,7 @@ export type WalletErrorCode = (typeof WALLET_ERROR_CODES)[number];
 export class WalletError extends Error {
   readonly code: WalletErrorCode;
   readonly causeCode?: string;
-  readonly details?: Readonly<Record<string, unknown>>;
+  readonly details?: Readonly<Record<string, string | number>>;
   override readonly cause?: unknown;
 
   constructor(
@@ -75,7 +77,9 @@ export class WalletError extends Error {
     this.name = "WalletError";
     this.code = code;
     if (options?.causeCode !== undefined) this.causeCode = options.causeCode;
-    if (options?.details !== undefined) this.details = Object.freeze({ ...options.details });
+    const sanitized =
+      options?.details === undefined ? undefined : sanitizeSafeErrorDetails(options.details);
+    if (sanitized !== undefined) this.details = sanitized;
     if (options?.cause !== undefined) this.cause = options.cause;
   }
 }

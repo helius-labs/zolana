@@ -341,8 +341,8 @@ describe("ClientError", () => {
   });
 
   it("drops a non-allow-listed detail on the client wrap path", () => {
-    // TransactionError's deny-list would keep `ciphertext`; the client wrap
-    // path must still drop it under the shared fail-closed allow-list.
+    // Both packages share the fail-closed allow-list; `ciphertext` must not
+    // survive TransactionError construction or the client wrap path.
     const wrapped = fromClientCause(
       new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", {
         requested: "11",

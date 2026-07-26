@@ -265,7 +265,7 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
       throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
         value: value.toString(),
         byteLength,
-        signed,
+        signed: signed ? 1 : 0,
       });
     }
   };

@@ -1,4 +1,4 @@
-import { KeypairError } from "@zolana/keypair";
+import { KeypairError, sanitizeSafeErrorDetails } from "@zolana/keypair";
 
 export const TRANSACTION_ERROR_CODES = Object.freeze([
   "TRANSACTION_AUTHORITY",
@@ -87,14 +87,8 @@ export const TRANSACTION_ERROR_CODES = Object.freeze([
 ] as const);
 
 export type TransactionErrorCode = (typeof TRANSACTION_ERROR_CODES)[number];
-export type TransactionErrorValue =
-  | string
-  | number
-  | bigint
-  | boolean
-  | null
-  | readonly TransactionErrorValue[]
-  | Readonly<{ [key: string]: TransactionErrorValue }>;
+/** Allow-listed detail values: strings and numbers only. */
+export type TransactionErrorValue = string | number;
 export type TransactionErrorDetails = Readonly<Record<string, TransactionErrorValue>>;
 export type TransactionErrorCause =
   | Readonly<{ category: "transaction"; code: TransactionErrorCode }>
@@ -116,7 +110,7 @@ export class TransactionError extends Error {
     super(code, safe === undefined ? undefined : { cause: safe });
     this.name = "TransactionError";
     this.code = code;
-    this.details = safeDetails(details);
+    this.details = sanitizeSafeErrorDetails(details);
     this.cause = safe;
   }
 }
@@ -133,7 +127,11 @@ export function unknownTransactionError(
   variant: string,
   payload?: Readonly<Record<string, unknown>>,
 ): TransactionError {
-  return new TransactionError("TRANSACTION_UNKNOWN_VARIANT", { variant, payload });
+  // Flatten so allow-listed diagnostic keys survive; nested bags drop.
+  return new TransactionError("TRANSACTION_UNKNOWN_VARIANT", {
+    variant,
+    ...(payload ?? {}),
+  });
 }
 
 export function authorityError(cause: unknown, code?: string): TransactionError {
@@ -173,40 +171,4 @@ function isCauseCategory(
 ): value is Readonly<{ category: "authority" | "external"; code?: string }> {
   if (typeof value !== "object" || value === null || !("category" in value)) return false;
   return value.category === "authority" || value.category === "external";
-}
-
-function safeDetails(
-  details: Readonly<Record<string, unknown>> | undefined,
-): TransactionErrorDetails | undefined {
-  if (details === undefined) return undefined;
-  const safe = Object.fromEntries(
-    Object.entries(details).flatMap(([key, value]) => {
-      if (/(secret|private|seed|blinding|nonce|scalar|signature)/iu.test(key)) return [];
-      const sanitized = safeValue(value);
-      return sanitized === undefined ? [] : [[key, sanitized]];
-    }),
-  );
-  return Object.freeze(safe);
-}
-
-function safeValue(value: unknown): TransactionErrorValue | undefined {
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "bigint" ||
-    typeof value === "boolean" ||
-    value === null
-  ) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return Object.freeze(
-      value.flatMap((entry) => {
-        const safe = safeValue(entry);
-        return safe === undefined ? [] : [safe];
-      }),
-    );
-  }
-  if (typeof value !== "object" || value instanceof Uint8Array) return undefined;
-  return safeDetails(value as Readonly<Record<string, unknown>>);
 }
