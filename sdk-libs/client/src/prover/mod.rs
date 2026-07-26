@@ -4,6 +4,8 @@ mod inputs;
 mod json;
 pub mod merge;
 pub mod merge_zone;
+#[cfg(test)]
+mod oracle_file;
 mod proof;
 pub mod transact;
 #[cfg(test)]

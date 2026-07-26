@@ -321,16 +321,5 @@ fn ts_merge_oracle_is_current() {
         serde_json::to_string_pretty(&oracle).expect("render")
     );
 
-    let path = oracle_path();
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
-    if current == rendered {
-        return;
-    }
-    std::fs::create_dir_all(path.parent().expect("oracle directory")).expect("create oracle dir");
-    std::fs::write(&path, &rendered).expect("write oracle");
-    assert!(
-        std::env::var_os("ZOLANA_UPDATE_TS_ORACLES").is_some(),
-        "{} was stale and has been rewritten; commit it",
-        path.display()
-    );
+    crate::prover::oracle_file::assert_oracle_current(&oracle_path(), &rendered);
 }
