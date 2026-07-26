@@ -9,10 +9,12 @@ rail, and the rejection surface for malformed prover responses.
 P3 certifies the shared accept/reject surface for parsing and compression where
 both languages already agreed, plus the Rust-generated fixture for parity-bit,
 identity, leading-zero, structural row-count, truncated/extended, and
-rail-confusion cases. Three residuals have dispositions (see
-[fnd-d5.md](./fnd-d5.md)):
+rail-confusion cases. Residuals have dispositions (see
+[fnd-d5.md](./fnd-d5.md) and [g2.md](./g2.md)):
 
-1. Off-curve G2 at compress — deliberate TypeScript-only fail-fast (SIMD-0129).
+1. Off-curve G2 at compress — closed parsing defect (gnark `c1`-first limbs);
+   TypeScript now matches the syscall range check and defers curve validity to
+   the chain. Not a language-level policy divergence.
 2. Unknown response fields — shared acceptance kept for prover forward
    compatibility; not a soundness gap.
 3. `y1 == 0 && isLargest(y0)` — skipped with algebraic evidence that the curve
@@ -57,19 +59,19 @@ coordinates; G1 compressed parity clear and set; G2 compressed parity clear and
 and extended G1 arrays; malformed hex; a coordinate at the modulus; commitment
 without PoK and PoK without commitment; commitment on the eddsa rail; missing
 commitment on the p256 rail; off-curve G1 at compress; a G2 limb at the modulus.
-The unknown-field row records shared acceptance. The off-curve G2 row records the
-Rust/TypeScript divergence.
+The unknown-field row records shared acceptance. The off-curve G2 row records
+shared acceptance under `match-syscall-range-check` (see [g2.md](./g2.md)).
 
 ## Divergences
 
-**Off-curve G2 at compress.** Solana's `alt_bn128_g2_compress_be` does not
-validate the G2 curve equation; the SIMD for that syscall says so explicitly.
-TypeScript calls `bn254.G2.Point.fromAffine(...).assertValidity()` and refuses
-the same bytes. Fixture id `off-curve-g2-compress-divergence` pins both
-outcomes with `disposition: "typescript-fail-fast"`. Kept as a TypeScript-only
-fail-fast: off-curve G2 leaks nothing and fails on-chain pairing; Rust stays on
-the syscall. A G2 limb at or above the base modulus is refused by both and is
-the shared rejection used for that clause.
+**Off-curve G2 at compress — not a divergence.** An earlier draft treated
+TypeScript refusal of off-curve G2 as a deliberate fail-fast against Solana's
+`Validate::No` compress. That framing was wrong twice: live prover points failed
+because TypeScript read gnark Fq2 limbs in the wrong order, and the correct end
+state is that both languages perform only the field-range check the syscall
+performs. Fixture id `off-curve-g2-compress-shared-accept`. A G2 limb at or
+above the base modulus is refused by both and is the shared rejection for that
+clause.
 
 **Error taxonomy.** Rust folds parse, point, and rail failures into
 `ClientError::ProofParse`. TypeScript names `CLIENT_PROOF_PARSE`,
@@ -87,8 +89,8 @@ change with no soundness win; the Go prover's `ProofJSON` is additive-tolerant.
 
 The `y1 == 0 && isLargest(y0)` G2 parity branch stays `unavailable`. An algebraic
 solve finds on-curve points with `y.c1 == 0` (first hit at `x1 = 2`), but every
-constructed point fails the r-torsion check that TypeScript `assertValidity`
-enforces. Expected `|G2 ∩ locus|` is O(1) in a 2^254 group, so there is no short
+constructed point fails the r-torsion check arkworks enforces for prime-order
+G2. Expected `|G2 ∩ locus|` is O(1) in a 2^254 group, so there is no short
 prime-order witness. The skip is backed by that evidence, not a failed search.
 
 P1 public-input assembly files were not touched; no handoff beyond staying out

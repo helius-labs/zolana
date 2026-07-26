@@ -7,14 +7,8 @@
  * protocol config and pool tree, deposits SOL, syncs through Photon, and builds
  * a confidential Ed25519 transfer in TypeScript against indexer Merkle context.
  *
- * Pure TypeScript path: production `compressProof` rejects every sampled live
- * G2 B point (`CLIENT_PROOF_POINT`), so the default suite stops at that wall and
- * records it. It does not stub the program.
- *
- * Hybrid path: `ZOLANA_TEST_P5_RUST_COMPRESS=1` compresses through the test-only
- * Rust `alt_bn128_*_compress_be` oracle when TypeScript refuses the point, then
- * submits. That proves the program accepts a TypeScript-assembled, prover-built
- * proof; it does **not** certify TypeScript G2 compression (owned by P3/fnd-d5).
+ * Default path is pure TypeScript (`compressProof` with EIP-197 A1||A0 G2 limbs).
+ * `ZOLANA_TEST_P5_RUST_COMPRESS=1` keeps the historical hybrid oracle fallback.
  */
 
 import type { Rpc, ZolanaClient } from "@zolana/client";
@@ -174,7 +168,7 @@ suite("P5 prove-to-chain (confidential Ed25519)", () => {
   it(
     RUST_COMPRESS
       ? "hybrid: TypeScript assemble + Rust compress lands on the shielded-pool program"
-      : "pure TypeScript path reaches the live G2 compression wall",
+      : "pure TypeScript path lands on the shielded-pool program",
     async () => {
       const offset = Number(process.env["ZOLANA_PORT_OFFSET"] ?? String(DEFAULT_OFFSET));
       expect(offset).toBe(DEFAULT_OFFSET);
@@ -299,20 +293,7 @@ suite("P5 prove-to-chain (confidential Ed25519)", () => {
         expect(created.recipient.kind).toBe("registered");
         expect(created.transaction.inputCount()).toBe(1);
 
-        if (!RUST_COMPRESS) {
-          await expect(
-            signPrivateTransaction({
-              transaction: created.transaction,
-              wallet: sender.wallet,
-              authority: sender.authority,
-              client: harness.client,
-              feePayer: senderSigner,
-            }),
-          ).rejects.toSatisfy(isProofPointFailure);
-          return;
-        }
-
-        await runHybridSettlement({
+        await runSettlement({
           harness,
           sender,
           recipient,
@@ -332,7 +313,7 @@ suite("P5 prove-to-chain (confidential Ed25519)", () => {
   );
 });
 
-async function runHybridSettlement(
+async function runSettlement(
   input: Readonly<{
     harness: ReturnType<typeof createE2eHarness>;
     sender: ReturnType<typeof createTestWallet>;

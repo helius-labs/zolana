@@ -51,6 +51,8 @@ type RejectCase = Readonly<{
   acceptedByTypescript?: boolean;
   stage?: "parse" | "compress";
   typescriptCategory?: string | null;
+  compressedBBytes?: string;
+  disposition?: string;
   uncompressed?: Readonly<{
     aBytes: string;
     bBytes: string;
@@ -121,22 +123,21 @@ describe("P3 proof-response parity (Rust-generated)", () => {
   }
 
   for (const testCase of fixture.rejects as RejectCase[]) {
-    if (testCase.divergence) {
-      it(`records the off-curve G2 compress divergence (${testCase.id})`, () => {
+    if (testCase.stage === "compress" && testCase.accepted === true) {
+      it(`accepts ${testCase.id} at compress on both sides (${testCase.clause})`, () => {
         const point = testCase.uncompressed;
-        const code = testCase.typescriptCategory;
-        if (!point || !code) throw new Error(`divergence case ${testCase.id} is incomplete`);
+        const expectedB = testCase.compressedBBytes;
+        if (!point || !expectedB) {
+          throw new Error(`shared compress accept ${testCase.id} is incomplete`);
+        }
         expect(testCase.acceptedByRust).toBe(true);
-        expect(testCase.acceptedByTypescript).toBe(false);
-        expectCode(
-          () =>
-            compressProof({
-              a: bytes(point.aBytes) as Bytes64,
-              b: bytes(point.bBytes) as Bytes128,
-              c: bytes(point.cBytes) as Bytes64,
-            }),
-          code,
-        );
+        expect(testCase.acceptedByTypescript).toBe(true);
+        const compressed = compressProof({
+          a: bytes(point.aBytes) as Bytes64,
+          b: bytes(point.bBytes) as Bytes128,
+          c: bytes(point.cBytes) as Bytes64,
+        });
+        expect(hex(compressed.b)).toBe(expectedB);
       });
       continue;
     }

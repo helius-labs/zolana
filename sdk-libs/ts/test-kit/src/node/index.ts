@@ -202,6 +202,8 @@ export async function startLocalStack(
       // Omit `--db-url`: Photon runs `RingsMigrator` only when the URL is unset
       // and then uses an ephemeral SQLite file. A caller-supplied URL skips
       // migrations, so every query fails with `no such table: blocks`.
+      // It creates that database under the system temp directory, which two
+      // stacks would otherwise share, so point it at this stack's directory.
       owned.push(
         spawnOwned(
           photonBinary,
@@ -215,6 +217,7 @@ export async function startLocalStack(
           ],
           "Photon",
           workspace,
+          { TMPDIR: temporaryDirectory },
         ),
       );
       await waitForHttp(urls.indexerUrl, "/readiness", "Photon", input.signal, owned.at(-1));
@@ -303,11 +306,12 @@ function spawnOwned(
   args: readonly string[],
   name: string,
   cwd: string,
+  env: Readonly<Record<string, string>> = {},
 ): OwnedProcess {
   const child = spawn(command, args, {
     cwd,
     detached: process.platform !== "win32",
-    env: { ...process.env },
+    env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

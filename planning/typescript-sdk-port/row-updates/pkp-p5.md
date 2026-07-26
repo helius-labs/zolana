@@ -14,20 +14,13 @@ holds, and which live G2 points take the Rust compress fallback.
 **Does a TypeScript-built shielded transaction get accepted by the shielded-pool
 program on a real validator?**
 
-- **Pure TypeScript wire path: no.** After a real deposit, Photon sync, and
-  prover proof against indexer Merkle context, production `compressProof` rejects
-  the live G2 B point with `CLIENT_PROOF_POINT` (same class as the 16/16 sample
-  in PKP-08). Submission does not reach the program. The default suite
-  (`npm run test:e2e:p5`) asserts that wall and stops; it does not stub the
-  program.
-- **Hybrid wire path (TypeScript assemble + prove, Rust
-  `alt_bn128_*_compress_be` only for compression): yes** for confidential
-  Ed25519 deposit → private transfer → withdraw on the same-revision local
-  stack (`npm run test:e2e:p5:hybrid`). The program confirms both private
-  transactions; Photon indexes them; sender change and recipient note decrypt
-  and sync; a stranger wallet finds nothing; public withdraw balances settle.
-  This certifies program acceptance of a TypeScript-assembled, prover-built
-  proof. It does **not** certify TypeScript G2 compression.
+- **Pure TypeScript wire path: yes** after the G2 limb-order fix
+  ([g2.md](./g2.md), from `7c976046`). Live prover B points compress in pure
+  TypeScript and match Solana; `npm run test:e2e:p5` lands deposit → private
+  transfer → withdraw without the Rust compress fallback.
+- The earlier “16/16 TS compress fail / hybrid-only program acceptance” result
+  below is historical: it measured the `c0`-first parsing bug, not a policy
+  divergence. Do not cite it as current residual risk.
 
 Program acceptance was exercised for confidential Ed25519 only. Zone,
 zone-authority, P256, and merge prove-to-chain remain unproven against the
@@ -37,9 +30,9 @@ program.
 
 | Gap | P5 result |
 | --- | --- |
-| Program acceptance (PKP-07 / F080) | Hybrid confidential Ed25519 green; pure TS blocked by G2 compress |
+| Program acceptance (PKP-07 / F080) | Pure TypeScript confidential Ed25519 green after [g2.md](./g2.md) |
 | Full shape matrix (`ZOLANA_TEST_P4_FULL=1`) | **53/53 passed** in 536s against prover `http://127.0.0.1:3501` (`ZOLANA_PORT_OFFSET=500`); no shape broke |
-| Live G2 fallback characterisation | 16/16 confidential Ed25519 1×1 samples: TS compress fail, Rust compress ok; noble `assertValidity` → `bad point: equation left != right`; `fromAffine` succeeds (`onCurveFp2: true`). Report: `g2-compression-live.json` |
+| Live G2 fallback characterisation | **Superseded:** was 16/16 TS fail from wrong Fq2 limb order; now 16/16 pure TS compress matches Solana (`rustFallbackNeeded: 0`). See [g2.md](./g2.md). |
 
 `planning/typescript-sdk-port/row-updates/fnd-d5.md` was absent when this pass
 ran. Compression behaviour was not changed.

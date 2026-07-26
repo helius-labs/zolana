@@ -1,5 +1,4 @@
 import type { Bytes32, Bytes64, Bytes128, TransactProof } from "@zolana/interface";
-import { bn254 } from "@noble/curves/bn254.js";
 
 import { ClientError } from "../error.js";
 import { bigintToBytes, bytesToBigInt, checkedBytes } from "../internal.js";
@@ -141,19 +140,17 @@ function compressG2(point: Bytes128): Bytes64 {
     throw new ClientError("CLIENT_PROOF_POINT", { details: { field: "proof.b" } });
   }
   if (values.every((value) => value === 0n)) return new Uint8Array(64) as Bytes64;
-  const [x0, x1, y0, y1] = values;
-  if (x0 === undefined || x1 === undefined || y0 === undefined || y1 === undefined) {
-    throw new ClientError("CLIENT_PROOF_POINT", { details: { field: "proof.b" } });
-  }
-  try {
-    bn254.G2.Point.fromAffine({
-      x: { c0: x0, c1: x1 },
-      y: { c0: y0, c1: y1 },
-    }).assertValidity();
-  } catch {
+  // gnark writes the c1 component of each Fq2 coordinate first, so the layout
+  // is x.c1 || x.c0 || y.c1 || y.c0. Only the sign of y is read here, and the
+  // range check above is the same one `alt_bn128_g2_compress_be` performs, so
+  // an off-curve point is left for the on-chain verifier to reject.
+  const [, , y1, y0] = values;
+  if (y0 === undefined || y1 === undefined) {
     throw new ClientError("CLIENT_PROOF_POINT", { details: { field: "proof.b" } });
   }
   const result = new Uint8Array(point.subarray(0, 64)) as Bytes64;
+  // Fq2 orders on c1, so c0 only decides the sign when c1 ties with its own
+  // negation, which happens only at zero.
   if (isLargest(y1) || (y1 === 0n && isLargest(y0))) {
     result[0] = (result[0] ?? 0) | 0x80;
   }

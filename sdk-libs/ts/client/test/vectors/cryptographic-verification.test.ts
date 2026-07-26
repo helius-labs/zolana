@@ -309,8 +309,8 @@ function compressForSuite(proof: Proof): Readonly<{
   try {
     return { compressed: compressProof(proof), usedRustCompress: false };
   } catch {
-    // TypeScript's noble G2 assertValidity rejects some points that
-    // `solana_bn254::alt_bn128_g2_compress_be` (and therefore the program) accept.
+    // Historical fallback: before EIP-197 A1||A0 mapping, noble rejected live B
+    // points. Kept so a regression still reaches the oracle.
     // Fall back to the Rust compressor so P4 can still certify the wire path;
     // the finding is recorded in the row-update report.
     return {
