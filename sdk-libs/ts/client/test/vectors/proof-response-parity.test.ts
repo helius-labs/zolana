@@ -74,7 +74,12 @@ describe("P3 proof-response parity (Rust-generated)", () => {
 
   for (const testCase of fixture.valid as ValidCase[]) {
     if (testCase.unavailable) {
-      it.skip(`valid ${testCase.id} (${testCase.clause}) — no Rust point in search bound`, () => {});
+      it.skip(
+        `valid ${testCase.id} (${testCase.clause}) — ${String(
+          (testCase as { reason?: string }).reason ?? "unavailable",
+        )}`,
+        () => {},
+      );
       continue;
     }
 
