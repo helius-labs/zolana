@@ -147,7 +147,7 @@ export class Merge {
     const firstInput = inputs[0];
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const asset = firstInput.utxo.asset;
-    const nullifierPublicKey = keypair.nullifierKey().publicKey();
+    const nullifierPublicKey = keypair.nullifierPublicKey();
     let amount = 0n;
     inputs.forEach((input, index) => {
       if (input.utxo.owner.signatureType() !== owner.signatureType()) {
@@ -244,7 +244,7 @@ export class MergeZone {
     const owner = keypair.signingPublicKey();
     const asset = inputs[0]?.utxo.asset;
     if (asset === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    const expectedNullifierKey = keypair.nullifierKey().publicKey();
+    const expectedNullifierKey = keypair.nullifierPublicKey();
     let amount = 0n;
     inputs.forEach((input, index) => {
       if (input.utxo.owner.signatureType() !== owner.signatureType()) {
@@ -413,7 +413,7 @@ export class ConfidentialSplit {
    */
   sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
     const prepared = this.prepare();
-    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
+    const tx = keypair.transactionViewingKey(prepared.firstNullifier);
     const salt = randomSalt();
     const signed = prepared.finalize({
       txViewingPublicKey: tx.publicKey(),
