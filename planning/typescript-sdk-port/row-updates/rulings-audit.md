@@ -156,6 +156,25 @@ work and would collide.
 | `365072dc` | The deposit tag and size-check rulings, the T21 landing, the gate withdrawal |
 | `f6fc9ef7` | The M01 ruling |
 
+## A fourth collision, during this audit
+
+While this report was being written, a second agent committed it from this
+worktree onto this branch as `a95e5be4`, with the message "salvaged from a
+dropped agent". This agent was not dropped; it was mid-edit. Nothing was lost,
+because the file it committed was this file and no other path moved, but the
+commit message is wrong and the record should say so.
+
+That is the fourth instance of the failure `README.md` documents three of, and
+it fits the pattern the branch guard misses exactly: the branch name stayed
+right the whole time, so a `git branch --show-current` check would have passed.
+What surfaced it was `git log` showing authorship and a message this agent did
+not write, which is the signal that section names.
+
+The trigger was also the documented one. A coordinator judged an agent dead
+during a quiet interval and acted on it, and the plan already warns that
+transcript writes lag the work by as much as seventeen minutes and that quiet is
+a reason to check the branch rather than a death certificate.
+
 ## Not counted as a ruling
 
 "Resolve an open question the way Light Protocol resolved it" is a standing
