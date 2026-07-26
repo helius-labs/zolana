@@ -89,6 +89,10 @@ it.
 | `sdk-libs/keypair/src/signing_key.rs` | `reduce_prehash` reduces the 32-byte prehash modulo the group order before `sign_prehash`. |
 | `sdk-libs/transaction/src/wallet/authority.rs` | `sign_p256_with` built its own `EcdsaSigningKey` and so carried the same defect independently. Now routed through `SigningKey::try_sign`, so there is one signer. |
 
+TypeScript already had one signer: `SigningKey.sign` calls `p256.sign`, and the
+authority and builders reach it through `signP256`. Rust now mirrors that shape
+instead of having a second signer alongside it.
+
 The second was not in the original finding. It is the path that signs real
 transactions, and fixing only the keypair crate would have left it diverging.
 Routing it through the one signer also resolves the rail *before* signing
@@ -117,6 +121,10 @@ reducing the same way twice, which is the failure mode a pure replay has.
 The corpus makes the property visible directly: `order` now signs to the same
 bytes as `zero`, and `orderPlusOne` to the same bytes as `one`.
 
+`signing_key.rs` also pins the invariant in the crate's own unit tests, so
+`cargo test -p zolana-keypair` catches a regression without a regeneration
+step standing between the signer and the failure.
+
 ## Re-certification
 
 The full chain, both directions, plus control edits in both languages.
@@ -134,12 +142,13 @@ The full chain, both directions, plus control edits in both languages.
 | `cargo test -p zolana-transaction`, `-p zolana-wallet` | pass |
 | `cargo clippy` on both touched crates, `npm run typecheck`, eslint, prettier | clean |
 
-**Control edits, one per language, each restored:**
+**Control edits, each restored immediately:**
 
 | Edit | Caught by | Result |
 | --- | --- | --- |
 | Replay the pre-fix corpus against TypeScript | K2 | caught, exactly 2 of 269 |
 | Remove `reduce_prehash` from the Rust signer | Rust generator | caught, corpus no longer matches |
+| The same edit, against the crate's unit tests | `zolana-keypair` lib | caught, 1 of 6 |
 
 Each fails the tests that should fail rather than everything, and the pin now
 holds in both directions: whichever language stopped reducing would break here.
