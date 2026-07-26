@@ -774,6 +774,9 @@ function parsedInstruction(
 }
 
 function decodeBase58UnknownLength(value: string): Uint8Array {
+  // Rust's bs58 decode maps "" to an empty byte array; match that so a
+  // confirmed transaction that includes a zero-data instruction still parses.
+  if (value.length === 0) return new Uint8Array(0);
   // Instruction data travels inside a transaction, so no decode can be longer
   // than the packet the validator accepts.
   for (let length = 1; length <= TRANSACTION_SIZE_LIMIT; length++) {

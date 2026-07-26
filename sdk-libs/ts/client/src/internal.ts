@@ -151,6 +151,11 @@ export function sha256Bytes(bytes: Uint8Array): Bytes32 {
 }
 
 export function decodeBase58(value: unknown, length: number, fieldName: string): Uint8Array {
+  // Empty base58 is the empty byte string in bs58 and in the sibling base64
+  // decoder. Instruction data can be empty; addresses and signatures cannot.
+  if (typeof value === "string" && value.length === 0 && length === 0) {
+    return new Uint8Array(0);
+  }
   if (typeof value !== "string" || value.length === 0) {
     throw new ClientError("CLIENT_INVALID_BASE58", { details: { field: fieldName } });
   }

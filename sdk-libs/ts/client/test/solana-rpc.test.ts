@@ -438,6 +438,29 @@ describe("SolanaRpc", () => {
     );
   });
 
+  it("treats empty instruction data as empty bytes, matching Rust bs58", async () => {
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      fetch: vi.fn(() =>
+        Promise.resolve(
+          rpcResult(1, {
+            transaction: {
+              message: {
+                accountKeys: [ZERO_ADDRESS],
+                instructions: [{ programIdIndex: 0, accounts: [], data: "" }],
+              },
+            },
+            meta: { innerInstructions: [] },
+          }),
+        ),
+      ),
+    });
+
+    const groups = await rpc.confirmedInstructionGroups(ZERO_SIGNATURE);
+    expect(groups.groups).toHaveLength(1);
+    expect(groups.groups[0]?.outer.data).toEqual(new Uint8Array(0));
+  });
+
   it("rejects a confirmed transaction whose metadata is absent", async () => {
     const rpc = new SolanaRpc({
       url: "https://solana.example.test",
