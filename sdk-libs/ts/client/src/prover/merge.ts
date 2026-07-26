@@ -1,17 +1,23 @@
 import type { Address, Bytes32, RequestContext } from "@zolana/interface";
 import { mergeExternalDataHash } from "@zolana/interface/codecs";
 import type { MergeTransactInstructionData } from "@zolana/interface/instructions";
-import { NullifierKey, P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
+import {
+  KeypairError,
+  NullifierKey,
+  P256PublicKey,
+  ShieldedPublicKey,
+} from "@zolana/keypair";
 import { encryptVerifiable, mergePublicContribution } from "@zolana/keypair/merge";
 import {
   MERGE_INPUTS,
   PreparedMerge,
   PreparedMergeZone,
   ProofInputUtxo,
+  TransactionError,
 } from "@zolana/transaction";
 import { EncryptedScheme, encodeMerge, encodeOutputData } from "@zolana/transaction/serialization";
 
-import { ClientError, fromClientCause } from "../error.js";
+import { ClientError, fromClientCause, isClientError } from "../error.js";
 import {
   addressBytes,
   bigintToBytes,
@@ -69,6 +75,23 @@ export interface MergeAssembly {
   ): Readonly<{ mergeViewTag: Bytes32; merge: MergeTransactInstructionData }>;
 }
 
+/**
+ * `fromClientCause` wraps unknown throws as `CLIENT_UNEXPECTED`. A caller-supplied
+ * indexer may already reject with its own coded error (wallet submit tree check);
+ * keep that code instead of erasing it.
+ */
+function propagateAssemblerCause(cause: unknown): never {
+  if (isClientError(cause)) throw cause;
+  if (!(cause instanceof KeypairError) && !(cause instanceof TransactionError)) {
+    const code =
+      typeof cause === "object" && cause !== null
+        ? (cause as Readonly<{ code?: unknown }>).code
+        : undefined;
+    if (typeof code === "string") throw cause;
+  }
+  throw fromClientCause(cause);
+}
+
 export async function assembleMerge(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
@@ -86,7 +109,7 @@ export async function assembleMerge(
     );
     return assembleMergeRailUnchecked(prepared, material, proofs, tree);
   } catch (cause) {
-    throw fromClientCause(cause);
+    propagateAssemblerCause(cause);
   }
 }
 
@@ -127,7 +150,7 @@ export async function assembleMergeZone(
       prepared.zoneProgramId,
     );
   } catch (cause) {
-    throw fromClientCause(cause);
+    propagateAssemblerCause(cause);
   }
 }
 
