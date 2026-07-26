@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import type { Bytes32 } from "@zolana/interface";
+
+import proverShapesJson from "../../../fixtures/client/prover-shapes-v1.json" with { type: "json" };
 import oracleJson from "../oracles/field-alignment-v1.json" with { type: "json" };
 import { BN254_MODULUS, bytesField, bytesToBigInt } from "../../src/internal.js";
 import { ClientError } from "../../src/index.js";
-import { bytes, hex } from "../helpers/prover-vectors.js";
+import { assemble } from "../../src/prover/index.js";
+import {
+  buildProofInputs,
+  bytes,
+  hex,
+  type ProverShapesFixture,
+} from "../helpers/prover-vectors.js";
 
 type FieldCase = Readonly<{
   name: string;
@@ -57,12 +66,8 @@ describe("Rust-generated field alignment", () => {
       expect(bytesToBigInt(align(input))).toBe(value);
 
       // The one difference: `be` hands back whatever the 32 bytes say, while
-      // `bytesField` runs the result through the BN254 range check. It does not
-      // reject an assembly Rust completes: the values reaching it are 31-byte
-      // secrets, Poseidon outputs, or caller-supplied hashes, and a
-      // caller-supplied hash at or above the modulus already fails inside
-      // Poseidon when either language hashes the UTXO. Pin the asymmetry rather
-      // than describe it.
+      // `bytesField` runs the result through the BN254 range check. Pin the
+      // asymmetry rather than describe it; the case below reaches it.
       if (value >= BN254_MODULUS) {
         expect(thrownCode(() => bytesField(input, "case"))).toBe("CLIENT_INVALID_FIELD");
         return;
@@ -70,4 +75,33 @@ describe("Rust-generated field alignment", () => {
       expect(bytesField(input, "case")).toBe(value);
     });
   }
+
+  /**
+   * The range check is reachable from an indexer response. A merkle witness is
+   * not hashed before it becomes a field, so no earlier guard sees it:
+   * `validate_spend_proofs` compares leaves and tree addresses only
+   * (`sdk-libs/client/src/client.rs:884-904`). Rust reads the same bytes with
+   * `be` and carries the value to the prover
+   * (`sdk-libs/client/src/prover/transact/p256_and_eddsa.rs:320-327`,
+   * `sdk-libs/client/src/prover/field.rs:21-23`), where the proof it builds
+   * cannot verify.
+   *
+   * Recorded divergence, not a target: which side should move is the owner's
+   * call. Widening `bytesField` or narrowing Rust both fail this case.
+   */
+  it("refuses a merkle root at the modulus, which Rust carries to the prover", () => {
+    const shapes = proverShapesJson as unknown as ProverShapesFixture;
+    const source = buildProofInputs(shapes, "eddsa", { inputs: 1, outputs: 2 });
+    const [spend, ...rest] = source.spendProofs;
+    if (spend === undefined) throw new Error("expected one spend proof");
+    const atModulus = {
+      ...spend,
+      state: { ...spend.state, root: bytes(oracle.expected.modulusBytes) as Bytes32 },
+    };
+
+    expect(() => assemble(source.proofInputs, [atModulus, ...rest])).toThrow(
+      expect.objectContaining({ code: "CLIENT_INVALID_FIELD" }),
+    );
+    expect(() => assemble(source.proofInputs, source.spendProofs)).not.toThrow();
+  });
 });

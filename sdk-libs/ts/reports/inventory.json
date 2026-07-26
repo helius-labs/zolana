@@ -6,9 +6,9 @@
     "unknownPackets": "0"
   },
   "dispositionCounts": {
-    "internal": 7,
+    "internal": 6,
     "not applicable": 7,
-    "port": 133,
+    "port": 134,
     "reuse": 1,
     "test-only": 34
   },
@@ -89,12 +89,12 @@
     },
     {
       "disposition": "internal",
-      "fixtureResponsibility": "Rust-generated `fixtures/client/field.json` covering all relevant rails/shapes and malformed mutations.",
+      "fixtureResponsibility": "Rust-generated `client/test/oracles/field-alignment-v1.json`, written by `ts_field_alignment_oracle_is_current` in `sdk-libs/client/tests/ts_prover_oracle.rs`.",
       "marker": "active",
       "packet": "P09",
       "path": "sdk-libs/client/src/prover/field.rs",
-      "responsibility": "Internal implementation of right_align; right_align_slice; be; poseidon helpers; callers reach it through the package allowlist.",
-      "target": "`@zolana/client` · `src/internal.ts`",
+      "responsibility": "The Rust module is public (`prover/mod.rs:2` declares `pub mod field`), and the port keeps its three helpers unexported: no SDK flow needs them above the proof-input assembly that uses them, so publishing them would add surface the Rust API happens to have rather than surface a consumer asks for.",
+      "target": "`@zolana/client` · `src/internal.ts` · `bytesField`, `bytesToBigInt`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },
     {
@@ -568,12 +568,12 @@
       "testResponsibility": "Unit: config validation. Property: dependency rule scan. Integration: Node/browser import. E2E: packed consumer."
     },
     {
-      "disposition": "internal",
+      "disposition": "port",
       "fixtureResponsibility": "Rust-generated `fixtures/keypair/constants.json` with logical input, exact bytes/value, and error mutations.",
       "marker": "active",
       "packet": "P04",
       "path": "sdk-libs/keypair/src/constants.rs",
-      "responsibility": "Internal implementation of length constants; domain separators; P_CONST_SEC1; callers reach it through the package allowlist.",
+      "responsibility": "`BLINDING_LENGTH`, `DST_VIEW_ROOT`, `P256_PUBLIC_KEY_LENGTH`, `P_CONST_SEC1`, `SALT_LENGTH`, `SHIELDED_PUBLIC_KEY_LENGTH`, `VIEW_TAG_LENGTH`, one per `pub` item of the Rust module. The `INFO_*` labels and the HPKE prefixes stay internal because Rust keeps them `pub(crate)`.",
       "target": "`@zolana/keypair` · `src/constants.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },

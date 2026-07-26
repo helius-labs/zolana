@@ -24,6 +24,7 @@ import { base58, fixture, hex, hexBytes, walletFixture } from "./helpers/fixture
 
 const OWNER = "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi" as Address;
 const TREE = "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR" as Address;
+const OTHER_TREE = "9qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR" as Address;
 const MINT = "BMLm6t2ykqZ8TJ974ze9CR8ApeR44XoFAearTLeHj8ya" as Address;
 const SIGNATURE = "1".repeat(64) as Signature;
 const bytes32 = (value: number): Bytes32 => new Uint8Array(32).fill(value) as Bytes32;
@@ -308,6 +309,67 @@ describe("wallet actions", () => {
         inputs: [duplicate.outputContext.hash, duplicate.outputContext.hash],
       }),
     ).toThrow(expect.objectContaining({ code: "WALLET_DUPLICATE_INPUT_UTXO" }));
+  });
+
+  /**
+   * `create_merge` settles the spend tree before `select_merge_inputs` counts
+   * the named hashes, and resolves the auto-sweep tree through
+   * `resolve_spend_tree`. Both orders decide which rejection a caller sees, and
+   * TypeScript reported a different one for each of these inputs.
+   */
+  it("names the merge rejection Rust names for each way the inputs are wrong", () => {
+    const keypair = ShieldedKeypair.generate();
+    const entry = (index: number, tree: Address, dataHash?: Bytes32) => ({
+      utxo: new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: BigInt(10 * (index + 1)),
+        blinding: randomBlinding(),
+        data: new Data(),
+      }),
+      outputContext: { hash: bytes32(index + 1), tree, leafIndex: BigInt(index) },
+      nullifier: bytes32(index + 20),
+      spent: false,
+      ...(dataHash === undefined ? {} : { dataHash }),
+    });
+    const walletOf = (utxos: readonly ReturnType<typeof entry>[]): Wallet => {
+      const wallet = new Wallet({
+        identity: keypair.shieldedAddress(),
+        registry: new AssetRegistry(),
+      });
+      wallet._replace({ utxos: [...utxos], transactions: [], nullifiers: new Set() });
+      return wallet;
+    };
+    const merge = (wallet: Wallet, inputs?: readonly Bytes32[]) => () =>
+      createMerge({ wallet, keypair, asset: SOL_MINT, ...(inputs === undefined ? {} : { inputs }) });
+
+    const funded = walletOf([entry(0, TREE), entry(1, TREE)]);
+    // One unknown hash: the tree lookup runs before the "at least two inputs"
+    // count, so the unknown utxo is named rather than the input count.
+    expect(merge(funded, [bytes32(99)])).toThrow(
+      expect.objectContaining({ code: "WALLET_INPUT_UTXO_UNAVAILABLE" }),
+    );
+    // Nine hashes, the first unknown: same reason, ahead of the arity bound.
+    expect(merge(funded, Array.from({ length: 9 }, (_, index) => bytes32(99 + index)))).toThrow(
+      expect.objectContaining({ code: "WALLET_INPUT_UTXO_UNAVAILABLE" }),
+    );
+
+    // No plain utxo of the asset: `resolve_spend_tree` finds no tree, which is
+    // an empty balance rather than nothing to merge.
+    expect(merge(walletOf([entry(0, TREE, bytes32(7))]))).toThrow(
+      expect.objectContaining({ code: "WALLET_INSUFFICIENT_BALANCE" }),
+    );
+
+    // A named utxo on another tree is reported where it appears, so a duplicate
+    // later in the list does not mask it.
+    const split = walletOf([entry(0, TREE), entry(1, OTHER_TREE)]);
+    const rejection = merge(split, [bytes32(1), bytes32(2), bytes32(2)]);
+    expect(rejection).toThrow(
+      expect.objectContaining({
+        code: "WALLET_INPUT_UTXO_TREE_MISMATCH",
+        details: { hash: bytes32(2), utxoTree: OTHER_TREE, spendTree: TREE },
+      }),
+    );
   });
 
   it("keeps external-custody and signer convenience message bytes identical", async () => {

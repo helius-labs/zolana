@@ -810,7 +810,7 @@ export class ConfidentialTransfer {
    */
   sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
     const prepared = this.prepare();
-    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
+    const tx = keypair.transactionViewingKey(prepared.firstNullifier);
     const salt = randomSalt();
     const signed = prepared.finalize({
       txViewingPublicKey: tx.publicKey(),
