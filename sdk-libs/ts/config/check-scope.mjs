@@ -77,9 +77,7 @@ for (const part of CHECK_PARTS) {
 }
 
 console.log("npm run check — merge-tier composition");
-console.log(
-  "CI splits these into jobs by service needs (.github/workflows/typescript.yml),",
-);
+console.log("CI splits these into jobs by service needs (.github/workflows/typescript.yml),");
 console.log(
   "shares one build artifact across them, and skips the tier when no TypeScript-tier path changed.",
 );
