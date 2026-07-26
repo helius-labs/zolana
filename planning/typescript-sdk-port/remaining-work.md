@@ -77,14 +77,21 @@ node sdk-libs/ts/config/pkp-entry-gate.mjs        # the four entry criteria
 node sdk-libs/ts/config/review-checklist-check.mjs # rows, verdicts, attribution
 ```
 
-As of 2026-07-26 01:40, branch `ts-sdk-port` at 420 commits ahead of `main`:
+As of 2026-07-26 02:05, branch `ts-sdk-port` at 466 commits ahead of `main`:
 
 | Criterion | State |
 | --- | --- |
 | 1. Each of the 145 rows reviewed | pass |
 | 2. No adverse row remains | fail: 45 adverse, 27 `PARTIAL`, 17 `DIVERGENT`, 1 `STALE` |
 | 3. No specification-authority blocker | pass: no row is `BLOCKED` |
-| 4. Continuous integration green | fail: 3 jobs failing, 14 pending |
+| 4. Continuous integration green | not yet, and moving hour to hour; run `gh pr checks 159` |
+
+The commit count and the state of criterion 4 go stale faster than this document
+can be rewritten, so treat both as a reading rather than a fact. Criteria 1
+through 3 come from the gate, which you can run; criterion 4 comes from the pull
+request, which you should read there. What is durable about criterion 4 is which
+jobs have been failing and why, and that is in
+[step 1](#step-1-get-the-pull-requests-checks-green).
 
 90 of the 145 rows are `done` on demonstrated parity and 6 more are closed on a
 confirmed `NOT_APPLICABLE` disposition, which the gate counts separately. Both
@@ -191,16 +198,28 @@ second and treat the study as the later word where they disagree.
 
 ## Step 1. Get the pull request's checks green
 
-**Now.** `gh pr checks 159` reports 3 failing jobs and 14 pending: `tests /
-sdk-libs`, `tests / client integration`, and `typescript / fixtures`. The set
-moves between runs, so read it rather than trusting this list. `typescript /
-static` failed on three unformatted config scripts and is closed at `5a83d7f4`.
-An agent on `port/ci-green`, in the `zolana-ts-ci` tree, owns this step.
+**Now.** Read the live set with `gh pr checks 159`; a push restarts the run and
+the count of failing and pending jobs changes underneath any number written
+here. Three jobs have been failing across recent runs: `tests / sdk-libs`,
+`tests / client integration`, and `typescript / fixtures`. `typescript / static`
+failed on three unformatted config scripts and is closed at `5a83d7f4`. An agent
+on `port/ci-green`, in the `zolana-ts-ci` tree, owns this step.
 
-The Rust jobs are one cause rather than several. `main` deleted a dead field,
-`CreateTree.owner`, that this branch still carries, so `cargo check (workspace)`
-does not compile and the Rust test jobs inherit that failure rather than failing
-on their own account. Fix the field and re-read the set before triaging further.
+The two Rust jobs are one cause rather than two, and the cause is the merge
+rather than the branch. `cargo check --workspace` passes on `ts-sdk-port` as it
+stands; what fails is the merge result that the pull request builds. `main` is
+two commits ahead, and one of them, `d6cc003e` (pull request 156), removed dead
+fields from the batched Merkle tree, among them `owner`, `program_owner`,
+`forester`, `index`, and `network_fee` on `CreateTreeParams` in
+`program-libs/batched-merkle-tree/src/merkle_tree_metadata.rs`. This branch
+still names them at its construction sites, so the merged tree does not compile
+and the Rust test jobs inherit that rather than failing on their own account.
+
+Merge `main` and drop the removed fields at the call sites; do not restore the
+fields. Deleting them is main's decision, and `program-libs` is outside what
+this branch may change on its own account, so taking the deletion through a
+merge is both the fix and the only route to it that respects the scope rule.
+Re-read the check set afterwards before triaging further.
 
 `typescript / fixtures` is the one that needs a decision rather than a fix, and
 it is the one to be careful with. It runs `npm run check:fixtures`, which is

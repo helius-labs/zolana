@@ -15,13 +15,14 @@ rows point at the existing PKP packet rather than open a second work item beside
 Verification snapshot:
 
 - branch: `ts-sdk-port`;
-- worktree HEAD: `b230b314dc8546df831f3b6901874c93e866003e`;
-- worktree state: dirty, with uncommitted edits under `sdk-libs/ts/client`, `sdk-libs/client`,
-  `sdk-libs/transaction`, and `xtask`;
+- worktree HEAD when the findings were scheduled:
+  `b230b314dc8546df831f3b6901874c93e866003e`;
 - fixture baseline (`sdk-libs/ts/fixtures/manifest.json` `frozenCommit`):
   `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`;
-- checklist baseline: `31 done / 118`, `60 needs_fix`, `0 needs_re_review`, `27 todo`;
-- verification date: 2026-07-25.
+- checklist baseline when scheduled: `31 done / 118`;
+- checklist on 2026-07-26: `90 done / 145`, 45 adverse. Read it from the gate rather than from
+  here;
+- verification date: 2026-07-25, with the CI findings re-checked on 2026-07-26.
 
 The findings were first recorded at `7c697c2c7e63a824a383c29a7cbb940a0e9b4e92`. Before scheduling,
 the five load-bearing claims (G1-3, G3-1, G8-1, G9-1, G9-2) were re-read against the worktree at the
@@ -29,8 +30,9 @@ HEAD above. Two had drifted; the correction is recorded under the issue. Where a
 the Rust or specification counterpart, both sides are cited. Line numbers move, so treat the cited
 symbol name as the durable anchor and re-confirm before acting.
 
-Because the worktree is dirty, a finding may already be under repair in the uncommitted `K01`
-through `K03` and `C04` work. Confirm against a clean tree before starting on one.
+A finding may already be under repair on a batch branch that the checklist has not absorbed.
+Confirm against a clean tree and against [`remaining-work.md`](remaining-work.md) before starting
+on one.
 
 ## How to read a severity
 
@@ -657,9 +659,14 @@ The shorter list omits the program and the prover, which are the two authorities
 and G7-1. A reviewer following `README.md` reaches Rust one step after the specification and has no
 level at which to place the circuit.
 
-What is missing in both is the ledger: neither document has one row per open conflict recording the
-ruling and the artifact that changed. The known-conflicts list in `proof-and-key-parity.md` names
-four disagreements without a ruling for any of them.
+**Both halves of this finding have since been addressed, and it needs a re-review rather than
+work.** The two orders are reconciled: `proof-and-key-parity.md` states the full one and marks it
+as governing, and `README.md` records that its list is the narrower revision-selection rule that
+extends the full order at the bottom. And the ledger exists as
+[`authority-rulings.md`](authority-rulings.md), which carries one section per disputed behaviour
+with the evidence, the options, the artifacts a change would touch, and a ruling block. Seventeen
+of its nineteen ruling blocks are filled, among them G2-1 and G2-2, which this register already
+records as closed. Two conflicts remain genuinely open there, G7-1 and the `C04` integer domain.
 
 Impact: each conflict is resolved case by case, and a reviewer cannot tell whether a divergence is a
 defect or an intended deviation. G7-1 shows the practical result: the code was trusted and the

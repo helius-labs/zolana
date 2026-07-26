@@ -86,7 +86,14 @@ test bottleneck.
 
 Parity is undefined while the authorities disagree. Resolve conflicts before freezing new vectors.
 
-Use this order:
+**This is the reconciled order for the port, and it is the only one.** Finding G7-2 recorded that
+two orders were written down and differed, the other being "Source precedence" in
+[`README.md`](README.md#source-precedence). They are not rival rankings. The README's list decides
+which revision of a source to read for the frozen plan and stops at the SDK, so it omits the two
+authorities that decide the hardest conflicts, the deployed program and the prover. The list below
+is the full one. Where the README appears to disagree, it is the shorter list and this one governs;
+the README's tail, the pinned `zolana-examples` workflows and pull request 111, extends this order
+below its last level rather than competing with it.
 
 1. accepted protocol decisions recorded in `docs/spec.md`;
 2. deployed or release-targeted shielded-pool behavior and circuit constraints;
@@ -94,7 +101,8 @@ Use this order:
 4. current Rust SDK behavior and Rust tests;
 5. generated fixtures;
 6. TypeScript behavior and tests;
-7. planning inventories and historical review reports.
+7. planning inventories and historical review reports;
+8. the pinned `zolana-examples` workflows, then pull request 111, as reference material.
 
 This order does not permit silently changing deployed behavior to match prose. When specification
 and implementation disagree:
@@ -107,17 +115,25 @@ and implementation disagree:
 6. update TypeScript;
 7. obtain an independent re-review.
 
-Known conflicts requiring explicit resolution:
+The per-conflict ledger that the second half of G7-2 asked for now exists, as
+[`authority-rulings.md`](authority-rulings.md). It carries one section per disputed behaviour with
+the evidence on each side, the options, the artifacts a change would touch, and a ruling block that
+is filled once the owner decides. Read it rather than the summary below, which is a snapshot and
+goes stale as rulings land.
+
+Conflicts this document raised, and where each stands in that ledger:
 
 - `docs/spec.md` defines P256 `pk_field` with y-parity, while current Rust, TypeScript, the
   owner-field gadget, and program reconstruction use a parity-free `owner_pk_field` for owner
-  identity;
+  identity. Open, as `G7-1`, and the largest of these;
 - the specification glossary describes `SPPProof` as a single 192-byte value, while the implemented
-  instruction enum has a committed P256 form and an uncommitted Ed25519 form;
+  instruction enum has a committed P256 form and an uncommitted Ed25519 form. Open;
 - the Merkle source and fixture provenance repair is complete, while the shared frozen fixture
-  baseline and legacy interface `sourceCommit` bookkeeping still require explicit revision review;
-- specification prose and implementation have unresolved deposit, protocol-config, and output-slot
-  disagreements recorded in `review-checklist.md`.
+  baseline and legacy interface `sourceCommit` bookkeeping still require explicit revision review.
+  Open, and tracked as G8-1 rather than as an authority conflict;
+- specification prose and implementation had deposit, protocol-config, and output-slot
+  disagreements. The deposit one is ruled: the discovery tag moved to the signing pubkey in both
+  languages, applied at `1ff51a4c` and `114a5140`.
 
 No fixture generated from a disputed behavior may be labelled canonical.
 

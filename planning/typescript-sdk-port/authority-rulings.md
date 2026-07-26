@@ -17,7 +17,7 @@ piece named.
 ## Contents
 
 - [Open: owner-hash encoding (G7-1)](#open-owner-hash-encoding-g7-1)
-- [Open: confidential owner tag (T23)](#open-confidential-owner-tag-t23)
+- [Ruled: confidential owner tag (T23)](#ruled-confidential-owner-tag-t23)
 - [Ruled: ECDSA malleability policy (G2-1)](#ruled-ecdsa-malleability-policy-g2-1)
 - [Ruled: Ed25519 acceptance (G2-2)](#ruled-ed25519-acceptance-g2-2)
 - [Open: the u64 integer domain (C04)](#open-the-u64-integer-domain-c04)
@@ -252,6 +252,10 @@ typechecks.
 
 ## Ruled: confidential owner tag (T23)
 
+The line numbers below cite `docs/spec.md` as it read before the ruling landed.
+The amendment moved them; read the section through its anchors rather than its
+line numbers.
+
 ### What the spec says
 
 `docs/spec.md:884` describes `solana_owner_pk_hashes` as the `pk_field` of the
@@ -381,10 +385,10 @@ Either option invalidates the P256 rail of
 
 | Field | Value |
 | --- | --- |
-| Ruling | Option 1. Amend the spec to the variant split: the zero sentinel is the anonymous and zone-authority rule, the equality form is the confidential rule. No code moves and no verifying key is regenerated. |
+| Ruling | Option 1. Amend the spec to the variant split: the zero sentinel is the anonymous and zone-authority rule, the equality form is the confidential rule. No code moves and no verifying key is regenerated. Landed in `25b13fa2`, under the `owner-tag-by-variant` anchor. |
 | Ruled by | Protocol owner, 2026-07-26 |
 | Date | 2026-07-26 |
-| Follow-up artifacts | `docs/spec.md:884`, `:944`, `:959` |
+| Follow-up artifacts | None for the tag itself: no circuit, program, client, verifying key or fixture changed. The row's other half, the BN254 range check that TypeScript performs and `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` does not, is a separate matter and still open; [`remaining-work.md`](remaining-work.md) tracks it. |
 
 Same principle as G7-1 and X01, and the evidence here is stronger than in either:
 the four implementations agree with each other, and the specification contradicts
@@ -1076,7 +1080,7 @@ that pre-1.0 SDK crates with no users may break. Decoding stays: a TypeScript to
 a `batch_update_nullifier_tree` instruction it finds in a transaction, because reading it needs
 nothing we cannot do.
 
-### How TypeScript gets its Poseidon
+### Poseidon in TypeScript
 
 | Field | Value |
 | --- | --- |

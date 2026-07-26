@@ -47,12 +47,20 @@ ruling](authority-rulings.md#the-external-data-length-prefix-t21) for why the
 loud disagreement was preferred over silent agreement.
 
 Amending `docs/spec.md` is permitted where the amendment records behavior the
-implementations already have. Four such amendments are authorized so far: the
-`DataRecord::Memo` tag `3` that both languages implement, the deposit
-discovery-tag ruling, the owner-encoding amendment at `b97b2a88`, and the
-confidential owner-tag amendment at `1d6b9873`. Each is recorded in
-[`authority-rulings.md`](authority-rulings.md) with the evidence it was made
-against.
+implementations already have. Five have landed on this branch, against the one
+this section used to name:
+
+| Commit | Amendment |
+| --- | --- |
+| `b9a5386f` | Defines the `DataRecord::Memo` tag `3` that both languages implement |
+| `25b13fa2` | Names the two pubkey field encodings and adds the per-variant owner tag that row `T23` turned on |
+| `8616af8b` | Completes the rail-separation argument |
+| `b97b2a88` | Corrects the deposit instruction to the deployed program |
+| `58b2be6a` | Describes protocol config updates as single-field |
+
+Each records behaviour the implementations already had, which is the condition
+the exception is granted under. [`authority-rulings.md`](authority-rulings.md)
+holds the evidence each was made against.
 
 ## Summary
 
