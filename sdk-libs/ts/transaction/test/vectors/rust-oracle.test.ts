@@ -1432,6 +1432,13 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
   const payerPublicKeyHash = bytes(
     (oracle.zoneAuthority as readonly ZoneAuthorityCase[])[0]?.payerPublicKeyHashHex ?? "",
   ) as Bytes32;
+  const emptyExternalData = createExternalData({
+    txViewingPublicKey: owner.viewingPublicKey(),
+    salt: new Uint8Array(16) as Bytes16,
+    outputs: [],
+    resolvedOwnerTags: [],
+    messages: [],
+  });
 
   for (const testCase of oracle.zoneAuthority as readonly ZoneAuthorityCase[]) {
     it(`decides ${testCase.name} the same way`, () => {
@@ -1473,9 +1480,10 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
           outputs,
           zoneProgramId: testCase.pinnedZone as Address,
           payerPublicKeyHash,
-          ...(testCase.publicSol === null
-            ? {}
-            : { publicAmounts: { sol: BigInt(testCase.publicSol) } }),
+          externalData:
+            testCase.publicSol === null
+              ? emptyExternalData
+              : emptyExternalData.withPublicSol(BigInt(testCase.publicSol), SOL_MINT),
         });
       if (testCase.error !== null) {
         expect(rejection(prepare)).toEqual({ code: testCase.error, field: null });
@@ -1489,6 +1497,14 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
         testCase.shape,
       );
       expect(hex(prepared.payerPublicKeyHash)).toBe(testCase.payerPublicKeyHashHex);
+      // Rust derives the public leg from the external data rather than taking
+      // it from the caller, so a leg the oracle records has to arrive as the
+      // field the proof carries.
+      expect(prepared.publicAmounts).toEqual({
+        sol: signedToField(testCase.publicSol === null ? 0n : BigInt(testCase.publicSol)),
+        spl: signedToField(0n),
+        asset: new Uint8Array(32),
+      });
       expect(
         prepared.inputUtxoHashes().map((context) => ({
           index: context.index,

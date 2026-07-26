@@ -1,5 +1,12 @@
 import type { Address, Bytes16, Bytes31, Bytes32 } from "@zolana/interface";
-import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
+import {
+  NullifierKey,
+  P256PublicKey,
+  ShieldedKeypair,
+  SigningKey,
+  ViewingKey,
+  type Bytes33,
+} from "@zolana/keypair";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -20,7 +27,7 @@ import {
   prepareZoneAuthority,
   validateMergeZoneInputs,
 } from "../src/instructions/builders.js";
-import { createExternalData } from "../src/instructions/transact.js";
+import { assetField, createExternalData, signedToField } from "../src/instructions/transact.js";
 import { encodeAddress } from "../src/internal.js";
 import { createProofOutput } from "../src/utxo.js";
 import {
@@ -765,30 +772,38 @@ describe("manifest-verified transaction builders", () => {
     const sender = owner(section(load("zone"), "inputs"));
     const seed = new Uint8Array(31).fill(4) as Bytes31;
     const zone = encodeAddress(new Uint8Array(32).fill(9));
-    const zoned = (zoneProgramId?: Address): ProofInputUtxo =>
+    const zoned = (zoneProgramId?: Address, asset: Address = SOL_MINT): ProofInputUtxo =>
       new ProofInputUtxo({
         utxo: new Utxo({
           owner: sender.keypair.signingPublicKey(),
-          asset: SOL_MINT,
+          asset,
           amount: 10n,
           blinding: deriveBlinding(seed, 0),
           zoneProgramId,
         }),
         nullifierKey: sender.nullifier,
       });
-    const output = (zoneProgramId?: Address) =>
+    const output = (zoneProgramId?: Address, asset: Address = SOL_MINT) =>
       createProofOutput({
         ownerAddress: sender.keypair.shieldedAddress(),
-        asset: SOL_MINT,
+        asset,
         amount: 10n,
         blinding: deriveBlinding(seed, 1),
         zoneProgramId,
       });
     const payerPublicKeyHash = new Uint8Array(32).fill(3) as Bytes32;
+    const externalData = createExternalData({
+      txViewingPublicKey: P256PublicKey.fromBytes(new Uint8Array(33).fill(2) as Bytes33),
+      salt: new Uint8Array(16).fill(3) as Bytes16,
+      outputs: [],
+      resolvedOwnerTags: [],
+      messages: [],
+    });
     const prepare = (overrides: Partial<Parameters<typeof prepareZoneAuthority>[0]>) =>
       prepareZoneAuthority({
         inputs: [zoned(zone)],
         outputs: [output(zone)],
+        externalData,
         zoneProgramId: zone,
         payerPublicKeyHash,
         ...overrides,
@@ -809,9 +824,42 @@ describe("manifest-verified transaction builders", () => {
       );
     }
     // A public leg in either direction is gated by neither the program nor the
-    // circuit, so the authority rail must be able to build both.
-    for (const publicAmounts of [{ sol: 10n }, { spl: -10n }]) {
-      expect(prepare({ publicAmounts }).publicAmounts).toEqual(publicAmounts);
+    // circuit, so the authority rail must be able to build both, and the
+    // amounts have to reach the prepared form as the fields the proof carries.
+    for (const amount of [10n, -10n]) {
+      expect(
+        prepare({ externalData: externalData.withPublicSol(amount, SOL_MINT) }).publicAmounts,
+      ).toEqual({
+        sol: signedToField(amount),
+        spl: signedToField(0n),
+        asset: new Uint8Array(32),
+      });
     }
+
+    // The public SPL asset is read off the notes: a SOL-only transaction has no
+    // asset for the leg to commit to, and two mints leave the choice ambiguous.
+    const splLeg = externalData.withPublicSpl(-10n, SOL_MINT, SOL_MINT);
+    const token = (fill: number): Address => encodeAddress(new Uint8Array(32).fill(fill));
+    expect(() => prepare({ externalData: splLeg })).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_MISSING_PUBLIC_SPL_ASSET" }),
+    );
+    expect(() =>
+      prepare({
+        inputs: [zoned(zone, token(7))],
+        outputs: [output(zone, token(6))],
+        externalData: splLeg,
+      }),
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS" }));
+    expect(
+      prepare({
+        inputs: [zoned(zone, token(7))],
+        outputs: [output(zone, token(7))],
+        externalData: splLeg,
+      }).publicAmounts,
+    ).toEqual({
+      sol: signedToField(0n),
+      spl: signedToField(-10n),
+      asset: assetField(token(7)),
+    });
   });
 });

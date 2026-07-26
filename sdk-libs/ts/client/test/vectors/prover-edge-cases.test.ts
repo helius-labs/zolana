@@ -47,11 +47,10 @@ describe("Rust-generated prover assembly edge cases", () => {
     });
   });
 
-  /// The public SPL asset is the one witness field TypeScript re-derives instead
-  /// of reading from `SppProofInputs.publicAmounts()`, which returns only the
-  /// two amounts. The Rust oracle above pins the derived value; this pins that
-  /// the SOL-only cases leave it at zero, so the re-derivation cannot leak into
-  /// a transaction with no public SPL leg.
+  /// `SppProofInputs.publicAmounts()` reads the public SPL asset off the notes,
+  /// so a SOL-only transaction has no mint to name. The Rust oracle above pins
+  /// the derived value; this pins that those cases leave the field at zero
+  /// rather than reaching for a mint the public leg does not settle in.
   it("leaves the SPL asset field at zero when the public leg is SOL", () => {
     oracle.expected.cases.forEach((expected, index) => {
       const shape = PROVER_EDGE_CASES[index];

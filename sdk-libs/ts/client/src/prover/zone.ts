@@ -20,8 +20,6 @@ import {
   assembleSlots,
   checkedP256Owner,
   createOutput,
-  findPublicSplAsset,
-  signedField,
 } from "./assembly.js";
 import type {
   AssembledZone,
@@ -128,12 +126,9 @@ function common(
     rootIndexes: slots.rootIndexes,
     privateTxHash,
     externalDataHash,
-    publicSolAmount: signedField(amounts.sol ?? 0n, "public SOL amount"),
-    publicSplAmount: signedField(amounts.spl ?? 0n, "public SPL amount"),
-    publicSplAssetPublicKey:
-      amounts.spl === undefined || amounts.spl === 0n
-        ? 0n
-        : hashField(addressBytes(findPublicSplAsset(proofInputs))),
+    publicSolAmount: bytesField(amounts.sol, "public SOL amount"),
+    publicSplAmount: bytesField(amounts.spl, "public SPL amount"),
+    publicSplAssetPublicKey: bytesField(amounts.asset, "public SPL asset"),
     payerPublicKeyHash: bytesField(proofInputs.payerPublicKeyHash, "payer public key hash"),
     zone: zoneField(zoneProgramId),
     transferInputs: slots.transferInputs,

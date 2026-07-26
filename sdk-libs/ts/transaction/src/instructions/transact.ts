@@ -45,7 +45,7 @@ import {
   deriveBlinding,
   type ProofOutputUtxo,
 } from "../utxo.js";
-import { SOL_ASSET_ID, type AssetRegistry } from "../wallet/asset.js";
+import { SOL_ASSET_ID, SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
@@ -170,9 +170,15 @@ export function slotOrdinal(position: number): number {
   return position;
 }
 
+/**
+ * The public leg as the three field elements a proof commits to. Rust hands
+ * back the same encoding rather than the raw amounts, so every rail derives the
+ * fields once here instead of each caller re-deriving them.
+ */
 export interface PublicAmounts {
-  readonly sol?: bigint;
-  readonly spl?: bigint;
+  readonly sol: Bytes32;
+  readonly spl: Bytes32;
+  readonly asset: Bytes32;
 }
 
 export interface P256Signature {
@@ -519,14 +525,36 @@ export class SppProofInputs {
   }
 
   publicAmounts(): PublicAmounts {
+    const spl = this.externalData.publicSplAmount ?? 0n;
     return Object.freeze({
-      ...(this.externalData.publicSolAmount === undefined
-        ? {}
-        : { sol: this.externalData.publicSolAmount }),
-      ...(this.externalData.publicSplAmount === undefined
-        ? {}
-        : { spl: this.externalData.publicSplAmount }),
+      sol: signedToField(this.externalData.publicSolAmount ?? 0n),
+      spl: signedToField(spl),
+      asset: spl === 0n ? (copy(ZERO_32) as Bytes32) : assetField(this.#publicSplAsset()),
     });
+  }
+
+  /**
+   * The mint the public SPL leg settles in, read off the notes rather than
+   * named by the caller: the circuit binds the asset field to the UTXOs, so a
+   * leg over notes of two mints, or over none, has no asset to commit to.
+   */
+  #publicSplAsset(): Address {
+    let found: Address | undefined;
+    const assets = [
+      ...this.inputUtxos.map((input) => input.utxo.asset),
+      ...this.outputs.map((output) => output.asset),
+    ];
+    for (const asset of assets) {
+      if (asset === SOL_MINT) continue;
+      if (found !== undefined && found !== asset) {
+        throw new TransactionError("TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS");
+      }
+      found = asset;
+    }
+    if (found === undefined) {
+      throw new TransactionError("TRANSACTION_MISSING_PUBLIC_SPL_ASSET");
+    }
+    return found;
   }
 
   inputUtxoHashes(): readonly Bytes32[] {
