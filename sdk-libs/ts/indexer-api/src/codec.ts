@@ -158,6 +158,15 @@ function checkedPageLimit(value: unknown, path: string) {
   return limit(integer);
 }
 
+/**
+ * Every integer this package writes is a JSON number, including the fields
+ * `unboundedWireInteger` will read as a decimal string. `zolana-indexer-api`
+ * serializes with plain serde and installs no string acceptor on its `u64` and
+ * `i64` fields, so a quoted integer is a body the Rust side refuses, and
+ * `encodeRequest` feeds the body Photon parses. The string form is a reader's
+ * tolerance, not a shape we emit, which is why a value past the safe-integer
+ * bound is reported here rather than encoded.
+ */
 function toWireInteger(value: bigint, path: string, minimum: bigint, maximum: bigint): number {
   if (value < minimum || value > maximum) {
     return schemaFailure(
