@@ -14,6 +14,7 @@ default-run = "xtask"
 [dependencies]
 anyhow = { workspace = true }
 ark-bn254 = { workspace = true }
+ark-ec = "0.5"
 ark-ff = { workspace = true }
 base64 = { workspace = true }
 bincode = "1.3"

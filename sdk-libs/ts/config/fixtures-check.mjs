@@ -16,6 +16,7 @@ const generators = [
   "merkle-semantics",
   "poseidon-parity",
   "program-libs-parity",
+  "proof-response-parity",
   "public-input-assembly",
   "retry-schedule",
   "solana-rpc-groups",
