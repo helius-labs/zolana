@@ -17,7 +17,12 @@ same worktree while this ran. It landed `c3ed4dac` on top of `3ab3f3dc`, and it
 wrote `xtask/src/bin/solana-rpc-groups.rs` and its TypeScript replay from under
 an in-flight edit of the same files. The combined state is coherent and green,
 and the sections below verify it as it stands, but the branch is not safe for
-two writers and the next dispatch should give each worker its own worktree.
+two writers and the next dispatch should give each worker its own worktree. The
+shared `dist/` is the sharper hazard: one `npm run build` here failed with
+`Cannot find module '@zolana/hasher'` and the identical command passed a minute
+later, because the other agent's build had emptied that package's output
+mid-run. That is the stale-`dist/` trap the brief warns about, arriving from a
+direction rebuilding does not fix.
 
 ## C03 `rpc.rs`: PARITY
 
@@ -251,9 +256,13 @@ parity rather than a gap.
 
 From `sdk-libs/ts`, after `npm run build`:
 
-- `npm run test:unit`: 2025 passed, 1 skipped, 120 files, 0 failed.
+- `npm run test:unit`: 2026 passed, 1 skipped, 120 files, 0 failed.
 - `npm run lint`: clean.
 - `npm run typecheck`: clean.
+- `npm run check:static`: clean, which is the one worth running. `npm run lint`
+  covers the four config files and nothing under `sdk-libs/ts/*/src`; the rule
+  that caught a real error on this branch lives in `lint:packages`, which only
+  `check:static` reaches.
 
 `cargo build -p xtask --bin solana-rpc-groups` and
 `cargo run -p xtask --bin solana-rpc-groups -- --check` both clean, so the

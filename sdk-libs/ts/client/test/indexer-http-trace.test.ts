@@ -59,7 +59,7 @@ describe("indexer HTTP tracing", () => {
     const tracingFetch = vi.fn(async (url: URL | RequestInfo, init?: RequestInit) => {
       const response = new Response(body, { headers: { "content-type": "application/json" } });
       traced.push({
-        url: String(url),
+        url: typeof url === "string" ? url : url instanceof URL ? url.href : url.url,
         requestBody: typeof init?.body === "string" ? init.body : "",
         responseBody: await response.clone().text(),
       });
