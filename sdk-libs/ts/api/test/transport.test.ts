@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError, ZolanaApi } from "../src/index.js";
 
 const HASH = "11111111111111111111111111111111";
+const SIGNATURE = "1".repeat(64);
 const REQUEST = { treeAccount: HASH, leaves: [HASH] } as never;
 const RESULT = { context: { block_time: 0 }, proofs: [] };
 
@@ -172,5 +173,59 @@ describe("abort and timeout composition", () => {
     expect(error.details?.["retryable"]).toBe(true);
     expect(error.cause).toBeUndefined();
     expect(JSON.stringify(error)).not.toContain(secret);
+  });
+
+  it("reads a u64 above the safe-integer bound without losing precision", async () => {
+    const rootSeq = (1n << 60n) + 7n;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":0,"root":"${HASH}","root_seq":${rootSeq.toString()},"root_index":0}]}}`;
+    const api = new ZolanaApi({
+      url: "https://rpc.example.test",
+      fetch: () =>
+        Promise.resolve(
+          new Response(body, {
+            headers: { "content-type": "application/json; charset=utf-8" },
+          }),
+        ),
+    });
+
+    const response = await api.getMerkleProofs(REQUEST);
+
+    expect(response.proofs[0]?.rootSeq).toBe(rootSeq);
+  });
+
+  it("leaves a safe integer, a quoted string, and a fractional number as they were sent", async () => {
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":-1700000000},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":9007199254740991,"root":"${HASH}","root_seq":0,"root_index":0}]}}`;
+    const api = new ZolanaApi({
+      url: "https://rpc.example.test",
+      fetch: () =>
+        Promise.resolve(
+          new Response(body, {
+            headers: { "content-type": "application/json; charset=utf-8" },
+          }),
+        ),
+    });
+
+    const response = await api.getMerkleProofs(REQUEST);
+
+    expect(response.proofs[0]?.leafIndex).toBe(9_007_199_254_740_991n);
+    expect(response.context.blockTime).toBe(-1_700_000_000n);
+  });
+
+  it("does not rewrite a digit run inside a string payload", async () => {
+    const payload = "99999999999999999999";
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"matches":[{"slot":0,"tx_signature":"${SIGNATURE}","output_slot":{"view_tag":"${HASH}","output_context":{"hash":"${HASH}","tree":"${HASH}","leaf_index":0},"payload":"${payload}"}}]}}`;
+    const api = new ZolanaApi({
+      url: "https://rpc.example.test",
+      fetch: () =>
+        Promise.resolve(
+          new Response(body, {
+            headers: { "content-type": "application/json; charset=utf-8" },
+          }),
+        ),
+    });
+
+    const response = await api.getEncryptedUtxosByTags({ tags: [HASH] } as never);
+
+    expect(response.matches[0]?.outputSlot.payload).toBe(payload);
   });
 });

@@ -355,13 +355,86 @@ async function decodeEnvelope(
 
   let value: unknown;
   try {
-    value = JSON.parse(text) as unknown;
+    value = JSON.parse(quoteUnsafeIntegers(text)) as unknown;
   } catch {
     throw new ApiError("API_INVALID_JSON", "API response is not valid JSON", {
       details: { method, bodyBytes: bytes.length, retryable: false },
     });
   }
   return validateEnvelope(value, method);
+}
+
+/**
+ * The indexer serializes `u64` and `i64` as bare JSON numbers, so a value above
+ * `Number.MAX_SAFE_INTEGER` would be rounded by `JSON.parse` before any decoder
+ * could see it. Quoting those literals first hands the decoder the exact digits.
+ * Numbers within the safe range keep their JSON type, so nothing else moves.
+ */
+function quoteUnsafeIntegers(text: string): string {
+  let result = "";
+  let copiedTo = 0;
+  let index = 0;
+
+  while (index < text.length) {
+    const character = text[index] as string;
+
+    if (character === '"') {
+      index = endOfStringLiteral(text, index);
+      continue;
+    }
+
+    if (character !== "-" && (character < "0" || character > "9")) {
+      index += 1;
+      continue;
+    }
+
+    const start = index;
+    index = endOfNumberLiteral(text, index);
+    const literal = text.slice(start, index);
+    if (!isUnsafeIntegerLiteral(literal)) continue;
+
+    result += text.slice(copiedTo, start) + '"' + literal + '"';
+    copiedTo = index;
+  }
+
+  return copiedTo === 0 ? text : result + text.slice(copiedTo);
+}
+
+function endOfStringLiteral(text: string, start: number): number {
+  let index = start + 1;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    index += 1;
+    if (character === '"') break;
+  }
+  return index;
+}
+
+function endOfNumberLiteral(text: string, start: number): number {
+  let index = start;
+  if (text[index] === "-") index += 1;
+  while (index < text.length && isNumberBody(text[index] as string)) index += 1;
+  return index;
+}
+
+function isNumberBody(character: string): boolean {
+  return (
+    (character >= "0" && character <= "9") ||
+    character === "." ||
+    character === "e" ||
+    character === "E" ||
+    character === "+" ||
+    character === "-"
+  );
+}
+
+function isUnsafeIntegerLiteral(literal: string): boolean {
+  if (!/^-?[0-9]+$/u.test(literal)) return false;
+  return !Number.isSafeInteger(Number(literal));
 }
 
 async function readBoundedBody(response: Response, method: string): Promise<Uint8Array> {
