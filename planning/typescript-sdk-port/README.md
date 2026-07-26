@@ -3,6 +3,11 @@
 This directory holds the implementation contract for a TypeScript port of the
 Rust SDK, and the record of the review that is certifying it.
 
+**[`HANDOVER.md`](HANDOVER.md) is the authoritative statement of goal, status,
+and remaining work.** It is self-contained and is what a reviewer or a returning
+worker should read first. The rest of this directory, including the status block
+below, is working record that goes stale between refreshes.
+
 **Start with [`remaining-work.md`](remaining-work.md).** It states what is left,
 in order, with the check that closes each step. It also carries the two rules
 that outrank the work: resolve an open question the way Light Protocol resolved
