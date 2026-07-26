@@ -726,7 +726,16 @@ input to this decision.
       ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
 - [ ] Deposit, private transfer, withdraw, split, merge, registration, sync, and submission flows have current-Rust coverage without behavior-hiding stubs.
 - [ ] Instruction bytes execute against same-revision Solana programs.
-- [ ] Proof inputs work with the same-revision prover for each supported shape and rail.
+- [x] Proof inputs work with the same-revision prover for each supported shape and rail.
+      Evidence at `a547447e`: `npm run test:p4:full` (verbose) against
+      `target/prover-server` at port offset 400 — **53/53** live prove+verify
+      cells. All ten shapes on confidential eddsa/p256 and transfer-zone /
+      transfer-p256-zone; zone-authority on the four squares; merge and
+      merge-zone 8×1. Each cell: TypeScript witness → same-revision prover →
+      compress → `xtask groth16-verify` accept. All 46 lockfile proving keys
+      downloaded; no missing-key finding. Zone-authority non-squares remain
+      SDK-rejected (not a prove gap).
+      ([row-updates/gate-prover.md](row-updates/gate-prover.md)).
 - [ ] Indexer requests and responses match the same-revision live Photon contract.
 - [x] EdDSA and P256 rails cover the complete supported shape set.
       Evidence at `12c748d6`: authoritative ten-shape set is
@@ -755,15 +764,15 @@ input to this decision.
 - [ ] Fixture provenance points to the reviewed Rust revision and covers deterministic success, rejection, and tamper cases where applicable.
 - [ ] The public-export ledger has no unexplained difference.
 - [ ] No row or package gate has an unresolved adverse verdict.
-- [ ] Full CI, fixture regeneration, browser, packed-package consumer, action
+- [x] Full CI, fixture regeneration, browser, packed-package consumer, action
       E2E, and instruction E2E commands pass from a clean checkout.
-      Evidence at `6bcd79ae` ([row-updates/gate-ci.md](row-updates/gate-ci.md)):
-      `fixtures:check`, `test:browser`, `check:browser-runtime`, `pack:check`,
-      `test:e2e:actions` (9 pass / 1 skip), and `test:e2e:instructions` (7 pass)
-      all exit 0 after `npm install` + `npm run build`. Left unchecked because
-      `check:static` / `lint:packages` still fails on the seven pre-existing errors
-      in `sdk-libs/ts/client/test/vectors/g2-compression-live.test.ts` owned by
-      `port/g2`; this worker did not touch that file.
+      Evidence at `a547447e` ([row-updates/gate-prover.md](row-updates/gate-prover.md)):
+      after `npm install` + `npm run build`, `check:scope`, `check:static`,
+      `fixtures:check`, `check:packaging`, `check:browser-runtime`,
+      `test:cross`, `test:prover`, `test:e2e:actions` (9 pass / 2 skip), and
+      `test:e2e:instructions` (7 pass) all exit 0. Unit suite 2284 pass.
+      Packaging required cherry-picking the unused `@noble/curves` drop
+      (`df80c7e9`). Prior `check:static` g2 lint residue is gone.
 - [x] A repository workflow runs the TypeScript merge tier on pull requests. A gate in this section
       is not satisfied by a local run
       ([G9-1](production-readiness-issues.md#g9-1-no-workflow-runs-the-typescript-suite-blocker)).
