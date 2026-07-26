@@ -30,9 +30,11 @@ use zolana_transaction::{
 /// from.
 const HISTORICAL_BASELINE_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
 /// Provenance the manifest records: the revision each family of fixtures was
-/// last regenerated against. These stamp the output; they do not gate it. What
-/// catches drift is `--check`, which regenerates every fixture from the working
-/// tree and compares it byte for byte with the committed one.
+/// last regenerated against. These stamp the output; they do not gate it.
+/// `--check` regenerates fixture bodies from the working tree and compares
+/// them to the committed files. Live client stamps advance only when a
+/// current-client fixture body changes, so an unrelated edit under
+/// `sdk-libs/client/src` cannot fail the gate or dirty the tree.
 const BASELINE_SHA: &str = "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71";
 const INTERFACE_SHA: &str = "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71";
 const MERKLE_SHA: &str = "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa";
@@ -139,13 +141,17 @@ fn run() -> Result<()> {
 }
 
 fn generate_current_client_fixtures(root: &Path, check: bool) -> Result<()> {
-    let revision = current_client_revision(root)?;
+    let fixtures_root = root.join("sdk-libs/ts/fixtures");
     let vectors = production_client_vectors(root)?;
-    let fixtures = stamp_current_client(client_fixtures(root, &vectors)?, &revision)
+    let (fixtures, revision) = stamp_current_client(
+        client_fixtures(root, &vectors)?,
+        &current_client_revision(root)?,
+        &fixtures_root,
+    )?;
+    let fixtures = fixtures
         .into_iter()
         .filter(|(path, _)| CURRENT_CLIENT_FIXTURES.contains(path))
         .collect::<Vec<_>>();
-    let fixtures_root = root.join("sdk-libs/ts/fixtures");
 
     if check {
         for (path, expected) in &fixtures {
@@ -181,11 +187,10 @@ fn generate_current_client_fixtures(root: &Path, check: bool) -> Result<()> {
     Ok(())
 }
 
-/// The three client fixtures that track the latest committed `sdk-libs/client`
-/// rather than a pinned revision, because the client is under active review.
-/// Both generation modes stamp them, so `--check` verifies the same bytes
-/// `--current-client` writes; stamping in only one mode left the committed
-/// fixtures unreproducible by the mode CI runs.
+/// The three client fixtures that track live `sdk-libs/client` behavior rather
+/// than a frozen baseline, because the client is under active review. Their
+/// `sourceRevision` is informational: it records the git revision last used
+/// when a body changed. Drift detection is body regeneration under `--check`.
 const CURRENT_CLIENT_FIXTURES: [&str; 3] = [
     "client/errors-v1.json",
     "client/lib.json",
@@ -193,6 +198,8 @@ const CURRENT_CLIENT_FIXTURES: [&str; 3] = [
 ];
 
 fn current_client_revision(root: &Path) -> Result<String> {
+    // Directory tip for reviewers; not a gate input. Stamps advance only when
+    // a current-client fixture body changes (see `stamp_current_client`).
     let revision = command_text(
         root,
         "git",
@@ -203,17 +210,58 @@ fn current_client_revision(root: &Path) -> Result<String> {
 
 fn stamp_current_client(
     fixtures: Vec<(&'static str, Value)>,
-    revision: &str,
-) -> Vec<(&'static str, Value)> {
-    fixtures
+    git_revision: &str,
+    committed_fixtures: &Path,
+) -> Result<(Vec<(&'static str, Value)>, String)> {
+    let body_changed = CURRENT_CLIENT_FIXTURES.iter().any(|path| {
+        let Some((_, generated)) = fixtures.iter().find(|(candidate, _)| candidate == path) else {
+            return true;
+        };
+        match fs::read(committed_fixtures.join(path)) {
+            Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
+                Ok(committed) => fixture_body(&committed) != fixture_body(generated),
+                Err(_) => true,
+            },
+            Err(_) => true,
+        }
+    });
+    let revision = if body_changed {
+        git_revision.to_string()
+    } else {
+        committed_client_revision(committed_fixtures)?.unwrap_or_else(|| git_revision.to_string())
+    };
+    let stamped = fixtures
         .into_iter()
         .map(|(path, mut fixture)| {
             if CURRENT_CLIENT_FIXTURES.contains(&path) {
-                fixture["sourceRevision"] = Value::String(revision.to_string());
+                fixture["sourceRevision"] = Value::String(revision.clone());
             }
             (path, fixture)
         })
-        .collect()
+        .collect();
+    Ok((stamped, revision))
+}
+
+/// Fixture JSON without the live provenance stamp. Body equality is what the
+/// gate enforces for current-client fixtures.
+fn fixture_body(fixture: &Value) -> Value {
+    let mut body = fixture.clone();
+    if let Some(object) = body.as_object_mut() {
+        object.remove("sourceRevision");
+    }
+    body
+}
+
+fn committed_client_revision(committed_fixtures: &Path) -> Result<Option<String>> {
+    let path = committed_fixtures.join(CURRENT_CLIENT_FIXTURES[0]);
+    let Ok(bytes) = fs::read(&path) else {
+        return Ok(None);
+    };
+    let fixture: Value = serde_json::from_slice(&bytes)?;
+    Ok(fixture["sourceRevision"]
+        .as_str()
+        .filter(|revision| revision.len() == 40 && revision.chars().all(|c| c.is_ascii_hexdigit()))
+        .map(str::to_string))
 }
 
 fn verify_current_client_manifest(
@@ -378,7 +426,7 @@ fn generate(root: &Path, out: &Path, inventory: &[InventoryRow]) -> Result<()> {
     }
     fs::create_dir_all(out.join("reports/packets"))?;
 
-    let records = production_fixtures(root)?;
+    let (records, client_revision) = production_fixtures(root)?;
     if records.len() != EXPECTED_FIXTURE_COUNT {
         bail!(
             "generated {} fixtures, expected {EXPECTED_FIXTURE_COUNT}",
@@ -389,8 +437,8 @@ fn generate(root: &Path, out: &Path, inventory: &[InventoryRow]) -> Result<()> {
         write_json(&fixtures.join(relative), &record)?;
     }
     write_inventory_report(&out.join("reports/inventory.json"), inventory)?;
-    write_manifest(root, &fixtures)?;
-    verify_manifest(&fixtures, &current_client_revision(root)?)?;
+    write_manifest(root, &fixtures, &client_revision)?;
+    verify_manifest(&fixtures, &client_revision)?;
     write_packet_report(out, inventory)?;
     Ok(())
 }
@@ -421,7 +469,7 @@ macro_rules! fixture_base {
     };
 }
 
-fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
+fn production_fixtures(root: &Path) -> Result<(Vec<(&'static str, Value)>, String)> {
     let tree = Address::new_from_array([1; 32]);
     let depositor = Address::new_from_array([2; 32]);
     let deposit = Deposit {
@@ -783,14 +831,16 @@ fn production_fixtures(root: &Path) -> Result<Vec<(&'static str, Value)>> {
     fixtures.extend(keypair_fixtures(&keypair_vectors)?);
     fixtures.extend(transaction_fixtures(&transaction_vectors)?);
     fixtures.push(api_fixture(&api_vectors)?);
-    fixtures.extend(stamp_current_client(
+    let (client_fixtures, client_revision) = stamp_current_client(
         client_fixtures(root, &client_vectors)?,
         &current_client_revision(root)?,
-    ));
+        &root.join("sdk-libs/ts/fixtures"),
+    )?;
+    fixtures.extend(client_fixtures);
     fixtures.extend(instruction_workflow_fixtures(&client_vectors)?);
     fixtures.extend(wallet_fixtures(&wallet_vectors)?);
     fixtures.extend(workflow_fixtures(&wallet_vectors)?);
-    Ok(fixtures)
+    Ok((fixtures, client_revision))
 }
 
 fn instruction_json(instruction: &solana_instruction::Instruction) -> Value {
@@ -2446,7 +2496,7 @@ fn write_inventory_report(path: &Path, rows: &[InventoryRow]) -> Result<()> {
     )
 }
 
-fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
+fn write_manifest(root: &Path, fixtures: &Path, client_revision: &str) -> Result<()> {
     let spec = git_blob(root, &format!("{HISTORICAL_BASELINE_SHA}:docs/spec.md"))?;
     let lock_path = "prover/server/prover/provingkeys/proving-keys.lock";
     let proving_lock = git_blob(root, &format!("{HISTORICAL_BASELINE_SHA}:{lock_path}"))?;
@@ -2460,7 +2510,7 @@ fn write_manifest(root: &Path, fixtures: &Path) -> Result<()> {
             "files":entries.into_iter().map(|(path, sha256)| json!({"path":path,"sha256":sha256})).collect::<Vec<_>>(),
             "canonicalSourceRevisions":{
                 "baseline":BASELINE_SHA,
-                "client":current_client_revision(root)?,
+                "client":client_revision,
                 "interface":INTERFACE_SHA,
                 "merkleTree":MERKLE_SHA
             },
@@ -2997,7 +3047,7 @@ mod tests {
     #[test]
     fn production_fixture_ids_are_unique_and_secrets_are_marked() {
         let root = workspace_root().expect("workspace root");
-        let fixtures = production_fixtures(&root).expect("production fixtures");
+        let (fixtures, _) = production_fixtures(&root).expect("production fixtures");
         assert_eq!(fixtures.len(), EXPECTED_FIXTURE_COUNT);
         let ids = fixtures
             .iter()
@@ -3026,5 +3076,29 @@ mod tests {
         let value = json!({"z":{"b":2,"a":1},"a":0});
         let bytes = serde_json::to_vec(&canonicalize(&value)).expect("serialize");
         assert_eq!(bytes, br#"{"a":0,"z":{"a":1,"b":2}}"#);
+    }
+
+    #[test]
+    fn current_client_stamp_is_excluded_from_body_equality() {
+        let with_stamp = json!({
+            "expected":{"ok":true},
+            "id":"fx",
+            "inputs":{},
+            "sourceRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        });
+        let other_stamp = json!({
+            "expected":{"ok":true},
+            "id":"fx",
+            "inputs":{},
+            "sourceRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        });
+        let changed_body = json!({
+            "expected":{"ok":false},
+            "id":"fx",
+            "inputs":{},
+            "sourceRevision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        });
+        assert_eq!(fixture_body(&with_stamp), fixture_body(&other_stamp));
+        assert_ne!(fixture_body(&with_stamp), fixture_body(&changed_body));
     }
 }
