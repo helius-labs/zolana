@@ -1337,6 +1337,40 @@
       "emptyAccount": "missing user record discriminator"
     },
     "rustPath": "program-libs/user-registry-interface/src/lib.rs",
+    "senderViewingKeyRule": {
+      "cases": [
+        {
+          "expected": "333333333333333333333333333333333333333333333333333333333333333333",
+          "name": "no-delegate",
+          "ownerViewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333",
+          "record": "minimal",
+          "uses": "owner"
+        },
+        {
+          "expected": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+          "latestEntryViewingPubkey": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+          "name": "active-with-entries",
+          "ownerViewingPubkey": "777777777777777777777777777777777777777777777777777777777777777777",
+          "record": "full",
+          "uses": "latest-entry"
+        },
+        {
+          "expected": "333333333333333333333333333333333333333333333333333333333333333333",
+          "name": "active-empty-entries",
+          "ownerViewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333",
+          "record": "delegate-without-entries",
+          "uses": "owner-fallback"
+        },
+        {
+          "expected": "333333333333333333333333333333333333333333333333333333333333333333",
+          "leftoverEntryViewingPubkey": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+          "name": "revoked-with-entries",
+          "ownerViewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333",
+          "record": "revoked-with-entries",
+          "uses": "owner"
+        }
+      ]
+    },
     "spaceFor": [
       {
         "entries": 0,
@@ -1424,6 +1458,32 @@
             "ownerHex": "1111111111111111111111111111111111111111111111111111111111111111",
             "ownerP256": null,
             "syncDelegate": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "viewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333"
+          }
+        },
+        {
+          "accountData": "011111111111111111111111111111111111111111111111111111111111111111fe0022222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333330001000000c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c201f153650000000000",
+          "borshBody": "1111111111111111111111111111111111111111111111111111111111111111fe0022222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333330001000000c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c201f153650000000000",
+          "entryCount": 1,
+          "name": "revoked-with-entries",
+          "senderViewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333",
+          "spaceFor": 277,
+          "value": {
+            "bump": 254,
+            "entries": [
+              {
+                "createdAt": "1700000001",
+                "delegate": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0",
+                "syncPubkey": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+                "viewingPubkey": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"
+              }
+            ],
+            "mergingEnabled": false,
+            "nullifierPubkey": "2222222222222222222222222222222222222222222222222222222222222222",
+            "owner": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+            "ownerHex": "1111111111111111111111111111111111111111111111111111111111111111",
+            "ownerP256": null,
+            "syncDelegate": null,
             "viewingPubkey": "333333333333333333333333333333333333333333333333333333333333333333"
           }
         }

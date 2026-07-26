@@ -27,6 +27,14 @@ function account(dataHex: string): Parameters<typeof decodeUserRecordAccount>[0]
   } as Parameters<typeof decodeUserRecordAccount>[0];
 }
 
+function recordByName(name: string) {
+  const vector = registry.state.records.find((entry) => entry.name === name);
+  if (vector === undefined) {
+    throw new Error(`missing user-record vector ${name}`);
+  }
+  return vector;
+}
+
 describe("program-libs/user-registry-interface/src/lib.rs constants", () => {
   it("uses the Rust program id", () => {
     expect(registry.constants.programId).toBe("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
@@ -79,27 +87,6 @@ describe("program-libs/user-registry-interface/src/state.rs against decodeUserRe
     });
   }
 
-  it("falls back to the record's own viewing key when a delegate has no entries", () => {
-    // The Rust `sender_viewing_pubkey` reads `entries.last()` only when
-    // `sync_delegate` is set, and falls back when the list is empty.
-    const vector = registry.state.records.find(
-      (entry) => entry.name === "delegate-without-entries",
-    );
-    expect(vector).toBeDefined();
-    if (vector === undefined) return;
-    expect(vector.senderViewingPubkey).toBe(vector.value.viewingPubkey);
-    const record = decodeUserRecordAccount(account(vector.accountData));
-    expect(bytesToHex(senderViewingPublicKey(record))).toBe(vector.value.viewingPubkey);
-  });
-
-  it("prefers the newest delegate entry when one exists", () => {
-    const vector = registry.state.records.find((entry) => entry.name === "full");
-    expect(vector).toBeDefined();
-    if (vector === undefined) return;
-    const last = vector.value.entries.at(-1);
-    expect(vector.senderViewingPubkey).toBe(last?.viewingPubkey);
-  });
-
   it("refuses account data whose first byte is not the discriminator", () => {
     const vector = registry.state.records[0];
     expect(vector).toBeDefined();
@@ -127,11 +114,55 @@ describe("program-libs/user-registry-interface/src/state.rs against decodeUserRe
     for (const vector of registry.state.records) {
       expect(hexToBytes(vector.accountData).length).toBeLessThanOrEqual(vector.spaceFor);
     }
-    const full = registry.state.records.find((entry) => entry.name === "full");
-    expect(full).toBeDefined();
-    if (full === undefined) return;
+    const full = recordByName("full");
     expect(hexToBytes(full.accountData)).toHaveLength(full.spaceFor);
   });
+});
+
+/**
+ * W07: while a sync delegate is active, senders encrypt to the delegate's
+ * latest epoch key; revoking the delegate restores the owner key. Getting this
+ * wrong makes notes unrecoverable. Every expectation below is
+ * `UserRecord::sender_viewing_pubkey()` from the Rust generator.
+ */
+describe("sender viewing key rule (W07)", () => {
+  const rule = registry.senderViewingKeyRule;
+
+  it("pins the four rule cases Rust emits", () => {
+    expect(rule.cases.map((entry) => entry.name)).toEqual([
+      "no-delegate",
+      "active-with-entries",
+      "active-empty-entries",
+      "revoked-with-entries",
+    ]);
+  });
+
+  for (const testCase of rule.cases) {
+    it(`matches Rust for ${testCase.name}`, () => {
+      const vector = recordByName(testCase.record);
+      const record = decodeUserRecordAccount(account(vector.accountData));
+      const actual = bytesToHex(senderViewingPublicKey(record));
+      expect(actual).toBe(testCase.expected);
+      expect(actual).toBe(vector.senderViewingPubkey);
+
+      switch (testCase.uses) {
+        case "owner":
+        case "owner-fallback":
+          expect(actual).toBe(testCase.ownerViewingPubkey);
+          break;
+        case "latest-entry":
+          expect(actual).toBe(testCase.latestEntryViewingPubkey);
+          expect(actual).not.toBe(testCase.ownerViewingPubkey);
+          break;
+        default:
+          throw new Error(`unknown uses ${testCase.uses}`);
+      }
+
+      if ("leftoverEntryViewingPubkey" in testCase) {
+        expect(actual).not.toBe(testCase.leftoverEntryViewingPubkey);
+      }
+    });
+  }
 });
 
 describe("program-libs/user-registry-interface/src/instruction.rs discriminators", () => {

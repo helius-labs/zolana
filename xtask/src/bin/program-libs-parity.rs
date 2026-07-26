@@ -973,10 +973,19 @@ fn user_registry() -> Result<Value> {
         ..minimal.clone()
     };
 
+    // Revocation clears `sync_delegate` and leaves historical `entries`. The
+    // sender must encrypt to the owner key again; leftover entries must not win.
+    let revoked_with_entries = UserRecord {
+        sync_delegate: None,
+        entries: vec![entry(0xc0, 1_700_000_001)],
+        ..minimal.clone()
+    };
+
     let records: Vec<(&str, UserRecord)> = vec![
         ("minimal", minimal.clone()),
         ("full", full.clone()),
         ("delegate-without-entries", delegate_no_entries.clone()),
+        ("revoked-with-entries", revoked_with_entries.clone()),
     ];
 
     let mut record_vectors = Vec::new();
@@ -1000,6 +1009,55 @@ fn user_registry() -> Result<Value> {
             "value": user_record_json(record),
         }));
     }
+
+    // Named cases for the fund-losing sync-delegate viewing-key rule (W07).
+    // Each `expected` is `UserRecord::sender_viewing_pubkey()` on the named record.
+    let sender_viewing_key_rule = json!({
+        "cases": [
+            {
+                "name": "no-delegate",
+                "record": "minimal",
+                "uses": "owner",
+                "expected": hex(&minimal.sender_viewing_pubkey()),
+                "ownerViewingPubkey": hex(&minimal.viewing_pubkey),
+            },
+            {
+                "name": "active-with-entries",
+                "record": "full",
+                "uses": "latest-entry",
+                "expected": hex(&full.sender_viewing_pubkey()),
+                "ownerViewingPubkey": hex(&full.viewing_pubkey),
+                "latestEntryViewingPubkey": hex(
+                    &full
+                        .entries
+                        .last()
+                        .context("full record must carry entries")?
+                        .viewing_pubkey,
+                ),
+            },
+            {
+                "name": "active-empty-entries",
+                "record": "delegate-without-entries",
+                "uses": "owner-fallback",
+                "expected": hex(&delegate_no_entries.sender_viewing_pubkey()),
+                "ownerViewingPubkey": hex(&delegate_no_entries.viewing_pubkey),
+            },
+            {
+                "name": "revoked-with-entries",
+                "record": "revoked-with-entries",
+                "uses": "owner",
+                "expected": hex(&revoked_with_entries.sender_viewing_pubkey()),
+                "ownerViewingPubkey": hex(&revoked_with_entries.viewing_pubkey),
+                "leftoverEntryViewingPubkey": hex(
+                    &revoked_with_entries
+                        .entries
+                        .last()
+                        .context("revoked record must retain entries")?
+                        .viewing_pubkey,
+                ),
+            },
+        ],
+    });
 
     let bad_discriminator = UserRecord::try_from_account_data(&[9u8, 0, 0])
         .err()
@@ -1075,6 +1133,7 @@ fn user_registry() -> Result<Value> {
         "spaceFor": (0..4usize)
             .map(|count| json!({ "entries": count, "space": UserRecord::space_for(count) }))
             .collect::<Vec<_>>(),
+        "senderViewingKeyRule": sender_viewing_key_rule,
         "state": {
             "records": record_vectors,
             "rustPath": "program-libs/user-registry-interface/src/state.rs",
