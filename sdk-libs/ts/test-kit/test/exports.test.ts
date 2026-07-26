@@ -77,7 +77,8 @@ describe("public exports", () => {
       if (file === "error.ts" || file.endsWith(`${path.sep}error.ts`)) continue;
       const source = await readFile(path.join(directory, file), "utf8");
       for (const match of source.matchAll(/"(TEST_KIT_[A-Z0-9_]+)"/g)) {
-        raised.add(match[1]!);
+        const code = match[1];
+        if (code !== undefined) raised.add(code);
       }
     }
     expect([...raised].sort()).toStrictEqual([...TEST_KIT_ERROR_CODES].sort());

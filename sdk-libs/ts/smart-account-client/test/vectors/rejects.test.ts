@@ -216,12 +216,16 @@ describe("smart-account rejects (Rust-generated)", () => {
   }
 
   for (const testCase of fixture.rejects as RejectCase[]) {
-    it(`rejects ${testCase.id} (${testCase.kind}) with ${REJECT_CODES[testCase.id]}`, () => {
+    const expectedCode = REJECT_CODES[testCase.id];
+    if (expectedCode === undefined) {
+      throw new Error(`missing REJECT_CODES entry for ${testCase.id}`);
+    }
+    it(`rejects ${testCase.id} (${testCase.kind}) with ${expectedCode}`, () => {
       expect(testCase.accepted).toBe(false);
       expect(testCase.rustPanic.length).toBeGreaterThan(0);
       const result = runCase(testCase.id);
       expect(result).toBeInstanceOf(SmartAccountClientError);
-      expect((result as SmartAccountClientError).code).toBe(REJECT_CODES[testCase.id]);
+      expect((result as SmartAccountClientError).code).toBe(expectedCode);
     });
   }
 
