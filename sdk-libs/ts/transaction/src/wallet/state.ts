@@ -123,6 +123,7 @@ export class Wallet {
   #utxos: WalletUtxo[] = [];
   #transactions: PrivateTransaction[] = [];
   #nullifiers = new Set<string>();
+  #lastSynced = 0n;
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry: AssetRegistry }>) {
     this.identity = input.identity;
@@ -136,6 +137,11 @@ export class Wallet {
 
   get viewingKeyHistory(): readonly ViewingKeyEntry[] {
     return this.#viewingKeyHistory.map(snapshotViewingKeyEntry);
+  }
+
+  /** Timestamp the last completed sync was told to record, zero before the first. */
+  get lastSynced(): bigint {
+    return this.#lastSynced;
   }
 
   registerAsset(assetId: bigint, mint: Address): void {
@@ -200,13 +206,17 @@ export class Wallet {
     };
   }
 
-  /** Omitting `viewingKeyHistory` leaves the scan position untouched. */
+  /**
+   * Omitting `viewingKeyHistory` leaves the scan position untouched, and
+   * omitting `lastSynced` leaves the sync timestamp untouched.
+   */
   _replace(
     input: Readonly<{
       utxos: readonly WalletUtxo[];
       transactions: readonly PrivateTransaction[];
       nullifiers: ReadonlySet<string>;
       viewingKeyHistory?: readonly ViewingKeyEntry[];
+      lastSynced?: bigint;
     }>,
   ): void {
     const hashes = new Set<string>();
@@ -224,6 +234,9 @@ export class Wallet {
     this.#nullifiers = new Set(input.nullifiers);
     if (input.viewingKeyHistory !== undefined) {
       this.#viewingKeyHistory = input.viewingKeyHistory.map(snapshotViewingKeyEntry);
+    }
+    if (input.lastSynced !== undefined) {
+      this.#lastSynced = input.lastSynced;
     }
   }
 }

@@ -225,11 +225,14 @@ describe("manifest-verified wallet behavior", () => {
     const transactions = shieldedTransactions(inputs);
     const wallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
 
+    // The three timestamps are the ones the fixture generator syncs at, so
+    // `lastSynced` below is the value Rust recorded rather than an echo.
     expect(
       await decryptTransactions({
         wallet,
         authority: value.authority,
         transactions: transactions.slice(0, 1),
+        config: { syncedAt: 10n },
       }),
     ).toEqual({
       received: 1,
@@ -242,6 +245,7 @@ describe("manifest-verified wallet behavior", () => {
         wallet,
         authority: value.authority,
         transactions: transactions.slice(1),
+        config: { syncedAt: 20n },
       }),
     ).toEqual({
       received: 1,
@@ -249,14 +253,19 @@ describe("manifest-verified wallet behavior", () => {
       transactions: 1,
       unknownAssetIds: [],
     });
-    expect(await decryptTransactions({ wallet, authority: value.authority, transactions })).toEqual(
-      {
-        received: 0,
-        spent: 0,
-        transactions: 0,
-        unknownAssetIds: [],
-      },
-    );
+    expect(
+      await decryptTransactions({
+        wallet,
+        authority: value.authority,
+        transactions,
+        config: { syncedAt: 30n },
+      }),
+    ).toEqual({
+      received: 0,
+      spent: 0,
+      transactions: 0,
+      unknownAssetIds: [],
+    });
     const sequentialExpected = fixtureObject(expected.sequential);
     expect(wallet.utxos()).toHaveLength(Number(fixtureString(sequentialExpected, "utxoCount")));
     expect(wallet.privateTransactions()).toHaveLength(
@@ -265,6 +274,7 @@ describe("manifest-verified wallet behavior", () => {
     expect(wallet.balance(SOL_MINT).amount).toBe(
       BigInt(fixtureString(sequentialExpected, "balance")),
     );
+    expect(wallet.lastSynced).toBe(BigInt(fixtureString(sequentialExpected, "lastSynced")));
 
     const worker = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
     const workerReport = await decryptTransactionsWorkerEquivalent({

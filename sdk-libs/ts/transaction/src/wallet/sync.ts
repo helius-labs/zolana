@@ -35,6 +35,8 @@ import {
 
 export interface WalletSyncConfig {
   readonly tagWindow?: bigint;
+  /** Recorded as `Wallet.lastSynced` once the sync commits, as `Wallet::sync` records `synced_at`. */
+  readonly syncedAt?: bigint;
 }
 
 function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
@@ -669,7 +671,13 @@ export async function decryptTransactions(
       recipients: recipients.get(id) ?? empty,
     });
   });
-  input.wallet._replace({ utxos: finalUtxos, transactions, nullifiers, viewingKeyHistory });
+  input.wallet._replace({
+    utxos: finalUtxos,
+    transactions,
+    nullifiers,
+    viewingKeyHistory,
+    lastSynced: input.config?.syncedAt ?? 0n,
+  });
   return Object.freeze({
     received,
     spent,
