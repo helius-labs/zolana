@@ -440,19 +440,6 @@ function decodeBase58(value: string, field: string): Uint8Array {
   return result;
 }
 
-function encodeBase58(value: Uint8Array): string {
-  let encoded = 0n;
-  for (const byte of value) encoded = encoded * 256n + BigInt(byte);
-  let result = "";
-  while (encoded > 0n) {
-    result = (BASE58[Number(encoded % 58n)] ?? "") + result;
-    encoded /= 58n;
-  }
-  let zeros = 0;
-  while (zeros < value.length && value[zeros] === 0) zeros++;
-  return "1".repeat(zeros) + result;
-}
-
 function concat(...parts: readonly Uint8Array[]): Uint8Array {
   const result = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
   let offset = 0;
