@@ -359,6 +359,48 @@ describe("wallet sync", () => {
     ).toBe(true);
   });
 
+  it("rejects encrypted and non-proofless plaintext payloads during deposit sync", async () => {
+    const { wallet, authority, keypair } = state();
+    const viewTag = keypair.viewingKey().recipientRequestViewTag(0n);
+    const before = wallet.utxos().length;
+    const bogus = [
+      encodeOutputData(EncryptedScheme.plaintextTransfer, Uint8Array.of(0), "plaintext"),
+      encodeOutputData(EncryptedScheme.confidential, new Uint8Array(48).fill(9), "encrypted"),
+      encodeOutputData(EncryptedScheme.proofless, Uint8Array.of(1, 2, 3), "plaintext"),
+    ];
+    let index = 0;
+    const indexer = {
+      getShieldedTransactionsByTags: () =>
+        Promise.resolve({ context: { blockTime: 0n }, transactions: [] }),
+      getEncryptedUtxosByTags: () => {
+        const payload = bogus[index] ?? bogus[0]!;
+        index += 1;
+        return Promise.resolve({
+          context: { blockTime: 0n },
+          matches: [
+            {
+              slot: 5n,
+              txSignature: `sig-${String(index)}`,
+              outputSlot: {
+                viewTag,
+                outputContext: { hash: bytes32(index), tree: TREE, leafIndex: BigInt(index) },
+                payload,
+              },
+            },
+          ],
+        });
+      },
+    } as unknown as ZolanaIndexer;
+
+    await syncWallet({
+      wallet,
+      authority,
+      indexer,
+      config: { tagWindow: 1n, tagQueryChunk: 1, rounds: 3 },
+    });
+    expect(wallet.utxos()).toHaveLength(before);
+  });
+
   it("forwards the indexer poll configuration", async () => {
     const { wallet, authority } = state();
     const retry = { numRetries: 3, delayMs: 5n, maxDelayMs: 9n };

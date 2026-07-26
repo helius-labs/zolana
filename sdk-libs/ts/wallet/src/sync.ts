@@ -21,7 +21,7 @@ import {
   type WalletSyncMaterial,
 } from "@zolana/transaction";
 import type { IndexedShieldedTransaction } from "@zolana/transaction/instructions";
-import { decodeOutputData } from "@zolana/transaction/serialization";
+import { decodeOutputData, decodeProofless } from "@zolana/transaction/serialization";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey, decodeBase58 } from "./internal.js";
@@ -160,14 +160,14 @@ function hasMergeCiphertext(transaction: IndexedShieldedTransaction): boolean {
 }
 
 /**
- * Rust admits any payload `decode_output_data` accepts, not only one already
- * flagged proofless: the deposit's own `ProoflessOutput` parse happens later, in
- * the wallet, and screening on the scheme here would drop a deposit the wallet
- * can still read.
+ * Mirrors Rust `event::decode_output_data`: plaintext encoding, scheme 0, and a
+ * full `ProoflessOutput` body. The generic envelope decoder alone is wider.
  */
 function isDecodablePayload(payload: Uint8Array): boolean {
   try {
-    decodeOutputData(payload);
+    const frame = decodeOutputData(payload);
+    if (frame.scheme !== EncryptedScheme.proofless) return false;
+    decodeProofless(frame.body);
     return true;
   } catch {
     return false;

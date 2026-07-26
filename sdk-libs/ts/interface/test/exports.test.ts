@@ -92,6 +92,8 @@ describe("public exports", () => {
     ]);
     expect(Object.keys(pda).sort()).toEqual([
       "associatedTokenAddress",
+      "findProgramAddress",
+      "isEd25519Point",
       "protocolConfigAddress",
       "shieldedPoolCpiAuthorityAddress",
       "solInterfaceAddress",

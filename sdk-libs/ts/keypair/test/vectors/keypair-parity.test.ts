@@ -333,6 +333,20 @@ describe("hashing against current Rust", () => {
     expectHex(hashField(new Uint8Array(32)), recorded.hashFieldZeroBytes);
   });
 
+  it("rejects non-canonical lengths that Rust's [u8; 32] cannot represent", () => {
+    const short = new Uint8Array(31).fill(1);
+    const long = new Uint8Array(33).fill(1);
+    expect(() => splitBigEndian128(short)).toThrow(
+      expect.objectContaining({ code: "KEYPAIR_INVALID_LENGTH" }),
+    );
+    expect(() => hashField(long)).toThrow(
+      expect.objectContaining({ code: "KEYPAIR_INVALID_LENGTH" }),
+    );
+    expect(() => ownerHash(short, new Uint8Array(32))).toThrow(
+      expect.objectContaining({ code: "KEYPAIR_INVALID_LENGTH" }),
+    );
+  });
+
   it("matches the owner hash", () => {
     const signing = ShieldedPublicKey.fromBytes(
       fromHex(fixture.pubkeys.p256.taggedBytes) as Bytes34,

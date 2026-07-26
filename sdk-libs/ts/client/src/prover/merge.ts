@@ -3,7 +3,12 @@ import { mergeExternalDataHash } from "@zolana/interface/codecs";
 import type { MergeTransactInstructionData } from "@zolana/interface/instructions";
 import { NullifierKey, P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
 import { encryptVerifiable, mergePublicContribution } from "@zolana/keypair/merge";
-import { MERGE_INPUTS, PreparedMerge, PreparedMergeZone } from "@zolana/transaction";
+import {
+  MERGE_INPUTS,
+  PreparedMerge,
+  PreparedMergeZone,
+  ProofInputUtxo,
+} from "@zolana/transaction";
 import { EncryptedScheme, encodeMerge, encodeOutputData } from "@zolana/transaction/serialization";
 
 import { ClientError, fromClientCause } from "../error.js";
@@ -155,6 +160,19 @@ export function assembleMergeZoneWithProofs(
  * validated here, so the entry points that fetch proofs validate twice on
  * purpose, to fail before the indexer round trip.
  */
+/**
+ * Rust `MergeWitness` clears both hashes before plain-merge assembly. A
+ * hand-built `PreparedMerge` can still carry them; leaving them would diverge
+ * the circuit witness and public inputs from Rust.
+ */
+function plainMergeSpend(input: ProofInputUtxo): ProofInputUtxo {
+  if (input.dataHash === undefined && input.zoneDataHash === undefined) return input;
+  return new ProofInputUtxo({
+    utxo: input.utxo,
+    nullifierKey: input.nullifierKey,
+  });
+}
+
 function assembleMergeRailUnchecked(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
@@ -178,7 +196,9 @@ function assembleMergeRailUnchecked(
   const nullifierRoots: bigint[] = [];
   const rootIndexes: Array<readonly [number, number]> = [];
   let proofIndex = 0;
-  for (const input of prepared.inputs) {
+  for (const raw of prepared.inputs) {
+    // Plain rail: drop data hashes before any hash/nullifier/circuit use.
+    const input = zoneProgramId === undefined ? plainMergeSpend(raw) : raw;
     if (input.isDummy()) {
       const first = inputs[0];
       const firstIndexes = rootIndexes[0];

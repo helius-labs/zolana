@@ -22,7 +22,9 @@ import {
 
 const JSON_RPC_VERSION = "2.0";
 const REQUEST_ID = "test-account";
-const MAX_BODY_BYTES = 1024 * 1024;
+// Photon serves up to 10 MiB; a default 1000-row page with realistic ciphertext
+// already exceeds 1 MiB, so a tighter client cap is a TypeScript-only failure.
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
 const MAX_API_KEY_LENGTH = 4096;
 
 type JsonObject = Record<string, unknown>;

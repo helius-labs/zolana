@@ -127,7 +127,12 @@ function createProgramAddress(seeds: readonly Uint8Array[], program: Address): A
   return isEd25519Point(digest) ? undefined : encodeBase58(digest);
 }
 
-function isEd25519Point(bytes: Uint8Array): boolean {
+/**
+ * Ed25519 compressed-point validity for PDA off-curve checks. Rejects the
+ * `x == 0 && sign == 1` encoding; incomplete copies that omit that clause can
+ * disagree with this helper on a viable bump.
+ */
+export function isEd25519Point(bytes: Uint8Array): boolean {
   const p = (1n << 255n) - 19n;
   const d = 37095705934669439343138083508754565189542113879843219016388785533085940283555n;
   const sign = arrayValue(bytes, 31) >>> 7;

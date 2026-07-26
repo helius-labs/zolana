@@ -1,7 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const reports = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../reports");
 const inventory = JSON.parse(await readFile(path.join(reports, "inventory.json"), "utf8"));
 
@@ -16,5 +17,10 @@ for (const row of inventory.rows) {
   paths.add(row.path);
   if (!row.packet || !row.marker || !row.testResponsibility || !row.fixtureResponsibility) {
     throw new Error(`incomplete inventory row: ${row.path}`);
+  }
+  try {
+    await access(path.join(root, row.path));
+  } catch {
+    throw new Error(`inventory source path missing: ${row.path}`);
   }
 }
