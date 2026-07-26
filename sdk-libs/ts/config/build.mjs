@@ -10,9 +10,9 @@
 // is the `package.json` written into each that tells TypeScript how to read
 // them.
 import { execFileSync } from "node:child_process";
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { build as esbuild } from "esbuild";
 
@@ -98,6 +98,24 @@ async function transpileToCommonJs(distDirectory) {
   }
 }
 
+// A package whose sources or shipped files are generated declares
+// `scripts/build-hooks.mjs`, and the build runs it. `beforeBuild` returns a
+// context handed back to `afterBuild`, so a hook computes what it needs once
+// rather than reading its own output back off disk. Running them from here
+// rather than from the package's `build` script is deliberate: the repository
+// build invokes this file directly for every package, so a hook wired to the
+// script would be skipped by exactly the build that CI runs.
+async function loadBuildHooks(packageDirectory) {
+  const hooks = path.join(packageDirectory, "scripts/build-hooks.mjs");
+  try {
+    await access(hooks);
+  } catch (error) {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  }
+  return import(pathToFileURL(hooks).href);
+}
+
 const selectedPackages = process.argv[2] ? [process.argv[2]] : packageNames;
 for (const packageName of selectedPackages) {
   if (!packageNames.includes(packageName)) throw new Error(`unknown package: ${packageName}`);
@@ -107,6 +125,8 @@ for (const packageName of selectedPackages) {
   // `test-kit` reads `import.meta.url` to find the workspace and is never
   // published, so it stays ESM only.
   const dual = productionPackageNames.includes(packageName);
+  const hooks = await loadBuildHooks(packageDirectory);
+  const context = await hooks?.beforeBuild?.();
   await rm(distDirectory, { recursive: true, force: true });
 
   if (await hasTypeScriptSource(path.join(packageDirectory, "src"))) {
@@ -120,13 +140,15 @@ for (const packageName of selectedPackages) {
       await transpileToCommonJs(distDirectory);
       await writeFormatManifest(distDirectory, "cjs");
     }
-    continue;
+  } else {
+    await writeFormatManifest(distDirectory, "es");
+    if (dual) await writeFormatManifest(distDirectory, "cjs");
+    for (const exportPath of Object.keys(manifest.exports)) {
+      if (typeof manifest.exports[exportPath] === "string") continue;
+      await writeEmptyEntry(distDirectory, "es", exportPath);
+      if (dual) await writeEmptyEntry(distDirectory, "cjs", exportPath);
+    }
   }
 
-  await writeFormatManifest(distDirectory, "es");
-  if (dual) await writeFormatManifest(distDirectory, "cjs");
-  for (const exportPath of Object.keys(manifest.exports)) {
-    await writeEmptyEntry(distDirectory, "es", exportPath);
-    if (dual) await writeEmptyEntry(distDirectory, "cjs", exportPath);
-  }
+  await hooks?.afterBuild?.(distDirectory, context);
 }

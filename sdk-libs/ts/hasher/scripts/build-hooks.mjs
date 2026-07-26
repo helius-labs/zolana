@@ -1,0 +1,175 @@
+// Compiles `zolana_hasher::Poseidon` to WebAssembly as part of building this
+// package, and emits the result both inlined and as a file.
+//
+// A committed artifact that no build step reproduces is a digest no verifier
+// can reproduce as soon as the Rust moves under it, which is the defect class
+// the WebAssembly work exists to close. Detecting that afterwards is not the
+// same as making it unrepresentable, so the compile is the build rather than a
+// gate over it.
+//
+// Compiling costs sixteen seconds and a `wasm32-unknown-unknown` toolchain,
+// which is too much to charge every `npm run build` in a repository where most
+// builds do not touch Rust. `artifact.lock.json` therefore records a hash over
+// every input the compile reads together with the digest of what came out, and
+// the compile runs when either has moved. The committed `src/artifact.ts` is a
+// cache under that key, not a source: a tree whose Rust has changed either
+// recompiles or fails for the missing toolchain, and cannot quietly build the
+// previous artifact.
+//
+// usage: node scripts/build-hooks.mjs [--force]
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repositoryRoot = path.resolve(packageRoot, "../../..");
+const crateRoot = path.join(repositoryRoot, "sdk-libs/hasher-wasm");
+const compiled = path.join(
+  crateRoot,
+  "target/wasm32-unknown-unknown/release/zolana_hasher_wasm.wasm",
+);
+const artifactModule = path.join(packageRoot, "src/artifact.ts");
+const lockFile = path.join(packageRoot, "artifact.lock.json");
+
+/** The file this package's `exports` map offers the raw artifact under. */
+const ASSET_NAME = "poseidon.wasm";
+
+// Everything the compile reads, as paths relative to the repository root.
+// `Cargo.lock` rather than the workspace manifest pins what actually gets
+// built: the wrapper crate is its own workspace, so the lock is where a
+// dependency version becomes a fact. The toolchain file is here because rustup
+// resolves it from the crate directory, so it selects the compiler.
+const SOURCE_FILES = [
+  "rust-toolchain.toml",
+  "Cargo.toml",
+  "program-libs/hasher/Cargo.toml",
+  "sdk-libs/hasher-wasm/Cargo.toml",
+  "sdk-libs/hasher-wasm/Cargo.lock",
+];
+const SOURCE_DIRECTORIES = ["program-libs/hasher/src", "sdk-libs/hasher-wasm/src"];
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function sourceHash() {
+  const files = [...SOURCE_FILES];
+  for (const directory of SOURCE_DIRECTORIES) {
+    const entries = await readdir(path.join(repositoryRoot, directory), { recursive: true });
+    for (const entry of entries.filter((name) => name.endsWith(".rs"))) {
+      files.push(path.posix.join(directory, entry.split(path.sep).join("/")));
+    }
+  }
+  files.sort();
+
+  const digest = createHash("sha256");
+  for (const file of files) {
+    // The path is hashed alongside the content so that renaming a source file
+    // moves the hash even when the bytes are unchanged.
+    digest.update(file).update("\0").update(await readFile(path.join(repositoryRoot, file)));
+  }
+  return digest.digest("hex");
+}
+
+async function readLock() {
+  try {
+    return JSON.parse(await readFile(lockFile, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** The inlined artifact as the bytes it encodes, or undefined if unreadable. */
+async function readCachedArtifact() {
+  let source;
+  try {
+    source = await readFile(artifactModule, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  }
+  const encoded = /^export const ARTIFACT: string = "([A-Za-z0-9+/=]*)";$/mu.exec(source);
+  return encoded ? Buffer.from(encoded[1], "base64") : undefined;
+}
+
+function compile() {
+  try {
+    execFileSync("cargo", ["build", "--release", "--target", "wasm32-unknown-unknown"], {
+      cwd: crateRoot,
+      stdio: "inherit",
+    });
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    throw new Error(
+      "the Rust hasher changed and cargo is not on PATH, so @zolana/hasher cannot be built; " +
+        "install the toolchain named in rust-toolchain.toml and the wasm32-unknown-unknown target",
+    );
+  }
+  return readFile(compiled);
+}
+
+async function writeArtifact(bytes) {
+  // One string literal on one line. Wrapping it into concatenated chunks reads
+  // better and overflows the evaluator's stack at this length. The `: string`
+  // annotation is what keeps the declaration file from restating the literal,
+  // and with it the artifact from shipping twice.
+  await writeFile(
+    artifactModule,
+    `// Generated by scripts/build-hooks.mjs from sdk-libs/hasher-wasm. Do not edit.
+// ${bytes.length} bytes of WebAssembly, base64 encoded.
+export const ARTIFACT_BYTE_LENGTH = ${bytes.length};
+export const ARTIFACT: string = "${bytes.toString("base64")}";\n`,
+  );
+}
+
+/**
+ * Brings `src/artifact.ts` up to date with the Rust, compiling when the inputs
+ * or the cached output have moved. Returns the artifact bytes.
+ */
+export async function beforeBuild({ force = false } = {}) {
+  const expected = await sourceHash();
+  const lock = await readLock();
+  const cached = await readCachedArtifact();
+
+  if (
+    !force &&
+    cached !== undefined &&
+    lock?.sourceHash === expected &&
+    lock.artifactSha256 === sha256(cached)
+  ) {
+    return cached;
+  }
+
+  const bytes = await compile();
+  const digest = sha256(bytes);
+  // Written only when the bytes moved. A change to an input that the compiler
+  // happens to ignore should cost a line of the lock file, not a rewrite of the
+  // 1.9 MB module.
+  if (cached === undefined || !cached.equals(bytes)) await writeArtifact(bytes);
+  await writeFile(
+    lockFile,
+    `${JSON.stringify(
+      { sourceHash: expected, artifactBytes: bytes.length, artifactSha256: digest },
+      undefined,
+      2,
+    )}\n`,
+  );
+  return bytes;
+}
+
+/**
+ * Ships the artifact as a file beside the inlined build, so a consumer that can
+ * load one pays the WebAssembly rather than the base64 that expands to it.
+ */
+export async function afterBuild(distDirectory, bytes) {
+  await mkdir(distDirectory, { recursive: true });
+  await writeFile(path.join(distDirectory, ASSET_NAME), bytes);
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const bytes = await beforeBuild({ force: process.argv.includes("--force") });
+  console.log(`${bytes.length} bytes of WebAssembly, sha256 ${sha256(bytes)}`);
+}
