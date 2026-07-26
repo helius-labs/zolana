@@ -120,7 +120,7 @@ describe("zone resolution on the read path", () => {
         authority,
         transactions: [slot(data, keypair, hash)],
       });
-      return report.received;
+      return report.storedUtxos;
     };
 
     expect(await sync(new Data())).toBe(1);
