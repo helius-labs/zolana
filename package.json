@@ -36,6 +36,7 @@
     "test:prover": "npm run test:prover --workspaces --if-present",
     "test:e2e:actions": "vitest run --config sdk-libs/ts/config/vitest.e2e-actions.config.js",
     "test:e2e:instructions": "vitest run --config sdk-libs/ts/config/vitest.e2e-instructions.config.js",
+    "test:e2e:photon": "ZOLANA_PORT_OFFSET=800 vitest run --config sdk-libs/ts/config/vitest.e2e-photon.config.js",
     "test:e2e:p5": "ZOLANA_TEST_P5=1 ZOLANA_PORT_OFFSET=500 vitest run --config sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/e2e/actions/prove-to-chain.live.test.ts",
     "test:e2e:p5:hybrid": "ZOLANA_TEST_P5=1 ZOLANA_TEST_P5_RUST_COMPRESS=1 ZOLANA_PORT_OFFSET=500 vitest run --config sdk-libs/ts/config/vitest.e2e-actions.config.js sdk-libs/ts/e2e/actions/prove-to-chain.live.test.ts",
     "test:inventory": "node sdk-libs/ts/config/inventory-check.mjs",
@@ -51,7 +52,7 @@
     "check:packaging": "npm run build && npm run test:inventory && npm run test:exports && npm run test:dependencies && npm run api:check && npm run test:browser && npm run pack:check",
     "check:browser-runtime": "npm run build && npm run test:browser-runtime",
     "check:fixtures": "npm run fixtures:check",
-    "check:e2e": "npm run test:e2e:actions && npm run test:e2e:instructions",
+    "check:e2e": "npm run test:e2e:actions && npm run test:e2e:instructions && npm run test:e2e:photon",
     "check": "npm run check:static && npm run check:suites && npm run check:packaging && npm run check:browser-runtime && npm run check:fixtures && npm run check:e2e"
   },
   "devDependencies": {
