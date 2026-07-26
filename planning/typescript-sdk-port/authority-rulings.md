@@ -896,6 +896,7 @@ Listed per option above. The shared items are
 | Ruled by | Protocol owner, 2026-07-26 |
 | Date | 2026-07-26 |
 | Follow-up artifacts | `docs/spec.md:1775-1778`; `sdk-libs/ts/indexer-api/src/codec.ts`; the indexer schema |
+| Status | Both halves landed. See [Both halves have landed](#both-halves-have-landed-2026-07-26) |
 
 #### What Light does, and why it settles this question
 
@@ -944,6 +945,30 @@ precision-loss refusal, since silently truncating a slot is the failure this
 prevents. Follow Light in applying the coercion only to fields whose domain can
 actually exceed `2^53`, rather than uniformly, so a field that cannot overflow
 does not acquire a parse path it never needs.
+
+#### Both halves have landed, 2026-07-26
+
+The `Context` half is in the specification: `docs/spec.md:1908-1911` declares
+`block_time: i64`.
+
+The integer-domain half was implemented without the matching amendment, and
+`docs/spec.md:1897` went on restricting an RPC integer to the safe-integer range
+while citing the decoder line that had become the string grammar. Amended under
+the [standing authorisation](run-authorizations.md#amending-the-specification),
+whose test is that Rust already implements the behaviour. Here the implementation
+that has to be checked is TypeScript's, because the decoder is a TypeScript
+reader of a Rust encoder that never emitted a string: Rust implements the half
+the amendment describes as normative for a sender, which is that every field is
+written as a JSON number and no field is written past the safe-integer bound.
+`unboundedWireInteger` is the union, applied to `block_time`, `slot`, `root_seq`,
+the nullifier-queue `seq` and `start_seq`; `wireInteger` is the number-only form
+everywhere else; `toWireInteger` refuses to emit a value it cannot represent
+exactly (`sdk-libs/ts/indexer-api/src/codec.ts:89-133`, `:170-197`).
+
+The amendment names the per-field test rather than only the field list, so a
+field the RPC section does not declare, the nullifier-queue sequences among
+them, is still decided by it. Nothing in `sdk-libs` moves: the decoder already
+landed in the ruled form. C04 closes on this.
 
 ## Thirteen rulings from the open-questions register, 2026-07-26
 

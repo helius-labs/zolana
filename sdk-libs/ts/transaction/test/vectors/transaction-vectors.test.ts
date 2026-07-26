@@ -137,15 +137,19 @@ describe("manifest-verified Rust transaction vectors", () => {
     );
     expect(hex(proof.hash())).toBe(fixtureString(expected, "utxoHashBytes"));
     expect(hex(proof.nullifier())).toBe(fixtureString(expected, "nullifierBytes"));
-    expect(
-      () =>
-        new Utxo({
-          owner: keypair.signingPublicKey(),
-          asset: SOL_MINT,
-          amount: 1n,
-          blinding,
-          data: new Data([{ kind: "zoneData", bytes: Uint8Array.of(1) }]),
-        }),
+    // Rust's `Utxo` is a plain struct, so zone data with no zone program is
+    // representable; what it cannot do is commit, because a zone data hash
+    // bound to no zone program would name a policy nobody can enforce.
+    const unbound = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 1n,
+      blinding,
+      data: new Data([{ kind: "zoneData", bytes: Uint8Array.of(1) }]),
+    });
+    expect(unbound.zoneProgramId).toBeUndefined();
+    expect(() =>
+      unbound.hash(nullifierKey.publicKey(), undefined, new Uint8Array(32).fill(8) as Bytes32),
     ).toThrow("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
   });
 

@@ -1,9 +1,8 @@
-import type { Bytes31, Bytes32, Bytes33, Signature } from "@zolana/interface";
-import { P256PublicKey, ShieldedPublicKey, type ViewingKey } from "@zolana/keypair";
+import type { Bytes32, Bytes33, Signature } from "@zolana/interface";
+import { P256PublicKey, type ViewingKey } from "@zolana/keypair";
 
-import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress, encodeAddress, equal, hashField } from "../internal.js";
+import { copy, decodeAddress, equal, hashField } from "../internal.js";
 import type { IndexedShieldedTransaction } from "../instructions/transact.js";
 import {
   EncryptedScheme,
@@ -15,14 +14,17 @@ import {
   decodeContextForSlot,
   decodeOutputData,
   decodePlaintextTransfer,
+  decodeProofless,
   decodeSplitBundle,
   type DecodeContext,
   decryptAnonymous,
   decryptConfidential,
   decryptMerge,
+  plaintextTransferUtxos,
+  prooflessUtxo,
   splitBundleUtxos,
 } from "../serialization/codecs.js";
-import { Utxo, deriveBlinding } from "../utxo.js";
+import { Utxo } from "../utxo.js";
 import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
 import { SOL_MINT } from "./asset.js";
 import {
@@ -72,71 +74,6 @@ function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
   }
 }
 
-function readU32(bytes: Uint8Array, offset: number): number {
-  if (offset + 4 > bytes.length) throw new TransactionError("TRANSACTION_DESERIALIZE");
-  return new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getUint32(0, true);
-}
-
-function decodeProofless(
-  body: Uint8Array,
-  owner: ShieldedPublicKey,
-): Readonly<{
-  utxo: Utxo;
-  dataHash?: Bytes32;
-  zoneDataHash?: Bytes32;
-}> {
-  let offset = 0;
-  const take = (length: number): Uint8Array => {
-    if (offset + length > body.length) throw new TransactionError("TRANSACTION_DESERIALIZE");
-    const value = body.slice(offset, offset + length);
-    offset += length;
-    return value;
-  };
-  const option = <T>(read: () => T): T | undefined => {
-    const tag = take(1)[0];
-    if (tag === 0) return undefined;
-    if (tag !== 1) throw new TransactionError("TRANSACTION_DESERIALIZE", { optionTag: tag });
-    return read();
-  };
-  take(32);
-  const blinding = take(31) as Bytes31;
-  const asset = encodeAddress(take(32));
-  const amountBytes = take(8);
-  const amount = new DataView(
-    amountBytes.buffer,
-    amountBytes.byteOffset,
-    amountBytes.byteLength,
-  ).getBigUint64(0, true);
-  const dataHash = option(() => take(32) as Bytes32);
-  const vector = (): Uint8Array => {
-    const length = readU32(body, offset);
-    offset += 4;
-    return take(length);
-  };
-  const utxoData = option(vector);
-  const zoneProgramId = option(() => encodeAddress(take(32)));
-  const zoneDataHash = option(() => take(32) as Bytes32);
-  const zoneData = option(vector);
-  const memo = option(vector);
-  if (offset !== body.length) throw new TransactionError("TRANSACTION_TRAILING_BYTES");
-  const records: DataRecord[] = [];
-  if (zoneData) records.push({ kind: "zoneData", bytes: zoneData });
-  if (utxoData) records.push({ kind: "utxoData", bytes: utxoData });
-  if (memo) records.push({ kind: "memo", bytes: memo });
-  return {
-    utxo: new Utxo({
-      owner,
-      asset,
-      amount,
-      blinding,
-      data: new Data(records),
-      ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
-    }),
-    ...(dataHash === undefined ? {} : { dataHash }),
-    ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
-  };
-}
-
 function transactionRow(
   tx: IndexedShieldedTransaction,
   index: number,
@@ -183,8 +120,18 @@ function decodeCandidate(
   }
   try {
     if (decoded.scheme === EncryptedScheme.proofless && decoded.encoding === "plaintext") {
-      const value = decodeProofless(decoded.body, material.identity.signingPublicKey);
-      return { utxos: [{ ...value, outputIndex: slotIndex }], kind: "deposit" };
+      const value = decodeProofless(decoded.body);
+      return {
+        utxos: [
+          {
+            utxo: prooflessUtxo(value, material.identity.signingPublicKey),
+            ...(value.dataHash === undefined ? {} : { dataHash: value.dataHash }),
+            ...(value.zoneDataHash === undefined ? {} : { zoneDataHash: value.zoneDataHash }),
+            outputIndex: slotIndex,
+          },
+        ],
+        kind: "deposit",
+      };
     }
     if (
       (decoded.scheme === EncryptedScheme.anonymousRecipient ||
@@ -255,53 +202,22 @@ function decodeCandidate(
     }
     if (decoded.scheme === EncryptedScheme.plaintextTransfer && decoded.encoding === "plaintext") {
       const value = decodePlaintextTransfer(decoded.body);
-      const utxos: {
-        utxo: Utxo;
-        outputIndex: number;
-      }[] = [];
-      if (value.sender) {
-        if (value.sender.spl) {
-          utxos.push({
-            utxo: new Utxo({
-              owner: value.sender.ownerPublicKey,
-              asset: wallet.registry.resolve(value.sender.spl.assetId),
-              amount: value.sender.spl.amount,
-              blinding: deriveBlinding(value.blindingSeed, 0),
-              data: value.sender.splData,
-            }),
-            outputIndex: 0,
-          });
-        } else if (!value.sender.splData.isEmpty()) {
-          throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
-        }
-        if (value.sender.solAmount !== undefined) {
-          utxos.push({
-            utxo: new Utxo({
-              owner: value.sender.ownerPublicKey,
-              asset: SOL_MINT,
-              amount: value.sender.solAmount,
-              blinding: deriveBlinding(value.blindingSeed, 1),
-              data: value.sender.solData,
-            }),
-            outputIndex: 1,
-          });
-        } else if (!value.sender.solData.isEmpty()) {
-          throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
-        }
-      }
-      value.recipientSlots.forEach((recipient, index) => {
-        utxos.push({
-          utxo: new Utxo({
-            owner: recipient.ownerPublicKey,
-            asset: wallet.registry.resolve(recipient.assetId),
-            amount: recipient.amount,
-            blinding: deriveBlinding(value.blindingSeed, index + 2),
-            data: recipient.data,
-          }),
-          outputIndex: index + 2,
-        });
-      });
-      return { utxos, kind: "transfer" };
+      // Sender change owns slots 0 and 1 whether or not the payload filled
+      // both, so the published slot of each UTXO is its blinding position
+      // rather than its offset in the list. Built from the same payload shape
+      // `plaintextTransferUtxos` walks, so the two line up entry for entry.
+      const positions = [
+        ...(value.sender?.spl ? [0] : []),
+        ...(value.sender?.solAmount === undefined ? [] : [1]),
+        ...value.recipientSlots.map((_, index) => index + 2),
+      ];
+      return {
+        utxos: plaintextTransferUtxos(value, wallet.registry, SOL_MINT).map((utxo, index) => ({
+          utxo,
+          outputIndex: positions[index] ?? index,
+        })),
+        kind: "transfer",
+      };
     }
     if (
       decoded.scheme === EncryptedScheme.split &&

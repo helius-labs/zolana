@@ -1,6 +1,7 @@
 import { transactInstructionDataCodec } from "@zolana/interface/codecs";
 import {
   SHIELDED_POOL_PROGRAM_ID,
+  TRANSACTION_SIZE_LIMIT,
   decodeShieldedPoolError,
   type Address,
   type Bytes32,
@@ -618,7 +619,9 @@ function parsedInstruction(
 }
 
 function decodeBase58UnknownLength(value: string): Uint8Array {
-  for (let length = 1; length <= 1232; length++) {
+  // Instruction data travels inside a transaction, so no decode can be longer
+  // than the packet the validator accepts.
+  for (let length = 1; length <= TRANSACTION_SIZE_LIMIT; length++) {
     try {
       return decodeBase58(value, length, "instruction.data");
     } catch {

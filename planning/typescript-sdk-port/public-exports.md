@@ -338,7 +338,7 @@ export function mergeZoneInstruction(input: Readonly<{
   data: MergeTransactInstructionData; mergeViewTag: Bytes32; cpi?: boolean;
 }>): Instruction;
 
-export const MERGE_INPUTS: 8;
+export const MERGE_INPUT_COUNT: 8;
 ```
 
 All builders are synchronous, return a newly owned `Instruction`, validate
@@ -783,6 +783,13 @@ export interface InputUtxoContext {
   readonly utxoHash: Bytes32;
   readonly nullifier: Bytes32;
 }
+/**
+ * Padded input count of the merge rail, the value Rust declares `pub` at
+ * `transaction/src/instructions/merge.rs`. `@zolana/interface` carries the same
+ * number as `MERGE_INPUT_COUNT` for the instruction layout; this is the one the
+ * merge builders and the prover pad against.
+ */
+export const MERGE_INPUTS: 8;
 export class PreparedMerge {
   readonly inputs: readonly ProofInputUtxo[];
   readonly output: ProofOutputUtxo;

@@ -14,7 +14,7 @@ import {
   hashField,
 } from "../internal.js";
 import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
-import { Utxo, deriveBlinding } from "../utxo.js";
+import { Utxo, deriveBlinding, resolveZoneProgramId } from "../utxo.js";
 
 /**
  * The type prefix each encrypted family writes into its plaintext body. These
@@ -370,6 +370,11 @@ export function confidentialUtxo(
   owner: ShieldedPublicKey,
   assets: AssetRegistry,
 ): Utxo {
+  // The zone id rides in the payload rather than coming from the reader, so
+  // the plaintext has to carry one itself before its zone data means anything.
+  if (value.data.zoneData() && value.zoneProgramId === undefined) {
+    throw new TransactionError("TRANSACTION_MISSING_ZONE_PROGRAM_ID");
+  }
   return new Utxo({
     owner,
     asset: assets.resolve(value.assetId),
@@ -425,13 +430,14 @@ export function anonymousRecipientUtxo(
   assets: AssetRegistry,
   zoneProgramId?: Address,
 ): Utxo {
+  const zone = resolveZoneProgramId(zoneProgramId, value.data);
   return new Utxo({
     owner: value.ownerPublicKey,
     asset: assets.resolve(value.assetId),
     amount: value.amount,
     blinding: value.blinding,
     data: value.data,
-    ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
+    ...(zone === undefined ? {} : { zoneProgramId: zone }),
   });
 }
 
@@ -492,6 +498,7 @@ export function anonymousSenderUtxos(
   }
   const values: Utxo[] = [];
   if (value.splAmount > 0n) {
+    const zone = resolveZoneProgramId(zoneProgramId, value.splData);
     values.push(
       new Utxo({
         owner: value.ownerPublicKey,
@@ -499,11 +506,12 @@ export function anonymousSenderUtxos(
         amount: value.splAmount,
         blinding: deriveBlinding(value.blindingSeed, 0),
         data: value.splData,
-        ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
+        ...(zone === undefined ? {} : { zoneProgramId: zone }),
       }),
     );
   }
   if (value.solAmount > 0n) {
+    const zone = resolveZoneProgramId(zoneProgramId, value.solData);
     values.push(
       new Utxo({
         owner: value.ownerPublicKey,
@@ -511,7 +519,7 @@ export function anonymousSenderUtxos(
         amount: value.solAmount,
         blinding: deriveBlinding(value.blindingSeed, 1),
         data: value.solData,
-        ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
+        ...(zone === undefined ? {} : { zoneProgramId: zone }),
       }),
     );
   }
@@ -587,6 +595,72 @@ export function decodePlaintextTransfer(
   };
 }
 
+/**
+ * Rust `TransferPlaintextUtxos::into_utxos`. Slot 0 is the sender's SPL
+ * change, slot 1 its SOL change, and recipients follow from slot 2; the
+ * position is what derives each blinding, so it is also the position the
+ * published output slot must sit at.
+ */
+export function plaintextTransferUtxos(
+  value: TransferPlaintextUtxos,
+  assets: AssetRegistry,
+  solMint: Address,
+  zoneProgramId?: Address,
+): readonly Utxo[] {
+  const values: Utxo[] = [];
+  const { sender } = value;
+  if (sender) {
+    if (!sender.spl && !sender.splData.isEmpty()) {
+      throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
+    }
+    if (sender.solAmount === undefined && !sender.solData.isEmpty()) {
+      throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
+    }
+    if (sender.spl) {
+      const zone = resolveZoneProgramId(zoneProgramId, sender.splData);
+      values.push(
+        new Utxo({
+          owner: sender.ownerPublicKey,
+          asset: assets.resolve(sender.spl.assetId),
+          amount: sender.spl.amount,
+          blinding: deriveBlinding(value.blindingSeed, 0),
+          data: sender.splData,
+          ...(zone === undefined ? {} : { zoneProgramId: zone }),
+        }),
+      );
+    }
+    if (sender.solAmount !== undefined) {
+      const zone = resolveZoneProgramId(zoneProgramId, sender.solData);
+      values.push(
+        new Utxo({
+          owner: sender.ownerPublicKey,
+          asset: solMint,
+          amount: sender.solAmount,
+          blinding: deriveBlinding(value.blindingSeed, 1),
+          data: sender.solData,
+          ...(zone === undefined ? {} : { zoneProgramId: zone }),
+        }),
+      );
+    }
+  }
+  value.recipientSlots.forEach((recipient, index) => {
+    const position = index + 2;
+    if (position > 0xff) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+    const zone = resolveZoneProgramId(zoneProgramId, recipient.data);
+    values.push(
+      new Utxo({
+        owner: recipient.ownerPublicKey,
+        asset: assets.resolve(recipient.assetId),
+        amount: recipient.amount,
+        blinding: deriveBlinding(value.blindingSeed, position),
+        data: recipient.data,
+        ...(zone === undefined ? {} : { zoneProgramId: zone }),
+      }),
+    );
+  });
+  return values;
+}
+
 export function encodeSplitBundle(value: SplitBundlePlaintext): Uint8Array {
   const writer = new Writer();
   writer.bytes(value.ownerPublicKey.toBytes());
@@ -655,6 +729,7 @@ export function splitBundleUtxos(
   if (value.numOutputs === 0 && !value.data.isEmpty()) {
     throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
   }
+  const zone = resolveZoneProgramId(zoneProgramId, value.data);
   const asset = assets.resolve(value.assetId);
   return Array.from(
     { length: value.numOutputs },
@@ -665,7 +740,7 @@ export function splitBundleUtxos(
         amount: value.assetAmount,
         blinding: deriveBlinding(value.blindingSeed, position),
         data: value.data,
-        ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
+        ...(zone === undefined ? {} : { zoneProgramId: zone }),
       }),
   );
 }
@@ -799,6 +874,27 @@ export function decodeProofless(bytes: Uint8Array): ProoflessOutput {
     ...(zoneData === undefined ? {} : { zoneData }),
     ...(memo === undefined ? {} : { memo }),
   };
+}
+
+/**
+ * Rust `Proofless::into_utxos`. The deposit rail publishes its zone binding in
+ * the payload beside the zone data, so unlike the reader-supplied rails there
+ * is nothing to resolve; a zone data hash that contradicts the binding is
+ * caught when the commitment is computed.
+ */
+export function prooflessUtxo(value: ProoflessOutput, owner: ShieldedPublicKey): Utxo {
+  const records: DataRecord[] = [];
+  if (value.zoneData) records.push({ kind: "zoneData", bytes: value.zoneData });
+  if (value.utxoData) records.push({ kind: "utxoData", bytes: value.utxoData });
+  if (value.memo) records.push({ kind: "memo", bytes: value.memo });
+  return new Utxo({
+    owner,
+    asset: value.asset,
+    amount: value.amount,
+    blinding: value.blinding,
+    data: new Data(records),
+    ...(value.zoneProgramId === undefined ? {} : { zoneProgramId: value.zoneProgramId }),
+  });
 }
 
 export function encryptConfidential(
