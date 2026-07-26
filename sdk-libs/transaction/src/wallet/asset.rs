@@ -22,7 +22,7 @@ impl AssetRegistry {
     }
 
     pub fn insert(&mut self, asset_id: u64, mint: Address) -> Result<(), TransactionError> {
-        if asset_id == SOL_ASSET_ID {
+        if asset_id <= SOL_ASSET_ID {
             return Err(TransactionError::ReservedAssetId(asset_id));
         }
         if self.0.contains_key(&asset_id) {
@@ -63,5 +63,19 @@ impl AssetRegistry {
 impl Default for AssetRegistry {
     fn default() -> Self {
         Self(HashMap::from([(SOL_ASSET_ID, SOL_MINT)]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_zero_asset_id() {
+        let mint = Address::new_from_array([7u8; 32]);
+        assert_eq!(
+            AssetRegistry::new([(0, mint)]).unwrap_err(),
+            TransactionError::ReservedAssetId(0)
+        );
     }
 }

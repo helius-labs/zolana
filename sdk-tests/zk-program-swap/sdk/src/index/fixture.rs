@@ -13,7 +13,7 @@ use zolana_transaction::{
         types::SppProofInputUtxo,
     },
     utxo::Utxo,
-    AssetRegistry, Data, ShieldedTransaction, Wallet, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, OutputData, ShieldedTransaction, Wallet, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -112,7 +112,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
         amount: 1_000_000,
         blinding: [5u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let spend = SppProofInputUtxo::new(input_utxo, &maker_keypair);
     let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];

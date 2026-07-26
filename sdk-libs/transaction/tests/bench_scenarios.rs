@@ -9,7 +9,7 @@ use common::{
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
 use zolana_transaction::{
     serialization::split::{Split, SplitEncode},
-    Address, AssetRegistry, Data, OutputContext, OutputSlot, OwnerCx, ShieldedTransaction,
+    Address, AssetRegistry, OutputContext, OutputData, OutputSlot, OwnerCx, ShieldedTransaction,
     SyncReport, Utxo, UtxoSerialization, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
@@ -270,7 +270,7 @@ impl Scenario {
                     amount: asset_amount,
                     blinding: zolana_transaction::derive_blinding(&blinding_seed, i),
                     zone_program_id: None,
-                    data: Data::default(),
+                    data: OutputData::default(),
                 })
                 .collect();
 

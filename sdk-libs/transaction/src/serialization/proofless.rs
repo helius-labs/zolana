@@ -2,9 +2,9 @@ use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::ProoflessOutput;
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
-    data::{Data, DataRecord},
+    data::{DataRecord, OutputData},
     error::TransactionError,
     utxo::Utxo,
     EncryptedScheme,
@@ -49,16 +49,18 @@ impl UtxoSerialization for Proofless {
             amount: output.amount,
             blinding: output.blinding,
             zone_program_id: output.zone_program_id.map(Address::new_from_array),
-            data: Data::new(records),
+            data: OutputData::new(records),
         }])
     }
 
     fn from_utxos(
         utxos: &[Utxo],
-        _owner: &OwnerCx,
+        owner: &OwnerCx,
         cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
-        let utxo = utxos.first().ok_or(TransactionError::MissingOutput)?;
+        let utxo = single_utxo(utxos)?;
+        validate_owner(utxo, owner.owner, 0)?;
+        validate_zone(utxo, owner.zone_program_id, 0)?;
         Ok(ProoflessOutput {
             owner: cx.owner_hash,
             blinding: utxo.blinding,
@@ -98,7 +100,7 @@ mod tests {
             amount: 42,
             blinding: [3u8; 31],
             zone_program_id: None,
-            data: Data::new(vec![DataRecord::Memo(b"gm".to_vec())]),
+            data: OutputData::new(vec![DataRecord::Memo(b"gm".to_vec())]),
         };
         let assets = AssetRegistry::default();
         let owner_cx = OwnerCx {

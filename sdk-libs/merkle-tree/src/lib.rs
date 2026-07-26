@@ -18,6 +18,10 @@ pub enum ReferenceMerkleTreeError {
     IndexedArray(#[from] IndexedArrayError),
     #[error("RootHistoryArrayLenNotSet")]
     RootHistoryArrayLenNotSet,
+    #[error("Root history array length {0} is outside 1..=65535")]
+    InvalidRootHistoryArrayLen(usize),
+    #[error("Root history start offset {offset} exceeds next index {next_index}")]
+    RootHistoryStartOffsetAboveIndex { offset: usize, next_index: usize },
     #[error("Level {level} exceeds tree height {height}")]
     InvalidLevel { level: usize, height: usize },
 }
@@ -82,27 +86,39 @@ where
         }
     }
 
-    pub fn get_history_root_index(&self) -> Result<u16, ReferenceMerkleTreeError> {
-        if let Some(root_history_array_len) = self.root_history_array_len {
-            Ok(
-                ((self.rightmost_index - self.root_history_start_offset) % root_history_array_len)
-                    .try_into()
-                    .unwrap(),
-            )
-        } else {
-            Err(ReferenceMerkleTreeError::RootHistoryArrayLenNotSet)
+    /// A configured length outside `1..=u16::MAX` has no representable index:
+    /// zero divides by zero and anything above `u16::MAX` cannot be returned.
+    /// `new_with_history` cannot reject it, so the accessors do.
+    fn checked_root_history_array_len(&self) -> Result<usize, ReferenceMerkleTreeError> {
+        let len = self
+            .root_history_array_len
+            .ok_or(ReferenceMerkleTreeError::RootHistoryArrayLenNotSet)?;
+        if len == 0 || len > u16::MAX as usize {
+            return Err(ReferenceMerkleTreeError::InvalidRootHistoryArrayLen(len));
         }
+        Ok(len)
+    }
+
+    pub fn get_history_root_index(&self) -> Result<u16, ReferenceMerkleTreeError> {
+        let root_history_array_len = self.checked_root_history_array_len()?;
+        let offset = self.root_history_start_offset;
+        if offset > self.rightmost_index {
+            return Err(ReferenceMerkleTreeError::RootHistoryStartOffsetAboveIndex {
+                offset,
+                next_index: self.rightmost_index,
+            });
+        }
+        Ok(((self.rightmost_index - offset) % root_history_array_len)
+            .try_into()
+            .unwrap())
     }
 
     /// Get root history index for v2 (batched) Merkle trees.
     pub fn get_history_root_index_v2(&self) -> Result<u16, ReferenceMerkleTreeError> {
-        if let Some(root_history_array_len) = self.root_history_array_len {
-            Ok(((self.num_root_updates) % root_history_array_len)
-                .try_into()
-                .unwrap())
-        } else {
-            Err(ReferenceMerkleTreeError::RootHistoryArrayLenNotSet)
-        }
+        let root_history_array_len = self.checked_root_history_array_len()?;
+        Ok((self.num_root_updates % root_history_array_len)
+            .try_into()
+            .unwrap())
     }
 
     /// Number of nodes to include in canopy, based on `canopy_depth`.
@@ -147,18 +163,24 @@ where
         let root = H::hashv(&[&left_child[..], &right_child[..]])?;
 
         self.roots.push(root);
+        self.num_root_updates += 1;
 
         Ok(())
     }
 
     pub fn append(&mut self, leaf: &[u8; 32]) -> Result<(), HasherError> {
-        self.layers[0].push(*leaf);
+        let mut updated = self.clone_state();
+        updated.append_in_place(leaf)?;
+        *self = updated;
+        Ok(())
+    }
 
+    fn append_in_place(&mut self, leaf: &[u8; 32]) -> Result<(), HasherError> {
         let i = self.rightmost_index;
         if self.rightmost_index == self.capacity {
-            println!("Merkle tree full");
             return Err(HasherError::IntegerOverflow);
         }
+        self.layers[0].push(*leaf);
         self.rightmost_index += 1;
 
         self.update_upper_layers(i)?;
@@ -168,13 +190,26 @@ where
     }
 
     pub fn append_batch(&mut self, leaves: &[&[u8; 32]]) -> Result<(), HasherError> {
+        let mut updated = self.clone_state();
         for leaf in leaves {
-            self.append(leaf)?;
+            updated.append_in_place(leaf)?;
         }
+        *self = updated;
         Ok(())
     }
 
     pub fn update(
+        &mut self,
+        leaf: &[u8; 32],
+        leaf_index: usize,
+    ) -> Result<(), ReferenceMerkleTreeError> {
+        let mut updated = self.clone_state();
+        updated.update_in_place(leaf, leaf_index)?;
+        *self = updated;
+        Ok(())
+    }
+
+    fn update_in_place(
         &mut self,
         leaf: &[u8; 32],
         leaf_index: usize,
@@ -186,6 +221,19 @@ where
         self.update_upper_layers(leaf_index)?;
 
         self.sequence_number += 1;
+        Ok(())
+    }
+
+    pub(crate) fn replace_and_append(
+        &mut self,
+        leaf: &[u8; 32],
+        leaf_index: usize,
+        appended_leaf: &[u8; 32],
+    ) -> Result<(), ReferenceMerkleTreeError> {
+        let mut updated = self.clone_state();
+        updated.update_in_place(leaf, leaf_index)?;
+        updated.append_in_place(appended_leaf)?;
+        *self = updated;
         Ok(())
     }
 
@@ -366,7 +414,7 @@ where
     }
 
     pub fn get_next_index(&self) -> usize {
-        self.rightmost_index + 1
+        self.rightmost_index
     }
 
     pub fn get_leaf(&self, index: usize) -> Result<[u8; 32], ReferenceMerkleTreeError> {
@@ -419,6 +467,22 @@ where
     pub fn ensure_layer_capacity(&mut self, level: usize, min_index: usize) {
         if level < self.layers.len() && self.layers[level].len() <= min_index {
             self.layers[level].resize(min_index + 1, H::zero_bytes()[level]);
+        }
+    }
+
+    fn clone_state(&self) -> Self {
+        Self {
+            height: self.height,
+            capacity: self.capacity,
+            canopy_depth: self.canopy_depth,
+            layers: self.layers.clone(),
+            roots: self.roots.clone(),
+            rightmost_index: self.rightmost_index,
+            num_root_updates: self.num_root_updates,
+            sequence_number: self.sequence_number,
+            root_history_start_offset: self.root_history_start_offset,
+            root_history_array_len: self.root_history_array_len,
+            _hasher: PhantomData,
         }
     }
 }

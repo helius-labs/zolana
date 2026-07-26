@@ -5,8 +5,10 @@ use zolana_keypair::{
     P256Pubkey, PublicKey, ViewingKey,
 };
 
-use super::{DecodeCx, OwnerCx, UtxoSerialization};
-use crate::{data::Data, error::TransactionError, utxo::Utxo, AssetRegistry, EncryptedScheme};
+use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
+use crate::{
+    data::OutputData, error::TransactionError, utxo::Utxo, AssetRegistry, EncryptedScheme,
+};
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct ConfidentialOutputPlaintext {
@@ -14,7 +16,7 @@ pub struct ConfidentialOutputPlaintext {
     pub amount: u64,
     pub blinding: [u8; BLINDING_LEN],
     pub zone_program_id: Option<Address>,
-    pub data: Data,
+    pub data: OutputData,
 }
 
 impl ConfidentialOutputPlaintext {
@@ -120,7 +122,9 @@ impl UtxoSerialization for Confidential {
         owner: &OwnerCx,
         _cx: &Self::EncodeCx,
     ) -> Result<Self::Plaintext, TransactionError> {
-        let first = utxos.first().ok_or(TransactionError::MissingOutput)?;
+        let first = single_utxo(utxos)?;
+        validate_owner(first, owner.owner, 0)?;
+        validate_zone(first, owner.zone_program_id, 0)?;
         Ok(ConfidentialOutputPlaintext {
             asset_id: owner.assets.asset_id(&first.asset)?,
             amount: first.amount,
@@ -152,7 +156,7 @@ mod tests {
     use zolana_keypair::constants::BLINDING_LEN;
 
     use super::*;
-    use crate::{data::Data, SOL_ASSET_ID};
+    use crate::{data::OutputData, SOL_ASSET_ID};
 
     const SALT: [u8; SALT_LEN] = [9u8; SALT_LEN];
     const SLOT_INDEX: u32 = 2;
@@ -163,7 +167,7 @@ mod tests {
             amount: 42,
             blinding: [7u8; BLINDING_LEN],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         }
     }
 

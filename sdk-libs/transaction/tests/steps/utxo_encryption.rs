@@ -3,7 +3,7 @@ use cucumber::then;
 use zolana_event::MessageData;
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, PublicKey};
 use zolana_transaction::{
-    data::{Data, DataRecord},
+    data::{DataRecord, OutputData},
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
@@ -36,7 +36,7 @@ fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8) -> Utxo {
         amount,
         blinding: [seed; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     }
 }
 
@@ -84,7 +84,7 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
 
     let sender_pt = AnonymousTransferSenderPlaintext {
@@ -94,8 +94,8 @@ fn standard_transfer_round_trips(world: &mut TransactionWorld, sender: String, r
         sol_amount: 999_000,
         blinding_seed: [2u8; BLINDING_LEN],
         recipient_viewing_pks: vec![alice.viewing_pubkey()],
-        spl_data: Data::default(),
-        sol_data: Data::default(),
+        spl_data: OutputData::default(),
+        sol_data: OutputData::default(),
     };
     let expected_change = sender_pt.clone().into_utxos(&registry, None).unwrap();
     assert_eq!(expected_change.len(), 2);
@@ -189,7 +189,7 @@ fn zone_owned_with_data_round_trips(world: &mut TransactionWorld, name: String) 
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
         zone_program_id,
-        data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
+        data: OutputData::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
     };
     let pt = utxo.to_confidential_output_plaintext(&registry).unwrap();
     assert_eq!(pt.into_utxo(kp.signing_pubkey(), &registry).unwrap(), utxo);
@@ -204,7 +204,7 @@ fn zone_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::new(vec![DataRecord::ZoneData(vec![1])]),
+        data: OutputData::new(vec![DataRecord::ZoneData(vec![1])]),
     };
     assert_eq!(
         pt.into_utxo(kp.signing_pubkey(), &registry).unwrap_err(),
@@ -222,7 +222,7 @@ fn zone_id_carried_onto_utxo(world: &mut TransactionWorld, name: String) {
         amount: 30,
         blinding: [1u8; BLINDING_LEN],
         zone_program_id,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let utxo = pt.into_utxo(kp.signing_pubkey(), &registry).unwrap();
     assert_eq!(utxo.zone_program_id, zone_program_id);
@@ -239,8 +239,8 @@ fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
         sol_amount: 5,
         blinding_seed: [2u8; BLINDING_LEN],
         recipient_viewing_pks: vec![],
-        spl_data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
-        sol_data: Data::default(),
+        spl_data: OutputData::new(vec![DataRecord::UtxoData(vec![1])]),
+        sol_data: OutputData::default(),
     };
     assert_eq!(
         spl_only.into_utxos(&registry, None).unwrap_err(),
@@ -253,8 +253,8 @@ fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
         sol_amount: 0,
         blinding_seed: [2u8; BLINDING_LEN],
         recipient_viewing_pks: vec![],
-        spl_data: Data::default(),
-        sol_data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
+        spl_data: OutputData::default(),
+        sol_data: OutputData::new(vec![DataRecord::UtxoData(vec![1])]),
     };
     assert_eq!(
         sol_only.into_utxos(&registry, None).unwrap_err(),
@@ -273,7 +273,7 @@ fn split_round_trips(world: &mut TransactionWorld, name: String) {
         asset_id: SPL_ASSET_ID,
         asset_amount: 200,
         blinding_seed: [3u8; BLINDING_LEN],
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let expected = split_pt.clone().into_utxos(&registry, None).unwrap();
     assert_eq!(expected.len(), 4);

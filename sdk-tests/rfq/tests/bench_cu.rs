@@ -42,7 +42,7 @@ use zolana_transaction::{
         },
         types::{InputUtxoContext, SppProofInputUtxo},
     },
-    AssetRegistry, Data, Utxo, SOL_MINT,
+    AssetRegistry, OutputData, Utxo, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 
@@ -298,7 +298,7 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
     SectionTable {
         title: "Transaction Size".into(),
         headers: vec![
-            "Instruction Data".into(),
+            "Instruction OutputData".into(),
             "Accounts".into(),
             "Legacy Tx".into(),
             "v0 + ALT Tx".into(),
@@ -366,7 +366,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
         amount: SELL_SOL,
         blinding: random_blinding(),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let taker_usdc_utxo = Utxo {
         owner: taker.signing_pubkey(),
@@ -374,7 +374,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
         amount: BUY_USDC,
         blinding: random_blinding(),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
 
     let maker_spend = SppProofInputUtxo::new(maker_sol_utxo, &maker);

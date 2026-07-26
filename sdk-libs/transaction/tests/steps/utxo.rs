@@ -4,7 +4,7 @@ use zolana_keypair::{
     hash::{hash_field, owner_hash, poseidon},
 };
 use zolana_transaction::{
-    data::Data,
+    data::OutputData,
     utxo::{ProofInputUtxo, Utxo, UTXO_DOMAIN},
     Address,
 };
@@ -24,7 +24,7 @@ fn bare_utxo(world: &TransactionWorld, name: &str) -> Utxo {
         amount: 1000,
         blinding: [3u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     }
 }
 

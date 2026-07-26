@@ -6,7 +6,7 @@ use zolana_keypair::{
     ViewingKey,
 };
 use zolana_transaction::{
-    data::{Data, DataRecord},
+    data::{DataRecord, OutputData},
     serialization::{
         anonymous::AnonymousTransferSenderPlaintext,
         confidential::ConfidentialOutputPlaintext,
@@ -20,13 +20,13 @@ use crate::TransactionWorld;
 #[then(expr = "a recipient plaintext for {string} round-trips with and without program data")]
 fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _name: String) {
     for data in [
-        Data::default(),
-        Data::new(vec![
+        OutputData::default(),
+        OutputData::new(vec![
             DataRecord::ZoneData(vec![9, 9, 9]),
             DataRecord::UtxoData(vec![1]),
         ]),
-        Data::new(vec![DataRecord::Memo(b"thanks".to_vec())]),
-        Data::new(vec![
+        OutputData::new(vec![DataRecord::Memo(b"thanks".to_vec())]),
+        OutputData::new(vec![
             DataRecord::ZoneData(vec![9, 9, 9]),
             DataRecord::UtxoData(vec![1]),
             DataRecord::Memo(vec![5; 300]),
@@ -54,7 +54,7 @@ fn duplicate_data_records_rejected(_world: &mut TransactionWorld, _name: String)
         amount: 42,
         blinding: [1u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::new(vec![
+        data: OutputData::new(vec![
             DataRecord::ZoneData(vec![1]),
             DataRecord::ZoneData(vec![2]),
         ]),
@@ -77,7 +77,7 @@ fn out_of_order_data_records_rejected(_world: &mut TransactionWorld, _name: Stri
         amount: 42,
         blinding: [1u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::new(vec![
+        data: OutputData::new(vec![
             DataRecord::UtxoData(vec![1]),
             DataRecord::ZoneData(vec![2]),
         ]),
@@ -102,8 +102,8 @@ fn sender_plaintext_round_trips(world: &mut TransactionWorld, sender: String, re
         sol_amount: 5,
         blinding_seed: [2u8; BLINDING_LEN],
         recipient_viewing_pks: vec![world.kp(&recipient).viewing_pubkey()],
-        spl_data: Data::default(),
-        sol_data: Data::default(),
+        spl_data: OutputData::default(),
+        sol_data: OutputData::default(),
     };
     let bytes = pt.serialize().unwrap();
     assert_eq!(
@@ -158,7 +158,7 @@ fn split_bundle_round_trips(world: &mut TransactionWorld, name: String) {
         asset_id: 2,
         asset_amount: 1000,
         blinding_seed: [3u8; BLINDING_LEN],
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let bytes = bundle.serialize().unwrap();
     assert_eq!(SplitBundlePlaintext::deserialize(&bytes).unwrap(), bundle);

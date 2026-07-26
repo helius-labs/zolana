@@ -166,7 +166,10 @@ impl SyncCtx<'_> {
         }
     }
 
-    fn spent_amounts(&self, nullifiers: &[[u8; 32]]) -> HashMap<Address, u64> {
+    fn spent_amounts(
+        &self,
+        nullifiers: &[[u8; 32]],
+    ) -> Result<HashMap<Address, u64>, TransactionError> {
         let nullifiers = nullifiers.iter().copied().collect::<HashSet<_>>();
         let mut by_asset = HashMap::new();
         for wallet_utxo in self
@@ -175,9 +178,11 @@ impl SyncCtx<'_> {
             .filter(|utxo| nullifiers.contains(&utxo.nullifier))
         {
             let entry = by_asset.entry(wallet_utxo.utxo.asset).or_insert(0u64);
-            *entry = entry.saturating_add(wallet_utxo.utxo.amount);
+            *entry = entry
+                .checked_add(wallet_utxo.utxo.amount)
+                .ok_or(TransactionError::WalletBalanceOverflow)?;
         }
-        by_asset
+        Ok(by_asset)
     }
 
     fn record_received(
@@ -369,7 +374,7 @@ impl SyncCtx<'_> {
     /// slot with it: change slots (positions below `SENDER_SLOT_COUNT`) net the
     /// spent inputs down; recipient slots reveal the counterparties. Dummy slots
     /// fail the tx-key decrypt and are skipped.
-    fn record_confidential_send(
+    pub(super) fn record_confidential_send(
         &mut self,
         tx: &ShieldedTransaction,
         t: usize,
@@ -417,7 +422,7 @@ impl SyncCtx<'_> {
             }
         }
 
-        let spent = self.spent_amounts(&tx.nullifiers);
+        let spent = self.spent_amounts(&tx.nullifiers)?;
         let kind = if recipient_pks.is_empty() {
             PrivateTransactionKind::PublicWithdrawal
         } else {
@@ -601,7 +606,7 @@ impl SyncCtx<'_> {
                         self.processed_slots.insert(site);
                         outcome.recipients = pks.clone();
                         if self.processed_outbound.insert(site.0) {
-                            let spent = self.spent_amounts(&tx.nullifiers);
+                            let spent = self.spent_amounts(&tx.nullifiers)?;
                             let kind = if real_recipient_count == 0 {
                                 PrivateTransactionKind::PublicWithdrawal
                             } else {
@@ -630,7 +635,7 @@ impl SyncCtx<'_> {
                         }
                         self.processed_slots.insert(site);
                         if self.processed_outbound.insert(site.0) {
-                            let spent = self.spent_amounts(&tx.nullifiers);
+                            let spent = self.spent_amounts(&tx.nullifiers)?;
                             self.record_split(tx, spent);
                         }
                     }
@@ -676,12 +681,16 @@ impl SyncCtx<'_> {
 }
 
 fn scan_stream(
+    start: u64,
     window: u64,
     mut derive: impl FnMut(u64) -> Result<ViewTag, KeypairError>,
     mut visit: impl FnMut(&ViewTag) -> Result<bool, TransactionError>,
 ) -> Result<Option<u64>, TransactionError> {
     let mut max_present = None;
-    let mut start = 0u64;
+    if window == 0 {
+        return Err(TransactionError::InvalidTagWindow);
+    }
+    let mut start = start;
     loop {
         let mut window_hit = false;
         for n in start..start.saturating_add(window) {
@@ -717,6 +726,23 @@ impl Wallet {
         synced_at: i64,
         window: u64,
     ) -> Result<SyncReport, TransactionError> {
+        let mut staged = self.clone();
+        let report =
+            staged.sync_with_material_in_place(material, transactions, synced_at, window)?;
+        *self = staged;
+        Ok(report)
+    }
+
+    fn sync_with_material_in_place(
+        &mut self,
+        material: &WalletSyncMaterial,
+        transactions: &[ShieldedTransaction],
+        synced_at: i64,
+        window: u64,
+    ) -> Result<SyncReport, TransactionError> {
+        if window == 0 {
+            return Err(TransactionError::InvalidTagWindow);
+        }
         let identity = material.identity;
         if identity != self.identity {
             return Err(TransactionError::WalletAuthorityMismatch);
@@ -797,6 +823,7 @@ impl Wallet {
             }
 
             let tx_max = scan_stream(
+                *tx_count,
                 window,
                 |n| key.get_sender_view_tag(n),
                 |tag| {
@@ -817,6 +844,7 @@ impl Wallet {
             }
 
             let request_max = scan_stream(
+                *request_count,
                 window,
                 |n| key.get_recipient_request_view_tag(n),
                 |tag| {
@@ -840,6 +868,7 @@ impl Wallet {
             let senders: Vec<P256Pubkey> = known_senders.keys().copied().collect();
             for s in senders {
                 let max = scan_stream(
+                    known_senders[&s],
                     window,
                     |n| key.get_recipient_shared_view_tag(&s, n),
                     |tag| {
@@ -864,6 +893,7 @@ impl Wallet {
             let recipients: Vec<P256Pubkey> = known_recipients.keys().copied().collect();
             for r in recipients {
                 let max = scan_stream(
+                    known_recipients[&r],
                     window,
                     |n| key.get_send_shared_view_tag(&r, n),
                     |tag| Ok(index.recipient_sites.contains_key(tag)),
@@ -910,21 +940,21 @@ impl Default for SyncConfig {
 pub fn decrypt_transactions<K: SyncWalletAuthority + ?Sized>(
     key: &K,
     transactions: &[ShieldedTransaction],
-    registry: &AssetRegistry,
+    assets: &AssetRegistry,
 ) -> Result<Balances, TransactionError> {
-    decrypt_transactions_with_config(key, transactions, registry, SyncConfig::default())
+    decrypt_transactions_with_config(key, transactions, assets, SyncConfig::default())
 }
 
 pub fn decrypt_transactions_with_config<K: SyncWalletAuthority + ?Sized>(
     key: &K,
     transactions: &[ShieldedTransaction],
-    registry: &AssetRegistry,
+    assets: &AssetRegistry,
     config: SyncConfig,
 ) -> Result<Balances, TransactionError> {
     // TODO(separate PR): move this construct-sync-extract sequence onto Wallet
     // itself (e.g. Wallet::decrypt), so this free function is a thin wrapper
     // instead of open-coding Wallet's own logic.
-    let mut wallet = Wallet::new(key.shielded_address()?, registry.clone())?;
+    let mut wallet = Wallet::new(key.shielded_address()?, assets.clone())?;
     wallet.sync(key, transactions, 0, config.window)?;
     Ok(Balances {
         assets: wallet.balances(false)?,
