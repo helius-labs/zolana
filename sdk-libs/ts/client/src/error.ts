@@ -557,14 +557,31 @@ export class ClientError<Code extends ClientErrorCode = ClientErrorCode> extends
   constructor(code: Code, ...[options = {}]: ClientErrorArguments<Code>) {
     validateClientError(code, options.details);
     const cause = safeCause(options.cause);
-    super(code, cause === undefined ? undefined : { cause });
-    this.name = "ClientError";
-    this.code = code;
-    this.details =
+    const details =
       options.details === undefined
         ? undefined
         : (copyAndFreeze(options.details) as ClientErrorDetails<Code>);
+    // Message carries the structured details so runners that only print
+    // `error.message` (vitest, many loggers) still surface program codes and
+    // instruction indexes. Details are already shape-checked safe diagnostics.
+    super(
+      details === undefined ? code : `${code} ${JSON.stringify(details)}`,
+      cause === undefined ? undefined : { cause },
+    );
+    this.name = "ClientError";
+    this.code = code;
+    this.details = details;
     this.cause = cause;
+  }
+
+  toJSON(): Readonly<{
+    name: string;
+    code: Code;
+    details?: ClientErrorDetails<Code>;
+  }> {
+    return this.details === undefined
+      ? { name: this.name, code: this.code }
+      : { name: this.name, code: this.code, details: this.details };
   }
 }
 

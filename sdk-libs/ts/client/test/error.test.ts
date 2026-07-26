@@ -523,6 +523,30 @@ describe("ClientError", () => {
     expect(labels.filter(({ expression }) => !LABEL.test(expression))).toEqual([]);
   });
 
+  it("puts shape-checked details in the message and toJSON so runners surface them", () => {
+    const error = new ClientError("CLIENT_RPC_PROGRAM_ERROR", {
+      details: {
+        method: "sendTransaction",
+        instructionIndex: 1,
+        programError: {
+          kind: "known",
+          code: 7000,
+          name: "InvalidInstructionData",
+          message: "invalid instruction data",
+        },
+      },
+    });
+    expect(error.message).toContain("CLIENT_RPC_PROGRAM_ERROR");
+    expect(error.message).toContain("InvalidInstructionData");
+    expect(error.message).toContain('"instructionIndex":1');
+    expect(error.toJSON()).toEqual({
+      name: "ClientError",
+      code: "CLIENT_RPC_PROGRAM_ERROR",
+      details: error.details,
+    });
+    expect(new ClientError("CLIENT_RPC_TRANSACT_DECODE").message).toBe("CLIENT_RPC_TRANSACT_DECODE");
+  });
+
   it("rejects unknown codes and malformed code-specific details at runtime", () => {
     expect(() => new ClientError("CLIENT_NOT_REAL" as ClientErrorCode)).toThrow(TypeError);
     expect(
