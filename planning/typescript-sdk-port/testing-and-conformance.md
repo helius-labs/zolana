@@ -711,17 +711,14 @@ cache is insurance rather than a saving today: the current suites reach the
 prover health check without asking it to prove, so the key download the
 lockfile pins is not triggered.
 
-Parts of the gate are red at the revision that added the workflow. Three have a
-cause already recorded rather than a workflow defect: `fixtures:check` reports
-`baseline fixture sources differ from revision 43fde8e4`
-([G8-1](production-readiness-issues.md#g8-1-the-manifest-pins-multiple-source-revisions-high)),
-`lint:packages` reports unused imports, redundant assertions, and a spread over
-a class instance under `sdk-libs/ts/*/src` and `sdk-libs/ts/*/test`, paths the
-narrower `lint` glob leaves out, and `test:browser` and `pack:check` reject a
-`globalThis.process` read in the client prover bundle. The rest sit in packages
-under active change, the client error taxonomy and the wallet deposit flow, and
-belong to whoever lands the change that broke them. Each one is a defect the
-gate is supposed to catch, so the gate reports it rather than skipping it.
+`fixtures:check` is green: it regenerates from the working tree and
+byte-compares, and reports `verified 58 fixtures and 182 inventory rows`. The
+`43fde8e4` strings in the manifest are provenance stamps, not a failing source
+pin; the source-hash gate that once reddened on that revision was removed under
+[Q6](authority-rulings.md#q6-the-frozen-source-gate). Other parts of the
+workflow can still be red for causes of their own (`lint:packages`,
+`test:browser`, `pack:check`), and each of those is a defect the gate is
+supposed to catch rather than skip.
 
 `format:check` selects files by glob with explicit ignores rather than the
 hand-maintained path list it uses now, and the globs cover `planning/`. A list

@@ -256,7 +256,7 @@ describe("manifest-verified transaction builders", () => {
 
     const ed25519Owned = proofInputs([ed25519Input, ed25519Input]);
     ed25519Owned.applyP256Signature(valid);
-    expect(ed25519Owned.p256Signature()?.publicKey).toEqual(p256.publicKey().p256());
+    expect(ed25519Owned.p256Signature()).toEqual(valid);
 
     const ed25519Signer = proofInputs([p256Input, ed25519Input]);
     expect(() => {
@@ -894,5 +894,35 @@ describe("manifest-verified transaction builders", () => {
       spl: signedToField(-10n),
       asset: assetField(token(7)),
     });
+  });
+});
+
+// Rust `ConfidentialTransfer::new` validates nothing. The three inputs below are
+// ones TypeScript used to refuse at construction; each must reach the same
+// later site Rust reaches, or be accepted outright.
+describe("ConfidentialTransfer constructor matches Rust", () => {
+  const SPL = encodeAddress(new Uint8Array(32).fill(9));
+
+  it("accepts an empty input list and names WithdrawalAssetMismatch on withdraw", () => {
+    const ownerAddress = ShieldedKeypair.generate().shieldedAddress();
+    const transfer = new ConfidentialTransfer(ownerAddress, [], SOL_MINT);
+    expect(() => {
+      transfer.withdraw(SPL, 100n, { kind: "sol", recipient: SOL_MINT });
+    }).toThrow(expect.objectContaining({ code: "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH" }));
+  });
+
+  it("accepts a dummy input", () => {
+    const ownerAddress = ShieldedKeypair.generate().shieldedAddress();
+    expect(
+      () => new ConfidentialTransfer(ownerAddress, [ProofInputUtxo.dummy()], SOL_MINT),
+    ).not.toThrow();
+  });
+
+  it("accepts an input owned by another key", () => {
+    const ownerAddress = ShieldedKeypair.generate().shieldedAddress();
+    const foreign = SigningKey.generate("ed25519");
+    expect(
+      () => new ConfidentialTransfer(ownerAddress, [inputFor(foreign, 0)], SOL_MINT),
+    ).not.toThrow();
   });
 });

@@ -670,19 +670,9 @@ export class ConfidentialTransfer {
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
 
+  // Rust `ConfidentialTransfer::new` stores the fields and returns; empty,
+  // dummy, and foreign-owned inputs are refused later or not at all.
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], payer: Address) {
-    if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    inputs.forEach((input, index) => {
-      if (input.isDummy()) {
-        throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
-      }
-      if (
-        !equal(input.utxo.owner.toBytes(), owner.signingPublicKey.toBytes()) ||
-        !equal(input.nullifierKey.publicKey(), owner.nullifierPublicKey)
-      ) {
-        throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
-      }
-    });
     this.#owner = owner;
     this.#inputs = [...inputs];
     this.#payerPublicKeyHash = sha256Be(decodeAddress(payer));

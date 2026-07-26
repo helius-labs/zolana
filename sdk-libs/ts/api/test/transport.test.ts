@@ -215,12 +215,15 @@ describe("integers past the safe-integer bound", () => {
     expect(response.context.blockTime).toBe(-1_700_000_000n);
   });
 
-  it("refuses an oversized value on a field the tree height caps, quoted or not", async () => {
-    const api = respondWith(merkleProofsBody((1n << 60n).toString(), "0"));
+  it("refuses an unsafe number on a capped field as a number, not a quoted string", async () => {
+    // One past MAX_SAFE_INTEGER: the transport must leave it unquoted so the
+    // decoder's precision-loss refusal fires on a number, not on a string type.
+    const api = respondWith(merkleProofsBody("9007199254740992", "0"));
 
     const error = await expectApiError(api.getMerkleProofs(REQUEST), "API_INVALID_RESULT");
 
     expect(error.details?.["path"]).toBe("$.proofs[0].leaf_index");
+    expect(error.details?.["schemaCode"]).toBe("INDEXER_SCHEMA_INVALID_INTEGER");
   });
 
   it("does not rewrite a digit run inside a string payload", async () => {

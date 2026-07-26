@@ -23,6 +23,7 @@ Sections carrying their own evidence:
 - [Ruled: indexer-api schema authority (X01)](#ruled-indexer-api-schema-authority-x01)
 - [Ruled: least-powerful capability at the call sites (K11)](#ruled-least-powerful-capability-at-the-call-sites-k11)
 - [Ruled: confidential owner tag (T23)](#ruled-confidential-owner-tag-t23)
+- [Ruled: TypeScript matches Rust on SppProofInputs (T23)](#ruled-typescript-matches-rust-on-sppproofinputs-t23)
 - [Ruled: ECDSA malleability policy (G2-1)](#ruled-ecdsa-malleability-policy-g2-1)
 - [Ruled: Ed25519 acceptance (G2-2)](#ruled-ed25519-acceptance-g2-2)
 - [Ruled: the u64 integer domain (C04)](#ruled-the-u64-integer-domain-c04)
@@ -435,6 +436,22 @@ folded into the public hash only in the confidential variant
 (`circuit.go:254-259`). Moving the anonymous rail to the equality form would
 expose an owner tag and destroy that property. A future reader tempted by the
 symmetry should know it was rejected on a security ground, not on cost.
+
+## Ruled: TypeScript matches Rust on SppProofInputs (T23)
+
+| Field | Value |
+| --- | --- |
+| Conflict | TypeScript's `SppProofInputs` and its helpers refused inputs Rust accepts, returned different shapes from `publicAmounts()` and `inputUtxoHashes()`, and raised different errors for the same calls. |
+| Ruling | TypeScript removes its extra checks to match Rust exactly, including reshaping `publicAmounts()` and `inputUtxoHashes()` to Rust's return types and failure modes, accepting that TypeScript becomes less safe. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-26 |
+| Follow-up artifacts | Row T23, `sdk-libs/ts/transaction/src/instructions/transact.ts`, `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` |
+
+This is the same class of ruling that closed the empty-input and owner-mismatch
+refusals on neighbouring builders: a port that is stricter than its original is
+a divergence, not a safety improvement. Callers that Rust accepts must reach the
+same later site, or the same success, in TypeScript. Adding the missing checks
+to Rust is out of scope; the TypeScript side deletes them.
 
 ## Ruled: ECDSA malleability policy (G2-1)
 

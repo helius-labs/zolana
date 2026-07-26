@@ -365,25 +365,55 @@ async function decodeEnvelope(
 }
 
 /**
- * The indexer serializes `u64` and `i64` as bare JSON numbers, so a value above
+ * Photon writes `u64` / `i64` as bare JSON numbers. A value above
  * `Number.MAX_SAFE_INTEGER` would be rounded by `JSON.parse` before any decoder
- * could see it. Quoting those literals first hands the decoder the exact digits.
- * Numbers within the safe range keep their JSON type, so nothing else moves.
+ * could see the digits. Quoting first preserves them, which is Light's
+ * `wrapBigNumbersAsStrings` answer.
+ *
+ * The owner's integer-domain ruling is per field, not global: only
+ * `slot`, `block_time`, `root_seq`, `seq`, and `start_seq` accept a decimal
+ * string afterward. Every other integer is number-only and must refuse an
+ * unsafe value as a number. Quoting those fields would turn that refusal into
+ * a type error for a string, so the ruled precision-loss path never fires.
  */
+const UNBOUNDED_INTEGER_KEYS = new Set([
+  "block_time",
+  "root_seq",
+  "seq",
+  "slot",
+  "start_seq",
+]);
+
 function quoteUnsafeIntegers(text: string): string {
   let result = "";
   let copiedTo = 0;
   let index = 0;
+  let pendingKey: string | null = null;
 
   while (index < text.length) {
     const character = text[index] as string;
 
     if (character === '"') {
+      const start = index;
       index = endOfStringLiteral(text, index);
+      let look = index;
+      while (look < text.length && isJsonWhitespace(text[look] as string)) look += 1;
+      if (text[look] === ":") {
+        pendingKey = text.slice(start + 1, index - 1);
+        index = look + 1;
+      } else {
+        pendingKey = null;
+      }
+      continue;
+    }
+
+    if (isJsonWhitespace(character)) {
+      index += 1;
       continue;
     }
 
     if (character !== "-" && (character < "0" || character > "9")) {
+      pendingKey = null;
       index += 1;
       continue;
     }
@@ -391,13 +421,20 @@ function quoteUnsafeIntegers(text: string): string {
     const start = index;
     index = endOfNumberLiteral(text, index);
     const literal = text.slice(start, index);
+    const key = pendingKey;
+    pendingKey = null;
     if (!isUnsafeIntegerLiteral(literal)) continue;
+    if (key === null || !UNBOUNDED_INTEGER_KEYS.has(key)) continue;
 
     result += text.slice(copiedTo, start) + '"' + literal + '"';
     copiedTo = index;
   }
 
   return copiedTo === 0 ? text : result + text.slice(copiedTo);
+}
+
+function isJsonWhitespace(character: string): boolean {
+  return character === " " || character === "\t" || character === "\n" || character === "\r";
 }
 
 function endOfStringLiteral(text: string, start: number): number {
