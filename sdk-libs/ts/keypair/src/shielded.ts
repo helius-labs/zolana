@@ -139,47 +139,45 @@ export interface ShieldedKeypairLike {
  * The `ViewingKeyTrait` surface. Constructors and `secretBytes` are excluded on
  * purpose: a backend keeps the secret and exposes only operations over it.
  *
- * An implementer must hold viewing-key material. A custodian that exposes a
- * signing operation alone is not a supported configuration.
+ * An implementer must hold viewing-key material in process. Every operation
+ * returns synchronously, as Rust's `ViewingKeyTrait` does: a backend answering
+ * view-tag derivation over a wire is not a supported deployment, and the scan
+ * and decrypt paths that call these in tight loops take this interface only
+ * because they need not await it.
  */
 export interface ViewingKeyLike {
-  publicKey(): P256PublicKey | Promise<P256PublicKey>;
-  ecdh(counterparty: P256PublicKey): Bytes32 | Promise<Bytes32>;
-  senderViewTag(txCount: bigint): ViewTag | Promise<ViewTag>;
-  recipientRequestViewTag(requestCount: bigint): ViewTag | Promise<ViewTag>;
-  mergeViewTag(mergeCount: bigint): ViewTag | Promise<ViewTag>;
-  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag | Promise<ViewTag>;
-  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag | Promise<ViewTag>;
-  recipientBootstrapViewTag(): ViewTag | Promise<ViewTag>;
-  transactionViewingKey(firstNullifier: Bytes32): ViewingKey | Promise<ViewingKey>;
+  publicKey(): P256PublicKey;
+  ecdh(counterparty: P256PublicKey): Bytes32;
+  senderViewTag(txCount: bigint): ViewTag;
+  recipientRequestViewTag(requestCount: bigint): ViewTag;
+  mergeViewTag(mergeCount: bigint): ViewTag;
+  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag;
+  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag;
+  recipientBootstrapViewTag(): ViewTag;
+  transactionViewingKey(firstNullifier: Bytes32): ViewingKey;
   encryptSlot(
     recipientPublicKey: P256PublicKey,
     plaintext: Uint8Array,
     salt: Salt,
     slotIndex: number,
-  ): Uint8Array | Promise<Uint8Array>;
+  ): Uint8Array;
   decryptUtxo(
     ciphertext: Uint8Array,
     txViewingPublicKey: P256PublicKey,
     salt: Salt,
     slotIndex: number,
-  ): Uint8Array | Promise<Uint8Array>;
+  ): Uint8Array;
   decryptSlotEphemeral(
     recipientPublicKey: P256PublicKey,
     ciphertext: Uint8Array,
     salt: Salt,
     slotIndex: number,
-  ): Uint8Array | Promise<Uint8Array>;
+  ): Uint8Array;
   encryptVerifiable(
     userViewingPublicKey: P256PublicKey,
     plaintext: Uint8Array,
-  ):
-    | Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }>
-    | Promise<Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }>>;
-  decryptVerifiable(
-    txViewingPublicKey: P256PublicKey,
-    ciphertext: Uint8Array,
-  ): Uint8Array | Promise<Uint8Array>;
+  ): Readonly<{ ciphertext: Uint8Array; txViewingPublicKey: P256PublicKey }>;
+  decryptVerifiable(txViewingPublicKey: P256PublicKey, ciphertext: Uint8Array): Uint8Array;
 }
 
 export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
