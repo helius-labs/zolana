@@ -1874,5 +1874,8 @@ SDK semver.
   a broader Node-only annex for e2e helpers and is outside SDK semver.
 
 Per-package `exports.test.ts` / export-vector suites pin runtime allowlists.
-`npm run api:check` is a scaffold check (scripts and entry points), not an
-api-extractor report against this file.
+`npm run api:check` runs the package scaffold check and compares each package's
+built public export surface to the committed reports under
+`sdk-libs/ts/api-reports/`, failing on an undeclared addition or removal.
+Regenerate with `npm run api:update` after an intentional surface change.
+This file remains the human-readable allowlist; the machine gate is the report.

@@ -46,6 +46,7 @@
     "test:browser": "npm run build && node sdk-libs/ts/config/browser-check.mjs",
     "test:browser-runtime": "node sdk-libs/ts/config/browser-runtime-check.mjs",
     "api:check": "node sdk-libs/ts/config/workspace-check.mjs api",
+    "api:update": "node sdk-libs/ts/config/api-check.mjs --update",
     "pack:check": "npm run build && node sdk-libs/ts/config/pack-check.mjs",
     "fixtures:check": "node sdk-libs/ts/config/fixtures-check.mjs",
     "check:scope": "node sdk-libs/ts/config/check-scope.mjs",

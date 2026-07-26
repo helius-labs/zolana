@@ -1,0 +1,549 @@
+{
+  "package": "@zolana/interface",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "Address",
+        "kind": "type"
+      },
+      {
+        "name": "ADDRESS_TREE_HEIGHT",
+        "kind": "value"
+      },
+      {
+        "name": "ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE",
+        "kind": "value"
+      },
+      {
+        "name": "ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE",
+        "kind": "value"
+      },
+      {
+        "name": "ADDRESS_TREE_ROOT_HISTORY_CAPACITY",
+        "kind": "value"
+      },
+      {
+        "name": "addressTreeParams",
+        "kind": "value"
+      },
+      {
+        "name": "AddressTreeParams",
+        "kind": "type"
+      },
+      {
+        "name": "ASSOCIATED_TOKEN_PROGRAM_ID",
+        "kind": "value"
+      },
+      {
+        "name": "BatchUpdateNullifierTreeData",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes128",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes16",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes31",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes32",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes33",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes64",
+        "kind": "type"
+      },
+      {
+        "name": "checkedTransactionSize",
+        "kind": "value"
+      },
+      {
+        "name": "ciphertextHash",
+        "kind": "value"
+      },
+      {
+        "name": "CompressedProof",
+        "kind": "type"
+      },
+      {
+        "name": "CreateZoneConfigData",
+        "kind": "type"
+      },
+      {
+        "name": "DecodedShieldedPoolError",
+        "kind": "type"
+      },
+      {
+        "name": "decodeProtocolConfig",
+        "kind": "value"
+      },
+      {
+        "name": "decodeShieldedPoolError",
+        "kind": "value"
+      },
+      {
+        "name": "decodeSplAssetCounter",
+        "kind": "value"
+      },
+      {
+        "name": "decodeSplAssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "decodeZoneConfig",
+        "kind": "value"
+      },
+      {
+        "name": "DEFAULT_TREE_ADDRESS",
+        "kind": "value"
+      },
+      {
+        "name": "DepositInstructionData",
+        "kind": "type"
+      },
+      {
+        "name": "DepositSplAccounts",
+        "kind": "type"
+      },
+      {
+        "name": "externalDataHash",
+        "kind": "value"
+      },
+      {
+        "name": "ExternalDataHashInput",
+        "kind": "type"
+      },
+      {
+        "name": "fetchTag",
+        "kind": "value"
+      },
+      {
+        "name": "FIRST_ASSET_ID",
+        "kind": "value"
+      },
+      {
+        "name": "FORESTER_REIMBURSEMENT_LAMPORTS",
+        "kind": "value"
+      },
+      {
+        "name": "foresterFeePerQueueElement",
+        "kind": "value"
+      },
+      {
+        "name": "initializePoseidon",
+        "kind": "value"
+      },
+      {
+        "name": "InputUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "Instruction",
+        "kind": "type"
+      },
+      {
+        "name": "InstructionTag",
+        "kind": "value"
+      },
+      {
+        "name": "InterfaceError",
+        "kind": "value"
+      },
+      {
+        "name": "InterfaceErrorCode",
+        "kind": "type"
+      },
+      {
+        "name": "isPoseidonInitialized",
+        "kind": "value"
+      },
+      {
+        "name": "MERGE_ENCRYPTED_UTXO_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "MERGE_ENCRYPTED_UTXO_TYPE_PREFIX",
+        "kind": "value"
+      },
+      {
+        "name": "MERGE_INPUT_COUNT",
+        "kind": "value"
+      },
+      {
+        "name": "MergeTransactInstructionData",
+        "kind": "type"
+      },
+      {
+        "name": "MergeZoneInstructionData",
+        "kind": "type"
+      },
+      {
+        "name": "MessageData",
+        "kind": "type"
+      },
+      {
+        "name": "OutputUtxo",
+        "kind": "type"
+      },
+      {
+        "name": "ownerPkFieldCompressed",
+        "kind": "value"
+      },
+      {
+        "name": "OwnerTag",
+        "kind": "type"
+      },
+      {
+        "name": "P256_PROOF_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "pack33",
+        "kind": "value"
+      },
+      {
+        "name": "pkFieldCompressed",
+        "kind": "value"
+      },
+      {
+        "name": "ProtocolConfigAccount",
+        "kind": "type"
+      },
+      {
+        "name": "RequestContext",
+        "kind": "type"
+      },
+      {
+        "name": "ResolvedOutput",
+        "kind": "type"
+      },
+      {
+        "name": "selectSppShape",
+        "kind": "value"
+      },
+      {
+        "name": "Shape",
+        "kind": "type"
+      },
+      {
+        "name": "SHIELDED_POOL_CPI_AUTHORITY",
+        "kind": "value"
+      },
+      {
+        "name": "SHIELDED_POOL_PROGRAM_ID",
+        "kind": "value"
+      },
+      {
+        "name": "ShieldedPoolError",
+        "kind": "value"
+      },
+      {
+        "name": "ShieldedPoolErrorCode",
+        "kind": "type"
+      },
+      {
+        "name": "ShieldedPoolErrorMessages",
+        "kind": "value"
+      },
+      {
+        "name": "ShieldedPoolErrorName",
+        "kind": "type"
+      },
+      {
+        "name": "Signature",
+        "kind": "type"
+      },
+      {
+        "name": "SOL_INTERFACE",
+        "kind": "value"
+      },
+      {
+        "name": "SPL_TOKEN_PROGRAM_ID",
+        "kind": "value"
+      },
+      {
+        "name": "SplAssetCounterAccount",
+        "kind": "type"
+      },
+      {
+        "name": "SplAssetRegistryAccount",
+        "kind": "type"
+      },
+      {
+        "name": "SPP_SUPPORTED_SHAPES",
+        "kind": "value"
+      },
+      {
+        "name": "STATE_HEIGHT",
+        "kind": "value"
+      },
+      {
+        "name": "STATE_ROOT_OFFSET",
+        "kind": "value"
+      },
+      {
+        "name": "StateDiscriminator",
+        "kind": "value"
+      },
+      {
+        "name": "TransactInstructionData",
+        "kind": "type"
+      },
+      {
+        "name": "Transaction",
+        "kind": "type"
+      },
+      {
+        "name": "TRANSACTION_SIZE_LIMIT",
+        "kind": "value"
+      },
+      {
+        "name": "transactionSize",
+        "kind": "value"
+      },
+      {
+        "name": "TransactOutput",
+        "kind": "type"
+      },
+      {
+        "name": "TransactProof",
+        "kind": "type"
+      },
+      {
+        "name": "TransactWithdrawal",
+        "kind": "type"
+      },
+      {
+        "name": "TREE_ACCOUNT_SIZE",
+        "kind": "value"
+      },
+      {
+        "name": "UpdateZoneConfigData",
+        "kind": "type"
+      },
+      {
+        "name": "UpdateZoneConfigOwnerData",
+        "kind": "type"
+      },
+      {
+        "name": "UTXO_DOMAIN",
+        "kind": "value"
+      },
+      {
+        "name": "UtxoData",
+        "kind": "type"
+      },
+      {
+        "name": "validateSppShape",
+        "kind": "value"
+      },
+      {
+        "name": "ZoneConfigAccount",
+        "kind": "type"
+      },
+      {
+        "name": "ZoneDepositInstructionData",
+        "kind": "type"
+      }
+    ],
+    "./pda": [
+      {
+        "name": "associatedTokenAddress",
+        "kind": "value"
+      },
+      {
+        "name": "findProgramAddress",
+        "kind": "value"
+      },
+      {
+        "name": "isEd25519Point",
+        "kind": "value"
+      },
+      {
+        "name": "protocolConfigAddress",
+        "kind": "value"
+      },
+      {
+        "name": "shieldedPoolCpiAuthorityAddress",
+        "kind": "value"
+      },
+      {
+        "name": "solInterfaceAddress",
+        "kind": "value"
+      },
+      {
+        "name": "splAssetCounterAddress",
+        "kind": "value"
+      },
+      {
+        "name": "splAssetRegistryAddress",
+        "kind": "value"
+      },
+      {
+        "name": "splAssetVaultAddress",
+        "kind": "value"
+      },
+      {
+        "name": "zoneAuthAddress",
+        "kind": "value"
+      },
+      {
+        "name": "zoneConfigAddress",
+        "kind": "value"
+      }
+    ],
+    "./codecs": [
+      {
+        "name": "addressTreeParamsCodec",
+        "kind": "value"
+      },
+      {
+        "name": "batchUpdateNullifierTreeDataCodec",
+        "kind": "value"
+      },
+      {
+        "name": "Codec",
+        "kind": "type"
+      },
+      {
+        "name": "createZoneConfigDataCodec",
+        "kind": "value"
+      },
+      {
+        "name": "depositInstructionDataCodec",
+        "kind": "value"
+      },
+      {
+        "name": "mergeExternalDataHash",
+        "kind": "value"
+      },
+      {
+        "name": "mergeTransactInstructionDataCodec",
+        "kind": "value"
+      },
+      {
+        "name": "mergeZoneInstructionDataCodec",
+        "kind": "value"
+      },
+      {
+        "name": "protocolConfigAccountCodec",
+        "kind": "value"
+      },
+      {
+        "name": "splAssetCounterAccountCodec",
+        "kind": "value"
+      },
+      {
+        "name": "splAssetRegistryAccountCodec",
+        "kind": "value"
+      },
+      {
+        "name": "transactInstructionDataCodec",
+        "kind": "value"
+      },
+      {
+        "name": "updateZoneConfigDataCodec",
+        "kind": "value"
+      },
+      {
+        "name": "updateZoneConfigOwnerDataCodec",
+        "kind": "value"
+      },
+      {
+        "name": "zoneConfigAccountCodec",
+        "kind": "value"
+      },
+      {
+        "name": "zoneDepositInstructionDataCodec",
+        "kind": "value"
+      }
+    ],
+    "./instructions": [
+      {
+        "name": "createAssetCounterInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createAssociatedTokenAccountInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createProtocolConfigInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createSplInterfaceInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createTreeInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createZoneConfigInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "depositInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "mergeTransactInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "MergeTransactInstructionData",
+        "kind": "type"
+      },
+      {
+        "name": "mergeZoneInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "pauseTreeInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "ProtocolConfigUpdate",
+        "kind": "type"
+      },
+      {
+        "name": "transactInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "updateProtocolConfigInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "updateZoneConfigInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "updateZoneConfigOwnerInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "zoneAuthorityTransactInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "zoneDepositInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "zoneTransactInstruction",
+        "kind": "value"
+      }
+    ]
+  }
+}

@@ -1,0 +1,515 @@
+{
+  "package": "@zolana/client",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "assemble",
+        "kind": "value"
+      },
+      {
+        "name": "AssembledTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "AssembledZone",
+        "kind": "type"
+      },
+      {
+        "name": "AssembledZoneP256",
+        "kind": "type"
+      },
+      {
+        "name": "assembleZone",
+        "kind": "value"
+      },
+      {
+        "name": "assembleZoneAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "assembleZoneAuthorityWitness",
+        "kind": "value"
+      },
+      {
+        "name": "assembleZoneP256",
+        "kind": "value"
+      },
+      {
+        "name": "AsyncPollConfig",
+        "kind": "type"
+      },
+      {
+        "name": "attempts",
+        "kind": "value"
+      },
+      {
+        "name": "backoff",
+        "kind": "value"
+      },
+      {
+        "name": "CANONICAL_CLIENT_ERROR_CODES",
+        "kind": "value"
+      },
+      {
+        "name": "CanonicalClientErrorCode",
+        "kind": "type"
+      },
+      {
+        "name": "canonicalShape",
+        "kind": "value"
+      },
+      {
+        "name": "ClientError",
+        "kind": "value"
+      },
+      {
+        "name": "ClientErrorCause",
+        "kind": "type"
+      },
+      {
+        "name": "ClientErrorCode",
+        "kind": "type"
+      },
+      {
+        "name": "ClientErrorDetails",
+        "kind": "type"
+      },
+      {
+        "name": "ClientErrorDetailsMap",
+        "kind": "type"
+      },
+      {
+        "name": "Commitment",
+        "kind": "type"
+      },
+      {
+        "name": "CompressedProof",
+        "kind": "type"
+      },
+      {
+        "name": "compressProof",
+        "kind": "value"
+      },
+      {
+        "name": "createAndSendTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "createIndexerPollConfig",
+        "kind": "value"
+      },
+      {
+        "name": "createIndexerRpcConfig",
+        "kind": "value"
+      },
+      {
+        "name": "DEFAULT_INDEXER_POLL_CONFIG",
+        "kind": "value"
+      },
+      {
+        "name": "DEFAULT_INDEXER_RPC_CONFIG",
+        "kind": "value"
+      },
+      {
+        "name": "EncryptedUtxoMatch",
+        "kind": "type"
+      },
+      {
+        "name": "Field",
+        "kind": "type"
+      },
+      {
+        "name": "GetByTagsRequest",
+        "kind": "type"
+      },
+      {
+        "name": "GetEncryptedUtxosByTagsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "GetMerkleProofsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "GetNonInclusionProofsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "GetShieldedTransactionsByTagsResponse",
+        "kind": "type"
+      },
+      {
+        "name": "HasherErrorCode",
+        "kind": "type"
+      },
+      {
+        "name": "IndexerPollConfig",
+        "kind": "type"
+      },
+      {
+        "name": "IndexerRpcConfig",
+        "kind": "type"
+      },
+      {
+        "name": "initializePoseidon",
+        "kind": "value"
+      },
+      {
+        "name": "intoProver",
+        "kind": "value"
+      },
+      {
+        "name": "isPoseidonInitialized",
+        "kind": "value"
+      },
+      {
+        "name": "isRetryable",
+        "kind": "value"
+      },
+      {
+        "name": "MergeMaterialInput",
+        "kind": "type"
+      },
+      {
+        "name": "MerkleContext",
+        "kind": "type"
+      },
+      {
+        "name": "MerkleProof",
+        "kind": "type"
+      },
+      {
+        "name": "NonInclusionProof",
+        "kind": "type"
+      },
+      {
+        "name": "pollUntil",
+        "kind": "value"
+      },
+      {
+        "name": "PollUntilOptions",
+        "kind": "type"
+      },
+      {
+        "name": "Proof",
+        "kind": "type"
+      },
+      {
+        "name": "ProvedMerge",
+        "kind": "type"
+      },
+      {
+        "name": "ProvedMergeZone",
+        "kind": "type"
+      },
+      {
+        "name": "ProverClient",
+        "kind": "value"
+      },
+      {
+        "name": "ProverInputs",
+        "kind": "type"
+      },
+      {
+        "name": "resolveShape",
+        "kind": "value"
+      },
+      {
+        "name": "retryCause",
+        "kind": "value"
+      },
+      {
+        "name": "RetryErrorCause",
+        "kind": "type"
+      },
+      {
+        "name": "Rpc",
+        "kind": "type"
+      },
+      {
+        "name": "RpcAccount",
+        "kind": "type"
+      },
+      {
+        "name": "RpcContext",
+        "kind": "type"
+      },
+      {
+        "name": "SendTransactionConfig",
+        "kind": "type"
+      },
+      {
+        "name": "Shape",
+        "kind": "type"
+      },
+      {
+        "name": "SignatureStatus",
+        "kind": "type"
+      },
+      {
+        "name": "SignedPrivateTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "SolanaRpc",
+        "kind": "value"
+      },
+      {
+        "name": "SpendProof",
+        "kind": "type"
+      },
+      {
+        "name": "SPP_SUPPORTED_SHAPES",
+        "kind": "value"
+      },
+      {
+        "name": "TransferInput",
+        "kind": "type"
+      },
+      {
+        "name": "TransferInputs",
+        "kind": "type"
+      },
+      {
+        "name": "TransferOutput",
+        "kind": "type"
+      },
+      {
+        "name": "TransferP256Inputs",
+        "kind": "type"
+      },
+      {
+        "name": "validatePollConfig",
+        "kind": "value"
+      },
+      {
+        "name": "waitForIndexer",
+        "kind": "value"
+      },
+      {
+        "name": "ZolanaClient",
+        "kind": "value"
+      },
+      {
+        "name": "ZolanaIndexer",
+        "kind": "value"
+      },
+      {
+        "name": "ZoneProverInputs",
+        "kind": "type"
+      }
+    ],
+    "./prover": [
+      {
+        "name": "assemble",
+        "kind": "value"
+      },
+      {
+        "name": "AssembledTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "AssembledZone",
+        "kind": "type"
+      },
+      {
+        "name": "AssembledZoneP256",
+        "kind": "type"
+      },
+      {
+        "name": "assembleZone",
+        "kind": "value"
+      },
+      {
+        "name": "assembleZoneAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "assembleZoneAuthorityWitness",
+        "kind": "value"
+      },
+      {
+        "name": "assembleZoneP256",
+        "kind": "value"
+      },
+      {
+        "name": "AsyncPollConfig",
+        "kind": "type"
+      },
+      {
+        "name": "canonicalShape",
+        "kind": "value"
+      },
+      {
+        "name": "compressedProof",
+        "kind": "value"
+      },
+      {
+        "name": "CompressedProof",
+        "kind": "type"
+      },
+      {
+        "name": "compressProof",
+        "kind": "value"
+      },
+      {
+        "name": "createDummyTransferInput",
+        "kind": "value"
+      },
+      {
+        "name": "DEFAULT_ASYNC_POLL_CONFIG",
+        "kind": "value"
+      },
+      {
+        "name": "Field",
+        "kind": "type"
+      },
+      {
+        "name": "intoProver",
+        "kind": "value"
+      },
+      {
+        "name": "MergeInputs",
+        "kind": "type"
+      },
+      {
+        "name": "P256Proof",
+        "kind": "type"
+      },
+      {
+        "name": "parseProof",
+        "kind": "value"
+      },
+      {
+        "name": "Proof",
+        "kind": "type"
+      },
+      {
+        "name": "ProofInputUtxo",
+        "kind": "value"
+      },
+      {
+        "name": "PROVE_PATH",
+        "kind": "value"
+      },
+      {
+        "name": "proveMerge",
+        "kind": "value"
+      },
+      {
+        "name": "proveMergeZone",
+        "kind": "value"
+      },
+      {
+        "name": "ProverClient",
+        "kind": "value"
+      },
+      {
+        "name": "ProverInputs",
+        "kind": "type"
+      },
+      {
+        "name": "resolveShape",
+        "kind": "value"
+      },
+      {
+        "name": "SERVER_ADDRESS",
+        "kind": "value"
+      },
+      {
+        "name": "Shape",
+        "kind": "type"
+      },
+      {
+        "name": "SpendProof",
+        "kind": "type"
+      },
+      {
+        "name": "SPP_SUPPORTED_SHAPES",
+        "kind": "value"
+      },
+      {
+        "name": "TransferInput",
+        "kind": "type"
+      },
+      {
+        "name": "TransferInputs",
+        "kind": "type"
+      },
+      {
+        "name": "TransferOutput",
+        "kind": "type"
+      },
+      {
+        "name": "TransferP256Inputs",
+        "kind": "type"
+      },
+      {
+        "name": "ZoneProverInputs",
+        "kind": "type"
+      }
+    ],
+    "./retry": [
+      {
+        "name": "attempts",
+        "kind": "value"
+      },
+      {
+        "name": "backoff",
+        "kind": "value"
+      },
+      {
+        "name": "createIndexerPollConfig",
+        "kind": "value"
+      },
+      {
+        "name": "createIndexerRpcConfig",
+        "kind": "value"
+      },
+      {
+        "name": "DEFAULT_INDEXER_POLL_CONFIG",
+        "kind": "value"
+      },
+      {
+        "name": "DEFAULT_INDEXER_RPC_CONFIG",
+        "kind": "value"
+      },
+      {
+        "name": "IndexerPollConfig",
+        "kind": "type"
+      },
+      {
+        "name": "IndexerRpcConfig",
+        "kind": "type"
+      },
+      {
+        "name": "isRetryable",
+        "kind": "value"
+      },
+      {
+        "name": "pollUntil",
+        "kind": "value"
+      },
+      {
+        "name": "PollUntilOptions",
+        "kind": "type"
+      },
+      {
+        "name": "retryCause",
+        "kind": "value"
+      },
+      {
+        "name": "RetryErrorCause",
+        "kind": "type"
+      },
+      {
+        "name": "validatePollConfig",
+        "kind": "value"
+      },
+      {
+        "name": "waitForIndexer",
+        "kind": "value"
+      }
+    ]
+  }
+}

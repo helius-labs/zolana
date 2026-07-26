@@ -1,0 +1,259 @@
+{
+  "package": "@zolana/test-kit",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "createTestWallet",
+        "kind": "value"
+      },
+      {
+        "name": "fixtureBytes",
+        "kind": "value"
+      },
+      {
+        "name": "LocalStack",
+        "kind": "type"
+      },
+      {
+        "name": "startLocalStack",
+        "kind": "value"
+      },
+      {
+        "name": "TestKitError",
+        "kind": "value"
+      }
+    ],
+    "./node": [
+      {
+        "name": "CompiledInstruction",
+        "kind": "type"
+      },
+      {
+        "name": "copyOutput",
+        "kind": "value"
+      },
+      {
+        "name": "createAssetCounter",
+        "kind": "value"
+      },
+      {
+        "name": "createE2eHarness",
+        "kind": "value"
+      },
+      {
+        "name": "createProtocolConfigInstructions",
+        "kind": "value"
+      },
+      {
+        "name": "createSplInterfaceInstructions",
+        "kind": "value"
+      },
+      {
+        "name": "createStandardAccountInstructions",
+        "kind": "value"
+      },
+      {
+        "name": "createTestNativeSigner",
+        "kind": "value"
+      },
+      {
+        "name": "createTestProver",
+        "kind": "value"
+      },
+      {
+        "name": "createTreeInstructions",
+        "kind": "value"
+      },
+      {
+        "name": "createZoneConfig",
+        "kind": "value"
+      },
+      {
+        "name": "decodeBase58Address",
+        "kind": "value"
+      },
+      {
+        "name": "depositData",
+        "kind": "value"
+      },
+      {
+        "name": "depositSolInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "depositSplInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "E2eHarness",
+        "kind": "type"
+      },
+      {
+        "name": "enableMerging",
+        "kind": "value"
+      },
+      {
+        "name": "FIXTURES_ROOT",
+        "kind": "value"
+      },
+      {
+        "name": "groupInstructions",
+        "kind": "value"
+      },
+      {
+        "name": "IndexedOutput",
+        "kind": "type"
+      },
+      {
+        "name": "IndexedTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "InstructionGroup",
+        "kind": "type"
+      },
+      {
+        "name": "localStackUrls",
+        "kind": "value"
+      },
+      {
+        "name": "MergingSetupResult",
+        "kind": "type"
+      },
+      {
+        "name": "mintToInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "parseCompiledInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "ParsedInstruction",
+        "kind": "type"
+      },
+      {
+        "name": "pauseTree",
+        "kind": "value"
+      },
+      {
+        "name": "programBinaryPath",
+        "kind": "value"
+      },
+      {
+        "name": "redactDiagnostic",
+        "kind": "value"
+      },
+      {
+        "name": "rotateProtocolAuthorityInstructions",
+        "kind": "value"
+      },
+      {
+        "name": "setMergingEnabledInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "sidecarPorts",
+        "kind": "value"
+      },
+      {
+        "name": "signTestTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "singleOutput",
+        "kind": "value"
+      },
+      {
+        "name": "splInterfaceAddresses",
+        "kind": "value"
+      },
+      {
+        "name": "standardAccounts",
+        "kind": "value"
+      },
+      {
+        "name": "StandardAccounts",
+        "kind": "type"
+      },
+      {
+        "name": "startLocalStack",
+        "kind": "value"
+      },
+      {
+        "name": "submitSetMergingEnabled",
+        "kind": "value"
+      },
+      {
+        "name": "systemCreateAccountInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "TestIndexer",
+        "kind": "value"
+      },
+      {
+        "name": "TestProver",
+        "kind": "type"
+      },
+      {
+        "name": "TestRpc",
+        "kind": "value"
+      },
+      {
+        "name": "tokenAmount",
+        "kind": "value"
+      },
+      {
+        "name": "updateZoneConfig",
+        "kind": "value"
+      },
+      {
+        "name": "updateZoneOwner",
+        "kind": "value"
+      },
+      {
+        "name": "userRecordAddress",
+        "kind": "value"
+      },
+      {
+        "name": "UserRecordAddress",
+        "kind": "type"
+      },
+      {
+        "name": "verifyStandardAccountsFixture",
+        "kind": "value"
+      },
+      {
+        "name": "walletDepositData",
+        "kind": "value"
+      },
+      {
+        "name": "WORKSPACE_ROOT",
+        "kind": "value"
+      },
+      {
+        "name": "writeProgramConfigFixture",
+        "kind": "value"
+      },
+      {
+        "name": "ZONE_TEST_PROGRAM_ID",
+        "kind": "value"
+      },
+      {
+        "name": "zoneDeposit",
+        "kind": "value"
+      }
+    ],
+    "./fixtures": [
+      {
+        "name": "fixtureBytes",
+        "kind": "value"
+      },
+      {
+        "name": "fixtureJson",
+        "kind": "value"
+      }
+    ]
+  }
+}
