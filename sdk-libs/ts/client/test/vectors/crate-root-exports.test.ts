@@ -81,6 +81,8 @@ const NOT_CARRIED: Readonly<Record<string, string>> = {
   AsyncRpc: "Rpc is the single Promise-based RPC contract",
   AsyncSolanaRpc: "SolanaRpc is the single Promise-based Solana adapter",
   AsyncZolanaIndexer: "ZolanaIndexer is the single Promise-based indexer adapter",
+  attach_input_proofs:
+    "the assembly functions pair spends with proofs inline, refusing at the same input index",
   BatchAddressAppendInputs: "forester circuit inputs; no TypeScript forester surface",
   CircuitType: "the ProverInputs discriminant selects the circuit",
   Commitments: "prover-internal proof commitment representation",
