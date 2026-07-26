@@ -151,6 +151,11 @@ export function sha256Bytes(bytes: Uint8Array): Bytes32 {
 }
 
 export function decodeBase58(value: unknown, length: number, fieldName: string): Uint8Array {
+  // Empty base58 is the empty byte string in bs58 and in the sibling base64
+  // decoder. Instruction data can be empty; addresses and signatures cannot.
+  if (typeof value === "string" && value.length === 0 && length === 0) {
+    return new Uint8Array(0);
+  }
   if (typeof value !== "string" || value.length === 0) {
     throw new ClientError("CLIENT_INVALID_BASE58", { details: { field: fieldName } });
   }
@@ -184,6 +189,16 @@ export function decodeBase58(value: unknown, length: number, fieldName: string):
     });
   }
   return result;
+}
+
+/** Lexicographic compare; unequal lengths are unequal (prefix ≠ extension). */
+export function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  const limit = Math.min(left.length, right.length);
+  for (let index = 0; index < limit; index++) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.length - right.length;
 }
 
 export function encodeBase58(value: Uint8Array): string {

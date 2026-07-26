@@ -321,6 +321,14 @@ describe("SolanaRpc", () => {
     });
 
     await expect(rpc.airdrop(ZERO_ADDRESS, 5n)).resolves.toBe(ZERO_SIGNATURE);
+    await expect(rpc.airdrop(ZERO_ADDRESS, BigInt(Number.MAX_SAFE_INTEGER))).resolves.toBe(
+      ZERO_SIGNATURE,
+    );
+    await expectCode(
+      rpc.airdrop(ZERO_ADDRESS, BigInt(Number.MAX_SAFE_INTEGER) + 1n),
+      "CLIENT_INVALID_INTEGER",
+    );
+    await expectCode(rpc.airdrop(ZERO_ADDRESS, 0xffff_ffff_ffff_ffffn), "CLIENT_INVALID_INTEGER");
     const failure = await expectCode(rpc.assertExecutable(ZERO_ADDRESS), "CLIENT_RPC");
     expect(failure.details).toEqual({
       method: "assertExecutable",
@@ -436,6 +444,29 @@ describe("SolanaRpc", () => {
     expect((await rpc.transactOutputViewTags(ZERO_SIGNATURE)).map(hex)).toEqual(
       rpcFixture.expected.confirmation.directTags,
     );
+  });
+
+  it("treats empty instruction data as empty bytes, matching Rust bs58", async () => {
+    const rpc = new SolanaRpc({
+      url: "https://solana.example.test",
+      fetch: vi.fn(() =>
+        Promise.resolve(
+          rpcResult(1, {
+            transaction: {
+              message: {
+                accountKeys: [ZERO_ADDRESS],
+                instructions: [{ programIdIndex: 0, accounts: [], data: "" }],
+              },
+            },
+            meta: { innerInstructions: [] },
+          }),
+        ),
+      ),
+    });
+
+    const groups = await rpc.confirmedInstructionGroups(ZERO_SIGNATURE);
+    expect(groups.groups).toHaveLength(1);
+    expect(groups.groups[0]?.outer.data).toEqual(new Uint8Array(0));
   });
 
   it("rejects a confirmed transaction whose metadata is absent", async () => {

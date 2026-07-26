@@ -16,6 +16,7 @@ import { compactU16 } from "./wire.js";
 import {
   addressBytes,
   composeSignal,
+  compareBytes,
   decodeBase58,
   decodeBase64,
   encodeBase64,
@@ -356,7 +357,13 @@ export class SolanaRpc implements Rpc {
   /// Requests lamports from the validator faucet and waits for confirmation.
   async airdrop(address: Address, lamports: bigint, context?: RequestContext): Promise<Signature> {
     addressBytes(address);
-    if (lamports < 0n || lamports > 0xffff_ffff_ffff_ffffn) {
+    // JSON-RPC carries the amount as a Number; refuse values that cannot
+    // round-trip through Number without changing magnitude.
+    if (
+      lamports < 0n ||
+      lamports > 0xffff_ffff_ffff_ffffn ||
+      lamports > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
       throw new ClientError("CLIENT_INVALID_INTEGER", {
         details: { field: "lamports", value: lamports.toString() },
       });
@@ -774,6 +781,9 @@ function parsedInstruction(
 }
 
 function decodeBase58UnknownLength(value: string): Uint8Array {
+  // Rust's bs58 decode maps "" to an empty byte array; match that so a
+  // confirmed transaction that includes a zero-data instruction still parses.
+  if (value.length === 0) return new Uint8Array(0);
   // Instruction data travels inside a transaction, so no decode can be longer
   // than the packet the validator accepts.
   for (let length = 1; length <= TRANSACTION_SIZE_LIMIT; length++) {
@@ -784,14 +794,6 @@ function decodeBase58UnknownLength(value: string): Uint8Array {
     }
   }
   throw new ClientError("CLIENT_INVALID_BASE58");
-}
-
-function compareBytes(left: Uint8Array, right: Uint8Array): number {
-  for (let index = 0; index < Math.min(left.length, right.length); index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return left.length - right.length;
 }
 
 function concat(...parts: readonly Uint8Array[]): Uint8Array {

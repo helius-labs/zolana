@@ -27,7 +27,13 @@ import {
 } from "@zolana/transaction";
 
 import { ClientError, fromClientCause, isClientError } from "./error.js";
-import { addressBytes, decodeBase58, sha256Bytes, signatureBytes } from "./internal.js";
+import {
+  addressBytes,
+  compareBytes,
+  decodeBase58,
+  sha256Bytes,
+  signatureBytes,
+} from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import { assemble } from "./prover/assembly.js";
 import { ProverClient, proveMerge, proveMergeZone } from "./prover/client.js";
@@ -860,14 +866,6 @@ function compileLegacyTransaction(
     }),
     shape,
   );
-}
-
-function compareBytes(left: Uint8Array, right: Uint8Array): number {
-  for (let index = 0; index < left.length; index++) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
 }
 
 function computeUnitLimitInstruction(limit: number): Instruction {

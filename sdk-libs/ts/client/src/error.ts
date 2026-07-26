@@ -635,7 +635,10 @@ function safeDetails(
   details: Readonly<Record<string, unknown>> | undefined,
 ): Readonly<{ details?: Readonly<Record<string, unknown>> }> {
   if (details === undefined) return Object.freeze({});
-  return Object.freeze({ details: sanitizeDetails(details) });
+  const sanitized = sanitizeDetails(details);
+  return Object.keys(sanitized).length === 0
+    ? Object.freeze({})
+    : Object.freeze({ details: sanitized });
 }
 
 function validateClientError(code: unknown, details: unknown): asserts code is ClientErrorCode {
@@ -703,36 +706,39 @@ function cloneSafeValue(value: unknown): unknown {
   throw new TypeError("ClientError details must contain safe data");
 }
 
+/**
+ * Fail-closed allow-list for wrapped cause details. Matches `@zolana/keypair`'s
+ * policy (known keys, primitives only) and admits the small set of transaction
+ * diagnostic keys the wrap path already forwards. Unknown keys and nested
+ * values drop rather than surviving a deny-list walk.
+ */
+const CAUSE_DETAIL_KEYS = Object.freeze([
+  "name",
+  "expected",
+  "actual",
+  "minimum",
+  "maximum",
+  "index",
+  "prefix",
+  "reason",
+  "type",
+  "requested",
+  "available",
+  "inputs",
+  "outputs",
+] as const);
+
 function sanitizeDetails(
   details: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
-  const seen = new WeakSet();
-  const sanitize = (value: unknown): unknown => {
-    if (
-      value === null ||
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "bigint" ||
-      typeof value === "boolean"
-    ) {
-      return value;
+  const safe: Record<string, string | number> = {};
+  for (const key of CAUSE_DETAIL_KEYS) {
+    const value = details[key];
+    if (typeof value === "number" || typeof value === "string") {
+      safe[key] = value;
     }
-    if (typeof value !== "object" || seen.has(value)) return undefined;
-    seen.add(value);
-    if (Array.isArray(value)) {
-      return Object.freeze(value.map(sanitize).filter((item) => item !== undefined));
-    }
-    if (!isPlainObject(value)) return undefined;
-    const safe: Record<string, unknown> = {};
-    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
-      if (!descriptor.enumerable || !("value" in descriptor)) continue;
-      if (/(secret|private|seed|blinding|nonce|scalar)/iu.test(key)) continue;
-      const sanitized = sanitize(descriptor.value);
-      if (sanitized !== undefined) safe[key] = sanitized;
-    }
-    return Object.freeze(safe);
-  };
-  return sanitize(details) as Readonly<Record<string, unknown>>;
+  }
+  return Object.freeze(safe);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

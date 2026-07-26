@@ -75,7 +75,9 @@ export class Deposit {
 
 export function createDeposit(params: DepositParams): Deposit {
   try {
-    if (params.amount < 0n || params.amount > 0xffff_ffff_ffff_ffffn) {
+    // The program rejects amount 0 with InvalidTransactShape; fail here so the
+    // caller never signs or submits a deposit that cannot land.
+    if (params.amount <= 0n || params.amount > 0xffff_ffff_ffff_ffffn) {
       throw new WalletError("WALLET_INVALID_AMOUNT", {
         details: { amount: params.amount.toString() },
       });

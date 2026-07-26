@@ -451,13 +451,15 @@ fn write_oracle(path: PathBuf, oracle: &Value) {
     if current == rendered {
         return;
     }
+    // Check mode must fail without rewriting; only the update env may write.
+    if std::env::var_os("ZOLANA_UPDATE_TS_ORACLES").is_none() {
+        panic!(
+            "{} is stale; rerun with ZOLANA_UPDATE_TS_ORACLES=1 to update it",
+            path.display()
+        );
+    }
     std::fs::create_dir_all(path.parent().expect("oracle directory")).expect("create oracle dir");
     std::fs::write(&path, &rendered).expect("write oracle");
-    assert!(
-        std::env::var_os("ZOLANA_UPDATE_TS_ORACLES").is_some(),
-        "{} was stale and has been rewritten; commit it",
-        path.display()
-    );
 }
 
 #[test]
