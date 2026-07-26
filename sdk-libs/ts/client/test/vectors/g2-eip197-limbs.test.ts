@@ -21,14 +21,21 @@ describe("G2 gnark c1-first limbs (live prover B)", () => {
   const vector = JSON.parse(readFileSync(vectorPath, "utf8")) as LiveVector;
   const b = Uint8Array.from(Buffer.from(vector.uncompressedBHex, "hex"));
 
-  it("compressProof accepts the live point and matches Solana compress", () => {
-    const proof: Proof = Object.freeze({
-      a: new Uint8Array(64),
-      b,
-      c: new Uint8Array(64),
-    });
-    const compressed = compressProof(proof);
-    const rust = rustCompressProof(proofWire(proof));
-    expect(Buffer.from(compressed.b).toString("hex")).toBe(rust.b);
-  });
+  // Cold `cargo run -p xtask --bin groth16-verify` under a full-unit parallel
+  // pool can exceed vitest's default 30s; the oracle itself is local and fast
+  // once the binary is built.
+  it(
+    "compressProof accepts the live point and matches Solana compress",
+    () => {
+      const proof: Proof = Object.freeze({
+        a: new Uint8Array(64),
+        b,
+        c: new Uint8Array(64),
+      });
+      const compressed = compressProof(proof);
+      const rust = rustCompressProof(proofWire(proof));
+      expect(Buffer.from(compressed.b).toString("hex")).toBe(rust.b);
+    },
+    120_000,
+  );
 });
