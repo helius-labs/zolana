@@ -81,18 +81,22 @@ describe("wallet non-deterministic properties", () => {
 
   it("conserves split value across generated part counts", () => {
     fc.assert(
-      fc.property(fc.integer({ min: 2, max: 8 }), fc.bigInt({ min: 1n, max: 5_000n }), (parts, per) => {
-        const funded = per * BigInt(parts);
-        const created = createSplit({
-          wallet: fundedWallet([funded]),
-          payer: OWNER,
-          asset: SOL_MINT,
-          parts,
-        });
-        expect(created.numOutputs).toBe(parts);
-        expect(created.perOutputAmount).toBe(per);
-        expect(created.perOutputAmount * BigInt(created.numOutputs)).toBe(funded);
-      }),
+      fc.property(
+        fc.integer({ min: 2, max: 8 }),
+        fc.bigInt({ min: 1n, max: 5_000n }),
+        (parts, per) => {
+          const funded = per * BigInt(parts);
+          const created = createSplit({
+            wallet: fundedWallet([funded]),
+            payer: OWNER,
+            asset: SOL_MINT,
+            parts,
+          });
+          expect(created.numOutputs).toBe(parts);
+          expect(created.perOutputAmount).toBe(per);
+          expect(created.perOutputAmount * BigInt(created.numOutputs)).toBe(funded);
+        },
+      ),
       { numRuns: 40 },
     );
   });

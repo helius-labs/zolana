@@ -94,21 +94,25 @@ describe("client retry properties", () => {
       fc.asyncProperty(fc.integer({ min: 0, max: 5 }), async (numRetries) => {
         const poll = createIndexerPollConfig(numRetries, 0n, 0n);
         let calls = 0;
-        await expect(
-          pollUntil(
-            async () => {
+        try {
+          await pollUntil(
+            () => {
               calls += 1;
-              throw new ClientError("CLIENT_RPC", { details: { method: "getSlot" } });
+              return Promise.reject(
+                new ClientError("CLIENT_RPC", { details: { method: "getSlot" } }),
+              );
             },
             () => false,
             { config: poll },
-          ),
-        ).rejects.toEqual(
-          expect.objectContaining({
-            code: "CLIENT_POLL_TIMED_OUT",
-            details: expect.objectContaining({ attempts: attempts(poll) }),
-          }),
-        );
+          );
+          throw new Error("expected poll timeout");
+        } catch (error) {
+          expect(error).toBeInstanceOf(ClientError);
+          expect((error as ClientError).code).toBe("CLIENT_POLL_TIMED_OUT");
+          expect((error as ClientError).details).toEqual(
+            expect.objectContaining({ attempts: attempts(poll) }),
+          );
+        }
         expect(calls).toBe(attempts(poll));
       }),
       { numRuns: 20 },

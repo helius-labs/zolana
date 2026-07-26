@@ -36,7 +36,8 @@ if (!Array.isArray(live.rows) || live.rows.length === 0) {
   throw new Error("inventory-live.json must list at least one live row");
 }
 for (const row of live.rows) {
-  if (paths.has(row.path)) throw new Error(`live inventory path duplicates frozen row: ${row.path}`);
+  if (paths.has(row.path))
+    throw new Error(`live inventory path duplicates frozen row: ${row.path}`);
   if (paths.has(`live:${row.path}`)) throw new Error(`duplicate live inventory path: ${row.path}`);
   paths.add(`live:${row.path}`);
   if (
@@ -56,6 +57,4 @@ for (const row of live.rows) {
   }
 }
 
-console.log(
-  `inventory ok: ${inventory.rows.length} frozen rows, ${live.rows.length} live rows`,
-);
+console.log(`inventory ok: ${inventory.rows.length} frozen rows, ${live.rows.length} live rows`);

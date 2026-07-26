@@ -116,7 +116,9 @@ function normalize(exports) {
   }
   return [...byName.entries()]
     .map(([name, kind]) => ({ name, kind }))
-    .sort((left, right) => left.name.localeCompare(right.name) || left.kind.localeCompare(right.kind));
+    .sort(
+      (left, right) => left.name.localeCompare(right.name) || left.kind.localeCompare(right.kind),
+    );
 }
 
 async function runtimeKeys(packageName, exportPath) {
@@ -191,10 +193,7 @@ async function main() {
       continue;
     }
 
-    assert(
-      committed.package === report.package,
-      `${packageName}: report package name drifted`,
-    );
+    assert(committed.package === report.package, `${packageName}: report package name drifted`);
     const expectedPaths = Object.keys(committed.entryPoints ?? {}).sort();
     const actualPaths = Object.keys(report.entryPoints).sort();
     if (JSON.stringify(expectedPaths) !== JSON.stringify(actualPaths)) {

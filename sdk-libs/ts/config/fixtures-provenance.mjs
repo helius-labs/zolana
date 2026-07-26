@@ -85,10 +85,7 @@ function checkDriftReview(manifest) {
   if (!Array.isArray(review.generators) || review.generators.length === 0) {
     throw new Error("driftReview.generators must name the generators that were run");
   }
-  if (
-    review.finding !== "no-body-drift" &&
-    !review.finding.startsWith("body-change:")
-  ) {
+  if (review.finding !== "no-body-drift" && !review.finding.startsWith("body-change:")) {
     throw new Error(
       `driftReview.finding must be no-body-drift or body-change:<path> (got ${review.finding})`,
     );
