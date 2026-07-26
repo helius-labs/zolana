@@ -382,15 +382,15 @@ describe("transaction core", () => {
     const { keypair } = keyMaterial();
     const wallet = new Wallet({ identity: keypair.shieldedAddress(), registry });
     const laterMint = "Vote111111111111111111111111111111111111111" as Address;
+    // Constructor clones the input registry, so later inserts on the caller's
+    // copy do not reach the wallet.
     registry.insert(3n, laterMint);
     expect(() => wallet.registry.resolve(3n)).toThrow(
       expect.objectContaining({ code: "TRANSACTION_UNKNOWN_ASSET" }),
     );
-    const registrySnapshot = wallet.registry;
-    registrySnapshot.insert(4n, laterMint);
-    expect(() => wallet.registry.resolve(4n)).toThrow(
-      expect.objectContaining({ code: "TRANSACTION_UNKNOWN_ASSET" }),
-    );
+    // The getter returns the live registry; inserts through it persist.
+    wallet.registry.insert(4n, laterMint);
+    expect(wallet.registry.resolve(4n)).toBe(laterMint);
     expect(wallet.balances()).toEqual([]);
     // A registered mint the wallet holds no note of has a zero balance rather
     // than none; only an unregistered mint is a rejection.
@@ -400,7 +400,14 @@ describe("transaction core", () => {
       amount: 0n,
       utxos: [],
     });
-    expect(() => wallet.balance(laterMint)).toThrow(
+    expect(wallet.balance(laterMint)).toEqual({
+      assetId: 4n,
+      mint: laterMint,
+      amount: 0n,
+      utxos: [],
+    });
+    const unknownMint = "Stake11111111111111111111111111111111111111" as Address;
+    expect(() => wallet.balance(unknownMint)).toThrow(
       expect.objectContaining({ code: "TRANSACTION_UNKNOWN_MINT" }),
     );
     expect(
