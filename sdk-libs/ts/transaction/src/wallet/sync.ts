@@ -1,5 +1,5 @@
 import type { Bytes32, Bytes33, Signature } from "@zolana/interface";
-import { P256PublicKey, type ViewingKey } from "@zolana/keypair";
+import { P256PublicKey, type ViewingKeyLike } from "@zolana/keypair";
 
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal, hashField } from "../internal.js";
@@ -338,7 +338,7 @@ const SENDER_SLOT_COUNT = 2;
  * one thing the sender reads back out of it.
  */
 function confidentialSendRecipients(
-  key: ViewingKey,
+  key: ViewingKeyLike,
   tx: IndexedShieldedTransaction,
 ): readonly P256PublicKey[] {
   const firstNullifier = tx.nullifiers[0];
@@ -376,7 +376,7 @@ function withDiscovered(
 /** A rotated-in viewing key starts scanning from zero. */
 function ensureViewingKeyEntries(
   history: readonly ViewingKeyEntry[],
-  viewingKeys: readonly ViewingKey[],
+  viewingKeys: readonly ViewingKeyLike[],
 ): readonly ViewingKeyEntry[] {
   const known = new Set(history.map((entry) => hex(entry.viewingPublicKey.toBytes())));
   const entries = [...history];
@@ -391,7 +391,7 @@ function ensureViewingKeyEntries(
 
 function advanceViewingKeyEntry(
   entry: ViewingKeyEntry,
-  key: ViewingKey,
+  key: ViewingKeyLike,
   input: Readonly<{
     window: bigint;
     sites: ReturnType<typeof tagSites>;
@@ -475,7 +475,7 @@ export async function decryptTransactions(
   const recipients = new Map<string, Map<string, P256PublicKey>>();
   const counterparties = (
     into: Map<string, Map<string, P256PublicKey>>,
-    key: ViewingKey,
+    key: ViewingKeyLike,
   ): Map<string, P256PublicKey> => {
     const id = hex(key.publicKey().toBytes());
     const existing = into.get(id);

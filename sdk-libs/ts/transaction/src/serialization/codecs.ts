@@ -1,6 +1,11 @@
 import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "@zolana/interface";
-import { P256PublicKey, ShieldedPublicKey, ViewingKey, type Bytes34 } from "@zolana/keypair";
-import { decryptVerifiable, encryptVerifiable } from "@zolana/keypair/merge";
+import {
+  P256PublicKey,
+  ShieldedPublicKey,
+  type Bytes34,
+  type ViewingKey,
+  type ViewingKeyLike,
+} from "@zolana/keypair";
 
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
@@ -898,7 +903,7 @@ export function prooflessUtxo(value: ProoflessOutput, owner: ShieldedPublicKey):
 }
 
 export function encryptConfidential(
-  tx: ViewingKey,
+  tx: ViewingKeyLike,
   recipient: P256PublicKey,
   value: ConfidentialOutputPlaintext,
   salt: Bytes16,
@@ -911,7 +916,7 @@ export function encryptConfidential(
 }
 
 export function encryptAnonymous(
-  tx: ViewingKey,
+  tx: ViewingKeyLike,
   recipient: P256PublicKey,
   plaintext: Uint8Array,
   salt: Bytes16,
@@ -921,7 +926,7 @@ export function encryptAnonymous(
 }
 
 export function decryptAnonymous(
-  key: ViewingKey,
+  key: ViewingKeyLike,
   txViewingPublicKey: P256PublicKey,
   ciphertext: Uint8Array,
   salt: Bytes16,
@@ -971,7 +976,7 @@ function inTransactionCategory<T>(run: () => T): T {
 }
 
 export function decryptConfidential(
-  key: ViewingKey,
+  key: ViewingKeyLike,
   txViewingPublicKey: P256PublicKey,
   body: Uint8Array,
   salt: Bytes16,
@@ -984,7 +989,7 @@ export function decryptConfidential(
 }
 
 export function decryptConfidentialAsSender(
-  tx: ViewingKey,
+  tx: ViewingKeyLike,
   body: Uint8Array,
   salt: Bytes16,
   slotIndex: number,
@@ -1062,27 +1067,20 @@ export function mergeUtxo(
 }
 
 export function encryptMerge(
-  txViewingKey: ViewingKey,
+  txViewingKey: ViewingKeyLike,
   userViewingPublicKey: P256PublicKey,
   value: MergePlaintext,
 ): Uint8Array {
-  const secret = txViewingKey.secretBytes();
-  try {
-    const encrypted = encryptVerifiable(secret, userViewingPublicKey, encodeMerge(value));
-    return concat(encrypted.txViewingPublicKey.toBytes(), encrypted.ciphertext);
-  } finally {
-    secret.fill(0);
-  }
+  const plaintext = encodeMerge(value);
+  const encrypted = inTransactionCategory(() =>
+    txViewingKey.encryptVerifiable(userViewingPublicKey, plaintext),
+  );
+  return concat(encrypted.txViewingPublicKey.toBytes(), encrypted.ciphertext);
 }
 
-export function decryptMerge(userViewingKey: ViewingKey, body: Uint8Array): MergePlaintext {
+export function decryptMerge(userViewingKey: ViewingKeyLike, body: Uint8Array): MergePlaintext {
   const { key, rest } = inTransactionCategory(() => splitEmbeddedKey(body));
-  const secret = userViewingKey.secretBytes();
-  try {
-    return decodeMerge(inTransactionCategory(() => decryptVerifiable(secret, key, rest)));
-  } finally {
-    secret.fill(0);
-  }
+  return decodeMerge(inTransactionCategory(() => userViewingKey.decryptVerifiable(key, rest)));
 }
 
 function requireOwner(utxo: Utxo, owner: ShieldedPublicKey): void {
