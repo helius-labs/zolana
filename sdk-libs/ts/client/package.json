@@ -82,6 +82,9 @@
     "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
     "test:cross": "vitest run --config ../config/vitest.package.config.js test/indexer-client.test.ts test/solana-rpc.test.ts",
     "test:prover": "vitest run --config ../config/vitest.package.config.js test/prover.test.ts",
+    "test:p4": "ZOLANA_TEST_P4= ZOLANA_TEST_P4_FULL= vitest run --config ../config/vitest.vectors.config.js test/vectors/cryptographic-verification.test.ts",
+    "test:p4:live": "ZOLANA_TEST_P4=1 ZOLANA_TEST_P4_FULL= vitest run --config ../config/vitest.vectors.config.js test/vectors/cryptographic-verification.test.ts",
+    "test:p4:full": "ZOLANA_TEST_P4=1 ZOLANA_TEST_P4_FULL=1 vitest run --config ../config/vitest.vectors.config.js test/vectors/cryptographic-verification.test.ts",
     "test:browser": "node ../config/browser-check.mjs client",
     "api:check": "node ../config/workspace-check.mjs api"
   }
