@@ -20,17 +20,13 @@ import {
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
-import { encodeConfidentialSlots } from "../instructions/transact.js";
+import { encodeConfidentialSlots, type P256Signature } from "../instructions/transact.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
 export type { SplitBundlePlaintext };
 
-export interface P256Signature {
-  readonly publicKey: P256PublicKey;
-  readonly r: Bytes32;
-  readonly s: Bytes32;
-}
+export type { P256Signature };
 
 export interface ApprovalRequest {
   readonly solanaPublicKey: Address;

@@ -6,7 +6,7 @@ use zolana_keypair::{
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{normalize_zone_data_hash, ProofInputUtxo, Utxo},
+    utxo::{normalized_zone_data_hash, ProofInputUtxo, Utxo},
 };
 
 #[derive(Clone)]
@@ -33,7 +33,7 @@ impl SppProofInputUtxo {
     }
 
     pub fn with_zone_data_hash(mut self, zone_data_hash: [u8; 32]) -> Self {
-        self.zone_data_hash = normalize_zone_data_hash(zone_data_hash);
+        self.zone_data_hash = normalized_zone_data_hash(zone_data_hash);
         self
     }
 
@@ -232,6 +232,31 @@ mod tests {
         );
     }
 
+    /// The commitment folds an explicit zero zone data hash into absence, so
+    /// the builder stores absence: a zone passing a generically computed empty
+    /// digest prepares the same input as one passing no digest at all.
+    #[test]
+    fn an_explicit_zero_zone_data_hash_is_stored_as_absence() {
+        let mut absent = SppProofInputUtxo::new_dummy();
+        absent.utxo.owner = PublicKey::from_ed25519(&[1u8; 32]);
+        absent.utxo.amount = 5;
+        let explicit = absent.clone().with_zone_data_hash([0u8; 32]);
+
+        assert_eq!(explicit.zone_data_hash, None);
+        assert_eq!(
+            ProofInputUtxo::try_from(&explicit),
+            ProofInputUtxo::try_from(&absent)
+        );
+        assert_eq!(explicit.hash(), absent.hash());
+        assert_eq!(explicit.nullifier(), absent.nullifier());
+    }
+
+    #[test]
+    fn a_non_zero_zone_data_hash_is_kept() {
+        let spend = SppProofInputUtxo::new_dummy().with_zone_data_hash([4u8; 32]);
+        assert_eq!(spend.zone_data_hash, Some([4u8; 32]));
+    }
+
     /// A real input is untouched by the dummy rule.
     #[test]
     fn a_real_input_may_carry_any_field() {
@@ -242,36 +267,28 @@ mod tests {
         assert_eq!(spend.check_canonical_dummy(), Ok(()));
     }
 
-    fn real_input() -> SppProofInputUtxo {
+    /// T28 covers two zone bindings that cost differently, and the suite has to
+    /// hold them apart. The clause above normalizes the zone data hash and
+    /// moves no commitment. This one is why the zone address is not normalized
+    /// with it: `Some(Address::default())` commits to `pk_field(0)`, a non-zero
+    /// field the circuit reads as zone-bound, so folding it to absence would
+    /// change what the UTXO says rather than how a caller spelled it. This test
+    /// fails if anyone extends the normalization there.
+    #[test]
+    fn the_zero_zone_address_stays_bound_rather_than_normalizing() {
         let mut spend = SppProofInputUtxo::new_dummy();
         spend.utxo.owner = PublicKey::from_ed25519(&[1u8; 32]);
-        spend.utxo.blinding = ORACLE_BLINDING;
-        spend.nullifier_key = NullifierKey::from_secret([3u8; BLINDING_LEN]);
-        spend
-    }
+        spend.utxo.amount = 5;
+        let unbound = spend.hash().expect("unbound hash");
 
-    /// T28 covers two zone bindings that cost differently, and the suite has to
-    /// hold them apart. Normalizing the zone data hash moves no commitment,
-    /// because `unwrap_or_default` committed the zero either way. Normalizing
-    /// the zone address would move one: `Some(Address::default())` commits to
-    /// `pk_field(0)`, a non-zero field the circuit reads as zone-bound. The
-    /// second half of this test fails if anyone extends normalization there.
-    #[test]
-    fn an_explicit_zero_normalizes_at_the_zone_data_hash_and_not_at_the_zone_address() {
-        let unbound = real_input().hash().expect("unbound hash");
+        spend.utxo.zone_program_id = Some(Address::default());
 
-        let normalized = real_input().with_zone_data_hash([0u8; 32]);
-        assert_eq!(normalized.zone_data_hash, None);
-        assert_eq!(normalized.hash().expect("normalized hash"), unbound);
-
-        let mut zero_zone = real_input();
-        zero_zone.utxo.zone_program_id = Some(Address::default());
         assert_eq!(
-            ProofInputUtxo::try_from(&zero_zone)
+            ProofInputUtxo::try_from(&spend)
                 .expect("proof input")
                 .zone_program_id,
             zolana_keypair::hash::hash_field(&[0u8; 32]).expect("pk_field(0)")
         );
-        assert_ne!(zero_zone.hash().expect("zero-zone hash"), unbound);
+        assert_ne!(spend.hash().expect("zero-zone hash"), unbound);
     }
 }

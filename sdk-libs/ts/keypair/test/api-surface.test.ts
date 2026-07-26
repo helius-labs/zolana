@@ -128,7 +128,7 @@ function keypair(): ShieldedKeypair {
  * the published interfaces are satisfiable without the concrete in-memory
  * classes -- the point of the Rust traits.
  *
- * Only the signing half crosses the wire. Viewing keys are held in process, so
+ * Only the signing half crosses the wire. Viewing keys are held in memory, so
  * this backend satisfies {@link ViewingKeyLike} synchronously; an interface
  * that could not be satisfied that way would be one no scan path could call.
  */

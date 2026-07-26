@@ -27,31 +27,18 @@ use zolana_transaction::{
 /// The frozen plan baseline. It pins history the fixtures quote -- the 182-path
 /// `sdk-libs` inventory, `docs/spec.md`, the proving-key lockfile -- and so it
 /// does not move when the port changes a source the fixtures are generated
-/// from. Those live pins are the three below.
+/// from.
 const HISTORICAL_BASELINE_SHA: &str = "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f";
+/// Provenance the manifest records: the revision each family of fixtures was
+/// last regenerated against. These stamp the output; they do not gate it. What
+/// catches drift is `--check`, which regenerates every fixture from the working
+/// tree and compares it byte for byte with the committed one.
 const BASELINE_SHA: &str = "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71";
 const INTERFACE_SHA: &str = "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71";
 const MERKLE_SHA: &str = "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa";
 const FIXTURE_SCHEMA: &str = "zolana-ts-fixtures-v1";
 const GENERATOR_COMMAND: &str = "rustup run 1.97.0 cargo run -p xtask --bin ts-fixtures";
 const EXPECTED_FIXTURE_COUNT: usize = 58;
-const BASELINE_SOURCE_PATHS: [&str; 12] = [
-    "program-libs/hasher/src",
-    "program-tests/test-utils/src/smart_account.rs",
-    "sdk-libs/client/src/prover",
-    "sdk-libs/client/src/rpc.rs",
-    "sdk-libs/indexer-api/src",
-    "sdk-libs/keypair/src",
-    "sdk-libs/program-test/src/indexer.rs",
-    "sdk-libs/transaction/src",
-    "sdk-libs/transaction/tests",
-    "sdk-libs/wallet/src",
-    "sdk-libs/wallet/tests",
-    "sdk-libs/zolana-api/src",
-];
-const INTERFACE_SOURCE_PATHS: [&str; 1] = ["program-libs/interface/src"];
-const MERKLE_SOURCE_PATHS: [&str; 2] =
-    ["program-libs/indexed-array/src", "sdk-libs/merkle-tree/src"];
 const INVENTORY_FILES: [&str; 6] = [
     "planning/typescript-sdk-port/inventory-client.md",
     "planning/typescript-sdk-port/inventory-wallet.md",
@@ -115,10 +102,8 @@ fn run() -> Result<()> {
     if current_client {
         return generate_current_client_fixtures(&root, check);
     }
-    // The reports are a pure function of the inventory tables and read none of
-    // the frozen Rust sources, so gating them on that revision left a factual
-    // error in `inventory.json` unfixable while the gate was red for unrelated
-    // reasons.
+    // The reports are a pure function of the inventory tables, so they can be
+    // regenerated without the full fixture run behind them.
     if reports_only {
         let inventory = inventory(&root)?;
         let out = root.join("sdk-libs/ts");
@@ -127,7 +112,6 @@ fn run() -> Result<()> {
         println!("regenerated reports for {} inventory rows", inventory.len());
         return Ok(());
     }
-    assert_frozen_sources(&root)?;
     let inventory = inventory(&root)?;
 
     if check {
@@ -263,35 +247,6 @@ fn workspace_root() -> Result<PathBuf> {
         bail!("not in a git worktree");
     }
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
-}
-
-fn assert_frozen_sources(root: &Path) -> Result<()> {
-    for (name, revision, paths) in [
-        ("baseline", BASELINE_SHA, BASELINE_SOURCE_PATHS.as_slice()),
-        (
-            "interface",
-            INTERFACE_SHA,
-            INTERFACE_SOURCE_PATHS.as_slice(),
-        ),
-        ("Merkle", MERKLE_SHA, MERKLE_SOURCE_PATHS.as_slice()),
-    ] {
-        let commit = Command::new("git")
-            .current_dir(root)
-            .args(["cat-file", "-e", &format!("{revision}^{{commit}}")])
-            .status()?;
-        if !commit.success() {
-            bail!("{name} fixture source revision {revision} is unavailable");
-        }
-        let unchanged = Command::new("git")
-            .current_dir(root)
-            .args(["diff", "--quiet", revision, "--"])
-            .args(paths)
-            .status()?;
-        if !unchanged.success() {
-            bail!("{name} fixture sources differ from revision {revision}");
-        }
-    }
-    Ok(())
 }
 
 fn inventory(root: &Path) -> Result<Vec<InventoryRow>> {
