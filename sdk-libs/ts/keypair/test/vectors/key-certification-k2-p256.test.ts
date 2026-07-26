@@ -140,8 +140,9 @@ describe("K2 P256 signing and verification", () => {
     }
     // A message that is not 32 bytes is not signable, so it cannot be verified
     // either rather than being hashed into one that is.
-    expect(signer.verify(new Uint8Array(31), fromHex(recorded.canonicalSignatureBytes) as Bytes64))
-      .toBe(false);
+    expect(
+      signer.verify(new Uint8Array(31), fromHex(recorded.canonicalSignatureBytes) as Bytes64),
+    ).toBe(false);
   });
 
   it("verifies its own signatures and rejects them after any single-bit change", () => {
