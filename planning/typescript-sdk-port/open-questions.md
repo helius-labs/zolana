@@ -46,8 +46,10 @@ stops.
 
 # Part 1: the owner's list
 
-Eleven questions. No amount of SDK work moves any of them. All eleven are ruled;
-question 10 is ruled in part, and its status line says which part.
+Eleven questions. No amount of SDK work moves any of them, and all eleven are
+ruled. Question 10 was ruled in part first and then in full, because the answer
+turned out to cover two clauses that cost differently; its status line records
+both steps, and the split is the part worth reading rather than the verdict.
 
 ## 1. Owner-hash encoding includes y-parity in the specification and omits it everywhere else (G7-1)
 
@@ -259,9 +261,15 @@ independent decoders plus a clean negative.
 
 For S01 there is a partial answer, in question 13.
 
-**Partly ruled** 2026-07-26: an explicitly-passed zero at a zone binding is
-normalized to absent rather than refused, which reshapes T28's first two clauses
-and goes against the recommendation for the first. T28's third clause and S01 are
+**Ruled** 2026-07-26, in two steps. First: an explicitly-passed zero at a zone
+binding is normalized to absent rather than refused, which goes against the
+recommendation for T28's first clause. Recording that answer showed it was being
+applied to two clauses that cost differently, so the owner split it. Second, and
+final: normalize the zone **data hash** only. The zone **address** stays exactly
+as it behaves today, with no normalization and no refusal, because
+`Some([0u8; 32])` there commits to `pk_field(0)` and moving it would change what
+the commitment says rather than how a caller spells it. Both halves are
+implemented and pinned in Rust and TypeScript. T28's third clause and S01 are
 untouched; the third clause is safe on its own, relabels a deferred Poseidon
 failure rather than refusing anything new, and could be taken alone in both
 languages.
@@ -280,7 +288,12 @@ executed reproductions, and no SDK change reaches either.
 **Ruled** 2026-07-26: each gets its own pull request against the program, tracked
 outside this port, and neither blocks the port from landing. PD-2 has its branch
 and PR #160, which is open rather than merged and whose commit is not an ancestor
-of `main`. PD-1 has no branch. Both are outside `sdk-libs/**` by construction.
+of `main`. PD-1 is ruled to stay unwritten under this run: no branch, no pull
+request, no program change. It is recorded as owed and assignable, with the
+defect, the reach, the executed reproduction and the shape of the fix, in
+[`scope-and-denominator.md`](scope-and-denominator.md#pd-1-is-owed-and-assignable),
+so an owner picking it up does not re-derive the analysis. Both are outside
+`sdk-libs/**` by construction.
 [Ledger](authority-rulings.md#q11-the-two-program-defects).
 
 ---
