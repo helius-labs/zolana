@@ -52,7 +52,7 @@ export function createTestNativeSigner(seed: Bytes32): TransactionSigner {
   });
 }
 
-export async function userRecordAddress(owner: Address): Promise<UserRecordAddress> {
+export function userRecordAddress(owner: Address): UserRecordAddress {
   try {
     const ownerBytes = decodeBase58(owner, "owner");
     const [address, bump] = findProgramAddress([RECORD_SEED, ownerBytes], USER_REGISTRY_PROGRAM_ID);
@@ -99,7 +99,7 @@ export async function enableMerging(
         details: { field: "signer", reason: "ownerMismatch" },
       });
     }
-    const record = await userRecordAddress(input.owner);
+    const record = userRecordAddress(input.owner);
     let account = await input.rpc.getAccount(record.address, context);
     if (input.registration !== undefined) {
       await submitAndConfirm(

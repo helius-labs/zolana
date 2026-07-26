@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { createExternalData } from "../../../transaction/src/instructions/transact.js";
 import { createProofOutput } from "../../../transaction/src/utxo.js";
-import assemblyFixtureJson from "../../../fixtures/client/public-input-assembly-v1.json" with {
+import assemblyFixtureJson from "../../../vectors/public-input-assembly-v1.json" with {
   type: "json",
 };
 import proverShapesJson from "../../../fixtures/client/prover-shapes-v1.json" with { type: "json" };
@@ -64,7 +64,7 @@ import mergeOracle from "../oracles/merge-v1.json" with { type: "json" };
 /// omission-versus-null. Address-append has no TypeScript path.
 
 const fixture = fixtureJson as ProverRequestFixture;
-const assemblyFixture = assemblyFixtureJson;
+const assemblyFixture = assemblyFixtureJson as AssemblyParityFixture;
 const proverShapes = proverShapesJson as ProverShapesFixture;
 
 interface RequestCase {
@@ -81,6 +81,16 @@ interface ProverRequestFixture {
     representatives: Readonly<Record<string, RequestCase>>;
     mixedOwner: RequestCase;
     zoneMixedOwner: RequestCase;
+  }>;
+}
+
+/** Seeds and mixed-owner metadata from the public-input-assembly vector. */
+interface AssemblyParityFixture {
+  readonly inputs: ProverShapesFixture["inputs"];
+  readonly expected: Readonly<{
+    zoneMixedOwner: Readonly<{
+      inputOwnerKinds: readonly string[];
+    }>;
   }>;
 }
 

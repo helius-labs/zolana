@@ -164,7 +164,7 @@ describe("merge submission", () => {
     expect(hex(material.nullifierKey.publicKey())).toBe(
       fixture.expected.material.nullifierPubkeyBytes,
     );
-    const pda = await internalUserRecordPda(OWNER);
+    const pda = internalUserRecordPda(OWNER);
     const calls: string[] = [];
     let accountReads = 0;
     const unsupported = (): Promise<never> => Promise.reject(new Error("unexpected RPC call"));
@@ -239,7 +239,7 @@ describe("merge submission", () => {
     const fixture = await walletFixture<SubmitFixture>("submit");
     const localKeypair = keypair(fixture);
     const material = MergeMaterial.fromKeypair(localKeypair);
-    const pda = await internalUserRecordPda(OWNER);
+    const pda = internalUserRecordPda(OWNER);
     const rpc = {
       getAccount: () =>
         Promise.resolve({

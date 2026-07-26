@@ -68,12 +68,10 @@ export function senderViewingPublicKey(record: UserRecord): Bytes33 {
   return record.entries.at(-1)?.viewingPublicKey ?? record.viewingPublicKey;
 }
 
-async function userRecordAddress(owner: Address): Promise<
-  Readonly<{
-    address: Address;
-    bump: number;
-  }>
-> {
+function userRecordAddress(owner: Address): Readonly<{
+  address: Address;
+  bump: number;
+}> {
   try {
     const ownerBytes = decodeBase58(owner, 32, "owner");
     const [address, bump] = findProgramAddress([RECORD_SEED, ownerBytes], PROGRAM_ID);
@@ -83,13 +81,13 @@ async function userRecordAddress(owner: Address): Promise<
   }
 }
 
-export async function internalUserRecordAddress(owner: Address): Promise<Address> {
-  return (await userRecordAddress(owner)).address;
+export function internalUserRecordAddress(owner: Address): Address {
+  return userRecordAddress(owner).address;
 }
 
-export async function internalUserRecordPda(
+export function internalUserRecordPda(
   owner: Address,
-): Promise<Readonly<{ address: Address; bump: number }>> {
+): Readonly<{ address: Address; bump: number }> {
   return userRecordAddress(owner);
 }
 
@@ -221,7 +219,7 @@ async function fetchDecodedUserRecord(
   context?: RequestContext,
 ): Promise<DecodedUserRecord | undefined> {
   checkedAddress(input.owner, "owner");
-  const pda = await userRecordAddress(input.owner);
+  const pda = userRecordAddress(input.owner);
   const account = await input.rpc.getAccount(pda.address, context);
   if (account === undefined) return undefined;
   return decodeRecord(account, input.owner, pda.bump);
@@ -451,7 +449,7 @@ export async function buildRegistrationTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
-    const pda = await userRecordAddress(input.owner);
+    const pda = userRecordAddress(input.owner);
     const existing = await fetchDecodedUserRecord({ rpc: input.rpc, owner: input.owner }, context);
     const ownerP256 =
       input.address.signingPublicKey.signatureType() === "p256"

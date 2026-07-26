@@ -39,7 +39,6 @@ import {
   createTestNativeSigner,
   TestIndexer,
   TestRpc,
-  userRecordAddress,
   walletDepositData,
 } from "@zolana/test-kit/node";
 import { describe, expect, it, vi } from "vitest";

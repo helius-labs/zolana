@@ -41,7 +41,7 @@ live("user registry merge setup local lifecycle", () => {
         address: identity,
       });
       if (registration === undefined) throw new Error("expected registration transaction");
-      const record = await userRecordAddress(owner.address);
+      const record = userRecordAddress(owner.address);
       await expect(
         enableMerging({
           rpc: harness.rpc,
@@ -65,7 +65,7 @@ live("user registry merge setup local lifecycle", () => {
       ).resolves.toEqual({ changed: false, userRecord: record.address });
     } finally {
       if (registered) {
-        const record = await userRecordAddress(owner.address);
+        const record = userRecordAddress(owner.address);
         await submitSetMergingEnabled({
           rpc: harness.rpc,
           signer: owner,

@@ -368,7 +368,7 @@ export async function submitMergeTransaction(
     const transaction = client.finishMergeSubmissionUnsigned({
       proved,
       feePayer: request.payer.address,
-      userRecord: await internalUserRecordAddress(request.owner),
+      userRecord: internalUserRecordAddress(request.owner),
       recentBlockhash: latest.blockhash,
     });
     const signed = await request.payer.signNativeTransaction(transaction);
