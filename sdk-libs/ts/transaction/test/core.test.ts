@@ -234,6 +234,41 @@ describe("transaction core", () => {
     }
   });
 
+  // The commitment folds an explicit zero hash and an absent one into the same
+  // field, so the dummy rule has to agree with it. `dataHash` reaches the
+  // constructor unnormalized, which is how the two spellings stay reachable.
+  it("accepts a dummy carrying an explicit zero hash, as Rust does", () => {
+    const canonical = ProofInputUtxo.dummy(DUMMY_BLINDING);
+    const explicit = new ProofInputUtxo({
+      utxo: zeroOwnerUtxo(),
+      nullifierKey: ZERO_NULLIFIER_KEY(),
+      dataHash: ZERO_HASH(),
+      zoneDataHash: ZERO_HASH(),
+    });
+
+    expect(hex(explicit.hash())).toBe(DUMMY_ORACLE_HASH);
+    expect(explicit.hash()).toEqual(canonical.hash());
+    expect(explicit.nullifier()).toEqual(canonical.nullifier());
+  });
+
+  // The other half of the T28 split, at the dummy rule rather than at the
+  // builders: a zero zone address is carried, not absent, so a dummy holding
+  // one stays noncanonical however the two hashes are read.
+  it("rejects a dummy bound to the zero zone address", () => {
+    expect(
+      () =>
+        new ProofInputUtxo({
+          utxo: zeroOwnerUtxo({ zoneProgramId: ZERO_ADDRESS }),
+          nullifierKey: ZERO_NULLIFIER_KEY(),
+        }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        details: { field: "zone_program_id" },
+      }),
+    );
+  });
+
   // T28 covers two zone bindings that cost differently, and the suite holds
   // them apart. Normalizing the zone data hash moves no commitment, because the
   // zero was already the committed field. Normalizing the zone address would

@@ -7244,6 +7244,30 @@
           "data"
         ],
         "name": "dataBeatsZoneProgramId"
+      },
+      {
+        "error": null,
+        "field": null,
+        "fields": [
+          "zero_data_hash"
+        ],
+        "name": "explicitZeroDataHash"
+      },
+      {
+        "error": null,
+        "field": null,
+        "fields": [
+          "zero_zone_data_hash"
+        ],
+        "name": "explicitZeroZoneDataHash"
+      },
+      {
+        "error": "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
+        "field": "zone_program_id",
+        "fields": [
+          "zero_zone_program_id"
+        ],
+        "name": "zeroZoneProgramId"
       }
     ],
     "deriveBlinding": [

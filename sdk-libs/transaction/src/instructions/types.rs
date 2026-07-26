@@ -58,10 +58,27 @@ impl SppProofInputUtxo {
         self.utxo.owner.is_zero()
     }
 
+    /// What the commitment folds in. `None` and `Some([0u8; 32])` reach
+    /// [`ProofInputUtxo`] as the same field, so every rule below reads this
+    /// rather than the option: `with_data_hash` normalizes nothing and both
+    /// fields are public, so the two spellings are reachable without the
+    /// builders and must not be told apart afterwards.
+    fn committed_data_hash(&self) -> [u8; 32] {
+        self.data_hash.unwrap_or_default()
+    }
+
+    fn committed_zone_data_hash(&self) -> [u8; 32] {
+        self.zone_data_hash.unwrap_or_default()
+    }
+
     /// A zero owner is not a parseable key, so a zero-owner input can only stand
     /// for an unused slot. Every other field must be zero as well: the circuit
     /// treats the slot as absent, and anything carried here would be committed
     /// under an owner hash no key can reproduce.
+    ///
+    /// `zone_program_id` is checked for presence rather than for a zero value,
+    /// unlike the two hashes: `Some(Address::default())` commits to
+    /// `pk_field(0)`, a non-zero field, so it is carried rather than absent.
     pub fn check_canonical_dummy(&self) -> Result<(), TransactionError> {
         if !self.is_dummy() {
             return Ok(());
@@ -74,9 +91,9 @@ impl SppProofInputUtxo {
             Some("data")
         } else if self.utxo.zone_program_id.is_some() {
             Some("zone_program_id")
-        } else if self.data_hash.is_some() {
+        } else if self.committed_data_hash() != [0u8; 32] {
             Some("data_hash")
-        } else if self.zone_data_hash.is_some() {
+        } else if self.committed_zone_data_hash() != [0u8; 32] {
             Some("zone_data_hash")
         } else if self.nullifier_key.secret() != &[0u8; BLINDING_LEN] {
             Some("nullifier_key")
@@ -119,9 +136,9 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
             spend.utxo.amount,
             &spend.utxo.blinding,
         )?
-        .with_data_hash(spend.data_hash.unwrap_or_default())
+        .with_data_hash(spend.committed_data_hash())
         .with_zone(
-            spend.zone_data_hash.unwrap_or_default(),
+            spend.committed_zone_data_hash(),
             &spend.utxo.zone_program_id,
         )
     }
@@ -203,16 +220,46 @@ mod tests {
         assert_eq!(field_of(&zone), "zone_program_id");
 
         let mut data_hash = SppProofInputUtxo::new_dummy();
-        data_hash.data_hash = Some([0u8; 32]);
+        data_hash.data_hash = Some([5u8; 32]);
         assert_eq!(field_of(&data_hash), "data_hash");
 
         let mut zone_data_hash = SppProofInputUtxo::new_dummy();
-        zone_data_hash.zone_data_hash = Some([0u8; 32]);
+        zone_data_hash.zone_data_hash = Some([6u8; 32]);
         assert_eq!(field_of(&zone_data_hash), "zone_data_hash");
 
         let mut nullifier_key = SppProofInputUtxo::new_dummy();
         nullifier_key.nullifier_key = NullifierKey::from_secret([3u8; BLINDING_LEN]);
         assert_eq!(field_of(&nullifier_key), "nullifier_key");
+    }
+
+    /// The other half of the T28 split, at the dummy rule rather than at the
+    /// builders. A zero zone address is carried, not absent, so a dummy holding
+    /// one stays noncanonical however the two hashes are read.
+    #[test]
+    fn a_dummy_bound_to_the_zero_zone_address_is_still_rejected() {
+        let mut zero_zone = SppProofInputUtxo::new_dummy();
+        zero_zone.utxo.zone_program_id = Some(Address::default());
+        assert_eq!(field_of(&zero_zone), "zone_program_id");
+    }
+
+    /// The commitment folds an explicit zero hash and an absent one into the
+    /// same field, so the dummy rule has to agree with it. Both spellings are
+    /// reachable without `with_zone_data_hash`: the fields are public, and
+    /// `with_data_hash` normalizes nothing.
+    #[test]
+    fn a_dummy_carrying_an_explicit_zero_hash_stays_canonical() {
+        let canonical = SppProofInputUtxo::new_dummy();
+
+        let mut assigned = canonical.clone();
+        assigned.data_hash = Some([0u8; 32]);
+        assigned.zone_data_hash = Some([0u8; 32]);
+        assert_eq!(assigned.check_canonical_dummy(), Ok(()));
+        assert_eq!(assigned.hash(), canonical.hash());
+        assert_eq!(assigned.nullifier(), canonical.nullifier());
+
+        let built = canonical.clone().with_data_hash([0u8; 32]);
+        assert_eq!(built.check_canonical_dummy(), Ok(()));
+        assert_eq!(built.hash(), canonical.hash());
     }
 
     /// Rejection has to reach the hash and the nullifier, not only the explicit

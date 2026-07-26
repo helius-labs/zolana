@@ -272,6 +272,10 @@ export class ProofInputUtxo {
    * for an unused slot. Every other field must be zero as well: the circuit
    * treats the slot as absent, and anything carried here would be committed
    * under an owner hash no key can reproduce.
+   *
+   * `zoneProgramId` is checked for presence rather than for a zero value,
+   * unlike the two hashes: the zero address commits to `pk_field(0)`, a
+   * non-zero field, so it is carried rather than absent.
    */
   checkCanonicalDummy(): void {
     if (!this.isDummy()) return;
@@ -304,13 +308,23 @@ export class ProofInputUtxo {
 
 const DUMMY_ASSET = "11111111111111111111111111111111" as Address;
 
+/**
+ * What the commitment folds in. An absent hash and an explicit zero reach
+ * `commitmentFields` as the same field, so a rule reading presence rather than
+ * this one tells apart two inputs the commitment cannot. `dataHash` is stored
+ * as given, so both spellings are reachable.
+ */
+function committedHash(hash?: Bytes32): Bytes32 {
+  return hash ?? ZERO_32;
+}
+
 function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
   if (input.utxo.asset !== DUMMY_ASSET) return "asset";
   if (input.utxo.amount !== 0n) return "amount";
   if (!input.utxo.data.isEmpty()) return "data";
   if (input.utxo.zoneProgramId !== undefined) return "zone_program_id";
-  if (input.dataHash !== undefined) return "data_hash";
-  if (input.zoneDataHash !== undefined) return "zone_data_hash";
+  if (!isZero(committedHash(input.dataHash))) return "data_hash";
+  if (!isZero(committedHash(input.zoneDataHash))) return "zone_data_hash";
   if (!isZeroNullifierKey(input.nullifierKey)) return "nullifier_key";
   return undefined;
 }
