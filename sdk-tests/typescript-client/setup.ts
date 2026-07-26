@@ -11,7 +11,7 @@ import { createTreeInstruction } from "@zolana/interface/instructions";
 import { ShieldedKeypair } from "@zolana/keypair";
 import { executeSyncInstruction } from "@zolana/smart-account-client";
 import { createSolanaSigner } from "@zolana/wallet";
-import { startLocalStack, type LocalStack } from "@zolana/test-kit";
+import { startLocalStack } from "@zolana/test-kit";
 import {
   confirm,
   createProtocolConfigInstructions,
@@ -39,7 +39,6 @@ const PARTICIPANT_LAMPORTS = 10_000_000_000n;
  * shielded keypairs. The example constructs the client and participant wiring.
  */
 export interface ExampleContext {
-  readonly stack: LocalStack;
   readonly rpcUrl: URL;
   readonly indexerUrl: URL;
   readonly proverUrl: URL;
@@ -166,7 +165,6 @@ export async function setup(
     });
 
     return Object.freeze({
-      stack,
       rpcUrl: stack.rpcUrl,
       indexerUrl: stack.indexerUrl,
       proverUrl: stack.proverUrl,

@@ -10,7 +10,7 @@ import {
   SOL_MINT,
   Wallet,
 } from "@zolana/transaction";
-import { createSolanaSigner, LocalWalletAuthority } from "@zolana/wallet";
+import { createSolanaSigner, LocalWalletAuthority, syncWallet } from "@zolana/wallet";
 import { describe, it } from "vitest";
 
 import { setup } from "./setup.js";
@@ -18,32 +18,6 @@ import { setup } from "./setup.js";
 const DEPOSIT_AMOUNT = 1_000_000_000n;
 const TRANSFER_AMOUNT = 300_000_000n;
 const WITHDRAW_AMOUNT = 300_000_000n;
-
-/**
- * Read a participant's confidential balance the way Rust's example does: pull
- * the transactions carrying their view tag, then decrypt them into a wallet of
- * their own.
- *
- * `syncWallet` is the alternative, and the one an application wants: it walks
- * the tag ranges, pages both indexer endpoints, and keeps one wallet up to
- * date. This example stays at the level Rust's does, one query and one decrypt.
- */
-async function balances(
-  client: ZolanaClient,
-  authority: LocalWalletAuthority,
-  keypair: ShieldedKeypair,
-  assets: AssetRegistry,
-): Promise<Wallet> {
-  const response = await client.getShieldedTransactionsByTags(
-    { tags: [keypair.shieldedAddress().confidentialViewTag()], limit: 50 },
-    waitForIndexer(),
-  );
-  return await Wallet.decrypt({
-    authority,
-    transactions: response.transactions,
-    assets,
-  });
-}
 
 function inputUtxo(wallet: Wallet, keypair: ShieldedKeypair): ProofInputUtxo {
   return ProofInputUtxo.fromKeypair(wallet.balance(SOL_MINT).utxos[0]!, keypair);
@@ -68,9 +42,13 @@ describe("example: deposit, transfer, withdraw", () => {
         solanaPublicKey: senderSigner.address,
         keypair: sender,
       });
+      const senderAddress = sender.shieldedAddress();
+      const senderWallet = new Wallet({
+        identity: senderAddress,
+        registry: assets,
+      });
 
       // 1. The sender deposits SOL into their confidential balance.
-      const senderAddress = sender.shieldedAddress();
       const blinding = randomBlinding();
       const owner = senderAddress.ownerHash();
       await client.createAndSendTransaction({
@@ -89,17 +67,17 @@ describe("example: deposit, transfer, withdraw", () => {
         feePayer: senderSigner,
       });
 
-      const senderBalancesAfterDeposit = await balances(
-        client,
-        senderAuthority,
-        sender,
-        assets,
-      );
+      await syncWallet({
+        wallet: senderWallet,
+        authority: senderAuthority,
+        indexer: client.indexer,
+        config: { waitForIndexer: true },
+      });
 
       // 2. The sender transfers part of it to the recipient's confidential balance.
       const transfer = new ConfidentialTransfer(
         senderAddress,
-        [inputUtxo(senderBalancesAfterDeposit, sender)],
+        [inputUtxo(senderWallet, sender)],
         senderSigner.address,
       );
       transfer.send(recipient.shieldedAddress(), SOL_MINT, TRANSFER_AMOUNT);
@@ -115,17 +93,17 @@ describe("example: deposit, transfer, withdraw", () => {
       });
       await client.confirmPrivateTransaction(transferSignature);
 
-      const senderBalancesAfterTransfer = await balances(
-        client,
-        senderAuthority,
-        sender,
-        assets,
-      );
+      await syncWallet({
+        wallet: senderWallet,
+        authority: senderAuthority,
+        indexer: client.indexer,
+        config: { waitForIndexer: true },
+      });
 
       // 3. The sender withdraws back to their own Solana account.
       const withdrawal = new ConfidentialTransfer(
         senderAddress,
-        [inputUtxo(senderBalancesAfterTransfer, sender)],
+        [inputUtxo(senderWallet, sender)],
         senderSigner.address,
       );
       withdrawal.withdraw(SOL_MINT, WITHDRAW_AMOUNT, {
