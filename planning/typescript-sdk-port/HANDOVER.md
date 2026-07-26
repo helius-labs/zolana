@@ -125,6 +125,13 @@ Promote this file to the pull request description before deleting the directory.
 Nothing else is waiting on a decision. Every register row is ruled, every gate
 line is owned, and the two open gate lines have workers on them.
 
+### Filed as follow-up work
+
+Both owner-ruled out of this pull request and now assignable:
+[#168](https://github.com/helius-labs/zolana/issues/168) the Merkle append copy,
+[#169](https://github.com/helius-labs/zolana/issues/169) the `merge_transact`
+`user_record` binding.
+
 ### Deferred by ruling
 
 - **The Merkle append copies the whole tree per leaf.** Correct but quadratic for
