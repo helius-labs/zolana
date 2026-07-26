@@ -139,7 +139,7 @@ export interface ShieldedKeypairLike {
  * The `ViewingKeyTrait` surface. Constructors and `secretBytes` are excluded on
  * purpose: a backend keeps the secret and exposes only operations over it.
  *
- * An implementer must hold viewing-key material in process. Every operation
+ * An implementer must hold viewing-key material in memory. Every operation
  * returns synchronously, as Rust's `ViewingKeyTrait` does: a backend answering
  * view-tag derivation over a wire is not a supported deployment, and the scan
  * and decrypt paths that call these in tight loops take this interface only

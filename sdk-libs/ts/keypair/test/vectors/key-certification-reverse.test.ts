@@ -78,7 +78,7 @@ function produce(): unknown {
       publicKeyBytes: toHex(nullifier.publicKey()),
       derivations: [0x03, 0x00, 0xff].map((byte) => {
         const blinding = new Uint8Array(31).fill(byte) as Bytes31;
-        const utxoHash = fieldDigest(`reverse/utxo/${byte}`);
+        const utxoHash = fieldDigest(`reverse/utxo/${String(byte)}`);
         return {
           utxoHashBytes: toHex(utxoHash),
           blindingBytes: toHex(blinding),
