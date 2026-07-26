@@ -2206,9 +2206,9 @@ than a limitation to apologise for.
 ## The example branch carries the target client surface
 
 `ts-example-deposit-transfer-withdraw` was never merged. One hunk from it was
-adopted by hand — the `compressG2` fix, which is byte-for-byte identical on both
-branches — and the two local-stack fixes arrived behaviourally equivalent with
-their comment placed differently. Six commits remain unmerged, and they hold more
+adopted by hand: the `compressG2` fix, which is byte-for-byte identical on both
+branches. The two local-stack fixes arrived behaviourally equivalent, with their
+comment placed differently. Six commits remain unmerged, and they hold more
 than an example.
 
 `0d5f3c1d`, "give the client the instruction-level surface Rust already has", is
@@ -2232,6 +2232,30 @@ the `module-surface` and `crate-root-exports` vector tests, and every package
 gate that rests on an export census must be re-run against the reconciled
 surface. Measuring those gates against a surface that is about to change would
 produce evidence for a shape we are not shipping.
+
+## Register tail: the six behavioural rows are fixed in this pull request
+
+The owner ruled to fix all six rows that change behaviour, rather than deferring
+them. Each was presented with its runtime consequence rather than its register
+id, which is how they should be re-read if anyone doubts the ruling.
+
+| Row | What ships today | Ruling |
+| --- | --- | --- |
+| `F154` | `createDeposit` builds a zero-amount deposit the program always rejects, and a vector test asserts that building it succeeds | Reject zero in the builder; correct the test |
+| `F141-E` | Reading back a confirmed transaction, Rust decodes empty instruction data as empty bytes; TypeScript throws | Match Rust |
+| `F140` | Rust treats garbled RPC transaction data as a retryable RPC fault; TypeScript treats it as fatal, so a transient hiccup reaches the caller as a hard failure | Classify those codes retryable, as Rust does |
+| `F129` | `compareBytes` reports equality when one array is a prefix of the other | Compare lengths |
+| `F151` | `airdrop` accepts any `u64` then casts through a JavaScript number, silently changing amounts above 2^53. Test tooling only | Refuse amounts that cannot round-trip |
+| `A003` | The Rust-to-TypeScript drift oracles write their output before comparing it, so the first drift overwrites the baseline instead of failing | Compare before writing; write only when explicitly updating |
+
+`A003` deserves separate emphasis: it is the same failure shape as the G2
+compression defect, where a check reassured us instead of catching us. A drift
+detector that repairs the evidence it was built to examine cannot fail, and a
+check that cannot fail is worse than no check because it is believed.
+
+Sequencing: four of the six touch files that the client-surface reconciliation is
+rewriting, so they land after it rather than beside it. Fixing a function while
+another branch moves it means resolving the same conflict twice.
 
 ## Register tail: swept after the cryptographic phase
 

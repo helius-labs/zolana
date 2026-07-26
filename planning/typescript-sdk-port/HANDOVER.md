@@ -1,4 +1,4 @@
-# TypeScript SDK port — handover
+# TypeScript SDK port handover
 
 The single authoritative statement of what this work is, where it stands, and
 what is left. Everything needed to pick it up or review it is here or linked
@@ -12,7 +12,7 @@ refreshed deliberately. Where they disagree, this one wins, and the commands in
 ## Goal
 
 Port the Rust `sdk-libs` to TypeScript with the same behaviour, the same public
-surface, and the same test coverage — then prove it rather than assert it.
+surface, and the same test coverage, then prove it rather than assert it.
 
 Two constraints shaped every decision:
 
@@ -29,10 +29,10 @@ five hand-written copies could be deleted.
 
 | | |
 | --- | --- |
-| Review rows | 145 examined. 135 at `PARITY`, 7 justified `NOT_APPLICABLE`, 3 reopened — see [What is not true yet](#what-is-not-true-yet) |
+| Review rows | 145 examined. 135 at `PARITY`, 7 justified `NOT_APPLICABLE`, 3 reopened. See [What is not true yet](#what-is-not-true-yet) |
 | Full SDK gates | 12 of 16 checked |
 | Package gates | 3 of 15 bullets checked across all eleven packages |
-| Cryptographic certification | All 15 suites landed: key-handling `K1`–`K10`, proof `P1`–`P5`, closing evidence `PKP-08` |
+| Cryptographic certification | All 15 suites landed: key-handling `K1` to `K10`, proof `P1` to `P5`, closing evidence `PKP-08` |
 | Branch health | Unit 2290 passing / 9 skipped · static clean · no fixture drift · packaging clean · `check:scope` clean |
 | External review | 44 findings. Blockers and High closed; 31-row tail triaged, 0 invalid |
 
@@ -42,13 +42,13 @@ Each line below has a named artifact behind it, not a judgement.
 
 | Claim | Evidence |
 | --- | --- |
-| All eight flows work against real components | [`gate3-flows.md`](row-updates/gate3-flows.md) — deposit, registration, sync on a live validator and Photon; split, merge, transfer, withdraw against the real prover. No flow rests on a mock |
-| Instruction bytes execute on same-revision programs | [`gate-submit.md`](row-updates/gate-submit.md) — four spend flows landed on chain with recorded signatures, through pure TypeScript compression, no Rust fallback |
-| The indexer contract matches | [`gate6-photon.md`](row-updates/gate6-photon.md) — 11 tests against a same-revision Photon, no field-shape disagreement; the suite fails when a field is deliberately renamed or retyped |
-| Both rails cover every shape | [`gate-shapes.md`](row-updates/gate-shapes.md) — ten shapes, zone-authority restricted to the four squares, no drift across the four places the set is duplicated |
-| Browser support is real | `test:browser-runtime` runs Poseidon, SHA-256, HKDF, AES-CTR, Ed25519, and P256 vectors in headless Chromium — not a static import scan |
+| All eight flows work against real components | [`gate3-flows.md`](row-updates/gate3-flows.md): deposit, registration, sync on a live validator and Photon; split, merge, transfer, withdraw against the real prover. No flow rests on a mock |
+| Instruction bytes execute on same-revision programs | [`gate-submit.md`](row-updates/gate-submit.md): four spend flows landed on chain with recorded signatures, through pure TypeScript compression, no Rust fallback |
+| The indexer contract matches | [`gate6-photon.md`](row-updates/gate6-photon.md): 11 tests against a same-revision Photon, no field-shape disagreement; the suite fails when a field is deliberately renamed or retyped |
+| Both rails cover every shape | [`gate-shapes.md`](row-updates/gate-shapes.md): ten shapes, zone-authority restricted to the four squares, no drift across the four places the set is duplicated |
+| Browser support is real | `test:browser-runtime` runs Poseidon, SHA-256, HKDF, AES-CTR, Ed25519, and P256 vectors in headless Chromium, not a static import scan |
 | Secret-adjacent accessors don't alias | `keypair/test/vectors/aliasing-census.test.ts` mutates every returned buffer and asserts internal state holds |
-| CI runs the tier on pull requests | `.github/workflows/typescript.yml` — eight jobs plus an aggregating `merge-gate` |
+| CI runs the tier on pull requests | `.github/workflows/typescript.yml`: eight jobs plus an aggregating `merge-gate` |
 
 ### The one defect worth knowing about
 
@@ -76,13 +76,13 @@ Claims previously recorded that do not hold, all found by adversarial re-checks:
 | --- | --- |
 | The export ledger is enforced | `api:check` is a scaffold. It never parsed `public-exports.md`, so nothing has been guarding the export surface |
 | Fixture provenance is fresh | The manifest's `frozenCommit` is ~456 commits behind current Rust. True for no package |
-| All 145 rows are closed | Three interface rows — `E03`, `E05`, `E06` — sit at `needs_re_review` |
+| All 145 rows are closed | Three interface rows, `E03`, `E05`, and `E06`, sit at `needs_re_review` |
 | Nine workspace packages | Eleven. `@zolana/hasher` and `@zolana/test-kit` were never counted, so they have had the least scrutiny of anything here |
 | `check:scope` describes CI | It omitted the Photon suite that `package.json` already ran. Fixed |
 
 ## Remaining steps
 
-### In flight — do not duplicate
+### In flight, and not to be duplicated
 
 Each worker owns a git worktree and a branch. **One tree, one branch, one
 agent.** Do not touch a path another worker owns; report a gap in it instead.
@@ -100,7 +100,7 @@ agent.** Do not touch a path another worker owns; report a gap in it instead.
    across five packages. It gives the client a `compileTransaction` entry point,
    adds `interface/src/signers.ts` and `transaction/src/wallet/state.ts`, and
    deletes the duplicated `base58` and `native` code from `test-kit` by moving
-   those primitives into the production packages — which closes finding `F106`
+   those primitives into the production packages, which closes finding `F106`
    as a side effect. It also brings the example itself and the paired READMEs.
 
    **This must land after the two in-flight workers, not beside them.** It moves
@@ -154,7 +154,7 @@ this order and it is tractable.
 | TypeScript tests | 39,775 | Vector, property, oracle, and e2e suites |
 | Fixtures and vectors | 40,678 | Rust-generated. Do not read; regenerate and diff |
 | Markdown | 40,374 | Working records. Being stripped before merge |
-| Rust SDK | 13,996 | Genuine Rust changes — read these closely, see below |
+| Rust SDK | 13,996 | Genuine Rust changes. Read these closely; see below |
 | `xtask` generators | 19,147 | Rust programs that emit the fixtures |
 | Other JSON, config, lockfiles | ~27,000 | Manifests and inventories |
 
@@ -180,7 +180,7 @@ already implements the amended behaviour. Each amendment is recorded in
 Do not trust the status table. Run these; they are the actual gates.
 
 ```bash
-npm install && npm run build      # build first — stale dist/ causes phantom failures
+npm install && npm run build      # build first; stale dist/ causes phantom failures
 npm run test:unit                 # 2290 pass / 9 skip
 npm run check:static              # lint and typecheck
 npm run fixtures:check            # regenerates from Rust and diffs
