@@ -155,6 +155,8 @@ work and would collide.
 | `5d75f4ff` | Packet 8b |
 | `365072dc` | The deposit tag and size-check rulings, the T21 landing, the gate withdrawal |
 | `f6fc9ef7` | The M01 ruling |
+| `a95e5be4` | This report, committed by the second agent described below |
+| `0199a04c` | The collision note |
 
 ## A fourth collision, during this audit
 
