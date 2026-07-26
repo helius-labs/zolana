@@ -85,6 +85,7 @@
     "test:p4": "ZOLANA_TEST_P4= ZOLANA_TEST_P4_FULL= vitest run --config ../config/vitest.vectors.config.js test/vectors/cryptographic-verification.test.ts",
     "test:p4:live": "ZOLANA_TEST_P4=1 ZOLANA_TEST_P4_FULL= vitest run --config ../config/vitest.vectors.config.js test/vectors/cryptographic-verification.test.ts",
     "test:p4:full": "ZOLANA_TEST_P4=1 ZOLANA_TEST_P4_FULL=1 vitest run --config ../config/vitest.vectors.config.js test/vectors/cryptographic-verification.test.ts",
+    "test:p5:g2": "ZOLANA_TEST_P5=1 vitest run --config ../config/vitest.vectors.config.js test/vectors/g2-compression-live.test.ts",
     "test:browser": "node ../config/browser-check.mjs client",
     "api:check": "node ../config/workspace-check.mjs api"
   }

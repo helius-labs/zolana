@@ -50,6 +50,30 @@ describe("user registry merge setup", () => {
     });
   });
 
+  it("places each native signature in its reserved account-key slot", async () => {
+    const first = createTestNativeSigner(bytes32(14));
+    const second = createTestNativeSigner(bytes32(15));
+    const unsigned: Transaction = {
+      messageBytes: Uint8Array.of(
+        2,
+        0,
+        0,
+        2,
+        ...decodeBase58(first.address),
+        ...decodeBase58(second.address),
+        ...new Uint8Array(32),
+        0,
+      ),
+      signatures: [undefined, undefined],
+    };
+    const once = await first.signNativeTransaction(unsigned);
+    expect(once.signatures[0]).toBeTypeOf("string");
+    expect(once.signatures[1]).toBeUndefined();
+    const twice = await second.signNativeTransaction(once);
+    expect(twice.signatures[0]).toBe(once.signatures[0]);
+    expect(twice.signatures[1]).toBeTypeOf("string");
+  });
+
   it("signs, sends, and confirms opt-in once, then no-ops when enabled", async () => {
     const signer = createTestNativeSigner(bytes32(8));
     const record = userRecordAddress(signer.address);

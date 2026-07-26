@@ -34,15 +34,13 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 use zolana_client::{
-    assemble, attach_input_proofs, BatchAddressAppendInputs, MergeProver, MergeZoneProver,
-    MergeZoneWitness, MergeWitness, MerkleContext, MerkleProof, NonInclusionProof, P256Owner,
+    assemble, attach_input_proofs, BatchAddressAppendInputs, MergeProver, MergeWitness,
+    MergeZoneProver, MergeZoneWitness, MerkleContext, MerkleProof, NonInclusionProof, P256Owner,
     ProverClient, ProverInputs, PublicAmounts, SpendProof, TransferInputs, TransferP256Inputs,
     ZoneAuthorityProver, ZoneTransferP256Prover, ZoneTransferProver,
 };
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{
-    NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey,
-};
+use zolana_keypair::{NullifierKey, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     derive_blinding,
     instructions::{
@@ -218,8 +216,8 @@ fn fixture() -> Result<Value> {
 }
 
 fn protocol_revision() -> Result<String> {
-    let bytes = fs::read(workspace_root()?.join(JSON_RS))
-        .with_context(|| format!("read {JSON_RS}"))?;
+    let bytes =
+        fs::read(workspace_root()?.join(JSON_RS)).with_context(|| format!("read {JSON_RS}"))?;
     Ok(hex(Sha256::digest(bytes)))
 }
 
@@ -308,10 +306,7 @@ fn capture_mixed_confidential() -> Result<String> {
         SpendProof {
             state: MerkleProof {
                 leaf: eddsa_hash,
-                merkle_context: MerkleContext {
-                    tree_type: 1,
-                    tree,
-                },
+                merkle_context: MerkleContext { tree_type: 1, tree },
                 path: vec![field_byte(47); 32],
                 leaf_index: 1,
                 root: field_byte(47),
@@ -320,10 +315,7 @@ fn capture_mixed_confidential() -> Result<String> {
             },
             nullifier: NonInclusionProof {
                 leaf: eddsa_nullifier,
-                merkle_context: MerkleContext {
-                    tree_type: 2,
-                    tree,
-                },
+                merkle_context: MerkleContext { tree_type: 2, tree },
                 path: vec![field_byte(51); 40],
                 low_element: field_byte(51),
                 low_element_index: 0,
@@ -661,7 +653,8 @@ fn confidential_inputs(
         .collect::<Result<Vec<_>>>()?;
     let external = ExternalData::new([41; 33], [42; 16], wire_outputs, resolved_tags, vec![])
         .with_public_sol(-5, Address::new_from_array([43; 32]))?;
-    let mut inputs = SppProofInputs::new(inputs, outputs, external, Address::new_from_array([44; 32]));
+    let mut inputs =
+        SppProofInputs::new(inputs, outputs, external, Address::new_from_array([44; 32]));
     if p256 {
         inputs.sign_p256(&keypair)?;
     }
@@ -749,7 +742,11 @@ fn zone_real_input(keypair: &ShieldedKeypair, position: u8) -> SppProofInputUtxo
     )
 }
 
-fn zone_proof_inputs(keypair: &ShieldedKeypair, n_inputs: usize, n_outputs: usize) -> SppProofInputs {
+fn zone_proof_inputs(
+    keypair: &ShieldedKeypair,
+    n_inputs: usize,
+    n_outputs: usize,
+) -> SppProofInputs {
     let real = if n_inputs >= 2 { 2 } else { 1 };
     let input_utxos = (0..n_inputs)
         .map(|index| {
@@ -882,8 +879,7 @@ fn build_merge() -> Result<zolana_client::MergeProofResult> {
         expiry_unix_ts: u64::MAX,
         signing_pubkey: keypair.signing_pubkey(),
         user_viewing_pk: keypair.viewing_pubkey(),
-        tx_viewing_sk: SecretKey::from_slice(&MERGE_TX_VIEWING_SECRET)
-            .expect("tx viewing scalar"),
+        tx_viewing_sk: SecretKey::from_slice(&MERGE_TX_VIEWING_SECRET).expect("tx viewing scalar"),
     };
     let contexts = prepared.input_utxo_hashes()?;
     MergeProver::try_from(MergeWitness {
@@ -904,8 +900,7 @@ fn build_merge_zone() -> Result<zolana_client::MergeProofResult> {
         expiry_unix_ts: u64::MAX,
         signing_pubkey: keypair.signing_pubkey(),
         user_viewing_pk: keypair.viewing_pubkey(),
-        tx_viewing_sk: SecretKey::from_slice(&MERGE_TX_VIEWING_SECRET)
-            .expect("tx viewing scalar"),
+        tx_viewing_sk: SecretKey::from_slice(&MERGE_TX_VIEWING_SECRET).expect("tx viewing scalar"),
         zone_program_id: zone,
     };
     let contexts = prepared.input_utxo_hashes()?;
@@ -982,10 +977,7 @@ fn merge_spend_proofs(contexts: &[InputUtxoContext]) -> Vec<SpendProof> {
         .map(|(index, context)| SpendProof {
             state: MerkleProof {
                 leaf: context.utxo_hash,
-                merkle_context: MerkleContext {
-                    tree_type: 1,
-                    tree,
-                },
+                merkle_context: MerkleContext { tree_type: 1, tree },
                 path: vec![[0u8; 32]; 32],
                 leaf_index: index as u64,
                 root: {
@@ -998,10 +990,7 @@ fn merge_spend_proofs(contexts: &[InputUtxoContext]) -> Vec<SpendProof> {
             },
             nullifier: NonInclusionProof {
                 leaf: context.nullifier,
-                merkle_context: MerkleContext {
-                    tree_type: 1,
-                    tree,
-                },
+                merkle_context: MerkleContext { tree_type: 1, tree },
                 path: vec![[0u8; 32]; 40],
                 low_element: [0u8; 32],
                 low_element_index: index as u64,

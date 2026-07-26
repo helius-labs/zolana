@@ -241,12 +241,9 @@ fn parse_request(value: &Value) -> Result<VerifyRequest> {
     let rail = match family {
         Family::ZoneAuthority => Rail::Eddsa,
         Family::Merge | Family::MergeZone => Rail::P256,
-        Family::Confidential | Family::Zone => Rail::parse(
-            value
-                .get("rail")
-                .and_then(Value::as_str)
-                .context("rail")?,
-        )?,
+        Family::Confidential | Family::Zone => {
+            Rail::parse(value.get("rail").and_then(Value::as_str).context("rail")?)?
+        }
     };
     let shape = value.get("shape").context("shape")?;
     let n_inputs = shape
@@ -291,9 +288,18 @@ fn parse_request(value: &Value) -> Result<VerifyRequest> {
                 .context("publicInputHashBytes")?,
         )?,
         encoding,
-        a: hex_bytes(proof.get("a").and_then(Value::as_str).context("proof.a")?, a_len)?,
-        b: hex_bytes(proof.get("b").and_then(Value::as_str).context("proof.b")?, b_len)?,
-        c: hex_bytes(proof.get("c").and_then(Value::as_str).context("proof.c")?, c_len)?,
+        a: hex_bytes(
+            proof.get("a").and_then(Value::as_str).context("proof.a")?,
+            a_len,
+        )?,
+        b: hex_bytes(
+            proof.get("b").and_then(Value::as_str).context("proof.b")?,
+            b_len,
+        )?,
+        c: hex_bytes(
+            proof.get("c").and_then(Value::as_str).context("proof.c")?,
+            c_len,
+        )?,
         commitment,
     })
 }
@@ -379,17 +385,32 @@ fn verify(request: &VerifyRequest) -> Result<(), FailCode> {
 
     let (proof_a, proof_b, proof_c, commitment) = match request.encoding {
         Encoding::Compressed => {
-            let a: [u8; 32] = request.a.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
-            let b: [u8; 64] = request.b.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
-            let c: [u8; 32] = request.c.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+            let a: [u8; 32] = request
+                .a
+                .as_slice()
+                .try_into()
+                .map_err(|_| FailCode::Encoding)?;
+            let b: [u8; 64] = request
+                .b
+                .as_slice()
+                .try_into()
+                .map_err(|_| FailCode::Encoding)?;
+            let c: [u8; 32] = request
+                .c
+                .as_slice()
+                .try_into()
+                .map_err(|_| FailCode::Encoding)?;
             let proof_a = decompress_g1(&a).map_err(|_| FailCode::Encoding)?;
             let proof_b = decompress_g2(&b).map_err(|_| FailCode::Encoding)?;
             let proof_c = decompress_g1(&c).map_err(|_| FailCode::Encoding)?;
             let commitment = match &request.commitment {
                 Some((commitment, pok)) => {
-                    let commitment: [u8; 32] =
-                        commitment.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
-                    let pok: [u8; 32] = pok.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+                    let commitment: [u8; 32] = commitment
+                        .as_slice()
+                        .try_into()
+                        .map_err(|_| FailCode::Encoding)?;
+                    let pok: [u8; 32] =
+                        pok.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
                     Some((
                         decompress_g1(&commitment).map_err(|_| FailCode::Encoding)?,
                         decompress_g1(&pok).map_err(|_| FailCode::Encoding)?,
@@ -400,17 +421,28 @@ fn verify(request: &VerifyRequest) -> Result<(), FailCode> {
             (proof_a, proof_b, proof_c, commitment)
         }
         Encoding::Uncompressed => {
-            let proof_a: [u8; 64] =
-                request.a.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
-            let proof_b: [u8; 128] =
-                request.b.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
-            let proof_c: [u8; 64] =
-                request.c.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+            let proof_a: [u8; 64] = request
+                .a
+                .as_slice()
+                .try_into()
+                .map_err(|_| FailCode::Encoding)?;
+            let proof_b: [u8; 128] = request
+                .b
+                .as_slice()
+                .try_into()
+                .map_err(|_| FailCode::Encoding)?;
+            let proof_c: [u8; 64] = request
+                .c
+                .as_slice()
+                .try_into()
+                .map_err(|_| FailCode::Encoding)?;
             let commitment = match &request.commitment {
                 Some((commitment, pok)) => Some((
                     {
-                        let value: [u8; 64] =
-                            commitment.as_slice().try_into().map_err(|_| FailCode::Encoding)?;
+                        let value: [u8; 64] = commitment
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_| FailCode::Encoding)?;
                         value
                     },
                     {
@@ -551,10 +583,7 @@ fn hex_bytes(value: &str, expected: usize) -> Result<Vec<u8>> {
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn hex_nibble(byte: u8) -> Result<u8> {

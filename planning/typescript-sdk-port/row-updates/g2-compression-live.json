@@ -1,0 +1,147 @@
+{
+  "samples": 16,
+  "tsCompressOk": 0,
+  "rustFallbackNeeded": 16,
+  "bothFail": 0,
+  "nobleThrow": 16,
+  "onCurveFp2": 16,
+  "firstReject": {
+    "index": 0,
+    "tsCompress": false,
+    "rustCompress": true,
+    "nobleAssert": "throw",
+    "nobleMessage": "bad point: equation left != right",
+    "onCurveFp2": true,
+    "bHex": "07f54a6d56e7442ae6b7664b001818e660f480c5556a8da4edbbc9a4cf0efbb12f61e89c69a00e748264ffbe56c4cb73e67833478beb4c8e6a614290d0e4c9d9204f2c16bd4c0700445df62ceff320923e114db8f221c4ce6f233afb1fdfc1f82b76d1317c46f89d3871184878b6fc5e3ed0cdbdb7d69793994c139661513821"
+  },
+  "all": [
+    {
+      "index": 0,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 1,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 2,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 3,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 4,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 5,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 6,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 7,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 8,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 9,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 10,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 11,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 12,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 13,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 14,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    },
+    {
+      "index": 15,
+      "tsCompress": false,
+      "rustCompress": true,
+      "nobleAssert": "throw",
+      "nobleMessage": "bad point: equation left != right",
+      "onCurveFp2": true
+    }
+  ]
+}

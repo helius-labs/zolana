@@ -199,6 +199,9 @@ export async function startLocalStack(
       const photonBinary =
         process.env["ZOLANA_PHOTON_BIN"] ?? path.join(workspace, "target/debug/photon");
       await requireFile(photonBinary, "photonBinary");
+      // Omit `--db-url`: Photon runs `RingsMigrator` only when the URL is unset
+      // and then uses an ephemeral SQLite file. A caller-supplied URL skips
+      // migrations, so every query fails with `no such table: blocks`.
       owned.push(
         spawnOwned(
           photonBinary,
@@ -209,8 +212,6 @@ export async function startLocalStack(
             String(port(urls.indexerUrl)),
             "--start-slot",
             "latest",
-            "--db-url",
-            `sqlite://${path.join(temporaryDirectory, "photon.db")}`,
           ],
           "Photon",
           workspace,
