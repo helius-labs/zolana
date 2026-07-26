@@ -10963,6 +10963,7 @@ dependencies = [
  "light-poseidon 0.4.0",
  "num-bigint 0.4.8",
  "num-traits",
+ "p256",
  "serde_json",
  "sha2 0.10.9",
  "solana-account 3.4.0",
