@@ -211,8 +211,10 @@ Q19 does not settle this and should not be used to close it. Q19 ruled on
 `sync_wallet` blocking where `sync_wallet_async` does not, and there the
 difference is one config field, so the blocking behaviour stays reachable from
 TypeScript by asking for it. Here the loop is hardcoded in the blocking body and
-gated on `wait_for_indexer` being *absent*, so no argument reaches it. The port
-carries the blocking twin's name.
+gated on `wait_for_indexer` being *absent*, so no argument reaches it. Asking for
+`waitForIndexer` gets the block-time wait both twins share, which is a different
+guarantee: that the indexer has caught up to a slot, not that it returned a proof
+per leaf. The port carries the blocking twin's name.
 
 **What blocks C04:** a ruling on which twin `getMerkleProofs` follows. If the
 blocking one, the change is contained: poll the same interval until
