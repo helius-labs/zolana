@@ -143,8 +143,10 @@ for (const packageName of selectedPackages) {
   } else {
     await writeFormatManifest(distDirectory, "es");
     if (dual) await writeFormatManifest(distDirectory, "cjs");
-    for (const exportPath of Object.keys(manifest.exports)) {
-      if (typeof manifest.exports[exportPath] === "string") continue;
+    for (const [exportPath, target] of Object.entries(manifest.exports)) {
+      // A shipped asset is a path rather than a module, so there is no entry
+      // point to stub out for it.
+      if (typeof target === "string") continue;
       await writeEmptyEntry(distDirectory, "es", exportPath);
       if (dual) await writeEmptyEntry(distDirectory, "cjs", exportPath);
     }
