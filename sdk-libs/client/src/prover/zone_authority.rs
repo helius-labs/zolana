@@ -8,14 +8,13 @@
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_keypair::hash::hash_field;
+use zolana_hasher::{hash_chain::create_hash_chain_from_slice, primitives::hash_bytes};
 use zolana_transaction::{
     instructions::{
         transact::{PrivateTxHash, PublicMovements},
         zone_authority::PreparedZoneAuthority,
     },
-    utxo::program_id_field,
+    utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -25,7 +24,7 @@ use crate::{
         field::be,
         resolve_shape,
         transact::{
-            p256_and_eddsa::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
+            assembly::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
             witness::{attach_input_proofs, SpendProof},
         },
         Shape, TransferInputs,
@@ -83,11 +82,11 @@ impl ZoneAuthorityProver {
         // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
         // zone field to this public input.
-        let zone_program_id = program_id_field(&self.zone_program_id)?;
+        let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
 
         // Zone-authority public-input layout: the 12-element base, then a tail of
         // only the P256 message — input owner pk_fields stay private (no owner
-        // chain) and there is no confidential appendix. hash_field(&[0;32])
+        // chain) and there is no confidential appendix. hash_bytes(&[0;32])
         // == Poseidon(0, 0), matching the circuit's zeroed P256 message.
         let slots = self.public_movements.interleaved();
         let mut elements = Vec::with_capacity(9 + slots.len());
@@ -103,8 +102,8 @@ impl ZoneAuthorityProver {
         elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
-            crate::prover::transact::p256_and_eddsa::bool_field(self.allow_dummy_inputs),
-            hash_field(&[0u8; 32])?,
+            crate::prover::transact::assembly::bool_field(self.allow_dummy_inputs),
+            hash_bytes(&[0u8; 32])?,
         ]);
         let public_input = create_hash_chain_from_slice(&elements)?;
 

@@ -14,7 +14,6 @@ import (
 type fieldDerivationVector struct {
 	ExternalDataHash externalDataHashVector `json:"external_data_hash"`
 	SolanaPkField    solanaPkFieldVector    `json:"solana_pk_hash"`
-	P256MessageHash  p256MessageHashVector  `json:"p256_message_hash"`
 	NegativeU64      []u64FieldVector       `json:"negative_u64"`
 	PublicSlots      []publicSlotsVector    `json:"public_slots"`
 }
@@ -43,11 +42,6 @@ type interfaceTransferVector struct {
 type solanaPkFieldVector struct {
 	Pubkey string `json:"pubkey"`
 	Hash   string `json:"hash"`
-}
-
-type p256MessageHashVector struct {
-	PrivateTxHash string `json:"private_tx_hash"`
-	Hash          string `json:"hash"`
 }
 
 type u64FieldVector struct {
@@ -89,17 +83,6 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 		t.Fatalf("solana pk hash: %v", err)
 	}
 	expectField(t, "solana_pk_hash", solanaHash, vector.SolanaPkField.Hash)
-
-	p256Digest, err := protocol.P256MessageDigest(mustField(t, vector.P256MessageHash.PrivateTxHash))
-	if err != nil {
-		t.Fatalf("p256 message digest: %v", err)
-	}
-	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(p256Digest)
-	p256MessageHash, err := protocol.P256MessageHashField(p256MessageLow, p256MessageHigh)
-	if err != nil {
-		t.Fatalf("p256 message hash field: %v", err)
-	}
-	expectField(t, "p256_message_hash", p256MessageHash, vector.P256MessageHash.Hash)
 
 	for _, item := range vector.NegativeU64 {
 		value := new(big.Int).SetUint64(item.Amount)

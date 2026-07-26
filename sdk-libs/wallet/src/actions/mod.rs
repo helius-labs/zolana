@@ -7,7 +7,9 @@ pub mod deposit;
 pub mod submit;
 pub mod transaction;
 
-pub use create_associated_token_account::create_associated_token_account;
+pub use create_associated_token_account::{
+    create_associated_token_account, create_associated_token_account_with_program,
+};
 pub use deposit::{
     build_deposit_transaction, build_deposit_transaction_sync, create_deposit, deposit, Deposit,
     DepositParams,

@@ -221,6 +221,7 @@ pub fn setup() -> Result<TestEnv> {
         asset: SOL_MINT,
         amount: SHIELD_AMOUNT,
         spl_token_account: None,
+        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?
     .send(&rpc, &payer, tree, &payer)?;

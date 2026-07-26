@@ -4,7 +4,6 @@ use zolana_transaction::ProofInputUtxo;
 
 use crate::prover::inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -77,50 +76,6 @@ pub(crate) struct OutputParamsJson {
     pub owner_pk_hash: String,
     #[serde(rename = "nullifierPk")]
     pub nullifier_pk: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct TransferP256InputsJson {
-    #[serde(rename = "circuitType")]
-    pub circuit_type: String,
-    #[serde(rename = "nInputs")]
-    pub n_inputs: usize,
-    #[serde(rename = "nOutputs")]
-    pub n_outputs: usize,
-    #[serde(rename = "inputs")]
-    pub inputs: Vec<InputParamsJson>,
-    #[serde(rename = "outputs")]
-    pub outputs: Vec<OutputParamsJson>,
-    #[serde(rename = "externalDataHash")]
-    pub external_data_hash: String,
-    #[serde(rename = "p256PubX")]
-    pub p256_pub_x: String,
-    #[serde(rename = "p256PubY")]
-    pub p256_pub_y: String,
-    #[serde(rename = "p256SigR")]
-    pub p256_sig_r: String,
-    #[serde(rename = "p256SigS")]
-    pub p256_sig_s: String,
-    #[serde(rename = "privateTxHash")]
-    pub private_tx_hash: String,
-    #[serde(rename = "p256MessageHashLow")]
-    pub p256_message_hash_low: String,
-    #[serde(rename = "p256MessageHashHigh")]
-    pub p256_message_hash_high: String,
-    #[serde(rename = "publicAssets")]
-    pub public_assets: Vec<String>,
-    #[serde(rename = "publicAmounts")]
-    pub public_amounts: Vec<String>,
-    #[serde(rename = "zoneProgramId")]
-    pub zone_program_id: String,
-    #[serde(rename = "payerPubkeyHash")]
-    pub payer_pubkey_hash: String,
-    #[serde(rename = "allowDummyInputs")]
-    pub allow_dummy_inputs: String,
-    #[serde(rename = "p256SigningPkField")]
-    pub p256_signing_pk_field: String,
-    #[serde(rename = "publicInputHash")]
-    pub public_input_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -200,59 +155,6 @@ fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
         owner_pk_hash: big_uint_to_string(&output.owner_pk_hash),
         nullifier_pk: big_uint_to_string(&output.nullifier_pk),
     }
-}
-
-/// Serialize a P256 transfer witness under the given circuit type. The confidential
-/// and zone variants share the witness shape and differ only by the circuit type.
-///
-/// Wire-format placeholder for the removed P256 rail: the prover no longer
-/// serves these circuit types; kept to document the request layout for an
-/// eventual re-implementation.
-#[allow(dead_code)]
-fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) -> String {
-    let json = TransferP256InputsJson {
-        circuit_type: circuit_type.to_string(),
-        n_inputs: inputs.inputs.len(),
-        n_outputs: inputs.outputs.len(),
-        inputs: inputs.inputs.iter().map(input_to_json).collect(),
-        outputs: inputs.outputs.iter().map(output_to_json).collect(),
-        external_data_hash: big_uint_to_string(&inputs.external_data_hash),
-        p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
-        p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
-        p256_sig_r: big_uint_to_string(&inputs.p256_sig_r),
-        p256_sig_s: big_uint_to_string(&inputs.p256_sig_s),
-        private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
-        p256_message_hash_low: big_uint_to_string(&inputs.p256_message_hash_low),
-        p256_message_hash_high: big_uint_to_string(&inputs.p256_message_hash_high),
-        public_assets: inputs
-            .public_assets
-            .iter()
-            .map(big_uint_to_string)
-            .collect(),
-        public_amounts: inputs
-            .public_amounts
-            .iter()
-            .map(big_uint_to_string)
-            .collect(),
-        zone_program_id: big_uint_to_string(&inputs.zone_program_id),
-        payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
-        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
-        p256_signing_pk_field: big_uint_to_string(&inputs.p256_signing_pk_field),
-        public_input_hash: big_uint_to_string(&inputs.public_input_hash),
-    };
-    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
-}
-
-/// Serialize the P256 confidential transfer witness.
-#[allow(dead_code)] // wire-format placeholder, see transfer_p256_inputs_json
-pub(crate) fn to_json_p256(inputs: &TransferP256Inputs) -> String {
-    transfer_p256_inputs_json(inputs, "transfer-p256-confidential")
-}
-
-/// Serialize the P256 anonymous policy-zone transfer witness.
-#[allow(dead_code)] // wire-format placeholder, see transfer_p256_inputs_json
-pub(crate) fn to_json_p256_zone(inputs: &TransferP256Inputs) -> String {
-    transfer_p256_inputs_json(inputs, "transfer-p256-zone")
 }
 
 /// Merge input slot. Only the free per-slot leaf fields are sent; the merge

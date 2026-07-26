@@ -1,5 +1,6 @@
 use cucumber::then;
-use zolana_keypair::hash::{hash_field, owner_hash, poseidon};
+use zolana_hasher::primitives::hash_bytes;
+use zolana_keypair::hash::{owner_hash, poseidon};
 use zolana_transaction::{
     data::Data,
     utxo::{ProofInputUtxo, Utxo, UTXO_DOMAIN},
@@ -65,9 +66,9 @@ fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
 
     let owner = owner_hash(&utxo.owner, &npk).expect("owner hash");
     let owner_utxo_hash = poseidon(&[&owner, &fe(utxo.blinding)]).expect("owner UTXO hash");
-    let asset = hash_field(utxo.asset.as_array()).expect("asset field");
+    let asset = hash_bytes(utxo.asset.as_array()).expect("asset field");
     let zone_program_id_field =
-        hash_field(zone_program_id.as_array()).expect("zone program id field");
+        hash_bytes(zone_program_id.as_array()).expect("zone program id field");
     let zone_hash = poseidon(&[&zone_data_hash, &zone_program_id_field]).expect("zone hash");
     let expected = poseidon(&[
         &fe(UTXO_DOMAIN.to_be_bytes()),

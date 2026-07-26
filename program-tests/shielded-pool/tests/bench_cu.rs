@@ -16,6 +16,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
+use zolana_hasher::primitives::hash_bytes;
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
@@ -25,11 +26,7 @@ use zolana_interface::{
     },
     pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{
-    hash::{hash_field, owner_hash},
-    pubkey::PublicKey,
-    NullifierKey, ShieldedKeypair,
-};
+use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
@@ -387,7 +384,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let zero = [0u8; 32];
 
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    let owner_hash = hash_field(&payer_bytes).expect("owner hash");
+    let owner_hash = hash_bytes(&payer_bytes).expect("owner hash");
     let (dummy_input_0, nullifier_0) =
         dummy_input(&[31u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
     let (dummy_input_1, nullifier_1) =
@@ -490,7 +487,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         zone_program_id: None,
         data: Data::default(),
     };
-    let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
+    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
     let event = pt
@@ -663,7 +660,7 @@ fn bench_withdrawal_spl(
         zone_program_id: None,
         data: Data::default(),
     };
-    let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
+    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
     let data =
@@ -782,6 +779,7 @@ fn bench_withdrawal_spl(
         output_tree: tree,
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
+                mint,
                 vault,
                 user_token_account: user_token,
                 token_program: ZolanaProgramTest::token_program_id(),

@@ -138,7 +138,11 @@ mod tests {
     fn builds_mixed_batch_with_per_output_zone_data() {
         let mint = Pubkey::new_unique();
         let user_token = Pubkey::new_unique();
-        let spl = DepositAsset::Spl(DepositSplAccounts { mint, user_token });
+        let spl = DepositAsset::Spl(DepositSplAccounts {
+            mint,
+            user_token,
+            token_program: pda::spl_token_program_id(),
+        });
         let expected = vec![
             zone_entry(spl, 1),
             zone_entry(DepositAsset::Sol, 2),
@@ -189,6 +193,7 @@ mod tests {
                     DepositAsset::Spl(DepositSplAccounts {
                         mint,
                         user_token: first_user_token,
+                        token_program: pda::spl_token_program_id(),
                     }),
                     1,
                 ),
@@ -196,6 +201,7 @@ mod tests {
                     DepositAsset::Spl(DepositSplAccounts {
                         mint,
                         user_token: conflicting_user_token,
+                        token_program: pda::spl_token_program_id(),
                     }),
                     2,
                 ),
@@ -214,6 +220,7 @@ mod tests {
                     DepositAsset::Spl(DepositSplAccounts {
                         mint: Pubkey::new_unique(),
                         user_token: Pubkey::new_unique(),
+                        token_program: pda::spl_token_program_id(),
                     }),
                     u8::try_from(index + 1).expect("small test index"),
                 )

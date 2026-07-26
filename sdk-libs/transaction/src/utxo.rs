@@ -1,6 +1,8 @@
-use ark_bn254::Fr;
-use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
+use zolana_hasher::{
+    primitives::{hash_bytes, right_align},
+    Hasher, Poseidon,
+};
 pub use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
 use zolana_keypair::{hash::sha256_be, NullifierKey, PublicKey};
 
@@ -8,14 +10,6 @@ use crate::{
     data::Data, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
     AssetRegistry,
 };
-
-fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {
-    let mut hasher = Poseidon::<Fr>::new_circom(inputs.len())
-        .map_err(|e| TransactionError::Poseidon(e.to_string()))?;
-    hasher
-        .hash_bytes_be(inputs)
-        .map_err(|e| TransactionError::Poseidon(e.to_string()))
-}
 
 /// A UTXO blinding: a 32-byte big-endian BN254 field element. Generators
 /// (random values, `derive_blinding`) right-align 31 bytes so the value is
@@ -46,13 +40,6 @@ pub struct Utxo {
     pub data: Data,
 }
 
-fn right_align<const N: usize>(bytes: &[u8; N]) -> [u8; 32] {
-    const { assert!(N <= 32) }
-    let mut out = [0u8; 32];
-    out[32 - N..].copy_from_slice(bytes);
-    out
-}
-
 pub(crate) fn resolve_zone_program_id(
     zone_program_id: Option<Address>,
     data: &Data,
@@ -66,15 +53,17 @@ pub(crate) fn resolve_zone_program_id(
     Ok(zone_program_id)
 }
 
-pub fn zone_program_id_field(
+pub fn zone_program_id_proof_input_hash(
     zone_program_id: &Option<Address>,
 ) -> Result<[u8; 32], TransactionError> {
-    program_id_field(zone_program_id)
+    program_id_proof_input_hash(zone_program_id)
 }
 
-pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], TransactionError> {
+pub fn program_id_proof_input_hash(
+    program_id: &Option<Address>,
+) -> Result<[u8; 32], TransactionError> {
     match program_id {
-        Some(id) => zolana_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),
+        Some(id) => Ok(hash_bytes(id.as_array())?),
         None => Ok([0u8; 32]),
     }
 }
@@ -84,7 +73,7 @@ pub fn owner_utxo_hash(
     blinding: &Blinding,
 ) -> Result<[u8; 32], TransactionError> {
     let blinding = right_align(blinding);
-    poseidon(&[owner_hash, &blinding])
+    Ok(Poseidon::hashv(&[owner_hash, &blinding])?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -109,7 +98,7 @@ impl ProofInputUtxo {
         Ok(Self {
             domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
             owner_hash,
-            asset: zolana_keypair::hash::hash_field(asset.as_array())?,
+            asset: hash_bytes(asset.as_array())?,
             amount: right_align(&amount.to_be_bytes()),
             blinding: right_align(blinding),
             data_hash: [0u8; 32],
@@ -140,21 +129,21 @@ impl ProofInputUtxo {
         zone_program_id: &Option<Address>,
     ) -> Result<Self, TransactionError> {
         self.zone_data_hash = zone_data_hash;
-        self.zone_program_id = program_id_field(zone_program_id)?;
+        self.zone_program_id = program_id_proof_input_hash(zone_program_id)?;
         Ok(self)
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        let zone_hash = poseidon(&[&self.zone_data_hash, &self.zone_program_id])?;
-        let owner_utxo_hash = poseidon(&[&self.owner_hash, &self.blinding])?;
-        poseidon(&[
+        let zone_hash = Poseidon::hashv(&[&self.zone_data_hash, &self.zone_program_id])?;
+        let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, &self.blinding])?;
+        Ok(Poseidon::hashv(&[
             &self.domain,
             &self.asset,
             &self.amount,
             &self.data_hash,
             &zone_hash,
             &owner_utxo_hash,
-        ])
+        ])?)
     }
 }
 

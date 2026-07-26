@@ -210,6 +210,7 @@ pub fn setup() -> Result<TestEnv> {
     let interface_ix = CreateSplInterface {
         authority: accounts.protocol_vault,
         mint: usdc_mint,
+        token_program: zolana_interface::pda::spl_token_program_id(),
     }
     .instruction();
     let interface_sync = smart_account::execute_sync_ix(
@@ -246,6 +247,7 @@ pub fn setup() -> Result<TestEnv> {
         asset: SOL_MINT,
         amount: MAKER_SHIELD_SOL,
         spl_token_account: None,
+        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?
     .send(&rpc, &payer, tree, &payer)?;
@@ -254,6 +256,7 @@ pub fn setup() -> Result<TestEnv> {
         asset: usdc_mint,
         amount: TAKER_SHIELD_USDC,
         spl_token_account: Some(usdc_funding),
+        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?
     .send(&rpc, &payer, tree, &payer)?;

@@ -2,7 +2,7 @@ use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_keypair::{
-    hash::{hash_field, sha256, sha256_be},
+    hash::{sha256, sha256_be},
     ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
 };
 
@@ -48,7 +48,7 @@ pub fn signed_magnitude_to_field(is_deposit: bool, amount: u64) -> [u8; 32] {
 }
 
 pub fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
-    Ok(hash_field(asset.as_array())?)
+    Ok(zolana_hasher::primitives::hash_bytes(asset.as_array())?)
 }
 
 pub fn inputs_require_p256(inputs: &[SppProofInputUtxo]) -> Result<bool, TransactionError> {

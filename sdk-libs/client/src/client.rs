@@ -232,10 +232,8 @@ impl<R: Rpc> ZolanaClient<R> {
             None,
         )?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
-        let proof = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => self.blocking_prover().prove_transfer_p256(inputs)?,
-            ProverInputs::Eddsa(inputs) => self.blocking_prover().prove_transfer(inputs)?,
-        };
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = self.blocking_prover().prove_transfer(inputs)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
             self.cu_limit,
@@ -327,10 +325,8 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         )
         .await?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
-        let proof = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => self.async_prover.prove_transfer_p256(inputs).await?,
-            ProverInputs::Eddsa(inputs) => self.async_prover.prove_transfer(inputs).await?,
-        };
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = self.async_prover.prove_transfer(inputs).await?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
             self.cu_limit,
@@ -604,10 +600,9 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         )
         .await?;
         let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
-        let (proof, circuit_id) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (self.async_prover.prove_transfer_p256(inputs).await?, 1),
-            ProverInputs::Eddsa(inputs) => (self.async_prover.prove_transfer(inputs).await?, 0),
-        };
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = self.async_prover.prove_transfer(inputs).await?;
+        let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
             public_inputs: vec![assembled.public_input_hash],
@@ -828,10 +823,9 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             None,
         )?;
         let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
-        let (proof, circuit_id) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (self.blocking_prover().prove_transfer_p256(inputs)?, 1),
-            ProverInputs::Eddsa(inputs) => (self.blocking_prover().prove_transfer(inputs)?, 0),
-        };
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = self.blocking_prover().prove_transfer(inputs)?;
+        let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
             public_inputs: vec![assembled.public_input_hash],
@@ -1166,10 +1160,7 @@ mod tests {
     use zolana_transaction::{AssetRegistry, Data, Utxo, Wallet, WalletUtxo, SOL_MINT};
 
     use super::*;
-    use crate::{
-        prover::CompressedCommitments,
-        rpc::{MerkleContext, MerkleProof, NonInclusionProof},
-    };
+    use crate::rpc::{MerkleContext, MerkleProof, NonInclusionProof};
     use zolana_interface::instruction::{
         InterfaceTransfer, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplDepositAccounts,
@@ -1199,6 +1190,7 @@ mod tests {
     #[test]
     fn settlement_accounts_accept_duplicate_sol_recipients_and_mixed_directions() {
         let spl = TransactSplDepositAccounts {
+            mint: Pubkey::new_unique(),
             vault: Pubkey::new_unique(),
             depositor: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
@@ -1311,10 +1303,7 @@ mod tests {
                     a: [0u8; 32],
                     b: [0u8; 64],
                     c: [0u8; 32],
-                    commitment: Some(CompressedCommitments {
-                        commitment: [0u8; 32],
-                        commitment_pok: [0u8; 32],
-                    }),
+                    commitment: None,
                 })
             })
             .expect("finish");

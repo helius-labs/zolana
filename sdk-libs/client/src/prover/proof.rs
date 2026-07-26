@@ -3,8 +3,7 @@ use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
 use zolana_interface::instruction::instruction_data::{
-    merge_transact::MergeProof,
-    transact::{P256Proof, TransactProof},
+    merge_transact::MergeProof, transact::TransactProof,
 };
 
 use crate::error::ClientError;
@@ -76,36 +75,14 @@ impl TryFrom<Proof> for ProofCompressed {
 }
 
 impl ProofCompressed {
-    /// Build the wire-format `transact` proof enum directly from the compressed
-    /// components: the P256 rail keeps its BSB22 commitment, the eddsa rail omits
-    /// it (no padding). The program decompresses these points at verification time.
+    /// Build the wire-format Ed25519-owner transact proof.
     pub fn to_transact_proof(self) -> TransactProof {
-        match self.to_p256_proof() {
-            Ok(proof) => TransactProof::P256(proof),
-            Err(_) => TransactProof::Eddsa {
-                a: self.a,
-                b: self.b,
-                c: self.c,
-            },
-        }
-    }
-
-    /// The P256-rail five-tuple ([`P256Proof`]), shared by `transact`'s P256
-    /// variant and `merge_transact` instruction data. Rejected if the proof
-    /// carries no BSB22 commitment (eddsa rail).
-    pub fn to_p256_proof(&self) -> Result<P256Proof, ClientError> {
-        let commitment = self.commitment.ok_or_else(|| {
-            ClientError::ProofParse(
-                "P256-rail proof is missing its BSB22 commitment (wrong rail?)".to_string(),
-            )
-        })?;
-        Ok(P256Proof {
+        debug_assert!(self.commitment.is_none());
+        TransactProof::Eddsa {
             a: self.a,
             b: self.b,
             c: self.c,
-            commitment: commitment.commitment,
-            commitment_pok: commitment.commitment_pok,
-        })
+        }
     }
 
     /// The merge proof: a vanilla Groth16 triple ([`MergeProof`]). The merge

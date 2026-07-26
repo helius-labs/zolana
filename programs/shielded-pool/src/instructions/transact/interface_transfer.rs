@@ -1,4 +1,5 @@
-use pinocchio::error::ProgramError;
+use pinocchio::{error::ProgramError, ProgramResult};
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
@@ -8,14 +9,13 @@ use zolana_interface::{
 };
 
 use super::verify::TransactProofInputs;
-use crate::instructions::{
-    settlement::{settle_sol, settle_spl_deposit, settle_spl_withdrawal, Settlement},
-    verifier,
+use crate::instructions::settlement::{
+    settle_sol, settle_spl_deposit, settle_spl_withdrawal, Settlement,
 };
 
-// Settles each interface transfer and aggregates its asset into the number of public
-// slots compiled into the selected circuit. Once assigned, a slot remains
-// occupied by its first-seen asset even if its net amount returns to zero.
+// Aggregates each interface transfer into the number of public slots compiled
+// into the selected circuit. Once assigned, a slot remains occupied by its
+// first-seen asset even if its net amount returns to zero.
 pub(crate) fn process_interface_transfers(
     interface_transfers: &[InterfaceTransfer],
     settlements: &[Settlement<'_>],
@@ -36,24 +36,15 @@ pub(crate) fn process_interface_transfers(
         let asset = match (transfer, settlement) {
             (
                 InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. },
-                Settlement::Sol(sol),
-            ) => {
-                settle_sol(sol, transfer.amount(), transfer.is_deposit())?;
-                SOL_ASSET_FIELD
-            }
+                Settlement::Sol(_),
+            ) => SOL_ASSET_FIELD,
             (InterfaceTransfer::SplDeposit { .. }, Settlement::SplDeposit(spl)) => {
-                settle_spl_deposit(spl, transfer.amount())?;
-                verifier::hash_field(
-                    &spl.mint,
-                    ShieldedPoolError::TransactProofVerificationFailed,
-                )?
+                hash_bytes(&spl.mint_account.address().to_bytes())
+                    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?
             }
             (InterfaceTransfer::SplWithdrawal { .. }, Settlement::SplWithdrawal(spl)) => {
-                settle_spl_withdrawal(spl, transfer.amount())?;
-                verifier::hash_field(
-                    &spl.mint,
-                    ShieldedPoolError::TransactProofVerificationFailed,
-                )?
+                hash_bytes(&spl.mint_account.address().to_bytes())
+                    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?
             }
             _ => return Err(ShieldedPoolError::InvalidSettlementAccounts.into()),
         };
@@ -77,6 +68,35 @@ pub(crate) fn process_interface_transfers(
             }
         }
     }
+    Ok(())
+}
+
+/// Applies public settlement only after the proof that authorizes it has
+/// verified, so invalid proofs cannot trigger CPIs or mask verification errors.
+pub(crate) fn settle_interface_transfers(
+    interface_transfers: &[InterfaceTransfer],
+    settlements: &[Settlement<'_>],
+) -> ProgramResult {
+    if interface_transfers.len() != settlements.len() {
+        return Err(ShieldedPoolError::InvalidTransactShape.into());
+    }
+
+    for (transfer, settlement) in interface_transfers.iter().zip(settlements.iter()) {
+        match (transfer, settlement) {
+            (
+                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. },
+                Settlement::Sol(sol),
+            ) => settle_sol(sol, transfer.amount(), transfer.is_deposit())?,
+            (InterfaceTransfer::SplDeposit { .. }, Settlement::SplDeposit(spl)) => {
+                settle_spl_deposit(spl, transfer.amount())?
+            }
+            (InterfaceTransfer::SplWithdrawal { .. }, Settlement::SplWithdrawal(spl)) => {
+                settle_spl_withdrawal(spl, transfer.amount())?
+            }
+            _ => return Err(ShieldedPoolError::InvalidSettlementAccounts.into()),
+        }
+    }
+
     Ok(())
 }
 

@@ -72,8 +72,8 @@ pub fn build_transact_event(
             amount: transfer.amount(),
             asset: match settlement {
                 Settlement::Sol(_) => None,
-                Settlement::SplDeposit(spl) => Some(spl.mint),
-                Settlement::SplWithdrawal(spl) => Some(spl.mint),
+                Settlement::SplDeposit(spl) => Some(spl.mint_account.address().to_bytes()),
+                Settlement::SplWithdrawal(spl) => Some(spl.mint_account.address().to_bytes()),
             },
         })
         .collect();

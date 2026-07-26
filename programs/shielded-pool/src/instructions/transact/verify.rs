@@ -4,6 +4,7 @@ use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
 use zolana_account_checks::checks::check_signer;
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
@@ -68,7 +69,7 @@ impl TransactProofInputs {
             .zip(resolved_outputs.iter())
         {
             // TODO: use a hash cache.
-            *slot = verifier::hash_field(&output.owner_tag, error)?; // TODO: check whether we can compute hashes offchain
+            *slot = hash_bytes(&output.owner_tag).map_err(|_| error)?; // TODO: check whether we can compute hashes offchain
         }
         Ok(())
     }
@@ -101,18 +102,12 @@ impl<'a> TransactProof<'a> {
             .ok_or(ShieldedPoolError::InvalidTransactShape)?;
         let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
         let verify_err = ShieldedPoolError::TransactProofVerificationFailed;
-        let proof = match &self.ix.proof {
-            ProofData::Eddsa { a, b, c } => verifier::CompressedGroth16Proof {
-                a,
-                b,
-                c,
-                commitment: None,
-            },
-            // Unreachable in practice (the P256 rail is rejected above); kept so
-            // a stale P256-proof encoding fails with a precise error.
-            ProofData::P256(_) => {
-                return Err(ShieldedPoolError::MismatchedTransactProofVariant.into())
-            }
+        let ProofData::Eddsa { a, b, c } = &self.ix.proof;
+        let proof = verifier::CompressedGroth16Proof {
+            a,
+            b,
+            c,
+            commitment: None,
         };
         verifier::verify_groth16(
             proof,
@@ -186,7 +181,7 @@ impl<'a> TransactProof<'a> {
             self.derived.zone_program_id,
             self.derived.payer_pubkey_hash,
             self.derived.allow_dummy_inputs,
-            hash_field(&[0u8; 32])?,
+            hash_bytes(&[0u8; 32]).map_err(|_| PROOF_ERR)?,
         ]);
         if self.ix.circuit.requires_input_signatures() {
             fields.push(hash_chain(input_owner_pk_hashes)?);
@@ -243,10 +238,6 @@ const PROOF_ERR: ShieldedPoolError = ShieldedPoolError::TransactProofVerificatio
 
 fn poseidon2(a: &[u8; 32], b: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
     verifier::poseidon2(a, b, PROOF_ERR)
-}
-
-fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-    verifier::hash_field(value, PROOF_ERR)
 }
 
 fn hash_chain(items: &[[u8; 32]]) -> Result<[u8; 32], ProgramError> {

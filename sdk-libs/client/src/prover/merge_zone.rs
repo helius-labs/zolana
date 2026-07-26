@@ -11,7 +11,8 @@ use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
-    instructions::merge_zone::PreparedMergeZone, utxo::program_id_field, SppProofOutputUtxo,
+    instructions::merge_zone::PreparedMergeZone, utxo::program_id_proof_input_hash,
+    SppProofOutputUtxo,
 };
 
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
         field::be,
         merge::{MergeProofResult, MergeProver},
         transact::{
-            p256_and_eddsa::TransferSpendInput,
+            assembly::TransferSpendInput,
             witness::{attach_input_proofs, SpendProof},
         },
     },
@@ -45,7 +46,7 @@ pub struct MergeZoneProver {
     /// derivations; SPP inserts it into the nullifier queue.
     pub merge_view_tag: [u8; 32],
     /// Zone program every input and the output are owned by. Its `pk_field`
-    /// (`program_id_field(&Some(zone))` == on-chain `solana_pk_hash(zone)`) is the
+    /// (`program_id_proof_input_hash(&Some(zone))` == on-chain `solana_pk_hash(zone)`) is the
     /// final public-input element and the value SPP binds from `zone_config`.
     pub zone_program_id: Address,
 }
@@ -82,20 +83,20 @@ impl MergeZoneProver {
         // The policy-zone merge omits the owner-identity public input (no registry
         // binds it) and instead commits the merge view tag, the output zone-data
         // hash, and the zone's pk_field as the final elements.
-        // `zone_program_id_field` equals the on-chain `solana_pk_hash(zone)` the
+        // `zone_program_id_proof_input_hash` equals the on-chain `solana_pk_hash(zone)` the
         // program derives from the calling `zone_config`.
-        let zone_program_id_field = program_id_field(&Some(zone_program_id))?;
+        let zone_program_id_proof_input_hash = program_id_proof_input_hash(&Some(zone_program_id))?;
         let mut elements = merge.head.to_vec();
         elements.extend([
             merge.merge_view_tag,
             output_zone_data_hash,
-            zone_program_id_field,
+            zone_program_id_proof_input_hash,
         ]);
         let public_input = create_hash_chain_from_slice(&elements)?;
 
         Ok(merge.finish(
             public_input,
-            be(&zone_program_id_field),
+            be(&zone_program_id_proof_input_hash),
             be(&output_zone_data_hash),
         ))
     }

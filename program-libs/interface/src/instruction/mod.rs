@@ -10,10 +10,10 @@ pub use instruction_data::{
     CompressedProof, CreateProtocolConfigData, CreateZoneConfigData, DepositAssetKind,
     DepositEntry, DepositIxData, InputUtxo, InterfaceTransfer, MergeExternalDataHash,
     MergeTransactIxData, MergeTransactIxDataRef, MergeZoneIxData, MergeZoneIxDataRef, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, P256Proof, P256ProofRef, PauseTreeData,
-    ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput,
-    TransactOutputRef, TransactProof, UpdateProtocolConfigData, UpdateZoneConfigData,
-    UpdateZoneConfigOwnerData, UtxoData, ZoneDepositEntry, ZoneDepositIxData, MAX_DEPOSIT_ASSETS,
+    OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData, ResolvedInterfaceTransfer, ResolvedOutput,
+    TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
+    UpdateProtocolConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData, UtxoData,
+    ZoneDepositEntry, ZoneDepositIxData, MAX_DEPOSIT_ASSETS,
 };
 pub use zolana_event::{tag, tag::InstructionTag};
 

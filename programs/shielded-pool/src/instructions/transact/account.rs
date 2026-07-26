@@ -10,7 +10,7 @@ use zolana_interface::{
 };
 
 use crate::instructions::settlement::{
-    validate_cpi_authority, validate_sol_interface, validate_spl_settlement, Settlement,
+    validate_cpi_authority, validate_sol_settlement, validate_spl_settlement, Settlement,
     SettlementAccountsSol, SplDepositAccounts, SplWithdrawalAccounts,
 };
 use crate::instructions::zone_config::loader::load_zone_config;
@@ -51,20 +51,22 @@ impl<'a> TransactAccounts<'a> {
         for transfer in &ix.interface_transfers {
             let settlement = match transfer {
                 InterfaceTransfer::SplDeposit { vault_bump, .. } => {
+                    let mint_account = iter.next_account("mint")?;
                     let vault = iter.next_account("vault")?;
                     let depositor = iter.next_account("depositor")?;
                     check_signer(depositor).map_err(|_| ShieldedPoolError::SplDepositorMustSign)?;
                     let user_token_account = iter.next_account("user_token_account")?;
                     let token_program = iter.next_account("token_program")?;
-                    let mint = validate_spl_settlement(
-                        &crate::ID,
+                    let mint_state = validate_spl_settlement(
+                        mint_account,
                         vault,
                         user_token_account,
                         token_program,
                         *vault_bump,
                     )?;
                     Settlement::SplDeposit(SplDepositAccounts {
-                        mint,
+                        mint_account,
+                        decimals: mint_state.decimals,
                         vault,
                         depositor,
                         user_token_account,
@@ -74,11 +76,12 @@ impl<'a> TransactAccounts<'a> {
                 InterfaceTransfer::SplWithdrawal { vault_bump, .. } => {
                     let cpi_authority =
                         validate_cpi_authority(iter.next_account("cpi_authority")?)?;
+                    let mint_account = iter.next_account("mint")?;
                     let vault = iter.next_account("vault")?;
                     let user_token_account = iter.next_account("user_token_account")?;
                     let token_program = iter.next_account("token_program")?;
-                    let mint = validate_spl_settlement(
-                        &crate::ID,
+                    let mint_state = validate_spl_settlement(
+                        mint_account,
                         vault,
                         user_token_account,
                         token_program,
@@ -86,7 +89,8 @@ impl<'a> TransactAccounts<'a> {
                     )?;
                     Settlement::SplWithdrawal(SplWithdrawalAccounts {
                         cpi_authority,
-                        mint,
+                        mint_account,
+                        decimals: mint_state.decimals,
                         vault,
                         user_token_account,
                         token_program,
@@ -94,8 +98,8 @@ impl<'a> TransactAccounts<'a> {
                 }
                 InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => {
                     let sol_interface = iter.next_account("sol_interface")?;
-                    let sol_interface_bump = validate_sol_interface(sol_interface)?;
                     let recipient = iter.next_account("recipient")?;
+                    let sol_interface_bump = validate_sol_settlement(sol_interface, recipient)?;
                     Settlement::Sol(SettlementAccountsSol {
                         sol_interface,
                         sol_interface_bump,

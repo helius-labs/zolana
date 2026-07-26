@@ -96,6 +96,7 @@ impl Deposit<'_> {
                 DepositAsset::Spl(DepositSplAccounts {
                     mint,
                     user_token: self.sender,
+                    token_program: zolana_interface::pda::spl_token_program_id(),
                 }),
             )
         };

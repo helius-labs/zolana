@@ -73,39 +73,6 @@ pub struct TransferOutput {
     pub nullifier_pk: BigUint,
 }
 
-/// Flat, pre-computed witness for the P256-capable spp_transaction circuit.
-///
-/// Placeholder for the removed P256 rail: the prover no longer serves it and
-/// the on-chain verifier rejects its circuit ids, but the type is kept so
-/// downstream code keeps compiling until the rail is re-implemented or the
-/// API is broken deliberately.
-#[derive(Debug, Clone)]
-pub struct TransferP256Inputs {
-    pub inputs: Vec<TransferInput>,
-    pub outputs: Vec<TransferOutput>,
-    pub external_data_hash: BigUint,
-    pub p256_pub_x: BigUint,
-    pub p256_pub_y: BigUint,
-    pub p256_sig_r: BigUint,
-    pub p256_sig_s: BigUint,
-    pub private_tx_hash: BigUint,
-    /// Full SHA-256 P256 ECDSA message digest as two big-endian 128-bit limbs;
-    /// both 0 on the Solana-only rail.
-    pub p256_message_hash_low: BigUint,
-    pub p256_message_hash_high: BigUint,
-    /// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
-    /// slots are (0, 0).
-    pub public_assets: [BigUint; N_PUBLIC_SLOTS],
-    pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
-    pub zone_program_id: BigUint,
-    pub payer_pubkey_hash: BigUint,
-    pub allow_dummy_inputs: BigUint,
-    /// Confidential variant: the shared P256 signing key's pk_field, exposed so the
-    /// circuit routes ownership by equality. 0 on the eddsa rail (no P256 owner).
-    pub p256_signing_pk_field: BigUint,
-    pub public_input_hash: BigUint,
-}
-
 /// Flat, pre-computed witness for the 8-in/1-out merge circuit. Mirrors
 /// prover/server/prover/merge/params.go MergeParameters. The per-input and output
 /// witness reuses [`TransferInput`]/[`TransferOutput`] (assembled the same way as

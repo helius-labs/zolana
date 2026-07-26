@@ -1,6 +1,6 @@
 <!-- cargo-rdme start -->
 
-# light-hasher
+# zolana-hasher
 
 Trait for generic hash function usage on Solana.
 
@@ -12,7 +12,7 @@ Trait for generic hash function usage on Solana.
 | [`Sha256`] | SHA-256 hash |
 | [`HasherError`] | Error type for hash operations |
 | [`hash_chain`] | Sequential hash chaining |
-| [`hash_to_field_size`] | Truncate hash output to BN254 field size |
+| [`primitives`] | Fixed-length byte packing and Poseidon commitments |
 | [`zero_bytes`] | Precomputed zero-leaf hashes per hasher |
 
 <!-- cargo-rdme end -->

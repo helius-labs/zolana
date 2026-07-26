@@ -5,65 +5,16 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 pub use crate::verifying_keys::CircuitId;
 use crate::{error::ShieldedPoolError, MAX_INTERFACE_TRANSFERS};
 
-/// The BSB22-committed Groth16 proof of the P256 rail: `a || b || c ||
-/// commitment || commitment_pok`, 192 bytes on the wire (compressed points,
-/// G1 -> 32 bytes, G2 -> 64 bytes). This is the single definition of that
-/// layout: `transact` carries it as [`TransactProof::P256`] and `merge_transact`
-/// embeds it directly (the merge circuit is P256-only, so its proof is always
-/// this five-tuple).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct P256Proof {
-    pub a: [u8; 32],
-    pub b: [u8; 64],
-    pub c: [u8; 32],
-    pub commitment: [u8; 32],
-    pub commitment_pok: [u8; 32],
-}
-
-impl P256Proof {
-    /// Serialized length: the five points back to back, no tag.
-    pub const LEN: usize = 192;
-
-    /// A zeroed proof, used as a placeholder before the real proof is attached
-    /// and as a dummy in tests.
-    pub const fn zeroed() -> Self {
-        Self {
-            a: [0u8; 32],
-            b: [0u8; 64],
-            c: [0u8; 32],
-            commitment: [0u8; 32],
-            commitment_pok: [0u8; 32],
-        }
-    }
-}
-
-/// Zero-copy view of [`P256Proof`]: every point aliases the instruction buffer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct P256ProofRef<'a> {
-    pub a: &'a [u8; 32],
-    pub b: &'a [u8; 64],
-    pub c: &'a [u8; 32],
-    pub commitment: &'a [u8; 32],
-    pub commitment_pok: &'a [u8; 32],
-}
-
-/// The Groth16 proof carried by a `transact` instruction. The two proving rails
-/// have different proof sizes, so the proof is a tagged enum instead of a padded
-/// fixed-width blob: the Solana-only eddsa rail omits the 64-byte BSB22 commitment
-/// the P256 rail requires. The components are the compressed wire-format points
-/// (G1 -> 32 bytes, G2 -> 64 bytes); the program decompresses them only at the
-/// `groth16-solana` verifier boundary.
+/// The compressed Groth16 proof carried by a `transact` instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
 pub enum TransactProof {
-    /// Solana-only eddsa rail: vanilla Groth16, no BSB22 commitment (128 bytes).
+    /// Ed25519-owner rail: vanilla Groth16, no BSB22 commitment (128 bytes).
     Eddsa {
         a: [u8; 32],
         b: [u8; 64],
         c: [u8; 32],
     },
-    /// P256 rail: BSB22-committed Groth16 ([`P256Proof::LEN`] bytes).
-    P256(P256Proof),
 }
 
 impl TransactProof {
@@ -514,32 +465,17 @@ mod tests {
         }
     }
 
-    fn p256_proof() -> TransactProof {
-        TransactProof::P256(P256Proof {
-            a: [1u8; 32],
-            b: [2u8; 64],
-            c: [3u8; 32],
-            commitment: [4u8; 32],
-            commitment_pok: [5u8; 32],
-        })
+    #[test]
+    fn transact_proof_round_trips() {
+        let proof = eddsa_proof();
+        let bytes = wincode::serialize(&proof).unwrap();
+        let decoded: TransactProof = wincode::deserialize_exact(&bytes).unwrap();
+        assert_eq!(decoded, proof);
     }
 
     #[test]
-    fn transact_proof_round_trips_both_rails() {
-        for proof in [eddsa_proof(), p256_proof()] {
-            let bytes = wincode::serialize(&proof).unwrap();
-            let decoded: TransactProof = wincode::deserialize_exact(&bytes).unwrap();
-            assert_eq!(decoded, proof);
-        }
-    }
-
-    /// The eddsa rail omits the 64-byte BSB22 commitment, so its serialized proof
-    /// is exactly 64 bytes shorter than the P256 rail (the 1-byte tag is shared).
-    #[test]
-    fn eddsa_proof_is_64_bytes_shorter_than_p256() {
+    fn eddsa_proof_has_expected_wire_size() {
         let eddsa = wincode::serialize(&eddsa_proof()).unwrap();
-        let p256 = wincode::serialize(&p256_proof()).unwrap();
-        assert_eq!(eddsa.len() + 64, p256.len());
         // 1-byte tag + a(32) + b(64) + c(32).
         assert_eq!(eddsa.len(), 1 + 128);
     }
@@ -624,14 +560,12 @@ mod tests {
     }
 
     #[test]
-    fn ix_data_round_trips_both_rails_owned_and_ref() {
-        for proof in [eddsa_proof(), p256_proof()] {
-            let owned = ix_data(proof);
-            let bytes = owned.serialize().unwrap();
-            assert_eq!(TransactIxData::deserialize(&bytes).unwrap(), owned);
-            let view = TransactIxDataRef::from_bytes(&bytes).unwrap();
-            assert_ref_matches_owned(&view, &owned);
-        }
+    fn ix_data_round_trips_owned_and_ref() {
+        let owned = ix_data(eddsa_proof());
+        let bytes = owned.serialize().unwrap();
+        assert_eq!(TransactIxData::deserialize(&bytes).unwrap(), owned);
+        let view = TransactIxDataRef::from_bytes(&bytes).unwrap();
+        assert_ref_matches_owned(&view, &owned);
     }
 
     /// Serialize owned, parse the borrowed view, and confirm every field matches:
@@ -639,19 +573,10 @@ mod tests {
     /// owned-reserialize CPI path.
     #[test]
     fn owned_serialize_matches_ref_parse() {
-        let owned = ix_data(p256_proof());
+        let owned = ix_data(eddsa_proof());
         let bytes = owned.serialize().unwrap();
         let view = TransactIxDataRef::from_bytes(&bytes).unwrap();
         assert_ref_matches_owned(&view, &owned);
-    }
-
-    /// The eddsa rail's serialized `TransactIxData` is 64 bytes smaller than the
-    /// P256 rail's: the only difference is the omitted BSB22 commitment.
-    #[test]
-    fn ix_data_eddsa_is_64_bytes_smaller() {
-        let eddsa = ix_data(eddsa_proof()).serialize().unwrap();
-        let p256 = ix_data(p256_proof()).serialize().unwrap();
-        assert_eq!(eddsa.len() + 64, p256.len());
     }
 
     #[test]

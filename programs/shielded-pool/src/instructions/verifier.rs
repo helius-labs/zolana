@@ -21,21 +21,6 @@ pub fn poseidon2(
     Poseidon::hashv(&[a.as_slice(), b.as_slice()]).map_err(|_| verify_err.into())
 }
 
-/// `hash_field`: split a 32-byte value into low/high 128-bit limbs and
-/// `Poseidon(low, high)`.
-#[inline(never)]
-pub fn hash_field(
-    value: &[u8; 32],
-    verify_err: ShieldedPoolError,
-) -> Result<[u8; 32], ProgramError> {
-    let (high_bytes, low_bytes) = value.split_at(16);
-    poseidon2(
-        &right_align_16(low_bytes),
-        &right_align_16(high_bytes),
-        verify_err,
-    )
-}
-
 /// Fold `items` into a Poseidon hash chain (`acc = Poseidon(acc, next)`, empty = 0).
 #[inline(never)]
 pub fn hash_chain(
@@ -51,12 +36,6 @@ pub fn hash_chain(
         acc = poseidon2(&acc, item, verify_err)?;
     }
     Ok(acc)
-}
-
-fn right_align_16(bytes: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[16..].copy_from_slice(bytes);
-    out
 }
 
 /// The compressed Groth16 proof points handed to [`verify_groth16`]. `commitment`

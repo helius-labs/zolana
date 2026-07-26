@@ -101,6 +101,7 @@ fn spl_group_accounts(world: &ShieldedPoolWorld) -> Vec<AccountMeta> {
     let mint = world.mint();
     vec![
         AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
+        AccountMeta::new_readonly(mint, false),
         AccountMeta::new(world.user_token(), false),
         AccountMeta::new(pda::spl_asset_vault(&mint), false),
         AccountMeta::new_readonly(pda::spl_asset_registry(&mint), false),
@@ -354,7 +355,11 @@ fn builder_assigns_indices(world: &mut ShieldedPoolWorld) {
             spl_entry(world, 10, 1),
             sol_entry(20, 2),
             AssetDeposit {
-                asset: DepositAsset::Spl(DepositSplAccounts { mint, user_token }),
+                asset: DepositAsset::Spl(DepositSplAccounts {
+                    mint,
+                    user_token,
+                    token_program: ZolanaProgramTest::token_program_id(),
+                }),
                 ..spl_entry(world, 30, 3)
             },
         ],

@@ -9,7 +9,7 @@ use crate::{
     prover::{
         field::be,
         resolve_shape,
-        transact::p256_and_eddsa::{
+        transact::assembly::{
             assemble_inputs, assemble_outputs, OwnerMode, PublicInputs, TransferSpendInput,
         },
         Shape, TransferInputs,
@@ -63,7 +63,7 @@ impl TransferProver {
             public_movements: &self.public_movements,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
-            allow_dummy_inputs: &super::p256_and_eddsa::bool_field(self.allow_dummy_inputs),
+            allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
             output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
             p256_signing_pk_field: &p256_signing_pk_field,

@@ -8,7 +8,7 @@ use zolana_interface::{
     },
     pda,
     shape::Shape,
-    MAX_INTERFACE_TRANSFERS, SPL_TOKEN_PROGRAM_ID,
+    MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair, SignatureType,
@@ -165,6 +165,8 @@ pub struct WithdrawalLeg {
     pub recipient: Pubkey,
     pub asset: Address,
     pub amount: u64,
+    /// SPL Token or Token-2022 program for non-SOL assets.
+    pub spl_token_program: Option<Pubkey>,
 }
 
 pub struct WithdrawalParams<'a> {
@@ -177,19 +179,30 @@ pub async fn create_transfer<R: AsyncRpc>(
     request: TransferParams<'_, R>,
 ) -> Result<CreatedTransfer, ClientError> {
     let recipient = try_resolve_registered_address_async(request.rpc, request.recipient).await?;
-    create_transfer_with_recipient(request, recipient)
+    let spl_token_program = if recipient.is_none() {
+        resolve_asset_token_program_async(request.rpc, request.asset).await?
+    } else {
+        None
+    };
+    create_transfer_with_recipient(request, recipient, spl_token_program)
 }
 
 pub fn create_transfer_sync<R: Rpc>(
     request: TransferParams<'_, R>,
 ) -> Result<CreatedTransfer, ClientError> {
     let recipient = try_resolve_registered_address(request.rpc, request.recipient)?;
-    create_transfer_with_recipient(request, recipient)
+    let spl_token_program = if recipient.is_none() {
+        resolve_asset_token_program(request.rpc, request.asset)?
+    } else {
+        None
+    };
+    create_transfer_with_recipient(request, recipient, spl_token_program)
 }
 
 fn create_transfer_with_recipient<R>(
     request: TransferParams<'_, R>,
     recipient: Option<ResolvedAddress>,
+    spl_token_program: Option<Pubkey>,
 ) -> Result<CreatedTransfer, ClientError> {
     let tree = resolve_spend_tree(request.wallet, request.asset, |_| true)?;
     let Some(recipient) = recipient else {
@@ -200,6 +213,7 @@ fn create_transfer_with_recipient<R>(
                 recipient: request.recipient,
                 asset: request.asset,
                 amount: request.amount,
+                spl_token_program,
             }],
         })?;
         return Ok(CreatedTransfer {
@@ -231,6 +245,49 @@ fn create_transfer_with_recipient<R>(
     })
 }
 
+async fn resolve_asset_token_program_async<R: AsyncRpc + ?Sized>(
+    rpc: &R,
+    asset: Address,
+) -> Result<Option<Pubkey>, ClientError> {
+    if asset == SOL_MINT {
+        return Ok(None);
+    }
+    let mint = Pubkey::new_from_array(asset.to_bytes());
+    let account = rpc
+        .get_account(Address::new_from_array(mint.to_bytes()))
+        .await?
+        .ok_or(ClientError::AccountNotFound {
+            address: mint.to_bytes(),
+        })?;
+    Ok(Some(validate_token_program_owner(mint, account.owner)?))
+}
+
+fn resolve_asset_token_program<R: Rpc + ?Sized>(
+    rpc: &R,
+    asset: Address,
+) -> Result<Option<Pubkey>, ClientError> {
+    if asset == SOL_MINT {
+        return Ok(None);
+    }
+    let mint = Pubkey::new_from_array(asset.to_bytes());
+    let account = rpc
+        .get_account(Address::new_from_array(mint.to_bytes()))?
+        .ok_or(ClientError::AccountNotFound {
+            address: mint.to_bytes(),
+        })?;
+    Ok(Some(validate_token_program_owner(mint, account.owner)?))
+}
+
+fn validate_token_program_owner(mint: Pubkey, owner: Pubkey) -> Result<Pubkey, ClientError> {
+    if owner == Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
+        || owner == Pubkey::new_from_array(SPL_TOKEN_2022_PROGRAM_ID)
+    {
+        Ok(owner)
+    } else {
+        Err(ClientError::UnsupportedSplTokenProgram { mint, owner })
+    }
+}
+
 pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdrawal, ClientError> {
     validate_withdrawal_legs(&request.legs)?;
     let required = aggregate_withdrawal_amounts(&request.legs)?;
@@ -238,7 +295,8 @@ pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdra
     let mut action_legs = Vec::with_capacity(request.legs.len());
     let mut settlement_transfers = Vec::with_capacity(request.legs.len());
     for leg in &request.legs {
-        let (target, accounts) = withdrawal_target(leg.recipient, leg.asset);
+        let (target, accounts) =
+            withdrawal_target(leg.recipient, leg.asset, leg.spl_token_program)?;
         action_legs.push(UnsignedWithdrawalLeg {
             asset: leg.asset,
             amount: leg.amount,
@@ -807,30 +865,34 @@ async fn apply_p256_signature<A: WalletAuthority + ?Sized>(
 fn withdrawal_target(
     recipient: Pubkey,
     asset: Address,
-) -> (SettlementTarget, TransactInterfaceTransferAccounts) {
+    spl_token_program: Option<Pubkey>,
+) -> Result<(SettlementTarget, TransactInterfaceTransferAccounts), ClientError> {
     if asset == SOL_MINT {
-        return (
+        return Ok((
             SettlementTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient }),
-        );
+        ));
     }
 
     let mint = Pubkey::new_from_array(asset.to_bytes());
-    let user_spl_token = pda::associated_token_address(&recipient, &mint);
+    let token_program = spl_token_program.ok_or(ClientError::MissingSplTokenProgram { mint })?;
+    let user_spl_token =
+        pda::associated_token_address_with_program(&recipient, &mint, &token_program);
     let vault = pda::spl_asset_vault(&mint);
-    (
+    Ok((
         SettlementTarget::Spl {
             user_spl_token: Address::new_from_array(user_spl_token.to_bytes()),
             spl_token_interface: Address::new_from_array(vault.to_bytes()),
         },
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+            mint,
             vault,
             user_token_account: user_spl_token,
-            token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+            token_program,
         }),
-    )
+    ))
 }
 
 fn validate_withdrawal_legs(legs: &[WithdrawalLeg]) -> Result<(), ClientError> {
@@ -1228,7 +1290,18 @@ mod tests {
         let mint = Pubkey::new_unique();
         let asset = Address::new_from_array(mint.to_bytes());
         let wallet = wallet_with_asset(sender.clone(), asset, 10);
-        let rpc = MockRpc { account: None };
+        let rpc = MockRpc {
+            account: Some((
+                Address::new_from_array(mint.to_bytes()),
+                Account {
+                    lamports: 1,
+                    data: Vec::new(),
+                    owner: pda::spl_token_program_id(),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )),
+        };
         let recipient = Pubkey::new_unique();
         let token_account = pda::associated_token_address(&recipient, &mint);
 
@@ -1246,9 +1319,10 @@ mod tests {
             result.recipient.settlement_transfers(),
             &[TransactInterfaceTransferAccounts::SplWithdrawal(
                 TransactSplWithdrawalAccounts {
+                    mint,
                     vault: pda::spl_asset_vault(&mint),
                     user_token_account: token_account,
-                    token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+                    token_program: pda::spl_token_program_id(),
                 }
             )]
         );
@@ -1270,6 +1344,7 @@ mod tests {
                 recipient,
                 asset,
                 amount: 1,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("withdrawal");
@@ -1278,9 +1353,10 @@ mod tests {
             result.settlement_transfers,
             vec![TransactInterfaceTransferAccounts::SplWithdrawal(
                 TransactSplWithdrawalAccounts {
+                    mint,
                     vault: pda::spl_asset_vault(&mint),
                     user_token_account: token_account,
-                    token_program: Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+                    token_program: pda::spl_token_program_id(),
                 }
             )]
         );
@@ -1310,6 +1386,7 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 1,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 })
                 .collect(),
         }));
@@ -1328,6 +1405,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 0,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         }));
         assert!(matches!(
@@ -1345,6 +1423,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             })
             .collect();
 
@@ -1372,6 +1451,7 @@ mod tests {
                 recipient,
                 asset: SOL_MINT,
                 amount: u64::MAX,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("full-u64 withdrawal");
@@ -1404,11 +1484,13 @@ mod tests {
                     recipient: user,
                     asset: SOL_MINT,
                     amount: 6,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: relayer,
                     asset: SOL_MINT,
                     amount: 2,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
             ],
         })
@@ -1459,11 +1541,13 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset,
                     amount: 6,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
                     asset,
                     amount: 4,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
             ],
         })
@@ -1499,11 +1583,13 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 3,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
                     asset,
                     amount: 4,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
             ],
         })
@@ -1532,11 +1618,13 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 6,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 5,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
             ],
         }));
@@ -1574,11 +1662,13 @@ mod tests {
                     recipient: Pubkey::new_unique(),
                     asset: SOL_MINT,
                     amount: 3,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
                 WithdrawalLeg {
                     recipient: Pubkey::new_unique(),
                     asset,
                     amount: 4,
+                    spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 },
             ],
         }));
@@ -1606,6 +1696,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("withdrawal")
@@ -1652,6 +1743,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .unwrap()
@@ -1679,6 +1771,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 8,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("tree with enough balance");
@@ -1732,6 +1825,7 @@ mod tests {
                 recipient: Pubkey::new_unique(),
                 asset: SOL_MINT,
                 amount: 1,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             }],
         })
         .expect("withdrawal");

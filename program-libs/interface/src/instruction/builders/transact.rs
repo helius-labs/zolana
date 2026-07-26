@@ -14,6 +14,7 @@ pub struct TransactSolTransferAccounts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactSplDepositAccounts {
+    pub mint: Pubkey,
     pub vault: Pubkey,
     pub depositor: Pubkey,
     pub user_token_account: Pubkey,
@@ -22,6 +23,7 @@ pub struct TransactSplDepositAccounts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactSplWithdrawalAccounts {
+    pub mint: Pubkey,
     pub vault: Pubkey,
     pub user_token_account: Pubkey,
     pub token_program: Pubkey,
@@ -78,6 +80,7 @@ pub(super) fn append_interface_transfer_accounts(
                 InterfaceTransfer::SplDeposit { .. },
                 TransactInterfaceTransferAccounts::SplDeposit(spl),
             ) => {
+                accounts.push(AccountMeta::new_readonly(spl.mint, false));
                 accounts.push(AccountMeta::new(spl.vault, false));
                 accounts.push(AccountMeta::new_readonly(spl.depositor, true));
                 accounts.push(AccountMeta::new(spl.user_token_account, false));
@@ -91,6 +94,7 @@ pub(super) fn append_interface_transfer_accounts(
                     SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
                     false,
                 ));
+                accounts.push(AccountMeta::new_readonly(spl.mint, false));
                 accounts.push(AccountMeta::new(spl.vault, false));
                 accounts.push(AccountMeta::new(spl.user_token_account, false));
                 accounts.push(AccountMeta::new_readonly(spl.token_program, false));
@@ -192,6 +196,7 @@ mod tests {
     #[test]
     fn single_spl_withdrawal_preserves_account_indices() {
         let spl = TransactSplWithdrawalAccounts {
+            mint: Pubkey::new_unique(),
             vault: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
@@ -218,6 +223,7 @@ mod tests {
                 builder.input_tree,
                 builder.output_tree,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
+                spl.mint,
                 spl.vault,
                 spl.user_token_account,
                 spl.token_program,
@@ -231,6 +237,7 @@ mod tests {
     fn ordered_mixed_transfers_share_one_system_program() {
         let sol_depositor = Pubkey::new_unique();
         let spl = TransactSplWithdrawalAccounts {
+            mint: Pubkey::new_unique(),
             vault: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
@@ -270,6 +277,7 @@ mod tests {
                 SOL_INTERFACE_PUBKEY,
                 sol_depositor,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
+                spl.mint,
                 spl.vault,
                 spl.user_token_account,
                 spl.token_program,
@@ -280,13 +288,14 @@ mod tests {
             ]
         );
         assert!(ix.accounts[4].is_signer);
-        assert!(!ix.accounts[7].is_signer);
-        assert!(!ix.accounts[10].is_signer);
+        assert!(!ix.accounts[8].is_signer);
+        assert!(!ix.accounts[11].is_signer);
     }
 
     #[test]
     fn spl_deposit_omits_cpi_authority_and_marks_depositor_signer() {
         let spl = TransactSplDepositAccounts {
+            mint: Pubkey::new_unique(),
             vault: Pubkey::new_unique(),
             depositor: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
@@ -304,9 +313,10 @@ mod tests {
         };
 
         let ix = builder.instruction();
-        assert_eq!(ix.accounts[3].pubkey, spl.vault);
-        assert_eq!(ix.accounts[4].pubkey, spl.depositor);
-        assert!(ix.accounts[4].is_signer);
+        assert_eq!(ix.accounts[3].pubkey, spl.mint);
+        assert_eq!(ix.accounts[4].pubkey, spl.vault);
+        assert_eq!(ix.accounts[5].pubkey, spl.depositor);
+        assert!(ix.accounts[5].is_signer);
     }
 
     #[test]

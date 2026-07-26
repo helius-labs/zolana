@@ -144,11 +144,9 @@ impl Rpc for TestIndexer {
             .map(|nullifier| self.dummy_nullifier_proof(nullifier))
             .collect();
         let assembled = zolana_client::assemble(proof_inputs, &input_merkle_proofs, &dummy_proofs)?;
-        // circuit_id has no formal registry yet: 1 = P256 rail, 0 = eddsa rail.
-        let (proof, circuit_id) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (ProverClient::local().prove_transfer_p256(inputs)?, 1),
-            ProverInputs::Eddsa(inputs) => (ProverClient::local().prove_transfer(inputs)?, 0),
-        };
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = ProverClient::local().prove_transfer(inputs)?;
+        let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
             public_inputs: vec![assembled.public_input_hash],

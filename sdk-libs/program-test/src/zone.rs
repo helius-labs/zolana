@@ -151,7 +151,11 @@ impl ZolanaProgramTest {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
         Ok(ZoneAssetDeposit {
             deposit: AssetDeposit {
-                asset: DepositAsset::Spl(DepositSplAccounts { mint, user_token }),
+                asset: DepositAsset::Spl(DepositSplAccounts {
+                    mint,
+                    user_token,
+                    token_program: Self::token_program_id(),
+                }),
                 view_tag: fields.view_tag,
                 owner: fields.owner,
                 blinding: fields.blinding,

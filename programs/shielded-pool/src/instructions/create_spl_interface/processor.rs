@@ -1,11 +1,13 @@
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError, state::SplAssetRegistry, SPL_ASSET_VAULT_PDA_SEED,
-    SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_PROGRAM_ID,
 };
 
-use super::init::{RegistryInitParams, SplInterfaceInitParams};
+use super::{
+    init::{RegistryInitParams, SplInterfaceInitParams},
+    validate::validate_token_mint_for_interface,
+};
 use crate::instructions::{
     create_asset_counter::load_spl_asset_counter_mut,
     protocol_config::loader::load_protocol_config,
@@ -33,10 +35,7 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(ProgramError::IncorrectProgramId);
     }
-    // TODO: add t22 support
-    if *token_program.address() != Address::from(SPL_TOKEN_PROGRAM_ID) {
-        return Err(ProgramError::IncorrectProgramId);
-    }
+    let validated_mint = validate_token_mint_for_interface(mint, token_program.address())?;
 
     {
         let config = load_protocol_config(protocol_config)?;
@@ -97,7 +96,7 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
         CreatePdaAccount {
             fee_payer: authority,
             new_account: &mut *spl_interface,
-            space: SPL_TOKEN_ACCOUNT_LEN,
+            space: validated_mint.token_account_len,
             owner: token_program.address(),
             signer_seeds: [SPL_ASSET_VAULT_PDA_SEED, mint_key.as_ref()],
             bump: spl_interface_bump,

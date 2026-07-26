@@ -117,8 +117,6 @@ impl LifecycleWorld {
 
         let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
-            // Unreachable: every actor is eddsa-owned (the P256 rail is removed).
-            ProverInputs::P256(_) => return Err(anyhow!("P256 rail removed")),
             ProverInputs::Eddsa(inputs) => {
                 (ProverClient::local().prove_transfer(inputs)?, Rail::Eddsa)
             }

@@ -16,7 +16,8 @@ pub struct SettlementAccountsSol<'a> {
 }
 
 pub struct SplDepositAccounts<'a> {
-    pub mint: [u8; 32],
+    pub mint_account: &'a AccountView,
+    pub decimals: u8,
     pub vault: &'a AccountView,
     pub depositor: &'a AccountView,
     pub user_token_account: &'a AccountView,
@@ -25,7 +26,8 @@ pub struct SplDepositAccounts<'a> {
 
 pub struct SplWithdrawalAccounts<'a> {
     pub cpi_authority: &'a AccountView,
-    pub mint: [u8; 32],
+    pub mint_account: &'a AccountView,
+    pub decimals: u8,
     pub vault: &'a AccountView,
     pub user_token_account: &'a AccountView,
     pub token_program: &'a AccountView,

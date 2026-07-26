@@ -6,7 +6,7 @@ use pinocchio::{
 };
 use zolana_interface::{
     SHIELDED_POOL_CPI_AUTHORITY_BUMP, SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED,
-    SPL_TOKEN_TRANSFER_DISCRIMINATOR,
+    SPL_TOKEN_TRANSFER_CHECKED_DISCRIMINATOR,
 };
 
 use super::account::{SplDepositAccounts, SplWithdrawalAccounts};
@@ -14,9 +14,11 @@ use super::account::{SplDepositAccounts, SplWithdrawalAccounts};
 pub struct SplTransferCpi<'a> {
     pub token_program: &'a AccountView,
     pub from: &'a AccountView,
+    pub mint: &'a AccountView,
     pub to: &'a AccountView,
     pub authority: &'a AccountView,
     pub amount: u64,
+    pub decimals: u8,
 }
 
 impl SplTransferCpi<'_> {
@@ -28,18 +30,24 @@ impl SplTransferCpi<'_> {
     pub fn invoke_signed(self, signers: &[Signer]) -> ProgramResult {
         let instruction_accounts = [
             InstructionAccount::writable(self.from.address()),
+            InstructionAccount::readonly(self.mint.address()),
             InstructionAccount::writable(self.to.address()),
             InstructionAccount::readonly_signer(self.authority.address()),
         ];
-        let mut instruction_data = [0u8; 9];
-        instruction_data[0] = SPL_TOKEN_TRANSFER_DISCRIMINATOR;
+        let mut instruction_data = [0u8; 10];
+        instruction_data[0] = SPL_TOKEN_TRANSFER_CHECKED_DISCRIMINATOR;
         instruction_data[1..9].copy_from_slice(&self.amount.to_le_bytes());
+        instruction_data[9] = self.decimals;
         let instruction = InstructionView {
             program_id: self.token_program.address(),
             accounts: &instruction_accounts,
             data: &instruction_data,
         };
-        invoke_signed(&instruction, &[self.from, self.to, self.authority], signers)
+        invoke_signed(
+            &instruction,
+            &[self.from, self.mint, self.to, self.authority],
+            signers,
+        )
     }
 }
 
@@ -49,9 +57,11 @@ pub fn settle_spl_deposit(settlement: &SplDepositAccounts<'_>, amount: u64) -> P
     SplTransferCpi {
         token_program: settlement.token_program,
         from: settlement.user_token_account,
+        mint: settlement.mint_account,
         to: settlement.vault,
         authority: settlement.depositor,
         amount,
+        decimals: settlement.decimals,
     }
     .invoke()
 }
@@ -68,9 +78,11 @@ pub fn settle_spl_withdrawal(settlement: &SplWithdrawalAccounts<'_>, amount: u64
     SplTransferCpi {
         token_program: settlement.token_program,
         from: settlement.vault,
+        mint: settlement.mint_account,
         to: settlement.user_token_account,
         authority: settlement.cpi_authority,
         amount,
+        decimals: settlement.decimals,
     }
     .invoke_signed(core::slice::from_ref(&signer))
 }

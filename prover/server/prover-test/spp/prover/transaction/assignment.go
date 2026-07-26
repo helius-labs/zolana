@@ -101,14 +101,13 @@ func buildProofAssignment(
 		return proofAssignment{}, err
 	}
 	// The P256 ownership rail is removed; only Solana-owned inputs can be
-	// proven. The message-hash preimage slot is the constant Poseidon(0, 0) the
+	// proven. The message-hash preimage slot is the canonical hash of 32 zero
+	// bytes, which is also Poseidon(0, 0).
 	// Solana-only circuits bake into the public input hash.
 	if inputs.requiresP256OwnerWitness {
 		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
 	}
-	zeroLimbs := [32]byte{}
-	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(zeroLimbs)
-	p256MessageHashField, err := protocol.P256MessageHashField(p256MessageLow, p256MessageHigh)
+	p256MessageHashField, err := protocol.HashBytes(make([]byte, 32))
 	if err != nil {
 		return proofAssignment{}, err
 	}

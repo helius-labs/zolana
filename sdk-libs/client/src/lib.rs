@@ -36,12 +36,10 @@ pub use prover::{
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness,
-    P256Owner, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicMovements, Shape,
-    TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TransferP256ProofResult,
-    TransferP256Prover, TransferProofResult, TransferProver, TransferSpendInput,
-    ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness,
-    ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
+    CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness, Proof,
+    ProofCompressed, ProofInputUtxo, ProverClient, PublicMovements, Shape, TransferInput,
+    TransferInputs, TransferOutput, TransferProofResult, TransferProver, TransferSpendInput,
+    ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness, ZoneTransferProofResult,
     ZoneTransferProver, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};

@@ -193,6 +193,7 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
         .expect("create payer token account");
     let spl_deposit = || {
         TransactInterfaceTransferAccounts::SplDeposit(TransactSplDepositAccounts {
+            mint,
             vault,
             depositor: payer.pubkey(),
             user_token_account,
@@ -201,6 +202,7 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
     };
     let spl_withdrawal = || {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+            mint,
             vault,
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
@@ -239,6 +241,60 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
 }
 
 #[test]
+fn token_2022_withdrawal_accounts_reach_proof_verification() {
+    let Some(mut rpc) = common::program_test() else {
+        return;
+    };
+    let authority = Keypair::new();
+    rpc.create_protocol_config(&authority)
+        .expect("create protocol config");
+    let tree = rpc
+        .create_tree(common::tree_account_size(), &authority)
+        .expect("create tree");
+    let payer = rpc.payer.insecure_clone();
+    rpc.ensure_asset_counter(&authority).expect("asset counter");
+    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let mint = rpc
+        .create_mint_with_program(token_program)
+        .expect("create Token-2022 mint");
+    let (_, vault) = rpc
+        .create_spl_interface_with_program(&authority, &mint, token_program)
+        .expect("create Token-2022 interface");
+    let recipient = rpc
+        .create_token_account_with_program(&mint, &payer.pubkey(), token_program)
+        .expect("create Token-2022 recipient");
+    rpc.mint_to_with_program(&mint, &vault, 1, token_program)
+        .expect("fund Token-2022 vault");
+
+    let ix = Transact {
+        payer: payer.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+            TransactSplWithdrawalAccounts {
+                mint,
+                vault,
+                user_token_account: recipient,
+                token_program,
+            },
+        )],
+        data: ix_data(vec![InterfaceTransfer::SplWithdrawal {
+            amount: 1,
+            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+        }]),
+    }
+    .instruction();
+
+    let err = send_raw(&mut rpc, ix, &payer).expect_err("dummy proof must fail");
+    assert!(
+        err.contains("Custom(7008)"),
+        "Token-2022 settlement accounts must validate before proof verification: {err}"
+    );
+    assert_eq!(rpc.token_balance(&vault), Some(1));
+    assert_eq!(rpc.token_balance(&recipient), Some(0));
+}
+
+#[test]
 fn spl_settlement_rejects_noncanonical_vault_bump() {
     let Some(mut rpc) = common::program_test() else {
         return;
@@ -268,6 +324,7 @@ fn spl_settlement_rejects_noncanonical_vault_bump() {
         output_tree: tree.pubkey(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
+                mint,
                 vault,
                 depositor: payer.pubkey(),
                 user_token_account,
@@ -324,6 +381,7 @@ fn spl_deposit_requires_depositor_signature() {
         output_tree: tree.pubkey(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
+                mint,
                 vault,
                 depositor: depositor.pubkey(),
                 user_token_account,
@@ -336,7 +394,7 @@ fn spl_deposit_requires_depositor_signature() {
         }]),
     }
     .instruction();
-    ix.accounts[4].is_signer = false;
+    ix.accounts[5].is_signer = false;
 
     let err = send_raw(&mut rpc, ix, &payer).expect_err("unsigned depositor must fail");
     assert!(
@@ -373,6 +431,7 @@ fn spl_withdrawal_rejects_obsolete_recipient_account() {
         output_tree: tree.pubkey(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
+                mint,
                 vault,
                 user_token_account,
                 token_program: ZolanaProgramTest::token_program_id(),
@@ -391,8 +450,8 @@ fn spl_withdrawal_rejects_obsolete_recipient_account() {
 
     let err = send_raw(&mut rpc, ix, &payer).expect_err("obsolete recipient must fail");
     assert!(
-        err.contains("Custom(7009)"),
-        "expected InvalidSettlementAccounts (7009), got: {err}"
+        err.contains("Custom(7041)"),
+        "expected UnsupportedSplTokenProgram (7041), got: {err}"
     );
 }
 
@@ -425,6 +484,7 @@ fn four_distinct_public_assets_are_rejected() {
             .expect("mint deposit token");
         interface_transfer_accounts.push(TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
+                mint,
                 vault,
                 depositor: payer.pubkey(),
                 user_token_account,

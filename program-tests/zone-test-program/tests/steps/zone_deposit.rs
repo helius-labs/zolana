@@ -130,7 +130,11 @@ impl ZoneLifecycleWorld {
         let data = self.zone_deposit_data(
             name,
             amount,
-            DepositAsset::Spl(DepositSplAccounts { mint, user_token }),
+            DepositAsset::Spl(DepositSplAccounts {
+                mint,
+                user_token,
+                token_program: zolana_interface::pda::spl_token_program_id(),
+            }),
         )?;
         let ix = ZoneDeposit {
             tree,

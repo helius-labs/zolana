@@ -19,8 +19,7 @@ pub use merge_zone::{MergeZoneIxData, MergeZoneIxDataRef};
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use transact::{
     fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InterfaceTransfer, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, P256Proof, P256ProofRef, ResolvedInterfaceTransfer,
-    ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef,
-    TransactProof,
+    OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData,
+    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
 };
 pub use zone_config::{CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData};

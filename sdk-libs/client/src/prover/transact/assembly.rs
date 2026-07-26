@@ -1,22 +1,16 @@
 use num_bigint::BigUint;
-use p256::elliptic_curve::sec1::ToEncodedPoint;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_keypair::{
-    hash::{hash_field, sha256, split_be_128},
-    NullifierKey, P256Pubkey, PublicKey, SignatureType,
-};
+use zolana_keypair::{NullifierKey, SignatureType};
 use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, PublicMovements},
-    ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
+    instructions::transact::PublicMovements, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{
     error::ClientError,
     prover::{
         field::{be, right_align_slice},
-        resolve_shape,
         transact::witness::SpendProof,
-        Shape, TransferInput, TransferOutput, TransferP256Inputs,
+        TransferInput, TransferOutput,
     },
     rpc::{NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
@@ -34,154 +28,6 @@ pub struct TransferSpendInput {
     /// nullifier. The circuit checks non-inclusion for every slot, dummies
     /// included, so a dummy needs a real low-element witness.
     pub nullifier_proof: Option<NonInclusionProof>,
-}
-
-/// The P256 ownership signature, computed once over the finalized transaction in
-/// [`zolana_transaction::instructions::transact::Transaction::sign`]. The prover only converts it
-/// into witness coordinates; it never signs.
-#[derive(Clone)]
-pub struct P256Owner {
-    pub pubkey: P256Pubkey,
-    pub sig_r: [u8; 32],
-    pub sig_s: [u8; 32],
-}
-
-pub struct TransferP256Prover {
-    pub inputs: Vec<TransferSpendInput>,
-    pub outputs: Vec<SppProofOutputUtxo>,
-    pub external_data: ExternalData,
-    pub public_movements: PublicMovements,
-    pub payer_pubkey_hash: [u8; 32],
-    pub allow_dummy_inputs: bool,
-    pub p256_owner: P256Owner,
-    pub shape: Option<Shape>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TransferP256ProofResult {
-    pub inputs: TransferP256Inputs,
-    pub public_input_hash: [u8; 32],
-    pub nullifiers: Vec<[u8; 32]>,
-    pub output_hashes: Vec<[u8; 32]>,
-    pub private_tx_hash: [u8; 32],
-    pub input_root_indices: Vec<(u16, u16)>,
-    /// The shared P256 owner `pk_field` (big-endian) carried in the prover
-    /// witness and folded into the confidential public-input hash. Prover-side
-    /// value only; never sent as instruction data.
-    pub p256_signing_pk_field: [u8; 32],
-    /// The raw x-coordinate of the shared P256 signing key (the pre-hash
-    /// `confidential_view_tag`), carried in the `Transact` instruction's
-    /// `p256_signing_pk_x`; the program hashes it on-chain to `pk_field`.
-    pub p256_signing_pk_x: [u8; 32],
-}
-
-impl TransferP256Prover {
-    pub fn build(self) -> Result<TransferP256ProofResult, ClientError> {
-        resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        // The shared P256 signing key's pk_field: its own element of the confidential
-        // public-input hash, which the circuit asserts equals its in-circuit P256
-        // pk_field. P256-owned inputs tag themselves with the 0 sentinel and route to
-        // it. The raw x-coordinate is the pre-hash value the instruction carries so
-        // the program reproduces `pk_field` on-chain.
-        let signing_pubkey = PublicKey::from_p256(&self.p256_owner.pubkey);
-        let p256_signing_pk_x = signing_pubkey.confidential_view_tag()?;
-        let p256_signing_pk_field = signing_pubkey.owner_pk_field()?;
-        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialP256)?;
-        let assembled_outputs = assemble_outputs(&self.outputs)?;
-        let external_data_hash = self.external_data.hash()?;
-        let private_tx = PrivateTxHash::new(
-            &assembled_inputs.input_hashes,
-            &assembled_outputs.private_tx_output_hashes,
-            &external_data_hash,
-        )
-        .hash()?;
-        let p256_message_hash = sha256(&private_tx);
-        let signature = self.p256_owner.witness()?;
-        let (p256_message_low, p256_message_high) = split_be_128(&p256_message_hash);
-        let public_input = PublicInputs {
-            nullifiers: &assembled_inputs.nullifiers,
-            output_hashes: &assembled_outputs.output_hashes,
-            utxo_roots: &assembled_inputs.utxo_roots,
-            nullifier_tree_roots: &assembled_inputs.nullifier_tree_roots,
-            private_tx: &private_tx,
-            p256_message_hash: &p256_message_hash,
-            external_data_hash: &external_data_hash,
-            public_movements: &self.public_movements,
-            zone_program_id: &[0u8; 32],
-            payer_pubkey_hash: &self.payer_pubkey_hash,
-            allow_dummy_inputs: &bool_field(self.allow_dummy_inputs),
-            input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
-            output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
-            p256_signing_pk_field: &p256_signing_pk_field,
-        }
-        .hash()?;
-
-        let inputs = TransferP256Inputs {
-            inputs: assembled_inputs.inputs,
-            outputs: assembled_outputs.outputs,
-            external_data_hash: be(&external_data_hash),
-            p256_pub_x: be(&signature.pub_x),
-            p256_pub_y: be(&signature.pub_y),
-            p256_sig_r: be(&signature.sig_r),
-            p256_sig_s: be(&signature.sig_s),
-            private_tx_hash: be(&private_tx),
-            p256_message_hash_low: be(&p256_message_low),
-            p256_message_hash_high: be(&p256_message_high),
-            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
-            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
-            zone_program_id: BigUint::ZERO,
-            payer_pubkey_hash: be(&self.payer_pubkey_hash),
-            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
-            p256_signing_pk_field: be(&p256_signing_pk_field),
-            public_input_hash: be(&public_input),
-        };
-
-        Ok(TransferP256ProofResult {
-            inputs,
-            public_input_hash: public_input,
-            nullifiers: assembled_inputs.nullifiers,
-            output_hashes: assembled_outputs.output_hashes,
-            private_tx_hash: private_tx,
-            input_root_indices: assembled_inputs.root_indices,
-            p256_signing_pk_field,
-            p256_signing_pk_x,
-        })
-    }
-}
-
-pub(crate) struct P256SignatureWitness {
-    pub pub_x: [u8; 32],
-    pub pub_y: [u8; 32],
-    pub sig_r: [u8; 32],
-    pub sig_s: [u8; 32],
-}
-
-impl P256Owner {
-    pub(crate) fn witness(&self) -> Result<P256SignatureWitness, ClientError> {
-        let public_key = self.pubkey.to_p256()?;
-        let point = public_key.to_encoded_point(false);
-        let (pub_x, pub_y) = encoded_xy(&point)?;
-        Ok(P256SignatureWitness {
-            pub_x,
-            pub_y,
-            sig_r: self.sig_r,
-            sig_s: self.sig_s,
-        })
-    }
-}
-
-fn encoded_xy(point: &p256::EncodedPoint) -> Result<([u8; 32], [u8; 32]), ClientError> {
-    let x = point
-        .x()
-        .ok_or_else(|| ClientError::P256Signature("missing x coordinate".into()))?;
-    let y = point
-        .y()
-        .ok_or_else(|| ClientError::P256Signature("missing y coordinate".into()))?;
-    let mut pub_x = [0u8; 32];
-    let mut pub_y = [0u8; 32];
-    pub_x.copy_from_slice(x);
-    pub_y.copy_from_slice(y);
-    Ok((pub_x, pub_y))
 }
 
 pub(crate) struct AssembledInputs {
@@ -203,9 +49,9 @@ pub(crate) struct AssembledOutputs {
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_output_hashes: Vec<[u8; 32]>,
     /// Per-output public owner tag: `signing_pubkey.owner_pk_field()`
-    /// (`hash_field(view_tag)`) for a real output, `hash_field(view_tag)` of the
+    /// (`hash_bytes(view_tag)`) for a real output, `hash_bytes(view_tag)` of the
     /// builder's random tag for a dummy. Folded into the confidential
-    /// public-input hash and matches the program's `hash_field(view_tag)`
+    /// public-input hash and matches the program's `hash_bytes(view_tag)`
     /// reconstruction.
     pub output_owner_pk_hashes: Vec<[u8; 32]>,
 }
@@ -214,10 +60,6 @@ pub(crate) struct AssembledOutputs {
 /// public-input chain. A P256-owned input is treated differently per mode; an
 /// ed25519-owned input always uses its own `owner_pk_field()`.
 pub(crate) enum OwnerMode {
-    /// Confidential P256 rail: a P256 owner contributes the `0` sentinel that routes
-    /// to the transaction's shared signing key, which the rail publishes as its own
-    /// public input; ed25519 uses its `pk_field`.
-    ConfidentialP256,
     /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
     /// no P256 gadget); ed25519 uses its `pk_field`.
     ConfidentialEddsa,
@@ -228,10 +70,6 @@ pub(crate) enum OwnerMode {
     /// Zone authority (anonymous, pubkey-agnostic): every owner uses its own
     /// `owner_pk_field()` as a private witness, regardless of scheme.
     ZoneAuthority,
-    /// Zone P256 rail (anonymous): a P256-owned input contributes the `0`
-    /// sentinel (its identity stays hidden behind the shared zone proof); an
-    /// ed25519 owner uses its own `owner_pk_field()`.
-    Zone,
 }
 
 /// Convert the already-padded inputs into circuit witness fields. Makes no padding
@@ -299,12 +137,12 @@ pub(crate) fn assemble_inputs(
         // depends on the mode (see OwnerMode); an ed25519 owner always uses
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
-            (OwnerMode::ConfidentialP256 | OwnerMode::Merge | OwnerMode::Zone, true) => [0u8; 32],
+            (OwnerMode::Merge, true) => [0u8; 32],
             (OwnerMode::ConfidentialEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }
-            (OwnerMode::ZoneAuthority, true) => spend.utxo.owner.owner_pk_field()?,
-            (_, false) => spend.utxo.owner.owner_pk_field()?,
+            (OwnerMode::ZoneAuthority, true) => spend.utxo.owner.owner_proof_input_hash()?,
+            (_, false) => spend.utxo.owner.owner_proof_input_hash()?,
         };
 
         let nullifier_secret = right_align_slice(spend.nullifier_key.secret())?;
@@ -363,19 +201,19 @@ pub(crate) fn assemble_outputs(
         let is_dummy = output.is_dummy();
         let hash = output.hash()?;
         // Confidential owner tag: a real output exposes its owner's `pk_field`
-        // (`signing_pubkey.owner_pk_field()` == `hash_field(view_tag)`) and witnesses
+        // (`signing_pubkey.owner_pk_field()` == `hash_bytes(view_tag)`) and witnesses
         // the `nullifier_pk`, so the circuit recomputes `owner_hash` and binds the
-        // tag. A dummy slot folds `hash_field` of the builder's random `view_tag` so
-        // its public tag matches the program's `hash_field(view_tag)` reconstruction
+        // tag. A dummy slot folds `hash_bytes` of the builder's random `view_tag` so
+        // its public tag matches the program's `hash_bytes(view_tag)` reconstruction
         // and is indistinguishable from a real one; the circuit leaves it
         // unconstrained and `nullifier_pk` is unused (0).
         let (owner_pk_field, nullifier_pk) = match &output.owner_address {
             Some(address) => (
-                address.signing_pubkey.owner_pk_field()?,
+                address.signing_pubkey.owner_proof_input_hash()?,
                 address.nullifier_pubkey,
             ),
             None => (
-                hash_field(&output.owner_tag.unwrap_or([0u8; 32]))?,
+                zolana_hasher::primitives::hash_bytes(&output.owner_tag.unwrap_or([0u8; 32]))?,
                 [0u8; 32],
             ),
         };
@@ -442,7 +280,7 @@ impl PublicInputs<'_> {
             *self.payer_pubkey_hash,
             *self.allow_dummy_inputs,
             // Variant-dependent tail: the P256 message, then the owner tags.
-            hash_field(self.p256_message_hash)?,
+            zolana_hasher::primitives::hash_bytes(self.p256_message_hash)?,
             create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
             // Confidential appendix (the client always uses the confidential variant).
             create_hash_chain_from_slice(self.output_owner_pk_hashes)?,

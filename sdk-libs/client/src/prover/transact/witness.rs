@@ -13,11 +13,8 @@ use zolana_transaction::instructions::{
 use crate::{
     error::ClientError,
     prover::{
-        transact::{
-            eddsa::TransferProver,
-            p256_and_eddsa::{TransferP256Prover, TransferSpendInput},
-        },
-        ProofCompressed, ProverClient, TransferInputs, TransferP256Inputs,
+        transact::{assembly::TransferSpendInput, eddsa::TransferProver},
+        ProofCompressed, ProverClient, TransferInputs,
     },
     rpc::{MerkleProof, NonInclusionProof},
 };
@@ -70,7 +67,6 @@ pub(crate) fn attach_input_proofs(
 }
 
 pub enum ProverVariant {
-    P256(TransferP256Prover),
     Eddsa(TransferProver),
 }
 
@@ -82,11 +78,8 @@ pub struct BuiltCircuit {
 /// Default eddsa signer account index for a Solana-owned input.
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 
-/// Witness for one of the two proving rails, ready to hand to the prover client.
-/// The `P256` variant is a placeholder for the removed rail: proving with it
-/// fails with `ClientError::P256IsUnimplemented`.
+/// Witness for a supported transaction circuit, ready for the prover client.
 pub enum ProverInputs {
-    P256(TransferP256Inputs),
     Eddsa(TransferInputs),
 }
 
@@ -138,7 +131,6 @@ impl ProverClient {
             allow_dummy_inputs,
         )?;
         let proof = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => self.prove_transfer_p256(inputs)?,
             ProverInputs::Eddsa(inputs) => self.prove_transfer(inputs)?,
         };
         Ok(assembled.with_proof(ProofCompressed::try_from(proof)?.to_transact_proof()))
@@ -268,31 +260,13 @@ pub fn assemble_with_dummy_policy(
         allow_dummy_inputs,
     )?;
 
-    let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_x) =
-        match circuit {
-            ProverVariant::P256(prover) => {
-                let result = prover.build()?;
-                (
-                    ProverInputs::P256(result.inputs),
-                    result.public_input_hash,
-                    result.nullifiers,
-                    result.private_tx_hash,
-                    result.input_root_indices,
-                    Some(result.p256_signing_pk_x),
-                )
-            }
-            ProverVariant::Eddsa(prover) => {
-                let result = prover.build()?;
-                (
-                    ProverInputs::Eddsa(result.inputs),
-                    result.public_input_hash,
-                    result.nullifiers,
-                    result.private_tx_hash,
-                    result.input_root_indices,
-                    None,
-                )
-            }
-        };
+    let ProverVariant::Eddsa(prover) = circuit;
+    let result = prover.build()?;
+    let prover_inputs = ProverInputs::Eddsa(result.inputs);
+    let public_input_hash = result.public_input_hash;
+    let nullifiers = result.nullifiers;
+    let private_tx = result.private_tx_hash;
+    let root_indices = result.input_root_indices;
 
     if nullifiers.len() != shape.n_inputs() || root_indices.len() != shape.n_inputs() {
         return Err(ClientError::WitnessInputCountMismatch {
@@ -337,7 +311,7 @@ pub fn assemble_with_dummy_policy(
         expiry_unix_ts,
         private_tx_hash: private_tx,
         circuit: circuit_id,
-        p256_signing_pk_x,
+        p256_signing_pk_x: None,
         inputs,
         interface_transfers,
         data_hash,
@@ -404,9 +378,7 @@ mod tests {
         );
 
         let built = into_prover(proof_inputs, &[], &[]).expect("assemble prover");
-        let ProverVariant::Eddsa(prover) = built.circuit else {
-            panic!("dummy-only proof inputs use the eddsa rail");
-        };
+        let ProverVariant::Eddsa(prover) = built.circuit;
         assert_eq!(
             prover.public_movements.assets.first().copied(),
             Some(asset_field(&mint).expect("asset field"))

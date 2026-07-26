@@ -2,13 +2,12 @@
 //! and pool tree, build a valid (2,3) Groth16 proof on the Solana-only eddsa
 //! rail, assemble the `transact` instruction data, and send it to the program.
 //!
-//! The two inputs are circuit dummies (`is_dummy = 1`), so they need no real
-//! UTXOs or merkle proofs, but they carry distinct non-zero nullifiers plus the
-//! real on-chain tree roots and the payer's owner hash. The proof is therefore
-//! bound to exactly what the program reconstructs on-chain: the `external_data`
-//! hash (via the shared [`ExternalDataHash`] from the interface crate), the
-//! payer pubkey hash, the per-input owner hashes, the tree roots, and the
-//! nullifier/output hash chains.
+//! The first input spends a proofless-deposit UTXO owned by the payer and the
+//! second is circuit padding. The first output preserves the deposited value
+//! while the other two are padding. This gives the dummy owner-tag gate a real
+//! transaction signer and binds the proof to exactly what the program
+//! reconstructs on-chain: the `external_data` hash, payer pubkey hash,
+//! per-input owner hashes, tree roots, and nullifier/output hash chains.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced the
 //! `.so` binary; the test skips (does not fail) when it is missing.
@@ -18,11 +17,15 @@ mod common;
 #[path = "../common/transact.rs"]
 mod transact_common;
 
+use num_bigint::BigUint;
 use solana_keypair::Keypair;
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::TransferOutput;
-use zolana_hasher::{sha256::Sha256BE, Hasher};
+use solana_transaction::Transaction;
+use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
+use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -31,25 +34,29 @@ use zolana_interface::{
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_keypair::hash::hash_field;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::instructions::transact::PrivateTxHash;
+use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use zolana_merkle_tree::MerkleTree;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
+use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, set_output_owner_tags,
-    sol_public_slots, start_prover, TransferProverInputsArgs,
+    output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, real_output,
+    set_output_owner_tags, sol_public_slots, spend_input, start_prover, transfer_output,
+    SpendInputArgs, TransferProverInputsArgs,
 };
 
-/// The (utxo, nullifier) tree roots at history index 0, exactly as the program
-/// reads them during `apply_tree`.
-fn tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey) -> ([u8; 32], [u8; 32]) {
+const TRANSFER_AMOUNT: u64 = 1_000_000;
+
+/// The (utxo, nullifier) tree roots at the requested history indices, exactly
+/// as the program reads them during `apply_tree`.
+fn tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
     let mut data = rpc.account_data(tree).expect("tree account");
     let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     (
-        account.get_utxo_tree_root(0).expect("utxo root"),
+        account.get_utxo_tree_root(utxo_index).expect("utxo root"),
         account.get_nullifier_tree_root(0).expect("nullifier root"),
     )
 }
@@ -138,68 +145,137 @@ impl TransactEnv {
 }
 
 /// Build a valid (2,3) eddsa-rail `transact` instruction data with a real proof:
-/// two circuit-dummy inputs and three dummy outputs, bound to the on-chain roots
-/// and the payer. Shared by the positive and negative scenarios.
-fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
-    let payer = env.rpc.payer.pubkey();
-    let payer_bytes = payer.to_bytes();
-    let roots = tree_roots(&env.rpc, &env.tree.pubkey());
-    let (utxo_root, nullifier_root) = roots;
+/// one real input/output plus padded slots, bound to the on-chain roots and
+/// payer. Shared by the positive and negative scenarios.
+fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
+    let payer = env.rpc.payer.insecure_clone();
+    let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    // Two circuit-dummy inputs over distinct blindings. Each derives its
-    // nullifier over the dummified utxo hash and carries a real non-inclusion
-    // witness (the program inserts both nullifiers into the nullifier tree;
-    // zeros or duplicates are rejected).
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    let owner_hash = hash_field(&payer_bytes).expect("owner hash");
-    let (dummy_input_0, nullifier_0) =
-        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
-    let (dummy_input_1, nullifier_1) =
-        dummy_input(&[32u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 1");
-    let nullifiers = [nullifier_0, nullifier_1];
+    // Shield one real UTXO so the transaction has a signer participant. The
+    // circuit's dummy-tag hardening deliberately rejects an all-padding proof.
+    let blinding = test_blinding(7);
+    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
+    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+    let owner = PublicKey::from_ed25519(&payer_bytes);
+    let utxo = Utxo {
+        owner,
+        asset: SOL_MINT,
+        amount: TRANSFER_AMOUNT,
+        blinding,
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    let owner_hash = owner_hash(&owner, &nullifier_pk).expect("owner field");
+    let event = env
+        .rpc
+        .deposit_sol(
+            &env.tree.pubkey(),
+            &payer,
+            TRANSFER_AMOUNT,
+            owner_hash,
+            blinding,
+        )
+        .expect("proofless deposit");
+    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    assert_eq!(event.utxo_hash, utxo_hash, "deposited UTXO hash");
 
-    // Three dummy outputs with distinct blindings. Each has a real `utxo_hash` that
-    // the program appends to the tree and the proof commits via the public output
-    // chain; all three contribute `0` to `private_tx_hash`.
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
+    // The deposit appended leaf 0 and stored its state root at history index 1.
+    let roots = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let (utxo_root, nullifier_root) = roots;
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    state_tree.append(&utxo_hash).expect("append state leaf");
+    assert_eq!(state_tree.root(), utxo_root, "state root gate");
+    let state_path: Vec<[u8; 32]> = state_tree
+        .get_proof_of_leaf(0, true)
+        .expect("state proof")
+        .to_vec();
+
+    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+    let nullifier = nullifier_key
+        .nullifier(&utxo_hash, &blinding)
+        .expect("nullifier");
+    let non_inclusion = nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+        .expect("non-inclusion proof");
+    let owner_pk_hash = hash_bytes(&payer_bytes).expect("owner pk hash");
+    let real_input = spend_input(SpendInputArgs {
+        utxo: &utxo,
+        owner_field: &owner_hash,
+        state_path: &state_path,
+        state_path_index: 0,
+        non_inclusion: &non_inclusion,
+        roots,
+        nullifier: &nullifier,
+        owner_pk_hash: &owner_pk_hash,
+        nullifier_key: &nullifier_key,
+    })
+    .expect("real input");
+    let (dummy_input, dummy_nullifier) =
+        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+    let nullifiers = [nullifier, dummy_nullifier];
+
+    // Preserve the real input's value in output 0; outputs 1 and 2 are padding.
+    let output_nullifier_pk = NullifierKey::from_secret([10u8; 31])
+        .pubkey()
+        .expect("output nullifier pubkey");
+    let real_output = real_output(
+        owner,
+        output_nullifier_pk,
+        SOL_MINT,
+        TRANSFER_AMOUNT,
+        [4u8; 31],
+    );
+    let real_output_hash = real_output.hash().expect("real output hash");
+    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31]]
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
         .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let output_hashes = [real_output_hash, dummy_outputs[0].1, dummy_outputs[1].1];
+    let mut outputs = vec![
+        transfer_output(&real_output).expect("real transfer output"),
+        dummy_outputs[0].0.clone(),
+        dummy_outputs[1].0.clone(),
+    ];
 
     // Instruction data; `proof` and `private_tx_hash` are filled in once the
     // external-data hash (which excludes both) is known. The eddsa rail carries no
     // P256 owner, so `p256_signing_pk_x` is `None`. Each output carries its own
     // `Inline` owner tag.
-    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
-        nullifiers
-            .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
-            .collect(),
+        vec![
+            eddsa_input_utxo(nullifier, 1),
+            eddsa_input_utxo(dummy_nullifier, 1),
+        ],
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
         None,
     );
 
-    // Confidential owner tags: the program reconstructs each output's owner
-    // `pk_field` as `hash_field(resolved_owner_tag)` per position. All three
-    // outputs are dummies, so their owner is unconstrained (nullifier_pk 0).
+    // Output 0 binds to the payer and the dummy outputs reuse the payer's
+    // participant tag.
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
-    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
+    set_output_owner_tags(
+        &mut outputs,
+        &owner_pk_hashes,
+        &[output_nullifier_pk, zero, zero],
+    );
 
     // external_data_hash via the shared interface struct: the program computes
     // the identical value on-chain. No settlement, so the account fields are 0.
     let external_data_hash =
         external_data_hash(&transact_ix_data, &[]).expect("external data hash");
 
-    // Dummy inputs and outputs contribute zero hashes to private_tx_hash.
-    let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
-        .hash()
-        .expect("private tx hash");
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[real_output_hash, zero, zero],
+        &external_data_hash,
+    )
+    .hash()
+    .expect("private tx hash");
 
     // Values the program reconstructs from accounts[0] (the payer).
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
@@ -215,13 +291,13 @@ fn build_valid_transact_ix(env: &TransactEnv) -> TransactIxData {
         &public_slot_assets,
         &public_slot_amounts,
         &payer_pubkey_hash,
-        &[owner_hash, owner_hash],
+        &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
         &zero,
     );
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![dummy_input_0, dummy_input_1],
+        inputs: vec![real_input, dummy_input],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
@@ -244,7 +320,7 @@ fn transact_sends_valid_proof() {
     };
 
     let payer = env.rpc.payer.pubkey();
-    let transact_ix_data = build_valid_transact_ix(&env);
+    let transact_ix_data = build_valid_transact_ix(&mut env);
     let tree_balance_before = tree_lamports(&env.rpc, &env.tree.pubkey());
 
     // Index 0 is the fee payer and the eddsa signer the inputs reference
@@ -282,7 +358,7 @@ fn transact_spends_from_input_tree_and_appends_to_output_tree() {
         .create_tree(common::tree_account_size(), &env.authority)
         .expect("create output tree");
     let payer = env.rpc.payer.pubkey();
-    let transact_ix_data = build_valid_transact_ix(&env);
+    let transact_ix_data = build_valid_transact_ix(&mut env);
     let input_before = tree_indices(&env.rpc, &env.tree.pubkey());
     let output_before = tree_indices(&env.rpc, &output_tree.pubkey());
     let input_balance_before = tree_lamports(&env.rpc, &env.tree.pubkey());
@@ -296,8 +372,14 @@ fn transact_spends_from_input_tree_and_appends_to_output_tree() {
         data: transact_ix_data,
     }
     .instruction();
+    // The test indexer intentionally models one output tree. This scenario
+    // exercises two on-chain trees, so submit directly and assert their state.
+    let payer_signer = env.rpc.payer.insecure_clone();
+    let message = Message::new(&[ix], Some(&payer));
+    let transaction = Transaction::new(&[&payer_signer], message, env.rpc.svm.latest_blockhash());
     env.rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
+        .svm
+        .send_transaction(transaction)
         .expect("cross-tree transact");
 
     let input_after = tree_indices(&env.rpc, &env.tree.pubkey());
@@ -338,9 +420,9 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         return;
     };
 
-    env.force_dummy_inputs_disabled();
     let payer = env.rpc.payer.pubkey();
-    let transact_ix_data = build_valid_transact_ix(&env);
+    let transact_ix_data = build_valid_transact_ix(&mut env);
+    env.force_dummy_inputs_disabled();
     let ix = Transact {
         payer,
         input_tree: env.tree.pubkey(),
@@ -374,7 +456,7 @@ fn transact_rejects_mismatched_circuit_selector() {
     };
 
     let payer = env.rpc.payer.pubkey();
-    let valid = build_valid_transact_ix(&env);
+    let valid = build_valid_transact_ix(&mut env);
 
     for (circuit, error) in [
         // A zone selector on the default-zone `transact` instruction.
@@ -409,7 +491,7 @@ fn transact_rejects_mismatched_circuit_selector() {
 }
 
 /// A tampered output owner tag (changed after proving, so
-/// `hash_field(resolved_owner_tag)` no longer matches the proof's committed
+/// `hash_bytes(resolved_owner_tag)` no longer matches the proof's committed
 /// output-owner chain) must be rejected: the program reconstructs the owner tags
 /// from the instruction's outputs and the resulting public input no longer
 /// matches the proof.
@@ -420,11 +502,11 @@ fn transact_rejects_tampered_output_view_tag() {
     };
 
     let payer = env.rpc.payer.pubkey();
-    let mut transact_ix_data = build_valid_transact_ix(&env);
+    let mut transact_ix_data = build_valid_transact_ix(&mut env);
     let tree_balance_before = tree_lamports(&env.rpc, &env.tree.pubkey());
 
     // Flip a recipient output's owner tag. The proof committed to the original
-    // `hash_field(resolved_owner_tag)`, so the program's reconstruction now
+    // `hash_bytes(resolved_owner_tag)`, so the program's reconstruction now
     // disagrees.
     let tampered = transact_ix_data.outputs.get_mut(1).expect("second output");
     tampered.owner_tag = OwnerTag::Inline([0xAAu8; 32]);

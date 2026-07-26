@@ -1,4 +1,5 @@
 use thiserror::Error;
+use zolana_hasher::HasherError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum KeypairError {
@@ -22,7 +23,10 @@ pub enum KeypairError {
 
     #[error("poseidon hash failed (code {0})")]
     Poseidon(u32),
+}
 
-    #[error("field element input exceeds 32 bytes")]
-    FieldElementTooLong,
+impl From<HasherError> for KeypairError {
+    fn from(error: HasherError) -> Self {
+        Self::Poseidon(error.into())
+    }
 }

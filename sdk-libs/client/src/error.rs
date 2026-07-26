@@ -54,6 +54,12 @@ pub enum ClientError {
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
 
+    #[error("SPL token program is required for mint {mint}")]
+    MissingSplTokenProgram { mint: Pubkey },
+
+    #[error("mint {mint} is owned by unsupported SPL token program {owner}")]
+    UnsupportedSplTokenProgram { mint: Pubkey, owner: Pubkey },
+
     #[error("address resolution error: {0}")]
     AddressResolution(String),
 

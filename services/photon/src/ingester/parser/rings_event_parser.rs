@@ -278,3 +278,113 @@ fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> 
 fn is_emit_event(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bool {
     instruction.program_id == rings_program_id && instruction.data.first() == Some(&tag::EMIT_EVENT)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_event::{InstructionGroup, ParsedInstruction};
+
+    fn spp() -> Pubkey {
+        pda::shielded_pool_program_id()
+    }
+
+    /// Stand-in for any foreign program (attacker contract, zone program).
+    fn foreign() -> Pubkey {
+        Pubkey::new_from_array([9; 32])
+    }
+
+    fn ix(program_id: Pubkey, tag_byte: u8, stack_height: u32) -> ParsedInstruction {
+        ParsedInstruction::new(
+            program_id,
+            Vec::new(),
+            vec![tag_byte, 1, 2, 3],
+            Some(stack_height),
+        )
+    }
+
+    fn event_sites(groups: &[InstructionGroup]) -> Vec<EventSite> {
+        find_event_sites(groups, spp()).unwrap()
+    }
+
+    #[test]
+    fn accepts_genuine_self_emitted_event() {
+        let groups = [InstructionGroup {
+            outer: ix(spp(), tag::TRANSACT, 1),
+            inner: vec![ix(spp(), tag::EMIT_EVENT, 2)],
+        }];
+
+        let sites = event_sites(&groups);
+
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].source_instruction_tag, tag::TRANSACT);
+    }
+
+    #[test]
+    fn accepts_zone_rail_event_nested_at_height_three() {
+        let groups = [InstructionGroup {
+            outer: ix(foreign(), 0, 1),
+            inner: vec![
+                ix(spp(), tag::ZONE_TRANSACT, 2),
+                ix(spp(), tag::EMIT_EVENT, 3),
+            ],
+        }];
+
+        let sites = event_sites(&groups);
+
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].source_instruction_tag, tag::ZONE_TRANSACT);
+    }
+
+    #[test]
+    fn drops_event_forged_by_direct_foreign_cpi() {
+        // Attacker program CPIs SPP with EMIT_EVENT; the event's parent is the
+        // attacker's top-level instruction.
+        let groups = [InstructionGroup {
+            outer: ix(foreign(), 0, 1),
+            inner: vec![ix(spp(), tag::EMIT_EVENT, 2)],
+        }];
+
+        assert!(event_sites(&groups).is_empty());
+    }
+
+    #[test]
+    fn drops_event_forged_under_a_foreign_inner_parent() {
+        // Attacker nests one level deeper so the forged event's stack height
+        // matches the genuine zone-rail shape; the parent is still foreign.
+        let groups = [InstructionGroup {
+            outer: ix(foreign(), 0, 1),
+            inner: vec![ix(foreign(), 0, 2), ix(spp(), tag::EMIT_EVENT, 3)],
+        }];
+
+        assert!(event_sites(&groups).is_empty());
+    }
+
+    #[test]
+    fn drops_event_parented_to_another_emit_event() {
+        // A second EMIT_EVENT whose reconstructed parent is the first
+        // EMIT_EVENT: the event-source whitelist never includes EMIT_EVENT.
+        let groups = [InstructionGroup {
+            outer: ix(spp(), tag::TRANSACT, 1),
+            inner: vec![ix(spp(), tag::EMIT_EVENT, 2), ix(spp(), tag::EMIT_EVENT, 3)],
+        }];
+
+        let sites = event_sites(&groups);
+
+        assert_eq!(sites.len(), 1);
+    }
+
+    #[test]
+    fn drops_event_without_stack_height() {
+        let groups = [InstructionGroup {
+            outer: ix(spp(), tag::TRANSACT, 1),
+            inner: vec![ParsedInstruction::new(
+                spp(),
+                Vec::new(),
+                vec![tag::EMIT_EVENT],
+                None,
+            )],
+        }];
+
+        assert!(event_sites(&groups).is_empty());
+    }
+}

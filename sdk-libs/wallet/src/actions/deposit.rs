@@ -35,6 +35,8 @@ pub struct DepositParams<'a> {
     pub asset: Address,
     pub amount: u64,
     pub spl_token_account: Option<Pubkey>,
+    /// SPL Token or Token-2022 program for non-SOL assets.
+    pub spl_token_program: Option<Pubkey>,
     /// Optional free-form memo emitted in the clear with the deposit.
     pub memo: Option<Vec<u8>>,
 }
@@ -51,7 +53,11 @@ impl Deposit {
             ProofInputUtxo::new(owner, &request.asset, request.amount, &blinding)?.hash()?;
         Ok(Self {
             deposit: AssetDeposit {
-                asset: deposit_asset(request.asset, request.spl_token_account)?,
+                asset: deposit_asset(
+                    request.asset,
+                    request.spl_token_account,
+                    request.spl_token_program,
+                )?,
                 view_tag,
                 owner,
                 blinding,
@@ -187,13 +193,19 @@ fn unsigned_deposit_transaction(
 fn deposit_asset(
     asset: Address,
     spl_token_account: Option<Pubkey>,
+    spl_token_program: Option<Pubkey>,
 ) -> Result<DepositAsset, ClientError> {
     if asset == SOL_MINT {
         return Ok(DepositAsset::Sol);
     }
     let mint = Pubkey::new_from_array(asset.to_bytes());
     let user_token = spl_token_account.ok_or(ClientError::MissingSplTokenAccount { mint })?;
-    Ok(DepositAsset::Spl(DepositSplAccounts { mint, user_token }))
+    let token_program = spl_token_program.ok_or(ClientError::MissingSplTokenProgram { mint })?;
+    Ok(DepositAsset::Spl(DepositSplAccounts {
+        mint,
+        user_token,
+        token_program,
+    }))
 }
 
 #[cfg(test)]
@@ -277,6 +289,7 @@ mod tests {
             asset: SOL_MINT,
             amount: 1_000,
             spl_token_account: None,
+            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             memo: None,
         })
         .expect("prepared deposit");
@@ -296,6 +309,7 @@ mod tests {
             asset: SOL_MINT,
             amount: 1_000,
             spl_token_account: None,
+            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
             memo: None,
         })
         .expect("prepared deposit");
@@ -329,6 +343,7 @@ mod tests {
             amount: 1_000,
             memo: None,
             spl_token_account: Some(user_token),
+            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         })
         .expect("prepared deposit");
 
@@ -336,7 +351,11 @@ mod tests {
         assert_eq!(prepared.deposit.amount, 1_000);
         assert_eq!(
             prepared.deposit.asset,
-            DepositAsset::Spl(DepositSplAccounts { mint, user_token })
+            DepositAsset::Spl(DepositSplAccounts {
+                mint,
+                user_token,
+                token_program: zolana_interface::pda::spl_token_program_id(),
+            })
         );
     }
 }

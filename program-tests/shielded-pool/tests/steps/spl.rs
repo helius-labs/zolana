@@ -32,6 +32,7 @@ fn spl_accounts(
         AccountMeta::new(*tree, false),
         AccountMeta::new(*depositor, true),
         AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
+        AccountMeta::new_readonly(*mint, false),
         AccountMeta::new(*user_token, false),
         AccountMeta::new(pda::spl_asset_vault(mint), false),
         AccountMeta::new_readonly(pda::spl_asset_registry(mint), false),

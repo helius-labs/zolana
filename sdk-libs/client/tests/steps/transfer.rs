@@ -156,27 +156,21 @@ impl TransferWorld {
             .into_iter()
             .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
             .collect();
-        match zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &dummy_proofs)
-            .expect("into prover")
-            .circuit
-        {
-            // The P256 rail is removed; no scenario builds it anymore (its SDK
-            // types remain as unimplemented placeholders).
-            ProverVariant::P256(_) => unreachable!("P256 rail removed"),
-            ProverVariant::Eddsa(prover) => {
-                assert_outputs(
-                    &prover.outputs,
-                    &prover.public_movements,
-                    &prover.external_data,
-                    plan,
-                    &sender,
-                    &recipients,
-                    &first_nullifier,
-                    seed,
-                );
-                prove_and_verify_eddsa(&prover.build().expect("build"));
-            }
-        }
+        let ProverVariant::Eddsa(prover) =
+            zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &dummy_proofs)
+                .expect("into prover")
+                .circuit;
+        assert_outputs(
+            &prover.outputs,
+            &prover.public_movements,
+            &prover.external_data,
+            plan,
+            &sender,
+            &recipients,
+            &first_nullifier,
+            seed,
+        );
+        prove_and_verify_eddsa(&prover.build().expect("build"));
     }
 }
 

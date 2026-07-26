@@ -8,8 +8,8 @@ import (
 )
 
 // solAssetValue is the UTXO asset field for native SOL: the default (all-zero)
-// address encoded like any Address in a UTXO commitment, Poseidon(low_128,
-// high_128) == Poseidon(0, 0). Spec: SOL is Address::default(), and the SPL
+// address encoded like any fixed 32-byte Address in a UTXO commitment:
+// HashBytes([0; 32]) == Poseidon(0, 0). Spec: SOL is Address::default(), and the SPL
 // asset uses the same SolanaPkField encoding (on-chain public_spl_asset).
 var solAssetValue = mustSolAsset()
 

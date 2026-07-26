@@ -107,6 +107,12 @@ pub enum ShieldedPoolError {
     MismatchedCircuitType = 7039,
     #[error("SPL deposit authority must sign")]
     SplDepositorMustSign = 7040,
+    #[error("SPL token program is not supported")]
+    UnsupportedSplTokenProgram = 7041,
+    #[error("SPL token mint account is invalid")]
+    InvalidSplTokenMint = 7042,
+    #[error("Token-2022 mint extension is not supported")]
+    UnsupportedToken2022Extension = 7043,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -184,6 +190,9 @@ mod tests {
             (PublicAssetAmountOverflow as u32, 7038),
             (MismatchedCircuitType as u32, 7039),
             (SplDepositorMustSign as u32, 7040),
+            (UnsupportedSplTokenProgram as u32, 7041),
+            (InvalidSplTokenMint as u32, 7042),
+            (UnsupportedToken2022Extension as u32, 7043),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

@@ -20,7 +20,7 @@ use crate::{
     prover::{
         field::be,
         transact::{
-            p256_and_eddsa::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
+            assembly::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
             witness::{attach_input_proofs, SpendProof},
         },
         MergeInputs, TransferInput, TransferOutput,
@@ -218,7 +218,7 @@ impl MergeProver {
         )
         .hash()?;
 
-        let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
+        let user_signing_pk_hash = self.signing_pubkey.owner_proof_input_hash()?;
         let head = [
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
@@ -226,7 +226,7 @@ impl MergeProver {
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             external_data_hash,
-            super::transact::p256_and_eddsa::bool_field(true),
+            super::transact::assembly::bool_field(true),
         ];
 
         let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;

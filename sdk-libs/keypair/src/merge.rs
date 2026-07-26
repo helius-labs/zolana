@@ -2,6 +2,8 @@
 //! circuit proves) plus the Poseidon key schedule behind [`symmetric_apply`],
 //! kept for schemes that encrypt with a pre-shared secret.
 
+use zolana_hasher::primitives::{hash_bytes, pack_be};
+
 use crate::{encryption::ctr_apply, error::KeypairError, hash::poseidon};
 
 /// Domain separators (32-bit ASCII tags) for the Poseidon key schedule,
@@ -18,7 +20,7 @@ pub const DOMAIN_MERGE_DUMMY_NULLIFIER: u32 = 0x544d_444e; // "TMDN"
 /// HPKE-style key-schedule info string bound into the KDF (spec Merge Proof).
 /// Shared by schemes that encrypt with a pre-shared secret via
 /// [`symmetric_apply`].
-pub const MERGE_INFO: &[u8] = b"TSPP/merge";
+pub const MERGE_INFO: &[u8; 10] = b"TSPP/merge";
 
 fn fe_u32(x: u32) -> [u8; 32] {
     let mut fe = [0u8; 32];
@@ -57,46 +59,21 @@ pub fn merge_dummy_nullifier(
     ])
 }
 
-/// Poseidon hash of a byte payload, packed as big-endian field elements in
-/// 16-byte chunks (`PoseidonHash(PackBytesBE(ct, 16))` in the circuit). Used in
-/// place of a GCM tag by the pre-shared-secret encryption schemes.
-pub fn merge_ciphertext_hash(ciphertext: &[u8]) -> Result<[u8; 32], KeypairError> {
-    let chunks: Vec<[u8; 32]> = ciphertext
-        .chunks(16)
-        .map(|c| {
-            let mut fe = [0u8; 32];
-            fe[32 - c.len()..32].copy_from_slice(c);
-            fe
-        })
-        .collect();
-    let refs: Vec<&[u8]> = chunks.iter().map(|c| c.as_slice()).collect();
-    poseidon(&refs)
-}
-
-/// pack_info mirrors packInfoTo2FECircuit: lo[0] = len, lo holds info[..split] in
-/// its low bytes, hi holds the remainder. `info.len()` must be <= 62.
-fn pack_info(info: &[u8]) -> ([u8; 32], [u8; 32]) {
-    let len = info.len();
-    let split = len.min(31);
-    let mut lo = [0u8; 32];
-    lo[0] = len as u8;
-    lo[32 - split..32].copy_from_slice(&info[..split]);
-    let mut hi = [0u8; 32];
-    let rem = len - split;
-    if rem > 0 {
-        hi[32 - rem..32].copy_from_slice(&info[split..len]);
-    }
-    (lo, hi)
+/// Commits a fixed-size ciphertext with the protocol-wide 31-byte hash chain.
+pub fn merge_ciphertext_hash<const N: usize>(
+    ciphertext: &[u8; N],
+) -> Result<[u8; 32], KeypairError> {
+    Ok(hash_bytes(ciphertext)?)
 }
 
 const NONCE_LEN: usize = 12;
 
 fn key_schedule(
     shared_secret: &[u8; 32],
-    info: &[u8],
+    info: &[u8; 10],
 ) -> Result<([u8; 32], [u8; NONCE_LEN]), KeypairError> {
-    let (info_lo, info_hi) = pack_info(info);
-    let siloed = poseidon(&[&fe_u32(DOM_SEP_SILO), shared_secret, &info_lo, &info_hi])?;
+    let [info_field] = pack_be::<10, 1>(info);
+    let siloed = poseidon(&[&fe_u32(DOM_SEP_SILO), shared_secret, &info_field])?;
     let key_lo = poseidon(&[&fe_u32(DOM_SEP_KEY), &siloed])?;
     let key_hi = poseidon(&[&fe_u32(DOM_SEP_KEY + 1), &siloed])?;
     let mut key = [0u8; 32];
@@ -114,7 +91,7 @@ fn key_schedule(
 /// Encryption and decryption are the same operation.
 pub fn symmetric_apply(
     shared_secret: &[u8; 32],
-    info: &[u8],
+    info: &[u8; 10],
     buf: &mut [u8],
 ) -> Result<(), KeypairError> {
     let (key, nonce) = key_schedule(shared_secret, info)?;

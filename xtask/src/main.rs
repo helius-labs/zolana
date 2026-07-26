@@ -334,8 +334,8 @@ fn tx_size(args: Vec<String>) {
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
         instruction::{
-            tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, P256Proof, TransactIxData,
-            TransactOutput, TransactProof,
+            tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
+            TransactProof,
         },
         N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
@@ -788,17 +788,10 @@ fn tx_size(args: Vec<String>) {
         "Public-leg and proof-encoding sensitivity (3 in 3 out, repeated same-asset SPL withdrawals):"
     );
     println!(
-        "| {:>11} | {:>17} | {:>16} | {:>17} | {:>16} |",
-        "interface transfers",
-        "EdDSA ix data (B)",
-        "EdDSA tx (B)",
-        "P256 ix data (B)",
-        "P256 tx (B)",
+        "| {:>11} | {:>17} | {:>16} |",
+        "interface transfers", "EdDSA ix data (B)", "EdDSA tx (B)",
     );
-    println!(
-        "|{:-<13}|{:-<19}|{:-<18}|{:-<19}|{:-<18}|",
-        "", "", "", "", ""
-    );
+    println!("|{:-<13}|{:-<19}|{:-<18}|", "", "", "");
     let spec = transfer_layout(
         3,
         OwnerTag::Account(0),
@@ -819,30 +812,16 @@ fn tx_size(args: Vec<String>) {
             TransactProof::zeroed_eddsa(),
             &spec,
         );
-        let p256_data = build_ix_data(
-            interface_transfers,
-            3,
-            None,
-            TransactProof::P256(P256Proof::zeroed()),
-            &spec,
-        );
         let eddsa_ix = Instruction {
             program_id: spp_pk,
             accounts: repeated_spl_withdraw_accounts(leg_count),
             data: make_ix_bytes(&eddsa_data),
         };
-        let p256_ix = Instruction {
-            program_id: spp_pk,
-            accounts: repeated_spl_withdraw_accounts(leg_count),
-            data: make_ix_bytes(&p256_data),
-        };
         println!(
-            "| {:>11} | {:>17} | {:>16} | {:>17} | {:>16} |",
+            "| {:>11} | {:>17} | {:>16} |",
             leg_count,
             eddsa_ix.data.len(),
             legacy_tx_len(eddsa_ix),
-            p256_ix.data.len(),
-            legacy_tx_len(p256_ix),
         );
     }
 }

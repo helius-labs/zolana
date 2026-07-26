@@ -108,6 +108,11 @@ pub const SPL_TOKEN_PROGRAM_ID: [u8; 32] = [
     95, 91, 55, 145, 58, 140, 245, 133, 126, 255, 0, 169,
 ];
 
+/// SPL Token-2022 program id:
+/// `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`.
+pub const SPL_TOKEN_2022_PROGRAM_ID: [u8; 32] =
+    solana_pubkey::Pubkey::from_str_const("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb").to_bytes();
+
 /// SPL Associated Token Account program id:
 /// `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL`.
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: [u8; 32] = [
@@ -122,6 +127,7 @@ pub const SPL_TOKEN_ACCOUNT_AMOUNT_END: usize =
 pub const SPL_TOKEN_ACCOUNT_STATE_OFFSET: usize = 108;
 pub const SPL_TOKEN_ACCOUNT_INITIALIZED: u8 = 1;
 pub const SPL_TOKEN_TRANSFER_DISCRIMINATOR: u8 = 3;
+pub const SPL_TOKEN_TRANSFER_CHECKED_DISCRIMINATOR: u8 = 12;
 pub const SPL_TOKEN_MINT_TO_DISCRIMINATOR: u8 = 7;
 pub const SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR: u8 = 18;
 pub const SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR: u8 = 20;

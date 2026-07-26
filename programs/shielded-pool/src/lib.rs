@@ -46,6 +46,10 @@ pub fn process_instruction(
         InstructionTag::try_from(*ix_tag).map_err(|_| ProgramError::InvalidInstructionData)?;
 
     match ix_tag {
+        // Deliberate no-op: the event self-CPI exists only to record inner-
+        // instruction data. Anyone can invoke this tag (directly or via CPI)
+        // with forged bytes; indexers MUST filter events by parent instruction
+        // (see `zolana_event::tag::EMIT_EVENT`).
         InstructionTag::EmitEvent => Ok(()),
         InstructionTag::Transact
         | InstructionTag::ZoneTransact

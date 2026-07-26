@@ -15,11 +15,10 @@
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_keypair::hash::hash_field;
+use zolana_hasher::{hash_chain::create_hash_chain_from_slice, primitives::hash_bytes};
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicMovements},
-    utxo::program_id_field,
+    utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -28,9 +27,7 @@ use crate::{
     prover::{
         field::be,
         resolve_shape,
-        transact::p256_and_eddsa::{
-            assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput,
-        },
+        transact::assembly::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
         Shape, TransferInputs,
     },
 };
@@ -78,13 +75,13 @@ impl ZoneTransferProver {
         // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
         // zone field to this public input.
-        let zone_program_id = program_id_field(&self.zone_program_id)?;
+        let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
 
         // Zone eddsa-rail public-input layout (Confidential=false,
         // ZoneAuthority=false in public_inputs.go): the 12-element base, then the
         // tail of the P256 message and create_hash_chain_from_slice(
         // input_owner_pk_hashes), with NO confidential appendix (no output-owner
-        // chain, no p256_signing_pk_field). hash_field(&[0;32]) == Poseidon(0, 0),
+        // chain, no p256_signing_pk_field). hash_bytes(&[0;32]) == Poseidon(0, 0),
         // matching the circuit's zeroed P256 message on the eddsa rail.
         let slots = self.public_movements.interleaved();
         let mut elements = Vec::with_capacity(10 + slots.len());
@@ -100,8 +97,8 @@ impl ZoneTransferProver {
         elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
-            super::p256_and_eddsa::bool_field(self.allow_dummy_inputs),
-            hash_field(&[0u8; 32])?,
+            super::assembly::bool_field(self.allow_dummy_inputs),
+            hash_bytes(&[0u8; 32])?,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
         ]);
         let public_input = create_hash_chain_from_slice(&elements)?;

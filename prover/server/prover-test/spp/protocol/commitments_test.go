@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"crypto/elliptic"
-	"crypto/sha256"
 	"math/big"
 	"testing"
 
@@ -149,10 +148,8 @@ func TestSolanaPkFieldMatchesSpecFormula(t *testing.T) {
 		pubkey[i] = byte(i + 1)
 	}
 	got := mustSolanaPkField(t, pubkey)
-	want := mustPoseidon(t, 3, []*big.Int{
-		new(big.Int).SetBytes(pubkey[16:]),
-		new(big.Int).SetBytes(pubkey[:16]),
-	})
+	wantValue, wantErr := HashBytes(pubkey[:])
+	want := mustHash(t, wantValue, wantErr)
 	if got.Cmp(want) != 0 {
 		t.Fatalf("solana pk hash mismatch: got %s want %s", got, want)
 	}
@@ -170,49 +167,14 @@ func TestP256PkFieldMatchesSpecFormula(t *testing.T) {
 	}
 	var xBytes [32]byte
 	priv.PublicKey.X.FillBytes(xBytes[:])
-	xHash := mustPoseidon(t, 3, []*big.Int{
-		new(big.Int).SetBytes(xBytes[16:]),
-		new(big.Int).SetBytes(xBytes[:16]),
-	})
+	xHashValue, xHashErr := HashBytes(xBytes[:])
+	xHash := mustHash(t, xHashValue, xHashErr)
 	want := mustPoseidon(t, 3, []*big.Int{
 		new(big.Int).SetUint64(uint64(compressed[0] & 1)),
 		xHash,
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("P256 owner key hash mismatch: got %s want %s", got, want)
-	}
-}
-
-func TestP256MessageDigestIsFullSha256(t *testing.T) {
-	privateTxHash := new(big.Int).SetBytes([]byte{
-		0x01, 0x02, 0x03, 0x04,
-		0x05, 0x06, 0x07, 0x08,
-		0x09, 0x0a, 0x0b, 0x0c,
-		0x0d, 0x0e, 0x0f, 0x10,
-		0x11, 0x12, 0x13, 0x14,
-		0x15, 0x16, 0x17, 0x18,
-		0x19, 0x1a, 0x1b, 0x1c,
-		0x1d, 0x1e, 0x1f, 0x20,
-	})
-
-	digest, err := P256MessageDigest(privateTxHash)
-	if err != nil {
-		t.Fatalf("p256 message digest: %v", err)
-	}
-	var privateTxHashBytes [32]byte
-	privateTxHash.FillBytes(privateTxHashBytes[:])
-	// Full SHA-256, no byte zeroing: the digest is carried as two 128-bit limbs.
-	want := sha256.Sum256(privateTxHashBytes[:])
-	if digest != want {
-		t.Fatalf("p256 message digest mismatch: got %x want %x", digest, want)
-	}
-
-	// Limbs are the big-endian high/low halves and reconstruct the digest.
-	low, high := P256MessageLimbs(digest)
-	wantHigh := new(big.Int).SetBytes(want[0:16])
-	wantLow := new(big.Int).SetBytes(want[16:32])
-	if low.Cmp(wantLow) != 0 || high.Cmp(wantHigh) != 0 {
-		t.Fatalf("p256 message limbs mismatch: got (%s,%s) want (%s,%s)", low, high, wantLow, wantHigh)
 	}
 }
 

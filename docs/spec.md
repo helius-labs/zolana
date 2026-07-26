@@ -243,8 +243,8 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Compressed Groth16 proof with commitment. |
-| `TransactProof` | tagged enum | `Eddsa { a, b, c }` is a 128-byte vanilla Groth16 proof; `P256(SPPProof)` is the 192-byte BSB22-committed proof. The one-byte enum tag precedes either payload. |
-| `CircuitId` | `u16` enum | Selects the circuit instantiation a proof is verified against: `{ConfidentialEddsa = 0, ConfidentialP256 = 1, ZoneEddsa = 2, ZoneP256 = 3, ZoneAuthority = 4}`. See [Circuit Combinations](#circuit-variants). Unknown values are rejected at deserialization. |
+| `TransactProof` | tagged enum | `Eddsa { a, b, c }` is a 128-byte vanilla Groth16 proof. P256 transaction-owner proofs are not supported. |
+| `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `ZoneEddsa`, or `ZoneAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Unknown values are rejected at deserialization. |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
@@ -254,6 +254,7 @@ Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 Hashing conventions:
 
 - `Sha256BE` — SHA-256 over the byte preimage, then `digest[0] = 0`, interpreted as a BN254 field element. Zeroing the most-significant byte holds the result below the BN254 field modulus.
+- `hash_bytes_N` — a fixed-length byte commitment. Split the `N` bytes into consecutive 31-byte big-endian chunks, right-align each chunk in a 32-byte BN254 field representation, set `acc = chunk_0`, then fold each remaining chunk as `acc = Poseidon(acc, chunk_i)`. `hash_bytes_0([]) = 0`; a value of at most 31 bytes is its packed field value and invokes no Poseidon permutation. The length is fixed by the calling protocol type and is not encoded or domain-separated. A generic variable-length byte-hash API is forbidden.
 
 # Shielded Address
 
@@ -264,28 +265,29 @@ In compressed form the signing and nullifier public keys are compressed in an ow
 
 `CompressedShieldedAddress = (owner_hash, viewing_pk)`
 
-## Pubkey Field Encoding
+## Fixed-byte proof-input encoding
 
-A pubkey is encoded into a single BN254 field via nested 2-input Poseidon over 128-bit big-endian limbs. This `pk_field(pk)` is the canonical form used wherever a pubkey appears inside a Poseidon hash anywhere in this spec.
+Raw fixed-size values use `hash_bytes_N` everywhere they enter a field-level
+commitment. Structured hashes over values that are already field elements keep
+their stated Poseidon preimages.
 
 ```
-P256 (33 B SEC1: parity || x_be32):
-  x_hash := Poseidon(x_low_128, x_high_128)
-  pk_field(pk) := Poseidon(y_is_odd, x_hash)
+Solana / Ed25519 owner (32 B):
+  owner_proof_input_hash(pk) := hash_bytes_32(pk)
 
-Solana / Ed25519 (32 B):
-  pk_field(pk) := Poseidon(pk_low_128, pk_high_128)
+P256 viewing key (33 B SEC1, retained for viewing/ECDH):
+  viewing_proof_input_hash(pk) := hash_bytes_33(pk)
 ```
-
-P256's extra `y_is_odd` layer means the two encodings cannot collide except via Poseidon preimage collision (~2⁻²⁵⁴); no explicit scheme tag is needed.
 
 ## Owner Hash
 
 ```
-owner_hash := Poseidon(pk_field(signing_pk), nullifier_pk)
+owner_hash := Poseidon(owner_proof_input_hash(signing_pk), nullifier_pk)
 ```
 
-The proof recomputes `pk_field(signing_pk)` from a witnessed P256 point; for Solana / Ed25519 inputs, SPP supplies it from the verified signer account.
+SPP derives the owner proof input from the verified Ed25519 signer account.
+P256 remains the curve used for viewing keys and ECDH, not transaction-owner
+authorization.
 
 # Signing Key
 
@@ -874,13 +876,11 @@ struct MergeEncryptedUtxo {
 | nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
 | private_tx_hash | instruction data |
 | external_data_hash | instruction data. SPP recomputes it from the instruction and checks it matches this public input. It is its own public input, not just an input to `private_tx_hash`, because SPP cannot recompute `private_tx_hash`: that hash covers the input UTXO hashes, which are private. Without it a proof could be reused with a different instruction (different encrypted outputs, settlement accounts, or public-leg amounts). |
-| public_assets (`N_PUBLIC_SLOTS = 3`) | Public proof slots are uniform `(asset, amount)` pairs, entering the public-input hash interleaved as `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. The SDK derives and SPP recomputes the slots: resolve every settlement leg's asset, add deposits and subtract withdrawals in `i128`, drop zero-net groups, and emit the remaining distinct assets in first-appearance order. SOL uses `pk_field(Address::default())`; SPL uses `pk_field(mint)` derived from the validated vault. Unused slots are `(0, 0)`. |
+| public_assets (`N_PUBLIC_SLOTS = 3`) | Public proof slots are uniform `(asset, amount)` pairs, entering the public-input hash interleaved as `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. The SDK derives and SPP recomputes the slots: resolve every settlement leg's asset, add deposits and subtract withdrawals in `i128`, drop zero-net groups, and emit the remaining distinct assets in first-appearance order. SOL uses `hash_bytes_32(Address::default())`; SPL uses `hash_bytes_32(mint)` derived from the validated vault. Unused slots are `(0, 0)`. |
 | public_amounts (`N_PUBLIC_SLOTS = 3`) | Signed-field encodings of the three aggregated proof movements. Each net magnitude must fit `u64`; deposits encode the magnitude directly and withdrawals encode its negation in the BN254 field. |
 | zone_program_id | single `pk_field` of the policy zone authorizing the transaction's UTXOs; `0` (non-zone / default transact) — instruction data |
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
-| private_tx_hash_digest | The full `SHA-256(private_tx_hash)`, recomputed by SPP on-chain from the `private_tx_hash` public input. The ECDSA message digest the proof checks the P256 `owner_signature` against. The 256-bit digest exceeds the BN254 modulus, so it enters the circuit as two big-endian 128-bit limbs (`low`, `high`) and the public-input hash binds `Poseidon(low, high)`. Computing the SHA-256 outside the circuit keeps the costly hash out of the constraint system; the proof performs only the EC arithmetic of ECDSA verification against the reconstructed digest. Both limbs are `0` on the Solana-only variant. |
-| solana_owner_pk_hashes (one per input UTXO) | `pk_field` (see [Shielded Address](#shielded-address)) of the input's Solana / Ed25519 owner; `0` for a P256-owned input. |
-| p256_signing_pk | `hash_field(p256_signing_pk_x)`, the transaction's shared P256 signing key. SPP computes it on-chain from the raw x-coordinate in instruction data (`0` on the eddsa rail); the circuit routes P256-owned inputs by equality against it. |
+| owner_proof_input_hashes (one per input UTXO) | `hash_bytes_32` of the input's Solana / Ed25519 owner account. |
 
 The rows are in preimage order: every variant shares the rows through
 `payer_pubkey_hash`, and the ones a variant does not publish are omitted from the
@@ -892,11 +892,10 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| owner signing key witness | P256 inputs witness canonical `(x, y)` and compressed-key parity, used to recompute `pk_field(signing_pk)` (see [Shielded Address](#shielded-address)). An Ed25519-owned input uses the public `solana_owner_pk_hashes[i]`. |
+| owner proof input | The public `hash_bytes_32` commitment derived by SPP from the verified Ed25519 signer account. |
 | `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
 | `blinding`, `asset`, `amount`, `data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
-| `owner_signature` | P256 signature by `signing_pk` over `private_tx_hash` (P256 owners only; ignored for Ed25519). The proof checks it against the public `private_tx_hash_digest`; the SHA-256 that produces that digest is computed outside the circuit (see [UTXO Ownership Check](#utxo-ownership-check)). |
 
 **Private Inputs (per output UTXO)**
 
@@ -1301,7 +1300,7 @@ struct InputUtxo {
 }
 
 /// Owner of an output as a 32-byte value: the published fetch tag and the
-/// preimage of the output's owner public input `hash_field(fetch_tag)`.
+/// preimage of the output's owner public input `hash_bytes_32(fetch_tag)`.
 enum OwnerTag {
     /// The 32-byte value inline: a recipient/dummy signing pubkey or zone HKDF tag.
     Inline([u8; 32]),
@@ -1349,8 +1348,7 @@ struct TransactIxData {
     /// [Circuit Combinations](#circuit-variants).
     circuit: CircuitId,
     /// Raw P256 x-coordinate of the transaction's shared signing key; `None` on
-    /// the eddsa rail. SPP computes `hash_field(x)` for the P256 owner public
-    /// input; the raw value is the `P256SigningKey` fetch tag.
+    /// the eddsa rail. This legacy field is not used by supported circuits.
     p256_signing_pk_x: Option<[u8; 32]>,
     inputs: Vec<InputUtxo>,
     /// Zero or more non-zero full-width movements, with a u8 count on the wire.

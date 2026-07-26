@@ -101,7 +101,7 @@ fn build_spend_note(
     nullifier_key: NullifierKey,
     utxo_hash: [u8; 32],
 ) -> SpendNote {
-    let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
+    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
     let roots = on_chain_roots(&env.rpc, &env.tree.pubkey(), 1);
@@ -178,20 +178,29 @@ fn deposit_spl_note(
     mint: Pubkey,
     amount: u64,
 ) -> (SpendNote, Pubkey, Pubkey) {
+    deposit_spl_note_with_program(env, mint, amount, ZolanaProgramTest::token_program_id())
+}
+
+fn deposit_spl_note_with_program(
+    env: &mut TransactEnv,
+    mint: Pubkey,
+    amount: u64,
+    token_program: Pubkey,
+) -> (SpendNote, Pubkey, Pubkey) {
     env.rpc
         .ensure_asset_counter(&env.authority)
         .expect("asset counter");
     let (_, vault) = env
         .rpc
-        .create_spl_interface(&env.authority, &mint)
+        .create_spl_interface_with_program(&env.authority, &mint, token_program)
         .expect("SPL interface");
     let payer = env.rpc.payer.insecure_clone();
     let source = env
         .rpc
-        .create_token_account(&mint, &payer.pubkey())
+        .create_token_account_with_program(&mint, &payer.pubkey(), token_program)
         .expect("source token account");
     env.rpc
-        .mint_to(&mint, &source, amount)
+        .mint_to_with_program(&mint, &source, amount, token_program)
         .expect("mint tokens");
 
     let blinding = test_blinding(7);
@@ -206,7 +215,14 @@ fn deposit_spl_note(
         data: Data::default(),
     };
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
-    let data = ZolanaProgramTest::spl_shield_data(amount, owner_field, blinding, &mint, &source);
+    let data = ZolanaProgramTest::spl_shield_data_with_program(
+        amount,
+        owner_field,
+        blinding,
+        &mint,
+        &source,
+        token_program,
+    );
     let event = env
         .rpc
         .deposit(&env.tree.pubkey(), &payer, &data)
@@ -221,18 +237,17 @@ fn deposit_spl_note(
     )
 }
 
-fn dummy_outputs() -> Vec<WitnessOutput> {
+fn dummy_outputs(owner_tag: [u8; 32]) -> Vec<WitnessOutput> {
     [[31u8; 31], [32u8; 31], [33u8; 31]]
         .iter()
-        .zip([[1u8; 32], [2u8; 32], [3u8; 32]])
-        .map(|(blinding, view_tag)| {
+        .map(|blinding| {
             let (transfer, hash) = dummy_transfer_output(blinding).expect("dummy transfer output");
             WitnessOutput {
                 transfer,
                 hash,
                 private_hash: [0u8; 32],
                 nullifier_pk: [0u8; 32],
-                view_tag,
+                view_tag: owner_tag,
             }
         })
         .collect()
@@ -416,7 +431,7 @@ fn sol_split_case(reorder_recipients: bool) {
             (SOL_ASSET_FIELD, -(user_amount as i64)),
             (SOL_ASSET_FIELD, -(relayer_amount as i64)),
         ],
-        dummy_outputs(),
+        dummy_outputs(env.rpc.payer.pubkey().to_bytes()),
     );
     let mut ix = Transact {
         payer: payer.pubkey(),
@@ -503,26 +518,29 @@ fn reordered_same_asset_account_groups_fail_closed() {
     sol_split_case(true);
 }
 
-#[test]
-fn repeated_same_mint_spl_withdrawals_settle_independently() {
+fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
     let Some(mut env) = TransactEnv::boot() else {
         return;
     };
     let payer = env.rpc.payer.insecure_clone();
-    let mint = env.rpc.create_mint().expect("create mint");
-    let (note, vault, _) = deposit_spl_note(&mut env, mint, SPL_SPLIT_TOTAL);
+    let mint = env
+        .rpc
+        .create_mint_with_program(token_program)
+        .expect("create mint");
+    let (note, vault, _) =
+        deposit_spl_note_with_program(&mut env, mint, SPL_SPLIT_TOTAL, token_program);
     let first_amount = 400u64;
     let second_amount = SPL_SPLIT_TOTAL - first_amount;
     let first_token = env
         .rpc
-        .create_token_account(&mint, &payer.pubkey())
+        .create_token_account_with_program(&mint, &payer.pubkey(), token_program)
         .expect("first recipient token account");
     let second_token = env
         .rpc
-        .create_token_account(&mint, &payer.pubkey())
+        .create_token_account_with_program(&mint, &payer.pubkey(), token_program)
         .expect("second recipient token account");
     let vault_before = env.rpc.token_balance(&vault).expect("vault balance");
-    let mint_field = zolana_keypair::hash::hash_field(&mint.to_bytes()).expect("mint field");
+    let mint_field = zolana_hasher::primitives::hash_bytes(&mint.to_bytes()).expect("mint field");
     let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
     let interface_transfers = vec![
         InterfaceTransfer::SplWithdrawal {
@@ -555,13 +573,14 @@ fn repeated_same_mint_spl_withdrawals_settle_independently() {
             (mint_field, -(first_amount as i64)),
             (mint_field, -(second_amount as i64)),
         ],
-        dummy_outputs(),
+        dummy_outputs(env.rpc.payer.pubkey().to_bytes()),
     );
     let spl_transfer = |user_token_account| {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+            mint,
             vault,
             user_token_account,
-            token_program: ZolanaProgramTest::token_program_id(),
+            token_program,
         })
     };
     let ix = Transact {
@@ -600,6 +619,16 @@ fn repeated_same_mint_spl_withdrawals_settle_independently() {
             },
         ]
     );
+}
+
+#[test]
+fn repeated_same_mint_spl_withdrawals_settle_independently() {
+    repeated_same_mint_spl_withdrawals_settle(ZolanaProgramTest::token_program_id());
+}
+
+#[test]
+fn token_2022_withdrawals_settle_independently() {
+    repeated_same_mint_spl_withdrawals_settle(ZolanaProgramTest::token_2022_program_id());
 }
 
 #[test]
@@ -646,7 +675,10 @@ fn three_distinct_assets_support_opposite_public_directions() {
             spl_deposit_amount,
             [42u8; 31],
         ),
-        dummy_outputs().into_iter().next().expect("dummy output"),
+        dummy_outputs(env.rpc.payer.pubkey().to_bytes())
+            .into_iter()
+            .next()
+            .expect("dummy output"),
     ];
     let interface_transfers = vec![
         InterfaceTransfer::SplWithdrawal {
@@ -677,10 +709,10 @@ fn three_distinct_assets_support_opposite_public_directions() {
             vault: deposit_vault.to_bytes(),
         },
     ];
-    let withdraw_field =
-        zolana_keypair::hash::hash_field(&withdraw_mint.to_bytes()).expect("withdraw mint field");
-    let deposit_field =
-        zolana_keypair::hash::hash_field(&deposit_mint.to_bytes()).expect("deposit mint field");
+    let withdraw_field = zolana_hasher::primitives::hash_bytes(&withdraw_mint.to_bytes())
+        .expect("withdraw mint field");
+    let deposit_field = zolana_hasher::primitives::hash_bytes(&deposit_mint.to_bytes())
+        .expect("deposit mint field");
     let data = prove_spend(
         &env,
         note,
@@ -695,6 +727,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
     );
     let spl_withdrawal = |vault, user_token_account| {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+            mint: withdraw_mint,
             vault,
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
@@ -702,6 +735,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
     };
     let spl_deposit = |vault, user_token_account| {
         TransactInterfaceTransferAccounts::SplDeposit(TransactSplDepositAccounts {
+            mint: deposit_mint,
             vault,
             depositor: payer.pubkey(),
             user_token_account,

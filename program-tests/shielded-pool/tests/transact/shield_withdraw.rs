@@ -102,7 +102,7 @@ fn shield_then_withdraw_sol() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
+    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
     // Shield: deposit AMOUNT into the UTXO. The vault (cpi_authority) is funded.
@@ -186,7 +186,7 @@ fn shield_then_withdraw_sol() {
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
@@ -198,7 +198,7 @@ fn shield_then_withdraw_sol() {
     );
 
     // All three outputs are dummies; stamp their confidential owner tags from the
-    // program's `hash_field(resolved_owner_tag)` mapping (nullifier_pk 0 =
+    // program's `hash_bytes(resolved_owner_tag)` mapping (nullifier_pk 0 =
     // unconstrained).
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
@@ -309,7 +309,10 @@ fn shield_transfer_then_withdraw_sol() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let payer_owner_pk_hash = payer_utxo.owner.hash().expect("payer owner pk hash");
+    let payer_owner_pk_hash = payer_utxo
+        .owner
+        .owner_proof_input_hash()
+        .expect("payer owner pk hash");
     let payer_owner_field =
         owner_hash(&payer_utxo.owner, &payer_nullifier_pk).expect("payer owner field");
 
@@ -391,9 +394,9 @@ fn shield_transfer_then_withdraw_sol() {
         dummy_transfer_output(&[19u8; 31]).expect("transfer dummy output");
 
     // Each real output's owner tag is its owner's `confidential_view_tag`, so the
-    // program's `hash_field(resolved_owner_tag)` equals that owner's
+    // program's `hash_bytes(resolved_owner_tag)` equals that owner's
     // `owner_pk_field` and the circuit's output owner binding holds. The dummy
-    // slot's owner tag is arbitrary.
+    // dummy slot reuses the sender's tag, as required by the participant gate.
     let change_view_tag = payer_utxo
         .owner
         .confidential_view_tag()
@@ -401,7 +404,7 @@ fn shield_transfer_then_withdraw_sol() {
     let recipient_view_tag = recipient_public_key
         .confidential_view_tag()
         .expect("recipient view tag");
-    let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
+    let transfer_view_tags = [change_view_tag, recipient_view_tag, payer_bytes];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, 1),
@@ -512,7 +515,7 @@ fn shield_transfer_then_withdraw_sol() {
     );
     let recipient_owner_pk_hash = recipient_utxo
         .owner
-        .hash()
+        .owner_proof_input_hash()
         .expect("recipient owner pk hash");
     let recipient_nullifier = recipient_nullifier_key
         .nullifier(&recipient_hash, &recipient_utxo.blinding)
@@ -570,7 +573,7 @@ fn shield_transfer_then_withdraw_sol() {
         .map(|(out, _)| out)
         .collect();
 
-    let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let withdraw_view_tags = [recipient_bytes; 3];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(recipient_nullifier, 2),

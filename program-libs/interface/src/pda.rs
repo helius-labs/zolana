@@ -3,8 +3,8 @@ use solana_pubkey::{Pubkey, PubkeyError};
 use crate::{
     ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
     SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED,
-    SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_PROGRAM_ID,
-    SPP_PROTOCOL_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
+    SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_2022_PROGRAM_ID,
+    SPL_TOKEN_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
 };
 
 pub fn shielded_pool_program_id() -> Pubkey {
@@ -65,14 +65,23 @@ pub fn spl_token_program_id() -> Pubkey {
     Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
 }
 
+pub fn spl_token_2022_program_id() -> Pubkey {
+    Pubkey::new_from_array(SPL_TOKEN_2022_PROGRAM_ID)
+}
+
 /// Canonical associated token account for `(owner, mint)` under the SPL Token program.
 pub fn associated_token_address(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
+    associated_token_address_with_program(owner, mint, &spl_token_program_id())
+}
+
+/// Canonical associated token account for `(owner, mint)` under `token_program`.
+pub fn associated_token_address_with_program(
+    owner: &Pubkey,
+    mint: &Pubkey,
+    token_program: &Pubkey,
+) -> Pubkey {
     Pubkey::find_program_address(
-        &[
-            owner.as_ref(),
-            spl_token_program_id().as_ref(),
-            mint.as_ref(),
-        ],
+        &[owner.as_ref(), token_program.as_ref(), mint.as_ref()],
         &associated_token_program_id(),
     )
     .0

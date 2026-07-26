@@ -6,7 +6,7 @@ use crate::{
     instruction::{
         tag, DepositAssetKind, DepositEntry, DepositIxData, UtxoData, MAX_DEPOSIT_ASSETS,
     },
-    pda, PROGRAM_ID_PUBKEY, SPL_TOKEN_PROGRAM_ID,
+    pda, PROGRAM_ID_PUBKEY,
 };
 
 /// SPL settlement for one deposited mint. The vault and registry are canonical
@@ -15,6 +15,7 @@ use crate::{
 pub struct DepositSplAccounts {
     pub mint: Pubkey,
     pub user_token: Pubkey,
+    pub token_program: Pubkey,
 }
 
 /// Asset one batch entry deposits. Native SOL settles through the SOL interface
@@ -62,6 +63,14 @@ pub enum DepositBuildError {
         first_user_token: Pubkey,
         conflicting_user_token: Pubkey,
     },
+    #[error(
+        "SPL mint {mint} uses conflicting token programs {first_token_program} and {conflicting_token_program}"
+    )]
+    ConflictingSplTokenPrograms {
+        mint: Pubkey,
+        first_token_program: Pubkey,
+        conflicting_token_program: Pubkey,
+    },
     #[error("deposit instruction data could not be serialized")]
     Serialization,
 }
@@ -100,6 +109,13 @@ impl DepositLayout {
                         .iter()
                         .find(|candidate| candidate.mint == spl.mint)
                     {
+                        Some(existing) if existing.token_program != spl.token_program => {
+                            return Err(DepositBuildError::ConflictingSplTokenPrograms {
+                                mint: spl.mint,
+                                first_token_program: existing.token_program,
+                                conflicting_token_program: spl.token_program,
+                            });
+                        }
                         Some(existing) if existing.user_token != spl.user_token => {
                             return Err(DepositBuildError::ConflictingSplSources {
                                 mint: spl.mint,
@@ -169,7 +185,8 @@ impl DepositLayout {
         }
         for spl in &self.spl_groups {
             accounts.extend([
-                AccountMeta::new_readonly(Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID), false),
+                AccountMeta::new_readonly(spl.token_program, false),
+                AccountMeta::new_readonly(spl.mint, false),
                 AccountMeta::new(spl.user_token, false),
                 AccountMeta::new(pda::spl_asset_vault(&spl.mint), false),
                 AccountMeta::new_readonly(pda::spl_asset_registry(&spl.mint), false),
@@ -254,7 +271,11 @@ mod tests {
 
     fn spl(mint: Pubkey, user_token: Pubkey, seed: u8) -> AssetDeposit {
         entry(
-            DepositAsset::Spl(DepositSplAccounts { mint, user_token }),
+            DepositAsset::Spl(DepositSplAccounts {
+                mint,
+                user_token,
+                token_program: pda::spl_token_program_id(),
+            }),
             seed,
         )
     }

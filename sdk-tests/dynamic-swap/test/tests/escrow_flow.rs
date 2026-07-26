@@ -170,6 +170,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 asset: SOL_MINT,
                 amount: reserved,
                 spl_token_account: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 memo: None,
             })
             .map_err(|e| anyhow!("maker funding deposit: {e:?}"))?;

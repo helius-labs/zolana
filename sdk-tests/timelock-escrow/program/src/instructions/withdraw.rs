@@ -6,13 +6,14 @@ use pinocchio::{
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
+use zolana_hasher::primitives::hash_bytes;
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
 use crate::{
     error::TimelockEscrowError,
     instructions::{
-        shared::{check_after_window, cpi_spp_transact_signed, hash_field, u64_right_align},
+        shared::{check_after_window, cpi_spp_transact_signed, u64_right_align},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
 };
@@ -63,7 +64,8 @@ pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     // escrow's committed owner_hash from this pubkey (owner_pk_field), so only
     // the creator can withdraw and the creator knows the refund blinding it
     // chose.
-    let owner_pk_field = hash_field(iter.next_signer("creator")?.address().as_array())?;
+    let owner_pk_field = hash_bytes(iter.next_signer("creator")?.address().as_array())
+        .map_err(TimelockEscrowError::from)?;
 
     let WithdrawIxData {
         proof,

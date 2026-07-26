@@ -59,7 +59,7 @@ func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable 
 	copy(plaintext[8:40], ve.FieldToBytesBE(api, c.Core.Order.DestinationAsset, 32))
 	copy(plaintext[40:71], ve.FieldToBytesBE(api, c.Core.DestinationOutput.Blinding, 31))
 	ciphertext := aes.CTREncrypt(api, aesGadget, key, nonce, plaintext[:])
-	return gadget.PoseidonHash(api, ve.PackBytesBE(api, ciphertext, 16))
+	return gadget.HashBytes(api, ciphertext)
 }
 
 func mergeKdfInfoVars() []frontend.Variable {

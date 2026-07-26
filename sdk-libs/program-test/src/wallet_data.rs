@@ -45,8 +45,26 @@ impl ZolanaProgramTest {
         mint: &Pubkey,
         user_token: &Pubkey,
     ) -> AssetDeposit {
+        Self::spl_shield_data_with_program(
+            amount,
+            owner,
+            blinding,
+            mint,
+            user_token,
+            Self::token_program_id(),
+        )
+    }
+
+    pub fn spl_shield_data_with_program(
+        amount: u64,
+        owner: [u8; 32],
+        blinding: [u8; 32],
+        mint: &Pubkey,
+        user_token: &Pubkey,
+        token_program: Pubkey,
+    ) -> AssetDeposit {
         AssetDeposit {
-            asset: Self::spl_asset(mint, user_token),
+            asset: Self::spl_asset_with_program(mint, user_token, token_program),
             view_tag: [0u8; 32],
             owner,
             blinding,
@@ -95,9 +113,18 @@ impl ZolanaProgramTest {
     }
 
     pub fn spl_asset(mint: &Pubkey, user_token: &Pubkey) -> DepositAsset {
+        Self::spl_asset_with_program(mint, user_token, Self::token_program_id())
+    }
+
+    pub fn spl_asset_with_program(
+        mint: &Pubkey,
+        user_token: &Pubkey,
+        token_program: Pubkey,
+    ) -> DepositAsset {
         DepositAsset::Spl(DepositSplAccounts {
             mint: *mint,
             user_token: *user_token,
+            token_program,
         })
     }
 }

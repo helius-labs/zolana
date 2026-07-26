@@ -27,10 +27,8 @@ Established parties: `user`, `payer`, `owner`, `sender`, `recipient`,
 
 Three operations produce `[u8; 32]`; the name must say which one:
 
-- Poseidon-compressed encodings use `hash_field` / `*_field`:
-  `owner_pk_field` (`sdk-libs/keypair/src/pubkey.rs`), `asset_field`,
-  `signed_to_field`, `p256_signing_pk_field`. Go mirrors with `OwnerPkField`,
-  `SolanaPkField`. These exported names are pinned.
+- Fixed raw-byte commitments use `hash_bytes` / `*_proof_input_hash`.
+  Structured Poseidon hashes keep semantic names such as `owner_hash`.
 - SHA-256 digests use `sha256` / `sha256_be` / `*_hash`.
 - Plain zero-padding uses `right_align` / `fe_right_align`.
 
@@ -109,7 +107,7 @@ Reuse these exact spellings:
 `payer_pubkey_hash`, `data_hash`, `zone_data_hash`, `utxo_hash`,
 `owner_hash`, `owner_utxo_hash`, `nullifier_hash`, `hash_chain`
 (accumulator local `acc`). Hash primitives are named by algorithm:
-`poseidon`, `poseidon2`, `sha256`, `sha256_be`, `hash_field`.
+`poseidon`, `poseidon2`, `sha256`, `sha256_be`, `hash_bytes`.
 
 ## Instruction data and processors
 

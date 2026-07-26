@@ -20,7 +20,9 @@ use zolana_tree::TreeAccount;
 use super::{
     account::{TransactAccounts, ZoneTransactAccounts},
     event::{build_transact_event, resolve_outputs},
-    interface_transfer::{process_interface_transfers, resolve_interface_transfers},
+    interface_transfer::{
+        process_interface_transfers, resolve_interface_transfers, settle_interface_transfers,
+    },
     tree::{apply_input_tree, apply_output_tree, tree_error},
 };
 use crate::instructions::{
@@ -111,6 +113,8 @@ pub fn process_transact_ix(
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
     TransactProof::new(&ix, &proof_inputs).verify()?;
+
+    settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
     collect_forester_fee(
         transact_accounts.payer,

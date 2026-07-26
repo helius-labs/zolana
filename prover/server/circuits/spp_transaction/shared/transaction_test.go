@@ -51,13 +51,13 @@ type testAssignment struct {
 	Inputs  []testInput
 	Outputs []testOutput
 
-	ExternalDataHash  frontend.Variable
-	PrivateTxHash     frontend.Variable
-	PublicAssets      [NPublicSlots]frontend.Variable
-	PublicAmounts     [NPublicSlots]frontend.Variable
-	ZoneProgramID     frontend.Variable
-	PayerPubkeyHash   frontend.Variable
-	AllowDummyInputs    frontend.Variable
+	ExternalDataHash frontend.Variable
+	PrivateTxHash    frontend.Variable
+	PublicAssets     [NPublicSlots]frontend.Variable
+	PublicAmounts    [NPublicSlots]frontend.Variable
+	ZoneProgramID    frontend.Variable
+	PayerPubkeyHash  frontend.Variable
+	AllowDummyInputs frontend.Variable
 
 	PublicInputHash frontend.Variable
 }
@@ -384,15 +384,15 @@ func buildCircuitAssignmentExact(
 	}
 
 	circuit := &testAssignment{
-		Shape:               Shape(shape),
-		Inputs:              inputs,
-		Outputs:             outputs,
-		ExternalDataHash:    externalDataHash,
-		PrivateTxHash:       privateTxHash,
-		ZoneProgramID:       publicInputs.ZoneProgramID,
-		PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
-		AllowDummyInputs:    publicInputs.AllowDummyInputs,
-		PublicInputHash:     publicInputHash,
+		Shape:            Shape(shape),
+		Inputs:           inputs,
+		Outputs:          outputs,
+		ExternalDataHash: externalDataHash,
+		PrivateTxHash:    privateTxHash,
+		ZoneProgramID:    publicInputs.ZoneProgramID,
+		PayerPubkeyHash:  publicInputs.PayerPubkeyHash,
+		AllowDummyInputs: publicInputs.AllowDummyInputs,
+		PublicInputHash:  publicInputHash,
 	}
 	for i := 0; i < NPublicSlots; i++ {
 		circuit.PublicAssets[i] = publicInputs.PublicAssets[i]
@@ -422,7 +422,8 @@ func fillStateProofElements(pathElements []frontend.Variable, proofElements []*b
 // eddsa-only rails bake into the public input hash: Poseidon(0, 0).
 func zeroP256MessageHashField(t testing.TB) *big.Int {
 	t.Helper()
-	return spptest.MustP256FieldFromLimbs(t, big.NewInt(0), big.NewInt(0))
+	value, err := protocol.HashBytes(make([]byte, 32))
+	return spptest.MustHash(t, value, err)
 }
 
 func refreshPublicInputHash(t testing.TB, assignment *testAssignment) {

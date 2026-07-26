@@ -3,10 +3,10 @@ use solana_address::Address;
 use swap_program::instructions::shared::u64_right_align;
 use swap_prover::OrderTermsProofInput;
 use wincode::{SchemaRead, SchemaWrite};
+use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::{
-    constants::BLINDING_LEN,
-    hash::{hash_field, poseidon},
-    CompressedShieldedAddress, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
+    constants::BLINDING_LEN, hash::poseidon, CompressedShieldedAddress, NullifierKey, P256Pubkey,
+    PublicKey, ShieldedAddress,
 };
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
@@ -78,7 +78,7 @@ impl TryFrom<&OrderTerms> for OrderTermsProofInput {
 
     fn try_from(terms: &OrderTerms) -> Result<Self> {
         Ok(Self {
-            destination_asset: hash_field(terms.destination_mint.as_array()).map_err(err)?,
+            destination_asset: hash_bytes(terms.destination_mint.as_array()).map_err(err)?,
             destination_amount: terms.destination_amount,
             maker_owner_hash: terms.destination.owner_hash().map_err(err)?,
             maker_viewing_pk: *terms.destination.viewing_pubkey.as_bytes(),
@@ -113,7 +113,7 @@ impl DataHash for OrderTermsProofInput {
 // All instructions: the taker pubkey as the `taker_pk_fe` terms field.
 impl DataHash for Address {
     fn data_hash(&self) -> Result<[u8; 32]> {
-        hash_field(self.as_array()).map_err(err)
+        hash_bytes(self.as_array()).map_err(err)
     }
 }
 
@@ -265,7 +265,8 @@ impl OrderUtxo {
                 self.terms.destination_amount,
                 &destination_output.blinding,
             )?
-            .0,
+            .0
+            .to_vec(),
         )
     }
 }
@@ -283,7 +284,7 @@ mod tests {
 
     fn sample_terms(take_mode: u64) -> OrderTermsProofInput {
         OrderTermsProofInput {
-            destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
+            destination_asset: hash_bytes(&[2u8; 32]).expect("destination asset"),
             destination_amount: 250,
             maker_owner_hash: [7u8; 32],
             maker_viewing_pk: *sample_viewing_pk(9).as_bytes(),

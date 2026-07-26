@@ -9,7 +9,7 @@ edition = "2021"
 
 [features]
 default = ["std"]
-alloc = ["dep:borsh"]
+alloc = []
 std = ["alloc"]
 poseidon = ["dep:light-poseidon", "dep:ark-bn254", "dep:ark-ff"]
 sha256 = ["dep:sha2"]
@@ -23,7 +23,6 @@ tinyvec = { workspace = true }
 num-bigint = { workspace = true }
 
 solana-program-error = { workspace = true }
-borsh = { workspace = true, optional = true }
 
 [target.'cfg(not(target_os = "solana"))'.dependencies]
 ark-bn254 = { workspace = true, optional = true }
@@ -43,3 +42,6 @@ rand = { workspace = true }
 num-bigint = { workspace = true, features = ["rand"] }
 light-poseidon = { workspace = true }
 solana-pubkey = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
