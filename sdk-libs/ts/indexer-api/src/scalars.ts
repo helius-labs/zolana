@@ -1,7 +1,9 @@
 import type { Address, Bytes32, Signature } from "@zolana/interface";
 import {
   decodeBase58 as decodeBase58Canonical,
+  decodeBase64 as decodeBase64Canonical,
   encodeBase58 as encodeBase58Canonical,
+  encodeBase64 as encodeBase64Canonical,
 } from "@zolana/interface";
 
 import type { Base64String, Hash, Limit } from "./types.js";
@@ -32,7 +34,6 @@ export class IndexerSchemaError extends Error {
   }
 }
 
-const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 /** Max Bitcoin-base58 length of a 32-byte payload. */
 const MAX_BASE58_32_LEN = 44;
 /** Max Bitcoin-base58 length of a 64-byte signature. */
@@ -72,44 +73,15 @@ function decodeBase58(value: string): Uint8Array | undefined {
 }
 
 function encodeBase64(bytes: Uint8Array): string {
-  let encoded = "";
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index] ?? 0;
-    const second = bytes[index + 1] ?? 0;
-    const third = bytes[index + 2] ?? 0;
-    const bits = (first << 16) | (second << 8) | third;
-    encoded += BASE64_ALPHABET.charAt((bits >>> 18) & 63);
-    encoded += BASE64_ALPHABET.charAt((bits >>> 12) & 63);
-    encoded += index + 1 < bytes.length ? BASE64_ALPHABET.charAt((bits >>> 6) & 63) : "=";
-    encoded += index + 2 < bytes.length ? BASE64_ALPHABET.charAt(bits & 63) : "=";
-  }
-  return encoded;
+  return encodeBase64Canonical(bytes);
 }
 
 function decodeBase64(value: string, path: string): Uint8Array {
-  if (
-    value.length % 4 !== 0 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
-  ) {
+  try {
+    return decodeBase64Canonical(value);
+  } catch {
     return fail("INDEXER_SCHEMA_INVALID_BASE64", path, "canonical base64", value);
   }
-  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
-  const bytes = new Uint8Array((value.length / 4) * 3 - padding);
-  let outputIndex = 0;
-  for (let index = 0; index < value.length; index += 4) {
-    const a = BASE64_ALPHABET.indexOf(value[index] ?? "");
-    const b = BASE64_ALPHABET.indexOf(value[index + 1] ?? "");
-    const c = value[index + 2] === "=" ? 0 : BASE64_ALPHABET.indexOf(value[index + 2] ?? "");
-    const d = value[index + 3] === "=" ? 0 : BASE64_ALPHABET.indexOf(value[index + 3] ?? "");
-    const bits = (a << 18) | (b << 12) | (c << 6) | d;
-    if (outputIndex < bytes.length) bytes[outputIndex++] = (bits >>> 16) & 0xff;
-    if (outputIndex < bytes.length) bytes[outputIndex++] = (bits >>> 8) & 0xff;
-    if (outputIndex < bytes.length) bytes[outputIndex++] = bits & 0xff;
-  }
-  if (encodeBase64(bytes) !== value) {
-    return fail("INDEXER_SCHEMA_INVALID_BASE64", path, "canonical base64", value);
-  }
-  return bytes;
 }
 
 export function base64String(value: string | Uint8Array): Base64String {

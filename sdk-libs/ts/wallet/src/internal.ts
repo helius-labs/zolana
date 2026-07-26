@@ -1,6 +1,7 @@
 import type { Address, Bytes32 } from "@zolana/interface";
 import {
   decodeBase58 as decodeBase58Canonical,
+  decodeBase64 as decodeBase64Canonical,
   encodeBase58 as encodeBase58Canonical,
 } from "@zolana/interface";
 
@@ -73,26 +74,9 @@ export function concat(...parts: readonly Uint8Array[]): Uint8Array {
 }
 
 export function base64Bytes(value: string): Uint8Array {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  const clean = value.endsWith("==")
-    ? value.slice(0, -2)
-    : value.endsWith("=")
-      ? value.slice(0, -1)
-      : value;
-  if (clean.length % 4 === 1) throw new WalletError("WALLET_INVALID_BASE64");
-  let bits = 0;
-  let bitCount = 0;
-  const output: number[] = [];
-  for (const character of clean) {
-    const digit = alphabet.indexOf(character);
-    if (digit < 0) throw new WalletError("WALLET_INVALID_BASE64");
-    bits = bits * 64 + digit;
-    bitCount += 6;
-    if (bitCount >= 8) {
-      bitCount -= 8;
-      output.push((bits >> bitCount) & 0xff);
-      bits &= (1 << bitCount) - 1;
-    }
+  try {
+    return decodeBase64Canonical(value);
+  } catch {
+    throw new WalletError("WALLET_INVALID_BASE64");
   }
-  return Uint8Array.from(output);
 }

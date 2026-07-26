@@ -2,7 +2,14 @@ export { initializePoseidon, isPoseidonInitialized } from "@zolana/hasher";
 import { encodeBase58 } from "./internal.js";
 import { InterfaceError } from "./errors.js";
 
-export { decodeBase58, encodeBase58 } from "./internal.js";
+export {
+  decodeBase58,
+  decodeBase64,
+  decodeCompactU16,
+  encodeBase58,
+  encodeBase64,
+  encodeCompactU16,
+} from "./internal.js";
 import {
   ADDRESS_TREE_HEIGHT,
   ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,

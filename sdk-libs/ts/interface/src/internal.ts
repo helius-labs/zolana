@@ -109,6 +109,105 @@ export function decodeBase58(value: string): Uint8Array {
   return bs58.decode(value);
 }
 
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Standard base64 encode with `=` padding. Empty input is the empty string. */
+export function encodeBase64(bytes: Uint8Array): string {
+  let encoded = "";
+  for (let index = 0; index < bytes.length; index += 3) {
+    const first = bytes[index] ?? 0;
+    const second = bytes[index + 1] ?? 0;
+    const third = bytes[index + 2] ?? 0;
+    const bits = (first << 16) | (second << 8) | third;
+    encoded += BASE64_ALPHABET.charAt((bits >>> 18) & 63);
+    encoded += BASE64_ALPHABET.charAt((bits >>> 12) & 63);
+    encoded += index + 1 < bytes.length ? BASE64_ALPHABET.charAt((bits >>> 6) & 63) : "=";
+    encoded += index + 2 < bytes.length ? BASE64_ALPHABET.charAt(bits & 63) : "=";
+  }
+  return encoded;
+}
+
+/**
+ * Standard base64 decode. Requires `=` padding when needed, rejects URL-safe
+ * alphabets and non-alphabet characters, and refuses any string that does not
+ * re-encode to itself (non-canonical padding bits). Callers wrap typed errors.
+ */
+export function decodeBase64(value: string): Uint8Array {
+  if (
+    typeof value !== "string" ||
+    value.length % 4 !== 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
+  ) {
+    throw new Error("invalid base64");
+  }
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  const bytes = new Uint8Array((value.length / 4) * 3 - padding);
+  let output = 0;
+  for (let index = 0; index < value.length; index += 4) {
+    const a = BASE64_ALPHABET.indexOf(value[index] ?? "");
+    const b = BASE64_ALPHABET.indexOf(value[index + 1] ?? "");
+    const c = value[index + 2] === "=" ? 0 : BASE64_ALPHABET.indexOf(value[index + 2] ?? "");
+    const d = value[index + 3] === "=" ? 0 : BASE64_ALPHABET.indexOf(value[index + 3] ?? "");
+    const bits = (a << 18) | (b << 12) | (c << 6) | d;
+    if (output < bytes.length) bytes[output++] = (bits >>> 16) & 0xff;
+    if (output < bytes.length) bytes[output++] = (bits >>> 8) & 0xff;
+    if (output < bytes.length) bytes[output++] = bits & 0xff;
+  }
+  if (encodeBase64(bytes) !== value) {
+    throw new Error("invalid base64");
+  }
+  return bytes;
+}
+
+/**
+ * Solana compact-u16 (shortvec) encode: seven value bits per byte, high bit
+ * continuation, minimum width. Values outside `0..=0xffff` throw.
+ */
+export function encodeCompactU16(value: number): Uint8Array {
+  const checked = unsigned(value, 0xffff, "compactU16");
+  const bytes: number[] = [];
+  let remaining = checked;
+  do {
+    let byte = remaining & 0x7f;
+    remaining >>>= 7;
+    if (remaining !== 0) byte |= 0x80;
+    bytes.push(byte);
+  } while (remaining !== 0);
+  return Uint8Array.from(bytes);
+}
+
+/**
+ * Solana compact-u16 decode. Matches `solana_short_vec::decode_shortu16_len`:
+ * rejects truncated input, continuation on the third byte, values above u16,
+ * and non-canonical multi-byte aliases (a zero byte after the first).
+ */
+export function decodeCompactU16(
+  bytes: Uint8Array,
+  offset = 0,
+): Readonly<{ value: number; length: number }> {
+  let value = 0;
+  for (let index = 0; index < 3; index++) {
+    const byte = bytes[offset + index];
+    if (byte === undefined) {
+      fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+    }
+    // A zero byte after the first is always an alias of a shorter encoding.
+    if (byte === 0 && index !== 0) {
+      fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+    }
+    if (index === 2 && (byte & 0x80) !== 0) {
+      fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+    }
+    const next = value | ((byte & 0x7f) << (index * 7));
+    if (next > 0xffff) {
+      fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+    }
+    value = next;
+    if ((byte & 0x80) === 0) return { value, length: index + 1 };
+  }
+  fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+}
+
 export function findProgramAddress(
   seeds: readonly Uint8Array[],
   program: Address,

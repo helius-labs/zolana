@@ -1,5 +1,11 @@
 import type { Rpc } from "@zolana/client";
-import { checkedTransactionSize, decodeBase58 as decodeBase58Canonical, encodeBase58 } from "@zolana/interface";
+import {
+  checkedTransactionSize,
+  decodeBase58 as decodeBase58Canonical,
+  decodeCompactU16,
+  encodeBase58,
+  encodeCompactU16,
+} from "@zolana/interface";
 import type {
   Address,
   Bytes32,
@@ -135,23 +141,14 @@ function signerSlot(
 }
 
 function readCompactU16(bytes: Uint8Array, offset: number): readonly [number, number] {
-  let value = 0;
-  let shift = 0;
-  let cursor = offset;
-  for (let index = 0; index < 3; index++) {
-    const byte = bytes[cursor++];
-    if (byte === undefined) {
-      throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-        details: { field: "transaction", reason: "compactU16" },
-      });
-    }
-    value |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) return [value, cursor];
-    shift += 7;
+  try {
+    const decoded = decodeCompactU16(bytes, offset);
+    return [decoded.value, offset + decoded.length];
+  } catch {
+    throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
+      details: { field: "transaction", reason: "compactU16" },
+    });
   }
-  throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-    details: { field: "transaction", reason: "compactU16" },
-  });
 }
 
 export function userRecordAddress(owner: Address): UserRecordAddress {
@@ -484,20 +481,13 @@ function compileTransaction(
 }
 
 function compactU16(value: number): Uint8Array {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff) {
+  try {
+    return encodeCompactU16(value);
+  } catch {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
       details: { field: "transactionLength" },
     });
   }
-  const bytes: number[] = [];
-  let remaining = value;
-  do {
-    let byte = remaining & 0x7f;
-    remaining >>>= 7;
-    if (remaining !== 0) byte |= 0x80;
-    bytes.push(byte);
-  } while (remaining !== 0);
-  return Uint8Array.from(bytes);
 }
 
 function decodeBase58(value: string, field: string): Uint8Array {

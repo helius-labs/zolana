@@ -14,7 +14,9 @@ import type {
 } from "@zolana/interface";
 import {
   decodeBase58 as decodeBase58Canonical,
+  decodeBase64 as decodeBase64Canonical,
   encodeBase58 as encodeBase58Canonical,
+  encodeBase64 as encodeBase64Canonical,
 } from "@zolana/interface";
 import { hashField as canonicalHashField } from "@zolana/keypair/hash";
 
@@ -24,8 +26,6 @@ export const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const P256_MODULUS =
   0xffff_ffff_0000_0001_0000_0000_0000_0000_0000_0000_ffff_ffff_ffff_ffff_ffff_ffffn;
-const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 export function checkedBytes<Length extends 16 | 31 | 32 | 33 | 64 | 128>(
   value: unknown,
   length: Length,
@@ -205,45 +205,18 @@ export function signatureBytes(value: Signature): Bytes64 {
 }
 
 export function encodeBase64(value: Uint8Array): string {
-  let output = "";
-  for (let index = 0; index < value.length; index += 3) {
-    const a = value[index] ?? 0;
-    const b = value[index + 1] ?? 0;
-    const c = value[index + 2] ?? 0;
-    const bits = (a << 16) | (b << 8) | c;
-    output += BASE64.charAt((bits >>> 18) & 63);
-    output += BASE64.charAt((bits >>> 12) & 63);
-    output += index + 1 < value.length ? BASE64.charAt((bits >>> 6) & 63) : "=";
-    output += index + 2 < value.length ? BASE64.charAt(bits & 63) : "=";
-  }
-  return output;
+  return encodeBase64Canonical(value);
 }
 
 export function decodeBase64(value: unknown, fieldName: string): Uint8Array {
-  if (
-    typeof value !== "string" ||
-    value.length % 4 !== 0 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
-  ) {
+  if (typeof value !== "string") {
     throw new ClientError("CLIENT_INVALID_BASE64", { details: { field: fieldName } });
   }
-  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
-  const result = new Uint8Array((value.length / 4) * 3 - padding);
-  let output = 0;
-  for (let index = 0; index < value.length; index += 4) {
-    const a = BASE64.indexOf(value[index] ?? "");
-    const b = BASE64.indexOf(value[index + 1] ?? "");
-    const c = value[index + 2] === "=" ? 0 : BASE64.indexOf(value[index + 2] ?? "");
-    const d = value[index + 3] === "=" ? 0 : BASE64.indexOf(value[index + 3] ?? "");
-    const bits = (a << 18) | (b << 12) | (c << 6) | d;
-    if (output < result.length) result[output++] = bits >>> 16;
-    if (output < result.length) result[output++] = bits >>> 8;
-    if (output < result.length) result[output++] = bits;
-  }
-  if (encodeBase64(result) !== value) {
+  try {
+    return decodeBase64Canonical(value);
+  } catch {
     throw new ClientError("CLIENT_INVALID_BASE64", { details: { field: fieldName } });
   }
-  return result;
 }
 
 export function p256Coordinates(bytes: Bytes33): readonly [bigint, bigint] {
