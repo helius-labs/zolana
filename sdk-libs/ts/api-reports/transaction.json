@@ -35,6 +35,10 @@
         "kind": "value"
       },
       {
+        "name": "Balances",
+        "kind": "value"
+      },
+      {
         "name": "Blinding",
         "kind": "type"
       },
@@ -976,6 +980,10 @@
       },
       {
         "name": "AssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "Balances",
         "kind": "value"
       },
       {

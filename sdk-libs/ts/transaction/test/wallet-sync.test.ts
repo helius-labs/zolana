@@ -447,18 +447,20 @@ describe("manifest-verified wallet behavior", () => {
     const balances = await decryptTransactions({
       authority: value.authority,
       transactions,
-      registry: new AssetRegistry(),
+      assets: new AssetRegistry(),
     });
 
-    expect(balances.find((balance) => balance.mint === SOL_MINT)?.amount).toBe(
+    expect(balances.getBalance(SOL_MINT)?.amount).toBe(
       BigInt(fixtureString(expected, "decryptTransactionsBalance")),
     );
     expect(
-      await decryptTransactions({
-        authority: value.authority,
-        transactions: [],
-        registry: new AssetRegistry(),
-      }),
+      (
+        await decryptTransactions({
+          authority: value.authority,
+          transactions: [],
+          assets: new AssetRegistry(),
+        })
+      ).assets,
     ).toEqual([]);
   });
 

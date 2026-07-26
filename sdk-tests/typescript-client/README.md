@@ -60,7 +60,7 @@ building stays aligned either way.
 | `balances.get_balance(SOL_MINT)` | `wallet.balance(SOL_MINT)` |
 | `client.confirm_private_transaction_sync(sig)` | `await client.confirmPrivateTransaction(sig)` |
 | `client.get_balance(pubkey)` | `client.getBalance(address)` |
-| `IndexerRpcConfig::wait()` | `waitForIndexer()` / `config: { waitForIndexer: true }` on `syncWallet` |
+| `IndexerRpcConfig::wait()` | `wait()` / `config: { waitForIndexer: true }` on `syncWallet` |
 
 ## Where the shapes differ
 

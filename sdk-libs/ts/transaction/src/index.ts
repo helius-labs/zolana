@@ -57,6 +57,7 @@ export { SppProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHa
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,
+  Balances,
   DEFAULT_TAG_WINDOW,
   LocalWalletAuthority,
   SOL_ASSET_ID,

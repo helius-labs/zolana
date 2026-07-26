@@ -20,7 +20,7 @@ export {
   syncWalletWorkerEquivalent,
   type WalletSyncConfig,
 } from "./sync.js";
-export { Wallet } from "./state.js";
+export { Balances, Wallet } from "./state.js";
 export type {
   AssetBalance,
   CounterpartyCounter,

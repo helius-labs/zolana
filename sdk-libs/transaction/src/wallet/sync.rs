@@ -940,21 +940,21 @@ impl Default for SyncConfig {
 pub fn decrypt_transactions<K: SyncWalletAuthority + ?Sized>(
     key: &K,
     transactions: &[ShieldedTransaction],
-    registry: &AssetRegistry,
+    assets: &AssetRegistry,
 ) -> Result<Balances, TransactionError> {
-    decrypt_transactions_with_config(key, transactions, registry, SyncConfig::default())
+    decrypt_transactions_with_config(key, transactions, assets, SyncConfig::default())
 }
 
 pub fn decrypt_transactions_with_config<K: SyncWalletAuthority + ?Sized>(
     key: &K,
     transactions: &[ShieldedTransaction],
-    registry: &AssetRegistry,
+    assets: &AssetRegistry,
     config: SyncConfig,
 ) -> Result<Balances, TransactionError> {
     // TODO(separate PR): move this construct-sync-extract sequence onto Wallet
     // itself (e.g. Wallet::decrypt), so this free function is a thin wrapper
     // instead of open-coding Wallet's own logic.
-    let mut wallet = Wallet::new(key.shielded_address()?, registry.clone())?;
+    let mut wallet = Wallet::new(key.shielded_address()?, assets.clone())?;
     wallet.sync(key, transactions, 0, config.window)?;
     Ok(Balances {
         assets: wallet.balances(false)?,

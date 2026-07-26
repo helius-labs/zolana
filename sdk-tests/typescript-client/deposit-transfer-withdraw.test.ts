@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { SolanaRpc, waitForIndexer, ZolanaClient } from "@zolana/client";
+import { SolanaRpc, wait, ZolanaClient } from "@zolana/client";
 import { depositInstruction, transactInstruction } from "@zolana/interface/instructions";
 import { randomBlinding, type ShieldedKeypair } from "@zolana/keypair";
 import {
@@ -103,7 +103,7 @@ describe("example: deposit, transfer, withdraw", () => {
       transfer.send(recipientAddress, SOL_MINT, TRANSFER_AMOUNT);
       const transferData = await client.proveTransact(
         transfer.sign(sender, assets),
-        waitForIndexer(),
+        wait(),
       );
       const transferSignature = await client.createAndSendTransaction({
         instructions: [
@@ -113,18 +113,18 @@ describe("example: deposit, transfer, withdraw", () => {
       });
       await client.confirmPrivateTransaction(transferSignature);
 
-      // Low-level read (matches Rust Bob): fetch by view tag, then
+      // Low-level read (matches Rust recipient): fetch by view tag, then
       // decryptTransactions over that page — no long-lived Wallet.
       const recipientResponse = await client.getShieldedTransactionsByTags(
         { tags: [recipientAddress.confidentialViewTag()] },
-        waitForIndexer(),
+        wait(),
       );
       const recipientBalances = await decryptTransactions({
         authority: recipientAuthority,
         transactions: recipientResponse.transactions,
-        registry: assets,
+        assets,
       });
-      const recipientBalance = recipientBalances.find((balance) => balance.mint === SOL_MINT);
+      const recipientBalance = recipientBalances.getBalance(SOL_MINT);
       expect(recipientBalance?.amount).toBe(TRANSFER_AMOUNT);
       expect(recipientBalance?.utxos).toHaveLength(1);
 
@@ -151,7 +151,7 @@ describe("example: deposit, transfer, withdraw", () => {
       });
       const withdrawalData = await client.proveTransact(
         withdrawal.sign(sender, assets),
-        waitForIndexer(),
+        wait(),
       );
       const withdrawalSignature = await client.createAndSendTransaction({
         instructions: [
