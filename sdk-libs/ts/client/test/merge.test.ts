@@ -451,6 +451,41 @@ describe("merge proving and unsigned submission", () => {
     expect(transaction.signatures).toEqual([undefined]);
     expect(hex(sha256Bytes(transaction.messageBytes))).toBe(hex(new Uint8Array(sha256(expected))));
   });
+
+  it("rejects a zone proved object on the plain finish path and a plain object on the zone path", () => {
+    const data = fixedInstructionData();
+    const plain = { data, outputHash: data.outputUtxoHash };
+    const zone = { ...plain, zoneProgramId: ZONE_PROGRAM };
+    const mergeClient = client(vi.fn(() => Promise.reject(new Error("prover must not be called"))));
+
+    expect(() =>
+      mergeClient.finishMergeSubmissionUnsigned({
+        proved: zone,
+        feePayer: PAYER,
+        userRecord: USER_RECORD,
+        recentBlockhash: BLOCKHASH,
+      }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_MERGE" }));
+
+    expect(() =>
+      mergeClient.finishMergeZoneSubmissionUnsigned({
+        proved: plain as never,
+        feePayer: PAYER,
+        zoneProgramId: ZONE_PROGRAM,
+        mergeViewTag: new Uint8Array(32).fill(9) as Bytes32,
+        recentBlockhash: BLOCKHASH,
+      }),
+    ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_MERGE" }));
+
+    expect(() =>
+      mergeClient.finishMergeSubmissionUnsigned({
+        proved: plain,
+        feePayer: PAYER,
+        userRecord: USER_RECORD,
+        recentBlockhash: BLOCKHASH,
+      }),
+    ).not.toThrow();
+  });
 });
 
 function fixedInstructionData(): MergeTransactInstructionData {

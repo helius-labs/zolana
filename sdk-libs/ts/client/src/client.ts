@@ -801,7 +801,9 @@ function equal(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-function isProvedMerge(value: unknown): value is ProvedMerge {
+// Rust keeps plain and zone proved objects apart by type; structural typing
+// cannot, so the plain guard requires `zoneProgramId` to be absent.
+function hasProvedMergeShape(value: unknown): value is ProvedMerge {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   const data = candidate["data"];
@@ -818,8 +820,14 @@ function isProvedMerge(value: unknown): value is ProvedMerge {
   );
 }
 
+function isProvedMerge(value: unknown): value is ProvedMerge {
+  return hasProvedMergeShape(value) && !("zoneProgramId" in value);
+}
+
 function isProvedMergeZone(value: unknown): value is ProvedMergeZone {
   return (
-    isProvedMerge(value) && "zoneProgramId" in value && typeof value.zoneProgramId === "string"
+    hasProvedMergeShape(value) &&
+    "zoneProgramId" in value &&
+    typeof (value as Record<string, unknown>)["zoneProgramId"] === "string"
   );
 }
