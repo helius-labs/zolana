@@ -19,7 +19,9 @@
 
 use serde_json::{json, Map, Value};
 use zolana_keypair::{
-    constants::{BLINDING_LEN, DST_VIEW_ROOT_P_CONST, P256_PUBKEY_LEN, PUBLIC_KEY_LEN, P_CONST_SEC1},
+    constants::{
+        BLINDING_LEN, DST_VIEW_ROOT_P_CONST, P256_PUBKEY_LEN, PUBLIC_KEY_LEN, P_CONST_SEC1,
+    },
     error::KeypairError,
     hash::{owner_hash, sha256, sha256_be},
     nullifier_key::NullifierKey,
@@ -624,7 +626,8 @@ fn k4_nullifiers() -> Value {
 /// epochs, and the transaction viewing key.
 fn k5_viewing_keys() -> Value {
     let key = ViewingKey::from_bytes(&secret32(11)).expect("seeded p256 secret is in range");
-    let counterparty = ViewingKey::from_bytes(&secret32(23)).expect("seeded p256 secret is in range");
+    let counterparty =
+        ViewingKey::from_bytes(&secret32(23)).expect("seeded p256 secret is in range");
     let stranger = ViewingKey::from_bytes(&secret32(37)).expect("seeded p256 secret is in range");
 
     let counters = [0u64, 1, 2, 255, 256, u64::from(u32::MAX), 1 << 63, u64::MAX];
