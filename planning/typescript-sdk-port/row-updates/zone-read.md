@@ -140,8 +140,12 @@ dependency and `sideEffects: false` make safe.
 
 ## Gates
 
-`npm run build` before every run. `@zolana/transaction` unit (475) and vectors
-(436), `@zolana/client` unit (459) and vectors (323), `@zolana/interface` unit
-(133), `@zolana/smart-account-client` unit (41), workspace `typecheck`, `eslint`
-over the touched sources, and `cargo test -p zolana-transaction --test
-zone_resolution`. All green.
+`npm run build` before every run. Workspace `test:unit` (1946 passed, 1
+skipped), `test:vectors`, `typecheck`, `lint:packages`, `format:check`, and
+`cargo test -p zolana-transaction --test zone_resolution` (3 passed). All green.
+
+`check:packaging` fails on this tree and on `ts-sdk-port` alike, for a reason
+this branch neither caused nor is in scope to fix. `browser-check.mjs` scans
+sources for `process` followed by `.` or `[`, and `keypair/src/shielded.ts:142`
+ends a doc-comment sentence with "in process." No keypair file differs from the
+base branch. The scan for each package this branch touched passes.
