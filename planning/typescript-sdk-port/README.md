@@ -38,7 +38,7 @@ entries wrote the local `+02:00` clock and labelled it UTC.
 | Phase | 3 of 4: cryptographic certification. The parity phase closed and the remediation phase closed with it |
 | Certification suites | Key-handling `K1`-`K10` and proof suites `P1`-`P5` all landed. `PKP-08`, the closing evidence package, is in flight |
 | Full SDK completion gates | The binding constraint. All seven substantive lines are open or partial, and none was ever evidenced; four workers hold them |
-| Branch | Fully green at `51206ec0`: unit suite 2284 passing, `check:static` clean, no fixture drift, `check:packaging` and `check:scope` passing |
+| Branch | Fully green at `95b0831a`: unit suite 2290 passing, `check:static` clean, no fixture drift, `check:packaging` and `check:scope` passing |
 
 The release blocker is closed. `P3` had reported pure-TypeScript G2 compression
 refusing points a live prover produced while Rust's `alt_bn128_g2_compress_be`
@@ -49,10 +49,15 @@ limbs in gnark's order fixed it at `c1a9b35e`; all sixteen live proofs now
 compress in pure TypeScript and match Solana, with no Rust fallback in the path.
 Curve validity is left to the on-chain verifier, which is where Rust leaves it.
 
-One thing the row counts still cannot see: an external review of pull request 159
-raised 44 findings, whose three release blockers and five High rows were
+Two things the row counts still cannot see. An external review of pull request
+159 raised 44 findings, whose three release blockers and five High rows were
 validated, with the Medium and Low tail deferred by owner ruling until
-certification closes.
+certification closes. And the per-package walk found three checks that were cited
+but never ran: `api:check` is a scaffold, though `public-exports.md` claimed an
+API report ran against it, so the export-ledger gate was never enforced;
+`interface-current-dispositions.md` carried stale claims; and the fixture
+baseline's `frozenCommit` sits 456 commits behind current Rust, so "fixture
+provenance is fresh" held for no package.
 
 ## Live workers and the merge order
 
@@ -60,7 +65,7 @@ No worker holds a checklist row, because none is open. The four in flight hold
 the full SDK completion gates, which the pull request must close to be
 production-ready:
 
-1. `port/gate1-walk`, the per-package evidence walk across all eleven packages that closes package gate 1
+1. `port/gate1-gaps`, the five gaps the per-package walk found: a scaffold-only `api:check`, three `needs_re_review` interface rows, the two uncounted packages' queue seats, a fixture baseline 456 commits stale, and missing property suites in `client` and `wallet`
 2. `port/gate-submit`, landing the four spend-flow submissions on chain now that the G2 wall is down
 3. `port/gate-prover`, a live proof per shape per rail from the same-revision prover, and the clean-checkout command list
 4. `port/gate-ledger`, the cross-package boundary, Photon contract, fixture rejection-and-tamper, and export-ledger lines
