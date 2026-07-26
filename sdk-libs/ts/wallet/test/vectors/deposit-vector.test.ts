@@ -138,7 +138,30 @@ describe("wallet deposit vector", () => {
         }),
       ),
     );
-    expect(createDeposit({ recipient, asset: SOL_MINT, amount: 0n }).data.amount).toBe(0n);
+    expect(() => createDeposit({ recipient, asset: SOL_MINT, amount: 0n })).toThrow(
+      expect.objectContaining({
+        code: "WALLET_INVALID_AMOUNT",
+        details: { amount: "0" },
+      }),
+    );
+  });
+
+  it("rejects a zero-value SPL deposit before building settlement accounts", () => {
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+    const mint = base58(new Uint8Array(32).fill(33)) as Address;
+    expect(() =>
+      createDeposit({
+        recipient,
+        asset: mint,
+        amount: 0n,
+        splTokenAccount: "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD" as Address,
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "WALLET_INVALID_AMOUNT",
+        details: { amount: "0" },
+      }),
+    );
   });
 
   // A deposit tagged by anything other than the owner signing pubkey is
