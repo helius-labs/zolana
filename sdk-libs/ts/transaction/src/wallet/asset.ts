@@ -59,22 +59,15 @@ export class AssetRegistry {
   }
 
   addressForField(field: Bytes32): Address | undefined {
-    return addressForAssetField(this, field);
+    const expected = checked<Bytes32>(field, 32, "asset field");
+    for (const mint of this.#byId.values()) {
+      if (equal(hashField(decodeAddress(mint)), expected)) return mint;
+    }
+    return undefined;
   }
 
-  entries(): readonly (readonly [bigint, Address])[] {
-    return [...this.#byId.entries()].map(([id, mint]) => Object.freeze([id, mint] as const));
-  }
-
+  /** Stands for the Rust `Clone` derive; `Wallet` holds its registry by value. */
   clone(): AssetRegistry {
-    return new AssetRegistry(this.entries().filter(([assetId]) => assetId !== SOL_ASSET_ID));
+    return new AssetRegistry([...this.#byId].filter(([assetId]) => assetId !== SOL_ASSET_ID));
   }
-}
-
-export function addressForAssetField(registry: AssetRegistry, field: Bytes32): Address | undefined {
-  const expected = checked<Bytes32>(field, 32, "asset field");
-  for (const [, mint] of registry.entries()) {
-    if (equal(hashField(decodeAddress(mint)), expected)) return mint;
-  }
-  return undefined;
 }
