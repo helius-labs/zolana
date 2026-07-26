@@ -180,6 +180,26 @@ describe("K6 transfer encryption against current Rust", () => {
     expect(recorded.wrongEphemeralRecoveredBytes).not.toBe(recorded.plaintextBytes);
   });
 
+  it("decrypts a truncated ciphertext to the matching prefix rather than refusing", () => {
+    // The transfer cipher has no framing and no length prefix: the ciphertext
+    // is exactly as long as the plaintext. A port that added a length check
+    // here would refuse inputs the protocol accepts, so the recovered prefix is
+    // pinned at the block boundary and either side of it.
+    const ciphertext = fromHex(recorded.ciphertextBytes);
+    for (const row of recorded.truncations) {
+      const recovered = recipient().decryptUtxo(
+        ciphertext.subarray(0, row.length),
+        sender().publicKey(),
+        salt(recorded.baseSaltBytes),
+        recorded.baseSlot,
+      );
+      expect(recovered).toHaveLength(row.length);
+      expect(toHex(recovered), `length ${String(row.length)}`).toBe(row.recoveredBytes);
+      expect(recorded.plaintextBytes.startsWith(row.recoveredBytes)).toBe(true);
+    }
+    expect(recorded.truncations.map((row) => row.length)).toEqual([0, 1, 9, 24]);
+  });
+
   it("encrypts under the per-transaction viewing key the production flow uses", () => {
     const flow = recorded.transactionViewingKey;
     const txViewing = sender().transactionViewingKey(fromHex(flow.firstNullifierBytes) as Bytes32);

@@ -15,7 +15,7 @@ import {
   SigningKey,
   ViewingKey,
 } from "../../src/index.js";
-import { symmetricApply } from "../../src/merge/index.js";
+import { mergeCiphertextHash, symmetricApply } from "../../src/merge/index.js";
 
 /**
  * K10, error and redaction parity, against
@@ -182,6 +182,19 @@ describe("K10 error ledger and redaction against current Rust", () => {
     const mentions = sources.filter((source) => source.includes("KEYPAIR_NOT_ED25519"));
     expect(mentions).toHaveLength(1);
     expect(mentions[0]).toContain("KEYPAIR_ERROR_RUST_VARIANT");
+  });
+
+  it("answers an empty merge ciphertext with a code that maps to no Rust variant", () => {
+    // A known divergence, pinned so it cannot drift further. Rust's
+    // `merge_ciphertext_hash(&[])` reaches the hasher and returns `Poseidon`;
+    // the port wraps every hasher failure at this boundary as the
+    // TypeScript-only `KEYPAIR_HASH`, whose `rustVariant` is null. The input is
+    // expressible in both languages, so the TypeScript-only code is not
+    // justified by the wider input domain the other one covers.
+    expect(certification.mergeEncryption.emptyCiphertextHashVariant).toBe("Poseidon");
+    const error = raise(() => mergeCiphertextHash(new Uint8Array()));
+    expect(error.code).toBe("KEYPAIR_HASH");
+    expect(error.rustVariant).toBeNull();
   });
 
   it("keeps the variants Rust cannot reach in the mapping rather than dropping them", () => {

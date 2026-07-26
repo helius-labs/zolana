@@ -241,6 +241,7 @@
     ],
     "ecdhBytes": "7c0e8965e1b9898d60b0df8ac39ebc5d8d7af1879637dae2750119e731f7cba5",
     "ecdhReverseBytes": "7c0e8965e1b9898d60b0df8ac39ebc5d8d7af1879637dae2750119e731f7cba5",
+    "emptyCiphertextHashVariant": "Poseidon",
     "flippedSharedKeystreamBytes": "72773490f132c3d96f70d7a6b2d75dd612ce0ba19d1866bad2d7ab7c7af705436ad284594959930c521620c8c0adfc2289177bfe6a714c7a7db46c564e265158c5622a5bc4565a51a11b7e7f20afa09a",
     "flippedSharedSecretBytes": "004bc4f5df9111313e94a060d86ce33bb776521a9b13a8acc0a0882dce221c7a",
     "infoPacking": [
@@ -295,6 +296,23 @@
     "tamperedCiphertextBytes": "93a70870651a8b3e0a852acee464f9436b6261c82fd60ff45e66eccae4c09d919a67c8920640b2928c2b2e4bf1eb437a7738821432cf361bba87e324f78e92ccaa51ef8735d06a",
     "tamperedHashBytes": "256943f7fbafc00214310fff8d648d718e85e774e932336f49ec512b0c5ac39e",
     "tamperedRecoveredBytes": "ff0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546",
+    "truncations": [
+      {
+        "hashBytes": "1d996f3d9557677ca151b5d1aa8ad3215a57edad81a078c497a2cf6ac1e32afb",
+        "length": 1,
+        "recoveredBytes": "00"
+      },
+      {
+        "hashBytes": "0b38bf22768b4c20ccb4de5a80fba4727baefd57deeeb10b005efaf493d8d02f",
+        "length": 16,
+        "recoveredBytes": "000102030405060708090a0b0c0d0e0f"
+      },
+      {
+        "hashBytes": "170ac57cfc24d46977717b749ffaed2b8a5b3fe281e0db158937da4b48207133",
+        "length": 70,
+        "recoveredBytes": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445"
+      }
+    ],
     "txSecretBytes": "1f272d353b434951575f656d737b81898f979da5abb3b9c1c7cfd5dde3ebf1f9",
     "txViewingPublicKeyBytes": "037bed4876638198685d05fb150a851c6f2d9c786401155cdf0d6e8df4765395d6",
     "userPublicKeyBytes": "03d2b1a411534610409c6fc5240cde01ed2fa9e3f935d9597aea513dea169ce79d",
@@ -418,6 +436,24 @@
       "publicKeyBytes": "033181b9f2710910b475a4682a1958d237d25ffd61056f07274331d5bf2d707b62",
       "recoveredBytes": "636572742f7472616e73666572207574786f2062756e646c65"
     },
+    "truncations": [
+      {
+        "length": 0,
+        "recoveredBytes": ""
+      },
+      {
+        "length": 1,
+        "recoveredBytes": "63"
+      },
+      {
+        "length": 9,
+        "recoveredBytes": "636572742f7472616e"
+      },
+      {
+        "length": 24,
+        "recoveredBytes": "636572742f7472616e73666572207574786f2062756e646c"
+      }
+    ],
     "wrongEphemeralRecoveredBytes": "469027a23911e8360cbd7be80f18d5930c9648f610686a2441",
     "wrongRecipientRecoveredBytes": "e3cbe1e7b2b26a9b098cdc868496a34b2cb411c9620dccb066"
   }

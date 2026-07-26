@@ -118,6 +118,21 @@ describe("K7 merge verifiable encryption against current Rust", () => {
     expect(recorded.recoveredBytes).toBe(recorded.plaintextBytes);
   });
 
+  it("decrypts a truncated bundle to the matching prefix and moves the hash", () => {
+    // The merge bundle carries no length prefix either, so truncation is only
+    // visible through the proof-committed hash.
+    const ciphertext = fromHex(recorded.ciphertextBytes);
+    const txPublic = publicKey(recorded.txViewingPublicKeyBytes);
+    for (const row of recorded.truncations) {
+      const short = ciphertext.subarray(0, row.length);
+      expect(toHex(user().decryptVerifiable(txPublic, short)), `length ${String(row.length)}`).toBe(
+        row.recoveredBytes,
+      );
+      expect(toHex(mergeCiphertextHash(short))).toBe(row.hashBytes);
+      expect(row.hashBytes).not.toBe(toHex(mergeCiphertextHash(fromHex(recorded.ciphertextBytes))));
+    }
+  });
+
   it("returns Rust's exact garbage for a wrong user key, wrong tx key, or tampered ciphertext", () => {
     const ciphertext = fromHex(recorded.ciphertextBytes);
     const txPublic = publicKey(recorded.txViewingPublicKeyBytes);

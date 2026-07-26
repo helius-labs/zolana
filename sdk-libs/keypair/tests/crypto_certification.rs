@@ -174,6 +174,20 @@ fn transfer_encryption() -> Value {
     let ciphertext = sender
         .encrypt_slot(&recipient.pubkey(), &plaintext, BASE_SALT, BASE_SLOT)
         .expect("transfer ciphertext");
+    // Empty, one byte, one AES block short of the whole, and one byte short.
+    let truncations: Vec<Value> = [0usize, 1, ciphertext.len() - 16, ciphertext.len() - 1]
+        .into_iter()
+        .map(|length| {
+            json!({
+                "length": length,
+                "recoveredBytes": hex(
+                    &recipient
+                        .decrypt_utxo(&ciphertext[..length], &sender.pubkey(), BASE_SALT, BASE_SLOT)
+                        .expect("truncated decrypt"),
+                ),
+            })
+        })
+        .collect();
 
     // The production flow encrypts under a per-transaction viewing key derived
     // from the first nullifier, not under the long-term viewing key.
@@ -227,6 +241,11 @@ fn transfer_encryption() -> Value {
                 .decrypt_utxo(&ciphertext, &stranger.pubkey(), BASE_SALT, BASE_SLOT)
                 .expect("wrong ephemeral decrypt"),
         ),
+        // CTR is a stream cipher with no framing and no length prefix, so a
+        // truncated ciphertext decrypts to the matching prefix of the plaintext
+        // and nothing refuses it. The recovered bytes are recorded so the port
+        // cannot pass by raising instead.
+        "truncations": truncations,
         "transactionViewingKey": {
             "firstNullifierBytes": hex(&first_nullifier),
             "publicKeyBytes": hex(tx_viewing.pubkey().as_bytes()),
@@ -355,6 +374,23 @@ fn merge_encryption() -> Value {
     let mut tampered = ciphertext.clone();
     tampered[0] ^= 0xff;
 
+    let truncations: Vec<Value> = [1usize, 16, ciphertext.len() - 1]
+        .into_iter()
+        .map(|length| {
+            json!({
+                "length": length,
+                "recoveredBytes": hex(
+                    &user
+                        .decrypt_verifiable(&tx_public, &ciphertext[..length])
+                        .expect("truncated merge decrypt"),
+                ),
+                "hashBytes": hex(
+                    &merge_ciphertext_hash(&ciphertext[..length]).expect("truncated hash"),
+                ),
+            })
+        })
+        .collect();
+
     json!({
         "keystreamLength": KEYSTREAM_LEN,
         "txSecretBytes": hex(&secret32(41)),
@@ -392,6 +428,12 @@ fn merge_encryption() -> Value {
             &user.decrypt_verifiable(&tx_public, &tampered).expect("tampered merge decrypt"),
         ),
         "tamperedHashBytes": hex(&merge_ciphertext_hash(&tampered).expect("tampered hash")),
+        // The bundle has no length prefix either: only the proof-committed
+        // ciphertext hash moves when bytes are dropped.
+        "truncations": truncations,
+        // An empty ciphertext has no chunks, so the hash is Poseidon over an
+        // empty input, which the hasher refuses.
+        "emptyCiphertextHashVariant": variant_name(&expect_err(merge_ciphertext_hash(&[]))),
     })
 }
 
