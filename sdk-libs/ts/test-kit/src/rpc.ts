@@ -112,6 +112,22 @@ export class TestRpc implements Rpc {
     return Promise.resolve(this.#balances.get(address) ?? 0n);
   }
 
+  /**
+   * The default rent schedule, which is what litesvm answers the Rust double
+   * with: two years of `3480` lamports per byte over the account's data plus
+   * the 128-byte storage overhead.
+   */
+  getMinimumBalanceForRentExemption(dataLength: number, context?: RequestContext): Promise<bigint> {
+    const failure = contextFailure(context);
+    if (failure) return failure;
+    if (!Number.isSafeInteger(dataLength) || dataLength < 0) {
+      return Promise.reject(
+        new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field: "dataLength" } }),
+      );
+    }
+    return Promise.resolve((128n + BigInt(dataLength)) * 3_480n * 2n);
+  }
+
   getLatestBlockhash(
     context?: RequestContext,
   ): Promise<Readonly<{ blockhash: string; lastValidBlockHeight: bigint }>> {

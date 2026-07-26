@@ -1,4 +1,5 @@
-import type { Address, Instruction } from "@zolana/interface";
+import type { Rpc } from "@zolana/client";
+import type { Address, Instruction, RequestContext } from "@zolana/interface";
 import { SHIELDED_POOL_PROGRAM_ID } from "@zolana/interface";
 import { createTreeInstruction } from "@zolana/interface/instructions";
 
@@ -29,21 +30,38 @@ export function systemCreateAccountInstruction(
   });
 }
 
-export function createTreeInstructions(
+/**
+ * Reads the rent itself, as `create_tree_instructions` does, rather than taking
+ * it: the caller has no other way to learn the exempt balance for `accountSize`,
+ * and a guessed one leaves the tree closable.
+ *
+ * The read is optional on `Rpc` because Rust defaults it to `unsupported`, so an
+ * rpc that does not answer it is refused here rather than sent a tree account
+ * funded with nothing.
+ */
+export async function createTreeInstructions(
+  rpc: Pick<Rpc, "getMinimumBalanceForRentExemption">,
   input: Readonly<{
     payer: Address;
     authority: Address;
     tree: Address;
-    lamports: bigint;
-    space: bigint;
+    accountSize: number;
   }>,
-): readonly Instruction[] {
+  context?: RequestContext,
+): Promise<readonly Instruction[]> {
+  const getRent = rpc.getMinimumBalanceForRentExemption;
+  if (getRent === undefined) {
+    throw new TestKitError("TEST_KIT_RPC", {
+      details: { method: "getMinimumBalanceForRentExemption", reason: "unsupported" },
+    });
+  }
+  const lamports = await getRent.call(rpc, input.accountSize, context);
   return Object.freeze([
     systemCreateAccountInstruction({
       payer: input.payer,
       account: input.tree,
-      lamports: input.lamports,
-      space: input.space,
+      lamports,
+      space: BigInt(input.accountSize),
     }),
     createTreeInstruction({
       authority: input.authority,
