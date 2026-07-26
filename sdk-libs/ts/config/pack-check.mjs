@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
 
-import { browserEntryPoints, productionPackageNames } from "./packages.mjs";
+import { browserEntryPoints, packageConfigurations, productionPackageNames } from "./packages.mjs";
+
+function publishedName(packageName) {
+  return packageConfigurations[packageName].publishedName ?? `@zolana/${packageName}`;
+}
 
 const packagesRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const typescript = path.resolve(packagesRoot, "../../node_modules/typescript/bin/tsc");
@@ -86,12 +90,13 @@ try {
     const unexpectedFile = files.find(
       (file) => file.path !== "package.json" && !file.path.startsWith("dist/"),
     );
+    const name = publishedName(packageName);
     if (unexpectedFile) {
-      throw new Error(`@zolana/${packageName} tarball contains ${unexpectedFile.path}`);
+      throw new Error(`${name} tarball contains ${unexpectedFile.path}`);
     }
     const buildMetadata = files.find((file) => file.path.endsWith(".tsbuildinfo"));
     if (buildMetadata) {
-      throw new Error(`@zolana/${packageName} tarball contains ${buildMetadata.path}`);
+      throw new Error(`${name} tarball contains ${buildMetadata.path}`);
     }
     for (const conditions of Object.values(manifest.exports)) {
       // A shipped asset is a bare path rather than a condition map, and it is
@@ -99,7 +104,7 @@ try {
       // about at run time.
       for (const target of new Set(exportTargets(conditions))) {
         if (!packedPaths.has(target.slice(2))) {
-          throw new Error(`@zolana/${packageName} tarball lacks ${target}`);
+          throw new Error(`${name} tarball lacks ${target}`);
         }
       }
     }
@@ -107,7 +112,7 @@ try {
     // the tarball is broken without them however complete the exports map is.
     for (const marker of ["dist/es/package.json", "dist/cjs/package.json"]) {
       if (!packedPaths.has(marker)) {
-        throw new Error(`@zolana/${packageName} tarball lacks ${marker}`);
+        throw new Error(`${name} tarball lacks ${marker}`);
       }
     }
     tarballs.push(path.join(directory, filename));
@@ -132,12 +137,18 @@ try {
   const peerBackedImports = [];
   const strictImports = [];
   for (const [packageName, entryPoints] of Object.entries(browserEntryPoints)) {
+    const peerBackedEntryPoints = new Set(
+      packageConfigurations[packageName].peerBackedEntryPoints ?? [],
+    );
     for (const entryPoint of entryPoints) {
       const suffix = entryPoint === "." ? "" : entryPoint.slice(1);
-      const specifier = `@zolana/${packageName}${suffix}`;
+      const specifier = `${publishedName(packageName)}${suffix}`;
       imports.push(specifier);
-      if (peerPackageNames.has(packageName)) peerBackedImports.push(specifier);
-      else strictImports.push(specifier);
+      if (peerPackageNames.has(packageName) || peerBackedEntryPoints.has(entryPoint)) {
+        peerBackedImports.push(specifier);
+      } else {
+        strictImports.push(specifier);
+      }
     }
   }
   const nodeConsumer = path.join(directory, "node-consumer.mjs");

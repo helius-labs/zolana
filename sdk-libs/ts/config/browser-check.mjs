@@ -43,7 +43,8 @@ async function checkBrowserSource(packageName) {
   for (const entry of entries.filter((name) => name.endsWith(".ts"))) {
     const source = await readFile(path.join(sourceRoot, entry), "utf8");
     const forbidden = forbiddenInSource.exec(source);
-    if (forbidden) throw new Error(`@zolana/${packageName} source contains ${forbidden[0]}`);
+    const name = packageConfigurations[packageName].publishedName ?? `@zolana/${packageName}`;
+    if (forbidden) throw new Error(`${name} source contains ${forbidden[0]}`);
   }
 }
 
@@ -59,7 +60,10 @@ try {
   for (const [selectedPackageName, entryPoints] of Object.entries(selectedBrowserEntryPoints)) {
     for (const entryPoint of entryPoints ?? []) {
       const suffix = entryPoint === "." ? "" : entryPoint.slice(1);
-      imports.push(`import(${JSON.stringify(`@zolana/${selectedPackageName}${suffix}`)})`);
+      const name =
+        packageConfigurations[selectedPackageName].publishedName ??
+        `@zolana/${selectedPackageName}`;
+      imports.push(`import(${JSON.stringify(`${name}${suffix}`)})`);
     }
   }
   const entry = path.join(directory, "consumer.mjs");

@@ -97,6 +97,9 @@ export const packageConfigurations = {
     ],
     // Published as `@helius/zolana`; Kit stays behind the `./kit` entry.
     publishedName: "@helius/zolana",
+    // `./kit` re-exports `@zolana/kit`, so its consumer typecheck needs Kit's
+    // optional peer types without declaring those peers on the umbrella root.
+    peerBackedEntryPoints: ["./kit"],
     browser: true,
   },
   "test-kit": {
