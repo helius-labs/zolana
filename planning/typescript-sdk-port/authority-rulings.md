@@ -17,7 +17,7 @@ piece named.
 ## Contents
 
 - [Open: owner-hash encoding (G7-1)](#open-owner-hash-encoding-g7-1)
-- [Open: confidential owner tag (T23)](#open-confidential-owner-tag-t23)
+- [Ruled: confidential owner tag (T23)](#ruled-confidential-owner-tag-t23)
 - [Ruled: ECDSA malleability policy (G2-1)](#ruled-ecdsa-malleability-policy-g2-1)
 - [Ruled: Ed25519 acceptance (G2-2)](#ruled-ed25519-acceptance-g2-2)
 - [Open: the u64 integer domain (C04)](#open-the-u64-integer-domain-c04)
@@ -183,7 +183,11 @@ proving keys:
 | Date | |
 | Follow-up artifacts | |
 
-## Open: confidential owner tag (T23)
+## Ruled: confidential owner tag (T23)
+
+The line numbers below cite `docs/spec.md` as it read before the ruling landed.
+The amendment moved them; read the section through its anchors rather than its
+line numbers.
 
 ### What the spec says
 
@@ -314,10 +318,10 @@ Either option invalidates the P256 rail of
 
 | Field | Value |
 | --- | --- |
-| Ruling | |
-| Ruled by | |
-| Date | |
-| Follow-up artifacts | |
+| Ruling | Option 1. The four implementations agreed with each other and only the spec was self-contradictory, so the spec moved. `docs/spec.md` now states the zero sentinel as the anonymous and zone-authority rule and the equality form as the confidential one, under the `owner-tag-by-variant` anchor. |
+| Ruled by | `25b13fa2`, `spec: name the two pubkey field encodings` |
+| Date | 2026-07-25 |
+| Follow-up artifacts | None for the tag itself: no circuit, program, client, verifying key, or fixture changed. The row's other half, the BN254 range check that TypeScript performs and `sdk-libs/transaction/src/instructions/transact/spp_proof_inputs.rs` does not, is separate and still open. [`remaining-work.md`](remaining-work.md) tracks it. |
 
 ## Ruled: ECDSA malleability policy (G2-1)
 
@@ -948,7 +952,7 @@ that pre-1.0 SDK crates with no users may break. Decoding stays: a TypeScript to
 a `batch_update_nullifier_tree` instruction it finds in a transaction, because reading it needs
 nothing we cannot do.
 
-### How TypeScript gets its Poseidon
+### Poseidon in TypeScript
 
 | Field | Value |
 | --- | --- |
