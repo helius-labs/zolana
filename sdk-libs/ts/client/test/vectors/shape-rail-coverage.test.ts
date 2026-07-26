@@ -3,28 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import { proverRequest, mergeProverRequest } from "../../src/prover/client.js";
 import { assemble } from "../../src/prover/index.js";
-import {
-  assembleZone,
-  assembleZoneAuthority,
-  assembleZoneP256,
-} from "../../src/prover/zone.js";
+import { assembleZone, assembleZoneAuthority, assembleZoneP256 } from "../../src/prover/zone.js";
 import { assembleMergeWithProofs, assembleMergeZoneWithProofs } from "../../src/prover/merge.js";
-import proverShapesJson from "../../../fixtures/client/prover-shapes-v1.json" with {
-  type: "json",
-};
+import proverShapesJson from "../../../fixtures/client/prover-shapes-v1.json" with { type: "json" };
 import zoneOracle from "../oracles/zone-v1.json" with { type: "json" };
 import mergeOracle from "../oracles/merge-v1.json" with { type: "json" };
-import {
-  buildProofInputs,
-  bytes,
-  type ProverShapesFixture,
-} from "../helpers/prover-vectors.js";
-import {
-  NullifierKey,
-  ShieldedKeypair,
-  SigningKey,
-  ViewingKey,
-} from "@zolana/keypair";
+import { buildProofInputs, bytes, type ProverShapesFixture } from "../helpers/prover-vectors.js";
+import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
 import {
   PreparedMerge,
   PreparedMergeZone,
@@ -230,9 +215,9 @@ describe("authoritative SPP shape set", () => {
     );
     expect(proverShapes.expected.rails.map((rail) => rail.rail)).toEqual(["eddsa", "p256"]);
     for (const rail of proverShapes.expected.rails) {
-      expect(rail.shapes.map((entry) => [Number(entry.shape.inputs), Number(entry.shape.outputs)])).toEqual(
-        AUTHORITATIVE_SHAPES.map(([inputs, outputs]) => [inputs, outputs]),
-      );
+      expect(
+        rail.shapes.map((entry) => [Number(entry.shape.inputs), Number(entry.shape.outputs)]),
+      ).toEqual(AUTHORITATIVE_SHAPES.map(([inputs, outputs]) => [inputs, outputs]));
     }
   });
 });

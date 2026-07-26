@@ -31,11 +31,7 @@ import {
   poseidon,
 } from "../../src/internal.js";
 import { assembleMergeWithProofs, assembleMergeZoneWithProofs } from "../../src/prover/merge.js";
-import {
-  assembleZone,
-  assembleZoneAuthority,
-  assembleZoneP256,
-} from "../../src/prover/zone.js";
+import { assembleZone, assembleZoneAuthority, assembleZoneP256 } from "../../src/prover/zone.js";
 import type { SpendProof } from "../../src/rpc.js";
 import { bytes } from "../helpers/prover-vectors.js";
 import zoneOracle from "../oracles/zone-v1.json" with { type: "json" };
@@ -327,7 +323,10 @@ describe("merge-zone named rejections", () => {
       nullifierKey,
     });
     expect(() => new MergeZone(owner, [unbound], MERGE_ZONE)).toThrow(
-      expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH", details: { index: 0 } }),
+      expect.objectContaining({
+        code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
+        details: { index: 0 },
+      }),
     );
   });
 
