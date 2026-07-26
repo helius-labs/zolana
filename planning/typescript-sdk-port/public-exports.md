@@ -735,7 +735,7 @@ export class ConfidentialTransfer {
   prepare(): PreparedTransfer;
 }
 export interface PublicAmounts {
-  readonly sol?: bigint; readonly spl?: bigint;
+  readonly sol: Bytes32; readonly spl: Bytes32; readonly asset: Bytes32;
 }
 export interface P256Signature {
   readonly publicKey: P256PublicKey;
