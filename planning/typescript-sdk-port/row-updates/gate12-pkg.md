@@ -164,11 +164,13 @@ npm run test:browser-runtime
 npx vitest run --config ../config/vitest.vectors.config.js aliasing-census
 npx vitest run --config ../config/vitest.package.config.js test/security.test.ts
 cargo fmt --all
-npm run check:static   # expect only the seven known G2 static errors in
+npm run lint:packages  # only the seven known G2 errors in
                        # client/test/vectors/g2-compression-live.test.ts
-npm run test:unit
+npm run test:unit      # 2228 passed (+2 aliasing census); no regression
 ```
 
 ## Commits
 
-Incremental commits on `port/gate12-pkg` with `--no-gpg-sign` (see git log).
+- `93abb268` fix(ts): publish metadata and import-aware dependency checks
+- `abb9ff12` test(keypair): census secret-adjacent accessors for aliasing (G6-2)
+- `28721537` docs(port): close G9-4/G6-2 evidence and restate gates 1–2
