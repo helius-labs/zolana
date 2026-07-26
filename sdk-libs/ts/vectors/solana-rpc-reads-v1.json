@@ -117,6 +117,40 @@
       }
     },
     {
+      "decoded": true,
+      "id": "confirmTransaction",
+      "request": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "method": "getSignatureStatuses",
+        "params": [
+          [
+            "2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6ijwfYmfZYsKRxboQMPh3R4kUhXRVdtSXFXMheka4Rc4P2"
+          ]
+        ]
+      },
+      "response": {
+        "id": 1,
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "slot": 100
+          },
+          "value": [
+            {
+              "confirmationStatus": "finalized",
+              "confirmations": null,
+              "err": null,
+              "slot": 92,
+              "status": {
+                "Ok": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
       "decoded": [
         {
           "confirmationStatus": "confirmed",

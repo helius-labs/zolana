@@ -117,6 +117,30 @@ fn reads() -> Result<Vec<Value>> {
             Box::new(|rpc| json!(rpc.health().is_ok())),
         ),
         (
+            // Not a C03 read: recorded because it shares `getSignatureStatuses`
+            // with the read above and the two send different parameters.
+            "confirmTransaction",
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "context": { "slot": 100 },
+                    "value": [{
+                        "slot": 92,
+                        "confirmations": null,
+                        "err": null,
+                        "status": { "Ok": null },
+                        "confirmationStatus": "finalized"
+                    }]
+                }
+            }),
+            Box::new(move |rpc| {
+                json!(rpc
+                    .confirm_transaction(signatures[0])
+                    .expect("confirm_transaction"))
+            }),
+        ),
+        (
             "getSignatureStatuses",
             json!({
                 "jsonrpc": "2.0",

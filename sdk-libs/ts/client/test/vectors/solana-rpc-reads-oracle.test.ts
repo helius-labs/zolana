@@ -54,6 +54,13 @@ function wire(body: unknown): Readonly<{ method: unknown; params: unknown }> {
   return { method: request["method"], params: request["params"] ?? null };
 }
 
+function signatureOf(read: Read): Signature {
+  const [signatures] = read.request.params as readonly (readonly Signature[])[];
+  const signature = signatures?.[0];
+  if (signature === undefined) throw new Error(`oracle read ${read.id} carries no signature`);
+  return signature;
+}
+
 function expectMatchesOracle(read: Read, sent: readonly unknown[]): void {
   expect(sent).toHaveLength(1);
   expect(wire(sent[0])).toEqual({ method: read.request.method, params: read.request.params });
@@ -87,7 +94,7 @@ describe("plain Solana reads against the Rust wire", () => {
     expectMatchesOracle(read, sent);
   });
 
-  it("getHealth sends no parameter list and resolves on \"ok\"", async () => {
+  it('getHealth sends no parameter list and resolves on "ok"', async () => {
     const read = readCase("getHealth");
     const { rpc, sent } = recordingRpc(read);
 
@@ -124,11 +131,31 @@ describe("plain Solana reads against the Rust wire", () => {
     });
   });
 
+  /**
+   * A pinned divergence rather than a parity claim, and not C03's to settle.
+   * Rust's `confirm_transaction` asks only for the recent status cache, so a
+   * signature that has aged out of it reads as unconfirmed; the port asks the
+   * node to search transaction history, so the same signature reads as
+   * confirmed. Both answers agree for anything recent enough to be worth
+   * confirming, which is why no existing test noticed.
+   */
+  it("asks for transaction history where Rust does not", async () => {
+    const read = readCase("confirmTransaction");
+    const { rpc, sent } = recordingRpc(read);
+
+    await expect(rpc.confirmTransaction(signatureOf(read))).resolves.toBe(read.decoded);
+    expect(wire(sent[0]).method).toBe(read.request.method);
+    expect(read.request.params).toEqual([[signatureOf(read)]]);
+    expect(wire(sent[0]).params).toEqual([[signatureOf(read)], { searchTransactionHistory: true }]);
+  });
+
   it("rejects an unhealthy node rather than resolving", async () => {
     const read = readCase("getHealth");
     const rpc = new SolanaRpc({
       url: "https://solana.example.test",
-      fetch: vi.fn(() => Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, result: "behind" }))),
+      fetch: vi.fn(() =>
+        Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, result: "behind" })),
+      ),
     });
     void read;
 
@@ -145,8 +172,7 @@ describe("plain Solana reads against the Rust wire", () => {
       ),
     });
     const [signatures] = readCase("getSignatureStatuses").request.params as readonly (
-      | readonly Signature[]
-      | undefined
+      readonly Signature[] | undefined
     )[];
 
     await expect(rpc.getSignatureStatuses(signatures ?? [])).rejects.toMatchObject({
