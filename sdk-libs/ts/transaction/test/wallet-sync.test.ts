@@ -375,6 +375,25 @@ describe("manifest-verified wallet behavior", () => {
         transactions: [],
       }),
     ).rejects.toMatchObject({ code: "TRANSACTION_MISSING_CURRENT_VIEWING_KEY" });
+
+    // `sync_with_material_in_place` checks the viewing keys before the
+    // nullifier key, so material wrong in both ways names the viewing key.
+    const bothWrong: WalletAuthority = {
+      ...value.authority,
+      syncMaterial: () =>
+        Promise.resolve({
+          identity: value.identity,
+          viewingKeys: [ViewingKey.fromSeed(new Uint8Array(32).fill(42) as Bytes32, 0)],
+          nullifierKey: other.nullifier,
+        }),
+    };
+    await expect(
+      decryptTransactions({
+        wallet: new Wallet({ identity: value.identity, registry: new AssetRegistry() }),
+        authority: bothWrong,
+        transactions: [],
+      }),
+    ).rejects.toMatchObject({ code: "TRANSACTION_MISSING_CURRENT_VIEWING_KEY" });
   });
 
   it("records the same history rows Rust records for every recording path", async () => {

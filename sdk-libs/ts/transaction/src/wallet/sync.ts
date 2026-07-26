@@ -64,6 +64,12 @@ export interface WalletSyncConfig {
   readonly syncedAt?: bigint;
 }
 
+/**
+ * The three guards `Wallet::sync_with_material_in_place` runs, in its order: a
+ * material wrong in more than one way is rejected for the first of them, so the
+ * nullifier key is checked after the viewing keys rather than beside the
+ * identity it belongs to.
+ */
 function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
   if (
     !equal(
@@ -74,8 +80,7 @@ function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
     !equal(
       material.identity.viewingPublicKey.toBytes(),
       wallet.identity.viewingPublicKey.toBytes(),
-    ) ||
-    !equal(material.nullifierKey.publicKey(), wallet.identity.nullifierPublicKey)
+    )
   ) {
     throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
   }
@@ -85,6 +90,9 @@ function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
     )
   ) {
     throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
+  }
+  if (!equal(material.nullifierKey.publicKey(), wallet.identity.nullifierPublicKey)) {
+    throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
   }
 }
 
