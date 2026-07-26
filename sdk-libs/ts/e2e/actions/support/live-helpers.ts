@@ -72,17 +72,3 @@ export async function syncUntil(
   }
   throw new Error("wallet sync predicate timed out");
 }
-
-/** Walk nested wallet/client error causes for the live G2 compression wall. */
-export function isProofPointFailure(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 8; depth++) {
-    if (typeof current !== "object" || current === null) return false;
-    const record = current as Readonly<{ code?: unknown; causeCode?: unknown; cause?: unknown }>;
-    if (record.code === "CLIENT_PROOF_POINT" || record.causeCode === "CLIENT_PROOF_POINT") {
-      return true;
-    }
-    current = record.cause;
-  }
-  return false;
-}
