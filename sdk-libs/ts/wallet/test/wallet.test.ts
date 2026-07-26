@@ -370,6 +370,38 @@ describe("wallet actions", () => {
         details: { hash: bytes32(2), utxoTree: OTHER_TREE, spendTree: TREE },
       }),
     );
+
+    // Optional tree selector: a rollover wallet merges each tree independently,
+    // omits still refuse, and a mixed explicit hash names both trees.
+    const rollover = walletOf([
+      entry(0, TREE),
+      entry(1, TREE),
+      entry(2, OTHER_TREE),
+      entry(3, OTHER_TREE),
+    ]);
+    expect(merge(rollover)).toThrow(
+      expect.objectContaining({ code: "WALLET_MULTIPLE_INPUT_TREES" }),
+    );
+    expect(createMerge({ wallet: rollover, keypair, asset: SOL_MINT, tree: TREE })).toEqual(
+      expect.objectContaining({ tree: TREE, numInputs: 2, mergedAmount: 30n }),
+    );
+    expect(
+      createMerge({ wallet: rollover, keypair, asset: SOL_MINT, tree: OTHER_TREE }),
+    ).toEqual(expect.objectContaining({ tree: OTHER_TREE, numInputs: 2, mergedAmount: 70n }));
+    expect(() =>
+      createMerge({
+        wallet: rollover,
+        keypair,
+        asset: SOL_MINT,
+        tree: TREE,
+        inputs: [bytes32(1), bytes32(3)],
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "WALLET_INPUT_UTXO_TREE_MISMATCH",
+        details: { hash: bytes32(3), utxoTree: OTHER_TREE, spendTree: TREE },
+      }),
+    );
   });
 
   it("keeps external-custody and signer convenience message bytes identical", async () => {

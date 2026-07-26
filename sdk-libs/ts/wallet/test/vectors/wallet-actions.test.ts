@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import fixture from "../../../vectors/wallet-actions-v1.json" with { type: "json" };
 import {
   LocalWalletAuthority,
+  createMerge,
   createSplit,
   createWithdrawal,
   signPrivateTransaction,
@@ -25,6 +26,7 @@ interface Note {
 // translation, and an unmapped variant fails rather than passing quietly.
 const REJECTIONS: Readonly<Record<string, string>> = {
   AmbiguousTree: "WALLET_MULTIPLE_INPUT_TREES",
+  InputUtxoTreeMismatch: "WALLET_INPUT_UTXO_TREE_MISMATCH",
   InputUtxoUnavailable: "WALLET_INPUT_UTXO_UNAVAILABLE",
   InsufficientBalance: "WALLET_INSUFFICIENT_BALANCE",
   SelectedBalanceOverflow: "WALLET_SELECTED_BALANCE_OVERFLOW",
@@ -62,8 +64,11 @@ function tree(name: string): Address {
 }
 
 function buildWallet(id: WalletId): Wallet {
+  return buildWalletWithKey(id, ShieldedKeypair.generate());
+}
+
+function buildWalletWithKey(id: WalletId, keypair: ShieldedKeypair): Wallet {
   const notes = fixture.wallets[id] as readonly Note[];
-  const keypair = ShieldedKeypair.generate();
   const wallet = new Wallet({
     identity: keypair.shieldedAddress(),
     registry: new AssetRegistry([]),
@@ -384,6 +389,39 @@ describe("split selection against the Rust wallet", () => {
             numOutputs: created.numOutputs.toString(),
             perOutputAmount: created.perOutputAmount.toString(),
             inputCount: created.transaction.inputCount().toString(),
+          };
+        }),
+      ).toEqual(expected(outcome));
+    });
+  }
+});
+
+describe("merge tree selection against the Rust wallet", () => {
+  // Optional `tree` disambiguates a rollover; omitting it keeps the historical
+  // AmbiguousTree refusal. A mixed-tree explicit hash names both trees.
+  for (const [position, entry] of fixture.merges.entries()) {
+    const outcome = entry.outcome as Outcome;
+    const treeLabel = entry.tree === null ? "inferred" : entry.tree;
+    const inputsLabel =
+      entry.inputs === null ? "auto-sweep" : `notes [${entry.inputs.join(", ")}]`;
+    it(`case ${String(position)}: ${entry.wallet} on ${treeLabel} via ${inputsLabel}`, () => {
+      const keypair = ShieldedKeypair.generate();
+      const wallet = buildWalletWithKey(entry.wallet as WalletId, keypair);
+      expect(
+        observe(outcome, () => {
+          const created = createMerge({
+            wallet,
+            keypair,
+            asset: SOL_MINT,
+            ...(entry.tree === null ? {} : { tree: tree(entry.tree) }),
+            ...(entry.inputs === null
+              ? {}
+              : { inputs: entry.inputs.map((index) => filled(Number(index) + 1)) }),
+          });
+          return {
+            numInputs: created.numInputs.toString(),
+            mergedAmount: created.mergedAmount.toString(),
+            tree: created.tree,
           };
         }),
       ).toEqual(expected(outcome));

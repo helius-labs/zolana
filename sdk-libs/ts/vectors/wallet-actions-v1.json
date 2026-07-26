@@ -1,5 +1,67 @@
 {
   "generator": "cargo run -p xtask --bin wallet-actions",
+  "merges": [
+    {
+      "inputs": null,
+      "outcome": {
+        "arm": "err",
+        "error": "AmbiguousTree { asset: 11111111111111111111111111111111, tree_count: 2 }"
+      },
+      "tree": null,
+      "wallet": "rollover"
+    },
+    {
+      "inputs": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "mergedAmount": "8",
+          "numInputs": "2",
+          "tree": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2"
+        }
+      },
+      "tree": "primary",
+      "wallet": "rollover"
+    },
+    {
+      "inputs": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "mergedAmount": "18",
+          "numInputs": "2",
+          "tree": "cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN"
+        }
+      },
+      "tree": "secondary",
+      "wallet": "rollover"
+    },
+    {
+      "inputs": null,
+      "outcome": {
+        "arm": "ok",
+        "value": {
+          "mergedAmount": "23",
+          "numInputs": "3",
+          "tree": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2"
+        }
+      },
+      "tree": null,
+      "wallet": "ascending"
+    },
+    {
+      "inputs": [
+        "0",
+        "2"
+      ],
+      "outcome": {
+        "arm": "err",
+        "error": "InputUtxoTreeMismatch { hash: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], utxo_tree: cGfHiC6Kgg3FpFZvgwGcswsCRtp4aBP2fzuXRQPizuN, spend_tree: 29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2 }"
+      },
+      "tree": "primary",
+      "wallet": "rollover"
+    }
+  ],
   "rails": [
     {
       "authorityRail": "p256",
@@ -339,6 +401,28 @@
         "amount": "18446744073709551615",
         "kind": "plain",
         "tree": "primary"
+      }
+    ],
+    "rollover": [
+      {
+        "amount": "3",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "5",
+        "kind": "plain",
+        "tree": "primary"
+      },
+      {
+        "amount": "7",
+        "kind": "plain",
+        "tree": "secondary"
+      },
+      {
+        "amount": "11",
+        "kind": "plain",
+        "tree": "secondary"
       }
     ],
     "two-trees": [

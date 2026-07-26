@@ -469,6 +469,7 @@ fn transaction_vectors(
         keypair: owner,
         asset: SOL_MINT,
         inputs: None,
+        tree: None,
     })?;
     let duplicate = match create_merge(MergeParams {
         wallet: &wallet,
@@ -478,6 +479,7 @@ fn transaction_vectors(
             wallet.utxos[0].output_context.hash,
             wallet.utxos[0].output_context.hash,
         ]),
+        tree: None,
     }) {
         Ok(_) => panic!("duplicate merge input accepted"),
         Err(error) => error,
@@ -943,6 +945,7 @@ fn workflow_merge_vectors(owner: &ShieldedKeypair) -> Result<Value, Box<dyn std:
         keypair: owner,
         asset: SOL_MINT,
         inputs: None,
+        tree: None,
     })?;
     let selected = wallet
         .utxos
@@ -1031,6 +1034,7 @@ fn workflow_merge_vectors(owner: &ShieldedKeypair) -> Result<Value, Box<dyn std:
             wallet.utxos[0].output_context.hash,
             wallet.utxos[0].output_context.hash,
         ]),
+        tree: None,
     }) {
         Ok(_) => panic!("duplicate merge input accepted"),
         Err(error) => error,
