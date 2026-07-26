@@ -1935,3 +1935,65 @@ in `client/test/prover.test.ts`: an unknown JSON key no longer fails where `serd
 an empty `proof_commitment` array reads as absent, and a coordinate without the `0x` prefix parses.
 Those three were TypeScript being wrong. This fourth is Rust being wrong, and the row stays open
 until the Rust side moves.
+
+### Whether X01 can close while the specification stays stale
+
+| Field | Value |
+| --- | --- |
+| Conflict | `docs/spec.md` describes indexer schemas that Rust, Photon and the port do not implement, and omits an endpoint all three carry. |
+| Ruling | Close `X01` at PARITY against the port target. File the specification and Rust items as work outside `sdk-libs`. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-26 |
+| Follow-up artifacts | Row `X01`, `docs/spec.md:1933-1998` |
+
+The row was carried for a day as a three-way disagreement between the specification, Photon and Rust,
+which is why nobody could settle it: two of the three sat outside the branch. Reading Photon closed
+that question rather than answering it. Photon does not define these schemas. It imports them from
+`zolana_indexer_api` at `services/photon/src/api/method/rings/common.rs:15-17`, and its production
+handler returns the crate's own response type. Photon's wire format is the Rust crate's wire format
+by construction, so there were never three positions, only two: the document against three artifacts
+that agree.
+
+That is the disagreement the standing ruling already covers, so the port needs no change and no SDK
+change exists to make. Holding the row open would block the cryptographic phase on a document in
+another part of the repository.
+
+### Amending the stale indexer schemas (X01 follow-up)
+
+| Field | Value |
+| --- | --- |
+| Conflict | Three schemas and one endpoint in `docs/spec.md` do not match the implementation. |
+| Ruling | Amend `docs/spec.md` in this pull request. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-26 |
+| Follow-up artifacts | `docs/spec.md:1933-1998`, `docs/spec.md:59-63` |
+
+Four edits. `EncryptedUtxoMatch` is documented with a flat `tag` and `ciphertext` where Rust carries a
+nested `output_slot: RingsOutputSlot` and a transaction-level `salt` (`lib.rs:492-502`). `OutputSlot`
+is documented with a flat `hash` where Rust carries `view_tag` and a nested
+`RingsOutputContext { hash, tree, leaf_index }` (`lib.rs:517-530`). The transaction schema omits
+`salt`, `messages` and `proofless` (`lib.rs:540-555`). And `get_nullifier_queue_elements` exists in
+Rust, Photon and the port but appears nowhere in the document, including its RPC contents list: an
+undocumented extension rather than a divergence.
+
+The general rule against editing `docs/spec.md` during implementation cleanup is suspended here
+because amending it is the task, not a side effect of one.
+
+### Whether Rust accepts the decimal string the specification permits (X01 integer domain)
+
+| Field | Value |
+| --- | --- |
+| Conflict | The specification permits a decimal string on seven unbounded integer fields and the port reads it; Rust declares them as plain `i64`/`u64` and refuses it. |
+| Ruling | Look at how Light Protocol handles this across its Rust and TypeScript readers, and match them. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-26 |
+| Follow-up artifacts | `sdk-libs/indexer-api/src/lib.rs:478,496,544,591,609,630,662` |
+
+This is the one place the document is ahead of the code rather than behind it, which is why it did not
+resolve under the usual rule. Nothing is broken today: the port encodes every integer as a JSON
+number, so no body it writes is a body Rust rejects, and the string form is a reader's tolerance
+rather than a writer's output. The asymmetry only bites if Photon starts quoting.
+
+The owner's standing rule applies: revalidate, then look at how Light Protocol did it and do the same.
+Light has the identical problem, a Rust indexer and a TypeScript client reading one wire format, so
+whatever they chose was chosen against the same constraint.
