@@ -1,0 +1,141 @@
+{
+  "package": "@zolana/kit",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "createKitRpc",
+        "kind": "value"
+      },
+      {
+        "name": "fromAccountRole",
+        "kind": "value"
+      },
+      {
+        "name": "fromKitAddress",
+        "kind": "value"
+      },
+      {
+        "name": "fromKitInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "fromKitSigner",
+        "kind": "value"
+      },
+      {
+        "name": "fromKitTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "KitConnection",
+        "kind": "type"
+      },
+      {
+        "name": "KitError",
+        "kind": "value"
+      },
+      {
+        "name": "KitRpcOptions",
+        "kind": "type"
+      },
+      {
+        "name": "toAccountRole",
+        "kind": "value"
+      },
+      {
+        "name": "toKitAddress",
+        "kind": "value"
+      },
+      {
+        "name": "toKitInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "toKitSigner",
+        "kind": "value"
+      },
+      {
+        "name": "toKitTransaction",
+        "kind": "value"
+      }
+    ],
+    "./instructions": [
+      {
+        "name": "createAssetCounterInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createAssociatedTokenAccountInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createProtocolConfigInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createSplInterfaceInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createTreeInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "createZoneConfigInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "depositInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "mergeTransactInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "MergeTransactInstructionData",
+        "kind": "type"
+      },
+      {
+        "name": "mergeZoneInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "pauseTreeInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "ProtocolConfigUpdate",
+        "kind": "type"
+      },
+      {
+        "name": "transactInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "updateProtocolConfigInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "updateZoneConfigInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "updateZoneConfigOwnerInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "zoneAuthorityTransactInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "zoneDepositInstruction",
+        "kind": "value"
+      },
+      {
+        "name": "zoneTransactInstruction",
+        "kind": "value"
+      }
+    ]
+  }
+}

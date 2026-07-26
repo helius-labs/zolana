@@ -11,13 +11,71 @@ import { browserEntryPoints, productionPackageNames } from "./packages.mjs";
 const packagesRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const typescript = path.resolve(packagesRoot, "../../node_modules/typescript/bin/tsc");
 const directory = await mkdtemp(path.join(tmpdir(), "zolana-pack-"));
+const rootManifest = JSON.parse(
+  await readFile(path.resolve(packagesRoot, "../../package.json"), "utf8"),
+);
+const nodeTypes = `@types/node@${rootManifest.devDependencies["@types/node"]}`;
+
+/** Flatten an exports map entry (condition object or bare asset path) to file targets. */
+function exportTargets(conditions) {
+  if (typeof conditions === "string") return [conditions];
+  return Object.values(conditions).flatMap((target) =>
+    typeof target === "string" ? [target] : Object.values(target),
+  );
+}
+
+function sideEffectImports(specifiers) {
+  return specifiers.map((specifier) => `import ${JSON.stringify(specifier)};`).join("\n");
+}
+
+function commonJsRequires(specifiers, namePrefix) {
+  return specifiers
+    .map(
+      (specifier, index) =>
+        `import ${namePrefix}${String(index)} = require(${JSON.stringify(specifier)});\nvoid ${namePrefix}${String(index)};`,
+    )
+    .join("\n");
+}
+
+async function typecheck(files, types) {
+  const configPath = path.join(
+    directory,
+    types.length === 0 ? "tsconfig.json" : "tsconfig.peer.json",
+  );
+  await writeFile(
+    configPath,
+    `${JSON.stringify({
+      compilerOptions: {
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        noEmit: true,
+        strict: true,
+        target: "ES2022",
+        types,
+      },
+      files,
+    })}\n`,
+  );
+  execFileSync(process.execPath, [typescript, "--project", configPath], {
+    cwd: directory,
+    stdio: "inherit",
+  });
+}
 
 try {
   const tarballs = [];
+  // Optional peers are not installed by npm; this consumer installs them so
+  // peer-backed entry points resolve.
+  const peers = new Set();
+  const peerPackageNames = new Set();
   for (const packageName of productionPackageNames) {
     const manifest = JSON.parse(
       await readFile(path.join(packagesRoot, packageName, "package.json"), "utf8"),
     );
+    for (const [peer, range] of Object.entries(manifest.peerDependencies ?? {})) {
+      peers.add(`${peer}@${range}`);
+      peerPackageNames.add(packageName);
+    }
     const output = execFileSync(
       "npm",
       ["pack", path.join(packagesRoot, packageName), "--json", "--pack-destination", directory],
@@ -39,13 +97,7 @@ try {
       // A shipped asset is a bare path rather than a condition map, and it is
       // the one export whose absence from the tarball a consumer only finds out
       // about at run time.
-      const targets =
-        typeof conditions === "string"
-          ? [conditions]
-          : Object.values(conditions).flatMap((target) =>
-              typeof target === "string" ? [target] : Object.values(target),
-            );
-      for (const target of new Set(targets)) {
+      for (const target of new Set(exportTargets(conditions))) {
         if (!packedPaths.has(target.slice(2))) {
           throw new Error(`@zolana/${packageName} tarball lacks ${target}`);
         }
@@ -65,16 +117,27 @@ try {
     cwd: directory,
     stdio: "ignore",
   });
-  execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...tarballs], {
-    cwd: directory,
-    stdio: "inherit",
-  });
+  execFileSync(
+    "npm",
+    ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...tarballs, ...peers],
+    {
+      cwd: directory,
+      stdio: "inherit",
+    },
+  );
 
   const imports = [];
+  // Packages with optional peers typecheck in a separate project below, so
+  // ambient types those peers need do not weaken the main consumer check.
+  const peerBackedImports = [];
+  const strictImports = [];
   for (const [packageName, entryPoints] of Object.entries(browserEntryPoints)) {
     for (const entryPoint of entryPoints) {
       const suffix = entryPoint === "." ? "" : entryPoint.slice(1);
-      imports.push(`@zolana/${packageName}${suffix}`);
+      const specifier = `@zolana/${packageName}${suffix}`;
+      imports.push(specifier);
+      if (peerPackageNames.has(packageName)) peerBackedImports.push(specifier);
+      else strictImports.push(specifier);
     }
   }
   const nodeConsumer = path.join(directory, "node-consumer.mjs");
@@ -150,10 +213,9 @@ void (async () => {
     }
   }
 
-  const typeConsumer = path.join(directory, "type-consumer.mts");
   await writeFile(
-    typeConsumer,
-    `${imports.map((specifier) => `import ${JSON.stringify(specifier)};`).join("\n")}
+    path.join(directory, "type-consumer.mts"),
+    `${sideEffectImports(strictImports)}
 import { ApiError, ZolanaApi, type ZolanaApiConfig } from "@zolana/api";
 const apiConfig: ZolanaApiConfig = { url: "https://rpc.example.test" };
 const apiClient: ZolanaApi = new ZolanaApi(apiConfig);
@@ -166,12 +228,7 @@ void [apiClient, apiError];
   // typechecks here as a default import that does not exist.
   await writeFile(
     path.join(directory, "type-consumer.cts"),
-    `${imports
-      .map(
-        (specifier, index) =>
-          `import required${String(index)} = require(${JSON.stringify(specifier)});\nvoid required${String(index)};`,
-      )
-      .join("\n")}
+    `${commonJsRequires(strictImports, "required")}
 import { ApiError, ZolanaApi, type ZolanaApiConfig } from "@zolana/api";
 import { initializePoseidon, poseidon } from "@zolana/hasher";
 const apiConfig: ZolanaApiConfig = { url: "https://rpc.example.test" };
@@ -183,26 +240,25 @@ const digest: Promise<Uint8Array> = initializePoseidon().then(() =>
 void [apiClient, apiError, digest];
 `,
   );
+  await typecheck(["type-consumer.mts", "type-consumer.cts"], []);
 
-  const typeScriptConfig = path.join(directory, "tsconfig.json");
-  await writeFile(
-    typeScriptConfig,
-    `${JSON.stringify({
-      compilerOptions: {
-        module: "NodeNext",
-        moduleResolution: "NodeNext",
-        noEmit: true,
-        strict: true,
-        target: "ES2022",
-        types: [],
-      },
-      files: ["type-consumer.mts", "type-consumer.cts"],
-    })}\n`,
-  );
-  execFileSync(process.execPath, [typescript, "--project", typeScriptConfig], {
-    cwd: directory,
-    stdio: "inherit",
-  });
+  if (peerBackedImports.length > 0) {
+    // Kit's types pull in `undici-types` via Node ambient types. Install
+    // `@types/node` only for this peer-backed project.
+    execFileSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", nodeTypes], {
+      cwd: directory,
+      stdio: "inherit",
+    });
+    await writeFile(
+      path.join(directory, "peer-consumer.mts"),
+      `${sideEffectImports(peerBackedImports)}\n`,
+    );
+    await writeFile(
+      path.join(directory, "peer-consumer.cts"),
+      `${commonJsRequires(peerBackedImports, "peer")}\n`,
+    );
+    await typecheck(["peer-consumer.mts", "peer-consumer.cts"], ["node"]);
+  }
 
   const browserOutput = path.join(directory, "browser-consumer.mjs");
   const browserBuild = await build({

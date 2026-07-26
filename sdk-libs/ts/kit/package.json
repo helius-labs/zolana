@@ -1,0 +1,88 @@
+{
+  "name": "@zolana/kit",
+  "version": "0.1.0",
+  "description": "Adapters between the Zolana SDK and @solana/kit.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/kit"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/kit",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19.0 <23"
+  },
+  "browserslist": [
+    "chrome >= 94",
+    "edge >= 94",
+    "firefox >= 93",
+    "safari >= 16.4",
+    "ios >= 16.4"
+  ],
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/es/index.js"
+    },
+    "./instructions": {
+      "browser": {
+        "types": "./dist/es/instructions/index.d.ts",
+        "default": "./dist/es/instructions/index.js"
+      },
+      "import": {
+        "types": "./dist/es/instructions/index.d.ts",
+        "default": "./dist/es/instructions/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/instructions/index.d.ts",
+        "default": "./dist/cjs/instructions/index.js"
+      },
+      "default": "./dist/es/instructions/index.js"
+    }
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
+  "dependencies": {
+    "@zolana/client": "0.1.0",
+    "@zolana/interface": "0.1.0"
+  },
+  "peerDependencies": {
+    "@solana/kit": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@solana/kit": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs kit",
+    "typecheck": "node ../config/typecheck.mjs kit",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
+    "test:browser": "node ../config/browser-check.mjs kit",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

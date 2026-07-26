@@ -19,6 +19,7 @@
     "sdk-libs/ts/wallet",
     "sdk-libs/ts/merkle-tree",
     "sdk-libs/ts/smart-account-client",
+    "sdk-libs/ts/kit",
     "sdk-libs/ts/test-kit"
   ],
   "scripts": {
@@ -28,8 +29,8 @@
     "lint": "eslint eslint.config.js prettier.config.js vitest.config.js sdk-libs/ts/config",
     "lint:packages": "eslint \"sdk-libs/ts/*/src/**/*.ts\" \"sdk-libs/ts/*/test/**/*.ts\"",
     "lint:example": "eslint \"sdk-tests/typescript-client/**/*.ts\"",
-    "format": "prettier --write package.json package-lock.json eslint.config.js prettier.config.js tsconfig.json tsconfig.eslint.json vitest.config.js sdk-libs/ts/config sdk-libs/ts/{hasher,interface,keypair,transaction,indexer-api,api,client,wallet,merkle-tree,smart-account-client,test-kit}/{package.json,tsconfig.json} sdk-libs/ts/reports/packets/P01.json",
-    "format:check": "prettier --check package.json package-lock.json eslint.config.js prettier.config.js tsconfig.json tsconfig.eslint.json vitest.config.js sdk-libs/ts/config sdk-libs/ts/{hasher,interface,keypair,transaction,indexer-api,api,client,wallet,merkle-tree,smart-account-client,test-kit}/{package.json,tsconfig.json} sdk-libs/ts/reports/packets/P01.json",
+    "format": "prettier --write package.json package-lock.json eslint.config.js prettier.config.js tsconfig.json tsconfig.eslint.json vitest.config.js sdk-libs/ts/config sdk-libs/ts/{hasher,interface,keypair,transaction,indexer-api,api,client,wallet,merkle-tree,smart-account-client,kit,test-kit}/{package.json,tsconfig.json} sdk-libs/ts/reports/packets/P01.json",
+    "format:check": "prettier --check package.json package-lock.json eslint.config.js prettier.config.js tsconfig.json tsconfig.eslint.json vitest.config.js sdk-libs/ts/config sdk-libs/ts/{hasher,interface,keypair,transaction,indexer-api,api,client,wallet,merkle-tree,smart-account-client,kit,test-kit}/{package.json,tsconfig.json} sdk-libs/ts/reports/packets/P01.json",
     "test": "npm run test:unit",
     "test:unit": "vitest run --passWithNoTests",
     "test:vectors": "npm run test:vectors --workspaces --if-present",
@@ -66,6 +67,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@microsoft/api-extractor": "^7.58.12",
+    "@solana/kit": "^7.0.0",
     "@types/node": "^20.19.43",
     "esbuild": "^0.28.1",
     "eslint": "^10.7.0",

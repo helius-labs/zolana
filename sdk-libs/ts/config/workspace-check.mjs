@@ -196,25 +196,51 @@ async function checkPublishMetadata() {
   }
 }
 
+function sortedKeys(value) {
+  return Object.keys(value ?? {}).sort();
+}
+
 async function checkDependencies() {
   await checkPublishMetadata();
   for (const packageName of packageNames) {
     const value = await manifest(packageName);
-    const dependencies = Object.keys(value.dependencies ?? {}).sort();
-    const expected = [...packageConfigurations[packageName].dependencies].sort();
+    const configuration = packageConfigurations[packageName];
+    const dependencies = sortedKeys(value.dependencies);
+    const expected = [...configuration.dependencies].sort();
     assert(
       JSON.stringify(dependencies) === JSON.stringify(expected),
       `${value.name} dependency graph`,
     );
+    const peers = sortedKeys(value.peerDependencies);
+    const expectedPeers = [...(configuration.peerDependencies ?? [])].sort();
+    assert(
+      JSON.stringify(peers) === JSON.stringify(expectedPeers),
+      `${value.name} peer dependency graph`,
+    );
+    for (const peer of peers) {
+      // Peers must not also appear in dependencies.
+      assert(
+        !dependencies.includes(peer),
+        `${value.name} declares ${peer} as both peer and dependency`,
+      );
+      // Non-optional peers install into every consumer; an opt-in adapter must
+      // mark them optional.
+      assert(
+        value.peerDependenciesMeta?.[peer]?.optional === true,
+        `${value.name} peer ${peer} must be optional`,
+      );
+    }
+    // Sources may import peers; install is the consumer's choice.
+    const resolvable = [...dependencies, ...peers].sort();
     const imported = [...(await sourceDependencies(packageName))].sort();
     assert(
-      JSON.stringify(imported) === JSON.stringify(expected),
-      `${value.name} source imports ${JSON.stringify(imported)} must match dependencies ${JSON.stringify(expected)}`,
+      JSON.stringify(imported) === JSON.stringify(resolvable),
+      `${value.name} source imports ${JSON.stringify(imported)} must match dependencies ${JSON.stringify(resolvable)}`,
     );
-    for (const entryPoint of packageConfigurations[packageName].browserDependencies ?? []) {
+    for (const entryPoint of configuration.browserDependencies ?? []) {
       const segments = entryPoint.split("/");
       const dependency = entryPoint.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
-      assert(dependencies.includes(dependency), `${value.name} browser dependency ${entryPoint}`);
+      assert(resolvable.includes(dependency), `${value.name} browser dependency ${entryPoint}`);
     }
     for (const [dependency, version] of Object.entries(value.dependencies ?? {})) {
       if (dependency.startsWith("@zolana/")) {
@@ -225,7 +251,7 @@ async function checkDependencies() {
   for (const packageName of productionPackageNames) {
     const value = await manifest(packageName);
     assert(
-      !Object.keys(value.dependencies ?? {}).includes("@zolana/test-kit"),
+      !sortedKeys(value.dependencies).includes("@zolana/test-kit"),
       `${value.name} reaches test-kit`,
     );
   }
@@ -245,6 +271,7 @@ async function checkScaffold() {
     "wallet",
     "merkle-tree",
     "smart-account-client",
+    "kit",
   ];
   const propertyPackages = [
     "keypair",

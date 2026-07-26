@@ -78,6 +78,13 @@ export const packageConfigurations = {
     browserDependencies: ["@noble/hashes/sha2.js"],
     browser: true,
   },
+  kit: {
+    entryPoints: [".", "./instructions"],
+    dependencies: ["@zolana/client", "@zolana/interface"],
+    // Optional peer so consumers that skip Kit do not download it.
+    peerDependencies: ["@solana/kit"],
+    browser: true,
+  },
   "test-kit": {
     entryPoints: [".", "./node", "./fixtures"],
     dependencies: [

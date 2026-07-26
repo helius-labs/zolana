@@ -41,6 +41,26 @@
       "responsibility": "Node annex star-export surface (TK02); outside SDK semver.",
       "target": "`@zolana/test-kit/node`",
       "testResponsibility": "Unit: exports.test.ts keeps annex helpers off root; disposition ledger completeness."
+    },
+    {
+      "disposition": "addition",
+      "fixtureResponsibility": "Reuses fixtures/interface/deposit-instruction-v1.json. The Kit vector matches programId and dataBytes; account metas map to AccountRole.",
+      "marker": "live",
+      "packet": "P12",
+      "path": "sdk-libs/ts/kit/src/index.ts",
+      "responsibility": "@solana/kit v7 adapter: address, instruction, transaction, RPC, and signer conversion. SDK interop only; no Rust port.",
+      "target": "`@zolana/kit` · `src/index.ts`",
+      "testResponsibility": "Vectors: instruction bytes vs interface fixture; sendTransaction payload vs SolanaRpc. Units: address, role, round-trips. Packaging: exports and api report."
+    },
+    {
+      "disposition": "addition",
+      "fixtureResponsibility": "None: each builder converts the matching @zolana/interface builder result. Interface fixtures cover the bytes.",
+      "marker": "live",
+      "packet": "P12",
+      "path": "sdk-libs/ts/kit/src/instructions/index.ts",
+      "responsibility": "Kit Instruction wrappers for the @zolana/interface instruction builders. No separate encoding.",
+      "target": "`@zolana/kit/instructions`",
+      "testResponsibility": "Unit: export names match @zolana/interface/instructions so new builders are not omitted."
     }
   ]
 }
