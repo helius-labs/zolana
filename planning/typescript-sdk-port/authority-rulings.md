@@ -2179,3 +2179,35 @@ its check. `match_rust` still governs the non-privacy strictness differences in
 the same finding, extra signatures and excess ciphertext slots, unless one of
 those turns out to leak too. This is Rust SDK work in `sdk-libs`, not a program
 or circuit change, so it stays inside the port's scope.
+
+## A001, merge tree selection: add the parameter to both SDKs
+
+The external review of pull request 159 reported this as TypeScript lagging
+Rust. It is not: the finding read an internal Rust parameter as a public tree
+selector, and `MergeParams` has no `tree` field in either language. A validating
+worker returned it as WRONG on that basis, correctly.
+
+The misreading concealed a real gap, though, and it is a gap in both languages
+rather than between them. Both select one asset across every tree and then refuse
+once more than one tree holds it, so a wallet whose holdings straddle a tree
+rollover cannot merge at all, and no parameter exists with which a caller could
+disambiguate. A rollover is a normal event, not an edge case, so the refusal is
+reachable by an ordinary wallet that did nothing unusual.
+
+The owner ruled to add an optional tree selector to BOTH SDKs now rather than
+record it as work outside the port. This is a new capability, not port parity, and
+it is being taken while the surrounding context is fresh instead of deferred into
+a backlog where it would need rediscovering. Rust and TypeScript move together so
+the port does not acquire a divergence in the act of closing a shared gap. The
+dedicated wrong-tree diagnostic is preserved: with a selector available, a
+mixed-tree explicit-hash request is a caller error worth naming precisely rather
+than a limitation to apologise for.
+
+## Register tail: swept after the cryptographic phase
+
+Roughly 26 findings remain below the commitment-affecting tier, mostly duplicated
+primitives, package metadata, continuous-integration scoping, and documentation
+claims that outran the code. None can produce a wrong on-chain artifact. The
+owner ruled to leave them until the cryptographic phase closes and then sweep
+them in one pass, rather than spending a worker slot on them while proof
+certification is the critical path.
