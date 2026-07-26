@@ -146,15 +146,25 @@ for (const file of rowUpdateFiles.filter((name) => name.endsWith(".md"))) {
   );
   if (epoch > checklistEpoch) unreconciled.push(file);
 }
-if (unreconciled.length > 0) {
+// A backlog is only worth waking someone over when nobody is draining it. A
+// reconciliation pass takes half an hour or so and the checklist does not move
+// until it finishes, so during a pass this fires every few minutes about work
+// that is already being done, which is how a check teaches its reader to ignore
+// it. Presence of a reconciler worktree is the signal; if that worktree is
+// itself dead, the dead-agent check above is what says so.
+const reconcilerAtWork = (await git("worktree", "list", "--porcelain")).includes(
+  "branch refs/heads/port/reconcile",
+);
+if (unreconciled.length > 0 && !reconcilerAtWork) {
   problems.push(
     `${unreconciled.length} row update(s) landed after the checklist last moved ` +
-      `${minutesSince(checklistEpoch)} min ago: ${unreconciled.join(", ")}. ` +
-      "The entry gate is reading a stale adverse-row count",
+      `${minutesSince(checklistEpoch)} min ago: ${unreconciled.join(", ")}, ` +
+      "and no reconciler worktree exists. The entry gate is reading a stale adverse-row count",
   );
 }
 report.push(
-  `checklist: last moved ${minutesSince(checklistEpoch)} min ago, ${unreconciled.length} update(s) behind`,
+  `checklist: last moved ${minutesSince(checklistEpoch)} min ago, ${unreconciled.length} update(s) behind` +
+    (unreconciled.length > 0 && reconcilerAtWork ? ", a reconciler is draining them" : ""),
 );
 
 // --------------------------------------------------------------- merge backlog
