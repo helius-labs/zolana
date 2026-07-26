@@ -334,7 +334,8 @@ The `transfer` (eddsa, Solana-only rail) and `transfer_p256` (P256 ownership
 rail) circuits live in `prover/server/circuits/spp_transaction/`. Their proving
 systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is
 duplicated in four places that MUST stay in sync:
-`sdk-libs/client/src/shape.rs` (the client may use a subset), Go
+`program-libs/interface/src/shape.rs`, which the client re-exports (and may use a
+subset of), Go
 `prover-test/spp/protocol/shape.go` (`SupportedShapes`), Go
 `prover/common/lazy_key_manager.go` (`transferSupportedShapes`), and the
 shielded-pool verifier when it exists (`transact/proof.rs`).
