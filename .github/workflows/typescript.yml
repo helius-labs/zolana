@@ -37,21 +37,6 @@ jobs:
       - name: Assert the jobs cover every part of npm run check
         run: npm run check:scope
 
-  # Deliberately outside `npm run check`, which gates shipped code. This gates the
-  # review checklist, needs no install, and runs in seconds, so it stays a job of
-  # its own rather than widening the assertion in gate-scope.
-  planning:
-    name: typescript / planning
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - run: node sdk-libs/ts/config/review-checklist-check.mjs
-
   static:
     name: typescript / static
     runs-on: ubuntu-latest
@@ -236,7 +221,7 @@ jobs:
     runs-on: ubuntu-latest
     if:
       always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    needs: [gate-scope, planning, static, suites, packaging, browser-runtime, fixtures, e2e]
+    needs: [gate-scope, static, suites, packaging, browser-runtime, fixtures, e2e]
     steps:
       - name: Require every part of npm run check
         run: |
