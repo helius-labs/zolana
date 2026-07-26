@@ -538,6 +538,12 @@ export interface ViewingKeyLike {
 }
 export function randomBlinding(): Bytes31;
 export function randomSalt(): Salt;
+/** Fail-closed allow-list shared by keypair, transaction, client, and wallet error details. */
+export const SAFE_ERROR_DETAIL_KEYS: readonly string[];
+export type SafeErrorDetailKey = (typeof SAFE_ERROR_DETAIL_KEYS)[number];
+export function sanitizeSafeErrorDetails(
+  details: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, string | number>> | undefined;
 ```
 
 Factories and pure methods are synchronous and map

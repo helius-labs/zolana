@@ -6,9 +6,11 @@ import * as rootEntry from "../src/index.js";
 import {
   CompressedShieldedAddress,
   KEYPAIR_ERROR_RUST_VARIANT,
+  KeypairError,
   type KeypairErrorCode,
   NullifierKey,
   P256PublicKey,
+  sanitizeSafeErrorDetails,
   ShieldedAddress,
   type ShieldedKeypairLike,
   ShieldedKeypair,
@@ -35,6 +37,7 @@ const ROOT_EXPORTS = [
   "P256PublicKey",
   "P256_PUBLIC_KEY_LENGTH",
   "P_CONST_SEC1",
+  "SAFE_ERROR_DETAIL_KEYS",
   "SALT_LENGTH",
   "SHIELDED_PUBLIC_KEY_LENGTH",
   "ShieldedAddress",
@@ -50,6 +53,7 @@ const ROOT_EXPORTS = [
   "poseidon",
   "randomBlinding",
   "randomSalt",
+  "sanitizeSafeErrorDetails",
   "sha256Be",
   "sha256Bytes",
   "splitBigEndian128",
@@ -110,6 +114,22 @@ describe("package entry points", () => {
     expect(new Set(codes).size).toBe(codes.length);
     for (const code of codes) expect(code.startsWith("KEYPAIR_")).toBe(true);
     expect(Object.isFrozen(KEYPAIR_ERROR_RUST_VARIANT)).toBe(true);
+  });
+
+  it("drops a non-allow-listed detail on KeypairError and the shared sanitizer", () => {
+    const error = new KeypairError("KEYPAIR_INVALID_SECRET_KEY", {
+      reason: "destroyed",
+      ciphertext: "deadbeef",
+    } as never);
+    expect(error.details).toEqual({ reason: "destroyed" });
+    expect(JSON.stringify(error)).not.toContain("deadbeef");
+    expect(
+      sanitizeSafeErrorDetails({
+        requested: "11",
+        available: "10",
+        ciphertext: "deadbeef",
+      }),
+    ).toEqual({ requested: "11", available: "10" });
   });
 });
 

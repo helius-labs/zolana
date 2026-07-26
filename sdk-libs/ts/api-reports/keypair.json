@@ -107,11 +107,23 @@
         "kind": "value"
       },
       {
+        "name": "SAFE_ERROR_DETAIL_KEYS",
+        "kind": "value"
+      },
+      {
+        "name": "SafeErrorDetailKey",
+        "kind": "type"
+      },
+      {
         "name": "Salt",
         "kind": "type"
       },
       {
         "name": "SALT_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "sanitizeSafeErrorDetails",
         "kind": "value"
       },
       {
