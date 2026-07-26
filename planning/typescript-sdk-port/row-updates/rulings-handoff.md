@@ -5,35 +5,37 @@ Branch `port/handoff`, worktree `zolana-ts-handoff`. This picks up the three ite
 held by other agents: the K11 call sites, the T28 TypeScript half, and the four missing Browserslist
 declarations.
 
-One of the three is done, one turned out to be owned and already written by another worker, and one
-is written but parked. The parking is the substance of this note, so it leads.
+Two are done, and one turned out to be owned and already written by another worker.
 
-## K11: the call sites are written and held back
+## K11: the call sites
 
-`port/zone-read` is live in `sdk-libs/ts/transaction/src/serialization/codecs.ts` and
-`sdk-libs/ts/transaction/src/wallet/sync.ts`, closing a read-path divergence where TypeScript stores
-a zone-carrying UTXO that Rust refuses. That is a correctness defect against a type narrowing, and
-it rewrites the bodies of the same functions whose signatures K11 changes, so it goes first.
+**Commits** `5d80eccc` and `4c06d259`, landed after `port/zone-read` merged.
 
-The work is written and parked on `port/handoff-k11-wip`, two commits:
+The order was forced rather than chosen. `port/zone-read` held both
+`sdk-libs/ts/transaction/src/serialization/codecs.ts` and
+`sdk-libs/ts/transaction/src/wallet/sync.ts` while it corrected a zone-resolution divergence, and it
+rewrote the bodies of the same functions whose signatures K11 changes. A correctness fix outranks a
+type narrowing, so this batch wrote its conversion, parked it on `port/handoff-k11-wip`, and reset
+`port/handoff` off it so the two branches never met in a merge. The parking branch is deleted now
+that its content is here.
 
-- `a843d3f2` narrows the call sites and moves the two merge bodies.
-- `6e37f01c` adds the type gate below.
+**What survived the replay.** All eleven signature conversions, unchanged. Diffing the parked patch
+against the replayed one leaves a single line, and it is not one of the conversions: zone-read had
+dropped `ShieldedPublicKey` from the `sync.ts` import that the conversion also edits, so the context
+around the edit moved rather than the edit itself. The two merge bodies were byte-identical to what
+was parked, and `inTransactionCategory` and `splitEmbeddedKey` were untouched, so each of the three
+claims behind the rewrite was re-checked against the merged file and each still held.
 
-Eleven signatures change, seven in `codecs.ts` and four in `sync.ts`, plus the import line each file
-leads with. `a843d3f2`'s message counts those thirteen edits as twelve and its second paragraph is
-off by one against the nine annotation-only signatures; the breakdown here is the accurate one, and
-the commit is due to be rewritten against the merged bodies anyway.
+**The two functions zone-read newly exported need nothing.** `plaintextTransferUtxos` and
+`prooflessUtxo` are public surface now, but they take a payload, a registry and an owner; neither
+takes a viewing key, so K11 does not reach them.
 
-`port/handoff` was reset off both, so `codecs.ts` and `sync.ts` are untouched by this branch and
-`port/zone-read` merges without meeting them. Whoever resumes this reads the merged bodies before
-replaying the patch rather than replaying it blind: the two merge functions are exactly what
-zone-read may have restructured.
-
-**What the parked patch does.** Nine signatures need the annotation alone: `encryptConfidential`,
-`encryptAnonymous`, `decryptAnonymous`, `decryptConfidential` and `decryptConfidentialAsSender` in
-`codecs.ts`, and `confidentialSendRecipients`, `ensureViewingKeyEntries`, `advanceViewingKeyEntry`
-and the `counterparties` closure in `sync.ts`, plus the import each file leads with.
+**What the conversion does.** Seven of the eleven signatures are in `codecs.ts` and four in
+`sync.ts`, and the import line each file leads with changes with them. Nine need the annotation
+alone: `encryptConfidential`, `encryptAnonymous`, `decryptAnonymous`, `decryptConfidential` and
+`decryptConfidentialAsSender` in `codecs.ts`, and `confidentialSendRecipients`,
+`ensureViewingKeyEntries`, `advanceViewingKeyEntry` and the `counterparties` closure in `sync.ts`,
+plus the import each file leads with.
 
 Two needed the body first. `encryptMerge` and `decryptMerge` called `secretBytes()` and handed the
 exported copy to the free `encryptVerifiable` and `decryptVerifiable` from `@zolana/keypair/merge`,
@@ -81,18 +83,21 @@ surfaces that must stay concrete.
 
 Its own control is inside it. `ViewingKey` carries private fields, so no structural stand-in
 satisfies it, and the file asserts that with a `@ts-expect-error`; an unused `@ts-expect-error` is
-itself a compile error, so the assertion above it cannot quietly become vacuous. Control edit run
-against the source: widening `tx` back to `ViewingKey` in `codecs.ts` fails `npm run typecheck` with
-three `TS2345`s naming `#private`, `secretBytes` and `destroy` as what a backend lacks.
+itself a compile error, so the assertion above it cannot quietly become vacuous. Control edit, run
+through `npm run typecheck` rather than a hand-invoked `tsc`: widening `tx` back to `ViewingKey` in
+`codecs.ts` fails the gate with three `TS2345`s naming `#private`, `secretBytes` and `destroy` as
+what a backend lacks. Re-run after the replay onto the merged bodies, with the same three errors at
+the same three lines.
 
-**Row transition.** K11: no change. The interface half is closed for `@zolana/keypair`; the call
-sites stay open until `port/zone-read` merges and the parked branch is replayed.
+**Row transition.** K11: proposed closed. The interface half closed for `@zolana/keypair` at
+`335a026c`, and the `transaction` call sites the row also named are now converted.
 
-## T28: the TypeScript half is written, on an unmerged branch
+## T28: the TypeScript half was another worker's, and has since merged
 
-Still owed against `ts-sdk-port`, and not owed to this run. `port/t28-close` has it at `64320c10`
-with its test at `1b8c148b`, and that branch is live in another worktree, so writing it here would
-have collided on the exact lines it changes. Verified against the ruling rather than reimplemented:
+Owed against `ts-sdk-port` when this batch reached it, but not owed to this batch. `port/t28-close`
+had it at `64320c10` with its test at `1b8c148b`, live in another worktree, so writing it here would
+have collided on the exact lines it changes. It merged at `54021ca8`. Verified against the ruling
+rather than reimplemented:
 
 - `normalizeZoneDataHash` collapses an all-zero hash to `undefined`, and both storing sites route
   through it: the `ProofInputUtxo` constructor and `createProofOutput`, which is where
@@ -103,7 +108,8 @@ have collided on the exact lines it changes. Verified against the ruling rather 
   if anyone extends normalization to the address, which is the clause `run-authorizations.md` holds
   until the owner confirms it.
 
-**Row transition.** T28: no change from this branch. It closes when `port/t28-close` merges.
+**Row transition.** T28: none proposed from this branch. `port/t28-close` records its own in
+[`t28-close.md`](t28-close.md), and the address clause stays held.
 
 ## Browserslist: the four remaining packages
 
@@ -130,23 +136,25 @@ real browser run rather than a static scan. The standing rule that every change 
 failing-without-it test yields to the specific ruling here, which is the only place in this batch
 where it does.
 
-## A defect in another batch's package
+## A defect reported to another batch, since fixed there
 
-`sdk-libs/ts/keypair/test/vectors/capability-boundary-certification.test.ts:290` fails
-`npm run lint:packages` with `no-unnecessary-type-assertion`. It arrived on `ts-sdk-port` with
-`aebde4af` from `port/crypto-b`, which is live, so it is recorded rather than fixed.
+`sdk-libs/ts/keypair/test/vectors/capability-boundary-certification.test.ts:290` failed
+`npm run lint:packages` with `no-unnecessary-type-assertion` when this batch merged `ts-sdk-port` at
+`66ec32f3`. It arrived with `aebde4af` from `port/crypto-b`, which was live, so it was recorded
+rather than fixed here, and `port/crypto-b` has since deleted the cast.
 
-It is K11 fallout and worth reading as such: the line casts
+Worth keeping in the record as K11 fallout rather than as a stray lint finding: the line cast
 `asViewing.publicKey() as P256PublicKey`, which was necessary while `ViewingKeyLike` returned
-`P256PublicKey | Promise<P256PublicKey>` and is redundant now that it returns the value. The
-required change is deleting the cast. Until then `check:static` is red on the integration branch for
-a reason that has nothing to do with the assertion the test is making.
+`P256PublicKey | Promise<P256PublicKey>` and became redundant the moment it returned the value. A
+narrowing that reaches an interface leaves redundant casts behind it in every package that consumed
+the wider type, and only the lint gate finds them.
 
 ## Gates run
 
 `npm run build` before every suite.
 
-- `npm run build`, `npm run typecheck`, `npm run format:check`, `npm run lint`
-- `npm run lint:packages`, failing only on the `port/crypto-b` line above
-- `npx vitest run`, 1982 passed and 1 skipped across 117 files
+- `npm run build`, `npm run typecheck`, `npm run lint`, `npm run lint:packages`,
+  `npm run format:check`
+- `npx vitest run`, 1987 passed and 1 skipped across 118 files
+- `npm run test:vectors`, `npm run test:property`
 - `npm run check:packaging` (inventory, exports, dependencies, api, browser, pack)
