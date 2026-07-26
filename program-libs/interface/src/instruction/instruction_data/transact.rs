@@ -173,8 +173,16 @@ pub struct InputUtxo {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
 pub enum PublicLeg {
-    Sol { is_deposit: bool, amount: u64 },
-    Spl { is_deposit: bool, amount: u64 },
+    Sol {
+        is_deposit: bool,
+        amount: u64,
+    },
+    Spl {
+        is_deposit: bool,
+        amount: u64,
+        /// Canonical bump of the initialized per-mint vault PDA.
+        vault_bump: u8,
+    },
 }
 
 impl PublicLeg {
@@ -238,19 +246,6 @@ pub struct TransactIxData {
     pub expiry_unix_ts: u64,
     pub private_tx_hash: [u8; 32],
     pub circuit: CircuitId,
-    // TODO: explore lifting the one-shared-P256-key-per-tx limit. P256 ownership
-    // stays in-circuit (never program-native/precompile), so the circuit shape
-    // gains a dimension K = max distinct P256 signing keys, each costing one more
-    // emulated ECDSA gadget (the dominant constraint component; proving time and
-    // key count scale with K). This field becomes a K-element key list, inputs
-    // route to a key via a generalized signer index (`eddsa_signer_index` ->
-    // Solana account or P256 key-list index), and the output `OwnerTag` variant
-    // generalizes from `P256SigningKey` to `P256Key(u8)`. The zone rail is
-    // equally affected in-circuit (its P256 variants carry the same single
-    // gadget, so K applies to zone keys too); only its instruction-data surface
-    // is unchanged, since zone keys stay private witnesses. Consumer is
-    // multi-party transactions (e.g. two P256 owners co-spending in a swap),
-    // not single wallets.
     /// Confidential variant: the raw x-coordinate of the shared P256 signing key
     /// (`owner_pk_field` before hashing). The program derives the public input by
     /// hashing it on-chain, so P256-owned inputs route by equality and a
@@ -661,6 +656,7 @@ mod tests {
                 PublicLeg::Spl {
                     is_deposit: true,
                     amount: 7,
+                    vault_bump: 42,
                 },
             ],
             data_hash: None,
@@ -742,9 +738,10 @@ mod tests {
         let spl = PublicLeg::Spl {
             is_deposit: true,
             amount: 9,
+            vault_bump: 42,
         };
         assert_eq!(wincode::serialize(&sol).unwrap().len(), 10);
-        assert_eq!(wincode::serialize(&spl).unwrap().len(), 10);
+        assert_eq!(wincode::serialize(&spl).unwrap().len(), 11);
         assert_eq!(sol.amount(), u64::MAX);
         assert_eq!(spl.amount(), 9);
         assert!(!sol.is_spl());
@@ -768,6 +765,7 @@ mod tests {
             PublicLeg::Spl {
                 is_deposit: false,
                 amount: 1,
+                vault_bump: 42,
             };
             MAX_WIRE_PUBLIC_LEGS + 1
         ];

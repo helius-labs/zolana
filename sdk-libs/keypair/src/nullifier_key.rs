@@ -51,10 +51,9 @@ impl NullifierKey {
     pub fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
-        blinding: &[u8; BLINDING_LEN],
+        blinding: &[u8; 32],
     ) -> Result<[u8; 32], KeypairError> {
-        let blinding_fe = fe_right_align(blinding)?;
         let secret_fe = fe_right_align(self.secret.as_slice())?;
-        poseidon(&[utxo_hash, &blinding_fe, &secret_fe])
+        poseidon(&[utxo_hash, blinding, &secret_fe])
     }
 }

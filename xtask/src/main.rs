@@ -552,6 +552,7 @@ fn tx_size(args: Vec<String>) {
             vec![PublicLeg::Spl {
                 is_deposit: true,
                 amount: 1000,
+                vault_bump: 0,
             }],
             n,
             p256_signing_pk_x,
@@ -806,6 +807,7 @@ fn tx_size(args: Vec<String>) {
             .map(|_| PublicLeg::Spl {
                 is_deposit: false,
                 amount: 1,
+                vault_bump: 0,
             })
             .collect::<Vec<_>>();
         let eddsa_data = build_ix_data(

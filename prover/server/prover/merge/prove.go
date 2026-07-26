@@ -18,9 +18,6 @@ func (p *MergeParameters) ValidateShape() error {
 	if len(p.Inputs) != mergecircuit.MergeInputs {
 		return fmt.Errorf("merge: wrong number of inputs: got %d, expected %d", len(p.Inputs), mergecircuit.MergeInputs)
 	}
-	if got := len(p.UserViewingPubkey); got != 65 {
-		return fmt.Errorf("merge: user viewing pubkey must be 65 bytes, got %d", got)
-	}
 	for i := range p.Inputs {
 		if got := len(p.Inputs[i].StatePathElements); got != transaction.StateTreeHeight {
 			return fmt.Errorf("merge: input %d state path length: got %d, expected %d", i, got, transaction.StateTreeHeight)

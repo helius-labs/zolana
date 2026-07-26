@@ -90,7 +90,7 @@ impl<'a> DepositAccounts<'a> {
                 DepositAssetKind::Sol => {
                     let system_program = iter.next_account("system_program")?;
                     let sol_interface = iter.next_account("sol_interface")?;
-                    let bump = validate_sol(program_id, depositor, system_program, sol_interface)?;
+                    let bump = validate_sol(depositor, system_program, sol_interface)?;
                     DepositAssetGroup {
                         asset: [0u8; 32],
                         asset_field: solana_pk_hash(&[0u8; 32])?,
@@ -101,7 +101,7 @@ impl<'a> DepositAccounts<'a> {
                         }),
                     }
                 }
-                DepositAssetKind::Spl => {
+                DepositAssetKind::Spl { vault_bump } => {
                     let token_program = iter.next_account("token_program")?;
                     let user_token = iter.next_account("user_token")?;
                     let vault = iter.next_account("vault")?;
@@ -113,6 +113,7 @@ impl<'a> DepositAccounts<'a> {
                         vault,
                         registry,
                         token_program,
+                        *vault_bump,
                     )?;
                     DepositAssetGroup {
                         asset: mint,
@@ -154,7 +155,6 @@ impl<'a> DepositAccounts<'a> {
 /// Validate the native-SOL deposit accounts and return the interface PDA bump.
 /// Deposit lamports leave the depositor signer, so it must be writable.
 fn validate_sol(
-    program_id: &Address,
     depositor: &AccountView,
     system_program: &AccountView,
     sol_interface: &AccountView,
@@ -167,7 +167,7 @@ fn validate_sol(
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    validate_sol_interface(program_id, sol_interface)
+    validate_sol_interface(sol_interface)
 }
 
 /// Validate the SPL deposit accounts and return the deposited mint. The vault is
@@ -180,6 +180,7 @@ fn validate_spl(
     vault: &AccountView,
     registry: &AccountView,
     token_program: &AccountView,
+    vault_bump: u8,
 ) -> Result<[u8; 32], ProgramError> {
     let spl_token_program_id = Address::from(SPL_TOKEN_PROGRAM_ID); // TODO: support t22
     if !address_eq(token_program.address(), &spl_token_program_id)
@@ -201,9 +202,11 @@ fn validate_spl(
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let (expected_vault, _) =
-        Address::derive_program_address(&[SPL_ASSET_VAULT_PDA_SEED, mint.as_slice()], program_id)
-            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+    let expected_vault = Address::derive_address(
+        &[SPL_ASSET_VAULT_PDA_SEED, mint.as_slice()],
+        Some(vault_bump),
+        program_id,
+    );
     if !address_eq(vault.address(), &expected_vault) {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }

@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct ProoflessOutput {
     pub owner: [u8; 32],
-    pub blinding: [u8; 31],
+    pub blinding: [u8; 32],
     pub asset: [u8; 32],
     pub amount: u64,
     pub data_hash: Option<[u8; 32]>,
@@ -37,7 +37,7 @@ const PLAINTEXT_BODY_OFFSET: usize = PLAINTEXT_TAG_LEN + 4;
 /// `utxo_data` / `zone_data` / `memo` contents: the enum tag, the body length
 /// prefix, the scheme byte, and every fixed [`ProoflessOutput`] field with its
 /// options present. Pinned by `plaintext_fixed_len_covers_every_option`.
-pub const PLAINTEXT_OUTPUT_FIXED_LEN: usize = 223;
+pub const PLAINTEXT_OUTPUT_FIXED_LEN: usize = 224;
 
 /// Serializes to the same bytes as `borsh(OutputDataEncoding::Plaintext(blob))`
 /// where `blob` is the scheme byte followed by `borsh(ProoflessOutput)`, but

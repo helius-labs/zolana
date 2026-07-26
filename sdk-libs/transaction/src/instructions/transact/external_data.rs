@@ -6,6 +6,7 @@ use zolana_interface::instruction::{
     },
     tag,
 };
+use zolana_interface::pda;
 use zolana_interface::MAX_WIRE_PUBLIC_LEGS;
 
 use crate::{error::TransactionError, SOL_MINT};
@@ -49,14 +50,21 @@ impl SettlementLeg {
         }
     }
 
-    pub const fn public_leg(self) -> PublicLeg {
+    pub fn public_leg(self) -> PublicLeg {
         match self {
             Self::Sol {
                 is_deposit, amount, ..
             } => PublicLeg::Sol { is_deposit, amount },
             Self::Spl {
-                is_deposit, amount, ..
-            } => PublicLeg::Spl { is_deposit, amount },
+                mint,
+                is_deposit,
+                amount,
+                ..
+            } => PublicLeg::Spl {
+                is_deposit,
+                amount,
+                vault_bump: pda::spl_asset_vault_bump(mint.as_array()),
+            },
         }
     }
 

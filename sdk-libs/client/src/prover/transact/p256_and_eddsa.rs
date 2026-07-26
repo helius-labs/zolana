@@ -52,6 +52,7 @@ pub struct TransferP256Prover {
     pub external_data: ExternalData,
     pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     pub p256_owner: P256Owner,
     pub shape: Option<Shape>,
 }
@@ -108,6 +109,7 @@ impl TransferP256Prover {
             public_movements: &self.public_movements,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
+            allow_dummy_inputs: &bool_field(self.allow_dummy_inputs),
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
             output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
             p256_signing_pk_field: &p256_signing_pk_field,
@@ -129,6 +131,7 @@ impl TransferP256Prover {
             public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             p256_signing_pk_field: be(&p256_signing_pk_field),
             public_input_hash: be(&public_input),
         };
@@ -412,6 +415,7 @@ pub(crate) struct PublicInputs<'a> {
     /// Per-tx zone program (pk_field-encoded); 0 on default transact.
     pub zone_program_id: &'a [u8; 32],
     pub payer_pubkey_hash: &'a [u8; 32],
+    pub allow_dummy_inputs: &'a [u8; 32],
     pub input_owner_pk_hashes: &'a [[u8; 32]],
     /// Confidential variant only: appended after the anonymous chain as
     /// `HashChain(output_owner_pk_hashes)` then `p256_signing_pk_field`. Mirrors
@@ -436,6 +440,7 @@ impl PublicInputs<'_> {
         elements.extend([
             *self.zone_program_id,
             *self.payer_pubkey_hash,
+            *self.allow_dummy_inputs,
             // Variant-dependent tail: the P256 message, then the owner tags.
             hash_field(self.p256_message_hash)?,
             create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
@@ -445,6 +450,12 @@ impl PublicInputs<'_> {
         ]);
         Ok(create_hash_chain_from_slice(&elements)?)
     }
+}
+
+pub(crate) fn bool_field(value: bool) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    field[31] = u8::from(value);
+    field
 }
 fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {
     if got == expected {

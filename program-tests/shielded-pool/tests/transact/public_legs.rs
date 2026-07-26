@@ -210,6 +210,7 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
             token_program: ZolanaProgramTest::token_program_id(),
         })
     };
+    let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
     let ix = Transact {
         payer: payer.pubkey(),
         tree: tree.pubkey(),
@@ -218,14 +219,17 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
             PublicLeg::Spl {
                 is_deposit: true,
                 amount: u64::MAX,
+                vault_bump,
             },
             PublicLeg::Spl {
                 is_deposit: false,
                 amount: u64::MAX,
+                vault_bump,
             },
             PublicLeg::Spl {
                 is_deposit: false,
                 amount: u64::MAX,
+                vault_bump,
             },
         ]),
     }
@@ -238,6 +242,60 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
         "full-u64 cancellation and net withdrawal must reach proof verification: {err}"
     );
     assert_eq!(rpc.token_balance(&vault), Some(before));
+}
+
+#[test]
+fn spl_settlement_rejects_noncanonical_vault_bump() {
+    let Some(mut rpc) = common::program_test() else {
+        return;
+    };
+    let authority = Keypair::new();
+    rpc.create_protocol_config(&authority)
+        .expect("create protocol config");
+    let tree = rpc
+        .create_tree(common::tree_account_size(), &authority)
+        .expect("create tree");
+    let payer = rpc.payer.insecure_clone();
+    rpc.ensure_asset_counter(&authority).expect("asset counter");
+    let mint = rpc.create_mint().expect("create mint");
+    let (_, vault) = rpc
+        .create_spl_interface(&authority, &mint)
+        .expect("create SPL interface");
+    let user_token_account = rpc
+        .create_token_account(&mint, &payer.pubkey())
+        .expect("create payer token account");
+    rpc.mint_to(&mint, &user_token_account, 1)
+        .expect("mint deposit token");
+
+    let canonical_bump = pda::spl_asset_vault_with_bump(&mint).1;
+    let ix = Transact {
+        payer: payer.pubkey(),
+        tree: tree.pubkey(),
+        legs: vec![TransactLegAccounts::Spl(TransactSplLeg {
+            vault,
+            recipient: payer.pubkey(),
+            user_token_account,
+            token_program: ZolanaProgramTest::token_program_id(),
+        })],
+        data: ix_data(vec![PublicLeg::Spl {
+            is_deposit: true,
+            amount: 1,
+            vault_bump: canonical_bump.wrapping_add(1),
+        }]),
+    }
+    .instruction();
+
+    let vault_before = rpc.token_balance(&vault).expect("vault balance");
+    let user_before = rpc
+        .token_balance(&user_token_account)
+        .expect("user token balance");
+    let err = send_raw(&mut rpc, ix, &payer).expect_err("wrong vault bump must fail");
+    assert!(
+        err.contains("Custom(7009)"),
+        "expected InvalidSettlementAccounts (7009), got: {err}"
+    );
+    assert_eq!(rpc.token_balance(&vault), Some(vault_before));
+    assert_eq!(rpc.token_balance(&user_token_account), Some(user_before));
 }
 
 #[test]
@@ -256,6 +314,7 @@ fn four_distinct_public_assets_are_rejected() {
 
     let mut legs = Vec::new();
     let mut vaults = Vec::new();
+    let mut public_legs = Vec::new();
     for _ in 0..4 {
         let mint = rpc.create_mint().expect("create mint");
         let (_, vault) = rpc
@@ -273,6 +332,11 @@ fn four_distinct_public_assets_are_rejected() {
             token_program: ZolanaProgramTest::token_program_id(),
         }));
         vaults.push(vault);
+        public_legs.push(PublicLeg::Spl {
+            is_deposit: true,
+            amount: 1,
+            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+        });
     }
     let vault_balances: Vec<u64> = vaults
         .iter()
@@ -282,13 +346,7 @@ fn four_distinct_public_assets_are_rejected() {
         payer: payer.pubkey(),
         tree: tree.pubkey(),
         legs,
-        data: ix_data(vec![
-            PublicLeg::Spl {
-                is_deposit: true,
-                amount: 1,
-            };
-            4
-        ]),
+        data: ix_data(public_legs),
     }
     .instruction();
 

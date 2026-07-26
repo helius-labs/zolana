@@ -31,7 +31,7 @@ pub struct AssetDeposit {
     pub asset: DepositAsset,
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],
-    pub blinding: [u8; 31],
+    pub blinding: [u8; 32],
     pub amount: u64,
     pub utxo_data: Option<UtxoData>,
     pub memo: Option<Vec<u8>>,
@@ -154,7 +154,9 @@ impl DepositLayout {
         if self.has_sol {
             assets.push(DepositAssetKind::Sol);
         }
-        assets.extend(self.spl_groups.iter().map(|_| DepositAssetKind::Spl));
+        assets.extend(self.spl_groups.iter().map(|spl| DepositAssetKind::Spl {
+            vault_bump: pda::spl_asset_vault_with_bump(&spl.mint).1,
+        }));
         assets
     }
 
@@ -243,7 +245,7 @@ mod tests {
             asset,
             view_tag: [seed; 32],
             owner: [seed; 32],
-            blinding: [seed; 31],
+            blinding: [seed; 32],
             amount: u64::from(seed),
             utxo_data: None,
             memo: None,
@@ -293,7 +295,12 @@ mod tests {
 
         assert_eq!(
             data.assets,
-            vec![DepositAssetKind::Sol, DepositAssetKind::Spl]
+            vec![
+                DepositAssetKind::Sol,
+                DepositAssetKind::Spl {
+                    vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+                },
+            ]
         );
         assert_eq!(
             data.deposits

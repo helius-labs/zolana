@@ -115,6 +115,8 @@ pub(crate) struct TransferP256InputsJson {
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
     pub payer_pubkey_hash: String,
+    #[serde(rename = "allowDummyInputs")]
+    pub allow_dummy_inputs: String,
     #[serde(rename = "p256SigningPkField")]
     pub p256_signing_pk_field: String,
     #[serde(rename = "publicInputHash")]
@@ -145,6 +147,8 @@ pub(crate) struct TransferInputsJson {
     pub zone_program_id: String,
     #[serde(rename = "payerPubkeyHash")]
     pub payer_pubkey_hash: String,
+    #[serde(rename = "allowDummyInputs")]
+    pub allow_dummy_inputs: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -227,6 +231,7 @@ fn transfer_p256_inputs_json(inputs: &TransferP256Inputs, circuit_type: &str) ->
             .collect(),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
+        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         p256_signing_pk_field: big_uint_to_string(&inputs.p256_signing_pk_field),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
@@ -276,12 +281,11 @@ pub(crate) struct MergeInputParamsJson {
     pub nullifier: String,
 }
 
-/// Merge output slot: the only free leaf fields. Amount is assembled from the
-/// input sum in-circuit; owner/asset/domain/data are shared/constant.
+/// Merge output slot: the only free leaf field plus the committed hash. Amount
+/// is assembled from the input sum and the blinding is derived in-circuit;
+/// owner/asset/domain/data are shared/constant.
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct MergeOutputParamsJson {
-    #[serde(rename = "blinding")]
-    pub blinding: String,
     #[serde(rename = "zoneDataHash")]
     pub zone_data_hash: String,
     #[serde(rename = "hash")]
@@ -299,34 +303,28 @@ pub(crate) struct MergeParametersJson {
     /// The single asset shared by every real input and the merged output.
     #[serde(rename = "asset")]
     pub asset: String,
-    #[serde(rename = "p256PubX")]
-    pub p256_pub_x: String,
-    #[serde(rename = "p256PubY")]
-    pub p256_pub_y: String,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
     pub user_nullifier_pk: String,
     #[serde(rename = "userNullifierSecret")]
     pub user_nullifier_secret: String,
-    #[serde(rename = "txViewingSk")]
-    pub tx_viewing_sk: String,
-    #[serde(rename = "userViewingPubkey")]
-    pub user_viewing_pubkey: Vec<String>,
-    #[serde(rename = "txViewingPkLo")]
-    pub tx_viewing_pk_lo: String,
-    #[serde(rename = "txViewingPkHi")]
-    pub tx_viewing_pk_hi: String,
-    #[serde(rename = "ctHash")]
-    pub ciphertext_hash: String,
-    #[serde(rename = "userViewingPkHash")]
-    pub user_viewing_pk_hash: String,
+    /// Single-use nonce driving the in-circuit output-blinding and
+    /// dummy-nullifier derivations.
+    #[serde(rename = "mergeViewTag")]
+    pub merge_view_tag: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
+    #[serde(rename = "allowDummyInputs")]
+    pub allow_dummy_inputs: String,
+    /// Output zone-data hash carried by the merge_zone instruction; `0x0` for
+    /// the default merge.
+    #[serde(rename = "outputZoneDataHash")]
+    pub output_zone_data_hash: String,
     /// Top-level zone program pk_field; `0x0` for the default merge,
     /// the zone's pk_field for merge-zone (the circuit's top-level public input).
     #[serde(rename = "zoneProgramId")]
@@ -364,7 +362,6 @@ fn merge_input_to_json(input: &TransferInput) -> MergeInputParamsJson {
 
 fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
     MergeOutputParamsJson {
-        blinding: fe_to_string(&output.utxo.blinding),
         zone_data_hash: fe_to_string(&output.utxo.zone_data_hash),
         hash: big_uint_to_string(&output.hash),
     }
@@ -376,24 +373,15 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         inputs: inputs.inputs.iter().map(merge_input_to_json).collect(),
         output: merge_output_to_json(&inputs.output),
         asset: fe_to_string(&inputs.output.utxo.asset),
-        p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
-        p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
-        tx_viewing_sk: big_uint_to_string(&inputs.tx_viewing_sk),
-        user_viewing_pubkey: inputs
-            .user_viewing_pubkey
-            .iter()
-            .map(big_uint_to_string)
-            .collect(),
-        tx_viewing_pk_lo: big_uint_to_string(&inputs.tx_viewing_pk_lo),
-        tx_viewing_pk_hi: big_uint_to_string(&inputs.tx_viewing_pk_hi),
-        ciphertext_hash: big_uint_to_string(&inputs.ciphertext_hash),
-        user_viewing_pk_hash: big_uint_to_string(&inputs.user_viewing_pk_hash),
+        merge_view_tag: big_uint_to_string(&inputs.merge_view_tag),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
+        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        output_zone_data_hash: big_uint_to_string(&inputs.output_zone_data_hash),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -498,6 +486,7 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
             .collect(),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
         payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
+        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")

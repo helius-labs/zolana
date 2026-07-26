@@ -120,7 +120,27 @@ impl ProverClient {
         input_proofs: &[SpendProof],
         dummy_nullifier_proofs: &[NonInclusionProof],
     ) -> Result<TransactIxData, ClientError> {
-        let assembled = assemble(proof_inputs, input_proofs, dummy_nullifier_proofs)?;
+        self.prove_transact_with_dummy_policy(
+            proof_inputs,
+            input_proofs,
+            dummy_nullifier_proofs,
+            true,
+        )
+    }
+
+    pub fn prove_transact_with_dummy_policy(
+        &self,
+        proof_inputs: SppProofInputs,
+        input_proofs: &[SpendProof],
+        dummy_nullifier_proofs: &[NonInclusionProof],
+        allow_dummy_inputs: bool,
+    ) -> Result<TransactIxData, ClientError> {
+        let assembled = assemble_with_dummy_policy(
+            proof_inputs,
+            input_proofs,
+            dummy_nullifier_proofs,
+            allow_dummy_inputs,
+        )?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::P256(inputs) => self.prove_transfer_p256(inputs)?,
             ProverInputs::Eddsa(inputs) => self.prove_transfer(inputs)?,
@@ -160,6 +180,23 @@ pub fn into_prover(
     input_merkle_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
 ) -> Result<BuiltCircuit, ClientError> {
+    into_prover_with_dummy_policy(
+        proof_inputs,
+        input_merkle_proofs,
+        dummy_nullifier_proofs,
+        true,
+    )
+}
+
+pub fn into_prover_with_dummy_policy(
+    proof_inputs: SppProofInputs,
+    input_merkle_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    allow_dummy_inputs: bool,
+) -> Result<BuiltCircuit, ClientError> {
+    if !allow_dummy_inputs && proof_inputs.input_utxos.iter().any(|input| input.is_dummy()) {
+        return Err(ClientError::DummyInputsNotAllowed);
+    }
     // Derived here, once: the variant drives the prover witness below and the
     // `circuit` selector stamped by `assemble`, so they agree by construction.
     let variant = inputs_proof_variant(&proof_inputs.input_utxos)?;
@@ -188,6 +225,7 @@ pub fn into_prover(
             external_data,
             public_movements,
             payer_pubkey_hash,
+            allow_dummy_inputs,
             p256_owner,
             shape: Some(shape),
         })
@@ -198,6 +236,7 @@ pub fn into_prover(
             external_data,
             public_movements,
             payer_pubkey_hash,
+            allow_dummy_inputs,
             shape: Some(shape),
         })
     };
@@ -215,6 +254,20 @@ pub fn assemble(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
+) -> Result<AssembledTransfer, ClientError> {
+    assemble_with_dummy_policy(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
+        true,
+    )
+}
+
+pub fn assemble_with_dummy_policy(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    allow_dummy_inputs: bool,
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
 
@@ -257,7 +310,12 @@ pub fn assemble(
     // builds default-zone `transact` data, so the type is always confidential.
     let circuit_id = CircuitId::confidential(inputs_proof_variant(&proof_inputs.input_utxos)?);
 
-    let BuiltCircuit { circuit } = into_prover(proof_inputs, input_proofs, dummy_nullifier_proofs)?;
+    let BuiltCircuit { circuit } = into_prover_with_dummy_policy(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
+        allow_dummy_inputs,
+    )?;
 
     let (prover_inputs, public_input_hash, nullifiers, private_tx, root_indices, p256_signing_pk_x) =
         match circuit {

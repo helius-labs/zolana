@@ -24,7 +24,6 @@ type InputParamsJSON struct {
 }
 
 type OutputParamsJSON struct {
-	Blinding     string `json:"blinding"`
 	ZoneDataHash string `json:"zoneDataHash"`
 	Hash         string `json:"hash"`
 }
@@ -34,20 +33,18 @@ type MergeParametersJSON struct {
 	Inputs              []InputParamsJSON  `json:"inputs"`
 	Output              OutputParamsJSON   `json:"output"`
 	Asset               string             `json:"asset"`
-	P256PubX            string             `json:"p256PubX"`
-	P256PubY            string             `json:"p256PubY"`
 	OwnerPkHash         string             `json:"ownerPkHash"`
 	UserNullifierPk     string             `json:"userNullifierPk"`
 	UserNullifierSecret string             `json:"userNullifierSecret"`
-	TxViewingSk         string             `json:"txViewingSk"`
-	UserViewingPubkey   []string           `json:"userViewingPubkey"`
-	TxViewingPkLo       string             `json:"txViewingPkLo"`
-	TxViewingPkHi       string             `json:"txViewingPkHi"`
-	CtHash              string             `json:"ctHash"`
-	UserViewingPkHash   string             `json:"userViewingPkHash"`
+	MergeViewTag        string             `json:"mergeViewTag"`
 	ExternalDataHash    string             `json:"externalDataHash"`
 	PrivateTxHash       string             `json:"privateTxHash"`
 	PublicInputHash     string             `json:"publicInputHash"`
+	AllowDummyInputs    string             `json:"allowDummyInputs"`
+	// OutputZoneDataHash is the zone-data hash the calling zone program carries
+	// in the merge_zone instruction/event, asserted against Output.ZoneDataHash.
+	// Emitted/consumed only on the merge-zone rail; zero on the default rail.
+	OutputZoneDataHash string `json:"outputZoneDataHash"`
 	// ZoneProgramID is the policy-zone merge circuit's top-level public input
 	// (the zone program's pk_field). Emitted/consumed only on the merge-zone rail;
 	// the default merge rail leaves it zero.
@@ -75,20 +72,15 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		CircuitType:         circuitType,
 		Asset:               feHex(p.Asset),
 		ZoneProgramID:       feHex(p.ZoneProgramID),
-		P256PubX:            feHex(p.P256PubX),
-		P256PubY:            feHex(p.P256PubY),
+		OutputZoneDataHash:  feHex(p.OutputZoneDataHash),
 		OwnerPkHash:         feHex(p.OwnerPkHash),
 		UserNullifierPk:     feHex(p.UserNullifierPk),
 		UserNullifierSecret: feHex(p.UserNullifierSecret),
-		TxViewingSk:         feHex(p.TxViewingSk),
-		UserViewingPubkey:   feHexSlice(p.UserViewingPubkey),
-		TxViewingPkLo:       feHex(p.TxViewingPkLo),
-		TxViewingPkHi:       feHex(p.TxViewingPkHi),
-		CtHash:              feHex(p.CtHash),
-		UserViewingPkHash:   feHex(p.UserViewingPkHash),
+		MergeViewTag:        feHex(p.MergeViewTag),
 		ExternalDataHash:    feHex(p.ExternalDataHash),
 		PrivateTxHash:       feHex(p.PrivateTxHash),
 		PublicInputHash:     feHex(p.PublicInputHash),
+		AllowDummyInputs:    feHex(p.AllowDummyInputs),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -111,7 +103,6 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 	}
 
 	paramsJson.Output = OutputParamsJSON{
-		Blinding:     feHex(p.Output.Blinding),
 		ZoneDataHash: feHex(p.Output.ZoneDataHash),
 		Hash:         feHex(p.Output.Hash),
 	}
@@ -128,10 +119,7 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
 		return err
 	}
-	if p.P256PubX, err = feFromHex(params.P256PubX); err != nil {
-		return err
-	}
-	if p.P256PubY, err = feFromHex(params.P256PubY); err != nil {
+	if p.OutputZoneDataHash, err = feFromHex(params.OutputZoneDataHash); err != nil {
 		return err
 	}
 	if p.OwnerPkHash, err = feFromHex(params.OwnerPkHash); err != nil {
@@ -143,22 +131,7 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.UserNullifierSecret, err = feFromHex(params.UserNullifierSecret); err != nil {
 		return err
 	}
-	if p.TxViewingSk, err = feFromHex(params.TxViewingSk); err != nil {
-		return err
-	}
-	if p.UserViewingPubkey, err = feFromHexSlice(params.UserViewingPubkey); err != nil {
-		return err
-	}
-	if p.TxViewingPkLo, err = feFromHex(params.TxViewingPkLo); err != nil {
-		return err
-	}
-	if p.TxViewingPkHi, err = feFromHex(params.TxViewingPkHi); err != nil {
-		return err
-	}
-	if p.CtHash, err = feFromHex(params.CtHash); err != nil {
-		return err
-	}
-	if p.UserViewingPkHash, err = feFromHex(params.UserViewingPkHash); err != nil {
+	if p.MergeViewTag, err = feFromHex(params.MergeViewTag); err != nil {
 		return err
 	}
 	if p.ExternalDataHash, err = feFromHex(params.ExternalDataHash); err != nil {
@@ -168,6 +141,9 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return err
 	}
 	if p.PublicInputHash, err = feFromHex(params.PublicInputHash); err != nil {
+		return err
+	}
+	if p.AllowDummyInputs, err = feFromHex(params.AllowDummyInputs); err != nil {
 		return err
 	}
 	if p.Asset, err = feFromHex(params.Asset); err != nil {
@@ -220,9 +196,6 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	}
 
 	output := OutputParams{}
-	if output.Blinding, err = feFromHex(params.Output.Blinding); err != nil {
-		return err
-	}
 	if output.ZoneDataHash, err = feFromHex(params.Output.ZoneDataHash); err != nil {
 		return err
 	}

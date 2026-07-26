@@ -73,6 +73,50 @@ impl TransactEnv {
             .expect("create tree");
         Some(Self { rpc, tree })
     }
+
+    /// Move only the nullifier queue cursor so it has one fewer free leaf than
+    /// the state tree. Roots remain unchanged, allowing a proof generated with
+    /// the normal client-side `allow_dummy_inputs = true` assumption to reach
+    /// the program's public-input verification.
+    fn force_dummy_inputs_disabled(&mut self) {
+        let tree_pubkey = self.tree.pubkey();
+        let mut account = self
+            .rpc
+            .svm
+            .get_account(&tree_pubkey)
+            .expect("tree account");
+        {
+            let mut tree = TreeAccount::from_bytes(&mut account.data, tree_pubkey.to_bytes())
+                .expect("load mutable tree");
+            let state_remaining = {
+                let utxo = tree.utxo_tree();
+                utxo.capacity() - utxo.next_index()
+            };
+            {
+                let mut nullifier = tree.nullifer_tree();
+                let next_leaf = nullifier
+                    .capacity
+                    .checked_sub(state_remaining)
+                    .expect("nullifier capacity exceeds state capacity")
+                    + 1;
+                nullifier
+                    .queue_batches
+                    .get_current_batch_mut()
+                    .expect("current nullifier batch")
+                    .start_index = next_leaf;
+            }
+            assert!(
+                !tree
+                    .allow_dummy_inputs()
+                    .expect("derive dummy-input policy"),
+                "fixture must cross the dummy-input threshold"
+            );
+        }
+        self.rpc
+            .svm
+            .set_account(tree_pubkey, account)
+            .expect("write threshold tree account");
+    }
 }
 
 /// Build a valid (2,3) eddsa-rail `transact` instruction data with a real proof:
@@ -198,6 +242,37 @@ fn transact_sends_valid_proof() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[]);
     assert!(result.is_ok(), "transact failed: {result:?}");
+}
+
+#[test]
+fn transact_rejects_dummy_inputs_after_capacity_threshold() {
+    let Some(mut env) = TransactEnv::boot() else {
+        return;
+    };
+
+    env.force_dummy_inputs_disabled();
+    let payer = env.rpc.payer.pubkey();
+    let transact_ix_data = build_valid_transact_ix(&env);
+    let ix = Transact {
+        payer,
+        tree: env.tree.pubkey(),
+        legs: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+
+    let err = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("dummy inputs must be rejected after the capacity threshold");
+    let needle = format!(
+        "Custom({})",
+        ShieldedPoolError::TransactProofVerificationFailed as u32
+    );
+    assert!(
+        format!("{err}").contains(&needle),
+        "expected {needle}, got: {err}"
+    );
 }
 
 /// The declared circuit selector is checked before proof verification: a

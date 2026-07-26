@@ -37,6 +37,10 @@ pub struct GeneralEvent {
     /// settled public leg. A batched `deposit` carries one entry per deposited
     /// asset.
     pub movements: Vec<Movement>,
+    /// The single-use merge nonce, present on merge events only. The wallet
+    /// recomputes the merged output's blinding from it (and the first input's
+    /// blinding) to reconstruct the output; no ciphertext is carried.
+    pub merge_view_tag: Option<[u8; 32]>,
 }
 
 /// One spent input. Inputs may originate from different trees.

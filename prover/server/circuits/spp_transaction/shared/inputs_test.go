@@ -298,6 +298,16 @@ func TestDummyInputSlotSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asCustomZoneP256(buildDummyInputShield(t, 125)), test.WithCurves(ecc.BN254))
 }
 
+func TestDummyInputRejectedWhenPolicyDisabled(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	assignment := buildDummyInputShield(t, 125)
+	assignment.AllowDummyInputs = spptest.Fe(0)
+	refreshPublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment), test.WithCurves(ecc.BN254))
+}
+
 // Non-inclusion is unconditional: a dummy slot's nullifier and roots are
 // derived and proven like a real spend's, so mimicked public columns (an
 // arbitrary nullifier and roots) must not solve even with a consistent public

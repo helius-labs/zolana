@@ -70,7 +70,7 @@ fn variable_contents_extend_the_fixed_length() {
 fn minimal() -> ProoflessOutput {
     ProoflessOutput {
         owner: [1u8; 32],
-        blinding: [2u8; 31],
+        blinding: [2u8; 32],
         asset: [0u8; 32],
         amount: 1_000,
         data_hash: None,
@@ -85,7 +85,7 @@ fn minimal() -> ProoflessOutput {
 fn every_option_present() -> ProoflessOutput {
     ProoflessOutput {
         owner: [3u8; 32],
-        blinding: [4u8; 31],
+        blinding: [4u8; 32],
         asset: [5u8; 32],
         amount: u64::MAX,
         data_hash: Some([6u8; 32]),

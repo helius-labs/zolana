@@ -372,7 +372,7 @@ fn fetch_shielded_transactions<I: Rpc>(
                 // shielded transfers.
                 if tx.proofless
                     || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
-                        && !has_merge_ciphertext(&tx))
+                        && tx.merge_view_tag.is_none())
                 {
                     continue;
                 }
@@ -409,7 +409,7 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
             for tx in response.transactions {
                 if tx.proofless
                     || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
-                        && !has_merge_ciphertext(&tx))
+                        && tx.merge_view_tag.is_none())
                 {
                     continue;
                 }
@@ -425,22 +425,6 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
     Ok(())
 }
 
-fn has_merge_ciphertext(tx: &RpcShieldedTransaction) -> bool {
-    tx.output_slots.iter().any(|slot| {
-        let Ok(output_data) = borsh::from_slice::<zolana_event::OutputDataEncoding>(&slot.payload)
-        else {
-            return false;
-        };
-        let blob = match output_data {
-            zolana_event::OutputDataEncoding::Encrypted(blob)
-            | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
-            | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
-        };
-        blob.first()
-            .and_then(|b| EncryptedScheme::from_byte(*b).ok())
-            == Some(EncryptedScheme::Merge)
-    })
-}
 
 fn fetch_proofless_deposits<I>(
     indexer: &I,
@@ -554,6 +538,7 @@ fn proofless_deposit_from_indexed_match(
         messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
+        merge_view_tag: None,
     }))
 }
 
@@ -582,6 +567,7 @@ fn convert_sync_transaction(
         messages: tx.messages,
         nullifiers: tx.nullifiers,
         proofless: false,
+        merge_view_tag: tx.merge_view_tag,
     })
 }
 

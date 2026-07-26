@@ -550,6 +550,7 @@ fn convert_shielded_transaction(
             .collect(),
         nullifiers: item.nullifiers.into_iter().map(Into::into).collect(),
         proofless: item.proofless,
+        merge_view_tag: item.merge_view_tag.map(Into::into),
     })
 }
 

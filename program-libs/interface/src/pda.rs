@@ -20,11 +20,14 @@ pub fn protocol_config() -> Pubkey {
 }
 
 pub fn sol_interface() -> Pubkey {
+    sol_interface_with_bump().0
+}
+
+pub fn sol_interface_with_bump() -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[SOL_INTERFACE_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED],
         &shielded_pool_program_id(),
     )
-    .0
 }
 
 pub fn spl_asset_counter() -> Pubkey {
@@ -40,11 +43,18 @@ pub fn spl_asset_registry(mint: &Pubkey) -> Pubkey {
 }
 
 pub fn spl_asset_vault(mint: &Pubkey) -> Pubkey {
+    spl_asset_vault_with_bump(mint).0
+}
+
+pub fn spl_asset_vault_with_bump(mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[SPL_ASSET_VAULT_PDA_SEED, mint.as_ref()],
         &shielded_pool_program_id(),
     )
-    .0
+}
+
+pub fn spl_asset_vault_bump(mint: &[u8; 32]) -> u8 {
+    spl_asset_vault_with_bump(&Pubkey::new_from_array(*mint)).1
 }
 
 pub fn associated_token_program_id() -> Pubkey {
@@ -85,7 +95,17 @@ mod tests {
 
     #[test]
     fn sol_interface_const_matches_derivation() {
-        assert_eq!(super::sol_interface().to_bytes(), SOL_INTERFACE);
+        let (address, bump) = super::sol_interface_with_bump();
+        assert_eq!(address.to_bytes(), SOL_INTERFACE);
+        assert_eq!(bump, crate::SOL_INTERFACE_BUMP);
+    }
+
+    #[test]
+    fn spl_asset_vault_bump_matches_canonical_derivation() {
+        let mint = Pubkey::new_unique();
+        let (address, bump) = super::spl_asset_vault_with_bump(&mint);
+        assert_eq!(super::spl_asset_vault(&mint), address);
+        assert_eq!(super::spl_asset_vault_bump(&mint.to_bytes()), bump);
     }
 
     #[test]

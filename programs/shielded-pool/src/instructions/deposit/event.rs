@@ -62,6 +62,7 @@ pub(crate) fn emit_deposit_event(e: DepositEvent) -> ProgramResult {
         first_output_leaf_index: e.first_output_leaf_index,
         output_tree: e.output_tree,
         movements: e.movements,
+        merge_view_tag: None,
     };
     emit_general_event(EventKind::Deposit, event)
 }

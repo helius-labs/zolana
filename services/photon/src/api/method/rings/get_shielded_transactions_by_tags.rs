@@ -27,6 +27,7 @@ struct MatchedRingsTxRow {
     tx_viewing_pk: Option<Vec<u8>>,
     salt: Option<Vec<u8>>,
     proofless: bool,
+    merge_view_tag: Option<Vec<u8>>,
 }
 
 #[derive(FromQueryResult, Debug)]
@@ -138,6 +139,7 @@ pub async fn get_shielded_transactions_by_tags(
                     .remove(&row.rings_tx_id)
                     .unwrap_or_default(),
                 proofless: row.proofless,
+                merge_view_tag: row.merge_view_tag.map(hash_from_vec).transpose()?,
             })
         })
         .collect::<Result<Vec<_>, PhotonApiError>>()?;
@@ -174,6 +176,7 @@ async fn fetch_matching_rings_transactions(
             pt.signature AS signature,
             pt.event_index AS event_index,
             pt.tx_viewing_pk AS tx_viewing_pk,
+            pt.merge_view_tag AS merge_view_tag,
             pt.salt AS salt,
             pt.proofless AS proofless
          FROM rings_transactions pt

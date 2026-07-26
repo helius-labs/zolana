@@ -86,6 +86,9 @@ pub enum ClientError {
     #[error("a transaction must spend at least one input")]
     NoInputs,
 
+    #[error("the current tree capacity does not allow dummy input slots")]
+    DummyInputsNotAllowed,
+
     #[error(
         "input {index} is not Solana-owned; the transfer-eddsa rail rejects P256-owned inputs"
     )]

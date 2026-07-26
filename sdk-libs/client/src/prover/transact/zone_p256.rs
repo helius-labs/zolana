@@ -6,6 +6,7 @@
 //! no output-owner chain, and the shared `p256_signing_pk_field` is not folded
 //! into the hash.
 
+use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{
@@ -42,6 +43,7 @@ pub struct ZoneTransferP256Prover {
     pub external_data: ExternalData,
     pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     pub p256_owner: P256Owner,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
@@ -117,6 +119,7 @@ impl ZoneTransferP256Prover {
         elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
+            super::p256_and_eddsa::bool_field(self.allow_dummy_inputs),
             hash_field(&p256_message_hash)?,
             create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
         ]);
@@ -137,6 +140,7 @@ impl ZoneTransferP256Prover {
             public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             p256_signing_pk_field: be(&p256_signing_pk_field),
             public_input_hash: be(&public_input),
         };

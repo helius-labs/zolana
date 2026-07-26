@@ -102,7 +102,7 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         lamports: u64,
         owner: [u8; 32],
-        blinding: [u8; 31],
+        blinding: [u8; 32],
     ) -> Result<DepositOutput, ProgramTestError> {
         let deposit = Self::sol_shield_data(lamports, owner, blinding);
         self.deposit(tree, depositor, &deposit)

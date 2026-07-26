@@ -34,8 +34,8 @@ func TestMergeParametersJSONRoundTrip(t *testing.T) {
 	if len(got.Inputs) != len(p.Inputs) {
 		t.Fatalf("input count mismatch: got %d want %d", len(got.Inputs), len(p.Inputs))
 	}
-	if len(got.UserViewingPubkey) != 65 {
-		t.Fatalf("user viewing pubkey length: got %d", len(got.UserViewingPubkey))
+	if got.MergeViewTag.Cmp(p.MergeViewTag) != 0 {
+		t.Fatalf("merge view tag mismatch: got %s want %s", got.MergeViewTag, p.MergeViewTag)
 	}
 }
 
@@ -77,27 +77,18 @@ func sampleParams() *MergeParameters {
 			Nullifier:                big.NewInt(int64(100 + i)),
 		}
 	}
-	viewing := make([]*big.Int, 65)
-	for i := range viewing {
-		viewing[i] = big.NewInt(int64(i))
-	}
 	return &MergeParameters{
 		Inputs:              inputs,
-		Output:              OutputParams{Blinding: big.NewInt(0x3333), ZoneDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
+		Output:              OutputParams{ZoneDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
 		Asset:               big.NewInt(1),
-		P256PubX:            big.NewInt(0x1111),
-		P256PubY:            big.NewInt(0x2222),
 		OwnerPkHash:         big.NewInt(0x1212),
 		UserNullifierPk:     big.NewInt(0x3333),
 		UserNullifierSecret: big.NewInt(0x4444),
-		TxViewingSk:         big.NewInt(0x5555),
-		UserViewingPubkey:   viewing,
-		TxViewingPkLo:       big.NewInt(0x1010),
-		TxViewingPkHi:       big.NewInt(0x2020),
-		CtHash:              big.NewInt(0x3030),
-		UserViewingPkHash:   big.NewInt(0x4040),
+		MergeViewTag:        big.NewInt(0x5555),
+		OutputZoneDataHash:  big.NewInt(0),
 		ExternalDataHash:    big.NewInt(0x6666),
 		PrivateTxHash:       big.NewInt(0x7777),
+		AllowDummyInputs:    big.NewInt(1),
 		PublicInputHash:     big.NewInt(0x8888),
 		ZoneProgramID:       big.NewInt(0),
 	}

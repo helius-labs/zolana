@@ -143,7 +143,7 @@ impl ZoneLifecycleWorld {
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
         // value is both a valid P-256 scalar and a valid circuit witness.
         let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
+        sk_bytes.copy_from_slice(&random_blinding());
         let tx_viewing_sk = SecretKey::from_slice(&sk_bytes)
             .map_err(|e| anyhow!("invalid ephemeral viewing scalar: {e}"))?;
 
@@ -330,7 +330,7 @@ impl ZoneLifecycleWorld {
         };
 
         let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
+        sk_bytes.copy_from_slice(&random_blinding());
         let tx_viewing_sk = SecretKey::from_slice(&sk_bytes)
             .map_err(|e| anyhow!("invalid ephemeral viewing scalar: {e}"))?;
 

@@ -3,7 +3,7 @@ use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN, VIEW_TAG_LEN},
+    constants::{SALT_LEN, VIEW_TAG_LEN},
     hash::sha256_be,
     random_salt,
     shielded::ShieldedAddress,
@@ -79,7 +79,7 @@ pub struct ConfidentialTransfer {
     pub recipients: Vec<Recipient>,
     pub public_movements: Vec<PublicMovementRequest>,
     pub payer_pubkey_hash: [u8; 32],
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
     pub shape: Option<Shape>,
 }
 

@@ -1,8 +1,6 @@
 package merge_test
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/elliptic"
 	"math/big"
 	"testing"
@@ -15,14 +13,8 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 )
 
-// Domain separators, mirroring circuits/verifiable-encryption/poseidon_kdf.go.
-var (
-	domSepSharedSecret = big.NewInt(0x544d5353) // "TMSS"
-	domSepSilo         = big.NewInt(0x544d5349) // "TMSI"
-	domSepKey          = big.NewInt(0x544d534b) // "TMSK"
-	domSepKey1         = big.NewInt(0x544d534c) // "TMSL" = DomSepKey + 1
-	domSepNonce        = big.NewInt(0x544d534e) // "TMSN"
-)
+// mergeViewTag is the fixture's single-use merge nonce.
+var mergeViewTag = big.NewInt(0x7A6)
 
 func buildValidWitness(t *testing.T) *merge.Circuit {
 	t.Helper()
@@ -48,7 +40,11 @@ type mergeFixtureOptions struct {
 	inputZoneData     []*big.Int
 	outputZoneData    *big.Int
 	userSigningPkHash *big.Int
-	userViewingPkHash *big.Int
+	allowDummyInputs  *big.Int
+	// duplicateFirstInput fills input slot 1 with an exact copy of slot 0
+	// (same UTXO, same paths, same nullifier); only the distinctness
+	// constraint can reject the resulting witness.
+	duplicateFirstInput bool
 }
 
 type mergeWitnessFixture struct {
@@ -59,11 +55,9 @@ type mergeWitnessFixture struct {
 	ownerPkHash         *big.Int
 	userNullifierPk     *big.Int
 	userNullifierSecret *big.Int
-	txViewingSk         *big.Int
-	userViewingPubkey   [65]frontend.Variable
 	public              mergeshared.CommonPublicInputs
 	userSigningPkHash   *big.Int
-	userViewingPkHash   *big.Int
+	outputZoneDataHash  *big.Int
 	zoneProgramID       *big.Int
 	publicInputHash     *big.Int
 }
@@ -117,18 +111,6 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		t.Fatal(err)
 	}
 
-	// Owner viewing key (recipient of the verifiable encryption).
-	viewSk := big.NewInt(7)
-	viewX, viewY := curve.ScalarBaseMult(leftPad32(viewSk))
-	userViewingUncompressed := elliptic.Marshal(curve, viewX, viewY) // 0x04 || x || y
-	viewKeyHash, err := protocol.P256PkField(elliptic.MarshalCompressed(curve, viewX, viewY))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Ephemeral tx viewing key.
-	txViewingSk := big.NewInt(123456789)
-
 	asset := big.NewInt(1)
 	const numReal = 2
 	amounts := []*big.Int{big.NewInt(5), big.NewInt(7)}
@@ -152,11 +134,17 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		zoneProgramID = options.zoneProgramID
 	}
 
-	// Real input UTXOs and their state-tree leaves.
+	// Real input UTXOs and their state-tree leaves. Slot 0 is always real: the
+	// output blinding derives from its blinding.
 	inUtxos := make([]protocol.Utxo, numReal)
 	inHashes := make([]*big.Int, numReal)
 	stateEntries := map[uint64]*big.Int{}
 	for i := 0; i < numReal; i++ {
+		if options.duplicateFirstInput && i == 1 {
+			inUtxos[i] = inUtxos[0]
+			inHashes[i] = inHashes[0]
+			continue
+		}
 		inUtxos[i] = protocol.Utxo{
 			Domain:        big.NewInt(protocol.UtxoDomain),
 			Owner:         userOwnerHash,
@@ -178,6 +166,9 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	if err != nil {
 		t.Fatal(err)
 	}
+	if options.duplicateFirstInput {
+		stateProofs[1] = stateProofs[0]
+	}
 
 	// Empty nullifier tree: every real nullifier is bracketed by the sentinel.
 	nfTree, err := protocol.NewNullifierTree()
@@ -188,6 +179,11 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	nullifiers := make([]*big.Int, numReal)
 	nfWitnesses := make([]protocol.NonInclusionWitness, numReal)
 	for i := 0; i < numReal; i++ {
+		if options.duplicateFirstInput && i == 1 {
+			nullifiers[i] = nullifiers[0]
+			nfWitnesses[i] = nfWitnesses[0]
+			continue
+		}
 		nf, err := protocol.Nullifier(inHashes[i], blindings[i], nullifierSecret)
 		if err != nil {
 			t.Fatal(err)
@@ -200,9 +196,15 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		nfWitnesses[i] = w
 	}
 
-	// Merged output.
+	// Merged output. The blinding is derived from slot 0's blinding and the
+	// merge view tag, mirroring the in-circuit derivation.
 	outAmount := new(big.Int).Add(amounts[0], amounts[1])
-	outBlinding := big.NewInt(0x3333)
+	outBlinding, err := poseidon.Hash([]*big.Int{
+		big.NewInt(mergeshared.MergeOutputBlindingDomainV1), blindings[0], mergeViewTag,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	outUtxo := protocol.Utxo{
 		Domain:        big.NewInt(protocol.UtxoDomain),
 		Owner:         userOwnerHash,
@@ -238,39 +240,21 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		t.Fatal(err)
 	}
 
-	// Off-circuit verifiable encryption of (amount || asset || blinding).
-	ctHash, txViewingPkComp := encryptMerge(t, curve, txViewingSk, viewX, viewY, outUtxo)
-	pkLo, pkHi := pack33(txViewingPkComp)
 	userSigningPkHash := ownerKeyHash
 	if options.userSigningPkHash != nil {
 		userSigningPkHash = options.userSigningPkHash
 	}
-	userViewingPkHash := viewKeyHash
-	if options.userViewingPkHash != nil {
-		userViewingPkHash = options.userViewingPkHash
-	}
 
-	// Dummy slot: the DummyDomain sentinel with otherwise-empty content, matching
-	// the padding leaf the client builds (owner/asset/secret all zero). The circuit
-	// zeroes those fields for dummy slots and assembles the nullifier under a zero
-	// secret, so the test mirrors that leaf here for the dummy public-input columns.
-	dummyUtxo := protocol.Utxo{
-		Domain:        big.NewInt(protocol.DummyDomain),
-		Owner:         big.NewInt(0),
-		Asset:         big.NewInt(0),
-		Amount:        big.NewInt(0),
-		Blinding:      big.NewInt(0),
-		DataHash:      big.NewInt(0),
-		ZoneDataHash:  big.NewInt(0),
-		ZoneProgramID: big.NewInt(0),
-	}
-	dummyHash, err := protocol.UtxoHash(dummyUtxo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dummyNullifier, err := protocol.Nullifier(dummyHash, big.NewInt(0), big.NewInt(0))
-	if err != nil {
-		t.Fatal(err)
+	// Dummy slots publish deterministic nullifiers derived from the merge view
+	// tag, mirroring the in-circuit derivation.
+	dummyNullifier := func(slot int) *big.Int {
+		nf, err := poseidon.Hash([]*big.Int{
+			big.NewInt(mergeshared.MergeDummyNullifierDomain), mergeViewTag, big.NewInt(int64(slot)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nf
 	}
 
 	// Public columns (real + dummy), reused verbatim in the public input hash.
@@ -280,15 +264,17 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	for i := 0; i < merge.MergeInputs; i++ {
 		if i < numReal {
 			pubNullifiers[i] = nullifiers[i]
-			pubUtxoRoots[i] = stateRoot
-			pubNfRoots[i] = nfRoot
 		} else {
-			pubNullifiers[i] = dummyNullifier
-			pubUtxoRoots[i] = stateRoot
-			pubNfRoots[i] = nfRoot
+			pubNullifiers[i] = dummyNullifier(i)
 		}
+		pubUtxoRoots[i] = stateRoot
+		pubNfRoots[i] = nfRoot
 	}
 
+	allowDummyInputs := big.NewInt(1)
+	if options.allowDummyInputs != nil {
+		allowDummyInputs = options.allowDummyInputs
+	}
 	publicInputPreimage := []*big.Int{
 		hashChain(t, pubNullifiers),
 		outHash,
@@ -296,23 +282,20 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		hashChain(t, pubNfRoots),
 		privateTxHash,
 		externalDataHash,
+		allowDummyInputs,
 	}
 	switch options.rail {
 	case defaultFixtureRail:
 		publicInputPreimage = append(
 			publicInputPreimage,
 			userSigningPkHash,
-			userViewingPkHash,
-			pkLo,
-			pkHi,
-			ctHash,
+			mergeViewTag,
 		)
 	case zoneFixtureRail:
 		publicInputPreimage = append(
 			publicInputPreimage,
-			pkLo,
-			pkHi,
-			ctHash,
+			mergeViewTag,
+			outputZoneData,
 			zoneProgramID,
 		)
 	default:
@@ -322,16 +305,11 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 
 	inputs := mergeshared.NewInputs()
 	public := mergeshared.NewCommonPublicInputs()
-	var userViewingPubkey [65]frontend.Variable
-	for i := 0; i < 65; i++ {
-		userViewingPubkey[i] = big.NewInt(int64(userViewingUncompressed[i]))
-	}
 	public.ExternalDataHash = externalDataHash
 	public.PrivateTxHash = privateTxHash
 	public.OutputHash = outHash
-	public.TxViewingPkLo = pkLo
-	public.TxViewingPkHi = pkHi
-	public.CtHash = ctHash
+	public.MergeViewTag = mergeViewTag
+	public.AllowDummyInputs = allowDummyInputs
 
 	for i := 0; i < merge.MergeInputs; i++ {
 		in := &inputs[i]
@@ -362,19 +340,21 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			in.NullifierLowPathIndex = big.NewInt(0)
 		}
 	}
+	if options.duplicateFirstInput {
+		inputs[1] = inputs[0]
+		inputs[1].Amount = amounts[1]
+	}
 
 	return &mergeWitnessFixture{
 		inputs:              inputs,
-		output:              merge.Output{Blinding: outBlinding, ZoneDataHash: outputZoneData},
+		output:              merge.Output{ZoneDataHash: outputZoneData},
 		asset:               asset,
 		ownerPkHash:         ownerKeyHash,
 		userNullifierPk:     userNullifierPk,
 		userNullifierSecret: nullifierSecret,
-		txViewingSk:         txViewingSk,
-		userViewingPubkey:   userViewingPubkey,
 		public:              public,
 		userSigningPkHash:   userSigningPkHash,
-		userViewingPkHash:   userViewingPkHash,
+		outputZoneDataHash:  outputZoneData,
 		zoneProgramID:       zoneProgramID,
 		publicInputHash:     publicInputHash,
 	}
@@ -388,11 +368,8 @@ func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
-	assignment.TxViewingSk = f.txViewingSk
-	assignment.UserViewingPubkey = f.userViewingPubkey
 	assignment.CommonPublicInputs = f.public
 	assignment.UserSigningPkHash = f.userSigningPkHash
-	assignment.UserViewingPkHash = f.userViewingPkHash
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }
@@ -405,149 +382,11 @@ func (f *mergeWitnessFixture) zoneCircuit() *merge.ZoneCircuit {
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
-	assignment.TxViewingSk = f.txViewingSk
-	assignment.UserViewingPubkey = f.userViewingPubkey
 	assignment.CommonPublicInputs = f.public
+	assignment.OutputZoneDataHash = f.outputZoneDataHash
 	assignment.ZoneProgramID = f.zoneProgramID
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
-}
-
-// encryptMerge mirrors merge/encryption.go off-circuit and returns the Poseidon
-// ciphertext hash and the compressed tx_viewing_pk.
-func encryptMerge(t *testing.T, curve elliptic.Curve, txViewingSk, viewX, viewY *big.Int, out protocol.Utxo) (*big.Int, [33]byte) {
-	t.Helper()
-	skBytes := leftPad32(txViewingSk)
-
-	// tx_viewing_pk = sk*G (keypair consistency).
-	pkX, pkY := curve.ScalarBaseMult(skBytes)
-	var txViewingPkComp [33]byte
-	copy(txViewingPkComp[:], elliptic.MarshalCompressed(curve, pkX, pkY))
-
-	// ECDH x-coordinate.
-	dhX, _ := curve.ScalarMult(viewX, viewY, skBytes)
-	var dh [32]byte
-	dhX.FillBytes(dh[:])
-
-	var rpkComp [33]byte
-	copy(rpkComp[:], elliptic.MarshalCompressed(curve, viewX, viewY))
-
-	sharedSecret := deriveSharedSecret(t, dh, txViewingPkComp, rpkComp)
-	key, nonce := keySchedule(t, sharedSecret, []byte(merge.MergeKDFInfo))
-
-	plaintext := mergePlaintext(out)
-	ciphertext := ctrEncrypt(t, key, nonce, plaintext)
-
-	packed := packBytesBE(ciphertext, 16)
-	ctHash, err := poseidon.Hash(packed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ctHash, txViewingPkComp
-}
-
-func deriveSharedSecret(t *testing.T, dh [32]byte, ephComp, rpkComp [33]byte) *big.Int {
-	t.Helper()
-	dhLo, dhHi := pack32(dh)
-	ephLo, ephHi := pack33(ephComp)
-	rpkLo, rpkHi := pack33(rpkComp)
-	h, err := poseidon.Hash([]*big.Int{domSepSharedSecret, dhLo, dhHi, ephLo, ephHi, rpkLo, rpkHi})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return h
-}
-
-func keySchedule(t *testing.T, sharedSecret *big.Int, info []byte) (key [32]byte, nonce [12]byte) {
-	t.Helper()
-	infoLo, infoHi := packInfo(info)
-	siloed, err := poseidon.Hash([]*big.Int{domSepSilo, sharedSecret, infoLo, infoHi})
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyLo, err := poseidon.Hash([]*big.Int{domSepKey, siloed})
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyHi, err := poseidon.Hash([]*big.Int{domSepKey1, siloed})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var keyLoB, keyHiB [32]byte
-	keyLo.FillBytes(keyLoB[:])
-	keyHi.FillBytes(keyHiB[:])
-	copy(key[0:16], keyHiB[16:32])
-	copy(key[16:32], keyLoB[16:32])
-
-	nonceRaw, err := poseidon.Hash([]*big.Int{domSepNonce, siloed})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var nonceB [32]byte
-	nonceRaw.FillBytes(nonceB[:])
-	copy(nonce[:], nonceB[20:32])
-	return key, nonce
-}
-
-// ctrEncrypt matches aes/ctr.go CTREncrypt: J0 = nonce||0x00000001, the counter
-// is incremented before the first block, so encryption starts at nonce||2.
-func ctrEncrypt(t *testing.T, key [32]byte, nonce [12]byte, plaintext []byte) []byte {
-	t.Helper()
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	var iv [16]byte
-	copy(iv[:12], nonce[:])
-	iv[15] = 2
-	out := make([]byte, len(plaintext))
-	cipher.NewCTR(block, iv[:]).XORKeyStream(out, plaintext)
-	return out
-}
-
-func mergePlaintext(out protocol.Utxo) []byte {
-	pt := make([]byte, 0, merge.MergePlaintextLen)
-	var amount [8]byte
-	out.Amount.FillBytes(amount[:])
-	var asset [32]byte
-	out.Asset.FillBytes(asset[:])
-	var blinding [31]byte
-	out.Blinding.FillBytes(blinding[:])
-	pt = append(pt, amount[:]...)
-	pt = append(pt, asset[:]...)
-	pt = append(pt, blinding[:]...)
-	return pt
-}
-
-func pack32(b [32]byte) (lo, hi *big.Int) {
-	return new(big.Int).SetBytes(b[0:31]), new(big.Int).SetBytes(b[31:32])
-}
-
-func pack33(b [33]byte) (lo, hi *big.Int) {
-	return new(big.Int).SetBytes(b[0:31]), new(big.Int).SetBytes(b[31:33])
-}
-
-func packInfo(info []byte) (lo, hi *big.Int) {
-	split := len(info)
-	if split > 31 {
-		split = 31
-	}
-	lo = new(big.Int).Lsh(big.NewInt(int64(len(info))), 8*31)
-	lo.Add(lo, new(big.Int).SetBytes(info[:split]))
-	hi = new(big.Int).SetBytes(info[split:])
-	return lo, hi
-}
-
-func packBytesBE(b []byte, bytesPerFE int) []*big.Int {
-	var out []*big.Int
-	for off := 0; off < len(b); off += bytesPerFE {
-		end := off + bytesPerFE
-		if end > len(b) {
-			end = len(b)
-		}
-		out = append(out, new(big.Int).SetBytes(b[off:end]))
-	}
-	return out
 }
 
 func hashChain(t *testing.T, in []*big.Int) *big.Int {

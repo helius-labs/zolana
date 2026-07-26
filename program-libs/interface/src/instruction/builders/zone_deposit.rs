@@ -105,7 +105,7 @@ mod tests {
             asset,
             view_tag: [seed; 32],
             owner: [seed; 32],
-            blinding: [seed; 31],
+            blinding: [seed; 32],
             amount: u64::from(seed),
             utxo_data: None,
             memo: None,
@@ -152,7 +152,12 @@ mod tests {
 
         assert_eq!(
             data.assets,
-            vec![DepositAssetKind::Sol, DepositAssetKind::Spl]
+            vec![
+                DepositAssetKind::Sol,
+                DepositAssetKind::Spl {
+                    vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+                },
+            ]
         );
         assert_eq!(
             data.deposits

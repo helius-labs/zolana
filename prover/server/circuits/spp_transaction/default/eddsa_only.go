@@ -25,6 +25,7 @@ type DefaultZoneEddsaOnlyPublic struct {
 	PublicAmounts       [shared.NPublicSlots]frontend.Variable
 	ZoneProgramID       frontend.Variable
 	PayerPubkeyHash     frontend.Variable
+	AllowDummyInputs    frontend.Variable
 	InputOwnerPkHashes  []frontend.Variable
 	OutputOwnerPkHashes []frontend.Variable
 
@@ -86,6 +87,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Trans
 		PublicAmounts:      c.Public.PublicAmounts,
 		ZoneProgramID:      c.Public.ZoneProgramID,
 		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
 			gadget.PoseidonHash(api, []frontend.Variable{0, 0}),

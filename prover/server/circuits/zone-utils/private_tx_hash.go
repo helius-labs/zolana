@@ -75,8 +75,6 @@ func (c *PrivateTxHashCircuit) Define(api frontend.API) error {
 	}
 	h := transaction.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, c.ExternalDataHash)
 	api.AssertIsEqual(c.Public.PrivateTxHash, h)
-	// TODO: bind Public.ZoneProgramID to the UTXOs' zone_program_id; currently
-	// declared as a public input but not yet constrained.
 	_ = c.Public.ZoneProgramID
 	return nil
 }

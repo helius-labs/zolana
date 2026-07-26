@@ -29,9 +29,9 @@ type InputParams struct {
 	Nullifier         *big.Int
 }
 
-// OutputParams mirrors merge.Output: only the free leaf fields.
+// OutputParams mirrors merge.Output: only the free leaf field plus the
+// committed hash.
 type OutputParams struct {
-	Blinding     *big.Int
 	ZoneDataHash *big.Int
 	Hash         *big.Int
 }
@@ -58,25 +58,26 @@ type MergeParameters struct {
 	// unused (and zero) on the default merge rail.
 	ZoneProgramID *big.Int
 
-	// Shared owner identity: P256 signing pubkey coordinates and the nullifier
-	// secret/commitment. OwnerPkHash is the owner's pk_field: 0 means P256-owned
-	// (P256 path), a non-zero value is the Ed25519 owner's pk_field; it selects the rail.
-	P256PubX            *big.Int
-	P256PubY            *big.Int
+	// Shared owner identity: the owner's pk_field and the nullifier
+	// secret/commitment.
 	OwnerPkHash         *big.Int
 	UserNullifierPk     *big.Int
 	UserNullifierSecret *big.Int
 
-	// Verifiable-encryption witnesses.
-	TxViewingSk       *big.Int
-	UserViewingPubkey []*big.Int // len 65, byte values of the uncompressed point
-	TxViewingPkLo     *big.Int
-	TxViewingPkHi     *big.Int
-	CtHash            *big.Int
-	UserViewingPkHash *big.Int
+	// MergeViewTag is the single-use nonce driving the in-circuit
+	// output-blinding and dummy-nullifier derivations, folded into the
+	// public-input hash.
+	MergeViewTag *big.Int
+
+	// OutputZoneDataHash is the zone-data hash the calling zone program carries
+	// in the merge_zone instruction/event. The zone circuit asserts it against
+	// Output.ZoneDataHash and folds it into the public-input hash. Zero on the
+	// default rail.
+	OutputZoneDataHash *big.Int
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
+	AllowDummyInputs *big.Int
 
 	PublicInputHash *big.Int
 }

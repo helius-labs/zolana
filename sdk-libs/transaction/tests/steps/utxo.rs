@@ -22,7 +22,7 @@ fn bare_utxo(world: &TransactionWorld, name: &str) -> Utxo {
         owner: world.kp(name).signing_pubkey(),
         asset: Address::default(),
         amount: 1000,
-        blinding: [3u8; BLINDING_LEN],
+        blinding: [3u8; 32],
         zone_program_id: None,
         data: Data::default(),
     }

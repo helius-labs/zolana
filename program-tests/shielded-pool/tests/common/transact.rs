@@ -41,6 +41,12 @@ fn test_viewing_pubkey() -> P256Pubkey {
         .pubkey()
 }
 
+fn expand_blinding(blinding: &[u8; 31]) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    field[1..].copy_from_slice(blinding);
+    field
+}
+
 /// A real (non-dummy) output owned by `signing_pubkey`/`nullifier_pubkey`. The
 /// resulting `owner_hash` is `Poseidon(signing_pubkey.owner_pk_field, nullifier)`,
 /// which the circuit recomputes from the witness `owner_pk_hash` + `nullifier_pk`
@@ -56,7 +62,7 @@ pub fn real_output(
     SppProofOutputUtxo {
         asset,
         amount,
-        blinding,
+        blinding: expand_blinding(&blinding),
         owner_address: Some(ShieldedAddress {
             signing_pubkey,
             nullifier_pubkey,
@@ -171,7 +177,7 @@ pub fn dummy_input(
     owner_pk_hash: &[u8; 32],
 ) -> Result<(TransferInput, [u8; 32])> {
     let mut spend = SppProofInputUtxo::new_dummy();
-    spend.utxo.blinding = *blinding;
+    spend.utxo.blinding = expand_blinding(blinding);
     let nullifier = spend.nullifier()?;
     let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
     let (utxo_root, nullifier_root) = roots;
@@ -200,7 +206,7 @@ pub fn dummy_input(
 #[allow(dead_code)]
 pub fn dummy_nullifier(blinding: &[u8; 31]) -> Result<[u8; 32]> {
     let mut spend = SppProofInputUtxo::new_dummy();
-    spend.utxo.blinding = *blinding;
+    spend.utxo.blinding = expand_blinding(blinding);
     Ok(spend.nullifier()?)
 }
 
@@ -214,7 +220,7 @@ pub fn dummy_input_with_proof(
     owner_pk_hash: &[u8; 32],
 ) -> Result<TransferInput> {
     let mut spend = SppProofInputUtxo::new_dummy();
-    spend.utxo.blinding = *blinding;
+    spend.utxo.blinding = expand_blinding(blinding);
     let nullifier = spend.nullifier()?;
     let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];

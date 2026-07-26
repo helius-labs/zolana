@@ -1,26 +1,20 @@
 //! High-level builder for the 8-in/1-out merge proof. It reuses the spp transfer
 //! input/output assembly verbatim ([`assemble_inputs`]/[`assemble_outputs`]);
-//! only the verifiable encryption and the public-input-hash element set are
-//! merge-specific.
+//! only the deterministic output-blinding / dummy-nullifier derivations and the
+//! public-input-hash element set are merge-specific.
 
 use num_bigint::BigUint;
-use p256::{elliptic_curve::sec1::ToEncodedPoint, SecretKey};
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::instruction_data::{
-    merge_transact::{MergeExternalDataHash, MergeTransactIxData},
+    merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
     merge_zone::MergeZoneIxData,
-    transact::P256Proof,
 };
 use zolana_keypair::{
-    merge::{encrypt_verifiable, merge_public_contribution, MergeCiphertextPublicInputs},
-    NullifierKey, P256Pubkey, PublicKey, SignatureType,
+    merge::merge_dummy_nullifier, NullifierKey, PublicKey, SignatureType,
 };
 use zolana_transaction::{
-    instructions::{
-        merge::PreparedMerge,
-        transact::{spp_proof_inputs::asset_field, PrivateTxHash},
-    },
-    EncryptedScheme, SppProofOutputUtxo,
+    instructions::{merge::PreparedMerge, transact::PrivateTxHash},
+    SppProofOutputUtxo,
 };
 
 use crate::{
@@ -36,11 +30,13 @@ use crate::{
 };
 
 /// Merge consolidates up to 8 inputs sharing one owner, asset, and nullifier
-/// secret into one output, verifiably encrypted to the owner's viewing key. The
-/// owner is either rail: a P256 signing key recomputes its pk_field from the
-/// witnessed point, a Solana (ed25519) signing key feeds its pk_field directly.
-/// The input slots reuse [`TransferSpendInput`] (a `None` proof is a dummy);
-/// there is exactly one real output.
+/// secret into one output whose blinding is derived from the first input's
+/// blinding and the single-use `merge_view_tag`, so the owner recovers it by
+/// reconstruction rather than decryption. The owner is either rail: a P256
+/// signing key recomputes its pk_field from the witnessed point, a Solana
+/// (ed25519) signing key feeds its pk_field directly. The input slots reuse
+/// [`TransferSpendInput`] (a `None` proof is a dummy); there is exactly one
+/// real output.
 pub struct MergeProver {
     pub inputs: Vec<TransferSpendInput>,
     pub output: SppProofOutputUtxo,
@@ -52,10 +48,10 @@ pub struct MergeProver {
     /// `nullifier_pk` and every input nullifier).
     pub signing_pubkey: PublicKey,
     pub nullifier_key: NullifierKey,
-    /// Owner viewing key (encryption recipient) and the ephemeral scalar. The
-    /// scalar must be < BN254 modulus so it is a valid circuit witness.
-    pub user_viewing_pk: P256Pubkey,
-    pub tx_viewing_sk: SecretKey,
+    /// Single-use nonce driving the output-blinding and dummy-nullifier
+    /// derivations; SPP inserts it into the nullifier queue, so it cannot be
+    /// reused across merges.
+    pub merge_view_tag: [u8; 32],
 }
 
 /// The built merge witness and the instruction-data ingredients, produced by
@@ -77,21 +73,20 @@ pub struct MergeProofResult {
     /// re-derive it.
     pub external_data_hash: [u8; 32],
     pub expiry_unix_ts: u64,
-    /// The published merge ciphertext and the ephemeral `tx_viewing_pk` the owner
-    /// uses to decrypt it back to the merged output's `(amount, asset, blinding)`.
-    pub ciphertext: Vec<u8>,
-    pub tx_viewing_pk: P256Pubkey,
     /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
     /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
     pub eddsa_owner: bool,
+    /// The single-use merge nonce; stamped into the instruction data and emitted
+    /// in the event so the wallet can reconstruct the output.
+    pub merge_view_tag: [u8; 32],
 }
 
 impl MergeProofResult {
     /// Assemble the `merge_transact` instruction data from this proof result and
-    /// the P256-rail proof (`ProofCompressed::to_merge_proof`). The caller passes
-    /// the result to the `MergeTransact` builder with the tree / protocol_config /
+    /// the proof (`ProofCompressed::to_merge_proof`). The caller passes the
+    /// result to the `MergeTransact` builder with the tree / protocol_config /
     /// user_record accounts.
-    pub fn instruction_data(&self, proof: P256Proof) -> MergeTransactIxData {
+    pub fn instruction_data(&self, proof: MergeProof) -> MergeTransactIxData {
         MergeTransactIxData {
             expiry_unix_ts: self.expiry_unix_ts,
             proof,
@@ -100,22 +95,22 @@ impl MergeProofResult {
             utxo_tree_root_index: self.utxo_tree_root_indices.clone(),
             nullifier_tree_root_index: self.nullifier_tree_root_indices.clone(),
             private_tx_hash: self.private_tx_hash,
-            encrypted_utxo: merge_encrypted_utxo(&self.tx_viewing_pk, &self.ciphertext),
+            merge_view_tag: self.merge_view_tag,
             eddsa_owner: self.eddsa_owner,
         }
     }
 
     /// Assemble the `merge_zone` instruction data: the same `merge_transact`
-    /// body wrapped in a [`MergeZoneIxData`] with the single-use
-    /// `merge_view_tag` indexing the merged output. The caller passes the
-    /// result to the `MergeZone` builder with the tree / zone_config accounts.
+    /// body wrapped in a [`MergeZoneIxData`] with the output `zone_data_hash`
+    /// the zone program selected. The caller passes the result to the
+    /// `MergeZone` builder with the tree / zone_config accounts.
     pub fn zone_instruction_data(
         &self,
-        proof: P256Proof,
-        merge_view_tag: [u8; 32],
+        proof: MergeProof,
+        output_zone_data_hash: [u8; 32],
     ) -> MergeZoneIxData {
         MergeZoneIxData {
-            merge_view_tag,
+            output_zone_data_hash,
             merge: self.instruction_data(proof),
         }
     }
@@ -125,30 +120,23 @@ impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
         let merge = self.common(zolana_interface::instruction::tag::MERGE_TRANSACT)?;
 
-        // Owner identity public inputs (pk_field of the signing and viewing keys).
-        // SPP checks both against the owner's registry record; the owner recombines
-        // the signing pk_field with their nullifier_pk to get user_owner_hash, so
-        // the owner need not be carried in the ciphertext.
+        // Owner identity public input: SPP checks the signing pk_field against
+        // the owner's registry record; the owner recombines it with their
+        // nullifier_pk to get user_owner_hash.
         let mut elements = merge.head.to_vec();
-        elements.extend([
-            merge.user_signing_pk_hash,
-            merge.user_viewing_pk_hash,
-            merge.tx_pk_lo,
-            merge.tx_pk_hi,
-            merge.ct_hash,
-        ]);
+        elements.extend([merge.user_signing_pk_hash, merge.merge_view_tag]);
         let public_input = create_hash_chain_from_slice(&elements)?;
 
         // Default merge is non-zone; the merge-zone builder sets the zone binding.
-        Ok(merge.finish(public_input, BigUint::ZERO))
+        Ok(merge.finish(public_input, BigUint::ZERO, BigUint::ZERO))
     }
 }
 
 /// Everything the default ([`MergeProver`]) and policy-zone
 /// ([`crate::prover::merge_zone::MergeZoneProver`]) merges compute identically:
-/// input/output assembly, the verifiable encryption, the shared public-input
-/// prefix, and the owner-rail witness select. Each rail appends its own
-/// public-input tail to [`Self::head`] and calls [`Self::finish`].
+/// input/output assembly, the deterministic dummy nullifiers, and the shared
+/// public-input prefix. Each rail appends its own public-input tail to
+/// [`Self::head`] and calls [`Self::finish`].
 pub(crate) struct CommonMerge {
     inputs: Vec<TransferInput>,
     output: TransferOutput,
@@ -157,27 +145,19 @@ pub(crate) struct CommonMerge {
     nullifier_tree_root_indices: Vec<u16>,
     /// The public-input prefix both merge circuits share:
     /// `[nullifiers_chain, output_hash, utxo_roots_chain,
-    /// nullifier_tree_roots_chain, private_tx_hash, external_data_hash]`.
-    pub head: [[u8; 32]; 6],
+    /// nullifier_tree_roots_chain, private_tx_hash, external_data_hash,
+    /// allow_dummy_inputs]`.
+    pub head: [[u8; 32]; 7],
     output_hash: [u8; 32],
     private_tx_hash: [u8; 32],
     external_data_hash: [u8; 32],
     expiry_unix_ts: u64,
-    ciphertext: Vec<u8>,
-    tx_viewing_pk: P256Pubkey,
-    pub tx_pk_lo: [u8; 32],
-    pub tx_pk_hi: [u8; 32],
-    pub ct_hash: [u8; 32],
     pub user_signing_pk_hash: [u8; 32],
-    pub user_viewing_pk_hash: [u8; 32],
+    pub merge_view_tag: [u8; 32],
     eddsa_owner: bool,
-    p256_pub_x: [u8; 32],
-    p256_pub_y: [u8; 32],
     owner_pk_hash: BigUint,
     user_nullifier_pk: [u8; 32],
     user_nullifier_secret: [u8; 32],
-    tx_viewing_sk_bytes: [u8; 32],
-    user_viewing_pubkey: Vec<BigUint>,
 }
 
 impl MergeProver {
@@ -189,7 +169,23 @@ impl MergeProver {
         &self,
         spp_instruction_discriminator: u8,
     ) -> Result<CommonMerge, ClientError> {
-        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
+        // Slot zero must be real: the circuit derives the output blinding from
+        // its blinding.
+        if self.inputs.first().is_none() || self.inputs[0].proof.is_none() {
+            return Err(ClientError::NoInputs);
+        }
+        let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
+
+        // Dummy slots publish deterministic nullifiers derived from the merge
+        // view tag; override the placeholder nullifiers the generic assembly
+        // computed from the dummies' blindings.
+        for (i, spend) in self.inputs.iter().enumerate() {
+            if spend.proof.is_none() {
+                let dummy = merge_dummy_nullifier(&self.merge_view_tag, i as u8)?;
+                assembled_inputs.nullifiers[i] = dummy;
+                assembled_inputs.inputs[i].nullifier = BigUint::from_bytes_be(&dummy);
+            }
+        }
 
         let utxo_tree_root_indices: Vec<u16> = assembled_inputs
             .root_indices
@@ -208,24 +204,12 @@ impl MergeProver {
             .first()
             .ok_or(ClientError::NoInputs)?;
 
-        // Verifiable encryption of the merged output to the owner's viewing key.
-        let plaintext = merge_plaintext(&self.output)?;
-        let (ciphertext, tx_viewing_pk) =
-            encrypt_verifiable(&self.tx_viewing_sk, &self.user_viewing_pk, &plaintext)?;
-        let MergeCiphertextPublicInputs {
-            tx_viewing_pk_lo: tx_pk_lo,
-            tx_viewing_pk_hi: tx_pk_hi,
-            ciphertext_hash: ct_hash,
-        } = merge_public_contribution(&tx_viewing_pk, &ciphertext)?;
-
-        // external_data_hash binds the published ciphertext blob and expiry to the
-        // proof; the program recomputes it identically from the instruction.
-        let encrypted_utxo = merge_encrypted_utxo(&tx_viewing_pk, &ciphertext);
+        // external_data_hash binds the instruction's discriminator, expiry, and
+        // output commitment to the proof; the program recomputes it identically.
         let external_data_hash = MergeExternalDataHash {
             spp_instruction_discriminator,
             expiry_unix_ts: self.expiry_unix_ts,
             output_utxo_hash: &output_hash,
-            encrypted_utxo: &encrypted_utxo,
         }
         .hash()?;
 
@@ -237,7 +221,6 @@ impl MergeProver {
         .hash()?;
 
         let user_signing_pk_hash = self.signing_pubkey.owner_pk_field()?;
-        let user_viewing_pk_hash = PublicKey::from_p256(&self.user_viewing_pk).hash()?;
         let head = [
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
@@ -245,27 +228,14 @@ impl MergeProver {
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
             external_data_hash,
+            super::transact::p256_and_eddsa::bool_field(true),
         ];
 
-        // The merge circuit receives the owner's pk_field directly on both owner
-        // rails. P256 coordinates remain in the wire shape for compatibility but
-        // are not circuit signals; the Solana rail supplies a harmless dummy point.
         let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
-        let (p256_pub_x, p256_pub_y) = if eddsa_owner {
-            let (x, y) = dummy_p256_xy()?;
-            (x, y)
-        } else {
-            let (x, y) = signing_xy(&self.signing_pubkey.as_p256()?)?;
-            (x, y)
-        };
         let owner_pk_hash = BigUint::from_bytes_be(&user_signing_pk_hash);
         let user_nullifier_pk = self.nullifier_key.pubkey()?;
-        let user_nullifier_secret = right_align(self.nullifier_key.secret());
-        let tx_viewing_sk_bytes: [u8; 32] = self.tx_viewing_sk.to_bytes().into();
-        let user_viewing_pubkey = uncompressed(&self.user_viewing_pk)?
-            .iter()
-            .map(|b| BigUint::from(*b))
-            .collect();
+        let mut user_nullifier_secret = [0u8; 32];
+        user_nullifier_secret[1..].copy_from_slice(self.nullifier_key.secret());
 
         let output = assembled_outputs
             .outputs
@@ -284,50 +254,38 @@ impl MergeProver {
             private_tx_hash: private_tx,
             external_data_hash,
             expiry_unix_ts: self.expiry_unix_ts,
-            ciphertext,
-            tx_viewing_pk,
-            tx_pk_lo,
-            tx_pk_hi,
-            ct_hash,
             user_signing_pk_hash,
-            user_viewing_pk_hash,
+            merge_view_tag: self.merge_view_tag,
             eddsa_owner,
-            p256_pub_x,
-            p256_pub_y,
             owner_pk_hash,
             user_nullifier_pk,
             user_nullifier_secret,
-            tx_viewing_sk_bytes,
-            user_viewing_pubkey,
         })
     }
 }
 
 impl CommonMerge {
-    /// Fold the rail's completed public-input hash and zone binding (zero for the
-    /// default merge) into the final witness and proof result.
+    /// Fold the rail's completed public-input hash, zone binding, and output
+    /// zone-data hash (both zero for the default merge) into the final witness
+    /// and proof result.
     pub(crate) fn finish(
         self,
         public_input: [u8; 32],
         zone_program_id: BigUint,
+        output_zone_data_hash: BigUint,
     ) -> MergeProofResult {
         let inputs = MergeInputs {
             inputs: self.inputs,
             output: self.output,
-            p256_pub_x: be(&self.p256_pub_x),
-            p256_pub_y: be(&self.p256_pub_y),
             owner_pk_hash: self.owner_pk_hash,
             user_nullifier_pk: be(&self.user_nullifier_pk),
             user_nullifier_secret: be(&self.user_nullifier_secret),
-            tx_viewing_sk: BigUint::from_bytes_be(&self.tx_viewing_sk_bytes),
-            user_viewing_pubkey: self.user_viewing_pubkey,
-            tx_viewing_pk_lo: be(&self.tx_pk_lo),
-            tx_viewing_pk_hi: be(&self.tx_pk_hi),
-            ciphertext_hash: be(&self.ct_hash),
-            user_viewing_pk_hash: be(&self.user_viewing_pk_hash),
+            merge_view_tag: be(&self.merge_view_tag),
             external_data_hash: be(&self.external_data_hash),
             private_tx_hash: be(&self.private_tx_hash),
+            allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: be(&public_input),
+            output_zone_data_hash,
             zone_program_id,
         };
         MergeProofResult {
@@ -340,83 +298,12 @@ impl CommonMerge {
             private_tx_hash: self.private_tx_hash,
             external_data_hash: self.external_data_hash,
             expiry_unix_ts: self.expiry_unix_ts,
-            ciphertext: self.ciphertext,
-            tx_viewing_pk: self.tx_viewing_pk,
             eddsa_owner: self.eddsa_owner,
+            merge_view_tag: self.merge_view_tag,
         }
     }
 }
 
-/// Assembles the on-instruction `encrypted_utxo` payload in the unified output
-/// encoding `borsh(MessageData::VerifiablyEncrypted([EncryptedScheme::Merge,
-/// tx_viewing_pk(33), ciphertext]))`, the same form transact emits and
-/// `Wallet::sync` decodes.
-pub fn merge_encrypted_utxo(tx_viewing_pk: &P256Pubkey, ciphertext: &[u8]) -> Vec<u8> {
-    let mut blob = Vec::with_capacity(1 + 33 + ciphertext.len());
-    blob.push(EncryptedScheme::Merge.as_byte());
-    blob.extend_from_slice(tx_viewing_pk.as_bytes());
-    blob.extend_from_slice(ciphertext);
-    zolana_event::encode_verifiably_encrypted(blob)
-}
-
-/// The merge bundle plaintext: amount (u64, 8 BE bytes) || asset field (32 BE
-/// bytes) || blinding (31 BE bytes), all read from the merged output.
-pub(crate) fn merge_plaintext(output: &SppProofOutputUtxo) -> Result<Vec<u8>, ClientError> {
-    let mut pt = Vec::with_capacity(8 + 32 + 31);
-    pt.extend_from_slice(&output.amount.to_be_bytes());
-    pt.extend_from_slice(&asset_field(&output.asset)?);
-    pt.extend_from_slice(&output.blinding);
-    Ok(pt)
-}
-
-pub(crate) fn uncompressed(pk: &P256Pubkey) -> Result<[u8; 65], ClientError> {
-    let point = pk.to_p256()?.to_encoded_point(false);
-    let bytes = point.as_bytes();
-    let mut out = [0u8; 65];
-    if bytes.len() != 65 {
-        return Err(ClientError::P256Signature(
-            "uncompressed P256 point must be 65 bytes".into(),
-        ));
-    }
-    out.copy_from_slice(bytes);
-    Ok(out)
-}
-
-pub(crate) fn signing_xy(pk: &P256Pubkey) -> Result<([u8; 32], [u8; 32]), ClientError> {
-    let bytes = uncompressed(pk)?;
-    let mut x = [0u8; 32];
-    let mut y = [0u8; 32];
-    x.copy_from_slice(&bytes[1..33]);
-    y.copy_from_slice(&bytes[33..65]);
-    Ok((x, y))
-}
-
-/// The P256 generator coordinates, used as the discarded dummy `P256Pub` on the
-/// Solana rail: the circuit always asserts the point is on the curve even though
-/// the rail select discards its pk_field, so it must be a valid point.
-pub(crate) fn dummy_p256_xy() -> Result<([u8; 32], [u8; 32]), ClientError> {
-    let mut one = [0u8; 32];
-    one[31] = 1;
-    let sk = SecretKey::from_slice(&one).map_err(|e| ClientError::P256Signature(e.to_string()))?;
-    let point = sk.public_key().to_encoded_point(false);
-    let bytes = point.as_bytes();
-    if bytes.len() != 65 {
-        return Err(ClientError::P256Signature(
-            "P256 generator point must be 65 bytes".into(),
-        ));
-    }
-    let mut x = [0u8; 32];
-    let mut y = [0u8; 32];
-    x.copy_from_slice(&bytes[1..33]);
-    y.copy_from_slice(&bytes[33..65]);
-    Ok((x, y))
-}
-
-pub(crate) fn right_align(bytes: &[u8; 31]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[1..].copy_from_slice(bytes);
-    out
-}
 /// A prepared merge plus the owner nullifier key and the fetched Merkle proofs,
 /// ready to fold into a [`MergeProver`]. The nullifier key is the secret the merge
 /// circuit proves ownership from; it is not carried on [`PreparedMerge`], so the
@@ -441,8 +328,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            user_viewing_pk,
-            tx_viewing_sk,
+            merge_view_tag,
         } = prepared;
 
         let mut spends = attach_input_proofs(inputs, &proofs, &[])?;
@@ -458,8 +344,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             expiry_unix_ts,
             signing_pubkey,
             nullifier_key,
-            user_viewing_pk,
-            tx_viewing_sk,
+            merge_view_tag,
         })
     }
 }

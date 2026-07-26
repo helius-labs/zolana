@@ -9,7 +9,7 @@ use zolana_interface::{
     },
     pda,
 };
-use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedAddress};
+use zolana_keypair::shielded::ShieldedAddress;
 
 use crate::{
     instructions::ZONE_TEST_PROGRAM_ID, paths::default_zone_test_program_path,
@@ -101,7 +101,7 @@ impl ZolanaProgramTest {
         &self,
         lamports: u64,
         owner: [u8; 32],
-        blinding: [u8; BLINDING_LEN],
+        blinding: [u8; 32],
     ) -> ZoneAssetDeposit {
         ZoneAssetDeposit {
             deposit: AssetDeposit {
@@ -121,7 +121,7 @@ impl ZolanaProgramTest {
     pub fn wallet_zone_sol_shield_data(
         lamports: u64,
         recipient: &ShieldedAddress,
-        blinding_seed: &[u8; BLINDING_LEN],
+        blinding_seed: &[u8; 32],
         position: u8,
     ) -> Result<ZoneAssetDeposit, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
@@ -145,7 +145,7 @@ impl ZolanaProgramTest {
         mint: Pubkey,
         user_token: Pubkey,
         recipient: &ShieldedAddress,
-        blinding_seed: &[u8; BLINDING_LEN],
+        blinding_seed: &[u8; 32],
         position: u8,
     ) -> Result<ZoneAssetDeposit, ProgramTestError> {
         let fields = wallet_shield_fields(recipient, blinding_seed, position)?;

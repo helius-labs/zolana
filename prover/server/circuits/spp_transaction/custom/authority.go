@@ -22,10 +22,11 @@ type CustomZoneAuthorityPublic struct {
 	// PublicAssets/PublicAmounts are the uniform public movement slots: a
 	// signed net flow per asset (SOL is an ordinary asset id). Idle slots are
 	// pinned to (0, 0) by AssertBalanceConservation.
-	PublicAssets    [shared.NPublicSlots]frontend.Variable
-	PublicAmounts   [shared.NPublicSlots]frontend.Variable
-	ZoneProgramID   frontend.Variable
-	PayerPubkeyHash frontend.Variable
+	PublicAssets     [shared.NPublicSlots]frontend.Variable
+	PublicAmounts    [shared.NPublicSlots]frontend.Variable
+	ZoneProgramID    frontend.Variable
+	PayerPubkeyHash  frontend.Variable
+	AllowDummyInputs frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -82,6 +83,7 @@ func (c *CustomZoneAuthorityCircuit) transaction(api frontend.API) shared.Transa
 		PublicAmounts:      c.Public.PublicAmounts,
 		ZoneProgramID:      c.Public.ZoneProgramID,
 		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
 			gadget.PoseidonHash(api, []frontend.Variable{0, 0}),

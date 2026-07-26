@@ -20,7 +20,10 @@ pub const MAX_DEPOSIT_ASSETS: usize = 5;
 #[wincode(tag_encoding = "u8")]
 pub enum DepositAssetKind {
     Sol,
-    Spl,
+    Spl {
+        /// Canonical bump of the initialized per-mint vault PDA.
+        vault_bump: u8,
+    },
 }
 
 /// One output of a batched public deposit (see [`DepositIxData`]).
@@ -36,8 +39,10 @@ pub struct DepositEntry {
     /// UTXO's `owner_utxo_hash`.
     pub owner: [u8; 32],
     /// Fresh CSPRNG per deposit; sent in the clear so a third-party depositor
-    /// needs no shared secret and the recipient spends it directly.
-    pub blinding: [u8; 31],
+    /// needs no shared secret and the recipient spends it directly. A big-endian
+    /// field element (31 random bytes right-aligned, so always below the BN254
+    /// modulus).
+    pub blinding: [u8; 32],
     /// Deposited amount of the asset selected by `asset_index`.
     pub amount: u64,
     /// Application data committed into the UTXO's `data_hash`, authorized by the

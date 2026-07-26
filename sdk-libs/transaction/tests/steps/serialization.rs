@@ -35,7 +35,7 @@ fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _name: String)
         let pt = ConfidentialOutputPlaintext {
             asset_id: 2,
             amount: 42,
-            blinding: [1u8; BLINDING_LEN],
+            blinding: [1u8; 32],
             zone_program_id: None,
             data,
         };
@@ -52,7 +52,7 @@ fn duplicate_data_records_rejected(_world: &mut TransactionWorld, _name: String)
     let pt = ConfidentialOutputPlaintext {
         asset_id: 2,
         amount: 42,
-        blinding: [1u8; BLINDING_LEN],
+        blinding: [1u8; 32],
         zone_program_id: None,
         data: Data::new(vec![
             DataRecord::ZoneData(vec![1]),
@@ -75,7 +75,7 @@ fn out_of_order_data_records_rejected(_world: &mut TransactionWorld, _name: Stri
     let pt = ConfidentialOutputPlaintext {
         asset_id: 2,
         amount: 42,
-        blinding: [1u8; BLINDING_LEN],
+        blinding: [1u8; 32],
         zone_program_id: None,
         data: Data::new(vec![
             DataRecord::UtxoData(vec![1]),
@@ -100,7 +100,7 @@ fn sender_plaintext_round_trips(world: &mut TransactionWorld, sender: String, re
         spl_asset_id: 2,
         spl_amount: 100,
         sol_amount: 5,
-        blinding_seed: [2u8; BLINDING_LEN],
+        blinding_seed: [2u8; 32],
         recipient_viewing_pks: vec![world.kp(&recipient).viewing_pubkey()],
         spl_data: Data::default(),
         sol_data: Data::default(),
@@ -157,7 +157,7 @@ fn split_bundle_round_trips(world: &mut TransactionWorld, name: String) {
         num_outputs: 8,
         asset_id: 2,
         asset_amount: 1000,
-        blinding_seed: [3u8; BLINDING_LEN],
+        blinding_seed: [3u8; 32],
         data: Data::default(),
     };
     let bytes = bundle.serialize().unwrap();

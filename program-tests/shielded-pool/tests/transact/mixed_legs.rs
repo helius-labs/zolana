@@ -521,14 +521,17 @@ fn repeated_same_mint_spl_withdrawals_settle_independently() {
         .expect("second recipient token account");
     let vault_before = env.rpc.token_balance(&vault).expect("vault balance");
     let mint_field = zolana_keypair::hash::hash_field(&mint.to_bytes()).expect("mint field");
+    let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
     let public_legs = vec![
         PublicLeg::Spl {
             is_deposit: false,
             amount: first_amount,
+            vault_bump,
         },
         PublicLeg::Spl {
             is_deposit: false,
             amount: second_amount,
+            vault_bump,
         },
     ];
     let resolved_legs = [
@@ -651,6 +654,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         PublicLeg::Spl {
             is_deposit: false,
             amount: SPL_SPLIT_TOTAL,
+            vault_bump: pda::spl_asset_vault_with_bump(&withdraw_mint).1,
         },
         PublicLeg::Sol {
             is_deposit: true,
@@ -659,6 +663,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         PublicLeg::Spl {
             is_deposit: true,
             amount: spl_deposit_amount,
+            vault_bump: pda::spl_asset_vault_with_bump(&deposit_mint).1,
         },
     ];
     let resolved_legs = [

@@ -22,6 +22,7 @@ pub struct TransferProver {
     pub external_data: ExternalData,
     pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     pub shape: Option<Shape>,
 }
 
@@ -62,6 +63,7 @@ impl TransferProver {
             public_movements: &self.public_movements,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
+            allow_dummy_inputs: &super::p256_and_eddsa::bool_field(self.allow_dummy_inputs),
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
             output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
             p256_signing_pk_field: &p256_signing_pk_field,
@@ -77,6 +79,7 @@ impl TransferProver {
             public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             public_input_hash: be(&public_input),
         };
 

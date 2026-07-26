@@ -125,6 +125,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				PublicAmounts:       core.publicAmounts,
 				ZoneProgramID:       p.ZoneProgramID,
 				PayerPubkeyHash:     p.PayerPubkeyHash,
+				AllowDummyInputs:    p.AllowDummyInputs,
 				InputOwnerPkHashes:  core.inputOwnerPkHashes,
 				OutputOwnerPkHashes: outputOwnerPkHashes,
 				PublicInputHash:     p.PublicInputHash,
@@ -149,6 +150,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				PublicAmounts:      core.publicAmounts,
 				ZoneProgramID:      p.ZoneProgramID,
 				PayerPubkeyHash:    p.PayerPubkeyHash,
+				AllowDummyInputs:   p.AllowDummyInputs,
 				PublicInputHash:    p.PublicInputHash,
 			},
 			Private: customzone.CustomZoneAuthorityPrivate{
@@ -171,6 +173,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				PublicAmounts:      core.publicAmounts,
 				ZoneProgramID:      p.ZoneProgramID,
 				PayerPubkeyHash:    p.PayerPubkeyHash,
+				AllowDummyInputs:   p.AllowDummyInputs,
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				PublicInputHash:    p.PublicInputHash,
 			},

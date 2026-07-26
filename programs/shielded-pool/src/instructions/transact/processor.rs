@@ -255,21 +255,27 @@ fn resolve_public_legs(
     let mut resolved = Vec::with_capacity(ix.public_legs.len());
     for (leg, settlement) in ix.public_legs.iter().zip(settlements.iter()) {
         let public_leg = match (leg, settlement) {
-            (PublicLeg::Sol { is_deposit, amount }, Settlement::Sol(sol)) => {
-                ResolvedPublicLeg::Sol {
-                    is_deposit: *is_deposit,
-                    amount: *amount,
-                    recipient: sol.recipient.address().to_bytes(),
-                }
-            }
-            (PublicLeg::Spl { is_deposit, amount }, Settlement::Spl(spl)) => {
-                ResolvedPublicLeg::Spl {
-                    is_deposit: *is_deposit,
-                    amount: *amount,
-                    user_token_account: spl.user_token_account.address().to_bytes(),
-                    vault: spl.vault.address().to_bytes(),
-                }
-            }
+            (
+                PublicLeg::Sol {
+                    is_deposit, amount, ..
+                },
+                Settlement::Sol(sol),
+            ) => ResolvedPublicLeg::Sol {
+                is_deposit: *is_deposit,
+                amount: *amount,
+                recipient: sol.recipient.address().to_bytes(),
+            },
+            (
+                PublicLeg::Spl {
+                    is_deposit, amount, ..
+                },
+                Settlement::Spl(spl),
+            ) => ResolvedPublicLeg::Spl {
+                is_deposit: *is_deposit,
+                amount: *amount,
+                user_token_account: spl.user_token_account.address().to_bytes(),
+                vault: spl.vault.address().to_bytes(),
+            },
             _ => return Err(ShieldedPoolError::InvalidSettlementAccounts.into()),
         };
         resolved.push(public_leg);
@@ -285,6 +291,8 @@ fn apply_tree(
     proof_inputs: &mut TransactProofInputs,
 ) -> Result<TreeWrite, ProgramError> {
     let error = ShieldedPoolError::InvalidTransactShape;
+    proof_inputs.allow_dummy_inputs =
+        bool_field(tree.allow_dummy_inputs().map_err(tree_error)?);
     let mut inputs = Vec::with_capacity(ix.inputs.len());
     let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
     for (i, input) in ix.inputs.iter().enumerate() {
@@ -314,6 +322,12 @@ fn apply_tree(
         first_output_leaf_index,
         output_tree,
     })
+}
+
+fn bool_field(value: bool) -> [u8; 32] {
+    let mut field = [0u8; 32];
+    field[31] = u8::from(value);
+    field
 }
 
 fn tree_error(e: TreeError) -> ProgramError {

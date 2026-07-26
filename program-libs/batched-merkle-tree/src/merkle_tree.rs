@@ -582,15 +582,28 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     pub fn check_queue_next_index_reached_tree_capacity(
         &self,
     ) -> Result<(), BatchedMerkleTreeError> {
-        let current_batch = self.queue_batches.get_current_batch()?;
-        let leaf_index = current_batch
-            .start_index
-            .checked_add(current_batch.get_num_inserted_elements())
-            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
+        let leaf_index = self.next_queued_leaf_index()?;
         if leaf_index >= self.capacity {
             return Err(BatchedMerkleTreeError::TreeIsFull);
         }
         Ok(())
+    }
+
+    /// Leaf index reserved by the next queue insertion. This includes values
+    /// already queued but not yet applied to the Merkle tree.
+    pub fn next_queued_leaf_index(&self) -> Result<u64, BatchedMerkleTreeError> {
+        let current_batch = self.queue_batches.get_current_batch()?;
+        current_batch
+            .start_index
+            .checked_add(current_batch.get_num_inserted_elements())
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
+    }
+
+    /// Number of leaves not yet reserved by the queue.
+    pub fn remaining_queue_capacity(&self) -> Result<u64, BatchedMerkleTreeError> {
+        self.capacity
+            .checked_sub(self.next_queued_leaf_index()?)
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
     }
 
     /// Checks if the tree is full, optionally for a batch size.

@@ -4,27 +4,19 @@ use pinocchio::{
     AccountView,
 };
 use zolana_interface::{
-    error::ShieldedPoolError, DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
-    SOL_INTERFACE_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_ACCOUNT_INITIALIZED,
-    SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET, SPL_TOKEN_PROGRAM_ID,
+    error::ShieldedPoolError, SHIELDED_POOL_CPI_AUTHORITY, SOL_INTERFACE, SPL_ASSET_VAULT_PDA_SEED,
+    SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET,
+    SPL_TOKEN_PROGRAM_ID,
 };
 
 /// Validate the `sol_interface` account is the canonical SOL-custody PDA and
 /// return its bump (needed to sign the withdrawal transfer).
 #[inline(always)]
-pub fn validate_sol_interface(
-    program_id: &Address,
-    account: &AccountView,
-) -> Result<u8, ProgramError> {
-    let (expected, bump) = Address::derive_program_address(
-        &[SOL_INTERFACE_PDA_SEED, DEFAULT_SOL_INTERFACE_INDEX_SEED],
-        program_id,
-    )
-    .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
-    if !address_eq(account.address(), &expected) {
+pub fn validate_sol_interface(account: &AccountView) -> Result<u8, ProgramError> {
+    if account.address().as_array() != &SOL_INTERFACE {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
-    Ok(bump)
+    Ok(zolana_interface::SOL_INTERFACE_BUMP)
 }
 
 #[inline(always)]
@@ -41,6 +33,7 @@ pub fn validate_spl_settlement(
     vault: &AccountView,
     user_token_account: &AccountView,
     token_program: &AccountView,
+    vault_bump: u8,
 ) -> Result<[u8; 32], ProgramError> {
     let spl_token_program_id = Address::from(SPL_TOKEN_PROGRAM_ID);
     if !address_eq(token_program.address(), &spl_token_program_id)
@@ -57,12 +50,11 @@ pub fn validate_spl_settlement(
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let (expected_vault, _) = Address::derive_program_address(
-        // TODO: pass bump and use optimized function that just takes 100 CU from pinocchio accounts crate.
+    let expected_vault = Address::derive_address(
         &[SPL_ASSET_VAULT_PDA_SEED, vault_state.mint.as_slice()],
+        Some(vault_bump),
         program_id,
-    )
-    .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+    );
     if !address_eq(vault.address(), &expected_vault) {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }

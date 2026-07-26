@@ -77,19 +77,6 @@ pub trait ViewingKeyTrait {
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError>;
 
-    // encryption with poseidon kdf keypair
-    fn encrypt_verifiable(
-        &self,
-        user_viewing_pk: &P256Pubkey,
-        plaintext: &[u8],
-    ) -> Result<(Vec<u8>, P256Pubkey), KeypairError>;
-
-    // decryption with poseidon kdf keypair
-    fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError>;
 }
 
 /// Forwards to the inherent `ViewingKey` methods. Inherent methods win method
@@ -173,21 +160,6 @@ impl ViewingKeyTrait for ViewingKey {
         self.decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
     }
 
-    fn encrypt_verifiable(
-        &self,
-        user_viewing_pk: &P256Pubkey,
-        plaintext: &[u8],
-    ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
-        self.encrypt_verifiable(user_viewing_pk, plaintext)
-    }
-
-    fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.decrypt_verifiable(tx_viewing_pubkey, ciphertext)
-    }
 }
 
 /// Forwards to the keypair's inner `viewing_key`, so a full [`ShieldedKeypair`]
@@ -276,21 +248,4 @@ impl ViewingKeyTrait for ShieldedKeypair {
             .decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
     }
 
-    fn encrypt_verifiable(
-        &self,
-        user_viewing_pk: &P256Pubkey,
-        plaintext: &[u8],
-    ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
-        self.viewing_key
-            .encrypt_verifiable(user_viewing_pk, plaintext)
-    }
-
-    fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_verifiable(tx_viewing_pubkey, ciphertext)
-    }
 }

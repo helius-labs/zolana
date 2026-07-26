@@ -27,8 +27,12 @@ fn transfer_alice_receives() -> (ShieldedTransaction, Utxo, AssetRegistry) {
             sender_view_tag: bob.get_sender_view_tag(0).unwrap(),
             first_nullifier: [0xAB; 32],
             change_amount: 0,
-            blinding: [0xBB; BLINDING_LEN],
-            blinding_seed: [0xCC; BLINDING_LEN],
+            blinding: {
+                let mut b = [0u8; 32];
+                b[1..].fill(0xBB);
+                b
+            },
+            blinding_seed: [0xCC; 32],
         },
     );
     (tx, recipient_utxo, assets)

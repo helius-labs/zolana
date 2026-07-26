@@ -69,6 +69,7 @@ pub fn public_input_hash(
     p256_signing_pk_field: &[u8; 32],
 ) -> [u8; 32] {
     let zero = [0u8; 32];
+    let one = fe(1);
     let mut chain = vec![
         create_hash_chain_from_slice(nullifiers).expect("nullifier chain"),
         create_hash_chain_from_slice(output_hashes).expect("output chain"),
@@ -84,6 +85,7 @@ pub fn public_input_hash(
     chain.extend_from_slice(&[
         zero,
         *payer_pubkey_hash,
+        one,
         hash_field(&zero).expect("p256 message field"),
         create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
         create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
@@ -253,8 +255,10 @@ pub fn external_data_hash(
 /// chain, while contributing `0` to `private_tx_hash`. Returns the witness output
 /// and that hash so callers can wire both consistently.
 pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8; 32])> {
+    let mut field_blinding = [0u8; 32];
+    field_blinding[1..].copy_from_slice(blinding);
     let output = SppProofOutputUtxo {
-        blinding: *blinding,
+        blinding: field_blinding,
         ..Default::default()
     };
     let hash = output
@@ -299,6 +303,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         zone_program_id: be(&zero),
         payer_pubkey_hash: be(&args.payer_pubkey_hash),
+        allow_dummy_inputs: be(&fe(1)),
         public_input_hash: be(&args.public_input_hash),
     }
 }

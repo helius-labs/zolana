@@ -212,6 +212,7 @@ func customZoneWitness(
 				PublicAmounts:       publicAmounts,
 				ZoneProgramID:       publicInputs.ZoneProgramID,
 				PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
+				AllowDummyInputs:    publicInputs.AllowDummyInputs,
 				InputOwnerPkHashes:  fieldVariables(publicInputs.InputOwnerPkHashes),
 				PublicInputHash:     publicInputHash,
 			},
@@ -235,6 +236,7 @@ func customZoneWitness(
 			PublicAmounts:      publicAmounts,
 			ZoneProgramID:      publicInputs.ZoneProgramID,
 			PayerPubkeyHash:    publicInputs.PayerPubkeyHash,
+			AllowDummyInputs:   publicInputs.AllowDummyInputs,
 			InputOwnerPkHashes: fieldVariables(publicInputs.InputOwnerPkHashes),
 			PublicInputHash:    publicInputHash,
 		},
@@ -338,6 +340,7 @@ func buildPublicInputs(
 		PublicAmounts:      external.publicSlots.amounts,
 		ZoneProgramID:      external.zoneProgramID,
 		PayerPubkeyHash:    new(big.Int).Set(payerHash),
+		AllowDummyInputs:   big.NewInt(1),
 		InputOwnerPkHashes: inputs.inputOwnerPkHashes,
 	}
 }

@@ -2,7 +2,7 @@ use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
 pub use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
-use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
+use zolana_keypair::{hash::sha256_be, NullifierKey, PublicKey};
 
 use crate::{
     data::Data, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
@@ -17,15 +17,22 @@ fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {
         .map_err(|e| TransactionError::Poseidon(e.to_string()))
 }
 
-pub type Blinding = [u8; BLINDING_LEN];
+/// A UTXO blinding: a 32-byte big-endian BN254 field element. Generators
+/// (random values, `derive_blinding`) right-align 31 bytes so the value is
+/// always below the field modulus; the merge output blinding is a Poseidon
+/// output, which is a field element by construction.
+pub type Blinding = [u8; 32];
 
-pub fn derive_blinding(seed: &[u8; BLINDING_LEN], position: u8) -> Blinding {
-    let mut preimage = [0u8; BLINDING_LEN + 1];
-    preimage[..BLINDING_LEN].copy_from_slice(seed);
-    preimage[BLINDING_LEN] = position;
+/// Derives the output blinding for `position` from a 32-byte seed. The
+/// preimage uses the seed's low 31 bytes, so a right-aligned 31-byte seed
+/// yields the same values as the legacy 31-byte representation.
+pub fn derive_blinding(seed: &Blinding, position: u8) -> Blinding {
+    let mut preimage = [0u8; 32];
+    preimage[..31].copy_from_slice(&seed[1..]);
+    preimage[31] = position;
     let digest = sha256_be(&preimage);
-    let mut out = [0u8; BLINDING_LEN];
-    out.copy_from_slice(&digest[1..]);
+    let mut out = [0u8; 32];
+    out[1..].copy_from_slice(&digest[1..]);
     out
 }
 

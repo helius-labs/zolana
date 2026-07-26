@@ -1150,6 +1150,7 @@ mod tests {
             PublicLeg::Spl {
                 is_deposit: true,
                 amount: 11,
+                vault_bump: 42,
             },
             PublicLeg::Sol {
                 is_deposit: false,
@@ -1193,6 +1194,7 @@ mod tests {
                 &[PublicLeg::Spl {
                     is_deposit: false,
                     amount: 1,
+                    vault_bump: 42,
                 }],
                 &[sol_accounts],
             ),

@@ -9,8 +9,6 @@ import (
 
 	"zolana/prover/circuits/gadget"
 	transaction "zolana/prover/circuits/spp_transaction/shared"
-	"zolana/prover/circuits/verifiable-encryption/aes"
-	"zolana/prover/circuits/verifiable-encryption/p256"
 )
 
 // MergeInputs is the fixed merge shape. Fewer real inputs use dummy slots.
@@ -37,10 +35,10 @@ type Input struct {
 	NullifierLowPathIndex    frontend.Variable
 }
 
-// Output contains the merged output's only free leaf fields. The circuit
-// derives its owner, asset, amount, domain, data hash, and zone program.
+// Output contains the merged output's only free leaf field. The circuit
+// derives its owner, asset, amount, domain, data hash, zone program, and
+// blinding (see MergeOutputBlinding).
 type Output struct {
-	Blinding     frontend.Variable
 	ZoneDataHash frontend.Variable
 }
 
@@ -53,10 +51,13 @@ type CommonPublicInputs struct {
 
 	PrivateTxHash    frontend.Variable
 	ExternalDataHash frontend.Variable
+	AllowDummyInputs frontend.Variable
 
-	TxViewingPkLo frontend.Variable
-	TxViewingPkHi frontend.Variable
-	CtHash        frontend.Variable
+	// MergeViewTag is the single-use nonce driving the output-blinding and
+	// dummy-nullifier derivations. Each rail folds it into its
+	// public-input-hash preimage; SPP inserts it into the nullifier queue, so
+	// it cannot be reused across merges.
+	MergeViewTag frontend.Variable
 
 	UtxoTreeRoots      []frontend.Variable
 	NullifierTreeRoots []frontend.Variable
@@ -75,18 +76,14 @@ type Transaction struct {
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
 
-	TxViewingSk       frontend.Variable
-	UserViewingPubkey [65]frontend.Variable
-
 	Public        CommonPublicInputs
 	ZoneProgramID frontend.Variable
 }
 
-// Derived contains the owner identities a wrapper may publish in its
+// Derived contains the owner identity a wrapper may publish in its
 // public-input-hash preimage.
 type Derived struct {
-	OwnerPkHash   frontend.Variable
-	ViewingPkHash frontend.Variable
+	OwnerPkHash frontend.Variable
 }
 
 // NewInputs allocates the fixed merge input slots and their Merkle paths.
@@ -117,12 +114,8 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 		gadget.HashChain(api, p.NullifierTreeRoots),
 		p.PrivateTxHash,
 		p.ExternalDataHash,
+		p.AllowDummyInputs,
 	}
-}
-
-// EncryptionTail returns the public encryption commitment shared by both rails.
-func (p CommonPublicInputs) EncryptionTail() []frontend.Variable {
-	return []frontend.Variable{p.TxViewingPkLo, p.TxViewingPkHi, p.CtHash}
 }
 
 // ValidateLayout checks every slice indexed by the fixed merge skeleton before
@@ -183,6 +176,20 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 
 	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{t.UserNullifierSecret})
 	api.AssertIsEqual(t.UserNullifierPk, nullifierPk)
+	api.AssertIsBoolean(t.Public.AllowDummyInputs)
+	for i := range t.Inputs {
+		isDummy := api.IsZero(api.Sub(t.Inputs[i].Domain, DummyDomain))
+		api.AssertIsEqual(
+			api.Mul(api.Sub(1, t.Public.AllowDummyInputs), isDummy),
+			0,
+		)
+	}
+
+	// Slot zero must be a real input: the output blinding derives from its
+	// blinding, so a dummy slot zero would make the output blinding publicly
+	// computable from the merge view tag.
+	api.AssertIsEqual(t.Inputs[0].Domain, UtxoDomain)
+	outputBlinding := MergeOutputBlinding(api, t.Inputs[0].Blinding, t.Public.MergeViewTag)
 
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
@@ -196,9 +203,11 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 			t.Public.UtxoTreeRoots[i],
 			t.Public.NullifierTreeRoots[i],
 			t.ZoneProgramID,
+			t.Public.MergeViewTag,
+			i,
 		)
 	}
-	assertDistinctNullifiers(api, t.Inputs, nullifiers)
+	assertDistinctNullifiers(api, nullifiers)
 
 	sumInputs := frontend.Variable(0)
 	for i := range t.Inputs {
@@ -208,6 +217,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	outputHash := constrainOutput(
 		api,
 		t.Output,
+		outputBlinding,
 		userOwnerHash,
 		t.Asset,
 		sumInputs,
@@ -227,47 +237,26 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	)
 	api.AssertIsEqual(privateTxHash, t.Public.PrivateTxHash)
 
-	aesGadget := aes.NewAESGadget(api)
-	ctHash, pkLo, pkHi := constrainEncryption(
-		api,
-		aesGadget,
-		t.TxViewingSk,
-		t.UserViewingPubkey,
-		sumInputs,
-		t.Asset,
-		t.Output.Blinding,
-	)
-
-	viewingPkField, err := transaction.P256PkFieldFromPointCircuit(
-		api,
-		*p256.ParsePublicKey(api, t.UserViewingPubkey),
-	)
-	if err != nil {
-		return Derived{}, err
-	}
-
 	for i := range nullifiers {
 		api.AssertIsEqual(t.Public.Nullifiers[i], nullifiers[i])
 	}
 	api.AssertIsEqual(t.Public.OutputHash, outputHash)
-	api.AssertIsEqual(t.Public.TxViewingPkLo, pkLo)
-	api.AssertIsEqual(t.Public.TxViewingPkHi, pkHi)
-	api.AssertIsEqual(t.Public.CtHash, ctHash)
 
 	return Derived{
-		OwnerPkHash:   t.OwnerPkHash,
-		ViewingPkHash: viewingPkField,
+		OwnerPkHash: t.OwnerPkHash,
 	}, nil
 }
 
-func assertDistinctNullifiers(api frontend.API, inputs []Input, nullifiers []frontend.Variable) {
-	for i := range inputs {
-		for j := i + 1; j < len(inputs); j++ {
-			iReal := api.IsZero(api.Sub(inputs[i].Domain, UtxoDomain))
-			jReal := api.IsZero(api.Sub(inputs[j].Domain, UtxoDomain))
-			bothReal := api.Mul(iReal, jReal)
-			sameNullifier := api.IsZero(api.Sub(nullifiers[i], nullifiers[j]))
-			api.AssertIsEqual(api.Mul(bothReal, sameNullifier), 0)
+// assertDistinctNullifiers requires every published nullifier to be distinct,
+// over real and dummy slots alike. Two mechanisms guard two attacks: the
+// deterministic dummy derivation (see constrainInput) keeps a real wallet
+// nullifier out of padding slots, and distinctness keeps the same real input
+// from filling two slots, which would double-count its value in the output.
+func assertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
+	for i := range nullifiers {
+		for j := i + 1; j < len(nullifiers); j++ {
+			same := api.IsZero(api.Sub(nullifiers[i], nullifiers[j]))
+			api.AssertIsEqual(same, 0)
 		}
 	}
 }

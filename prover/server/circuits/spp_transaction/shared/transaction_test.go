@@ -66,6 +66,7 @@ type testAssignment struct {
 	PublicAmounts       [NPublicSlots]frontend.Variable
 	ZoneProgramID       frontend.Variable
 	PayerPubkeyHash     frontend.Variable
+	AllowDummyInputs    frontend.Variable
 
 	PublicInputHash frontend.Variable
 }
@@ -157,6 +158,7 @@ func asCustomZoneP256(a *testAssignment) frontend.Circuit {
 			PublicAmounts:       a.PublicAmounts,
 			ZoneProgramID:       a.ZoneProgramID,
 			PayerPubkeyHash:     a.PayerPubkeyHash,
+			AllowDummyInputs:    a.AllowDummyInputs,
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
 			PublicInputHash:     a.PublicInputHash,
 		},
@@ -182,6 +184,7 @@ func asCustomZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 			PublicAmounts:      a.PublicAmounts,
 			ZoneProgramID:      a.ZoneProgramID,
 			PayerPubkeyHash:    a.PayerPubkeyHash,
+			AllowDummyInputs:   a.AllowDummyInputs,
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			PublicInputHash:    a.PublicInputHash,
 		},
@@ -205,6 +208,7 @@ func asCustomZoneAuthority(a *testAssignment) frontend.Circuit {
 			PublicAmounts:      a.PublicAmounts,
 			ZoneProgramID:      a.ZoneProgramID,
 			PayerPubkeyHash:    a.PayerPubkeyHash,
+			AllowDummyInputs:   a.AllowDummyInputs,
 			PublicInputHash:    a.PublicInputHash,
 		},
 		Private: customzone.CustomZoneAuthorityPrivate{
@@ -230,6 +234,7 @@ func asDefaultZoneP256(a *testAssignment) frontend.Circuit {
 			PublicAmounts:       a.PublicAmounts,
 			ZoneProgramID:       a.ZoneProgramID,
 			PayerPubkeyHash:     a.PayerPubkeyHash,
+			AllowDummyInputs:    a.AllowDummyInputs,
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			P256SigningPkField:  a.P256SigningPkField,
@@ -258,6 +263,7 @@ func asDefaultZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 			PublicAmounts:       a.PublicAmounts,
 			ZoneProgramID:       a.ZoneProgramID,
 			PayerPubkeyHash:     a.PayerPubkeyHash,
+			AllowDummyInputs:    a.AllowDummyInputs,
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			PublicInputHash:     a.PublicInputHash,
@@ -418,6 +424,7 @@ func buildCircuitAssignmentExact(
 		// != 0; the default-zone refresh overrides it back to 0.
 		ZoneProgramID:      spptest.Fe(0x5A),
 		PayerPubkeyHash:    payerPubkeyHash,
+		AllowDummyInputs:   spptest.Fe(1),
 		InputOwnerPkHashes: inputOwnerPkHashes,
 	}
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
@@ -465,6 +472,7 @@ func buildCircuitAssignmentExact(
 		P256SigningPkField:  spptest.Fe(0),
 		ZoneProgramID:       publicInputs.ZoneProgramID,
 		PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
+		AllowDummyInputs:    publicInputs.AllowDummyInputs,
 		PublicInputHash:     publicInputHash,
 	}
 	for i := 0; i < NPublicSlots; i++ {
@@ -511,6 +519,7 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, con
 		ExternalDataHash:   spptest.AsBigInt(assignment.ExternalDataHash),
 		ZoneProgramID:      spptest.AsBigInt(assignment.ZoneProgramID),
 		PayerPubkeyHash:    spptest.AsBigInt(assignment.PayerPubkeyHash),
+		AllowDummyInputs:   spptest.AsBigInt(assignment.AllowDummyInputs),
 		InputOwnerPkHashes: spptest.ToBigInts(assignment.InputOwnerPkHashes()),
 		Confidential:       confidential,
 		ZoneAuthority:      zoneAuthority,

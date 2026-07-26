@@ -12,7 +12,7 @@ pub use deposit::{
     MAX_DEPOSIT_ASSETS,
 };
 pub use merge_transact::{
-    MergeExternalDataHash, MergeTransactIxData, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_LEN,
+    MergeExternalDataHash, MergeProof, MergeProofRef, MergeTransactIxData, MergeTransactIxDataRef,
     MERGE_INPUT_COUNT,
 };
 pub use merge_zone::{MergeZoneIxData, MergeZoneIxDataRef};

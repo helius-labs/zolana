@@ -65,5 +65,6 @@ pub fn build_transact_event(
         first_output_leaf_index: tree_write.first_output_leaf_index,
         output_tree: tree_write.output_tree,
         movements,
+        merge_view_tag: None,
     }
 }

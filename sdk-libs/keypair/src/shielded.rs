@@ -1,5 +1,5 @@
 use crate::{
-    constants::{BLINDING_LEN, SALT_LEN},
+    constants::SALT_LEN,
     error::KeypairError,
     hash::{owner_hash, pack33, poseidon},
     nullifier_key::NullifierKey,
@@ -159,7 +159,7 @@ impl ShieldedKeypair {
     pub fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
-        blinding: &[u8; BLINDING_LEN],
+        blinding: &[u8; 32],
     ) -> Result<[u8; 32], KeypairError> {
         self.nullifier_key.nullifier(utxo_hash, blinding)
     }
@@ -173,15 +173,6 @@ impl ShieldedKeypair {
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
             .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
-    }
-
-    pub fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_verifiable(tx_viewing_pubkey, ciphertext)
     }
 
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], KeypairError> {

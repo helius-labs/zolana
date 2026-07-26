@@ -1,6 +1,6 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey};
+use zolana_keypair::{viewing_key::ViewTag, PublicKey};
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
@@ -29,7 +29,7 @@ pub struct TransferPlaintextSender {
 impl TransferPlaintextSender {
     fn into_indexed_utxos(
         self,
-        blinding_seed: &[u8; BLINDING_LEN],
+        blinding_seed: &[u8; 32],
         assets: &AssetRegistry,
         zone_program_id: Option<Address>,
     ) -> Result<Vec<(ViewTag, Utxo)>, TransactionError> {
@@ -83,7 +83,7 @@ pub struct TransferPlaintextRecipient {
 impl TransferPlaintextRecipient {
     fn into_indexed_utxo(
         self,
-        blinding: [u8; BLINDING_LEN],
+        blinding: [u8; 32],
         assets: &AssetRegistry,
         zone_program_id: Option<Address>,
     ) -> Result<(ViewTag, Utxo), TransactionError> {
@@ -103,7 +103,7 @@ impl TransferPlaintextRecipient {
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferPlaintextUtxos {
     pub type_prefix: u8,
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
     pub sender: Option<TransferPlaintextSender>,
     #[wincode(with = "containers::Vec<TransferPlaintextRecipient, FixIntLen<u8>>")]
     pub recipient_slots: Vec<TransferPlaintextRecipient>,
@@ -170,7 +170,7 @@ impl TransferPlaintextUtxos {
 }
 
 pub struct PlaintextEncode {
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
 }
 
 pub struct PlaintextTransfer;

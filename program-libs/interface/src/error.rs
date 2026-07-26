@@ -66,8 +66,9 @@ pub enum ShieldedPoolError {
     InvalidUserRecord = 7018,
     #[error("merge_transact instruction shape is invalid")]
     InvalidMergeShape = 7019,
-    #[error("merge output ciphertext must be verifiably encrypted")]
-    InvalidMergeOutputScheme = 7020,
+    // 7020 retired: was `InvalidMergeOutputScheme` (merge output ciphertext had
+    // to be verifiably encrypted); merge outputs are now deterministically
+    // derived, so there is no ciphertext scheme to check.
     #[error("transact proof variant does not match the instruction inputs")]
     MismatchedTransactProofVariant = 7021,
     #[error("zone_authority_transact is disabled for this zone")]
@@ -158,7 +159,6 @@ mod tests {
             (MergeDisabled as u32, 7017),
             (InvalidUserRecord as u32, 7018),
             (InvalidMergeShape as u32, 7019),
-            (InvalidMergeOutputScheme as u32, 7020),
             (MismatchedTransactProofVariant as u32, 7021),
             (ZoneAuthorityTransactDisabled as u32, 7022),
             (MissingP256SigningKey as u32, 7024),

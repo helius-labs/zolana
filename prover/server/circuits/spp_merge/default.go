@@ -16,15 +16,13 @@ type (
 )
 
 const (
-	MergeInputs       = mergeshared.MergeInputs
-	UtxoDomain        = mergeshared.UtxoDomain
-	DummyDomain       = mergeshared.DummyDomain
-	MergePlaintextLen = mergeshared.MergePlaintextLen
-	MergeKDFInfo      = mergeshared.MergeKDFInfo
+	MergeInputs = mergeshared.MergeInputs
+	UtxoDomain  = mergeshared.UtxoDomain
+	DummyDomain = mergeshared.DummyDomain
 )
 
-// Circuit is the default-zone merge rail. It publishes the owner's signing and
-// viewing pk_fields in addition to the common merge public-input-hash preimage.
+// Circuit is the default-zone merge rail. It publishes the owner's signing
+// pk_field in addition to the common merge public-input-hash preimage.
 type Circuit struct {
 	NumInputs int `gnark:"-"`
 
@@ -37,13 +35,9 @@ type Circuit struct {
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
 
-	TxViewingSk       frontend.Variable
-	UserViewingPubkey [65]frontend.Variable
-
 	mergeshared.CommonPublicInputs
 
 	UserSigningPkHash frontend.Variable
-	UserViewingPkHash frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -64,8 +58,6 @@ func (c *Circuit) transaction() mergeshared.Transaction {
 		OwnerPkHash:         c.OwnerPkHash,
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,
-		TxViewingSk:         c.TxViewingSk,
-		UserViewingPubkey:   c.UserViewingPubkey,
 		Public:              c.CommonPublicInputs,
 		ZoneProgramID:       frontend.Variable(0),
 	}
@@ -78,16 +70,13 @@ func (c *Circuit) Define(api frontend.API) error {
 	}
 
 	assertDefaultZone(api, tx.Inputs, tx.Output)
-	derived, err := tx.Constrain(api)
-	if err != nil {
+	if _, err := tx.Constrain(api); err != nil {
 		return err
 	}
-	api.AssertIsEqual(c.UserSigningPkHash, derived.OwnerPkHash)
-	api.AssertIsEqual(c.UserViewingPkHash, derived.ViewingPkHash)
+	api.AssertIsEqual(c.UserSigningPkHash, c.OwnerPkHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.UserSigningPkHash, c.UserViewingPkHash)
-	fields = append(fields, c.CommonPublicInputs.EncryptionTail()...)
+	fields = append(fields, c.UserSigningPkHash, c.MergeViewTag)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, fields))
 	return nil
 }

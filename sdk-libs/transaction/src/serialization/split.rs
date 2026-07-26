@@ -1,7 +1,7 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN},
+    constants::SALT_LEN,
     P256Pubkey, PublicKey, ViewingKey,
 };
 
@@ -18,7 +18,7 @@ pub struct SplitEncode {
     pub recipient_pubkey: P256Pubkey,
     pub salt: [u8; SALT_LEN],
     pub slot_index: u32,
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
 }
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
@@ -28,12 +28,12 @@ pub struct SplitBundlePlaintext {
     pub num_outputs: u8,
     pub asset_id: u64,
     pub asset_amount: u64,
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
     pub data: Data,
 }
 
 impl SplitBundlePlaintext {
-    pub fn output_blindings(&self) -> Vec<[u8; BLINDING_LEN]> {
+    pub fn output_blindings(&self) -> Vec<crate::utxo::Blinding> {
         (0..self.num_outputs)
             .map(|i| derive_blinding(&self.blinding_seed, i))
             .collect()

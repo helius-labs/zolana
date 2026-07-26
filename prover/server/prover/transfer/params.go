@@ -74,10 +74,11 @@ type TransferParameters struct {
 	P256MessageHashHigh *big.Int
 	// PublicAssets/PublicAmounts are the uniform public movement slots, both of
 	// length shared.NPublicSlots.
-	PublicAssets    []*big.Int
-	PublicAmounts   []*big.Int
-	ZoneProgramID   *big.Int
-	PayerPubkeyHash *big.Int
+	PublicAssets     []*big.Int
+	PublicAmounts    []*big.Int
+	ZoneProgramID    *big.Int
+	PayerPubkeyHash  *big.Int
+	AllowDummyInputs *big.Int
 
 	// Confidential selects the confidential (non-zone) variant; when false the
 	// anonymous zone variant is used. P256SigningPkField is the shared P256

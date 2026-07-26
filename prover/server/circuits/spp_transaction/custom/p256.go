@@ -28,6 +28,7 @@ type CustomZoneP256Public struct {
 	PublicAmounts      [shared.NPublicSlots]frontend.Variable
 	ZoneProgramID      frontend.Variable
 	PayerPubkeyHash    frontend.Variable
+	AllowDummyInputs   frontend.Variable
 	InputOwnerPkHashes []frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
@@ -85,6 +86,7 @@ func (c *CustomZoneP256Circuit) transaction(api frontend.API) shared.Transaction
 		PublicAmounts:      c.Public.PublicAmounts,
 		ZoneProgramID:      c.Public.ZoneProgramID,
 		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
 			gadget.PoseidonHash(api, []frontend.Variable{

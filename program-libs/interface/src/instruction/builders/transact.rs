@@ -176,6 +176,7 @@ mod tests {
             data: empty_data(vec![PublicLeg::Spl {
                 is_deposit: false,
                 amount: 7,
+                vault_bump: 42,
             }]),
         };
 
@@ -226,6 +227,7 @@ mod tests {
                 PublicLeg::Spl {
                     is_deposit: false,
                     amount: 5,
+                    vault_bump: 42,
                 },
                 PublicLeg::Sol {
                     is_deposit: false,
@@ -274,6 +276,7 @@ mod tests {
             data: empty_data(vec![PublicLeg::Spl {
                 is_deposit: true,
                 amount: 7,
+                vault_bump: 42,
             }]),
         };
 
@@ -310,6 +313,7 @@ mod tests {
             data: empty_data(vec![PublicLeg::Spl {
                 is_deposit: false,
                 amount: 1,
+                vault_bump: 42,
             }]),
         }
         .instruction();

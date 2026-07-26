@@ -123,6 +123,7 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"public_amount_2",
 		"zone_program_id",
 		"payer_pubkey_hash",
+		"allow_dummy_inputs",
 		"input_owner_pk_hashes",
 	}
 

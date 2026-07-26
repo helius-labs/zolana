@@ -96,6 +96,9 @@ pub const SOL_INTERFACE: [u8; 32] = [
     222, 98, 111, 179, 160, 182, 255, 213, 208, 236, 115, 61,
 ];
 
+/// Canonical bump for [`SOL_INTERFACE`].
+pub const SOL_INTERFACE_BUMP: u8 = 252;
+
 /// [`SOL_INTERFACE`] as a `Pubkey`.
 pub const SOL_INTERFACE_PUBKEY: solana_pubkey::Pubkey =
     solana_pubkey::Pubkey::new_from_array(SOL_INTERFACE);

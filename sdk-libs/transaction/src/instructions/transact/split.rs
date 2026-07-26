@@ -5,7 +5,7 @@ use zolana_interface::{
     shape::Shape,
 };
 use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN},
+    constants::{SALT_LEN},
     hash::sha256_be,
     random_salt,
     shielded::ShieldedAddress,
@@ -38,7 +38,7 @@ pub struct ConfidentialSplit {
     pub num_outputs: u8,
     pub per_output_amount: u64,
     pub payer_pubkey_hash: [u8; 32],
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
 }
 
 const MIN_PARTS: u8 = 2;
@@ -177,7 +177,7 @@ pub struct PreparedSplit {
     pub asset: Address,
     pub per_output_amount: u64,
     pub num_outputs: u8,
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
     pub payer_pubkey_hash: [u8; 32],
 }
 
@@ -278,7 +278,7 @@ mod tests {
             owner: keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount,
-            blinding: [5u8; BLINDING_LEN],
+            blinding: [5u8; 32],
             zone_program_id: None,
             data: Data::default(),
         };

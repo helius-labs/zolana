@@ -45,3 +45,13 @@ func TestMergeZoneCircuitRejectsWrongZoneProgram(t *testing.T) {
 		t.Fatal("expected zone-binding failure for wrong zone program, got solved")
 	}
 }
+
+// The carried output zone-data hash must equal Output.Utxo.ZoneDataHash; a
+// mismatch means the instruction/event does not describe the proven output.
+func TestMergeZoneCircuitRejectsWrongOutputZoneDataHash(t *testing.T) {
+	a := buildZoneWitness(t, big.NewInt(0x5A0E))
+	a.OutputZoneDataHash = big.NewInt(0xBAD)
+	if err := test.IsSolved(merge.NewMergeZoneCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected output zone-data-hash binding to fail, got solved")
+	}
+}

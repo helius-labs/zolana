@@ -270,6 +270,28 @@ impl<'a> TreeAccount<'a> {
         BatchedMerkleTreeAccount::from_layout(&pubkey.into(), &mut self.layout_mut().nullifier)
     }
 
+    /// Whether a proof may contain dummy input slots at the current tree state.
+    ///
+    /// Nullifier capacity counts queue reservations, not only leaves already
+    /// applied by the forester. Equality is allowed; dummies are disabled only
+    /// once the nullifier tree has strictly fewer leaves left than the state
+    /// tree.
+    pub fn allow_dummy_inputs(&mut self) -> Result<bool, TreeError> {
+        let utxo_tree = self.utxo_tree();
+        let state_remaining = utxo_tree
+            .capacity()
+            .checked_sub(utxo_tree.next_index())
+            .ok_or(TreeError::InvalidCapacity)?;
+        let nullifier_remaining = self
+            .nullifer_tree()
+            .remaining_queue_capacity()
+            .map_err(|_| TreeError::InvalidCapacity)?;
+        Ok(dummy_inputs_allowed(
+            nullifier_remaining,
+            state_remaining,
+        ))
+    }
+
     pub fn get_utxo_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {
         self.layout().utxo.root_by_index(index)
     }
@@ -303,6 +325,11 @@ impl<'a> TreeAccount<'a> {
     pub fn set_paused(&mut self, paused: bool) {
         self.layout_mut().state = if paused { PAUSED } else { INITIALIZED };
     }
+}
+
+#[inline]
+const fn dummy_inputs_allowed(nullifier_remaining: u64, state_remaining: u64) -> bool {
+    nullifier_remaining >= state_remaining
 }
 
 fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
@@ -360,5 +387,12 @@ mod layout_equivalence {
         let reloaded: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");
         assert_eq!(reloaded.utxo.next_index(), 1);
         assert_eq!(reloaded.nullifier.root_history.data[3], [7u8; 32]);
+    }
+
+    #[test]
+    fn dummy_input_policy_disables_only_after_nullifier_capacity_falls_behind() {
+        assert!(dummy_inputs_allowed(10, 9));
+        assert!(dummy_inputs_allowed(10, 10));
+        assert!(!dummy_inputs_allowed(9, 10));
     }
 }

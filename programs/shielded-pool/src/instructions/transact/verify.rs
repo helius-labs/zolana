@@ -49,6 +49,7 @@ pub struct TransactProofInputs {
     pub public_slot_amounts: [i128; N_PUBLIC_SLOTS],
     pub zone_program_id: [u8; 32],
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: [u8; 32],
 }
 
 pub struct TransactProof<'a> {
@@ -210,6 +211,7 @@ impl<'a> TransactProof<'a> {
         fields.extend_from_slice(&[
             self.derived.zone_program_id,
             self.derived.payer_pubkey_hash,
+            self.derived.allow_dummy_inputs,
             hash_field(&p256_message_hash)?,
         ]);
         if !IS_AUTHORITY {

@@ -24,6 +24,7 @@ var publicInputNames = [...]string{
 	"public_amount_2",
 	"zone_program_id",
 	"payer_pubkey_hash",
+	"allow_dummy_inputs",
 	"input_owner_pk_hashes",
 }
 
@@ -46,6 +47,7 @@ type PublicInputs struct {
 	PublicAmounts      [NPublicSlots]*big.Int
 	ZoneProgramID      *big.Int
 	PayerPubkeyHash    *big.Int
+	AllowDummyInputs   *big.Int
 	InputOwnerPkHashes []*big.Int
 
 	// Confidential appends the output owner tag chain and the shared P256 signing
@@ -94,6 +96,7 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	fields = append(fields,
 		inputs.ZoneProgramID,
 		inputs.PayerPubkeyHash,
+		inputs.AllowDummyInputs,
 		inputs.P256MessageHash,
 	)
 	// The zone-authority variant keeps input owner pk_fields private; every other

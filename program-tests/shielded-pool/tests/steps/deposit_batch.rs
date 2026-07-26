@@ -54,6 +54,12 @@ fn spl_entry(world: &ShieldedPoolWorld, amount: u64, seed: u8) -> AssetDeposit {
     )
 }
 
+fn spl_asset_kind(world: &ShieldedPoolWorld) -> DepositAssetKind {
+    DepositAssetKind::Spl {
+        vault_bump: pda::spl_asset_vault_with_bump(&world.mint()).1,
+    }
+}
+
 /// Send hand-built batch instruction data against a valid account layout, so a
 /// test can violate an instruction-data invariant the builder never produces.
 fn send_raw_batch(
@@ -255,9 +261,10 @@ fn batch_bad_asset_index(world: &mut ShieldedPoolWorld) {
 #[when(expr = "the depositor sends a batch leaving a declared asset unfunded")]
 fn batch_unreferenced_asset(world: &mut ShieldedPoolWorld) {
     let accounts = batch_accounts(world, vec![sol_group_accounts(), spl_group_accounts(world)]);
+    let spl_kind = spl_asset_kind(world);
     send_raw_batch(
         world,
-        vec![DepositAssetKind::Sol, DepositAssetKind::Spl],
+        vec![DepositAssetKind::Sol, spl_kind],
         vec![raw_entry(1_000)],
         accounts,
     );
@@ -271,9 +278,10 @@ fn batch_duplicate_asset(world: &mut ShieldedPoolWorld) {
     );
     let mut second = raw_entry(1_000);
     second.asset_index = 1;
+    let spl_kind = spl_asset_kind(world);
     send_raw_batch(
         world,
-        vec![DepositAssetKind::Spl, DepositAssetKind::Spl],
+        vec![spl_kind, spl_kind],
         vec![raw_entry(1_000), second],
         accounts,
     );
@@ -363,7 +371,7 @@ fn builder_assigns_indices(world: &mut ShieldedPoolWorld) {
     // SOL is declared first, so the two same-mint SPL entries share index 1.
     assert_eq!(
         parsed.assets,
-        vec![DepositAssetKind::Sol, DepositAssetKind::Spl]
+        vec![DepositAssetKind::Sol, spl_asset_kind(world)]
     );
     let indices: Vec<u8> = parsed
         .deposits

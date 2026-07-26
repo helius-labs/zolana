@@ -56,6 +56,7 @@ type Transaction struct {
 	PublicAmounts    [NPublicSlots]frontend.Variable
 	ZoneProgramID    frontend.Variable
 	PayerPubkeyHash  frontend.Variable
+	AllowDummyInputs frontend.Variable
 	PublicInputHash  frontend.Variable
 
 	// PreimageTail ends the public-input-hash preimage with everything that is
@@ -112,10 +113,15 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	if err := validateLength("output signed", len(outputSigned), t.Shape.NOutputs); err != nil {
 		return err
 	}
+	api.AssertIsBoolean(t.AllowDummyInputs)
 	// 1. check inputs
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, t.Shape.NInputs)
 	for i, in := range t.Inputs {
+		api.AssertIsEqual(
+			api.Mul(api.Sub(1, t.AllowDummyInputs), in.isDummy(api)),
+			0,
+		)
 		signals := inputSignals{
 			Nullifier:         t.Nullifiers[i],
 			UtxoTreeRoot:      t.UtxoTreeRoots[i],
@@ -166,7 +172,7 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 		t.ExternalDataHash,
 	}
 	fields = append(fields, publicSlots(t.PublicAssets, t.PublicAmounts)...)
-	fields = append(fields, t.ZoneProgramID, t.PayerPubkeyHash)
+	fields = append(fields, t.ZoneProgramID, t.PayerPubkeyHash, t.AllowDummyInputs)
 	fields = append(fields, t.PreimageTail...)
 	return gadget.HashChain(api, fields)
 }

@@ -46,7 +46,11 @@ impl<'a> TransactAccounts<'a> {
         let mut settlements = Vec::with_capacity(ix.public_legs.len());
         for leg in &ix.public_legs {
             let settlement = match leg {
-                PublicLeg::Spl { is_deposit, .. } => {
+                PublicLeg::Spl {
+                    is_deposit,
+                    vault_bump,
+                    ..
+                } => {
                     let cpi_authority = if *is_deposit {
                         None
                     } else {
@@ -61,6 +65,7 @@ impl<'a> TransactAccounts<'a> {
                         vault,
                         user_token_account,
                         token_program,
+                        *vault_bump,
                     )?;
                     Settlement::Spl(SettlementAccountsSpl {
                         cpi_authority,
@@ -73,7 +78,7 @@ impl<'a> TransactAccounts<'a> {
                 }
                 PublicLeg::Sol { .. } => {
                     let sol_interface = iter.next_account("sol_interface")?;
-                    let sol_interface_bump = validate_sol_interface(&crate::ID, sol_interface)?;
+                    let sol_interface_bump = validate_sol_interface(sol_interface)?;
                     let recipient = iter.next_account("recipient")?;
                     Settlement::Sol(SettlementAccountsSol {
                         sol_interface,

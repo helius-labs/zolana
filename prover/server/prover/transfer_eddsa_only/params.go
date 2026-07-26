@@ -64,10 +64,11 @@ type TransferParameters struct {
 	PrivateTxHash *big.Int
 	// PublicAssets/PublicAmounts are the uniform public movement slots, both of
 	// length shared.NPublicSlots.
-	PublicAssets    []*big.Int
-	PublicAmounts   []*big.Int
-	ZoneProgramID   *big.Int
-	PayerPubkeyHash *big.Int
+	PublicAssets     []*big.Int
+	PublicAmounts    []*big.Int
+	ZoneProgramID    *big.Int
+	PayerPubkeyHash  *big.Int
+	AllowDummyInputs *big.Int
 
 	// Variant selects the Solana-only instantiation: confidential (non-zone, binds
 	// output owner tags), anonymous zone, or zone-authority (anonymous, input

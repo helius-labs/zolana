@@ -19,8 +19,10 @@ use crate::{
 pub fn derive_destination_blinding(order_utxo_blinding: &Blinding) -> Result<Blinding> {
     let domain = u64_right_align(DESTINATION_BLINDING_DOMAIN);
     let derived = poseidon(&[&right_align_blinding(order_utxo_blinding), &domain]).map_err(err)?;
-    let mut blinding = [0u8; BLINDING_LEN];
-    blinding.copy_from_slice(derived.get(1..32).ok_or_else(|| err("blinding tail"))?);
+    // The take circuit derives the blinding with a 31-byte truncation, so
+    // mirror it: zero the top byte of the Poseidon output.
+    let mut blinding = derived;
+    blinding[0] = 0;
     Ok(blinding)
 }
 

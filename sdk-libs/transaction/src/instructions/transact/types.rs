@@ -248,4 +248,8 @@ pub struct ShieldedTransaction {
     pub messages: Vec<MessageData>,
     pub nullifiers: Vec<[u8; 32]>,
     pub proofless: bool,
+    /// The single-use merge nonce, present on merge transactions only. The
+    /// wallet recomputes the merged output's blinding from it (and the first
+    /// spent input's blinding) to reconstruct the output.
+    pub merge_view_tag: Option<[u8; 32]>,
 }

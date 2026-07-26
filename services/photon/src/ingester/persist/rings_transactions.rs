@@ -39,6 +39,7 @@ pub(super) async fn persist_rings_transactions(
                     "first output leaf index",
                 )?),
                 tx_viewing_pk: Set(update.tx_viewing_pk.clone()),
+                merge_view_tag: Set(update.merge_view_tag.clone()),
                 salt: Set(update.salt.clone()),
                 proofless: Set(update.proofless),
             })

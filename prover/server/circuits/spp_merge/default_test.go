@@ -15,8 +15,7 @@ import (
 )
 
 // TestMergeCircuitCompiles is a smoke test: it confirms the 8-in / 1-out merge
-// circuit compiles to R1CS. It runs emulated-P256 scalar multiplication
-// (tx_viewing_pk derivation and the owner ECDH), so it is large.
+// circuit compiles to R1CS.
 func TestMergeCircuitCompiles(t *testing.T) {
 	circuit := merge.NewMergeCircuit()
 	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
@@ -106,8 +105,7 @@ func TestMergeCircuitRejectsMalformedLayout(t *testing.T) {
 }
 
 // TestMergeCircuitProves checks the valid witness satisfies every constraint via
-// the gnark test engine. The independent encryption host in fixture_test.go
-// mirrors circuits/verifiable-encryption byte-for-byte.
+// the gnark test engine.
 func TestMergeCircuitProves(t *testing.T) {
 	assignment := buildValidWitness(t)
 	if err := test.IsSolved(merge.NewMergeCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
@@ -119,6 +117,15 @@ func TestMergeCircuitProvesEddsaOwner(t *testing.T) {
 	assignment := buildWitness(t, true)
 	if err := test.IsSolved(merge.NewMergeCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("eddsa merge witness not solved: %v", err)
+	}
+}
+
+func TestMergeCircuitRejectsDummyInputsWhenPolicyDisabled(t *testing.T) {
+	assignment := buildDefaultWitness(t, mergeFixtureOptions{
+		allowDummyInputs: big.NewInt(0),
+	})
+	if err := test.IsSolved(merge.NewMergeCircuit(), assignment, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected dummy-input policy failure, got solved")
 	}
 }
 
@@ -199,31 +206,43 @@ func TestMergeCircuitRejectsNonzeroDefaultZoneData(t *testing.T) {
 	}
 }
 
-func TestMergeCircuitRejectsWrongPublishedOwnerHashes(t *testing.T) {
-	tests := []struct {
-		name    string
-		options mergeFixtureOptions
-	}{
-		{
-			name: "signing key hash",
-			options: mergeFixtureOptions{
-				userSigningPkHash: big.NewInt(0xBADBAD),
-			},
-		},
-		{
-			name: "viewing key hash",
-			options: mergeFixtureOptions{
-				userViewingPkHash: big.NewInt(0xBADBAD),
-			},
-		},
+func TestMergeCircuitRejectsWrongPublishedOwnerHash(t *testing.T) {
+	a := buildDefaultWitness(t, mergeFixtureOptions{
+		userSigningPkHash: big.NewInt(0xBADBAD),
+	})
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected published owner-hash binding to fail, got solved")
 	}
+}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			a := buildDefaultWitness(t, tc.options)
-			if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-				t.Fatal("expected published owner-hash binding to fail, got solved")
-			}
-		})
+// Slot zero must be real: the output blinding derives from its blinding, so a
+// dummy slot zero would make the output blinding publicly computable from the
+// merge view tag.
+func TestMergeCircuitRejectsDummySlotZero(t *testing.T) {
+	a := buildValidWitness(t)
+	a.Inputs[0].Domain = big.NewInt(protocol.DummyDomain)
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected slot-zero-real failure, got solved")
+	}
+}
+
+// A wrong merge view tag changes the derived output blinding and every dummy
+// nullifier, so the public input hash cannot match.
+func TestMergeCircuitRejectsWrongMergeViewTag(t *testing.T) {
+	a := buildValidWitness(t)
+	a.MergeViewTag = big.NewInt(0xBAD)
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected merge-view-tag binding to fail, got solved")
+	}
+}
+
+// The same real input in two slots passes inclusion, non-inclusion, and value
+// conservation (the fixture keeps every other constraint consistent); only
+// nullifier distinctness rejects it. Without it the input's value would be
+// double-counted in the output.
+func TestMergeCircuitRejectsDuplicateRealInput(t *testing.T) {
+	a := buildDefaultWitness(t, mergeFixtureOptions{duplicateFirstInput: true})
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected nullifier-distinctness failure, got solved")
 	}
 }

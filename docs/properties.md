@@ -16,6 +16,7 @@
     3. **inclusion - merkle proof verifies inclusion for the utxo hash for a root that is a public input**
     4. **non inclusion - non-inclusion proof verifies non inclusion of the nullifier for a root that is a public input**
     5. owner must be either marked as signer by public input or have signed with a p256 signature
+    6. a dummy input is permitted only when the proof-wide public boolean `allow_dummy_inputs` is true
 5. **Outputs**
     1. well formed
     2. dummy: all zero except blinding
@@ -39,6 +40,7 @@
 2. cannot change owner
 3. input, output, balance check same as transfer circuit, no address creation
 4. verifiable encryption
+5. a dummy input is permitted only when the proof-wide public boolean `allow_dummy_inputs` is true
 
 ### Zone Authority Circuit
 
@@ -61,6 +63,7 @@
         1. is inserted into the correct nullifier queue
         2. is included in the zk proof verification 
     7. ring circuits cannot be used from
+    8. `allow_dummy_inputs` is derived before mutation and is true iff the nullifier tree has at least as many unreserved leaves remaining as the state tree; the proof must bind the same boolean
 2. **deposit**
     1. produces a well formed UTXO that is appended to the Merkle tree
     2. transfers correct deposited asset amount

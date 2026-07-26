@@ -6,6 +6,7 @@
 //! element set differs (input owner pk_fields stay private, no confidential
 //! appendix).
 
+use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::hash::hash_field;
@@ -46,6 +47,7 @@ pub struct ZoneAuthorityProver {
     pub external_data: ExternalData,
     pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
     pub zone_program_id: Option<Address>,
@@ -101,6 +103,7 @@ impl ZoneAuthorityProver {
         elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
+            crate::prover::transact::p256_and_eddsa::bool_field(self.allow_dummy_inputs),
             hash_field(&[0u8; 32])?,
         ]);
         let public_input = create_hash_chain_from_slice(&elements)?;
@@ -114,6 +117,7 @@ impl ZoneAuthorityProver {
             public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             public_input_hash: be(&public_input),
         };
 
@@ -167,6 +171,7 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             external_data,
             public_movements,
             payer_pubkey_hash,
+            allow_dummy_inputs: true,
             zone_program_id,
             shape: Some(shape),
         })

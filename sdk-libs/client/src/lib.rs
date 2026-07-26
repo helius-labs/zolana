@@ -31,7 +31,10 @@ pub use prover::{
     canonical_shape,
     merge::MergeWitness,
     resolve_shape, spawn_prover,
-    transact::{assemble, into_prover, AssembledTransfer, ProverInputs, ProverVariant, SpendProof},
+    transact::{
+        assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,
+        AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
+    },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
     CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness,
     P256Owner, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicMovements, Shape,

@@ -726,6 +726,7 @@ fn bench_withdrawal_spl(
         vec![PublicLeg::Spl {
             is_deposit: false,
             amount: AMOUNT,
+            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
         }],
         inline_outputs(&output_hashes, &view_tags),
         None,
