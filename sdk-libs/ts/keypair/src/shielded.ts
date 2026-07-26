@@ -76,11 +76,11 @@ export class ShieldedAddress {
  * 65-byte wire form (`owner_hash || viewing_pk`).
  */
 export class CompressedShieldedAddress {
-  readonly ownerHash: Bytes32;
+  readonly #ownerHash: Bytes32;
   readonly viewingPublicKey: P256PublicKey;
 
   private constructor(ownerHash: Bytes32, viewingPublicKey: P256PublicKey) {
-    this.ownerHash = ownerHash;
+    this.#ownerHash = ownerHash;
     this.viewingPublicKey = viewingPublicKey;
     Object.freeze(this);
   }
@@ -96,13 +96,17 @@ export class CompressedShieldedAddress {
     return CompressedShieldedAddress.fromParts(address.ownerHash(), address.viewingPublicKey);
   }
 
+  get ownerHash(): Bytes32 {
+    return copyBytes(this.#ownerHash) as Bytes32;
+  }
+
   get bytes(): Uint8Array {
-    return concatBytes(this.ownerHash, this.viewingPublicKey.toBytes());
+    return concatBytes(this.#ownerHash, this.viewingPublicKey.toBytes());
   }
 
   hash(): Bytes32 {
     const [low, high] = pack33(this.viewingPublicKey.toBytes());
-    return poseidon([this.ownerHash, low, high]) as Bytes32;
+    return poseidon([this.#ownerHash, low, high]) as Bytes32;
   }
 }
 
