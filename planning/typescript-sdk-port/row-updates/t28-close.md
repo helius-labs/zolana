@@ -27,18 +27,21 @@ carries the reasoning. The short form:
 Both languages needed it. Neither normalized before, so this was not TypeScript
 catching up to Rust; the two agreed, and the agreement was the defect.
 
-**Rust had already moved when this branch reached it.** `994574a0`, on
-`port/rulings-impl`, landed `normalized_zone_data_hash` in
-`sdk-libs/transaction/src/utxo.rs` and applied it at
-`SppProofInputUtxo::with_zone_data_hash`, `SppProofOutputUtxo::with_zone_data`,
-and `SppProofOutputUtxo::with_zone_data_hash`, under the interim authorization
-that released the data-hash half before the owner confirmed the split. That
-commit's handoff note names the three TypeScript sites, and they are the three
-this branch changed. This branch had written the same Rust change independently
-and dropped it in the merge: their implementation and their tests stand, and one
-sentence was added to the helper's doc comment recording that the address is
-excluded on purpose. `MergeZone::new` needs no change either way, because its
-`Some` arm routes through `with_zone_data_hash`.
+**Rust moved twice and ends up here.** `994574a0`, on `port/rulings-impl`,
+landed `normalized_zone_data_hash` in `sdk-libs/transaction/src/utxo.rs` and
+applied it at `SppProofInputUtxo::with_zone_data_hash`,
+`SppProofOutputUtxo::with_zone_data`, and
+`SppProofOutputUtxo::with_zone_data_hash`, under the interim authorization that
+released the data-hash half before the owner confirmed the split. This branch
+had written the same change independently and yielded to theirs on first merge.
+That worker then reverted their own commit in `5cae755c`, on the reasoning that
+two normalizers cannot share three call sites and T28 was dispatched here; the
+revert reached this branch on the second merge and took the input-side call site
+and its two tests with it, while leaving the output side and the helper standing.
+So the wording of the helper and the output sites is theirs, the input site and
+its tests are restored here, and the three call sites travel together again.
+`MergeZone::new` needs no change either way, because its `Some` arm routes
+through `with_zone_data_hash`.
 
 **TypeScript is this branch's**, in `sdk-libs/ts/transaction/src/utxo.ts`:
 
@@ -65,13 +68,14 @@ for it to catch.
 
 ## What pins it
 
-The data-hash half already had tests, from `994574a0`:
+The data-hash half is covered by
 `an_explicit_zero_zone_data_hash_is_stored_as_absence` and
 `a_non_zero_zone_data_hash_is_kept`, one pair in
 `sdk-libs/transaction/src/instructions/types.rs` and one in
-`.../instructions/transact/types.rs`. What was missing is the other half of the
-split, so nothing in the suite objected if a later worker extended the
-normalization to the zone address. This branch adds:
+`.../instructions/transact/types.rs`. Both pairs are worded as `994574a0` wrote
+them; the input pair came back with the call site the revert removed. What was
+missing is the other half of the split, so nothing in the suite objected if a
+later worker extended the normalization to the zone address. This branch adds:
 
 - `the_zero_zone_address_stays_bound_rather_than_normalizing`, beside each pair,
   asserting that the zero zone address still resolves to `pk_field(0)` and that
@@ -88,24 +92,13 @@ normalization fails the data-hash assertions; normalizing the zone address, in
 Rust at `program_id_field` and in TypeScript at `commitmentFields`, fails the
 address assertions.
 
-Suites run green afterwards, at the second merge of `ts-sdk-port`:
-`cargo test -p zolana-transaction -p zolana-wallet`,
-`cargo check --workspace --all-targets`,
+Suites run green afterwards, at the third merge of `ts-sdk-port`:
+`cargo test -p zolana-transaction`,
 `cargo clippy -p zolana-transaction --all-targets`, `npm run typecheck`,
-`npm run format:check`, and the unit run at 1983 passing after `npm run build`.
-The `ts_oracle` comparison is included and passes; it was red between the two
-merges because the other worker regenerated the committed oracle for the same
-normalization in `1e6dab57`.
-
-## One defect inherited from the merge, not fixed here
-
-`npm run lint:packages` is red at
-`sdk-libs/ts/keypair/test/vectors/capability-boundary-certification.test.ts:290`,
-`@typescript-eslint/no-unnecessary-type-assertion`. It arrived with `aebde4af`
-from the crypto certification batch and is untouched by this branch. The fix is
-to drop the assertion on that line. Recorded rather than made, because the file
-belongs to another batch and its agent may still be committing; whoever owns the
-CI job should take it, since it fails the lint gate for everyone.
+`npm run lint`, `npm run format:check`, and the unit run at 1983 passing after
+`npm run build`. The `ts_oracle` comparison is included and passes; it was red
+between the first two merges because the other worker regenerated the committed
+oracle for the same normalization in `1e6dab57`.
 
 ## What the row should now say
 
