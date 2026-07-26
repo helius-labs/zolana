@@ -38,7 +38,14 @@ jobs:
           node --input-type=module -e '
           import { readFile } from "node:fs/promises";
           const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
-          const jobs = ["check:static", "check:suites", "check:packaging", "check:fixtures", "check:e2e"];
+          const jobs = [
+            "check:static",
+            "check:suites",
+            "check:packaging",
+            "check:browser-runtime",
+            "check:fixtures",
+            "check:e2e",
+          ];
           const expected = jobs.map((name) => `npm run ${name}`).join(" && ");
           if (scripts.check !== expected) {
             throw new Error(`package.json check runs "${scripts.check}"; this workflow runs "${expected}"`);
@@ -117,6 +124,35 @@ jobs:
           wasm-target: "true"
       - run: npm ci
       - run: npm run check:packaging
+
+  # `test:browser` only greps the bundle. This job runs the cryptographic
+  # vectors in headless Chromium so a Node/browser byte divergence fails the
+  # merge gate. One engine, cached browser download, vector suite only.
+  browser-runtime:
+    name: typescript / browser runtime
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: ./.github/actions/setup-rust
+        with:
+          install-just: "false"
+          shared-key: ts-build
+          wasm-target: "true"
+      - run: npm ci
+      - name: Cache Playwright Chromium
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - run: npm run check:browser-runtime
 
   # Every committed JSON fixture under sdk-libs/ts is produced by an xtask
   # generator with a `--check` mode. This job is the only place CI regenerates
@@ -214,7 +250,8 @@ jobs:
     runs-on: ubuntu-latest
     if:
       always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    needs: [gate-scope, planning, static, suites, packaging, fixtures, e2e]
+    needs:
+      [gate-scope, planning, static, suites, packaging, browser-runtime, fixtures, e2e]
     steps:
       - name: Require every part of npm run check
         run: |
