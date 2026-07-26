@@ -53,17 +53,13 @@ export type {
 export {
   DEFAULT_INDEXER_POLL_CONFIG,
   DEFAULT_INDEXER_RPC_CONFIG,
-  attempts,
-  backoff,
   createIndexerPollConfig,
   createIndexerRpcConfig,
   isRetryable,
-  pollUntil,
   retryCause,
   validatePollConfig,
   wait,
 } from "./retry.js";
-export type { PollUntilOptions } from "./retry.js";
 export type {
   EncryptedUtxoMatch,
   Commitment,

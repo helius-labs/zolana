@@ -3,14 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   ClientError,
-  attempts,
-  backoff,
   createIndexerPollConfig,
   isRetryable,
-  pollUntil,
   retryCause,
   validatePollConfig,
 } from "../../src/index.js";
+import { attempts, backoff, pollUntil } from "../../src/retry/index.js";
 
 describe("client retry properties", () => {
   it("keeps backoff monotonic, capped, and exactly numRetries long", () => {

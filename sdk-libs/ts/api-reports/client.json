@@ -39,14 +39,6 @@
         "kind": "type"
       },
       {
-        "name": "attempts",
-        "kind": "value"
-      },
-      {
-        "name": "backoff",
-        "kind": "value"
-      },
-      {
         "name": "CANONICAL_CLIENT_ERROR_CODES",
         "kind": "value"
       },
@@ -176,14 +168,6 @@
       },
       {
         "name": "NonInclusionProof",
-        "kind": "type"
-      },
-      {
-        "name": "pollUntil",
-        "kind": "value"
-      },
-      {
-        "name": "PollUntilOptions",
         "kind": "type"
       },
       {

@@ -4,16 +4,15 @@ import {
   ClientError,
   DEFAULT_INDEXER_POLL_CONFIG,
   DEFAULT_INDEXER_RPC_CONFIG,
-  attempts,
-  backoff,
   createIndexerPollConfig,
   createIndexerRpcConfig,
   isRetryable,
-  pollUntil,
   retryCause,
   wait,
 } from "../src/index.js";
+import * as clientRoot from "../src/index.js";
 import * as retrySubpath from "../src/retry/index.js";
+import { attempts, backoff, pollUntil } from "../src/retry/index.js";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -47,6 +46,9 @@ describe("retry", () => {
       "validatePollConfig",
       "wait",
     ]);
+    expect("attempts" in clientRoot).toBe(false);
+    expect("backoff" in clientRoot).toBe(false);
+    expect("pollUntil" in clientRoot).toBe(false);
   });
 
   it("counts attempts exactly at the u32 boundary", () => {

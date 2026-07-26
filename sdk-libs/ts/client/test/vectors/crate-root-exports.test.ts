@@ -15,6 +15,8 @@ const MODULE_ENTRY_POINTS: Readonly<Record<string, string>> = {
   error: "@zolana/client",
   indexer: "@zolana/client",
   prover: "@zolana/client and @zolana/client/prover",
+  // Config factories stay on the root; attempts/backoff/pollUntil live on
+  // `@zolana/client/retry` only.
   retry: "@zolana/client and @zolana/client/retry",
   rpc: "@zolana/client",
   solana_rpc: "@zolana/client",
@@ -150,7 +152,6 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   GetByTagsRequest: "the by-tags request Rust passes as separate arguments",
   HasherErrorCode: "the wrapped hasher codes ClientError::Hasher carries",
   MergeMaterialInput: "the merge key material ZolanaClient.proveMerge requires",
-  PollUntilOptions: "the pollUntil parameters Rust passes as separate arguments",
   ProvedMerge: "the merge proof result ZolanaClient.proveMerge returns",
   ProvedMergeZone: "the zone merge proof result ZolanaClient.proveMergeZone returns",
   RpcAccount: "the account value Rust returns as a tuple",
@@ -163,16 +164,13 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
     "solana-rpc-client-api and always sets to base64 on this path",
   SignatureStatus:
     "one getSignatureStatuses entry, which Rust takes from solana-transaction-status-client-types",
-  attempts: "IndexerPollConfig::attempts as a free function",
-  backoff: "IndexerPollConfig::backoff as a free function",
   compressProof: "ProofCompressed::try_from as a free function, since TypeScript has no TryFrom",
   createAndSendTransaction:
-    "Rpc::create_and_send_transaction as a free function, because the caller signs; " +
-    "Light Protocol splits it the same way, into buildAndSignTx beside Rpc rather than on it",
+    "preferred entry for Rpc::create_and_send_transaction; the caller signs, matching " +
+    "Light Protocol's buildAndSignTx beside Rpc. Prefer this over ZolanaClient.createAndSendTransaction",
   createIndexerPollConfig: "validated IndexerPollConfig construction",
   createIndexerRpcConfig: "validated IndexerRpcConfig construction",
   isRetryable: "ClientError::retry_cause().is_some() as a predicate",
-  pollUntil: "the retry loop Rust inlines into each caller",
   retryCause: "ClientError::retry_cause as a free function",
   validatePollConfig: "IndexerPollConfig invariant validation",
   wait: "IndexerRpcConfig::wait as a free function, since TypeScript has no inherent methods on the config type",

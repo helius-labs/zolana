@@ -222,15 +222,19 @@ export class ZolanaClient implements Rpc {
   }
 
   /**
-   * Compile, sign, and send `instructions` in one call, mirroring Rust's
-   * `Rpc::create_and_send_transaction`. Returns once the cluster accepts the
-   * transaction; it does not wait for confirmation or for the indexer to catch
-   * up, which `confirmPrivateTransaction` does.
+   * Compile, sign, and send `instructions` through this client's RPC.
    *
-   * `feePayer` signs first and every signer in `signers` after it, so a
-   * transaction requiring several signatures is passed along the list. A signer
-   * that is not required by the compiled message is an error rather than a
-   * silent no-op.
+   * Prefer the free function `createAndSendTransaction` from `@zolana/client`
+   * when the caller already holds an `Rpc` and a `sign` callback: that matches
+   * Rust's `Rpc::create_and_send_transaction` and Light Protocol's
+   * `buildAndSignTx` beside `Rpc`. Use this method when signers are
+   * `TransactionSigner` values on a constructed `ZolanaClient`.
+   *
+   * Returns once the cluster accepts the transaction; it does not wait for
+   * confirmation or for the indexer to catch up, which
+   * `confirmPrivateTransaction` does. `feePayer` signs first and every signer
+   * in `signers` after it. A signer that is not required by the compiled
+   * message is an error rather than a silent no-op.
    */
   async createAndSendTransaction(
     input: Readonly<{
@@ -655,14 +659,15 @@ export class ZolanaClient implements Rpc {
 }
 
 /**
- * Compile `instructions` against a fresh blockhash, hand the unsigned
- * transaction to `sign`, and submit it: Rust's `Rpc::create_and_send_transaction`
- * without the keypairs.
+ * Preferred entry for compiling `instructions` against a fresh blockhash,
+ * signing through `sign`, and submitting the result.
  *
- * Rust takes `&[&Keypair]` and signs in place. No SDK surface here holds key
- * material, so the caller signs, which is also how Light Protocol splits it
- * (`buildAndSignTx` then `sendAndConfirmTx`, both free functions beside `Rpc`
- * rather than methods on it).
+ * This is the TypeScript form of Rust's `Rpc::create_and_send_transaction`
+ * without embedding key material: Rust takes `&[&Keypair]` and signs in place;
+ * here the caller supplies `sign`. Light Protocol splits the same way
+ * (`buildAndSignTx` then `sendAndConfirmTx`, free functions beside `Rpc`).
+ * Prefer this over `ZolanaClient.createAndSendTransaction` unless the call
+ * site already has a `ZolanaClient` and `TransactionSigner` list.
  */
 export async function createAndSendTransaction(
   input: Readonly<{

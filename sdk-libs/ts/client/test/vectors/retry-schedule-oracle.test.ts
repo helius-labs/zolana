@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import fixture from "../../../vectors/retry-schedule-v1.json" with { type: "json" };
 import { isClientError } from "../../src/error.js";
-import { ClientError, attempts, backoff, pollUntil } from "../../src/index.js";
+import { ClientError } from "../../src/index.js";
+import { attempts, backoff, pollUntil } from "../../src/retry/index.js";
 
 /**
  * `RetryErrorCause` variants as Rust names them, against the category the port
