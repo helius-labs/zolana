@@ -27,40 +27,51 @@ node sdk-libs/ts/config/pkp-entry-gate.mjs
 node sdk-libs/ts/config/port-health.mjs
 ```
 
-Last update: 2026-07-26 10:10 UTC. Times in this file are true UTC; some earlier
+Last update: 2026-07-26 11:55 UTC. Times in this file are true UTC; some earlier
 entries wrote the local `+02:00` clock and labelled it UTC.
 
 | | |
 | --- | --- |
-| Rows the table calls supported | 108 of 145, the figure the gate reports. Seven more are closed on a confirmed `NOT_APPLICABLE` disposition, which the gate counts separately |
-| Rows carrying an attributable verdict | 145 of 145. None is unexamined, and each one's verdict is now traceable to a log entry |
-| Rows carrying an adverse verdict | 27: 18 `PARTIAL`, 9 `DIVERGENT`. No row is `BLOCKED`, `MISSING`, or `STALE`, and none is unowned |
-| Rows evidenced, but the table still shows them open | None folded-but-open. `T14` and `T15` closed at `569544e0` |
-| Rows this branch cannot close | `T16` by matching, because the behaviour it would match is unspecified: Rust's serial sync walks a `HashMap`, so its UTXO order varies between processes. It needs a written disposition rather than a fix. See [scope-and-denominator.md](scope-and-denominator.md) |
-| Branch | Build, unit tests, lint and typecheck green at `569544e0` |
-| Phase | 2 of 4: remediation. Phases 3 and 4 not started |
-| Entry gate to the cryptographic phase | Criteria 1, 3 and 4 pass. Criterion 2 fails on the 27 adverse rows and is the only one left |
-| Reconciliation debt | Two row updates outstanding: `c03-rpc-surface.md`, which needs judgement rather than arithmetic because eight of the fifteen methods it calls missing are Rust trait declarations with no implementor, and `transaction-independent-read.md`, which is salvage from a collision and defers to the live worker |
+| Rows carrying an attributable verdict | 145 of 145. None is unexamined, and each verdict traces to a log entry |
+| Rows carrying an adverse verdict | None. Every row is `PARITY` or a confirmed `NOT_APPLICABLE`, `S01` last to close |
+| Reconciliation debt | None outstanding |
+| Phase | 3 of 4: cryptographic certification. The parity phase closed and the remediation phase closed with it |
+| Entry gate to the cryptographic phase | All four criteria hold. Criterion 2 closed when the last adverse row did; criterion 4 was the final holdout and closed when the two red Rust jobs went green |
+| Certification suites | Key-handling `K1`-`K10` complete. Proof suites: `P1` and `P3` landed, `P2` and `P4` in flight, `P5` not started. `P3` does not fully certify and its residuals are assigned |
+| Branch | Drift gate passes all eleven generators. `rustfmt` and the two Rust test jobs green after `e238fe97` |
+
+Two things the gate cannot see. `P3` reported a real divergence rather than a
+clean pass: TypeScript refuses an off-curve G2 point at compression while Rust's
+`alt_bn128` syscall accepts it by design. And an external review of pull request
+159 raised 44 findings, of which the three release blockers and five High rows
+are under validation. Neither is counted above, because the gate reads the
+checklist and both sit outside it.
 
 ## Live workers and the merge order
 
-Four workers hold the 27 remaining adverse rows between them, with none
-unassigned. Merge them in this order, because
-three branches touch `sdk-libs/ts/transaction/src/instructions/builders.ts`:
+No worker holds a checklist row any more, because none is open. The four in
+flight carry certification suites and external findings instead:
 
-1. `port/tx-close`, which owns the transaction package: T12, T13, T16, T17, T21, T23, T26, T28, T29, T30, T31, S01
-2. `port/client-c`: C03, C04, C05, C18
-3. `port/rereview`: K11 through K14, C06, C21, W04, I37, X01
-4. `port/serialization`: T06, T10
+1. `port/pkp-p2`, prover request parity, plus two gaps `P1` left
+2. `port/pkp-p4`, cryptographic verification: the full loop through a real prover, the Rust verifier, and the shielded-pool program
+3. `port/fnd-blockers`, validating the three release blockers and five High findings from the pull request 159 review
+4. `port/fnd-d5`, hardening Rust against the zero-length dummy ciphertext leak, plus the three `P3` residuals
 
-The `builders.ts` overlap was checked rather than assumed. Both `port/client-c`
-and `port/tx-close` add a `type ExternalData` import and an `externalData` field,
-and neither defines a rival type: `ExternalData` already exists in
-`instructions/transact.ts` on the base branch, so the shapes agree and the
-conflict is textual. `port/rereview` touches the same file only to route keypair
-calls through the narrowed capability surface. It is duplicated effort, not a
-divergence, but merge in the order above so the owner's version lands first.
-| Continuous integration | No known red job; the last two were a stale committed oracle and a type assertion the `K11` narrowing made redundant, both fixed. Runs are cancelling each other because agents push while a run is in flight, so a simultaneous green needs a quiet window more than it needs another fix. One failure mode is designed in and worth knowing before it fires: `typescript / static`, `suites` and `packaging` now install a Rust toolchain, so a change to `program-libs/hasher` without a regenerated `@zolana/hasher` artifact turns those three red on the build's refusal |
+Two overlaps between them are known and benign. Each new suite registers an
+`xtask` binary in `xtask/Cargo.toml` and a generator name in
+`fixtures-check.mjs`, so every pair of suites collides additively on those two
+files. `P1` and `P3` already did, and the resolution is to keep both entries.
+`P4` additionally adds the `bsb22` feature to `groth16-solana`, which it needs to
+verify the P256 rail's commitment, and that merges cleanly.
+
+One CI failure mode is designed in and worth knowing before it fires:
+`typescript / static`, `suites` and `packaging` install a Rust toolchain, so a
+change to `program-libs/hasher` without a regenerated `@zolana/hasher` artifact
+turns those three red on the build's refusal. A second is not designed in but is
+now predictable: `client/errors-v1.json` pins the last commit hash of
+`sdk-libs/client/src`, so any Rust client change drifts it and the fixture must
+be regenerated with `cargo run -q -p xtask --bin ts-fixtures`. That has fired
+three times in one day and deserves a fix rather than a habit.
 
 **Do not trust a row that says `PARITY` without reading its evidence.** An audit
 on 2026-07-25 examined the 36 rows then claiming it and found one supported by
