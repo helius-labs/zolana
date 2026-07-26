@@ -43,6 +43,7 @@ Sections carrying their own evidence:
 - [How TypeScript gets its Poseidon](#how-typescript-gets-its-poseidon)
 - [Whether the WebAssembly Poseidon may use a module-scope await](#whether-the-webassembly-poseidon-may-use-a-module-scope-await)
 - [The external-data length prefix (T21)](#the-external-data-length-prefix-t21)
+- [Which side is wrong at the indexed-array sentinel (M01)](#which-side-is-wrong-at-the-indexed-array-sentinel-m01)
 - [The deposit's discovery tag](#the-deposits-discovery-tag)
 - [The transaction size check](#the-transaction-size-check)
 - [Rail inference when parsing a proof (C08)](#rail-inference-when-parsing-a-proof-c08)
@@ -1209,6 +1210,24 @@ superseded rather than wrong. The Rust SDK has the guard, and
 Rust: `maxOutputs` at 65,535 hashes, `oneOutputPastMax` at 65,536 raises
 `TRANSACTION_TOO_MANY_OUTPUTS`. `transaction/test/vectors/rust-oracle.test.ts`
 replays both. What T21 still owes is its row evidence, not code.
+
+### Which side is wrong at the indexed-array sentinel (M01)
+
+| Field | Value |
+| --- | --- |
+| Conflict | At the highest-value sentinel Rust returned `ok` where TypeScript raised `INDEXED_MERKLE_TREE_INVALID_VALUE`, so the two disagreed about which appends are legal. |
+| Ruling | Rust is the defective side. Tighten it and leave the TypeScript guard alone. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/hashers-b.md`, commit `4d9a39f1`, branch `fix/indexed-array-exclusive-highest-value` |
+
+Recorded here late; it lived in the batch file. The SDK half landed at
+`4d9a39f1`: `check_below_highest_value` is the first statement of both `append`
+and `get_non_inclusion_proof` (`sdk-libs/merkle-tree/src/indexed.rs:142-177`), so
+it runs before any tree state is read and both languages now refuse the same
+value. The `program-libs/indexed-array` half sits on
+`fix/indexed-array-exclusive-highest-value`, which is local, unpushed, and has no
+worktree, so it exists in one place and is one `git gc` from gone.
 
 ### The deposit's discovery tag
 
