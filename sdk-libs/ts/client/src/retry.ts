@@ -156,6 +156,10 @@ export function retryCause(error: unknown): RetryErrorCause | undefined {
     case "CLIENT_RPC_OWNER_TAG":
     case "CLIENT_RPC_TRANSACT_NOT_FOUND":
     case "CLIENT_INVALID_RPC_RESPONSE":
+    // Malformed encodings in an RPC body become `ClientError::Rpc` in Rust
+    // (`solana_rpc.rs` wraps bs58/base64 decode failures), so they retry there.
+    case "CLIENT_INVALID_BASE58":
+    case "CLIENT_INVALID_BASE64":
       return RPC_CAUSE;
     case "CLIENT_INDEXER_TIMEOUT":
       return INDEXER_TIMEOUT_CAUSE;

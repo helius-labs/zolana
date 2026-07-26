@@ -95,6 +95,12 @@ describe("retry", () => {
       [new ClientError("CLIENT_RPC_TRANSACT_DECODE"), "rpc"],
       [new ClientError("CLIENT_RPC_OWNER_TAG"), "rpc"],
       [new ClientError("CLIENT_RPC_TRANSACT_NOT_FOUND"), "rpc"],
+      // Rust folds garbled instruction/account encodings into `ClientError::Rpc`.
+      [
+        new ClientError("CLIENT_INVALID_BASE58", { details: { field: "instruction.data" } }),
+        "rpc",
+      ],
+      [new ClientError("CLIENT_INVALID_BASE64", { details: { field: "account.data" } }), "rpc"],
       [new ClientError("CLIENT_INDEXER_TIMEOUT"), "indexerTimeout"],
       [
         new ClientError("CLIENT_INDEXER", {
@@ -157,6 +163,28 @@ describe("retry", () => {
         expected: 33,
         actual: 32,
       },
+    });
+
+    await expect(
+      pollUntil(
+        () => {
+          attemptCount += 1;
+          return Promise.reject(rejection);
+        },
+        () => false,
+        { config: createIndexerPollConfig(2, 0n, 0n) },
+      ),
+    ).rejects.toMatchObject({
+      code: "CLIENT_POLL_TIMED_OUT",
+      details: { attempts: 3, lastCause: { category: "rpc" } },
+    });
+    expect(attemptCount).toBe(3);
+  });
+
+  it("retries garbled base58 in an RPC body for the whole schedule", async () => {
+    let attemptCount = 0;
+    const rejection = new ClientError("CLIENT_INVALID_BASE58", {
+      details: { field: "instruction.data" },
     });
 
     await expect(
