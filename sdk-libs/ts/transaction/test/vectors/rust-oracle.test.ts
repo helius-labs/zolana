@@ -22,7 +22,7 @@ import {
   PreparedMerge,
   PreparedMergeZone,
   PreparedSplit,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SENDER_SLOT_COUNT,
   SOL_ASSET_ID,
   SOL_MINT,
@@ -207,14 +207,14 @@ interface CanonicalDummyCase {
 const ZERO_ADDRESS = "11111111111111111111111111111111" as Address;
 
 /** A dummy input with the named fields set to the same values Rust uses. */
-function noncanonicalDummy(fields: readonly string[]): ProofInputUtxo {
+function noncanonicalDummy(fields: readonly string[]): SppProofInputUtxo {
   const set = new Set(fields);
   const zeroHash = (): Bytes32 => new Uint8Array(32) as Bytes32;
   const nullifierKey = set.has("nullifier_key")
     ? shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex).nullifierKey()
     : NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
   try {
-    return new ProofInputUtxo({
+    return new SppProofInputUtxo({
       utxo: new Utxo({
         owner: ShieldedPublicKey.zeroed(),
         asset: set.has("asset") ? (oracle.fromUtxos.splMint as Address) : ZERO_ADDRESS,
@@ -909,7 +909,7 @@ describe("the Rust oracle and TypeScript agree on the transfer builder", () => {
       sender.shielded.shieldedAddress(),
       testCase.inputs.map(
         (input) =>
-          new ProofInputUtxo({
+          new SppProofInputUtxo({
             utxo: new Utxo({
               owner: sender.shielded.signingPublicKey(),
               asset: input.asset as Address,
@@ -1022,10 +1022,10 @@ function shieldedKeypair(secretByte: number, viewingSeed: string): ShieldedKeypa
   );
 }
 
-function mergeInput(spec: MergeInputSpec): ProofInputUtxo {
+function mergeInput(spec: MergeInputSpec): SppProofInputUtxo {
   const owner = shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex);
   const other = shieldedKeypair(12, oracle.transfer.recipientViewingSeedHex);
-  return new ProofInputUtxo({
+  return new SppProofInputUtxo({
     utxo: new Utxo({
       owner: (spec.owner === "owner" ? owner : other).signingPublicKey(),
       asset: spec.asset as Address,
@@ -1050,7 +1050,7 @@ describe("the Rust oracle and TypeScript agree on the merge builders", () => {
   const sender = shieldedKeypair(7, oracle.transfer.ownerViewingSeedHex);
   const buildInput = mergeInput;
 
-  function prepare(rail: "plain" | "zone", inputs: readonly ProofInputUtxo[]): PreparedMerge {
+  function prepare(rail: "plain" | "zone", inputs: readonly SppProofInputUtxo[]): PreparedMerge {
     return rail === "zone"
       ? new MergeZone(sender, inputs, zone).prepare()
       : new Merge(sender, inputs).prepare();
@@ -1104,7 +1104,7 @@ describe("the Rust oracle and TypeScript agree on the merge builders", () => {
       ]);
       const first = base.inputs[0];
       if (!first) throw new Error("prepared input missing");
-      const perturbed = new ProofInputUtxo({
+      const perturbed = new SppProofInputUtxo({
         utxo:
           testCase.perturbation === "utxoData"
             ? new Utxo({
@@ -1181,7 +1181,7 @@ describe("the Rust oracle and TypeScript agree on the split builder", () => {
       const build = (): PreparedSplit =>
         new ConfidentialSplit({
           owner: owner.shieldedAddress(),
-          input: testCase.dummyInput ? ProofInputUtxo.dummy() : mergeInput(testCase.input),
+          input: testCase.dummyInput ? SppProofInputUtxo.dummy() : mergeInput(testCase.input),
           asset: testCase.asset as Address,
           numOutputs: testCase.numOutputs,
           perOutputAmount: BigInt(testCase.perOutputAmount),
@@ -1470,7 +1470,7 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
       const prepare = (): PreparedZoneAuthority =>
         prepareZoneAuthority({
           inputs: [
-            new ProofInputUtxo({
+            new SppProofInputUtxo({
               utxo: new Utxo({
                 owner: owner.signingPublicKey(),
                 asset: SOL_MINT,
@@ -1482,7 +1482,7 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
               }),
               nullifierKey: owner.nullifierKey(),
             }),
-            ProofInputUtxo.dummy(blinding),
+            SppProofInputUtxo.dummy(blinding),
           ],
           outputs,
           externalData:

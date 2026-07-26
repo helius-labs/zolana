@@ -26,7 +26,7 @@ export {
   assemble,
   assembleZone,
   assembleZoneAuthority,
-  assembleZoneAuthorityWitness,
+  assembleZoneAuthorityProofInputs,
   assembleZoneP256,
   canonicalShape,
   compressProof,
@@ -62,7 +62,7 @@ export {
   pollUntil,
   retryCause,
   validatePollConfig,
-  waitForIndexer,
+  wait,
 } from "./retry.js";
 export type { PollUntilOptions } from "./retry.js";
 export type {

@@ -239,7 +239,7 @@ describe("wallet deposit vector", () => {
       utxoHash: hexBytes(expected.utxoHashBytes) as Bytes32,
       asset: SOL_MINT,
     });
-    // Rust builds this hash through `ProofInputUtxo::new(..).hash()`. Recomputing
+    // Rust builds this hash through `SppProofInputUtxo::new(..).hash()`. Recomputing
     // it from the recorded owner and blinding makes the commitment an oracle
     // rather than a fixture input the rest of the test only echoes back.
     expect(

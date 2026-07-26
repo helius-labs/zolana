@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   AssetRegistry,
   Data,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   TransactionError,
   Utxo,
@@ -126,7 +126,7 @@ describe("manifest-verified Rust transaction vectors", () => {
         { kind: "memo", bytes: new TextEncoder().encode("hello") },
       ]),
     });
-    const proof = new ProofInputUtxo({ utxo, nullifierKey, dataHash });
+    const proof = new SppProofInputUtxo({ utxo, nullifierKey, dataHash });
 
     expect(
       hex(deriveBlinding(hexBytes(fixtureString(inputs, "blindingSeedBytes")) as Bytes31, 0)),
@@ -159,7 +159,7 @@ describe("manifest-verified Rust transaction vectors", () => {
     const externalExpected = fixtureObject(expected.externalData);
     const { keypair, nullifierKey } = fixedKeypair(inputs);
     const blindingSeed = new Uint8Array(31).fill(11) as Bytes31;
-    const input = new ProofInputUtxo({
+    const input = new SppProofInputUtxo({
       utxo: new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
@@ -286,12 +286,12 @@ describe("manifest-verified Rust transaction vectors", () => {
     const proofInput = load("client/proof-input-v1.json");
     const proofInputInputs = section(proofInput, "inputs");
     const proofInputExpected = section(proofInput, "expected");
-    const dummy = ProofInputUtxo.dummy(
+    const dummy = SppProofInputUtxo.dummy(
       hexBytes(fixtureString(proofInputInputs, "dummyBlindingBytes")) as Bytes31,
     );
     expect(dummy.isDummy()).toBe(true);
     expect(dummy.utxo.owner.isZero()).toBe(true);
-    const reconstructedDummy = new ProofInputUtxo({
+    const reconstructedDummy = new SppProofInputUtxo({
       utxo: new Utxo({
         owner: dummy.utxo.owner,
         asset: dummy.utxo.asset,

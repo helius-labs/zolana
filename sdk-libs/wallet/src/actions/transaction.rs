@@ -790,7 +790,7 @@ fn withdrawal_target(
     if asset == SOL_MINT {
         return Ok((
             WithdrawalTarget::Sol {
-                user_sol_account: Address::new_from_array(recipient.to_bytes()),
+                recipient: Address::new_from_array(recipient.to_bytes()),
             },
             TransactWithdrawal::Sol(TransactSolWithdrawal { recipient }),
         ));

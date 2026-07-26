@@ -61,7 +61,7 @@ pub struct Recipient {
 #[derive(Clone)]
 pub enum WithdrawalTarget {
     Sol {
-        user_sol_account: Address,
+        recipient: Address,
     },
     Spl {
         user_spl_token: Address,
@@ -320,8 +320,8 @@ impl ConfidentialTransfer {
             .as_ref()
             .map(|withdrawal| &withdrawal.target)
         {
-            Some(WithdrawalTarget::Sol { user_sol_account }) => {
-                (*user_sol_account, Address::default(), Address::default())
+            Some(WithdrawalTarget::Sol { recipient }) => {
+                (*recipient, Address::default(), Address::default())
             }
             Some(WithdrawalTarget::Spl {
                 user_spl_token,
@@ -614,7 +614,7 @@ mod tests {
                 SOL_MINT,
                 0,
                 WithdrawalTarget::Sol {
-                    user_sol_account: recipient,
+                    recipient: recipient,
                 },
             )
             .unwrap();
@@ -639,7 +639,7 @@ mod tests {
         let keypair = ShieldedKeypair::new().unwrap();
         let owner = keypair.shielded_address().unwrap();
         let sol_target = WithdrawalTarget::Sol {
-            user_sol_account: Address::default(),
+            recipient: Address::default(),
         };
         let spl_target = WithdrawalTarget::Spl {
             user_spl_token: Address::default(),

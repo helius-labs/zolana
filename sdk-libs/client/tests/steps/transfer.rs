@@ -121,7 +121,7 @@ impl TransferWorld {
         if let Some(withdraw) = &plan.withdraw {
             let target = match withdraw.asset {
                 Asset::Sol => WithdrawalTarget::Sol {
-                    user_sol_account: Address::new_from_array([7u8; 32]),
+                    recipient: Address::new_from_array([7u8; 32]),
                 },
                 Asset::Spl => WithdrawalTarget::Spl {
                     user_spl_token: Address::new_from_array([8u8; 32]),

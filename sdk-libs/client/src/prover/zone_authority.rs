@@ -146,18 +146,18 @@ impl ZoneAuthorityProver {
 }
 
 /// A [`PreparedZoneAuthority`] plus the fetched Merkle proofs, ready to fold into a
-/// [`ZoneAuthorityProver`]. Mirrors the merge `MergeWitness` pattern: one
+/// [`ZoneAuthorityProver`]. Mirrors the merge `MergeProofInputs` pattern: one
 /// [`SpendProof`] per real (non-dummy) input, in input order.
-pub struct ZoneAuthorityWitness {
+pub struct ZoneAuthorityProofInputs {
     pub prepared: PreparedZoneAuthority,
     pub proofs: Vec<SpendProof>,
 }
 
-impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
+impl TryFrom<ZoneAuthorityProofInputs> for ZoneAuthorityProver {
     type Error = ClientError;
 
-    fn try_from(witness: ZoneAuthorityWitness) -> Result<Self, Self::Error> {
-        let ZoneAuthorityWitness { prepared, proofs } = witness;
+    fn try_from(witness: ZoneAuthorityProofInputs) -> Result<Self, Self::Error> {
+        let ZoneAuthorityProofInputs { prepared, proofs } = witness;
         let PreparedZoneAuthority {
             inputs,
             outputs,

@@ -24,7 +24,7 @@ export {
   P_CONST_SEC1,
   SALT_LENGTH,
   SHIELDED_PUBLIC_KEY_LENGTH,
-  VIEW_TAG_LENGTH,
+  VIEW_TAG_LEN,
 } from "./constants.js";
 export { poseidon } from "./poseidon.js";
 export { hashField, ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";

@@ -9,7 +9,7 @@ import {
   P_CONST_SEC1,
   SALT_LENGTH,
   SHIELDED_PUBLIC_KEY_LENGTH,
-  VIEW_TAG_LENGTH,
+  VIEW_TAG_LEN,
 } from "../../src/constants.js";
 import { KEYPAIR_ERROR_RUST_VARIANT, KeypairError } from "../../src/error.js";
 import { hashField, ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "../../src/hash.js";
@@ -78,7 +78,7 @@ describe("keypair constants against current Rust", () => {
     expect(P256_PUBLIC_KEY_LENGTH).toBe(expected.p256PubkeyLen);
     expect(BLINDING_LENGTH).toBe(expected.blindingLen);
     expect(SALT_LENGTH).toBe(expected.saltLen);
-    expect(VIEW_TAG_LENGTH).toBe(expected.viewTagLen);
+    expect(VIEW_TAG_LEN).toBe(expected.viewTagLen);
     expect(DST_VIEW_ROOT).toBe(expected.dstViewRootPConst);
     expectHex(new TextEncoder().encode(DST_VIEW_ROOT), expected.dstViewRootPConstBytes);
     expectHex(P_CONST_SEC1, expected.pConstSec1Bytes);

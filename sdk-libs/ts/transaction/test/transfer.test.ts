@@ -6,7 +6,7 @@ import {
   AssetRegistry,
   ConfidentialTransfer,
   Data,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
   Utxo,
@@ -83,8 +83,8 @@ function fixedInput(
   seed: Bytes31,
   position: number,
   zone?: Readonly<{ programId: Address; dataHash: Bytes32 }>,
-): ProofInputUtxo {
-  return new ProofInputUtxo({
+): SppProofInputUtxo {
+  return new SppProofInputUtxo({
     utxo: new Utxo({
       owner: sender.keypair.signingPublicKey(),
       asset,
@@ -97,7 +97,7 @@ function fixedInput(
   });
 }
 
-function proofInputs(inputUtxos: readonly ProofInputUtxo[]): SppProofInputs {
+function proofInputs(inputUtxos: readonly SppProofInputUtxo[]): SppProofInputs {
   const ownerTag = new Uint8Array(32).fill(21) as Bytes32;
   const outputs = [0, 1].map((position) =>
     createProofOutput({
@@ -133,8 +133,8 @@ function proofInputs(inputUtxos: readonly ProofInputUtxo[]): SppProofInputs {
   });
 }
 
-function inputFor(signing: SigningKey, position: number): ProofInputUtxo {
-  return new ProofInputUtxo({
+function inputFor(signing: SigningKey, position: number): SppProofInputUtxo {
+  return new SppProofInputUtxo({
     utxo: new Utxo({
       owner: signing.publicKey(),
       asset: SOL_MINT,
@@ -310,7 +310,7 @@ describe("manifest-verified transaction builders", () => {
     // Contexts index the real inputs, so a padded slot shifts nothing.
     const real = inputs[0];
     if (!real) throw new Error("missing input");
-    expect(proofInputs([real, ProofInputUtxo.dummy()]).inputUtxoHashes()).toEqual([
+    expect(proofInputs([real, SppProofInputUtxo.dummy()]).inputUtxoHashes()).toEqual([
       { index: 0, utxoHash: real.hash(), nullifier: real.nullifier() },
     ]);
   });
@@ -584,7 +584,7 @@ describe("manifest-verified transaction builders", () => {
       inputs: [
         ...real,
         ...Array.from({ length: 6 }, (_, index) =>
-          ProofInputUtxo.dummy(deriveBlinding(seed, index + 2)),
+          SppProofInputUtxo.dummy(deriveBlinding(seed, index + 2)),
         ),
       ],
       output: createProofOutput({
@@ -614,7 +614,7 @@ describe("manifest-verified transaction builders", () => {
     expect(new Merge(sender.keypair, real).withExpiry(123n).prepare().expiryUnixTs).toBe(123n);
     const firstReal = real[0];
     if (!firstReal) throw new Error("missing real merge input");
-    const mismatchedNullifier = new ProofInputUtxo({
+    const mismatchedNullifier = new SppProofInputUtxo({
       utxo: firstReal.utxo,
       nullifierKey: NullifierKey.fromSecret(new Uint8Array(31).fill(9) as Bytes31),
     });
@@ -624,7 +624,7 @@ describe("manifest-verified transaction builders", () => {
     const foreignSecret = new Uint8Array(32);
     foreignSecret[31] = 12;
     const foreignSigning = SigningKey.fromBytes(foreignSecret as Bytes32);
-    const foreignInput = new ProofInputUtxo({
+    const foreignInput = new SppProofInputUtxo({
       utxo: new Utxo({
         owner: foreignSigning.publicKey(),
         asset: SOL_MINT,
@@ -677,7 +677,7 @@ describe("manifest-verified transaction builders", () => {
     expect(
       new MergeZone(zoneSender.keypair, [zoneSpend], zone).withExpiry(456n).prepare().expiryUnixTs,
     ).toBe(456n);
-    const zoneDataSpend = new ProofInputUtxo({
+    const zoneDataSpend = new SppProofInputUtxo({
       utxo: new Utxo({
         owner: zoneSender.keypair.signingPublicKey(),
         asset: SOL_MINT,
@@ -717,8 +717,8 @@ describe("manifest-verified transaction builders", () => {
     const zone = encodeAddress(new Uint8Array(32).fill(9));
     const spend = (
       overrides: Readonly<{ zoneProgramId?: Address; data?: Data; zoneDataHash?: Bytes32 }>,
-    ): ProofInputUtxo =>
-      new ProofInputUtxo({
+    ): SppProofInputUtxo =>
+      new SppProofInputUtxo({
         utxo: new Utxo({
           owner: sender.keypair.signingPublicKey(),
           asset: SOL_MINT,
@@ -749,7 +749,7 @@ describe("manifest-verified transaction builders", () => {
   it("names each split input the owner cannot open", () => {
     const sender = owner(section(load("split"), "inputs"));
     const seed = new Uint8Array(31).fill(4) as Bytes31;
-    const build = (input: ProofInputUtxo): (() => ConfidentialSplit) => {
+    const build = (input: SppProofInputUtxo): (() => ConfidentialSplit) => {
       return () =>
         new ConfidentialSplit({
           owner: sender.keypair.shieldedAddress(),
@@ -767,7 +767,7 @@ describe("manifest-verified transaction builders", () => {
       blinding: deriveBlinding(seed, 0),
     });
 
-    expect(build(ProofInputUtxo.dummy(deriveBlinding(seed, 1)))).toThrow(
+    expect(build(SppProofInputUtxo.dummy(deriveBlinding(seed, 1)))).toThrow(
       expect.objectContaining({ code: "TRANSACTION_SPLIT_INPUT_IS_DUMMY" }),
     );
 
@@ -776,7 +776,7 @@ describe("manifest-verified transaction builders", () => {
     const foreign = SigningKey.fromBytes(foreignSecret as Bytes32);
     expect(
       build(
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo: new Utxo({
             owner: foreign.publicKey(),
             asset: SOL_MINT,
@@ -790,7 +790,7 @@ describe("manifest-verified transaction builders", () => {
 
     expect(
       build(
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo,
           nullifierKey: NullifierKey.fromSecret(new Uint8Array(31).fill(9) as Bytes31),
         }),
@@ -804,8 +804,8 @@ describe("manifest-verified transaction builders", () => {
     const sender = owner(section(load("zone"), "inputs"));
     const seed = new Uint8Array(31).fill(4) as Bytes31;
     const zone = encodeAddress(new Uint8Array(32).fill(9));
-    const zoned = (zoneProgramId?: Address, asset: Address = SOL_MINT): ProofInputUtxo =>
-      new ProofInputUtxo({
+    const zoned = (zoneProgramId?: Address, asset: Address = SOL_MINT): SppProofInputUtxo =>
+      new SppProofInputUtxo({
         utxo: new Utxo({
           owner: sender.keypair.signingPublicKey(),
           asset,
@@ -922,7 +922,7 @@ describe("ConfidentialTransfer constructor matches Rust", () => {
     const transfer = new ConfidentialTransfer(
       keypair.shieldedAddress(),
       [
-        new ProofInputUtxo({
+        new SppProofInputUtxo({
           utxo: new Utxo({
             owner: keypair.signingPublicKey(),
             asset: SOL_MINT,
@@ -952,7 +952,7 @@ describe("ConfidentialTransfer constructor matches Rust", () => {
   it("accepts a dummy input", () => {
     const ownerAddress = ShieldedKeypair.generate().shieldedAddress();
     expect(
-      () => new ConfidentialTransfer(ownerAddress, [ProofInputUtxo.dummy()], SOL_MINT),
+      () => new ConfidentialTransfer(ownerAddress, [SppProofInputUtxo.dummy()], SOL_MINT),
     ).not.toThrow();
   });
 
@@ -966,8 +966,8 @@ describe("ConfidentialTransfer constructor matches Rust", () => {
 });
 
 describe("padded finalize ciphertext lengths", () => {
-  function spend(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
-    return new ProofInputUtxo({
+  function spend(keypair: ShieldedKeypair, amount: bigint): SppProofInputUtxo {
+    return new SppProofInputUtxo({
       utxo: new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,

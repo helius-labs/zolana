@@ -38,9 +38,9 @@ import {
 import { ensureLocalProver, type OwnedProver } from "../helpers/p4-live-prover.js";
 import {
   buildConfidentialWitness,
-  buildMergeWitness,
-  buildMergeZoneWitness,
-  buildZoneAuthorityWitness,
+  buildMergeProofInputs,
+  buildMergeZoneProofInputs,
+  buildZoneAuthorityProofInputs,
   buildZoneWitness,
 } from "../helpers/p4-witnesses.js";
 import { hex } from "../helpers/prover-vectors.js";
@@ -468,19 +468,19 @@ async function proveZoneAuthority(
   client: ProverClient,
   shape: Readonly<{ inputs: number; outputs: number }>,
 ): Promise<Artifact> {
-  const assembled = buildZoneAuthorityWitness(shape);
+  const assembled = buildZoneAuthorityProofInputs(shape);
   const proof = await client.prove(assembled.proverInputs);
   return certifyArtifact("zone_authority", undefined, shape, assembled.publicInputHash, proof);
 }
 
 async function proveMergeCase(client: ProverClient): Promise<Artifact> {
-  const assembly = buildMergeWitness();
+  const assembly = buildMergeProofInputs();
   const proof = await proveMerge(client, assembly.proverInputs);
   return certifyArtifact("merge", undefined, { inputs: 8, outputs: 1 }, assembly.publicInputHash, proof);
 }
 
 async function proveMergeZoneCase(client: ProverClient): Promise<Artifact> {
-  const assembly = buildMergeZoneWitness();
+  const assembly = buildMergeZoneProofInputs();
   const proof = await proveMergeZone(client, assembly.proverInputs);
   return certifyArtifact(
     "merge_zone",

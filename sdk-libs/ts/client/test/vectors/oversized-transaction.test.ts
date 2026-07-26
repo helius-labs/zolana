@@ -3,7 +3,7 @@ import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/k
 import {
   AssetRegistry,
   ConfidentialTransfer,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   Utxo,
   deriveBlinding,
@@ -88,7 +88,7 @@ function compileTransfer(recipients: number) {
   const nullifierKey = NullifierKey.fromSigningKey(
     SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(1) as Bytes32),
   );
-  const spend = new ProofInputUtxo({
+  const spend = new SppProofInputUtxo({
     utxo: new Utxo({
       owner: sender.signingPublicKey(),
       asset: SOL_MINT,

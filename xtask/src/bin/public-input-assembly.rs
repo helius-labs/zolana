@@ -22,10 +22,10 @@ use p256::SecretKey;
 use serde_json::{json, Map, Value};
 use solana_address::Address;
 use zolana_client::{
-    assemble, attach_input_proofs, MergeProver, MergeWitness, MergeZoneProver, MergeZoneWitness,
-    MerkleContext, MerkleProof, NonInclusionProof, P256Owner, ProverInputs, PublicAmounts,
-    SpendProof, TransferInputs, TransferP256Inputs, ZoneAuthorityProver, ZoneTransferP256Prover,
-    ZoneTransferProver, SPP_SUPPORTED_SHAPES,
+    assemble, attach_input_proofs, MergeProofInputs, MergeProver, MergeZoneProofInputs,
+    MergeZoneProver, MerkleContext, MerkleProof, NonInclusionProof, P256Owner, ProverInputs,
+    PublicAmounts, SpendProof, TransferInputs, TransferP256Inputs, ZoneAuthorityProver,
+    ZoneTransferP256Prover, ZoneTransferProver, SPP_SUPPORTED_SHAPES,
 };
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
@@ -843,7 +843,7 @@ fn build_merge() -> Result<zolana_client::MergeProofResult> {
         tx_viewing_sk: SecretKey::from_slice(&MERGE_TX_VIEWING_SECRET).expect("tx viewing scalar"),
     };
     let contexts = prepared.input_utxo_hashes()?;
-    MergeProver::try_from(MergeWitness {
+    MergeProver::try_from(MergeProofInputs {
         prepared,
         nullifier_key: keypair.nullifier_key.clone(),
         proofs: merge_spend_proofs(&contexts),
@@ -865,7 +865,7 @@ fn build_merge_zone() -> Result<zolana_client::MergeProofResult> {
         zone_program_id: zone,
     };
     let contexts = prepared.input_utxo_hashes()?;
-    MergeZoneProver::try_from(MergeZoneWitness {
+    MergeZoneProver::try_from(MergeZoneProofInputs {
         prepared,
         nullifier_key: keypair.nullifier_key.clone(),
         proofs: merge_spend_proofs(&contexts),

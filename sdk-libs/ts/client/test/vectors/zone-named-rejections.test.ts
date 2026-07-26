@@ -10,7 +10,7 @@ import {
   MergeZone,
   PreparedMerge,
   PreparedMergeZone,
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
   Utxo,
@@ -89,7 +89,7 @@ function payerHash(): Bytes32 {
 }
 
 function privateMessage(
-  inputs: readonly ProofInputUtxo[],
+  inputs: readonly SppProofInputUtxo[],
   outputs: readonly ProofOutputUtxo[],
   externalDataHash: Bytes32,
 ): Bytes32 {
@@ -142,9 +142,9 @@ function buildZone(
   signing: SigningKey;
 }> {
   const { keypair: owner, signing } = keypair(p256);
-  const inputs: ProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
+  const inputs: SppProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
     index === 0
-      ? new ProofInputUtxo({
+      ? new SppProofInputUtxo({
           utxo: new Utxo({
             owner: owner.signingPublicKey(),
             asset: SOL_MINT,
@@ -154,7 +154,7 @@ function buildZone(
           }),
           nullifierKey: NullifierKey.fromSigningKey(signing),
         })
-      : ProofInputUtxo.dummy(deriveBlinding(seed(), index)),
+      : SppProofInputUtxo.dummy(deriveBlinding(seed(), index)),
   );
   const outputs = Array.from({ length: shape.outputs }, (_, index) =>
     createProofOutput({
@@ -258,8 +258,8 @@ describe("zone transfer named rejections", () => {
     const empty = new SppProofInputs({
       payerPublicKeyHash: base.proofInputs.payerPublicKeyHash,
       inputUtxos: [
-        ProofInputUtxo.dummy(deriveBlinding(seed(), 0)),
-        ProofInputUtxo.dummy(deriveBlinding(seed(), 1)),
+        SppProofInputUtxo.dummy(deriveBlinding(seed(), 0)),
+        SppProofInputUtxo.dummy(deriveBlinding(seed(), 1)),
       ],
       outputs: base.proofInputs.outputs,
       externalData: base.proofInputs.externalData,
@@ -313,7 +313,7 @@ describe("merge-zone named rejections", () => {
   /// would otherwise assemble a proof that cannot settle under that zone program.
   it("refuses an unbound input at MergeZone construction (TRANSACTION_MERGE_INPUT_ZONE_MISMATCH)", () => {
     const { keypair: owner, nullifierKey } = mergeOwner();
-    const unbound = new ProofInputUtxo({
+    const unbound = new SppProofInputUtxo({
       utxo: new Utxo({
         owner: owner.signingPublicKey(),
         asset: SOL_MINT,
@@ -335,7 +335,7 @@ describe("merge-zone named rejections", () => {
   it("refuses a zone prepared value on the plain merge assembler (CLIENT_INVALID_MERGE)", () => {
     const { keypair: owner, nullifierKey } = mergeOwner();
     const blinding = bytes(mergeOracle.inputs.blindingSeedBytes) as Bytes31;
-    const real = new ProofInputUtxo({
+    const real = new SppProofInputUtxo({
       utxo: new Utxo({
         owner: owner.signingPublicKey(),
         asset: SOL_MINT,
@@ -349,7 +349,7 @@ describe("merge-zone named rejections", () => {
       inputs: [
         real,
         ...Array.from({ length: 7 }, (_, index) =>
-          ProofInputUtxo.dummy(deriveBlinding(blinding, index + 1)),
+          SppProofInputUtxo.dummy(deriveBlinding(blinding, index + 1)),
         ),
       ],
       output: createProofOutput({
@@ -403,7 +403,7 @@ describe("merge-zone named rejections", () => {
       inputs: preparedZone.inputs.map((input) =>
         input.isDummy()
           ? input
-          : new ProofInputUtxo({
+          : new SppProofInputUtxo({
               utxo: new Utxo({
                 owner: input.utxo.owner,
                 asset: input.utxo.asset,

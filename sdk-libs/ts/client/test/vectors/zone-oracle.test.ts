@@ -8,7 +8,7 @@ import {
   ViewingKey,
 } from "@zolana/keypair";
 import {
-  ProofInputUtxo,
+  SppProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
   Utxo,
@@ -31,7 +31,7 @@ import { proverRequest } from "../../src/prover/client.js";
 import {
   assembleZone,
   assembleZoneAuthority,
-  assembleZoneAuthorityWitness,
+  assembleZoneAuthorityProofInputs,
   assembleZoneP256,
 } from "../../src/prover/zone.js";
 import type { SpendProof } from "../../src/rpc.js";
@@ -80,7 +80,7 @@ function payerHash(): Bytes32 {
 }
 
 function privateMessage(
-  inputs: readonly ProofInputUtxo[],
+  inputs: readonly SppProofInputUtxo[],
   outputs: readonly ProofOutputUtxo[],
   externalDataHash: Bytes32,
 ): Bytes32 {
@@ -107,9 +107,9 @@ function buildInputs(
 ): Readonly<{ proofInputs: SppProofInputs; spendProofs: readonly SpendProof[] }> {
   const { keypair: owner, signing } = keypair(p256);
   const real = shape.inputs >= 2 ? 2 : 1;
-  const inputs: ProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
+  const inputs: SppProofInputUtxo[] = Array.from({ length: shape.inputs }, (_, index) =>
     index < real
-      ? new ProofInputUtxo({
+      ? new SppProofInputUtxo({
           utxo: new Utxo({
             owner: owner.signingPublicKey(),
             asset: SOL_MINT,
@@ -119,7 +119,7 @@ function buildInputs(
           }),
           nullifierKey: NullifierKey.fromSigningKey(signing),
         })
-      : ProofInputUtxo.dummy(deriveBlinding(seed(), index)),
+      : SppProofInputUtxo.dummy(deriveBlinding(seed(), index)),
   );
   const outputs = Array.from({ length: shape.outputs }, (_, index) =>
     createProofOutput({
@@ -410,7 +410,7 @@ describe("zone prover rails against the Rust oracle", () => {
     ).not.toBe(hex(authority.publicInputHash));
   });
 
-  /// Rust `ZoneAuthorityWitness`: a caller who prepared the transition in
+  /// Rust `ZoneAuthorityProofInputs`: a caller who prepared the transition in
   /// `@zolana/transaction` reaches the same proof the raw proof inputs give,
   /// against the same oracle-pinned hash. The prepared value pins the zone, so
   /// the bridge takes no zone argument and cannot bind the proof elsewhere.
@@ -425,7 +425,7 @@ describe("zone prover rails against the Rust oracle", () => {
         zoneProgramId: ZONE,
         payer: PAYER,
       });
-      const assembled = assembleZoneAuthorityWitness(prepared, spendProofs);
+      const assembled = assembleZoneAuthorityProofInputs(prepared, spendProofs);
       expect(hex(assembled.publicInputHash)).toBe(expected.publicInputHashBytes);
       expect(proverRequest(assembled.proverInputs)).toEqual(JSON.parse(expected.requestBodyJson));
     });
@@ -442,7 +442,7 @@ describe("zone prover rails against the Rust oracle", () => {
       zoneProgramId: ZONE,
       payer: PAYER,
     });
-    expect(() => assembleZoneAuthorityWitness(prepared, spendProofs.slice(0, 1))).toThrow(
+    expect(() => assembleZoneAuthorityProofInputs(prepared, spendProofs.slice(0, 1))).toThrow(
       expect.objectContaining({
         code: "CLIENT_MISSING_INPUT_MERKLE_PROOF",
         details: { index: 1 },

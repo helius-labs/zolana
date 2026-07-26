@@ -41,8 +41,8 @@ use zolana_transaction::{
 use crate::{
     prover::{
         json::{to_json_merge, to_json_merge_zone},
-        merge::{MergeProofResult, MergeProver, MergeWitness},
-        merge_zone::{MergeZoneProver, MergeZoneWitness},
+        merge::{MergeProofInputs, MergeProofResult, MergeProver},
+        merge_zone::{MergeZoneProofInputs, MergeZoneProver},
     },
     MerkleContext, MerkleProof, NonInclusionProof, SpendProof,
 };
@@ -187,7 +187,7 @@ fn build_merge() -> (MergeProofResult, String) {
         tx_viewing_sk: SecretKey::from_slice(&TX_VIEWING_SECRET).expect("tx viewing scalar"),
     };
     let proofs = spend_proofs(&prepared.input_utxo_hashes().expect("input contexts"));
-    let result = MergeProver::try_from(MergeWitness {
+    let result = MergeProver::try_from(MergeProofInputs {
         prepared,
         nullifier_key: keypair.nullifier_key.clone(),
         proofs,
@@ -199,7 +199,7 @@ fn build_merge() -> (MergeProofResult, String) {
     (result, body)
 }
 
-/// `MergeWitness` clears data hashes on the plain rail. Stamping nonzero hashes
+/// `MergeProofInputs` clears data hashes on the plain rail. Stamping nonzero hashes
 /// onto an otherwise identical prepared merge must therefore yield the same
 /// public inputs as the clean oracle above.
 #[test]
@@ -225,7 +225,7 @@ fn plain_merge_clears_nonzero_data_hashes() {
             spend.zone_data_hash = Some([0x2e; 32]);
         }
     }
-    let stale = MergeProver::try_from(MergeWitness {
+    let stale = MergeProver::try_from(MergeProofInputs {
         prepared: PreparedMerge {
             inputs: stale_inputs,
             output: output(&keypair, None),
@@ -259,7 +259,7 @@ fn build_merge_zone() -> (MergeProofResult, String) {
         zone_program_id: zone,
     };
     let proofs = spend_proofs(&prepared.input_utxo_hashes().expect("input contexts"));
-    let result = MergeZoneProver::try_from(MergeZoneWitness {
+    let result = MergeZoneProver::try_from(MergeZoneProofInputs {
         prepared,
         nullifier_key: keypair.nullifier_key.clone(),
         proofs,

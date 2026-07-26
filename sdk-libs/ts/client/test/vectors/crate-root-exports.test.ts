@@ -53,13 +53,13 @@ const CARRIED: Readonly<Record<string, string>> = {
   TransferP256Inputs: "TransferP256Inputs",
   ZolanaClient: "ZolanaClient",
   ZolanaIndexer: "ZolanaIndexer",
-  // The three zone rails and the zone-authority witness bridge. Rust names each
-  // rail by its prover struct and its result struct; TypeScript names the rail
-  // by the function that builds it, and the two zone result structs are
+  // The three zone rails and the zone-authority proof-inputs bridge. Rust names
+  // each rail by its prover struct and its result struct; TypeScript names the
+  // rail by the function that builds it, and the two zone result structs are
   // field-identical, so both carry as AssembledZone.
   ZoneAuthorityProofResult: "AssembledZone",
   ZoneAuthorityProver: "assembleZoneAuthority",
-  ZoneAuthorityWitness: "assembleZoneAuthorityWitness",
+  ZoneAuthorityProofInputs: "assembleZoneAuthorityProofInputs",
   ZoneTransferP256ProofResult: "AssembledZoneP256",
   ZoneTransferP256Prover: "assembleZoneP256",
   ZoneTransferProofResult: "AssembledZone",
@@ -95,10 +95,10 @@ const NOT_CARRIED: Readonly<Record<string, string>> = {
   Merge: "@zolana/transaction owns merge construction",
   MergeProofResult: "ZolanaClient.proveMerge returns ProvedMerge",
   MergeProver: "ZolanaClient.proveMerge owns merge proving",
-  MergeWitness: "prover-internal circuit witness",
+  MergeProofInputs: "ZolanaClient.proveMerge folds PreparedMerge and spends",
   MergeZone: "@zolana/transaction owns zone merge construction",
   MergeZoneProver: "ZolanaClient.proveMergeZone owns zone merge proving",
-  MergeZoneWitness: "prover-internal circuit witness",
+  MergeZoneProofInputs: "ZolanaClient.proveMergeZone folds PreparedMergeZone and spends",
   NULLIFIER_TREE_HEIGHT: "assembly validates path lengths against it internally",
   OutputContext: "@zolana/transaction owns the indexed output types",
   OutputSlot: "@zolana/transaction owns the indexed output types",
@@ -111,13 +111,13 @@ const NOT_CARRIED: Readonly<Record<string, string>> = {
   PrivateTransactionId: "@zolana/transaction owns the wallet history types",
   PrivateTransactionKind: "@zolana/transaction owns the wallet history types",
   PrivateTransactionStatus: "@zolana/transaction owns the wallet history types",
-  ProofInputUtxo: "field-encoded prover input; @zolana/transaction owns the public ProofInputUtxo",
+  ProofInputUtxo: "field-encoded prover input; TypeScript does not ship the Poseidon-field form",
   ProveResult: "the Rpc contract returns each proof response directly",
   PublicAmounts: "@zolana/transaction owns SppProofInputs.publicAmounts()",
   STATE_TREE_HEIGHT: "assembly validates path lengths against it internally",
   ShieldedTransaction: "@zolana/indexer-api owns IndexedShieldedTransaction",
   ShieldedTransactionStream: "the indexer paginates by cursor rather than streaming",
-  SppProofInputUtxo: "@zolana/transaction names it ProofInputUtxo",
+  SppProofInputUtxo: "@zolana/transaction owns SppProofInputUtxo; @zolana/client/prover re-exports it",
   SppProofInputs: "@zolana/transaction owns the proof input bundle",
   TransferP256ProofResult: "ProverClient.prove returns Proof for both rails",
   TransferP256Prover: "ProverClient.prove owns both transfer rails",
@@ -178,7 +178,7 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, string>> = {
   pollUntil: "the retry loop Rust inlines into each caller",
   retryCause: "ClientError::retry_cause as a free function",
   validatePollConfig: "IndexerPollConfig invariant validation",
-  waitForIndexer: "the indexer catch-up loop Rust inlines into each caller",
+  wait: "IndexerRpcConfig::wait as a free function, since TypeScript has no inherent methods on the config type",
 };
 
 function exportedNames(source: string, typeOnly: boolean): ReadonlySet<string> {

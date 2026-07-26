@@ -296,14 +296,14 @@ export function assembleZoneAuthority(
   }
 }
 
-/// Rust `ZoneAuthorityWitness` together with its
-/// `TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver`: fold the fetched
+/// Rust `ZoneAuthorityProofInputs` together with its
+/// `TryFrom<ZoneAuthorityProofInputs> for ZoneAuthorityProver`: fold the fetched
 /// Merkle proofs into a prepared zone-authority transition. One
 /// [`SpendProof`] per real (non-dummy) input, in input order, exactly as Rust
 /// `attach_input_proofs` consumes them. The zone comes off the prepared value,
 /// which pinned it and bound every real UTXO to it, so the proof cannot be
 /// bound to a zone the preparation did not check.
-export function assembleZoneAuthorityWitness(
+export function assembleZoneAuthorityProofInputs(
   prepared: PreparedZoneAuthority,
   spendProofs: readonly SpendProof[],
 ): AssembledZone {

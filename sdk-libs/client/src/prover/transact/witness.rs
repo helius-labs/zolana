@@ -29,7 +29,7 @@ pub struct SpendProof {
 /// Attach the fetched Merkle proofs to the proof inputs positionally: each real
 /// input (non-zero owner) consumes the next proof, dummy slots stay proofless
 /// and mirror the first real input's roots during assembly. Shared by every
-/// witness builder (transact, merge, merge-zone, zone-authority).
+/// assembly path (transact, merge, merge-zone, zone-authority).
 pub fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
@@ -79,18 +79,18 @@ const DEFAULT_TREE_INDEX: u8 = 0;
 /// Default eddsa signer account index for a Solana-owned input.
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 
-/// Witness for one of the two proving rails, ready to hand to the prover client.
+/// Proof inputs for one of the two proving rails, ready to hand to the prover client.
 pub enum ProverInputs {
     P256(TransferP256Inputs),
     Eddsa(TransferInputs),
 }
 
-/// A transaction assembled exactly once: the prover witness, the public input it
-/// commits to, and the `Transact` instruction data minus the proof bytes. The
+/// A transaction assembled exactly once: the prover inputs, the public input they
+/// commit to, and the `Transact` instruction data minus the proof bytes. The
 /// per-input nullifiers, hash chains, dummy padding, and `private_tx_hash` are
-/// computed a single time and shared by the witness and the instruction, so they
-/// are identical by construction. Call [`AssembledTransfer::with_proof`] once the
-/// proof is produced from [`AssembledTransfer::prover_inputs`].
+/// computed a single time and shared by the prover inputs and the instruction, so
+/// they are identical by construction. Call [`AssembledTransfer::with_proof`] once
+/// the proof is produced from [`AssembledTransfer::prover_inputs`].
 pub struct AssembledTransfer {
     pub prover_inputs: ProverInputs,
     pub public_input_hash: [u8; 32],
@@ -201,9 +201,9 @@ pub fn into_prover(
     Ok(BuiltCircuit { circuit })
 }
 
-/// Assemble the prover witness and the `Transact` instruction data in a single
-/// pass over the already-padded transaction. The witness and the instruction
-/// commit to identical values by construction: the nullifiers and
+/// Assemble the prover inputs and the `Transact` instruction data in a single
+/// pass over the already-padded transaction. The prover inputs and the
+/// instruction commit to identical values by construction: the nullifiers and
 /// `private_tx_hash` come from the one prover build, and `external_data`
 /// (including every dummy output hash) was finalized at signing time. Each padded
 /// dummy input mirrors the first real input's signer; root indices come from each

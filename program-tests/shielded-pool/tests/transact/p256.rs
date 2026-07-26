@@ -150,7 +150,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
             SOL_MINT,
             AMOUNT,
             WithdrawalTarget::Sol {
-                user_sol_account: Address::new_from_array(recipient.to_bytes()),
+                recipient: Address::new_from_array(recipient.to_bytes()),
             },
         )
         .expect("withdraw");

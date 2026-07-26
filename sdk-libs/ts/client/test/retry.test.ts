@@ -11,7 +11,7 @@ import {
   isRetryable,
   pollUntil,
   retryCause,
-  waitForIndexer,
+  wait,
 } from "../src/index.js";
 import * as retrySubpath from "../src/retry/index.js";
 
@@ -33,7 +33,7 @@ describe("retry", () => {
     const poll = createIndexerPollConfig(2, 20n, 5n);
     expect([...backoff(poll)]).toEqual([5n, 5n]);
     expect(createIndexerRpcConfig(false, poll)).toEqual({ waitForIndexer: false, poll });
-    expect(waitForIndexer(poll)).toEqual({ waitForIndexer: true, poll });
+    expect(wait(poll)).toEqual({ waitForIndexer: true, poll });
     expect(Object.keys(retrySubpath).sort()).toEqual([
       "DEFAULT_INDEXER_POLL_CONFIG",
       "DEFAULT_INDEXER_RPC_CONFIG",
@@ -45,7 +45,7 @@ describe("retry", () => {
       "pollUntil",
       "retryCause",
       "validatePollConfig",
-      "waitForIndexer",
+      "wait",
     ]);
   });
 

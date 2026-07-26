@@ -5,7 +5,7 @@ import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/k
 import {
   AssetRegistry,
   Data,
-  type ProofInputUtxo,
+  type SppProofInputUtxo,
   SOL_MINT,
   Utxo,
   Wallet,
@@ -106,7 +106,7 @@ function prepared(localKeypair: ShieldedKeypair) {
   return createMerge({ wallet, keypair: localKeypair, asset: SOL_MINT }).prepared;
 }
 
-function spendProof(input: ProofInputUtxo, index: number): SpendProof {
+function spendProof(input: SppProofInputUtxo, index: number): SpendProof {
   return {
     state: {
       leaf: input.hash(),

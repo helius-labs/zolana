@@ -2,7 +2,7 @@ import { p256_hasher } from "@noble/curves/nist.js";
 import { describe, expect, it } from "vitest";
 
 import type { Bytes32, Bytes33 } from "../../src/bytes.js";
-import { P_CONST_SEC1, VIEW_TAG_LENGTH } from "../../src/constants.js";
+import { P_CONST_SEC1, VIEW_TAG_LEN } from "../../src/constants.js";
 import { P256PublicKey, ViewingKey } from "../../src/index.js";
 import { certification, expectHex, fromHex, toHex } from "./certification.js";
 
@@ -65,7 +65,7 @@ describe("K5 viewing and transaction-viewing keys", () => {
         expect(tag.slice(0, 2)).toBe("00");
       }
     }
-    expect(viewing.senderViewTag(0n)).toHaveLength(VIEW_TAG_LENGTH);
+    expect(viewing.senderViewTag(0n)).toHaveLength(VIEW_TAG_LEN);
     expect(viewing.senderViewTag(0n)[0]).toBe(0);
   });
 

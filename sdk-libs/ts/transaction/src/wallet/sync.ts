@@ -35,9 +35,9 @@ import { Utxo } from "../utxo.js";
 import type { WalletSyncAuthority, WalletSyncMaterial } from "./authority.js";
 import { SOL_MINT, type AssetRegistry } from "./asset.js";
 import {
+  Balances,
   SENDER_HISTORY_ROW_BASE,
   newViewingKeyEntry,
-  type AssetBalance,
   type CounterpartyCounter,
   type PrivateTransaction,
   type PrivateTransactionDirection,
@@ -982,12 +982,17 @@ export async function decryptTransactions(
   input: Readonly<{
     authority: WalletSyncAuthority;
     transactions: readonly IndexedShieldedTransaction[];
-    registry: AssetRegistry;
+    assets: AssetRegistry;
     config?: WalletSyncConfig;
   }>,
-): Promise<readonly AssetBalance[]> {
+): Promise<Balances> {
   const material = await input.authority.syncMaterial();
-  const wallet = new Wallet({ identity: material.identity, registry: input.registry });
-  syncWalletWithMaterial({ ...input, wallet, material });
-  return wallet.balances(false);
+  const wallet = new Wallet({ identity: material.identity, registry: input.assets });
+  syncWalletWithMaterial({
+    wallet,
+    material,
+    transactions: input.transactions,
+    ...(input.config === undefined ? {} : { config: input.config }),
+  });
+  return new Balances(wallet.balances(false));
 }

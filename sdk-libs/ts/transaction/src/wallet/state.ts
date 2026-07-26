@@ -18,6 +18,22 @@ export interface AssetBalance {
   readonly utxos: readonly Utxo[];
 }
 
+/**
+ * The balances `decryptTransactions` returns. Mirrors Rust `Balances`: a frozen
+ * list of per-mint rows plus `getBalance` for the mint lookup the example uses.
+ */
+export class Balances {
+  readonly assets: readonly AssetBalance[];
+
+  constructor(assets: readonly AssetBalance[]) {
+    this.assets = Object.freeze(assets.map((balance) => Object.freeze({ ...balance })));
+  }
+
+  getBalance(mint: Address): AssetBalance | undefined {
+    return this.assets.find((balance) => balance.mint === mint);
+  }
+}
+
 /** Narrows which unspent notes a balance counts. */
 export type Filter = Readonly<{ kind: "minAmount"; minAmount: bigint }>;
 

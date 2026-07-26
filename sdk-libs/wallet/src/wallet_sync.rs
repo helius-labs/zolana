@@ -1197,7 +1197,7 @@ mod tests {
                 withdraw_asset,
                 withdraw_amount,
                 WithdrawalTarget::Sol {
-                    user_sol_account: Address::new_from_array([9u8; 32]),
+                    recipient: Address::new_from_array([9u8; 32]),
                 },
             )
             .expect("withdraw");
@@ -1221,7 +1221,7 @@ mod tests {
                 asset,
                 amount,
                 WithdrawalTarget::Sol {
-                    user_sol_account: Address::new_from_array([9u8; 32]),
+                    recipient: Address::new_from_array([9u8; 32]),
                 },
             )
             .expect("withdraw");

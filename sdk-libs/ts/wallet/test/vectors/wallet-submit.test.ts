@@ -5,7 +5,7 @@ import { ShieldedKeypair } from "@zolana/keypair";
 import {
   AssetRegistry,
   Data,
-  type ProofInputUtxo,
+  type SppProofInputUtxo,
   SOL_MINT,
   Utxo,
   Wallet,
@@ -105,7 +105,7 @@ function prepared(localKeypair: ShieldedKeypair, tree: Address) {
 }
 
 function spendProof(
-  input: ProofInputUtxo,
+  input: SppProofInputUtxo,
   index: number,
   stateTree: Address,
   nullifierTree: Address,

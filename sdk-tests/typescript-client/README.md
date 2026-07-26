@@ -51,7 +51,7 @@ building stays aligned either way.
 | `Deposit { .. }.instruction()` | `depositInstruction({ tree, depositor, data })` |
 | `Transact { .. }.instruction()` | `transactInstruction({ payer, tree, withdrawal, data })` |
 | `TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })` | `{ kind: "sol", recipient }` |
-| `SppProofInputUtxo::new(utxo, &kp)` | `ProofInputUtxo.fromKeypair(utxo, keypair)` |
+| `SppProofInputUtxo::new(utxo, &kp)` | `SppProofInputUtxo.fromKeypair(utxo, keypair)` |
 | `ConfidentialTransfer::new / send / withdraw / sign` | same names, same order, `sign` also synchronous |
 | `client.prove_transact(inputs, config)` | `client.proveTransact(inputs, config)` |
 | `client.create_and_send_transaction(ixs, payer, signers)` | `client.createAndSendTransaction({ instructions, feePayer, signers })` |
@@ -60,7 +60,7 @@ building stays aligned either way.
 | `balances.get_balance(SOL_MINT)` | `wallet.balance(SOL_MINT)` |
 | `client.confirm_private_transaction_sync(sig)` | `await client.confirmPrivateTransaction(sig)` |
 | `client.get_balance(pubkey)` | `client.getBalance(address)` |
-| `IndexerRpcConfig::wait()` | `waitForIndexer()` / `config: { waitForIndexer: true }` on `syncWallet` |
+| `IndexerRpcConfig::wait()` | `wait()` / `config: { waitForIndexer: true }` on `syncWallet` |
 
 ## Where the shapes differ
 

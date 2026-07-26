@@ -9,7 +9,7 @@ export {
   pollUntil,
   retryCause,
   validatePollConfig,
-  waitForIndexer,
+  wait,
 } from "../retry.js";
 export type {
   IndexerPollConfig,

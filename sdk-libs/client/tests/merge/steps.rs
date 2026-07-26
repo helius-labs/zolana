@@ -8,7 +8,7 @@ use cucumber::{given, then};
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
-    prover::merge::MergeProver, spawn_prover, Merge, MergeWitness, ProverClient, Rpc,
+    prover::merge::MergeProver, spawn_prover, Merge, MergeProofInputs, ProverClient, Rpc,
     SppProofInputUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;
@@ -75,7 +75,7 @@ impl MergeWorld {
         }
 
         // The plan derives the merged output and owner identity; preparing it pads to
-        // MERGE_INPUTS, and the MergeWitness folds in the owner nullifier key and the
+        // MERGE_INPUTS, and the MergeProofInputs folds in the owner nullifier key and the
         // proofs. The prover never sees the high-level plan.
         let merge = Merge::new(&sender, inputs)
             .expect("build merge plan")
@@ -85,7 +85,7 @@ impl MergeWorld {
         let proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
             .expect("merkle proofs");
-        let result = MergeProver::try_from(MergeWitness {
+        let result = MergeProver::try_from(MergeProofInputs {
             prepared,
             nullifier_key: sender.nullifier_key.clone(),
             proofs,

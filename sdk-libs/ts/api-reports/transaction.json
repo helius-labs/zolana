@@ -35,6 +35,10 @@
         "kind": "value"
       },
       {
+        "name": "Balances",
+        "kind": "value"
+      },
+      {
         "name": "Blinding",
         "kind": "type"
       },
@@ -271,10 +275,6 @@
         "kind": "type"
       },
       {
-        "name": "ProofInputUtxo",
-        "kind": "value"
-      },
-      {
         "name": "prooflessFromUtxos",
         "kind": "value"
       },
@@ -336,6 +336,10 @@
       },
       {
         "name": "SppProofInputs",
+        "kind": "value"
+      },
+      {
+        "name": "SppProofInputUtxo",
         "kind": "value"
       },
       {
@@ -803,10 +807,6 @@
         "kind": "type"
       },
       {
-        "name": "ProofInputUtxo",
-        "kind": "value"
-      },
-      {
         "name": "ProofOutputInit",
         "kind": "type"
       },
@@ -844,6 +844,10 @@
       },
       {
         "name": "SppProofInputs",
+        "kind": "value"
+      },
+      {
+        "name": "SppProofInputUtxo",
         "kind": "value"
       },
       {
@@ -976,6 +980,10 @@
       },
       {
         "name": "AssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "Balances",
         "kind": "value"
       },
       {

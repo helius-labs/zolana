@@ -46,7 +46,6 @@ const RENAMES: Readonly<Record<string, string>> = {
   DecodeCx: "DecodeContext",
   OwnerCx: "OwnerContext",
   ShieldedTransaction: "IndexedShieldedTransaction",
-  SppProofInputUtxo: "ProofInputUtxo",
   SppProofOutputUtxo: "ProofOutputUtxo",
   SyncConfig: "WalletSyncConfig",
   // Rust's `Sync` prefix marks the blocking form of WalletAuthority. TypeScript
@@ -76,8 +75,8 @@ function tsName(rustName: string): string {
 const NOT_CARRIED: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   ".": {
     Address: "@zolana/interface owns Address; re-exporting it would give the type two homes",
-    Balances:
-      "a newtype over Vec<AssetBalance> whose only method is a find by mint; Wallet.balances() returns the array and the caller finds",
+    ProofInputUtxo:
+      "the Poseidon-field hash preimage; TypeScript folds hashing through SppProofInputUtxo and does not ship the field form",
     UtxoSerialization:
       "a Rust trait has to be in scope for Confidential::decode to resolve, and it is never a bound or a dyn; the per-scheme functions below need no such contract",
     decrypt_transactions_with_config:
@@ -94,8 +93,6 @@ const NOT_CARRIED: Readonly<Record<string, Readonly<Record<string, string>>>> = 
       "a Rust trait has to be in scope for Split::decode to resolve, and it is never a bound or a dyn; the per-scheme functions below need no such contract",
   },
   "./wallet": {
-    Balances:
-      "a newtype over Vec<AssetBalance> whose only method is a find by mint; Wallet.balances() returns the array and the caller finds",
     decrypt_transactions_with_config:
       "decryptTransactions takes the config as an optional parameter, so one function covers both Rust entry points",
   },
