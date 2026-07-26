@@ -46,6 +46,7 @@ import oracle from "../oracles/zone-v1.json" with { type: "json" };
 const ZONE = encodeBase58(bytes(oracle.inputs.zoneProgramIdBytes)) as Address;
 const TREE = encodeBase58(bytes(oracle.inputs.treeBytes)) as Address;
 const USER_SOL_ACCOUNT = encodeBase58(bytes(oracle.inputs.userSolAccountBytes)) as Address;
+const PAYER = encodeBase58(bytes(oracle.inputs.payerBytes)) as Address;
 const AMOUNT = BigInt(oracle.inputs.inputAmount);
 
 function fieldByte(value: number): Bytes32 {
@@ -422,7 +423,7 @@ describe("zone prover rails against the Rust oracle", () => {
         outputs: proofInputs.outputs,
         externalData: proofInputs.externalData,
         zoneProgramId: ZONE,
-        payerPublicKeyHash: proofInputs.payerPublicKeyHash,
+        payer: PAYER,
       });
       const assembled = assembleZoneAuthorityWitness(prepared, spendProofs);
       expect(hex(assembled.publicInputHash)).toBe(expected.publicInputHashBytes);
@@ -439,7 +440,7 @@ describe("zone prover rails against the Rust oracle", () => {
       outputs: proofInputs.outputs,
       externalData: proofInputs.externalData,
       zoneProgramId: ZONE,
-      payerPublicKeyHash: proofInputs.payerPublicKeyHash,
+      payer: PAYER,
     });
     expect(() => assembleZoneAuthorityWitness(prepared, spendProofs.slice(0, 1))).toThrow(
       expect.objectContaining({
