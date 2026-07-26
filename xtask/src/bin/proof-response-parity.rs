@@ -394,9 +394,7 @@ fn valid_parse_case(
     let compressed = ProofCompressed::try_from(proof)
         .map_err(|error| anyhow::anyhow!("compress {id}: {error}"))?;
     let rail = match compressed.to_transact_proof() {
-        zolana_interface::instruction::instruction_data::transact::TransactProof::P256(_) => {
-            "p256"
-        }
+        zolana_interface::instruction::instruction_data::transact::TransactProof::P256(_) => "p256",
         zolana_interface::instruction::instruction_data::transact::TransactProof::Eddsa {
             ..
         } => "eddsa",
@@ -651,11 +649,9 @@ fn mutate_ar_len(gnark: &Value, len: usize) -> Result<Value> {
     let ar = body["ar"].as_array().context("ar array")?.clone();
     let mut next = Vec::new();
     for index in 0..len {
-        next.push(
-            ar.get(index)
-                .cloned()
-                .unwrap_or_else(|| json!("0x0000000000000000000000000000000000000000000000000000000000000001")),
-        );
+        next.push(ar.get(index).cloned().unwrap_or_else(|| {
+            json!("0x0000000000000000000000000000000000000000000000000000000000000001")
+        }));
     }
     body["ar"] = Value::Array(next);
     Ok(body)

@@ -1103,10 +1103,8 @@ mod tests {
     #[test]
     fn assemble_refuses_out_of_range_nullifier_high_element() {
         let fixture = signed_sol_withdrawal_fixture();
-        let mut above_modulus =
-            nullifier_response(fixture.tree, fixture.commitment.nullifier);
-        above_modulus["result"]["proofs"][0]["high_element"] =
-            json!(encode_hash([u8::MAX; 32]));
+        let mut above_modulus = nullifier_response(fixture.tree, fixture.commitment.nullifier);
+        above_modulus["result"]["proofs"][0]["high_element"] = json!(encode_hash([u8::MAX; 32]));
         let server = MockIndexerServer::respond_with(vec![
             merkle_response(fixture.tree, fixture.commitment.utxo_hash),
             above_modulus,
