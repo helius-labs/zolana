@@ -813,6 +813,46 @@ assumption, or a `BigInt64Array` gap would pass.
 Closing this requires: running at least the keypair and transaction vector suites in a headless
 browser, and a documented statement of which Web Crypto surfaces are required.
 
+### G9-5 Test files are compiled by nothing (`high`)
+
+Scheduled: phase 2, after the three review clusters land, because the fix edits test files across
+the packages those clusters hold and would collide with them.
+
+Found by [`row-updates/wallet-history.md`](row-updates/wallet-history.md) rather than by review: a
+history-row literal in `wallet/test/wallet.test.ts` survived a type rename that contradicted it, and
+nothing caught it. `sdk-libs/ts/config/typecheck.mjs` compiles each package project plus an opt-in
+`test/types` project, and the package projects include `src/**/*.ts` only:
+
+```1:8:sdk-libs/ts/transaction/tsconfig.json
+{
+  "extends": "../config/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist/es"
+  },
+  "include": ["src/**/*.ts"]
+}
+```
+
+So ordinary `test/**` is checked by neither the typecheck gate nor, for type-aware rules, eslint. A
+test asserting against a stale shape compiles and passes, which is the failure mode that matters
+here: the suites are the parity evidence, so a test that no longer type-matches the code it pins is
+evidence of nothing.
+
+Measured at HEAD `39cad0f7` by compiling `src` plus `test` per package. Roughly 214 diagnostics
+across `transaction`, `keypair`, `client`, and `interface`. Most are `TS4111`, the index-signature
+access rule firing on fixture reads, which is noise. The residue after excluding it is about 119,
+concentrated in `TS2345`, `TS2532`, and a small group of `TS2322`/`TS2352`/`TS2379` that are the
+class worth having: a literal or cast that no longer matches its type.
+
+That measurement is a lower bound and slightly dirty, taken with an ad-hoc project file that did not
+reproduce each package's `types` and `rootDir` settings, so a portion of the count is artifact.
+Size the work from a real per-package config before scheduling it.
+
+Closing this requires: extending each package project to cover `test/**`, or adding a parallel test
+project per package to `typecheck.mjs`, then clearing the residue. Expect it to surface findings in
+rows already closed, since a stale test literal is exactly what a reading-based review misses.
+
 ## Not in scope for this register
 
 - Row-level verdicts for the 118-row inventory. `review-checklist.md` remains the authority. This
