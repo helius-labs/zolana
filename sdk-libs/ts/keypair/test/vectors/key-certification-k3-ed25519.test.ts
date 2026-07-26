@@ -38,7 +38,7 @@ describe("K3 Ed25519 signing and verification", () => {
     for (const entry of recorded.signatureCases) {
       const message = fromHex(entry.messageBytes);
       const signature = fromHex(entry.signatureBytes) as Bytes64;
-      expect(signer.verify(message, signature), `${entry.name}`).toBe(entry.verified);
+      expect(signer.verify(message, signature), entry.name).toBe(entry.verified);
     }
   });
 
@@ -68,7 +68,7 @@ describe("K3 Ed25519 signing and verification", () => {
     for (const width of [0, 1, 32, 63, 65, 128]) {
       const candidate = new Uint8Array(width);
       candidate.set(canonical.subarray(0, Math.min(width, 64)));
-      expect(signer.verify(new Uint8Array(), candidate as Bytes64), `width ${width}`).toBe(false);
+      expect(signer.verify(new Uint8Array(), candidate as Bytes64), `width ${String(width)}`).toBe(false);
     }
   });
 
@@ -80,7 +80,7 @@ describe("K3 Ed25519 signing and verification", () => {
     for (const index of [0, 31, 32, 62]) {
       const mutated = Uint8Array.from(signature) as Bytes64;
       mutated[index] ^= 0x01;
-      expect(signer.verify(message, mutated), `byte ${index}`).toBe(false);
+      expect(signer.verify(message, mutated), `byte ${String(index)}`).toBe(false);
     }
     const otherMessage = Uint8Array.from([0x2b]);
     expect(signer.verify(otherMessage, signature)).toBe(false);
