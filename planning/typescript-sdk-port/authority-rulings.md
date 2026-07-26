@@ -43,6 +43,8 @@ Sections carrying their own evidence:
 - [How TypeScript gets its Poseidon](#how-typescript-gets-its-poseidon)
 - [Whether the WebAssembly Poseidon may use a module-scope await](#whether-the-webassembly-poseidon-may-use-a-module-scope-await)
 - [The external-data length prefix (T21)](#the-external-data-length-prefix-t21)
+- [The deposit's discovery tag](#the-deposits-discovery-tag)
+- [The transaction size check](#the-transaction-size-check)
 - [Rail inference when parsing a proof (C08)](#rail-inference-when-parsing-a-proof-c08)
 
 ## Ruled: owner-hash encoding (G7-1)
@@ -1158,6 +1160,18 @@ The cost accepted is 585 KB gzipped once per application, and a named error when
 before initialization. A clear failure is the price of the design; a silent wrong digest would not
 have been.
 
+**Amended 2026-07-26: the artifact CI gate is withdrawn, and packaging replaces
+it.** The verification of the compiled hasher left one thing owed, a CI check
+proving `sdk-libs/ts/hasher/src/artifact.ts` was generated from the Rust in the
+tree, since a stale artifact would otherwise ship in silence
+(`row-updates/wasm-verification.md`). Unpacking `@lightprotocol/hasher.rs@0.2.1`
+showed Light making that impossible rather than detectable: the artifact lives in
+a separately versioned package whose build compiles the Rust it wraps, so it
+cannot be built stale. Ours is a committed file no build step regenerates. The
+owner withdrew the gate in favour of that packaging change; a worker holds it on
+`port/hasher-pkg`. The paragraph in `row-updates/wasm-verification.md` calling
+the gate owed predates this and is superseded.
+
 ### The external-data length prefix (T21)
 
 | Field | Value |
@@ -1187,6 +1201,63 @@ by both and exists in neither.
 The revert question hanging over `bc55a9b9` is settled by this: the checked `length_prefix` in
 `program-libs/interface` stays reverted, the program keeps truncating, and the guard lives in the
 SDKs where this branch is allowed to put it.
+
+**Landed at `8ded1d7a`, thirteen minutes after this ruling was recorded**, so
+the sentence above calling the boundary vector owed by both languages is
+superseded rather than wrong. The Rust SDK has the guard, and
+`sdk-libs/transaction/tests/ts_oracle.rs:2757-2762` generates the two cases from
+Rust: `maxOutputs` at 65,535 hashes, `oneOutputPastMax` at 65,536 raises
+`TRANSACTION_TOO_MANY_OUTPUTS`. `transaction/test/vectors/rust-oracle.test.ts`
+replays both. What T21 still owes is its row evidence, not code.
+
+### The deposit's discovery tag
+
+| Field | Value |
+| --- | --- |
+| Conflict | Both SDKs derived a deposit's discovery tag from the recipient's viewing pubkey x-coordinate, while `docs/spec.md:373` tags every default-zone output by its owner pubkey. |
+| Ruling | The tag is the recipient's signing pubkey. Option A2 of `row-updates/interface-spec-conflicts.md`. |
+| Ruled by | Protocol owner |
+| Date | Recorded 2026-07-25 |
+| Follow-up artifacts | `row-updates/deposit-tag-change.md`, commits `1ff51a4c` and `114a5140`, `docs/spec.md:373` |
+
+Recorded here late; the ruling was made in conversation and lived in the batch
+file. Both halves have landed. `Deposit::new` derives `view_tag` from
+`ShieldedAddress::confidential_view_tag()`, the three Rust mirrors of that
+derivation follow it, and `docs/spec.md:373` names the owner's signing pubkey
+explicitly, the P256 x-coordinate or the full Ed25519 key.
+
+The divergence was invisible inside this repository, because both Zolana wallets
+scan the signing tag and the bootstrap tag unconditionally. It becomes visible at
+the interoperability boundary: a third-party wallet built to the spec scans owner
+pubkeys and finds no Zolana-SDK deposit. The program copies the tag into the
+output slot without reading it (`deposit/event.rs:44`), so a mistagged deposit is
+accepted, indexed, and never discovered, and no layer on the path raises
+anything. A green suite is therefore weak evidence for this change.
+
+### The transaction size check
+
+| Field | Value |
+| --- | --- |
+| Conflict | Three of the ten supported proof shapes compile past the 1232-byte packet limit and the SDK cannot say so, and the versioned-transaction study asked whether to schedule the check or defer it. |
+| Ruling | Into this pull request. v0 messages are not scheduled for the size problem, since they cost 5 bytes on a pure transfer and save 57 on an SPL withdrawal, and the size check is not deferred behind them. |
+| Ruled by | Protocol owner, 2026-07-26 |
+| Date | 2026-07-26 |
+| Follow-up artifacts | `versioned-transactions.md`, `remaining-work.md` step A, commit `0e26c397` on `port/open-questions` |
+
+Recorded here late, for the same reason as the deposit tag. The measurement half
+is built and unmerged: `MAX_TRANSACTION_SIZE` and `transactionSize`,
+cross-checked against the bytes `SolanaRpc` submits at five signature counts
+including the 128 where the compact-u16 count grows a byte.
+
+It measures and does not refuse, which follows where Light draws the line: its
+measurement is public and its refusal reaches only the batches it assembles
+itself, whose error says the oversized transaction indicates a bug in batch
+assembly. Zolana's compiler is the generic builder, where an oversized
+transaction is the caller's shape rather than an assembly bug.
+
+What that leaves is the half the step called urgent. A caller hitting one of the
+three unsendable shapes still gets a confirmation timeout, which names the wrong
+cause, and a measurement nothing on the submit path reads does not change that.
 
 ### Rail inference when parsing a proof (C08)
 
