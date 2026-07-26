@@ -2599,6 +2599,187 @@
     "zone": "32ZsJ2yJjwuoBiWE5xnZjG9tKmK3CubbmEzgkQLyQzgD",
     "zoneDataHashHex": "2020202020202020202020202020202020202020202020202020202020202020"
   },
+  "moduleSurfaces": {
+    "src/instructions/mod.rs": {
+      "entryPoint": "./instructions",
+      "modules": [
+        "merge",
+        "merge_zone",
+        "transact",
+        "types",
+        "zone_authority"
+      ],
+      "names": []
+    },
+    "src/instructions/transact/mod.rs": {
+      "entryPoint": "./transact",
+      "modules": [
+        "external_data",
+        "shape",
+        "slots",
+        "split",
+        "spp_proof_inputs",
+        "transfer",
+        "types"
+      ],
+      "names": [
+        "ConfidentialSplit",
+        "ConfidentialTransfer",
+        "EncryptedTransaction",
+        "EncryptedTransactionData",
+        "ExternalData",
+        "InputUtxo",
+        "OutputContext",
+        "OutputSlot",
+        "PreparedSplit",
+        "PreparedTransfer",
+        "PrivateTxHash",
+        "PublicAmounts",
+        "Recipient",
+        "SENDER_SLOT_COUNT",
+        "SPP_SUPPORTED_SHAPES",
+        "Shape",
+        "ShieldedTransaction",
+        "SppProofInputs",
+        "SppProofOutputUtxo",
+        "Withdrawal",
+        "WithdrawalTarget",
+        "canonical_shape",
+        "encode_confidential_slots",
+        "encrypt_transaction_data",
+        "first_nullifier",
+        "get_transaction_viewing_key",
+        "inputs_require_p256",
+        "resolve_shape",
+        "signed_to_field",
+        "slot_ordinal"
+      ]
+    },
+    "src/lib.rs": {
+      "entryPoint": ".",
+      "modules": [
+        "data",
+        "error",
+        "instructions",
+        "serialization",
+        "utxo",
+        "wallet"
+      ],
+      "names": [
+        "Address",
+        "AnonymousRecipientSlot",
+        "ApprovalRequest",
+        "AssetBalance",
+        "AssetRegistry",
+        "Balances",
+        "Blinding",
+        "DEFAULT_TAG_WINDOW",
+        "Data",
+        "DataRecord",
+        "DecodeCx",
+        "EncryptedEnvelope",
+        "EncryptedScheme",
+        "EncryptedSplit",
+        "EncryptedTransaction",
+        "EncryptedTransfer",
+        "ExternalData",
+        "Filter",
+        "InputUtxo",
+        "LocalWalletAuthority",
+        "MERGE",
+        "OutputContext",
+        "OutputSlot",
+        "OwnerCx",
+        "P256Signature",
+        "PrivateTransaction",
+        "PrivateTransactionDirection",
+        "PrivateTransactionId",
+        "PrivateTransactionKind",
+        "PrivateTransactionStatus",
+        "ProofInputUtxo",
+        "SOL_ASSET_ID",
+        "SOL_MINT",
+        "SPLIT",
+        "ShieldedTransaction",
+        "SppProofOutputUtxo",
+        "SyncConfig",
+        "SyncReport",
+        "SyncWalletAuthority",
+        "TRANSFER",
+        "TRANSFER_PLAINTEXT",
+        "TransactionError",
+        "Utxo",
+        "UtxoSerialization",
+        "VIEW_TAG_LEN",
+        "ViewingKeyEntry",
+        "Wallet",
+        "WalletAuthority",
+        "WalletSyncMaterial",
+        "WalletUtxo",
+        "decrypt_transactions",
+        "decrypt_transactions_with_config",
+        "derive_blinding",
+        "owner_utxo_hash"
+      ]
+    },
+    "src/serialization/mod.rs": {
+      "entryPoint": "./serialization",
+      "modules": [
+        "anonymous",
+        "confidential",
+        "merge",
+        "plaintext",
+        "proofless",
+        "scheme",
+        "split"
+      ],
+      "names": [
+        "DecodeCx",
+        "OwnerCx",
+        "Proofless",
+        "ProoflessEncode",
+        "Split",
+        "SplitBundlePlaintext",
+        "SplitEncryptedUtxos",
+        "UtxoSerialization"
+      ]
+    },
+    "src/wallet/mod.rs": {
+      "entryPoint": "./wallet",
+      "modules": [
+        "asset",
+        "authority"
+      ],
+      "names": [
+        "AnonymousRecipientSlot",
+        "ApprovalRequest",
+        "AssetBalance",
+        "Balances",
+        "DEFAULT_TAG_WINDOW",
+        "EncryptedEnvelope",
+        "EncryptedSplit",
+        "EncryptedTransfer",
+        "Filter",
+        "LocalWalletAuthority",
+        "P256Signature",
+        "PrivateTransaction",
+        "PrivateTransactionDirection",
+        "PrivateTransactionId",
+        "PrivateTransactionKind",
+        "PrivateTransactionStatus",
+        "SyncConfig",
+        "SyncReport",
+        "SyncWalletAuthority",
+        "ViewingKeyEntry",
+        "Wallet",
+        "WalletAuthority",
+        "WalletSyncMaterial",
+        "WalletUtxo",
+        "decrypt_transactions",
+        "decrypt_transactions_with_config"
+      ]
+    }
+  },
   "schema": "zolana-transaction-parity-oracle-v1",
   "scheme": {
     "invalid": [
@@ -6978,6 +7159,49 @@
         "zoneDataHashHex": null,
         "zoneProgramId": null
       }
+    ]
+  },
+  "utxoSerialization": {
+    "implementors": [
+      {
+        "schemeByte": 1,
+        "type": "AnonymousRecipient"
+      },
+      {
+        "schemeByte": 2,
+        "type": "AnonymousSenderBundle"
+      },
+      {
+        "schemeByte": 3,
+        "type": "Confidential"
+      },
+      {
+        "schemeByte": 6,
+        "type": "Merge"
+      },
+      {
+        "schemeByte": 7,
+        "type": "PlaintextTransfer"
+      },
+      {
+        "schemeByte": 0,
+        "type": "Proofless"
+      },
+      {
+        "schemeByte": 5,
+        "type": "Split"
+      }
+    ],
+    "operations": [
+      "decode",
+      "decrypt",
+      "deserialize",
+      "encode",
+      "encode_plaintext",
+      "encrypt",
+      "from_utxos",
+      "into_utxos",
+      "serialize"
     ]
   },
   "walletBalances": {
