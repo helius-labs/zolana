@@ -149,7 +149,7 @@ test-photon:
 coverage *args="--summary-only":
     cargo llvm-cov {{args}} \
         -p zolana-interface -p zolana-tree -p zolana-bloom-filter \
-        -p zolana-hasher -p zolana-indexed-array -p zolana-merkle-tree-metadata \
+        -p zolana-hasher -p zolana-indexed-array \
         -p zolana-keypair -p zolana-transaction \
         --features zolana-interface/solana
 

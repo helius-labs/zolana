@@ -88,6 +88,7 @@ impl ZoneHarness {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn merge_zone_inner(
         &mut self,
         name: &str,

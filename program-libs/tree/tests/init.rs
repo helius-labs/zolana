@@ -31,16 +31,8 @@ fn init_then_reload() {
         assert_eq!(tree.state(), INITIALIZED);
         assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
         assert_eq!(tree.utxo_tree().next_index(), 0);
-        // The nullifier tree is initialized with the supplied owner.
-        assert_eq!(
-            tree.nullifer_tree()
-                .get_metadata()
-                .metadata
-                .access_metadata
-                .owner
-                .to_bytes(),
-            owner
-        );
+        // The nullifier tree is initialized with the supplied pubkey.
+        assert_eq!(tree.nullifer_tree().pubkey().to_bytes(), pubkey);
 
         let empty_root = tree.utxo_tree().root();
         assert_ne!(empty_root, [0u8; 32]);

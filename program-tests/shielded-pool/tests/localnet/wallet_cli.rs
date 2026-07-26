@@ -46,55 +46,13 @@ fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u
 }
 
 /// Restart a fresh local validator + Photon through the `zolana` CLI (the same
-<<<<<<< HEAD:program-tests/shielded-pool/tests/localnet_wallet_cli_e2e.rs
 /// launcher the other photon e2e tests use; it owns the validator/photon
 /// orchestration and readiness checks). Deploys the shielded-pool and
 /// user-registry programs the wallet CLI needs (the latter backs pay-by-pubkey
 /// recipient resolution); `--skip-prover` leaves the persistent prover server
 /// untouched so its proving keys stay loaded.
 fn restart_localnet() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
-    let program_id =
-        std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
-    let user_registry_program_id =
-        std::env::var("USER_REGISTRY_PROGRAM_ID").expect("USER_REGISTRY_PROGRAM_ID must be set");
-    let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
-    let photon_port =
-        std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
-    let program_so = format!("{root}/target/deploy/shielded_pool_program.so");
-    let user_registry_program_so = format!("{root}/target/deploy/zolana_user_registry.so");
-
-    let status = Command::new(&cli)
-        .current_dir(root)
-        .args([
-            "dev",
-            "start",
-            "--no-use-surfpool",
-            "--with-photon",
-            "--skip-prover",
-            "--rpc-port",
-            &rpc_port,
-            "--photon-port",
-            &photon_port,
-            "--ledger",
-            "/tmp/zolana-photon-test-ledger",
-            "--sbf-program",
-            &program_id,
-            &program_so,
-            "--sbf-program",
-            &user_registry_program_id,
-            &user_registry_program_so,
-        ])
-        .status()
-        .expect("run zolana dev start");
-    assert!(status.success(), "zolana dev start restart failed");
-=======
-/// launcher the other Photon e2e tests use.
-fn restart_localnet() {
     start_shielded_pool_localnet("zolana-wallet-cli", &[]);
->>>>>>> 91df8f5a (refactor: unify mollusk on 0.14 and move harness into test-utils):program-tests/shielded-pool/tests/localnet/wallet_cli.rs
 }
 
 fn cli_bin() -> PathBuf {

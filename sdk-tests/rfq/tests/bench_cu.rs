@@ -88,10 +88,7 @@ fn system_owned_account(lamports: u64) -> Account {
     }
 }
 
-fn build_tree_fixture(
-    tree: &Pubkey,
-    leaves: &[[u8; 32]],
-) -> (Account, [u8; 32], [u8; 32], u16) {
+fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32], [u8; 32], u16) {
     let mut tree_account_bytes = vec![0u8; tree_account_size()];
     let root_index = leaves.len() as u16;
     let (utxo_root, nullifier_root) = {

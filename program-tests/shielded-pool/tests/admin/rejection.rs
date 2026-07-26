@@ -127,7 +127,6 @@ fn tree_creation_rejects_an_unsigned_authority() {
     let mut create = CreateTree {
         authority: pool.authority.pubkey(),
         tree: tree.pubkey(),
-
     }
     .instruction();
     // Same authority address, but its meta carries no signature.
@@ -175,7 +174,6 @@ fn tree_creation_rejects_non_canonical_nullifier_params() {
         let create = CreateTree {
             authority: pool.authority.pubkey(),
             tree: tree.pubkey(),
-    
         }
         .instruction_with_nullifier_params(params);
 
@@ -484,7 +482,6 @@ fn tree_creation_rejects_an_account_not_owned_by_the_pool() {
     let create = CreateTree {
         authority: pool.authority.pubkey(),
         tree: tree.pubkey(),
-
     }
     .instruction();
 
@@ -509,7 +506,6 @@ fn tree_creation_rejects_double_initialization() {
     let create_again = CreateTree {
         authority: pool.authority.pubkey(),
         tree: pool.tree.pubkey(),
-
     }
     .instruction();
 
@@ -544,7 +540,6 @@ fn tree_creation_rejects_trailing_instruction_bytes() {
     let mut create = CreateTree {
         authority: pool.authority.pubkey(),
         tree: tree.pubkey(),
-
     }
     .instruction();
     create.data.push(0xFF);
