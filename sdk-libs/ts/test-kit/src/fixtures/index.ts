@@ -3,19 +3,14 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { TestKitError } from "../error.js";
+import { FIXTURES_ROOT } from "../paths.js";
 
 interface FixtureManifest {
   readonly frozenCommit: string;
   readonly files: readonly Readonly<{ path: string; sha256: string }>[];
 }
-
-const fixturesRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../fixtures",
-);
 
 function fixturePath(name: string): string {
   const normalized = name.endsWith(".json") ? name : `${name}.json`;
@@ -34,7 +29,7 @@ function fixturePath(name: string): string {
 async function manifest(): Promise<FixtureManifest> {
   try {
     return JSON.parse(
-      await readFile(path.join(fixturesRoot, "manifest.json"), "utf8"),
+      await readFile(path.join(FIXTURES_ROOT, "manifest.json"), "utf8"),
     ) as FixtureManifest;
   } catch (cause) {
     throw new TestKitError("TEST_KIT_FIXTURE", {
@@ -55,7 +50,7 @@ export async function fixtureBytes(name: string): Promise<Uint8Array> {
 
   let bytes: Uint8Array;
   try {
-    bytes = await readFile(path.join(fixturesRoot, relativePath));
+    bytes = await readFile(path.join(FIXTURES_ROOT, relativePath));
   } catch (cause) {
     throw new TestKitError("TEST_KIT_FIXTURE", {
       details: { reason: "read", path: relativePath },
