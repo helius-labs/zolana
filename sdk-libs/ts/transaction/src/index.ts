@@ -106,4 +106,9 @@ export {
   type OwnerContext,
 } from "./serialization/index.js";
 
-export const VIEW_TAG_LEN = 32;
+/**
+ * Re-exported rather than redeclared, as `sdk-libs/transaction/src/lib.rs:39`
+ * re-exports it: the view tag length belongs to the key material that produces
+ * the tag, so a change there has to reach this root on its own.
+ */
+export { VIEW_TAG_LENGTH as VIEW_TAG_LEN } from "@zolana/keypair";
