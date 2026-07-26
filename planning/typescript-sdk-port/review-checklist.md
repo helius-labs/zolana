@@ -728,8 +728,30 @@ input to this decision.
 - [ ] Instruction bytes execute against same-revision Solana programs.
 - [ ] Proof inputs work with the same-revision prover for each supported shape and rail.
 - [ ] Indexer requests and responses match the same-revision live Photon contract.
-- [ ] EdDSA and P256 rails cover the complete supported shape set.
-- [ ] Zone transfer, zone authority, and merge-zone behavior has named positive and rejection coverage.
+- [x] EdDSA and P256 rails cover the complete supported shape set.
+      Evidence at `12c748d6`: authoritative ten-shape set is
+      `(1,1),(1,2),(2,2),(2,3),(3,3),(4,3),(4,4),(5,3),(5,4),(1,8)` in
+      `program-libs/interface/src/shape.rs`, Go `SupportedShapes`,
+      `transferSupportedShapes`, and the shielded-pool verifier matchers; no
+      drift. TypeScript builds a prover request for every shape on both
+      confidential rails (`shape-rail-coverage.test.ts`, also P1/P2 and
+      `prover-shapes-v1.json`). Zone transfer rails cover the same ten;
+      zone-authority covers the four squares. Live prove of the twenty
+      confidential pairs is the separate same-revision-prover gate and was not
+      run here (no `target/prover-server`, empty `proving-keys/`).
+      ([row-updates/gate-shapes.md](row-updates/gate-shapes.md)).
+- [x] Zone transfer, zone authority, and merge-zone behavior has named positive and rejection coverage.
+      Evidence at `12c748d6`: positives in `zone-oracle.test.ts` (ten
+      transfer-zone, ten transfer-p256-zone, four zone-authority),
+      `merge-oracle.test.ts` (merge-zone), and `shape-rail-coverage.test.ts`.
+      Named rejections in `zone-named-rejections.test.ts`
+      (`CLIENT_EDDSA_INPUT_NOT_SOLANA_OWNED`, `CLIENT_PROOF_RAIL_MISMATCH`,
+      `CLIENT_MISSING_P256_SIGNATURE`, `CLIENT_NO_INPUTS`,
+      `CLIENT_UNSUPPORTED_ZONE_AUTHORITY_SHAPE`,
+      `TRANSACTION_MERGE_INPUT_ZONE_MISMATCH`, `CLIENT_INVALID_MERGE`), plus
+      oracle refusals of the six non-square authority shapes and
+      `transfer.test.ts` zone-authority / MergeZone mismatches.
+      ([row-updates/gate-shapes.md](row-updates/gate-shapes.md)).
 - [ ] Fixture provenance points to the reviewed Rust revision and covers deterministic success, rejection, and tamper cases where applicable.
 - [ ] The public-export ledger has no unexplained difference.
 - [ ] No row or package gate has an unresolved adverse verdict.
