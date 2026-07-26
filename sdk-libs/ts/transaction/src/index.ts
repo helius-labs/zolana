@@ -63,6 +63,8 @@ export {
   SOL_MINT,
   Wallet,
   decryptTransactions,
+  syncWalletWithAuthority,
+  syncWalletWithMaterial,
 } from "./wallet/index.js";
 export type {
   AnonymousRecipientSlot,

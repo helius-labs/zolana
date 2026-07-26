@@ -12,7 +12,7 @@ import type { ViewingKeyLike } from "@zolana/keypair";
 import {
   EncryptedScheme,
   TransactionError,
-  decryptTransactions,
+  syncWalletWithAuthority,
   type AssetBalance,
   type PrivateTransaction,
   type SyncReport,
@@ -345,7 +345,7 @@ export async function syncWallet(
         ...[...transactions.values()].sort(compareBySlotThenSignature),
         ...[...deposits.values()].sort(compareDeposits),
       ];
-      report = await decryptTransactions({
+      report = await syncWalletWithAuthority({
         wallet: input.wallet,
         authority: input.authority,
         transactions: ordered,
@@ -358,7 +358,7 @@ export async function syncWallet(
 
     const inserted = await backfillAssetRegistry(input.wallet, input.registryRpc, context);
     if (inserted === 0) return report;
-    return await decryptTransactions({
+    return await syncWalletWithAuthority({
       wallet: input.wallet,
       authority: input.authority,
       transactions: ordered,

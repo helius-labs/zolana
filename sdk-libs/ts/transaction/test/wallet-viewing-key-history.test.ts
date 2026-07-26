@@ -10,7 +10,7 @@ import {
   SOL_MINT,
   Utxo,
   Wallet,
-  decryptTransactions,
+  syncWalletWithAuthority,
   deriveBlinding,
   type EncryptedTransfer,
 } from "../src/index.js";
@@ -111,7 +111,7 @@ describe("viewing-key history", () => {
     });
     const target = wallet(keypair);
 
-    await decryptTransactions({
+    await syncWalletWithAuthority({
       wallet: target,
       authority,
       transactions: [transaction(envelope, [])],
@@ -154,7 +154,7 @@ describe("viewing-key history", () => {
       );
     const target = wallet(keypair);
 
-    await decryptTransactions({
+    await syncWalletWithAuthority({
       wallet: target,
       authority,
       transactions: [await bundle(1n), await bundle(3n)],
@@ -208,7 +208,7 @@ describe("viewing-key history", () => {
     });
     const target = wallet(keypair);
 
-    const report = await decryptTransactions({
+    const report = await syncWalletWithAuthority({
       wallet: target,
       authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       transactions: [
@@ -254,7 +254,7 @@ describe("viewing-key history", () => {
     });
     const target = wallet(keypair);
 
-    await decryptTransactions({
+    await syncWalletWithAuthority({
       wallet: target,
       authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       transactions: [transaction(envelope, [])],

@@ -37,6 +37,7 @@ import { SOL_MINT, type AssetRegistry } from "./asset.js";
 import {
   SENDER_HISTORY_ROW_BASE,
   newViewingKeyEntry,
+  type AssetBalance,
   type CounterpartyCounter,
   type PrivateTransaction,
   type PrivateTransactionDirection,
@@ -77,10 +78,7 @@ function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
       wallet.identity.signingPublicKey.toBytes(),
     ) ||
     !equal(material.identity.nullifierPublicKey, wallet.identity.nullifierPublicKey) ||
-    !equal(
-      material.identity.viewingPublicKey.toBytes(),
-      wallet.identity.viewingPublicKey.toBytes(),
-    )
+    !equal(material.identity.viewingPublicKey.toBytes(), wallet.identity.viewingPublicKey.toBytes())
   ) {
     throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
   }
@@ -861,7 +859,13 @@ class SyncPass {
   }
 }
 
-export async function decryptTransactions(
+/**
+ * `Wallet::sync`: read the authority's sync material once, then scan. A free
+ * function because `Wallet` is declared in `state.js`, which this scan imports,
+ * and qualified because `@zolana/wallet` already carries Rust's `sync_wallet`
+ * under the unqualified name.
+ */
+export async function syncWalletWithAuthority(
   input: Readonly<{
     wallet: Wallet;
     authority: SyncWalletAuthority;
@@ -869,11 +873,28 @@ export async function decryptTransactions(
     config?: WalletSyncConfig;
   }>,
 ): Promise<SyncReport> {
+  return syncWalletWithMaterial({ ...input, material: await input.authority.syncMaterial() });
+}
+
+/**
+ * `Wallet::sync_with_material`, for a caller already holding the material.
+ * Rust stages the scan on a clone and commits it only on success; here every
+ * mutation is deferred to the single `_replace` at the end, so a throw leaves
+ * the wallet as it was.
+ */
+export function syncWalletWithMaterial(
+  input: Readonly<{
+    wallet: Wallet;
+    material: WalletSyncMaterial;
+    transactions: readonly IndexedShieldedTransaction[];
+    config?: WalletSyncConfig;
+  }>,
+): SyncReport {
   const window = input.config?.tagWindow ?? DEFAULT_TAG_WINDOW;
   if (window <= 0n) {
     throw new TransactionError("TRANSACTION_INVALID_TAG_WINDOW");
   }
-  const material = await input.authority.syncMaterial();
+  const { material } = input;
   validateMaterial(input.wallet, material);
   const current = input.wallet._state();
   const index = buildTagIndex(input.transactions);
@@ -932,8 +953,28 @@ export async function decryptTransactions(
   });
 }
 
-export async function decryptTransactionsWorkerEquivalent(
-  input: Parameters<typeof decryptTransactions>[0],
+export async function syncWalletWorkerEquivalent(
+  input: Parameters<typeof syncWalletWithAuthority>[0],
 ): Promise<SyncReport> {
-  return decryptTransactions(input);
+  return syncWalletWithAuthority(input);
+}
+
+/**
+ * `decrypt_transactions`: the balances a fresh wallet holds after scanning
+ * these transactions, with nothing kept. The identity comes off the sync
+ * material rather than a separate authority call, which is the same value from
+ * the one capability the scan already needs.
+ */
+export async function decryptTransactions(
+  input: Readonly<{
+    authority: SyncWalletAuthority;
+    transactions: readonly IndexedShieldedTransaction[];
+    registry: AssetRegistry;
+    config?: WalletSyncConfig;
+  }>,
+): Promise<readonly AssetBalance[]> {
+  const material = await input.authority.syncMaterial();
+  const wallet = new Wallet({ identity: material.identity, registry: input.registry });
+  syncWalletWithMaterial({ ...input, wallet, material });
+  return wallet.balances(false);
 }

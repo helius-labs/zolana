@@ -33,6 +33,12 @@ const ENTRY_POINT_SOURCES: Readonly<Record<string, string>> = {
  * `IndexedShieldedTransaction` leaves the unqualified name to
  * `@zolana/indexer-api`, and the rest drop a prefix the SDK vocabulary avoids
  * or trade a Rust `impl` block for a construction function.
+ *
+ * A rename recorded here asserts the two names denote the same behaviour, so
+ * an entry is a claim rather than a spelling note. `decrypt_transactions` sat
+ * here while `decryptTransactions` was in fact `Wallet::sync`, which is how a
+ * mismatched pair stayed hidden; the two are a genuine pair now and need no
+ * entry, because the camel-case rule already maps them.
  */
 const RENAMES: Readonly<Record<string, string>> = {
   AnonymousTransferRecipientPlaintext: "AnonymousRecipientPlaintext",
@@ -44,7 +50,6 @@ const RENAMES: Readonly<Record<string, string>> = {
   SppProofOutputUtxo: "ProofOutputUtxo",
   SyncConfig: "WalletSyncConfig",
   asset_field: "assetField",
-  decrypt_transactions: "decryptTransactions",
   derive_blinding: "deriveBlinding",
   owner_utxo_hash: "ownerUtxoHash",
 };
@@ -135,6 +140,9 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, Readonly<Record<string, string>>>
     outputDataEncoding: "the OutputDataEncoding discriminant, which zolana_event owns in Rust",
     prepareZoneAuthority: "PreparedZoneAuthority::new, which has no impl block here",
     privateTxHash: "PrivateTxHash::hash as a function",
+    syncWalletWithAuthority:
+      "Wallet::sync, a free function because Wallet is declared in state.ts, and qualified because @zolana/wallet carries Rust's sync_wallet under the plain name",
+    syncWalletWithMaterial: "Wallet::sync_with_material, a free function for the same reason",
     transactionError: "constructs a TransactionError with structured details",
     unknownTransactionError: "wraps a thrown value of unknown shape",
     CounterpartyCounter: "one entry of the HashMap ViewingKeyEntry keeps its counters in",
@@ -163,7 +171,10 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, Readonly<Record<string, string>>>
   "./wallet": {
     CounterpartyCounter: "one entry of the HashMap ViewingKeyEntry keeps its counters in",
     SplitBundlePlaintext: "the split payload LocalWalletAuthority.encryptSplit takes",
-    decryptTransactionsWorkerEquivalent:
+    syncWalletWithAuthority:
+      "Wallet::sync, a free function because Wallet is declared in state.ts, and qualified because @zolana/wallet carries Rust's sync_wallet under the plain name",
+    syncWalletWithMaterial: "Wallet::sync_with_material, a free function for the same reason",
+    syncWalletWorkerEquivalent:
       "the serial stand-in for wallet::parallel that T16 owns, exported so the alias is declared rather than silent",
   },
   "./instructions": {

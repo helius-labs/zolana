@@ -16,13 +16,14 @@ import {
   Utxo,
   Wallet,
   decryptTransactions,
+  syncWalletWithAuthority,
   type CounterpartyCounter,
   type PrivateTransaction,
   type SyncReport,
   type ViewingKeyEntry,
 } from "../src/index.js";
 import type { WalletAuthority, WalletSyncMaterial } from "../src/wallet/authority.js";
-import { decryptTransactionsWorkerEquivalent } from "../src/wallet/sync.js";
+import { syncWalletWorkerEquivalent } from "../src/wallet/sync.js";
 import { encodeAddress } from "../src/internal.js";
 import type { IndexedShieldedTransaction } from "../src/instructions/transact.js";
 import { fixtureArray, fixtureObject, fixtureString, hexBytes, readFixture } from "./fixture.js";
@@ -287,7 +288,7 @@ describe("manifest-verified wallet behavior", () => {
     // The three timestamps are the ones the fixture generator syncs at, so
     // `lastSynced` below is the value Rust recorded rather than an echo.
     expect(
-      await decryptTransactions({
+      await syncWalletWithAuthority({
         wallet,
         authority: value.authority,
         transactions: transactions.slice(0, 1),
@@ -295,7 +296,7 @@ describe("manifest-verified wallet behavior", () => {
       }),
     ).toEqual(reportRow(fixtureArray(sequentialExpected, "reports")[0]));
     expect(
-      await decryptTransactions({
+      await syncWalletWithAuthority({
         wallet,
         authority: value.authority,
         transactions: transactions.slice(1),
@@ -303,7 +304,7 @@ describe("manifest-verified wallet behavior", () => {
       }),
     ).toEqual(reportRow(fixtureArray(sequentialExpected, "reports")[1]));
     expect(
-      await decryptTransactions({
+      await syncWalletWithAuthority({
         wallet,
         authority: value.authority,
         transactions,
@@ -320,7 +321,7 @@ describe("manifest-verified wallet behavior", () => {
     expect(wallet.lastSynced).toBe(BigInt(fixtureString(sequentialExpected, "lastSynced")));
 
     const worker = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
-    const workerReport = await decryptTransactionsWorkerEquivalent({
+    const workerReport = await syncWalletWorkerEquivalent({
       wallet: worker,
       authority: value.authority,
       transactions,
@@ -337,7 +338,7 @@ describe("manifest-verified wallet behavior", () => {
       transactions: worker.privateTransactions(),
       lastSynced: worker.lastSynced,
     };
-    for (const sync of [decryptTransactions, decryptTransactionsWorkerEquivalent]) {
+    for (const sync of [syncWalletWithAuthority, syncWalletWorkerEquivalent]) {
       await expect(
         sync({
           wallet: worker,
@@ -362,7 +363,7 @@ describe("manifest-verified wallet behavior", () => {
       return { ...transaction, outputSlots: [{ ...slot, payload }] };
     });
     const tamperWallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
-    const tamperReport = await decryptTransactions({
+    const tamperReport = await syncWalletWithAuthority({
       wallet: tamperWallet,
       authority: value.authority,
       transactions: tampered,
@@ -377,7 +378,7 @@ describe("manifest-verified wallet behavior", () => {
       syncMaterial: () => other.authority.syncMaterial(),
     };
     await expect(
-      decryptTransactions({
+      syncWalletWithAuthority({
         wallet: new Wallet({ identity: value.identity, registry: new AssetRegistry() }),
         authority: mismatched,
         transactions,
@@ -393,7 +394,7 @@ describe("manifest-verified wallet behavior", () => {
         }),
     };
     await expect(
-      decryptTransactions({
+      syncWalletWithAuthority({
         wallet: new Wallet({ identity: value.identity, registry: new AssetRegistry() }),
         authority: missingViewingKey,
         transactions: [],
@@ -412,12 +413,41 @@ describe("manifest-verified wallet behavior", () => {
         }),
     };
     await expect(
-      decryptTransactions({
+      syncWalletWithAuthority({
         wallet: new Wallet({ identity: value.identity, registry: new AssetRegistry() }),
         authority: bothWrong,
         transactions: [],
       }),
     ).rejects.toMatchObject({ code: "TRANSACTION_MISSING_CURRENT_VIEWING_KEY" });
+  });
+
+  // `decrypt_transactions` keeps no wallet: it builds one, scans, reports the
+  // balances, and drops it. The oracle balance is the one Rust's own call
+  // produced over these transactions, so a TypeScript function that synced a
+  // caller's wallet instead would not reach it.
+  it("reports the balances Rust's decrypt_transactions reports, holding no wallet", async () => {
+    const fixture = load("wallet-sync");
+    const inputs = section(fixture, "inputs");
+    const expected = section(fixture, "expected");
+    const value = fixtureAuthority(inputs);
+    const transactions = shieldedTransactions(inputs);
+
+    const balances = await decryptTransactions({
+      authority: value.authority,
+      transactions,
+      registry: new AssetRegistry(),
+    });
+
+    expect(balances.find((balance) => balance.mint === SOL_MINT)?.amount).toBe(
+      BigInt(fixtureString(expected, "decryptTransactionsBalance")),
+    );
+    expect(
+      await decryptTransactions({
+        authority: value.authority,
+        transactions: [],
+        registry: new AssetRegistry(),
+      }),
+    ).toEqual([]);
   });
 
   it("records the same history rows Rust records for every recording path", async () => {
@@ -434,7 +464,7 @@ describe("manifest-verified wallet behavior", () => {
     // the notes it spends down if the sync that stored them already ran.
     for (const [index, transaction] of transactions.entries()) {
       const step = fixtureObject(steps[index], "history step");
-      const report = await decryptTransactions({
+      const report = await syncWalletWithAuthority({
         wallet,
         authority: value.authority,
         transactions: [transaction],
