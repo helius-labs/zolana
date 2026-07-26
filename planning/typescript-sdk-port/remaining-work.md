@@ -649,6 +649,17 @@ back as that `bigint`, the same string in `slot` or `leaf_index` is refused with
 field. Apply a control edit to each of the three assertions and watch it fail
 before recording the verdict.
 
+### Packet 8b. Give `get_nullifier_queue_elements` a specification entry
+
+Owner: `port/spec-amend`, which holds the amendments the owner has authorised.
+The X01 ruling calls this method an undocumented extension rather than a
+divergence, so it needs a spec entry rather than removal: Rust, the port and
+Photon each implement it and `docs/spec.md` does not mention it.
+
+**Done when** `docs/spec.md` defines the method's request, response, and error
+shapes as the three implementations have them, and a grep for the method name in
+the spec returns a definition rather than nothing.
+
 ## Step 9. Pass the package and full SDK gate sets
 
 **Now.** No package gate set has passed. That is the largest thing standing
