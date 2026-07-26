@@ -7,15 +7,17 @@ reports were right; the corrections to them are in the sections below.
 
 | Row | Was | Now |
 | --- | --- | --- |
-| C03 `rpc.rs` | needs_fix / DIVERGENT | PARTIAL: one implemented method has no port |
+| C03 `rpc.rs` | needs_fix / DIVERGENT | PARITY, one surface reduction recorded |
 | C04 `indexer.rs` | needs_fix / PARTIAL | PARTIAL: the decoder is parity, two items open |
 | C05 `solana_rpc.rs` | needs_fix / PARTIAL | PARITY, one decided divergence pinned |
 | C18 `prover/zone_authority.rs` | needs_fix / DIVERGENT | PARITY |
 
-A second pass over C03 and C04 found one more item on each, both after the
-sections below were first written and both verified in the Rust source. They are
-in **The one method that is not a stub** and **The two Rust twins disagree**, and
-they are why those two rows read PARTIAL here rather than PARITY.
+A second pass over C03 and C04 found one more item on each, after the sections
+below were first written. C03's was `send_transaction_with_config`, wrongly
+counted among the unimplemented stubs and genuinely unreachable from TypeScript;
+it is built here behind a new oracle and the row closes. C04's is a disagreement
+between the two Rust twins that only the owner can settle, so that row stays
+PARTIAL.
 
 **Worktree collision.** A second agent was committing to `port/client-c` in this
 same worktree while this ran. It landed `c3ed4dac` on top of `3ab3f3dc`, and it
@@ -29,7 +31,7 @@ later, because the other agent's build had emptied that package's output
 mid-run. That is the stale-`dist/` trap the brief warns about, arriving from a
 direction rebuilding does not fix.
 
-## C03 `rpc.rs`: PARTIAL
+## C03 `rpc.rs`: PARITY
 
 ### The eight stubs hold up
 
@@ -99,33 +101,45 @@ straight off the RPC envelope. No capability is lost; the field is. Widening
 `RpcAccount` is a one-line change if the reconciler wants the row to be exact
 rather than equivalent.
 
-### The one method that is not a stub, and it holds the row open
+### The one method that is not a stub, now carried
 
 `send_transaction_with_config` was counted with the eight and does not belong
-there. Both Solana adapters override it (`solana_rpc.rs:525-537` blocking, and
-the async twin at `:663`), `ZolanaClient` forwards it at `client.rs:611-616`, and
-the body passes a real `RpcSendTransactionConfig` to
+there. Both Solana adapters override it (`solana_rpc.rs:525-537` blocking, the
+async twin at `:663`), `ZolanaClient` forwards it at `client.rs:611-616`, and the
+body hands a real `RpcSendTransactionConfig` to
 `send_and_confirm_transaction_with_spinner_and_config`, so `skip_preflight`,
 `preflight_commitment`, `encoding`, `max_retries` and `min_context_slot` all
-reach the node. TypeScript's `sendTransaction` hardcodes
-`{ encoding: "base64", preflightCommitment: "confirmed" }`
-(`sdk-libs/ts/client/src/solana-rpc.ts:277-284`) and takes no configuration
-parameter. A caller who needs preflight skipped, or a bound on the node's
-retries, can express that in Rust and cannot here.
+reach the node. TypeScript's `sendTransaction` hardcoded
+`{ encoding: "base64", preflightCommitment: "confirmed" }` and took no
+configuration, so a caller needing preflight skipped, or a bound on the node's
+retries, could express it in Rust and not here.
 
-Not built on this branch, deliberately. The wire shape is chosen by
-`solana_rpc_client`, not by anything in this repository: which field names it
-emits, which it omits when unset, and what the spinner variant does with the
-`CommitmentConfig::confirmed()` argument that sits beside the config. Guessing
-would reintroduce the class of wrong request shape the reads oracle already
-caught twice.
+None of the wire shape is visible in this repository: `solana_rpc_client` chooses
+which fields it emits, whether an unset one is omitted or nulled, and what an
+absent preflight commitment resolves to. So `xtask/src/bin/solana-rpc-send.rs`
+records it, driving a real `SolanaRpc` through all three entry points against a
+listener that answers by method for as long as the client keeps asking, which
+sending needs because it confirms as well. `sendTransactionWithConfig`
+(`sdk-libs/ts/client/src/solana-rpc.ts`) is compared against the recording by
+`client/test/vectors/solana-rpc-send-oracle.test.ts`.
 
-**What blocks C03:** an oracle case recording the request bytes
-`send_transaction_with_config` puts on the wire, for a default config and for one
-with `skip_preflight` and `max_retries` set. `xtask/src/bin/solana-rpc-reads.rs`
-cannot host it as it stands, because its listener answers once and this call
-confirms as well as sends, so it keeps polling. The repeated-answer listener in
-`solana-rpc-groups.rs` added here is the shape it needs.
+Two things the oracle settled that reading would have got wrong:
+
+- An absent `preflight_commitment` resolves to **finalized** on the configured
+  path and to **confirmed** on the no-config path. Rust fills the first from the
+  config field's own default and the second from the client's configured
+  commitment (`solana_rpc.rs:125-130`). The port reproduces the split rather than
+  making the two agree, and the default-config case pins it.
+- Unset fields go out as explicit `null`, not omitted, because Rust serializes
+  the whole struct. The node treats the two alike, but the recorded request is
+  compared whole.
+
+Control edits, each observed to fail: resolving the configured path's absent
+commitment to `confirmed`, and dropping the `maxRetries` range check.
+
+`encoding` is the one config field with no TypeScript counterpart. Both Rust
+paths set it to base64 and the port serializes base64 unconditionally, so there
+is nothing for a caller to choose.
 
 ## C04 `indexer.rs`: PARTIAL
 
@@ -349,9 +363,10 @@ the only remaining asymmetry on the rail and it is Rust's to fix.
 - **The owner, C04.** Rule on which `get_merkle_proofs` twin the port follows.
   The row cannot close either way without it, and the blocking answer needs a new
   `ClientError` code for the expiry.
-- **Whoever picks up C03.** Record `send_transaction_with_config`'s request bytes
-  with a repeated-answer oracle listener, then give `sendTransaction` the
-  configuration parameter. Both are described above.
+- **Whoever owns CI.** Three fixture generators now exist and nothing runs any of
+  them. `solana-rpc-reads`, `solana-rpc-groups` and `solana-rpc-send` each take
+  `--check` and fail on drift, so a job that runs the three would catch a Rust
+  change the fixtures no longer describe.
 - **A01 (`sdk-libs/ts/api`).** Stop quoting unsafe integers for the five
   unbounded fields, or ask the owner to amend the ruling to allow the transport
   to preserve them. Today the ruled precision-loss refusal is unreachable
@@ -365,7 +380,7 @@ the only remaining asymmetry on the rail and it is Rust's to fix.
 
 From `sdk-libs/ts`, after `npm run build`:
 
-- `npm run test:unit`: 2026 passed, 1 skipped, 120 files, 0 failed.
+- `npm run test:unit`: 2030 passed, 1 skipped, 121 files, 0 failed.
 - `npm run lint`: clean.
 - `npm run typecheck`: clean.
 - `npm run check:static`: clean, which is the one worth running. `npm run lint`
@@ -373,11 +388,11 @@ From `sdk-libs/ts`, after `npm run build`:
   that caught a real error on this branch lives in `lint:packages`, which only
   `check:static` reaches.
 
-`cargo fmt -p xtask -- --check`, `cargo clippy -p xtask --bin solana-rpc-groups`
-under `-D warnings`, and
-`cargo run -p xtask --bin solana-rpc-groups -- --check` are all clean, so the
-grouping fixture is current against the Rust it was generated from.
+`cargo fmt -p xtask -- --check` is clean, and so are `cargo clippy` under
+`-D warnings` and `cargo run ... -- --check` for both `solana-rpc-groups` and
+`solana-rpc-send`, so the two new fixtures describe the Rust they were generated
+from.
 
 Not run: `cargo test -p zolana-client`, for the reason
 [`stragglers.md`](stragglers.md#verification) records. No Rust behaviour changed
-on this branch; the only Rust added is a generator binary.
+on this branch; the only Rust added is two generator binaries.
