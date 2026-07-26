@@ -287,7 +287,10 @@ describe("K9 capability and HSM boundary against current Rust", () => {
     );
     const asViewing: ViewingKeyLike = keypair;
     const asKeypair: ShieldedKeypairLike = keypair;
-    expect(toHex((asViewing.publicKey() as P256PublicKey).toBytes())).toBe(
+    // No cast: the K11 narrowing removed the promise arm, so this reads as a
+    // `P256PublicKey` outright. Restoring the union would make the cast
+    // necessary again and fail the lint gate, which is the point.
+    expect(toHex(asViewing.publicKey().toBytes())).toBe(
       certification.transferEncryption.senderPublicKeyBytes,
     );
     expect(asKeypair.nullifierPublicKey()).toHaveLength(32);
