@@ -105,7 +105,8 @@ check is the most expensive thing in this port.** It is also why P4 must run the
 **full** shape set on every pull request once wired: P4 is the only suite that
 proves a TypeScript-produced and TypeScript-compressed proof verifies through
 the same `groth16-solana` path the program uses, and this class of bug slipped
-through while that suite stayed opt-in.
+through while that suite stayed opt-in. Why this cost stays versus Light:
+[`ci-comparison.md`](ci-comparison.md) §3 (“Why full P4 stays”).
 
 ### What is not true yet
 

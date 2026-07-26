@@ -149,7 +149,21 @@ None of these flags appear in `typescript.yml`. Enabling them on every PR is the
 | Cost control for heaviest prover tests | `TestFull` only on `release/**` PRs | Heavy TS prove suites opt-in; Rust localnet matrix already always-on |
 | Flake policy | Retry once in JS workflows | Fail closed |
 
-**Implication for the in-progress “run P4/P5/GATE3 on every PR” change:** Light’s equivalent *JS* posture is already “prove on every PR.” Zolana would be catching up on the TypeScript rail, not inventing a stricter bar than Light’s JS CI. Zolana would still be stricter about same-revision binaries. The expensive part is wall-clock and key warm-up on `ubuntu-latest`, not philosophical novelty. Rust-side Zolana already pays a large live-proof bill that Light also pays (programs/forester), so adding TS prove suites is incremental on top of an already live-heavy CI, not the first introduction of proving keys into the repo’s CI.
+**Implication for the in-progress “run P4/P5/GATE3 on every PR” change:** Light’s equivalent *JS* posture is already “prove on every PR.” Zolana would be catching up on the TypeScript rail for prove-to-chain coverage, not inventing a stricter bar than Light’s JS CI on that axis. Zolana would still be stricter about same-revision binaries. The expensive part is wall-clock and key warm-up on `ubuntu-latest`, not philosophical novelty. Rust-side Zolana already pays a large live-proof bill that Light also pays (programs/forester), so adding TS prove suites is incremental on top of an already live-heavy CI, not the first introduction of proving keys into the repo’s CI.
+
+### Why full P4 stays (compression certification Light does not have)
+
+P4 is not “prove on every PR” in Light’s sense. It builds proof inputs in TypeScript, proves on a local prover, compresses the Groth16 proof **in TypeScript**, and verifies the compressed proof through a Rust oracle that runs the same `groth16-solana` decompress-and-verify path the Solana program uses. Roughly 24 prove cases; expected +15 to 40 minutes on the e2e job. The objection “Light does not pay this, so drop it” fails on inspection: Light has the same compression surface and no equivalent check.
+
+- Light’s Go prover returns **uncompressed** gnark JSON (`ar` / `bs` / `krs` from `WriteRawTo`) in `prover/server/prover/common/marshal.go`. It does not return compressed proofs.
+- Compression lives in clients. Two compressors: hand-rolled TypeScript in `js/stateless.js/src/utils/parse-validity-proof.ts` (`negateAndCompressProof`, `proofFromJsonStruct`, `yElementIsPositiveG2`) on the direct-prover / test-rpc path; and Rust `solana_bn254` (`alt_bn128_g1_compress_be` / `alt_bn128_g2_compress_be`) in `prover/client/src/proof.rs` and in Photon’s `get_validity_proof` prover module.
+- Production JavaScript skips the TypeScript compressor only because Photon already compressed in Rust. That is routing, not a design that removes the bug class. Their test-rpc path still compresses in TypeScript.
+- The only guard on Light’s TypeScript compressor is a hardcoded golden fixture in that same file, next to TODOs “add unit test for negation” and “test if LE BE issue.” There is no decompress-and-verify against `groth16-solana`. A bad proof fails in the Solana program during end-to-end tests.
+- Zolana’s architecture matches Light’s **test-rpc** path (TypeScript talking to an uncompressed prover), not their Photon path.
+
+Concrete reason the suite exists: our `compressG2` read each Fq2 limb as c0-then-c1 while gnark writes c1 first, which turned correct bytes into a genuinely off-curve point. Caught by hand, not by CI, because the suite had never run. Light’s “test if LE BE issue” TODO is the same suspicion, written down and left untested — so this bug class is plausibly latent on their test-rpc path.
+
+Moving compression into the prover would be a third design matching neither project, would still require certifying the Go compressor against the program’s decompress path, and would trade a known TypeScript bug class for an uncertified Go one. P4’s full shape set stays on every PR. Do not drop it to match Light’s cost posture.
 
 ---
 
@@ -208,7 +222,7 @@ Release validation is **not** automatically the union of all PR checks; it assum
 
 1. **Merge signal:** Zolana TypeScript invents a single conclusive job that stays green on path skip. Light has no equivalent; skipped path-filtered workflows simply disappear from the PR.
 2. **Same-revision vs release prover (JS path):** Light JS e2e trusts a published prover binary + auto-downloaded keys. Zolana builds prover/Photon from the PR — slower CI, tighter coupling, catches prover/server drift the release binary would hide.
-3. **TS prove coverage gap:** Light’s default JS CI already exercises real proofs. Zolana’s default TS CI exercises the stack and non-proof lifecycles; the prove-to-chain acceptance suites are the gap being closed.
+3. **TS prove coverage gap:** Light’s default JS CI already exercises real proofs (rejection in the Solana program). Zolana’s default TS CI exercises the stack and non-proof lifecycles; P5/GATE3 close the prove-to-chain gap. Separately, Zolana’s P4 certifies TypeScript compression against `groth16-solana`, a check Light does not have (see §3).
 4. **Packaging / browser / fixture discipline:** Zolana is ahead for a multi-package TS SDK (API extractor, pack-check, Playwright vectors, fixture `--check`). Light’s JS CI is integration-heavy and packaging-light.
 5. **Always-on breadth:** Light’s unfiltered JS/CLI/lint workflows tax every PR. Zolana filters the expensive TS tier but still runs a wide Rust live matrix.
 6. **Security automation:** Light has CodeQL + Dependabot; Zolana does not (in-repo). Zolana pins Actions SHAs more aggressively.
@@ -220,29 +234,31 @@ Release validation is **not** automatically the union of all PR checks; it assum
 
 ### Worth adopting from Light (for Zolana)
 
-1. **Run the opt-in prove suites on PR CI (P4 fast + P5 + GATE3, maybe `ZOLANA_TEST_LIVE`)** — **expensive** (keys + prove time on the e2e job or a sibling job), but this is exactly Light’s JS posture and the gap the in-progress change targets. Prefer a dedicated job (or matrix) with proving-key cache already used by `e2e`, rather than lengthening the critical path blindly; keep `P4_FULL` on schedule or release if shape fan-out is large.
+1. **Run P5 + GATE3 (+ maybe `ZOLANA_TEST_LIVE`) on PR CI** — **expensive** (keys + prove time), and this is Light’s JS “prove on every PR” posture for prove-to-chain. Prefer a dedicated job (or matrix) with the proving-key cache `e2e` already uses when wall-clock forces a split.
 2. **Retry once around known-flaky live suites** — **cheap** workflow glue; Light already does this for JS. Use sparingly so it does not mask real races.
 3. **actionlint + Dependabot (Actions + npm + cargo)** — **cheap**; catches workflow syntax and stale Actions.
 4. **CodeQL (or equivalent)** — **cheap-to-moderate** GitHub product enablement; Light already surfaces Analyze jobs on PRs.
 5. **Semantic PR title check** — **cheap** if the team wants changelog discipline; optional culture fit.
 6. **Do not copy Light’s “download release prover for JS e2e”** for Zolana’s merge gate — that would weaken same-revision guarantees Zolana already paid for. Keep workspace prover/Photon.
+7. **Do not copy Light’s missing compression-oracle gate** — see §3. Their production path compresses in Rust via Photon; Zolana’s TypeScript rail matches their test-rpc path and needs P4.
 
-### Things Zolana already does that Light does not (keep)
+### Things Zolana already does / will keep that Light does not
 
 1. **Single conclusive TypeScript merge-gate + job-level path filter** — **cheap** once required-checks are wired; avoids skipped-check deadlocks. Light has no analogue.
 2. **Packaging / API / export / pack-check gates** — **cheap-moderate**; high leverage before first npm publish. Light publishes npm via operator script without these CI gates.
 3. **Playwright browser-runtime crypto vectors** — **moderate** (browser download cache); Light lacks this.
 4. **Fixture regeneration `--check` against Rust oracles** — **moderate-expensive** (fixtures job ~5 min sample) but prevents silent TS/Rust drift. Light has no equivalent gate.
 5. **Same-revision Photon + prover in TS e2e** — **expensive** but catches cross-crate breaks Light’s release-prover path can miss.
-6. **Port-offset isolation + in-harness log attach** — **cheap** design; better for multi-suite jobs than Light’s fixed ports.
-7. **Formal-verification circuit drift (`git diff --exit-code`)** — **moderate**; stricter than Light’s extract-and-build-only Lean job.
-8. **Photon OpenAPI / migration / container immutability checks** — domain-specific; Light’s Photon is an external submodule, not an in-repo publish surface.
-9. **`check:scope` composition lock** — **cheap**; prevents CI from silently dropping a tier of `npm run check`.
+6. **Full P4 on every PR (TypeScript compress → `groth16-solana` verify)** — **expensive** (+15 to 40 min, ~24 shapes). Light has no equivalent; their TypeScript compressor is golden-fixture only. Not optional cost-cutting. Justification in §3.
+7. **Port-offset isolation + in-harness log attach** — **cheap** design; better for multi-suite jobs than Light’s fixed ports.
+8. **Formal-verification circuit drift (`git diff --exit-code`)** — **moderate**; stricter than Light’s extract-and-build-only Lean job.
+9. **Photon OpenAPI / migration / container immutability checks** — domain-specific; Light’s Photon is an external submodule, not an in-repo publish surface.
+10. **`check:scope` composition lock** — **cheap**; prevents CI from silently dropping a tier of `npm run check`.
 
 ### Explicit non-gaps (do not manufacture work)
 
-- Light is **not** weaker on “do we prove in CI at all?” for the JS SDK — it is stronger on that narrow claim today.
-- Light’s full gnark `TestFull` is intentionally off main PRs; copying “always run TestFull” would be more extreme than Light, not parity.
+- Light is **not** weaker on “do we prove in CI at all?” for the JS SDK — it is stronger on that narrow claim today (e2e that fails in the Solana program). That does **not** extend to “TypeScript compression is certified”: Light has no P4-equivalent, and Zolana must not drop full P4 to match their minute cost.
+- Light’s full gnark `TestFull` is intentionally off main PRs; copying “always run TestFull” would be more extreme than Light, not parity. Full P4 is a different axis (client compression), not a Go `TestFull` clone.
 - Neither side currently shows API-visible required status checks; adopting Light’s check names without enabling enforcement changes little.
 - Light’s retry loops and always-on unfiltered JS workflows buy coverage at higher flake and minute cost; copying both blindly would regress Zolana’s path-filter discipline.
 
