@@ -248,6 +248,24 @@ the P256 case; dropping the whole-note comparison from the re-check is caught by
 the five `utxo.*` substitutions; dropping the two attached hashes is caught by
 their own two.
 
+## Verification
+
+`npm run build && rm -rf node_modules/.vite && npm run test:unit` passes at 1767
+tests over 96 files, and `npm run check:static` and `npm run lint:packages` are
+clean.
+
+`cargo test -p zolana-transaction -p zolana-wallet` passes. `cargo test -p
+zolana-client` does not complete in this worktree, for a reason that predates
+this branch: the five prover-backed cucumber targets and `transfer_dummy` call
+`spawn_prover`, which locates a `zolana` CLI through `ZOLANA_CLI_BIN` or
+`target/debug/zolana`, finds neither, falls back to an installed binary without a
+`dev` subcommand, and then hangs on the health check. `merge_proving` sat at zero
+CPU for fifty minutes before it was killed. What did run is green: the crate's 28
+library tests, including the five `retry.rs` cases this branch's oracle mirrors.
+Building the CLI in the worktree would fix it, but the prover binds a fixed port
+and the sibling worktrees share it, so that is the operator's call rather than a
+test-run detail.
+
 ## What stands between this and the next phase
 
 1. **C03 needs an owner's decision**, not an implementation. Does `Rpc` stay
