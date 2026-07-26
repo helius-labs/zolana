@@ -304,6 +304,31 @@ mod tests {
 
         assert_eq!(transaction.hash().expect("transaction hash"), expected);
     }
+
+    /// The output-side mirror of the input rule in
+    /// `crate::instructions::types`: both zone builders normalize an explicit
+    /// zero data hash, and the zone address keeps committing to `pk_field(0)`.
+    /// The last assertion fails if anyone normalizes the address too.
+    #[test]
+    fn an_explicit_zero_normalizes_at_the_zone_data_hash_and_not_at_the_zone_address() {
+        let zone = Address::new_from_array([9u8; 32]);
+
+        let bound = SppProofOutputUtxo::default().with_zone_data_hash(zone, [0u8; 32]);
+        assert_eq!(bound.zone_data_hash, None);
+        assert_eq!(bound.zone_program_id, Some(zone));
+
+        let carrying_data =
+            SppProofOutputUtxo::default().with_zone_data(zone, vec![1, 2], [0u8; 32]);
+        assert_eq!(carrying_data.zone_data_hash, None);
+
+        let zero_zone = SppProofOutputUtxo::default().with_zone_program_id(Address::default());
+        assert_eq!(
+            ProofInputUtxo::try_from(&zero_zone)
+                .expect("proof input")
+                .zone_program_id,
+            zolana_keypair::hash::hash_field(&[0u8; 32]).expect("pk_field(0)")
+        );
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -241,4 +241,37 @@ mod tests {
 
         assert_eq!(spend.check_canonical_dummy(), Ok(()));
     }
+
+    fn real_input() -> SppProofInputUtxo {
+        let mut spend = SppProofInputUtxo::new_dummy();
+        spend.utxo.owner = PublicKey::from_ed25519(&[1u8; 32]);
+        spend.utxo.blinding = ORACLE_BLINDING;
+        spend.nullifier_key = NullifierKey::from_secret([3u8; BLINDING_LEN]);
+        spend
+    }
+
+    /// T28 covers two zone bindings that cost differently, and the suite has to
+    /// hold them apart. Normalizing the zone data hash moves no commitment,
+    /// because `unwrap_or_default` committed the zero either way. Normalizing
+    /// the zone address would move one: `Some(Address::default())` commits to
+    /// `pk_field(0)`, a non-zero field the circuit reads as zone-bound. The
+    /// second half of this test fails if anyone extends normalization there.
+    #[test]
+    fn an_explicit_zero_normalizes_at_the_zone_data_hash_and_not_at_the_zone_address() {
+        let unbound = real_input().hash().expect("unbound hash");
+
+        let normalized = real_input().with_zone_data_hash([0u8; 32]);
+        assert_eq!(normalized.zone_data_hash, None);
+        assert_eq!(normalized.hash().expect("normalized hash"), unbound);
+
+        let mut zero_zone = real_input();
+        zero_zone.utxo.zone_program_id = Some(Address::default());
+        assert_eq!(
+            ProofInputUtxo::try_from(&zero_zone)
+                .expect("proof input")
+                .zone_program_id,
+            zolana_keypair::hash::hash_field(&[0u8; 32]).expect("pk_field(0)")
+        );
+        assert_ne!(zero_zone.hash().expect("zero-zone hash"), unbound);
+    }
 }
