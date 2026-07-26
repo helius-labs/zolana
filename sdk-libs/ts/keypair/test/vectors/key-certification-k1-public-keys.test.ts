@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Bytes32, Bytes33, Bytes34 } from "../../src/bytes.js";
+import type { Bytes33, Bytes34 } from "../../src/bytes.js";
 import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "../../src/constants.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../src/index.js";
 import { certification, expectDisposition, expectHex, fromHex, toHex } from "./certification.js";
@@ -30,7 +30,7 @@ describe("K1 public-key encoding and parsing", () => {
       expectDisposition(
         () => ShieldedPublicKey.fromBytes(tagged(entry.prefix, p256Body)),
         entry.disposition,
-        `p256 body under prefix ${entry.prefix}`,
+        `p256 body under prefix ${String(entry.prefix)}`,
       );
     }
     expect(recorded.p256PrefixSweep.filter((entry) => entry.disposition.accepted)).toHaveLength(1);
@@ -42,7 +42,7 @@ describe("K1 public-key encoding and parsing", () => {
       expectDisposition(
         () => ShieldedPublicKey.fromBytes(tagged(entry.prefix, ed25519Body)),
         entry.disposition,
-        `ed25519 body under prefix ${entry.prefix}`,
+        `ed25519 body under prefix ${String(entry.prefix)}`,
       );
     }
     expect(recorded.ed25519PrefixSweep.filter((entry) => entry.disposition.accepted)).toHaveLength(
@@ -67,7 +67,7 @@ describe("K1 public-key encoding and parsing", () => {
       expectDisposition(
         () => ShieldedPublicKey.fromBytes(tagged(1, fromHex(entry.bodyBytes))),
         entry.disposition,
-        `ed25519 padding ${entry.paddingByte}`,
+        `ed25519 padding ${String(entry.paddingByte)}`,
       );
     }
   });
@@ -85,14 +85,14 @@ describe("K1 public-key encoding and parsing", () => {
       if (length === SHIELDED_PUBLIC_KEY_LENGTH) continue;
       expect(
         () => ShieldedPublicKey.fromBytes(new Uint8Array(length) as Bytes34),
-        `tagged length ${length}`,
+        `tagged length ${String(length)}`,
       ).toThrow(expect.objectContaining({ code: "KEYPAIR_INVALID_LENGTH" }));
     }
     for (let length = 0; length <= P256_PUBLIC_KEY_LENGTH + 2; length++) {
       if (length === P256_PUBLIC_KEY_LENGTH) continue;
       expect(
         () => P256PublicKey.fromBytes(new Uint8Array(length) as Bytes33),
-        `body length ${length}`,
+        `body length ${String(length)}`,
       ).toThrow(expect.objectContaining({ code: "KEYPAIR_INVALID_LENGTH" }));
     }
   });
@@ -166,6 +166,6 @@ describe("K1 public-key encoding and parsing", () => {
     body.fill(0);
     expectHex(inner.toBytes(), recorded.p256BodyBytes);
     expect(inner.x()).toHaveLength(32);
-    expect(inner.x() as Bytes32).not.toBe(inner.x());
+    expect(inner.x()).not.toBe(inner.x());
   });
 });

@@ -84,7 +84,7 @@ describe("K5 viewing and transaction-viewing keys", () => {
   it("refuses a counter outside the u64 range", () => {
     const viewing = key();
     for (const counter of [-1n, 1n << 64n, (1n << 64n) + 1n]) {
-      expect(() => viewing.senderViewTag(counter), `${counter}`).toThrow();
+      expect(() => viewing.senderViewTag(counter), String(counter)).toThrow();
       expect(() => viewing.mergeViewTag(counter)).toThrow();
       expect(() => viewing.sendSharedViewTag(counterparty(), counter)).toThrow();
     }
@@ -137,7 +137,7 @@ describe("K5 viewing and transaction-viewing keys", () => {
   it("refuses an account index outside u32", () => {
     const seed = fromHex(recorded.seedBytes) as Bytes32;
     for (const account of [-1, 1.5, 0x1_0000_0000]) {
-      expect(() => ViewingKey.fromSeed(seed, account), `${account}`).toThrow();
+      expect(() => ViewingKey.fromSeed(seed, account), String(account)).toThrow();
     }
   });
 

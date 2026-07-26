@@ -119,9 +119,7 @@ describe("keypair errors against current Rust", () => {
     );
     expectRustError(
       () =>
-        ShieldedPublicKey.fromBytes(
-          fromHex(fixture.pubkeys.p256.taggedBytes) as Bytes34,
-        ).ed25519(),
+        ShieldedPublicKey.fromBytes(fromHex(fixture.pubkeys.p256.taggedBytes) as Bytes34).ed25519(),
       fixture.errors.wrongRailError,
     );
   });
@@ -246,9 +244,7 @@ describe("public keys against current Rust", () => {
 
     const p256 = ShieldedPublicKey.fromBytes(fromHex(fixture.pubkeys.p256.taggedBytes) as Bytes34);
     const same = ShieldedPublicKey.fromBytes(fromHex(fixture.pubkeys.p256.taggedBytes) as Bytes34);
-    const ed = ShieldedPublicKey.fromBytes(
-      fromHex(fixture.pubkeys.ed25519.taggedBytes) as Bytes34,
-    );
+    const ed = ShieldedPublicKey.fromBytes(fromHex(fixture.pubkeys.ed25519.taggedBytes) as Bytes34);
     expect(p256.equals(same)).toBe(fixture.pubkeys.equality.sameKeyEqual);
     expect(p256.equals(ed)).toBe(fixture.pubkeys.equality.crossRailEqual);
     expect(p256.p256().equals(same.p256())).toBe(true);
@@ -470,9 +466,9 @@ describe("slot encryption against current Rust", () => {
         entry.ciphertextBytes,
       );
     }
-    expect(() =>
-      sender().encryptSlot(recipient().publicKey(), plaintext, salt, 2 ** 32),
-    ).toThrow(KeypairError);
+    expect(() => sender().encryptSlot(recipient().publicKey(), plaintext, salt, 2 ** 32)).toThrow(
+      KeypairError,
+    );
   });
 
   it("matches every salt boundary", () => {
@@ -505,7 +501,12 @@ describe("slot encryption against current Rust", () => {
       recorded.wrongSlotRecoveredBytes,
     );
     expectHex(
-      recipient().decryptUtxo(ciphertext, sender().publicKey(), fromHex("5b".repeat(16)) as Bytes16, 3),
+      recipient().decryptUtxo(
+        ciphertext,
+        sender().publicKey(),
+        fromHex("5b".repeat(16)) as Bytes16,
+        3,
+      ),
       recorded.wrongSaltRecoveredBytes,
     );
     expectHex(

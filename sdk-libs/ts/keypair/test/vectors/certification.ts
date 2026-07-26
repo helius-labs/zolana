@@ -54,8 +54,11 @@ export function expectDisposition(
     return;
   }
   const expected = RUST_VARIANT_TO_CODE[recorded.variant ?? ""];
-  expect(expected, `${label}: no TypeScript code mirrors Rust ${recorded.variant}`).toBeDefined();
-  expect(operation, `${label}: Rust refused with ${recorded.variant}`).toThrow(
+  expect(
+    expected,
+    `${label}: no TypeScript code mirrors Rust ${recorded.variant ?? ""}`,
+  ).toBeDefined();
+  expect(operation, `${label}: Rust refused with ${recorded.variant ?? ""}`).toThrow(
     expect.objectContaining({ code: expected }),
   );
 }

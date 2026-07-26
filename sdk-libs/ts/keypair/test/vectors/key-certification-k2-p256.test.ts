@@ -121,9 +121,10 @@ describe("K2 P256 signing and verification", () => {
     const signer = key();
     const digest = fromHex(recorded.canonicalDigestBytes);
     for (const length of [0, 32, 63, 65, 128]) {
-      expect(signer.verify(digest, new Uint8Array(length) as Bytes64), `width ${length}`).toBe(
-        false,
-      );
+      expect(
+        signer.verify(digest, new Uint8Array(length) as Bytes64),
+        `width ${String(length)}`,
+      ).toBe(false);
     }
     const signature = fromHex(recorded.canonicalSignatureBytes) as Bytes64;
     expect(signer.verify(digest, signature.subarray(0, 63) as Bytes64)).toBe(false);
@@ -135,7 +136,7 @@ describe("K2 P256 signing and verification", () => {
       expectDisposition(
         () => signer.sign(new Uint8Array(entry.length)),
         entry.disposition,
-        `prehash width ${entry.length}`,
+        `prehash width ${String(entry.length)}`,
       );
     }
     // A message that is not 32 bytes is not signable, so it cannot be verified
@@ -153,7 +154,7 @@ describe("K2 P256 signing and verification", () => {
     for (const index of [0, 31, 32, 63]) {
       const mutated = new Uint8Array(signature) as Bytes64;
       mutated[index] ^= 0x01;
-      expect(signer.verify(digest, mutated), `flipped byte ${index}`).toBe(false);
+      expect(signer.verify(digest, mutated), `flipped byte ${String(index)}`).toBe(false);
     }
     const mutatedDigest = new Uint8Array(digest);
     mutatedDigest[0] ^= 0x01;
