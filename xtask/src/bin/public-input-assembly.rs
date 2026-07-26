@@ -326,11 +326,9 @@ fn confidential_chain(inputs: &ProverInputs, public_input_hash: &[u8; 32]) -> Re
 }
 
 fn merge_cases() -> Result<Value> {
-    let (merge, _) = build_merge()?;
-    let (zone, _) = build_merge_zone()?;
     Ok(json!({
-        "default": merge_chain(&merge, false)?,
-        "zone": merge_chain(&zone, true)?,
+        "default": merge_chain(&build_merge()?, false)?,
+        "zone": merge_chain(&build_merge_zone()?, true)?,
     }))
 }
 
@@ -396,7 +394,7 @@ fn merge_chain(result: &zolana_client::MergeProofResult, zone: bool) -> Result<V
     }))
 }
 
-fn build_merge() -> Result<(zolana_client::MergeProofResult, String)> {
+fn build_merge() -> Result<zolana_client::MergeProofResult> {
     let keypair = merge_keypair();
     let prepared = PreparedMerge {
         inputs: merge_inputs(&keypair, None),
@@ -408,16 +406,16 @@ fn build_merge() -> Result<(zolana_client::MergeProofResult, String)> {
             .expect("tx viewing scalar"),
     };
     let contexts = prepared.input_utxo_hashes()?;
-    let result = MergeProver::try_from(MergeWitness {
+    MergeProver::try_from(MergeWitness {
         prepared,
         nullifier_key: keypair.nullifier_key.clone(),
         proofs: merge_spend_proofs(&contexts),
     })?
-    .build()?;
-    Ok((result, String::new()))
+    .build()
+    .map_err(Into::into)
 }
 
-fn build_merge_zone() -> Result<(zolana_client::MergeProofResult, String)> {
+fn build_merge_zone() -> Result<zolana_client::MergeProofResult> {
     let keypair = merge_keypair();
     let zone = Address::new_from_array(MERGE_ZONE_PROGRAM);
     let prepared = PreparedMergeZone {
@@ -431,13 +429,13 @@ fn build_merge_zone() -> Result<(zolana_client::MergeProofResult, String)> {
         zone_program_id: zone,
     };
     let contexts = prepared.input_utxo_hashes()?;
-    let result = MergeZoneProver::try_from(MergeZoneWitness {
+    MergeZoneProver::try_from(MergeZoneWitness {
         prepared,
         nullifier_key: keypair.nullifier_key.clone(),
         proofs: merge_spend_proofs(&contexts),
     })?
-    .build()?;
-    Ok((result, String::new()))
+    .build()
+    .map_err(Into::into)
 }
 
 fn merge_keypair() -> ShieldedKeypair {
@@ -707,9 +705,8 @@ fn canonicalize(value: &Value) -> Value {
 }
 
 fn workspace_root() -> Result<PathBuf> {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    Ok(manifest
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map(PathBuf::from)
-        .context("xtask crate has no parent")?)
+        .context("xtask crate has no parent")
 }
