@@ -653,10 +653,19 @@ fn capability_boundary() -> Value {
     })
 }
 
-fn ledger_entry(case: &str, boundary: &str, error: &KeypairError) -> Value {
+/// `typescript` names the port's boundary for the same refusal, or is null when
+/// the port has none. A null is a claim the TypeScript suite has to stand
+/// behind, not a hole in the ledger.
+fn ledger_entry(
+    case: &str,
+    boundary: &str,
+    typescript: Option<&str>,
+    error: &KeypairError,
+) -> Value {
     json!({
         "case": case,
         "boundary": boundary,
+        "typescript": typescript,
         "rustVariant": variant_name(error),
         "display": error.to_string(),
     })
@@ -717,21 +726,29 @@ fn error_ledger() -> Value {
             ledger_entry(
                 "invalidSecretKey",
                 "SigningKey::from_bytes",
+                Some("SigningKey.fromBytes"),
                 &expect_err(SigningKey::from_bytes(&[0u8; 32])),
             ),
             ledger_entry(
                 "invalidPublicKey",
                 "PublicKey::from_bytes",
+                Some("ShieldedPublicKey.fromBytes"),
                 &expect_err(PublicKey::from_bytes(bad_point)),
             ),
             ledger_entry(
                 "wrongSignatureType",
                 "PublicKey::from_bytes",
+                Some("ShieldedPublicKey.fromBytes"),
                 &expect_err(PublicKey::from_bytes(bad_prefix)),
             ),
+            // `to_solana_keypair` returns a `solana_keypair::Keypair`, a type
+            // the port does not carry, so no TypeScript boundary reaches
+            // `NotEd25519`. Asking a P256 key for its Ed25519 bytes raises
+            // `InvalidSignatureType` in both languages instead.
             ledger_entry(
                 "unsupportedCapability",
                 "ShieldedKeypair::to_solana_keypair",
+                None,
                 &expect_err(
                     ShieldedKeypair::from_keys(
                         SigningKey::from_bytes(&secret32(3)).expect("seeded p256 secret"),
@@ -742,8 +759,15 @@ fn error_ledger() -> Value {
                 ),
             ),
             ledger_entry(
+                "ed25519OfP256Key",
+                "PublicKey::as_ed25519",
+                Some("ShieldedPublicKey.ed25519"),
+                &expect_err(p256_public.as_ed25519()),
+            ),
+            ledger_entry(
                 "fieldFailure",
                 "NullifierKey::nullifier",
+                Some("NullifierKey.nullifier"),
                 &expect_err(
                     NullifierKey::from_secret([5u8; BLINDING_LEN])
                         .nullifier(&[0xff; 32], &[3u8; BLINDING_LEN]),
@@ -752,9 +776,15 @@ fn error_ledger() -> Value {
             ledger_entry(
                 "invalidPrehashLength",
                 "SigningKey::try_sign",
+                Some("SigningKey.sign"),
                 &expect_err(signing.try_sign(&[7u8; 31])),
             ),
-            ledger_entry("infoTooLong", "merge::symmetric_apply", &info_too_long),
+            ledger_entry(
+                "infoTooLong",
+                "merge::symmetric_apply",
+                Some("symmetricApply"),
+                &info_too_long,
+            ),
         ],
         "badPointBytes": hex(&bad_point),
         "badPrefixBytes": hex(&bad_prefix),

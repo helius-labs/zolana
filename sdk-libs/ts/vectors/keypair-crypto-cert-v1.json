@@ -126,43 +126,57 @@
         "boundary": "SigningKey::from_bytes",
         "case": "invalidSecretKey",
         "display": "invalid secret key",
-        "rustVariant": "InvalidSecretKey"
+        "rustVariant": "InvalidSecretKey",
+        "typescript": "SigningKey.fromBytes"
       },
       {
         "boundary": "PublicKey::from_bytes",
         "case": "invalidPublicKey",
         "display": "invalid public key",
-        "rustVariant": "InvalidPublicKey"
+        "rustVariant": "InvalidPublicKey",
+        "typescript": "ShieldedPublicKey.fromBytes"
       },
       {
         "boundary": "PublicKey::from_bytes",
         "case": "wrongSignatureType",
         "display": "invalid signature-type prefix: 9",
-        "rustVariant": "InvalidSignatureType"
+        "rustVariant": "InvalidSignatureType",
+        "typescript": "ShieldedPublicKey.fromBytes"
       },
       {
         "boundary": "ShieldedKeypair::to_solana_keypair",
         "case": "unsupportedCapability",
         "display": "signing key is not ed25519",
-        "rustVariant": "NotEd25519"
+        "rustVariant": "NotEd25519",
+        "typescript": null
+      },
+      {
+        "boundary": "PublicKey::as_ed25519",
+        "case": "ed25519OfP256Key",
+        "display": "invalid signature-type prefix: 0",
+        "rustVariant": "InvalidSignatureType",
+        "typescript": "ShieldedPublicKey.ed25519"
       },
       {
         "boundary": "NullifierKey::nullifier",
         "case": "fieldFailure",
         "display": "poseidon hash failed (code 7002)",
-        "rustVariant": "Poseidon"
+        "rustVariant": "Poseidon",
+        "typescript": "NullifierKey.nullifier"
       },
       {
         "boundary": "SigningKey::try_sign",
         "case": "invalidPrehashLength",
         "display": "p256 prehash must be 32 bytes, got 31",
-        "rustVariant": "InvalidPrehashLength"
+        "rustVariant": "InvalidPrehashLength",
+        "typescript": "SigningKey.sign"
       },
       {
         "boundary": "merge::symmetric_apply",
         "case": "infoTooLong",
         "display": "key-schedule info exceeds 62 bytes",
-        "rustVariant": "InfoTooLong"
+        "rustVariant": "InfoTooLong",
+        "typescript": "symmetricApply"
       }
     ],
     "unreachable": [
