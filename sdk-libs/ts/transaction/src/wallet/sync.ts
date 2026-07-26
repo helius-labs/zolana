@@ -1,9 +1,8 @@
-import type { Bytes31, Bytes32, Bytes33, Signature } from "@zolana/interface";
-import { P256PublicKey, ShieldedPublicKey, type ViewingKey } from "@zolana/keypair";
+import type { Bytes32, Bytes33, Signature } from "@zolana/interface";
+import { P256PublicKey, type ViewingKey } from "@zolana/keypair";
 
-import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress, encodeAddress, equal, hashField } from "../internal.js";
+import { copy, decodeAddress, equal, hashField } from "../internal.js";
 import type { IndexedShieldedTransaction } from "../instructions/transact.js";
 import {
   EncryptedScheme,
