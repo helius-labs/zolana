@@ -56,8 +56,10 @@ describe("integer and signer validation", () => {
     });
   });
 
-  it("rejects empty, duplicate, and insufficient signer sets", () => {
-    expectError("SMART_ACCOUNT_EMPTY_SIGNERS", () =>
+  // Rust's create builder is infallible for these shapes: empty signers, a
+  // zero or oversized threshold, and duplicate keys all serialize.
+  it("accepts empty, duplicate, and out-of-range threshold signer sets", () => {
+    expect(
       createSmartAccountInstruction({
         creator: CREATOR,
         treasury: treasuryAddress(),
@@ -65,9 +67,10 @@ describe("integer and signer validation", () => {
         signers: [],
         threshold: 1,
         timeLock: 0,
-      }),
-    );
-    expectError("SMART_ACCOUNT_DUPLICATE_SIGNER", () =>
+      }).data.length,
+    ).toBeGreaterThan(0);
+
+    expect(
       createSmartAccountInstruction({
         creator: CREATOR,
         treasury: treasuryAddress(),
@@ -78,10 +81,21 @@ describe("integer and signer validation", () => {
         ],
         threshold: 1,
         timeLock: 0,
-      }),
-    );
-    expectError("SMART_ACCOUNT_INVALID_THRESHOLD", () => create({ threshold: 0 }));
-    expectError("SMART_ACCOUNT_INVALID_THRESHOLD", () => create({ threshold: 2 }));
+      }).data.length,
+    ).toBeGreaterThan(0);
+
+    expect(create({ threshold: 0 }).data.length).toBeGreaterThan(0);
+    expect(create({ threshold: 2 }).data.length).toBeGreaterThan(0);
+  });
+
+  it("accepts duplicate execute signer keys", () => {
+    const instruction = executeSyncInstruction({
+      settings: SETTINGS,
+      accountIndex: 0,
+      signerKeys: [SIGNER, SIGNER],
+      innerInstructions: [],
+    });
+    expect(instruction.accounts.filter((account) => account.address === SIGNER)).toHaveLength(2);
   });
 
   it("rejects malformed addresses before serialization", () => {
@@ -194,51 +208,22 @@ describe("count and payload boundaries", () => {
     );
   });
 
-  it("accepts the 1232-byte instruction boundary and rejects one more byte", () => {
+  // Rust measures transaction size elsewhere and does not refuse here.
+  it("accepts instruction and payload sizes past the 1232-byte packet limit", () => {
     expect(
       executeSyncInstruction({
         settings: SETTINGS,
         accountIndex: 0,
         signerKeys: [],
-        innerInstructions: [inner({ data: new Uint8Array(1212) })],
-      }).data,
-    ).toHaveLength(1232);
-
-    expectError("SMART_ACCOUNT_PAYLOAD_TOO_LARGE", () =>
-      executeSyncInstruction({
-        settings: SETTINGS,
-        accountIndex: 0,
-        signerKeys: [],
         innerInstructions: [inner({ data: new Uint8Array(1213) })],
-      }),
-    );
-  });
+      }).data.length,
+    ).toBeGreaterThan(1232);
 
-  it("accepts u16 inner data and rejects one-overflow before truncation", () => {
-    expectError("SMART_ACCOUNT_PAYLOAD_TOO_LARGE", () =>
-      executeSyncInstruction({
-        settings: SETTINGS,
-        accountIndex: 0,
-        signerKeys: [],
-        innerInstructions: [inner({ data: new Uint8Array(0xffff) })],
-      }),
-    );
-    expectError("SMART_ACCOUNT_DATA_TOO_LARGE", () =>
-      executeSyncInstruction({
-        settings: SETTINGS,
-        accountIndex: 0,
-        signerKeys: [],
-        innerInstructions: [inner({ data: new Uint8Array(0x1_0000) })],
-      }),
-    );
-  });
-
-  it("rejects a create instruction that exceeds the packet limit", () => {
     const signers = Array.from({ length: 37 }, (_, index) => ({
       key: testAddress(index + 500),
       permissions: { mask: 7 },
     }));
-    expectError("SMART_ACCOUNT_INSTRUCTION_TOO_LARGE", () =>
+    expect(
       createSmartAccountInstruction({
         creator: CREATOR,
         treasury: treasuryAddress(),
@@ -246,8 +231,29 @@ describe("count and payload boundaries", () => {
         signers,
         threshold: 1,
         timeLock: 0,
-      }),
-    );
+      }).data.length,
+    ).toBeGreaterThan(1232);
+  });
+
+  // Rust writes `ix.data.len() as u16`, so 0x10000 keeps the bytes and a zero prefix.
+  it("truncates an inner data length past u16 the way Rust does", () => {
+    const data = new Uint8Array(0x1_0000);
+    data[0] = 7;
+    data[0xffff] = 9;
+    const instruction = executeSyncInstruction({
+      settings: SETTINGS,
+      accountIndex: 0,
+      signerKeys: [],
+      innerInstructions: [inner({ data })],
+    });
+    // Execute header (8+1+1+1+4) then payload: count, program index, account
+    // count, u16 length, then the inner bytes.
+    const lengthOffset = 8 + 1 + 1 + 1 + 4 + 1 + 1 + 1;
+    expect(instruction.data[lengthOffset]).toBe(0);
+    expect(instruction.data[lengthOffset + 1]).toBe(0);
+    expect(instruction.data[lengthOffset + 2]).toBe(7);
+    expect(instruction.data[lengthOffset + 2 + 0xffff]).toBe(9);
+    expect(instruction.data.length).toBe(lengthOffset + 2 + 0x1_0000);
   });
 });
 

@@ -1,4 +1,4 @@
-import { TRANSACTION_SIZE_LIMIT, type Address, type Instruction } from "@zolana/interface";
+import type { Address, Instruction } from "@zolana/interface";
 
 import { decodeAddress } from "./base58.js";
 import { SmartAccountClientError } from "./error.js";
@@ -28,9 +28,6 @@ const SYSTEM_PROGRAM = "11111111111111111111111111111111" as Address;
 const MAX_U8 = 0xff;
 const MAX_U16 = 0xffff;
 const MAX_U32 = 0xffff_ffff;
-// Inner instruction data rides inside one transaction, so the packet limit
-// bounds it too.
-const MAX_INSTRUCTION_DATA_SIZE = TRANSACTION_SIZE_LIMIT;
 const U128_MAX = (1n << 128n) - 1n;
 
 export function allPermissions(): Permissions {
@@ -59,7 +56,10 @@ export function createSmartAccountInstruction(
   }
   assertUnsignedInteger("threshold", input.threshold, MAX_U16);
   assertUnsignedInteger("timeLock", input.timeLock, MAX_U32);
-  validateCreateSigners(input.signers, input.threshold);
+  for (const signer of input.signers) {
+    decodeAddress(signer.key);
+    assertUnsignedInteger("permissions.mask", signer.permissions.mask, MAX_U8);
+  }
 
   const authorityBytes =
     input.settingsAuthority === undefined ? undefined : decodeAddress(input.settingsAuthority);
@@ -76,7 +76,6 @@ export function createSmartAccountInstruction(
   writer.u8(0);
   writer.u8(0);
   const data = writer.finish();
-  assertInstructionSize(data.length);
 
   const [programConfig] = programConfigAddress();
   const [settings] = settingsAddress(input.settingsSeed);
@@ -105,7 +104,9 @@ export function executeSyncInstruction(
   assertUnsignedInteger("accountIndex", input.accountIndex, MAX_U8);
   assertCount("signerKeys", input.signerKeys.length);
   assertCount("innerInstructions", input.innerInstructions.length);
-  validateUniqueAddresses(input.signerKeys, "signerKeys");
+  for (const key of input.signerKeys) {
+    decodeAddress(key);
+  }
 
   const [vault] = smartAccountAddress(input.settings, input.accountIndex);
   const { payload, accounts: compiledAccounts } = compilePayload(input.innerInstructions, vault);
@@ -118,7 +119,6 @@ export function executeSyncInstruction(
   writer.u32(payload.length);
   writer.bytes(payload);
   const data = writer.finish();
-  assertInstructionSize(data.length);
 
   const accounts = [
     account(input.settings, false, true),
@@ -165,13 +165,6 @@ function compilePayload(
   for (const inner of innerInstructions) {
     ensureAccount(inner.programAddress, false, false);
     assertCount("innerInstruction.accounts", inner.accounts.length);
-    if (inner.data.length > MAX_U16) {
-      throw new SmartAccountClientError(
-        "SMART_ACCOUNT_DATA_TOO_LARGE",
-        "inner instruction data exceeds u16",
-        { details: { actualLength: inner.data.length, maximum: MAX_U16 } },
-      );
-    }
     for (const meta of inner.accounts) {
       ensureAccount(meta.address, meta.isSigner, meta.isWritable);
     }
@@ -185,22 +178,11 @@ function compilePayload(
     for (const meta of inner.accounts) {
       writer.u8(ensureAccount(meta.address, meta.isSigner, meta.isWritable));
     }
-    writer.u16(inner.data.length);
+    // Rust writes `ix.data.len() as u16`: full bytes stay, high length bits drop.
+    writer.u16(inner.data.length & MAX_U16);
     writer.bytes(inner.data);
   }
   const payload = writer.finish();
-  if (payload.length + 15 > MAX_INSTRUCTION_DATA_SIZE) {
-    throw new SmartAccountClientError(
-      "SMART_ACCOUNT_PAYLOAD_TOO_LARGE",
-      "compiled payload exceeds the Solana instruction limit",
-      {
-        details: {
-          actualLength: payload.length,
-          maximum: MAX_INSTRUCTION_DATA_SIZE - 15,
-        },
-      },
-    );
-  }
 
   const vaultIndex = indexes.get(vault);
   if (vaultIndex === undefined) {
@@ -212,58 +194,6 @@ function compilePayload(
     payload,
     accounts: accounts.map((meta) => account(meta.address, meta.isSigner, meta.isWritable)),
   };
-}
-
-function validateCreateSigners(signers: readonly SmartAccountSigner[], threshold: number): void {
-  if (signers.length === 0) {
-    throw new SmartAccountClientError(
-      "SMART_ACCOUNT_EMPTY_SIGNERS",
-      "at least one signer is required",
-    );
-  }
-  if (signers.length > MAX_U16) {
-    throw new SmartAccountClientError(
-      "SMART_ACCOUNT_TOO_MANY_SIGNERS",
-      "signer count exceeds u16",
-      { details: { actual: signers.length, maximum: MAX_U16 } },
-    );
-  }
-  if (threshold === 0 || threshold > signers.length) {
-    throw new SmartAccountClientError(
-      "SMART_ACCOUNT_INVALID_THRESHOLD",
-      "threshold must be between one and the signer count",
-      { details: { signerCount: signers.length, threshold } },
-    );
-  }
-
-  const keys = new Set<Address>();
-  for (const signer of signers) {
-    decodeAddress(signer.key);
-    assertUnsignedInteger("permissions.mask", signer.permissions.mask, MAX_U8);
-    if (keys.has(signer.key)) {
-      throw new SmartAccountClientError(
-        "SMART_ACCOUNT_DUPLICATE_SIGNER",
-        "signer keys must be unique",
-        { details: { key: signer.key } },
-      );
-    }
-    keys.add(signer.key);
-  }
-}
-
-function validateUniqueAddresses(addresses: readonly Address[], name: string): void {
-  const unique = new Set<Address>();
-  for (const address of addresses) {
-    decodeAddress(address);
-    if (unique.has(address)) {
-      throw new SmartAccountClientError(
-        "SMART_ACCOUNT_DUPLICATE_SIGNER",
-        "signer keys must be unique",
-        { details: { key: address, name } },
-      );
-    }
-    unique.add(address);
-  }
 }
 
 function assertCount(name: string, count: number): void {
@@ -278,16 +208,6 @@ function countErrorCode(name: string): `SMART_ACCOUNT_${string}` {
   if (name === "innerInstructions") return "SMART_ACCOUNT_TOO_MANY_INSTRUCTIONS";
   if (name === "signerKeys") return "SMART_ACCOUNT_TOO_MANY_SIGNERS";
   return "SMART_ACCOUNT_TOO_MANY_ACCOUNTS";
-}
-
-function assertInstructionSize(length: number): void {
-  if (length > MAX_INSTRUCTION_DATA_SIZE) {
-    throw new SmartAccountClientError(
-      "SMART_ACCOUNT_INSTRUCTION_TOO_LARGE",
-      "instruction data exceeds the Solana instruction limit",
-      { details: { actualLength: length, maximum: MAX_INSTRUCTION_DATA_SIZE } },
-    );
-  }
 }
 
 function invalidInteger(name: string, value: number | bigint): SmartAccountClientError {
