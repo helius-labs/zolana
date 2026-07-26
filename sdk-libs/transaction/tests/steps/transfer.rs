@@ -2,7 +2,7 @@ use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, ShieldedKeypair};
 use zolana_transaction::{
-    data::{Data, DataRecord},
+    data::{OutputData, DataRecord},
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
@@ -34,7 +34,7 @@ pub(crate) struct RecipientSpec {
     pub asset: solana_address::Address,
     pub asset_id: u64,
     pub view_tag: [u8; 32],
-    pub data: Data,
+    pub data: OutputData,
 }
 
 pub(crate) fn build_anonymous_transfer(
@@ -194,7 +194,7 @@ fn registry() -> AssetRegistry {
     .unwrap()
 }
 
-fn build(world: &mut TransactionWorld, recipients: Vec<(String, u64, Data)>) {
+fn build(world: &mut TransactionWorld, recipients: Vec<(String, u64, OutputData)>) {
     let registry = registry();
     let sender_signing = world.sender().signing_pubkey();
     let sender_kp = world.fresh_keypair(world.sender_name.as_ref().unwrap());
@@ -226,8 +226,8 @@ fn build(world: &mut TransactionWorld, recipients: Vec<(String, u64, Data)>) {
         sol_amount: 5,
         blinding_seed: SENDER_BLINDING_SEED,
         recipient_viewing_pks,
-        spl_data: Data::default(),
-        sol_data: Data::default(),
+        spl_data: OutputData::default(),
+        sol_data: OutputData::default(),
     };
 
     let first_nullifier = [7u8; 32];
@@ -252,7 +252,7 @@ fn build(world: &mut TransactionWorld, recipients: Vec<(String, u64, Data)>) {
 #[when(expr = "{string} builds a transfer paying {int} to {string}")]
 fn build_one(world: &mut TransactionWorld, sender: String, amount: u64, a: String) {
     world.sender_name = Some(sender);
-    build(world, vec![(a, amount, Data::default())]);
+    build(world, vec![(a, amount, OutputData::default())]);
 }
 
 #[when(expr = "{string} builds a transfer paying {int} to {string} and {int} to {string}")]
@@ -268,8 +268,8 @@ fn build_two(
     build(
         world,
         vec![
-            (a, amount_a, Data::default()),
-            (b, amount_b, Data::default()),
+            (a, amount_a, OutputData::default()),
+            (b, amount_b, OutputData::default()),
         ],
     );
 }
@@ -283,7 +283,7 @@ fn build_zero(world: &mut TransactionWorld, sender: String) {
 #[when(expr = "{string} builds a transfer to {string} with program data")]
 fn build_with_data(world: &mut TransactionWorld, sender: String, a: String) {
     world.sender_name = Some(sender);
-    let data = Data::new(vec![
+    let data = OutputData::new(vec![
         DataRecord::ZoneData(vec![10, 11, 12]),
         DataRecord::UtxoData(vec![20, 21]),
     ]);

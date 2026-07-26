@@ -36,7 +36,7 @@ use zolana_transaction::{
     },
     instructions::types::SppProofInputUtxo,
     utxo::Utxo,
-    Data, SOL_MINT,
+    OutputData, SOL_MINT,
 };
 use zolana_wallet::{resolve_registered_address, Deposit, DepositParams};
 
@@ -111,7 +111,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             amount: USER_SPL_SHIELD,
             blinding: env.user_spl_blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let source_in = SppProofInputUtxo::new(source_utxo, &env.user.keypair);
         let remainder_amount = USER_SPL_SHIELD
@@ -167,7 +167,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             amount: ORDER_AMOUNT,
             blinding: split_blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         }
     };
 
@@ -200,7 +200,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             amount: reserved,
             blinding: deposit.data.blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         }
     };
 

@@ -17,12 +17,12 @@ pub enum DataRecord {
 }
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, Default, PartialEq, Eq)]
-pub struct Data {
+pub struct OutputData {
     #[wincode(with = "containers::Vec<DataRecord, FixIntLen<u8>>")]
     pub records: Vec<DataRecord>,
 }
 
-impl Data {
+impl OutputData {
     pub fn new(records: Vec<DataRecord>) -> Self {
         Self { records }
     }
@@ -96,21 +96,21 @@ mod tests {
 
     #[test]
     fn memo_round_trips_and_is_readable() {
-        let data = Data::new(vec![
+        let data = OutputData::new(vec![
             DataRecord::ZoneData(vec![9, 9]),
             DataRecord::UtxoData(vec![1]),
             DataRecord::Memo(b"gm".to_vec()),
         ]);
         data.validate().unwrap();
         let bytes = wincode::serialize(&data).unwrap();
-        let parsed: Data = wincode::deserialize_exact(&bytes).unwrap();
+        let parsed: OutputData = wincode::deserialize_exact(&bytes).unwrap();
         assert_eq!(parsed, data);
         assert_eq!(parsed.memo(), Some(b"gm".as_slice()));
     }
 
     #[test]
     fn memo_only_is_valid() {
-        let data = Data::new(vec![DataRecord::Memo(vec![7; 300])]);
+        let data = OutputData::new(vec![DataRecord::Memo(vec![7; 300])]);
         data.validate().unwrap();
         assert_eq!(data.memo(), Some([7u8; 300].as_slice()));
         assert!(data.zone_data().is_none());
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn duplicate_memo_is_rejected() {
-        let data = Data::new(vec![DataRecord::Memo(vec![1]), DataRecord::Memo(vec![2])]);
+        let data = OutputData::new(vec![DataRecord::Memo(vec![1]), DataRecord::Memo(vec![2])]);
         assert_eq!(
             data.validate().unwrap_err(),
             TransactionError::DuplicateDataRecord
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn record_after_memo_is_non_canonical() {
         for trailing in [DataRecord::ZoneData(vec![1]), DataRecord::UtxoData(vec![1])] {
-            let data = Data::new(vec![DataRecord::Memo(vec![0]), trailing]);
+            let data = OutputData::new(vec![DataRecord::Memo(vec![0]), trailing]);
             assert_eq!(
                 data.validate().unwrap_err(),
                 TransactionError::NonCanonicalDataOrder

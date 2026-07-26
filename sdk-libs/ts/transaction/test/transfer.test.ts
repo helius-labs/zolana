@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AssetRegistry,
   ConfidentialTransfer,
-  Data,
+  OutputData,
   SppProofInputUtxo,
   SOL_MINT,
   SppProofInputs,
@@ -684,7 +684,7 @@ describe("manifest-verified transaction builders", () => {
         amount: 50n,
         blinding: deriveBlinding(seed, 0),
         zoneProgramId: zone,
-        data: new Data([
+        data: new OutputData([
           { kind: "zoneData", bytes: Uint8Array.of(1) },
           { kind: "memo", bytes: Uint8Array.of(2) },
         ]),
@@ -716,7 +716,7 @@ describe("manifest-verified transaction builders", () => {
     const seed = new Uint8Array(31).fill(4) as Bytes31;
     const zone = encodeAddress(new Uint8Array(32).fill(9));
     const spend = (
-      overrides: Readonly<{ zoneProgramId?: Address; data?: Data; zoneDataHash?: Bytes32 }>,
+      overrides: Readonly<{ zoneProgramId?: Address; data?: OutputData; zoneDataHash?: Bytes32 }>,
     ): SppProofInputUtxo =>
       new SppProofInputUtxo({
         utxo: new Utxo({
@@ -735,7 +735,7 @@ describe("manifest-verified transaction builders", () => {
       expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH" }),
     );
     for (const overrides of [
-      { data: new Data([{ kind: "utxoData" as const, bytes: Uint8Array.of(1) }]) },
+      { data: new OutputData([{ kind: "utxoData" as const, bytes: Uint8Array.of(1) }]) },
       { zoneDataHash: new Uint8Array(32).fill(6) as Bytes32 },
     ]) {
       expect(() => new Merge(sender.keypair, [spend(overrides)])).toThrow(

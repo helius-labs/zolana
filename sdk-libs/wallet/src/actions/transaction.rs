@@ -917,7 +917,7 @@ mod tests {
     use borsh::to_vec;
     use solana_account::Account;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{Data, DataRecord, Utxo, WalletUtxo};
+    use zolana_transaction::{OutputData, DataRecord, Utxo, WalletUtxo};
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;
@@ -969,7 +969,7 @@ mod tests {
             amount,
             blinding: [7u8; 31],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
         let hash = utxo
@@ -1368,7 +1368,7 @@ mod tests {
             .output_context
             .hash;
         if let Some(entry) = wallet.utxos.first_mut() {
-            entry.utxo.data = Data::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
+            entry.utxo.data = OutputData::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
         }
 
         // An explicitly named non-plain utxo must error rather than silently
@@ -1461,7 +1461,7 @@ mod tests {
             amount,
             blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
         let hash = utxo

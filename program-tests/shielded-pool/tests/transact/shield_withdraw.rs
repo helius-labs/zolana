@@ -31,7 +31,7 @@ use zolana_interface::{
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
+use zolana_transaction::{instructions::transact::PrivateTxHash, OutputData, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
@@ -96,7 +96,7 @@ fn shield_then_withdraw_sol() {
         amount: AMOUNT,
         blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
@@ -295,7 +295,7 @@ fn shield_transfer_then_withdraw_sol() {
         amount: AMOUNT,
         blinding: payer_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let payer_owner_pk_hash = payer_utxo.owner.hash().expect("payer owner pk hash");
     let payer_owner_field =
@@ -491,7 +491,7 @@ fn shield_transfer_then_withdraw_sol() {
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     assert_eq!(
         recipient_hash,

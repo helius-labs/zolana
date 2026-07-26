@@ -1,7 +1,7 @@
 import type { Rpc, SignedPrivateTransaction, ZolanaClient } from "@zolana/client";
 import type { Address, Bytes32, Transaction } from "@zolana/interface";
 import { ShieldedKeypair } from "@zolana/keypair";
-import { AssetRegistry, Data, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
+import { AssetRegistry, OutputData, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
 import { describe, expect, it } from "vitest";
 
 import fixture from "../../../vectors/wallet-actions-v1.json" with { type: "json" };
@@ -83,7 +83,7 @@ function buildWalletWithKey(id: WalletId, keypair: ShieldedKeypair): Wallet {
           asset: SOL_MINT,
           amount: BigInt(note.amount),
           blinding,
-          data: new Data(),
+          data: new OutputData(),
           ...(note.kind === "zoneBound" ? { zoneProgramId: fixture.zoneProgram as Address } : {}),
         }),
         outputContext: {
@@ -173,7 +173,7 @@ function railWallet(authority: ShieldedKeypair, noteOwner: ShieldedKeypair): Wal
           asset: SOL_MINT,
           amount: 10n,
           blinding: new Uint8Array(31).fill(1),
-          data: new Data(),
+          data: new OutputData(),
         }),
         outputContext: { hash: filled(1), tree: tree("primary"), leafIndex: 0n },
         nullifier: filled(20),

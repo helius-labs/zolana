@@ -1113,7 +1113,7 @@
       "marker": "active",
       "packet": "P05",
       "path": "sdk-libs/transaction/src/data.rs",
-      "responsibility": "Implements DataRecord; Data; public only where `public-exports.md` declares it.",
+      "responsibility": "Implements DataRecord; OutputData; public only where `public-exports.md` declares it.",
       "target": "`@zolana/transaction` · `src/data.ts`",
       "testResponsibility": "Unit: success and every error branch. Property: length/range/order/tamper invariants. Integration: Rust fixture/real dependency boundary. E2E: owning workflow where public."
     },

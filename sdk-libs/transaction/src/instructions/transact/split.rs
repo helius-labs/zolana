@@ -15,7 +15,7 @@ use zolana_keypair::{
 
 use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
 use crate::{
-    data::Data,
+    data::OutputData,
     error::TransactionError,
     instructions::{merge::has_data, types::SppProofInputUtxo},
     serialization::{
@@ -208,7 +208,7 @@ impl PreparedSplit {
             asset_id: assets.asset_id(&self.asset)?,
             asset_amount: self.per_output_amount,
             blinding_seed: self.blinding_seed,
-            data: Data::default(),
+            data: OutputData::default(),
         })
     }
 
@@ -293,7 +293,7 @@ mod tests {
             amount,
             blinding: [5u8; BLINDING_LEN],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
     }

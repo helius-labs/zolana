@@ -19,7 +19,7 @@ use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
 use zolana_transaction::{
-    serialization::confidential::Confidential, Data, ShieldedTransaction, Utxo, WalletUtxo,
+    serialization::confidential::Confidential, OutputData, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
 };
 
@@ -331,7 +331,7 @@ impl LifecycleWorld {
             amount,
             blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
         let output_context = tx

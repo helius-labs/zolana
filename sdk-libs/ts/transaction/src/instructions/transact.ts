@@ -20,7 +20,7 @@ import {
   type SignatureType,
 } from "@zolana/keypair";
 
-import { Data } from "../data.js";
+import { OutputData } from "../data.js";
 import { TransactionError } from "../error.js";
 import {
   ZERO_32,
@@ -1030,7 +1030,7 @@ function dummyCiphertextLength(salt: Bytes16): number {
     encryptConfidential(
       throwaway,
       throwaway.publicKey(),
-      { assetId: SOL_ASSET_ID, amount: 0n, blinding: random31(), data: new Data() },
+      { assetId: SOL_ASSET_ID, amount: 0n, blinding: random31(), data: new OutputData() },
       salt,
       0,
     ),

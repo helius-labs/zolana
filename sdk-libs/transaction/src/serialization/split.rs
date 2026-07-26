@@ -7,7 +7,7 @@ use zolana_keypair::{
 
 use super::{validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
-    data::Data,
+    data::OutputData,
     error::TransactionError,
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
     AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SPLIT,
@@ -29,7 +29,7 @@ pub struct SplitBundlePlaintext {
     pub asset_id: u64,
     pub asset_amount: u64,
     pub blinding_seed: [u8; BLINDING_LEN],
-    pub data: Data,
+    pub data: OutputData,
 }
 
 impl SplitBundlePlaintext {

@@ -21,7 +21,7 @@ use zolana_interface::instruction::{builders::Deposit, tag};
 use zolana_program_test::TestIndexer;
 use zolana_test_utils::smart_account::{standard_accounts, StandardSigners};
 use zolana_transaction::{
-    derive_blinding, instructions::transact::canonical_shape, AssetRegistry, Data, DataRecord,
+    derive_blinding, instructions::transact::canonical_shape, AssetRegistry, OutputData, DataRecord,
 };
 
 /// Single source of truth for the historical fixture baseline commit. Pins the
@@ -513,10 +513,10 @@ fn production_fixtures(
 
     let shape = canonical_shape(2, 3)?;
     let shape_error = canonical_shape(99, 99).expect_err("unsupported shape");
-    let duplicate_error = Data::new(vec![DataRecord::Memo(vec![1]), DataRecord::Memo(vec![2])])
+    let duplicate_error = OutputData::new(vec![DataRecord::Memo(vec![1]), DataRecord::Memo(vec![2])])
         .validate()
         .expect_err("duplicate data");
-    let canonical_data = Data::new(vec![
+    let canonical_data = OutputData::new(vec![
         DataRecord::ZoneData(vec![1]),
         DataRecord::UtxoData(vec![2, 3]),
         DataRecord::Memo(vec![4]),
@@ -650,7 +650,7 @@ fn production_fixtures(
             fixture_base!(
                 "fx-p00-transaction-values-errors-v1",
                 "sdk-libs/transaction/src/instructions/transact/shape.rs",
-                "canonical_shape; Data::validate",
+                "canonical_shape; OutputData::validate",
                 "sdk-libs/transaction/tests/steps/mod.rs",
                 "P00",
                 "logical values and typed error evidence",
@@ -1592,7 +1592,7 @@ fn transaction_fixtures(vectors: &Value) -> Result<Vec<(&'static str, Value)>> {
             "transaction/data-v1.json",
             "fx-p00-transaction-data-v1",
             "sdk-libs/transaction/src/data.rs",
-            "DataRecord; Data",
+            "DataRecord; OutputData",
             "sdk-libs/transaction/src/data.rs",
             "record order, accessors, u16 lengths, round trips, and malformed data",
         ),

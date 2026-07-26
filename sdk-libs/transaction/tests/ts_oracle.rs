@@ -59,7 +59,7 @@ use zolana_transaction::{
         split::{Split, SplitEncode, SplitEncryptedUtxos},
         DecodeCx, OwnerCx, UtxoSerialization,
     },
-    AssetBalance, AssetRegistry, Data, DataRecord, EncryptedScheme, Filter, OutputContext,
+    AssetBalance, AssetRegistry, OutputData, DataRecord, EncryptedScheme, Filter, OutputContext,
     ProofInputUtxo, TransactionError, Utxo, Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT, SPLIT,
 };
 
@@ -533,14 +533,14 @@ fn data_case(name: &str, kinds: &[(&str, Vec<u8>)]) -> Value {
         records.push(record);
         described.push(description);
     }
-    let data = Data::new(records);
+    let data = OutputData::new(records);
     let mut case = Map::new();
     case.insert("name".into(), json!(name));
     case.insert("records".into(), Value::Array(described));
     match data.validate() {
         Ok(()) => {
             let bytes = wincode::serialize(&data).expect("serialize data");
-            let parsed: Data = wincode::deserialize_exact(&bytes).expect("round trip data");
+            let parsed: OutputData = wincode::deserialize_exact(&bytes).expect("round trip data");
             assert_eq!(parsed, data, "{name} does not round trip");
             case.insert("encodedHex".into(), json!(hex(&bytes)));
             case.insert("error".into(), Value::Null);
@@ -1013,26 +1013,26 @@ fn canonical_dummy_cases() -> Value {
 /// covered here.
 fn serialization_section() -> Value {
     let confidential = [
-        ("bare", 1u64, 1_000u64, None, Data::default()),
+        ("bare", 1u64, 1_000u64, None, OutputData::default()),
         (
             "zoneBound",
             7,
             42,
             Some(address(12)),
-            Data::new(vec![DataRecord::ZoneData(vec![9, 9])]),
+            OutputData::new(vec![DataRecord::ZoneData(vec![9, 9])]),
         ),
         (
             "everyRecord",
             2,
             u64::MAX,
             Some(address(12)),
-            Data::new(vec![
+            OutputData::new(vec![
                 DataRecord::ZoneData(vec![9, 9]),
                 DataRecord::UtxoData(vec![1]),
                 DataRecord::Memo(b"gm".to_vec()),
             ]),
         ),
-        ("zeroAmount", 1, 0, None, Data::default()),
+        ("zeroAmount", 1, 0, None, OutputData::default()),
     ]
     .into_iter()
     .map(|(name, asset_id, amount, zone_program_id, data)| {
@@ -1272,7 +1272,7 @@ fn spec_utxo(spec: &UtxoSpec) -> Utxo {
             None => [99u8; BLINDING_LEN],
         },
         zone_program_id: spec.zone,
-        data: Data::new(
+        data: OutputData::new(
             spec.records
                 .iter()
                 .map(|(kind, bytes)| record(kind, bytes).0)
@@ -1797,7 +1797,7 @@ fn transfer_case(case: TransferCase) -> Value {
                     amount: *amount,
                     blinding: derive_blinding(&BLINDING_SEED, *position),
                     zone_program_id: None,
-                    data: Data::default(),
+                    data: OutputData::default(),
                 },
                 &owner,
             )
@@ -2134,8 +2134,8 @@ impl MergeInputSpec {
 const MERGE_DATA_HASH: [u8; 32] = [31; 32];
 const MERGE_ZONE_DATA_HASH: [u8; 32] = [32; 32];
 
-fn merge_data(records: &[&'static str]) -> Data {
-    Data::new(
+fn merge_data(records: &[&'static str]) -> OutputData {
+    OutputData::new(
         records
             .iter()
             .map(|kind| match *kind {
@@ -3045,7 +3045,7 @@ fn wallet_balances_section() -> Value {
                 amount,
                 blinding: [u8::try_from(index + 1).unwrap(); BLINDING_LEN],
                 zone_program_id: None,
-                data: Data::new(Vec::new()),
+                data: OutputData::new(Vec::new()),
             },
             output_context: OutputContext {
                 hash: [u8::try_from(index + 1).unwrap(); 32],
@@ -3464,7 +3464,7 @@ fn anonymous_progression_section() -> Value {
                 asset_id: SOL_ASSET_ID,
                 amount: 100 + index,
                 blinding: [index as u8 + 7; BLINDING_LEN],
-                data: Data::default(),
+                data: OutputData::default(),
             };
             let bytes = plaintext
                 .serialize()
@@ -3564,7 +3564,7 @@ fn confidential_decrypt_cases(user: &ViewingKey, tx: &ViewingKey) -> Value {
         amount: 77,
         blinding: [11u8; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let bytes = plaintext.serialize().expect("serialize confidential");
     let body = Confidential::encrypt(
@@ -3798,7 +3798,7 @@ fn zone_authority_input(
             amount: 500,
             blinding: TRANSACT_TYPES_BLINDING,
             zone_program_id,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         owner,
     )
@@ -3937,7 +3937,7 @@ fn transact_types_input(
             amount: 100,
             blinding: TRANSACT_TYPES_BLINDING,
             zone_program_id: zone.then(|| address(MERGE_ZONE_BYTE)),
-            data: Data::default(),
+            data: OutputData::default(),
         },
         nullifier_pk: *nullifier_pk,
         zone_data_hash: zone_data_hash.then_some(MERGE_ZONE_DATA_HASH),
@@ -4081,7 +4081,7 @@ fn encrypted_transaction_cases(
                             amount: 0,
                             blinding: TRANSACT_TYPES_BLINDING,
                             zone_program_id: None,
-                            data: Data::default(),
+                            data: OutputData::default(),
                         },
                         nullifier_pk: [0u8; 32],
                         zone_data_hash: None,

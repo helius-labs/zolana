@@ -7,7 +7,7 @@ import {
   type ViewingKeyLike,
 } from "@zolana/keypair";
 
-import { Data, type DataRecord } from "../data.js";
+import { OutputData, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
 import {
   checked,
@@ -84,7 +84,7 @@ export interface ConfidentialOutputPlaintext {
   readonly amount: bigint;
   readonly blinding: Bytes31;
   readonly zoneProgramId?: Address;
-  readonly data: Data;
+  readonly data: OutputData;
 }
 
 export interface AnonymousRecipientPlaintext {
@@ -93,7 +93,7 @@ export interface AnonymousRecipientPlaintext {
   readonly assetId: bigint;
   readonly amount: bigint;
   readonly blinding: Bytes31;
-  readonly data: Data;
+  readonly data: OutputData;
 }
 
 export interface AnonymousSenderPlaintext {
@@ -103,8 +103,8 @@ export interface AnonymousSenderPlaintext {
   readonly solAmount: bigint;
   readonly blindingSeed: Bytes31;
   readonly recipientViewingPublicKeys: readonly P256PublicKey[];
-  readonly splData: Data;
-  readonly solData: Data;
+  readonly splData: OutputData;
+  readonly solData: OutputData;
 }
 
 export interface SplitBundlePlaintext {
@@ -113,7 +113,7 @@ export interface SplitBundlePlaintext {
   readonly assetId: bigint;
   readonly assetAmount: bigint;
   readonly blindingSeed: Bytes31;
-  readonly data: Data;
+  readonly data: OutputData;
 }
 
 export interface SplitEncryptedUtxos {
@@ -138,15 +138,15 @@ export interface TransferPlaintextSender {
   readonly ownerPublicKey: ShieldedPublicKey;
   readonly spl?: TransferPlaintextSplChange;
   readonly solAmount?: bigint;
-  readonly splData: Data;
-  readonly solData: Data;
+  readonly splData: OutputData;
+  readonly solData: OutputData;
 }
 
 export interface TransferPlaintextRecipient {
   readonly ownerPublicKey: ShieldedPublicKey;
   readonly assetId: bigint;
   readonly amount: bigint;
-  readonly data: Data;
+  readonly data: OutputData;
 }
 
 export interface TransferPlaintextUtxos {
@@ -277,8 +277,8 @@ class Reader {
   }
 }
 
-function writeData(writer: Writer, data: Data): void {
-  if (!(data instanceof Data)) {
+function writeData(writer: Writer, data: OutputData): void {
+  if (!(data instanceof OutputData)) {
     throw new TransactionError("TRANSACTION_SERIALIZE", { field: "data" });
   }
   const records = data.records();
@@ -328,7 +328,7 @@ function dataRecordKind(tag: number): DataRecord["kind"] | undefined {
   }
 }
 
-function readData(reader: Reader): Data {
+function readData(reader: Reader): OutputData {
   const count = reader.u8();
   const records: DataRecord[] = [];
   for (let index = 0; index < count; index++) {
@@ -342,16 +342,16 @@ function readData(reader: Reader): Data {
     }
     records.push({ kind, bytes: reader.take(reader.u16()) });
   }
-  return new Data(records);
+  return new OutputData(records);
 }
 
-export function encodeData(data: Data): Uint8Array {
+export function encodeData(data: OutputData): Uint8Array {
   const writer = new Writer();
   writeData(writer, data);
   return writer.finish();
 }
 
-export function decodeData(bytes: Uint8Array): Data {
+export function decodeData(bytes: Uint8Array): OutputData {
   const reader = new Reader(bytes);
   const data = readData(reader);
   reader.exact();
@@ -418,7 +418,7 @@ export function confidentialPlaintextFromUtxo(
     amount: utxo.amount,
     blinding: copy(utxo.blinding),
     ...(utxo.zoneProgramId === undefined ? {} : { zoneProgramId: utxo.zoneProgramId }),
-    data: new Data(utxo.data.records()),
+    data: new OutputData(utxo.data.records()),
   };
 }
 
@@ -948,7 +948,7 @@ export function prooflessUtxo(value: ProoflessOutput, owner: ShieldedPublicKey):
     asset: value.asset,
     amount: value.amount,
     blinding: value.blinding,
-    data: new Data(records),
+    data: new OutputData(records),
     ...(value.zoneProgramId === undefined ? {} : { zoneProgramId: value.zoneProgramId }),
   });
 }
@@ -1236,8 +1236,8 @@ export function plaintextTransferFromUtxos(
   let senderOwner: ShieldedPublicKey | undefined;
   let spl: TransferPlaintextSplChange | undefined;
   let solAmount: bigint | undefined;
-  let splData = new Data();
-  let solData = new Data();
+  let splData = new OutputData();
+  let solData = new OutputData();
   const recipients: (readonly [number, TransferPlaintextRecipient])[] = [];
   const seen = new Set<number>();
   for (const [index, utxo] of utxos.entries()) {
@@ -1255,7 +1255,7 @@ export function plaintextTransferFromUtxos(
       }
       senderOwner = owner.owner;
       spl = { amount: utxo.amount, assetId: owner.assets.assetId(utxo.asset) };
-      splData = new Data(utxo.data.records());
+      splData = new OutputData(utxo.data.records());
     } else if (position === 1) {
       validateOwner(utxo, owner.owner, index);
       if (utxo.asset !== SOL_MINT) {
@@ -1263,7 +1263,7 @@ export function plaintextTransferFromUtxos(
       }
       senderOwner = owner.owner;
       solAmount = utxo.amount;
-      solData = new Data(utxo.data.records());
+      solData = new OutputData(utxo.data.records());
     } else {
       recipients.push([
         position,
@@ -1271,7 +1271,7 @@ export function plaintextTransferFromUtxos(
           ownerPublicKey: utxo.owner,
           assetId: owner.assets.assetId(utxo.asset),
           amount: utxo.amount,
-          data: new Data(utxo.data.records()),
+          data: new OutputData(utxo.data.records()),
         },
       ]);
     }
@@ -1316,7 +1316,7 @@ export function anonymousRecipientFromUtxos(
     assetId: owner.assets.assetId(first.asset),
     amount: first.amount,
     blinding: copy(first.blinding),
-    data: new Data(first.data.records()),
+    data: new OutputData(first.data.records()),
   };
 }
 
@@ -1333,8 +1333,8 @@ export function anonymousSenderFromUtxos(
   let splAssetId = 0n;
   let splAmount = 0n;
   let solAmount = 0n;
-  let splData = new Data();
-  let solData = new Data();
+  let splData = new OutputData();
+  let solData = new OutputData();
   let splSeen = false;
   let solSeen = false;
   for (const [index, utxo] of utxos.entries()) {
@@ -1346,7 +1346,7 @@ export function anonymousSenderFromUtxos(
       }
       solSeen = true;
       solAmount = utxo.amount;
-      solData = new Data(utxo.data.records());
+      solData = new OutputData(utxo.data.records());
     } else {
       if (splSeen || !equal(utxo.blinding, deriveBlinding(blindingSeed, 0))) {
         throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position: 0 });
@@ -1354,7 +1354,7 @@ export function anonymousSenderFromUtxos(
       splSeen = true;
       splAssetId = owner.assets.assetId(utxo.asset);
       splAmount = utxo.amount;
-      splData = new Data(utxo.data.records());
+      splData = new OutputData(utxo.data.records());
     }
   }
   return {
@@ -1400,7 +1400,7 @@ export function splitBundleFromUtxos(
     assetId: owner.assets.assetId(first.asset),
     assetAmount: first.amount,
     blindingSeed,
-    data: new Data(first.data.records()),
+    data: new OutputData(first.data.records()),
   };
 }
 
@@ -1429,7 +1429,7 @@ export function prooflessFromUtxos(
   };
 }
 
-function sameData(left: Data, right: Data): boolean {
+function sameData(left: OutputData, right: OutputData): boolean {
   const leftRecords = left.records();
   const rightRecords = right.records();
   if (leftRecords.length !== rightRecords.length) return false;

@@ -8,7 +8,7 @@ use zolana_keypair::{
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
     utxo::{Blinding, Utxo},
-    Data,
+    OutputData,
 };
 
 use crate::err;
@@ -108,7 +108,7 @@ impl EscrowUtxo {
             amount: self.amount,
             blinding: self.blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         Ok(SppProofInputUtxo::new(utxo, Self::nullifier_key())
             .with_data_hash(self.terms.data_hash()?))

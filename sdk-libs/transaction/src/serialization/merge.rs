@@ -4,7 +4,7 @@ use zolana_keypair::{
 };
 
 use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
-use crate::{data::Data, error::TransactionError, utxo::Utxo, EncryptedScheme};
+use crate::{data::OutputData, error::TransactionError, utxo::Utxo, EncryptedScheme};
 
 const MERGE_PLAINTEXT_LEN: usize = 8 + 32 + BLINDING_LEN;
 
@@ -87,7 +87,7 @@ impl UtxoSerialization for Merge {
             amount: plaintext.amount,
             blinding: plaintext.blinding,
             zone_program_id: cx.zone_program_id,
-            data: Data::default(),
+            data: OutputData::default(),
         }])
     }
 

@@ -611,7 +611,7 @@ mod tests {
             merge::{Merge, MergeEncode},
             Proofless,
         },
-        Address, AssetRegistry, Data, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
+        Address, AssetRegistry, OutputData, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
         PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
@@ -1286,7 +1286,7 @@ mod tests {
             amount: prepared.output.amount,
             blinding: prepared.output.blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let output_hash = output
             .hash(
@@ -1394,7 +1394,7 @@ mod tests {
             amount,
             blinding: [seed; BLINDING_LEN],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         }
     }
 

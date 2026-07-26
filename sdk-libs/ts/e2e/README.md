@@ -25,3 +25,5 @@ Each suite pins its own `ZOLANA_PORT_OFFSET` (300 / 400 / 500 / 800). Leave `ZOL
 Opt-in live suites (`test:e2e:p4`, `test:e2e:p5`, `test:e2e:p5:hybrid`, `test:e2e:gate3`,
 `test:e2e:user-registry`) also run on every pull request in the `typescript / e2e` job,
 sequentially: P5 / Gate 3 assert offset 300, and the user-registry lifecycle hardcodes 500.
+`test:e2e:p4` runs the full shape set (`ZOLANA_TEST_P4_FULL=1`). CI wraps each of those five in
+`retry-once.sh` (one visible retry); `check:e2e` stays fail-closed.

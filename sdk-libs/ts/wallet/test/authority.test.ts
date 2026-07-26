@@ -1,6 +1,6 @@
 import type { Address, Bytes32 } from "@zolana/interface";
 import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
-import { AssetRegistry, Data, SOL_MINT } from "@zolana/transaction";
+import { AssetRegistry, OutputData, SOL_MINT } from "@zolana/transaction";
 import {
   EncryptedScheme,
   decodeOutputData,
@@ -79,7 +79,7 @@ describe("local wallet authority", () => {
       asset: SOL_MINT,
       amount: 9n,
       blinding: new Uint8Array(31).fill(4) as import("@zolana/interface").Bytes31,
-      data: new Data(),
+      data: new OutputData(),
       ownerHash: () => localKeypair.shieldedAddress().ownerHash(),
       hash: () => new Uint8Array(32) as Bytes32,
       isDummy: () => false,
@@ -110,7 +110,7 @@ describe("local wallet authority", () => {
       assetId: 0n,
       assetAmount: 4n,
       blindingSeed: new Uint8Array(31).fill(8) as import("@zolana/interface").Bytes31,
-      data: new Data(),
+      data: new OutputData(),
     };
     const split = await authority.encryptSplit({
       firstNullifier: new Uint8Array(32).fill(9) as Bytes32,
@@ -142,7 +142,7 @@ describe("local wallet authority", () => {
       asset: SOL_MINT,
       amount: 9n,
       blinding: new Uint8Array(31).fill(4) as import("@zolana/interface").Bytes31,
-      data: new Data(),
+      data: new OutputData(),
       ownerHash: () => localKeypair.shieldedAddress().ownerHash(),
       hash: () => new Uint8Array(32) as Bytes32,
       isDummy: () => false,

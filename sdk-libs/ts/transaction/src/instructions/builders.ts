@@ -7,7 +7,7 @@ import {
   type ShieldedPublicKey,
 } from "@zolana/keypair";
 
-import { Data } from "../data.js";
+import { OutputData } from "../data.js";
 import { TransactionError } from "../error.js";
 import { checked, decodeAddress, equal, random31, sha256Be } from "../internal.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
@@ -511,7 +511,7 @@ export class PreparedSplit {
       assetId: assets.assetId(this.input.utxo.asset),
       assetAmount: this.perOutputAmount,
       blindingSeed: this.blindingSeed,
-      data: new Data(),
+      data: new OutputData(),
     };
   }
 

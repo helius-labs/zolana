@@ -1,7 +1,7 @@
 use cucumber::{then, when};
 use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ShieldedKeypair};
 use zolana_transaction::{
-    data::{Data, DataRecord},
+    data::{OutputData, DataRecord},
     serialization::plaintext::{
         TransferPlaintextRecipient, TransferPlaintextSender, TransferPlaintextSplChange,
         TransferPlaintextUtxos,
@@ -34,21 +34,21 @@ fn build(world: &mut TransactionWorld, sender: String, r1: String, r2: String) {
                 asset_id: 2,
             }),
             sol_amount: Some(50),
-            spl_data: Data::default(),
-            sol_data: Data::default(),
+            spl_data: OutputData::default(),
+            sol_data: OutputData::default(),
         }),
         recipient_slots: vec![
             TransferPlaintextRecipient {
                 owner_pubkey: world.kp(&r1).signing_pubkey(),
                 asset_id: 2,
                 amount: 40,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             TransferPlaintextRecipient {
                 owner_pubkey: world.kp(&r2).signing_pubkey(),
                 asset_id: 1,
                 amount: 10,
-                data: Data::default(),
+                data: OutputData::default(),
             },
         ],
     };
@@ -138,8 +138,8 @@ fn sender_data_without_output(world: &mut TransactionWorld, name: String) {
             owner_pubkey: world.kp(&name).signing_pubkey(),
             spl: None,
             sol_amount: Some(50),
-            spl_data: Data::new(vec![DataRecord::UtxoData(vec![1, 2, 3])]),
-            sol_data: Data::default(),
+            spl_data: OutputData::new(vec![DataRecord::UtxoData(vec![1, 2, 3])]),
+            sol_data: OutputData::default(),
         }),
         recipient_slots: vec![],
     };
@@ -160,7 +160,7 @@ fn ed25519_recipient_indexed(_world: &mut TransactionWorld) {
             owner_pubkey: PublicKey::from_ed25519(&raw),
             asset_id: 2,
             amount: 5,
-            data: Data::default(),
+            data: OutputData::default(),
         }],
     };
     let indexed = utxos.into_indexed_utxos(&registry(), None).unwrap();

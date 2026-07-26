@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AssetRegistry,
-  Data,
+  OutputData,
   SOL_ASSET_ID,
   SOL_MINT,
   Utxo,
@@ -30,8 +30,8 @@ const SEED = new Uint8Array(32).fill(7) as Bytes32;
 const BLINDING_SEED = new Uint8Array(31).fill(5) as Bytes31;
 const ZONE = "So11111111111111111111111111111111111111112" as Address;
 
-function zoneData(): Data {
-  return new Data([{ kind: "zoneData", bytes: Uint8Array.of(1, 2, 3) }]);
+function zoneData(): OutputData {
+  return new OutputData([{ kind: "zoneData", bytes: Uint8Array.of(1, 2, 3) }]);
 }
 
 function wallet(): Readonly<{
@@ -71,7 +71,7 @@ function wallet(): Readonly<{
  * output still matches the leaf the chain holds: the crafted note is
  * indistinguishable from the honest one by hash alone.
  */
-function slot(data: Data, owner: ShieldedKeypair, hash: Bytes32): IndexedShieldedTransaction {
+function slot(data: OutputData, owner: ShieldedKeypair, hash: Bytes32): IndexedShieldedTransaction {
   const payload = encodeOutputData(
     EncryptedScheme.plaintextTransfer,
     encodePlaintextTransfer({
@@ -81,7 +81,7 @@ function slot(data: Data, owner: ShieldedKeypair, hash: Bytes32): IndexedShielde
         ownerPublicKey: owner.signingPublicKey(),
         spl: { amount: 1_000n, assetId: SOL_ASSET_ID },
         splData: data,
-        solData: new Data(),
+        solData: new OutputData(),
       },
       recipientSlots: [],
     }),
@@ -116,7 +116,7 @@ describe("zone resolution on the read path", () => {
     });
     const hash = honest.hash(material.nullifierKey.publicKey());
 
-    const sync = async (data: Data): Promise<number> => {
+    const sync = async (data: OutputData): Promise<number> => {
       const state = new Wallet({ identity: material.identity, registry: new AssetRegistry() });
       const report = await syncWalletWithAuthority({
         wallet: state,
@@ -126,7 +126,7 @@ describe("zone resolution on the read path", () => {
       return report.storedUtxos;
     };
 
-    expect(await sync(new Data())).toBe(1);
+    expect(await sync(new OutputData())).toBe(1);
     expect(await sync(zoneData())).toBe(0);
   });
 
@@ -187,7 +187,7 @@ describe("zone resolution on the read path", () => {
         assetId: SOL_ASSET_ID,
         assetAmount: 7n,
         blindingSeed: BLINDING_SEED,
-        data: new Data(),
+        data: new OutputData(),
       },
       assets,
       ZONE,
@@ -253,7 +253,7 @@ describe("zone resolution on the read path", () => {
           blindingSeed: BLINDING_SEED,
           recipientViewingPublicKeys: [],
           splData: zoneData(),
-          solData: new Data(),
+          solData: new OutputData(),
         },
         assets,
         SOL_MINT,

@@ -28,7 +28,7 @@ use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::{Data, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{OutputData, SppProofOutputUtxo, Utxo, SOL_MINT};
 use zolana_user_registry_interface::{
     instruction::{register, set_merging_enabled, RegisterData},
     user_record_pda,
@@ -161,7 +161,7 @@ impl LifecycleWorld {
                 amount: 0,
                 blinding: random_blinding(),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             };
             spend_inputs.push(TransferSpendInput {
                 utxo,
@@ -184,7 +184,7 @@ impl LifecycleWorld {
             zone_data_hash: None,
             data_hash: None,
             owner_tag: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
 
         // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the value

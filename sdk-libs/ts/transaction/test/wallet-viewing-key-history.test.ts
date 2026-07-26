@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AssetRegistry,
-  Data,
+  OutputData,
   LocalWalletAuthority,
   SOL_ASSET_ID,
   SOL_MINT,
@@ -80,7 +80,7 @@ async function noteTo(
     asset: SOL_MINT,
     amount,
     blinding,
-    data: new Data(),
+    data: new OutputData(),
   });
   const envelope = await new LocalWalletAuthority({
     solanaPublicKey: OWNER,
@@ -95,8 +95,8 @@ async function noteTo(
       solAmount: amount,
       blindingSeed: randomBlinding(),
       recipientViewingPublicKeys: [recipient.viewingKey().publicKey()],
-      splData: new Data(),
-      solData: new Data(),
+      splData: new OutputData(),
+      solData: new OutputData(),
     },
     recipients: [
       {
@@ -108,7 +108,7 @@ async function noteTo(
           assetId: SOL_ASSET_ID,
           amount,
           blinding,
-          data: new Data(),
+          data: new OutputData(),
         },
       },
     ],
@@ -148,8 +148,8 @@ describe("viewing-key history", () => {
         solAmount: 5n,
         blindingSeed: randomBlinding(),
         recipientViewingPublicKeys: [recipientViewingPublicKey],
-        splData: new Data(),
-        solData: new Data(),
+        splData: new OutputData(),
+        solData: new OutputData(),
       },
       recipients: [
         {
@@ -161,7 +161,7 @@ describe("viewing-key history", () => {
             assetId: SOL_ASSET_ID,
             amount: 5n,
             blinding: randomBlinding(),
-            data: new Data(),
+            data: new OutputData(),
           },
         },
       ],
@@ -202,8 +202,8 @@ describe("viewing-key history", () => {
             solAmount: 5n,
             blindingSeed: randomBlinding(),
             recipientViewingPublicKeys: [counterparty.viewingKey().publicKey()],
-            splData: new Data(),
-            solData: new Data(),
+            splData: new OutputData(),
+            solData: new OutputData(),
           },
           recipients: [],
         }),
@@ -230,7 +230,7 @@ describe("viewing-key history", () => {
       asset: SOL_MINT,
       amount: 7n,
       blinding,
-      data: new Data(),
+      data: new OutputData(),
     });
     const envelope = await new LocalWalletAuthority({
       solanaPublicKey: OWNER,
@@ -245,8 +245,8 @@ describe("viewing-key history", () => {
         solAmount: 1n,
         blindingSeed: randomBlinding(),
         recipientViewingPublicKeys: [keypair.viewingKey().publicKey()],
-        splData: new Data(),
-        solData: new Data(),
+        splData: new OutputData(),
+        solData: new OutputData(),
       },
       recipients: [
         {
@@ -258,7 +258,7 @@ describe("viewing-key history", () => {
             assetId: SOL_ASSET_ID,
             amount: 7n,
             blinding,
-            data: new Data(),
+            data: new OutputData(),
           },
         },
       ],

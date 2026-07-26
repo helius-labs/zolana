@@ -5,7 +5,7 @@ use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
     utxo::{Blinding, Utxo},
-    Data,
+    OutputData,
 };
 
 use crate::{err, shared_address::SharedShieldedAddress};
@@ -101,7 +101,7 @@ impl EscrowUtxo {
             amount: self.order_amount,
             blinding: self.blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         Ok(SppProofInputUtxo::new(utxo, owner.nullifier_key()).with_data_hash(self.data_hash()?))
     }
@@ -155,7 +155,7 @@ impl Reservation {
             amount: self.amount,
             blinding: self.blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         Ok(SppProofInputUtxo::new(utxo, owner.nullifier_key()).with_data_hash(order_utxo_hash))
     }
@@ -177,9 +177,9 @@ pub fn encode_escrow_note(max_price: u64, reservation_blinding: &Blinding) -> Ve
     note
 }
 
-/// Decode the order UTXO's note from a decrypted output's `Data` back into
+/// Decode the order UTXO's note from a decrypted output's `OutputData` back into
 /// `(max_price, reservation_blinding)`.
-pub fn decode_escrow_note(data: &Data) -> Result<(u64, Blinding)> {
+pub fn decode_escrow_note(data: &OutputData) -> Result<(u64, Blinding)> {
     let bytes = data
         .utxo_data()
         .ok_or_else(|| anyhow!("escrow order note carries no utxo data record"))?;
@@ -218,7 +218,7 @@ mod tests {
         let note = encode_escrow_note(5, &reservation_blinding);
         assert_eq!(note.len(), ESCROW_NOTE_LEN);
 
-        let data = Data::new(vec![DataRecord::UtxoData(note)]);
+        let data = OutputData::new(vec![DataRecord::UtxoData(note)]);
         let (max_price, decoded) = decode_escrow_note(&data).expect("decode");
         assert_eq!(max_price, 5);
         assert_eq!(decoded, reservation_blinding);
@@ -226,6 +226,6 @@ mod tests {
 
     #[test]
     fn decode_rejects_missing_record() {
-        assert!(decode_escrow_note(&Data::default()).is_err());
+        assert!(decode_escrow_note(&OutputData::default()).is_err());
     }
 }

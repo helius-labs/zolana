@@ -2,7 +2,7 @@ import type { Rpc, ZolanaClient } from "@zolana/client";
 import { type Address, type Bytes32, type Signature, type Transaction } from "@zolana/interface";
 import { associatedTokenAddress } from "@zolana/interface/pda";
 import { randomBlinding, ShieldedKeypair } from "@zolana/keypair";
-import { AssetRegistry, Data, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
+import { AssetRegistry, OutputData, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -67,7 +67,7 @@ function fundedWallet(
         asset,
         amount,
         blinding: randomBlinding(),
-        data: new Data(),
+        data: new OutputData(),
       }),
       outputContext: {
         hash: bytes32(index + 1),
@@ -282,7 +282,7 @@ describe("wallet actions", () => {
         asset: SOL_MINT,
         amount,
         blinding: randomBlinding(),
-        data: new Data(),
+        data: new OutputData(),
       }),
       outputContext: {
         hash: bytes32(index + 1),
@@ -326,7 +326,7 @@ describe("wallet actions", () => {
         asset: SOL_MINT,
         amount: BigInt(10 * (index + 1)),
         blinding: randomBlinding(),
-        data: new Data(),
+        data: new OutputData(),
       }),
       outputContext: { hash: bytes32(index + 1), tree, leafIndex: BigInt(index) },
       nullifier: bytes32(index + 20),
@@ -430,7 +430,7 @@ describe("wallet actions", () => {
             asset: SOL_MINT,
             amount: 10n,
             blinding: randomBlinding(),
-            data: new Data(),
+            data: new OutputData(),
           }),
           outputContext: { hash: bytes32(1), tree: TREE, leafIndex: 0n },
           nullifier: bytes32(20),
@@ -527,7 +527,7 @@ describe("wallet actions", () => {
             asset: SOL_MINT,
             amount: 10n,
             blinding: original.utxo.blinding,
-            data: new Data([{ kind: "memo", bytes: Uint8Array.of(7) }]),
+            data: new OutputData([{ kind: "memo", bytes: Uint8Array.of(7) }]),
           }),
         },
       ],

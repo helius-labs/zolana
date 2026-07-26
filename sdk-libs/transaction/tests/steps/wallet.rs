@@ -7,7 +7,7 @@ use zolana_transaction::{
         OwnerCx, UtxoSerialization,
     },
     wallet::{AssetBalance, PrivateTransactionDirection, PrivateTransactionKind, Wallet},
-    Address, AssetRegistry, Data, LocalWalletAuthority, OutputContext, OutputSlot,
+    Address, AssetRegistry, OutputData, LocalWalletAuthority, OutputContext, OutputSlot,
     ShieldedTransaction, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -70,8 +70,8 @@ fn record_transfer(
         sol_amount: change_amount,
         blinding_seed: [seq; BLINDING_LEN],
         recipient_viewing_pks: vec![recipient_kp.viewing_pubkey()],
-        spl_data: Data::default(),
-        sol_data: Data::default(),
+        spl_data: OutputData::default(),
+        sol_data: OutputData::default(),
     };
 
     let sender_view_tag = sender_kp.get_sender_view_tag(tx_count).unwrap();
@@ -82,7 +82,7 @@ fn record_transfer(
         asset: SOL_MINT,
         asset_id: SOL_ASSET_ID,
         view_tag,
-        data: Data::default(),
+        data: OutputData::default(),
     }];
 
     let built = build_anonymous_transfer(
@@ -195,7 +195,7 @@ fn recorded_split(world: &mut TransactionWorld, owner: String, parts: u8) {
         asset_id: SOL_ASSET_ID,
         asset_amount: input.amount / u64::from(parts),
         blinding_seed: [seq; BLINDING_LEN],
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let outputs = bundle.clone().into_utxos(&assets, None).unwrap();
 

@@ -4,7 +4,7 @@ import type { Address, Bytes31, Bytes32, Signature, Transaction } from "@zolana/
 import { ShieldedKeypair, SigningKey, NullifierKey, ViewingKey } from "@zolana/keypair";
 import {
   AssetRegistry,
-  Data,
+  OutputData,
   deriveBlinding,
   ownerUtxoHash,
   SOL_MINT,

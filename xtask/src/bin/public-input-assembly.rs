@@ -43,7 +43,7 @@ use zolana_transaction::{
         types::{InputUtxoContext, SppProofInputUtxo},
     },
     utxo::program_id_field,
-    Data, Utxo, SOL_MINT,
+    OutputData, Utxo, SOL_MINT,
 };
 
 // `sdk-libs/ts/fixtures` belongs to `ts-fixtures`, which requires a P00
@@ -487,7 +487,7 @@ fn zone_real_input(keypair: &ShieldedKeypair, position: u8) -> SppProofInputUtxo
             amount: ZONE_INPUT_AMOUNT,
             blinding: derive_blinding(&ZONE_BLINDING_SEED, position),
             zone_program_id: Some(zone_address()),
-            data: Data::default(),
+            data: OutputData::default(),
         },
         keypair,
     )
@@ -511,7 +511,7 @@ fn zone_proof_inputs(
                         amount: 0,
                         blinding: derive_blinding(&ZONE_BLINDING_SEED, index as u8),
                         zone_program_id: None,
-                        data: Data::default(),
+                        data: OutputData::default(),
                     },
                     nullifier_key: NullifierKey::from_secret([0; 31]),
                     data_hash: None,
@@ -894,7 +894,7 @@ fn merge_inputs(keypair: &ShieldedKeypair, zone: Option<Address>) -> Vec<SppProo
                     amount: *amount,
                     blinding: derive_blinding(&MERGE_BLINDING_SEED, position as u8),
                     zone_program_id: zone,
-                    data: Data::default(),
+                    data: OutputData::default(),
                 },
                 keypair,
             )
@@ -911,7 +911,7 @@ fn merge_inputs(keypair: &ShieldedKeypair, zone: Option<Address>) -> Vec<SppProo
                 amount: 0,
                 blinding: derive_blinding(&MERGE_BLINDING_SEED, position),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             nullifier_key: NullifierKey::from_secret([0; 31]),
             data_hash: None,
@@ -1059,7 +1059,7 @@ fn real_input(keypair: &ShieldedKeypair) -> SppProofInputUtxo {
             amount: 100,
             blinding: derive_blinding(&BLINDING_SEED, 0),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         keypair,
     )
@@ -1073,7 +1073,7 @@ fn dummy_input(position: u8) -> SppProofInputUtxo {
             amount: 0,
             blinding: derive_blinding(&BLINDING_SEED, position),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         nullifier_key: NullifierKey::from_secret([0; 31]),
         data_hash: None,

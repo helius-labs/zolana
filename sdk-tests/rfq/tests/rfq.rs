@@ -14,7 +14,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetBalance, Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
+    AssetBalance, OutputData, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::sync_wallet;
 
@@ -135,7 +135,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
                 amount: SELL_SOL,
                 blinding: sol_output.blinding,
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             }],
         },
         "taker received the settled SOL utxo"
@@ -152,7 +152,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
                 amount: BUY_USDC,
                 blinding: usdc_output.blinding,
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             }],
         },
         "maker received the settled USDC utxo"

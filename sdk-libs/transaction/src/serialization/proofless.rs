@@ -4,7 +4,7 @@ use zolana_event::ProoflessOutput;
 
 use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
-    data::{Data, DataRecord},
+    data::{OutputData, DataRecord},
     error::TransactionError,
     utxo::Utxo,
     EncryptedScheme,
@@ -49,7 +49,7 @@ impl UtxoSerialization for Proofless {
             amount: output.amount,
             blinding: output.blinding,
             zone_program_id: output.zone_program_id.map(Address::new_from_array),
-            data: Data::new(records),
+            data: OutputData::new(records),
         }])
     }
 
@@ -100,7 +100,7 @@ mod tests {
             amount: 42,
             blinding: [3u8; 31],
             zone_program_id: None,
-            data: Data::new(vec![DataRecord::Memo(b"gm".to_vec())]),
+            data: OutputData::new(vec![DataRecord::Memo(b"gm".to_vec())]),
         };
         let assets = AssetRegistry::default();
         let owner_cx = OwnerCx {

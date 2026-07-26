@@ -2,7 +2,7 @@ import type { Address, Bytes31, Bytes32 } from "@zolana/interface";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { Data, deriveBlinding } from "../../src/index.js";
+import { OutputData, deriveBlinding } from "../../src/index.js";
 import {
   decodeConfidential,
   decodeMerge,
@@ -24,7 +24,7 @@ describe("transaction properties", () => {
             assetId: 1n,
             amount,
             blinding: blinding as Bytes31,
-            data: new Data([{ kind: "memo" as const, bytes: memo }]),
+            data: new OutputData([{ kind: "memo" as const, bytes: memo }]),
           };
           const decoded = decodeConfidential(encodeConfidential(value));
           expect(decoded.amount).toBe(amount);

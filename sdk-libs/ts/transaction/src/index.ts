@@ -1,4 +1,4 @@
-export { Data } from "./data.js";
+export { OutputData } from "./data.js";
 export type { DataRecord } from "./data.js";
 export {
   TRANSACTION_ERROR_CODES,

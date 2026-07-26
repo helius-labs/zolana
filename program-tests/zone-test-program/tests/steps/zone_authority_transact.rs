@@ -41,7 +41,7 @@ use zolana_test_utils::test_validator_asserts::{
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
-    Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization, SOL_MINT,
+    OutputData, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization, SOL_MINT,
 };
 
 use crate::{
@@ -237,7 +237,7 @@ impl ZoneLifecycleWorld {
             zone_data_hash: None,
             data_hash: None,
             owner_tag: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let output_hash = output.hash()?;
 
@@ -259,7 +259,7 @@ impl ZoneLifecycleWorld {
             amount,
             blinding: output.blinding,
             zone_program_id: Some(zone),
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let ciphertext = Confidential::encode(
             core::slice::from_ref(&output_plaintext),

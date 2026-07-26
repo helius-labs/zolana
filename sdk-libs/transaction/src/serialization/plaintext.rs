@@ -4,7 +4,7 @@ use zolana_keypair::{constants::BLINDING_LEN, viewing_key::ViewTag, PublicKey};
 
 use super::{validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
-    data::Data,
+    data::OutputData,
     error::TransactionError,
     utxo::{derive_blinding, resolve_zone_program_id, Utxo},
     AssetRegistry, EncryptedScheme, PublicKeySchema, SOL_MINT, TRANSFER_PLAINTEXT,
@@ -22,8 +22,8 @@ pub struct TransferPlaintextSender {
     pub owner_pubkey: PublicKey,
     pub spl: Option<TransferPlaintextSplChange>,
     pub sol_amount: Option<u64>,
-    pub spl_data: Data,
-    pub sol_data: Data,
+    pub spl_data: OutputData,
+    pub sol_data: OutputData,
 }
 
 impl TransferPlaintextSender {
@@ -77,7 +77,7 @@ pub struct TransferPlaintextRecipient {
     pub owner_pubkey: PublicKey,
     pub asset_id: u64,
     pub amount: u64,
-    pub data: Data,
+    pub data: OutputData,
 }
 
 impl TransferPlaintextRecipient {
@@ -200,8 +200,8 @@ impl UtxoSerialization for PlaintextTransfer {
         let mut sender_owner = None;
         let mut spl = None;
         let mut sol_amount = None;
-        let mut spl_data = Data::default();
-        let mut sol_data = Data::default();
+        let mut spl_data = OutputData::default();
+        let mut sol_data = OutputData::default();
         let mut recipients: Vec<(u8, TransferPlaintextRecipient)> = Vec::new();
         let mut seen_positions = [false; u8::MAX as usize + 1];
         for (index, utxo) in utxos.iter().enumerate() {

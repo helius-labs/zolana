@@ -24,7 +24,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetBalance, Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
+    AssetBalance, OutputData, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::sync_wallet;
 
@@ -161,7 +161,7 @@ fn escrow_then_withdraw() -> Result<()> {
         amount: change_amount,
         blinding: change_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     assert_eq!(
         balance_after_escrow,
@@ -262,7 +262,7 @@ fn escrow_then_withdraw() -> Result<()> {
         amount: LOCK_AMOUNT,
         blinding: source_output_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     assert_eq!(
         balance_after_withdraw,

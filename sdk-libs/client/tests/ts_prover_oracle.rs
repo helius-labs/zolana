@@ -35,7 +35,7 @@ use zolana_transaction::{
         transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
         types::SppProofInputUtxo,
     },
-    Data, Utxo, SOL_MINT,
+    OutputData, Utxo, SOL_MINT,
 };
 
 /// Shared with `sdk-libs/ts/client/test/helpers/prover-vectors.ts`; the two
@@ -79,7 +79,7 @@ fn real_input(keypair: &ShieldedKeypair, asset: Address, position: u8) -> SppPro
             amount: 100,
             blinding: derive_blinding(&BLINDING_SEED, position),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         keypair,
     )
@@ -93,7 +93,7 @@ fn dummy_input(position: u8) -> SppProofInputUtxo {
             amount: 0,
             blinding: derive_blinding(&BLINDING_SEED, position),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         nullifier_key: NullifierKey::from_secret([0; 31]),
         data_hash: None,

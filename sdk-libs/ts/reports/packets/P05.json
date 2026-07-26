@@ -4,7 +4,7 @@
       "@zolana/transaction|root|class|TransactionError",
       "@zolana/transaction|root|type|TransactionErrorCode",
       "@zolana/transaction|root|type|DataRecord",
-      "@zolana/transaction|root|class|Data",
+      "@zolana/transaction|root|class|OutputData",
       "@zolana/transaction|root|type|Blinding",
       "@zolana/transaction|root|class|Utxo",
       "@zolana/transaction|root|class|SppProofInputUtxo",
@@ -122,7 +122,7 @@
   },
   "frozenCommit": "43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f",
   "implemented": [
-    "owned Data records, checked bigint amounts, deterministic blindings, UTXO commitments, nullifiers, dummy inputs, and exact supported shapes",
+    "owned OutputData records, checked bigint amounts, deterministic blindings, UTXO commitments, nullifiers, dummy inputs, and exact supported shapes",
     "wincode and Borsh codecs for confidential, anonymous sender/recipient, plaintext, proofless, split, merge, and output envelopes",
     "canonical external-data SHA256BE and private transaction hashes with resolved tags, signed public amounts, ciphertext presence, and length boundaries",
     "prepared confidential transfer, split, merge, and zone operations with conservation, ownership, asset, data, withdrawal, and padding checks",

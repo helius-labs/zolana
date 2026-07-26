@@ -6,7 +6,7 @@
 use solana_address::Address;
 use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    data::{Data, DataRecord},
+    data::{OutputData, DataRecord},
     error::TransactionError,
     serialization::{
         anonymous::AnonymousTransferRecipientPlaintext,
@@ -18,8 +18,8 @@ use zolana_transaction::{
 
 const BLINDING_SEED: [u8; BLINDING_LEN] = [5u8; BLINDING_LEN];
 
-fn zone_data() -> Data {
-    Data::new(vec![DataRecord::ZoneData(vec![1, 2, 3])])
+fn zone_data() -> OutputData {
+    OutputData::new(vec![DataRecord::ZoneData(vec![1, 2, 3])])
 }
 
 fn owner() -> PublicKey {
@@ -61,7 +61,7 @@ fn a_supplied_zone_program_is_dropped_when_there_is_no_zone_data() {
         asset_id: SOL_ASSET_ID,
         amount: 7,
         blinding: [3u8; BLINDING_LEN],
-        data: Data::default(),
+        data: OutputData::default(),
     }
     .into_utxo(&assets, Some(zone))
     .expect("recipient utxo");
@@ -73,7 +73,7 @@ fn a_supplied_zone_program_is_dropped_when_there_is_no_zone_data() {
         asset_id: SOL_ASSET_ID,
         asset_amount: 7,
         blinding_seed: BLINDING_SEED,
-        data: Data::default(),
+        data: OutputData::default(),
     }
     .into_utxos(&assets, Some(zone))
     .expect("split utxos");

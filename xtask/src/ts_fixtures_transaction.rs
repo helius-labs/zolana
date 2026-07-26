@@ -36,7 +36,7 @@ use zolana_transaction::{
         DecodeCx, UtxoSerialization,
     },
     wallet::{LocalWalletAuthority, SyncWalletAuthority, WalletSyncMaterial},
-    Address, AssetRegistry, Data, DataRecord, EncryptedScheme, Filter, OutputContext, OutputSlot,
+    Address, AssetRegistry, OutputData, DataRecord, EncryptedScheme, Filter, OutputContext, OutputSlot,
     PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId, PrivateTransactionKind,
     PrivateTransactionStatus, ShieldedTransaction, Utxo, Wallet, WalletUtxo, SOL_ASSET_ID,
     SOL_MINT,
@@ -109,7 +109,7 @@ fn fixed_utxo(keypair: &ShieldedKeypair, amount: u64, position: u8) -> Utxo {
         amount,
         blinding: zolana_transaction::derive_blinding(&BLINDING_SEED, position),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     }
 }
 
@@ -125,7 +125,7 @@ fn fixed_dummy(position: u8) -> SppProofInputUtxo {
             amount: 0,
             blinding: zolana_transaction::derive_blinding(&BLINDING_SEED, position),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         nullifier_key: NullifierKey::from_secret([0; BLINDING_LEN]),
         data_hash: None,
@@ -153,7 +153,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn data_json(data: &Data) -> Value {
+fn data_json(data: &OutputData) -> Value {
     Value::Array(
         data.records
             .iter()
@@ -184,23 +184,23 @@ fn utxo_json(utxo: &Utxo) -> Value {
 }
 
 fn data_vectors() -> Result<Value, Box<dyn std::error::Error>> {
-    let data = Data::new(vec![
+    let data = OutputData::new(vec![
         DataRecord::ZoneData(vec![1, 2]),
         DataRecord::UtxoData(vec![3, 4, 5]),
         DataRecord::Memo(b"fixture memo".to_vec()),
     ]);
     data.validate()?;
     let bytes = wincode::serialize(&data)?;
-    let decoded: Data = wincode::deserialize_exact(&bytes)?;
+    let decoded: OutputData = wincode::deserialize_exact(&bytes)?;
     assert_eq!(decoded, data);
 
-    let duplicate = Data::new(vec![
+    let duplicate = OutputData::new(vec![
         DataRecord::UtxoData(vec![1]),
         DataRecord::UtxoData(vec![2]),
     ])
     .validate()
     .expect_err("duplicate record");
-    let order = Data::new(vec![
+    let order = OutputData::new(vec![
         DataRecord::Memo(vec![1]),
         DataRecord::ZoneData(vec![2]),
     ])
@@ -208,9 +208,9 @@ fn data_vectors() -> Result<Value, Box<dyn std::error::Error>> {
     .expect_err("non-canonical order");
     let mut trailing = bytes.clone();
     trailing.push(0xff);
-    let trailing_error = wincode::deserialize_exact::<Data>(&trailing).expect_err("trailing bytes");
+    let trailing_error = wincode::deserialize_exact::<OutputData>(&trailing).expect_err("trailing bytes");
     let truncated_error =
-        wincode::deserialize_exact::<Data>(&bytes[..bytes.len() - 1]).expect_err("truncated");
+        wincode::deserialize_exact::<OutputData>(&bytes[..bytes.len() - 1]).expect_err("truncated");
 
     Ok(section(
         json!({"records": data_json(&data)}),
@@ -242,7 +242,7 @@ fn noncanonical_dummy_vectors(dummy: &SppProofInputUtxo) -> Value {
     let mut amount = dummy.clone();
     amount.utxo.amount = 1;
     let mut data = dummy.clone();
-    data.utxo.data = Data::new(vec![DataRecord::UtxoData(vec![1, 2, 3])]);
+    data.utxo.data = OutputData::new(vec![DataRecord::UtxoData(vec![1, 2, 3])]);
     let mut zone_program_id = dummy.clone();
     zone_program_id.utxo.zone_program_id = Some(Address::new_from_array([8u8; 32]));
     let mut data_hash = dummy.clone();
@@ -279,7 +279,7 @@ fn noncanonical_dummy_vectors(dummy: &SppProofInputUtxo) -> Value {
 
 fn utxo_vectors(keypair: &ShieldedKeypair) -> Result<Value, Box<dyn std::error::Error>> {
     let mut utxo = fixed_utxo(keypair, 42, 0);
-    utxo.data = Data::new(vec![
+    utxo.data = OutputData::new(vec![
         DataRecord::UtxoData(vec![1, 2, 3]),
         DataRecord::Memo(b"hello".to_vec()),
     ]);
@@ -302,7 +302,7 @@ fn utxo_vectors(keypair: &ShieldedKeypair) -> Result<Value, Box<dyn std::error::
         amount: 1,
         blinding: [1; BLINDING_LEN],
         zone_program_id: None,
-        data: Data::new(vec![DataRecord::ZoneData(vec![1])]),
+        data: OutputData::new(vec![DataRecord::ZoneData(vec![1])]),
     }
     .into_utxo(keypair.signing_pubkey(), &AssetRegistry::default())
     .expect_err("zone data requires a program id");
@@ -348,7 +348,7 @@ fn serialization_vectors(
 ) -> Result<Value, Box<dyn std::error::Error>> {
     let assets = AssetRegistry::default();
     let owner = keypair.signing_pubkey();
-    let data = Data::new(vec![DataRecord::Memo(b"codec".to_vec())]);
+    let data = OutputData::new(vec![DataRecord::Memo(b"codec".to_vec())]);
 
     let confidential = ConfidentialOutputPlaintext {
         asset_id: SOL_ASSET_ID,
@@ -430,7 +430,7 @@ fn serialization_vectors(
         sol_amount: 36,
         blinding_seed: BLINDING_SEED,
         recipient_viewing_pks: vec![recipient.viewing_pubkey()],
-        spl_data: Data::default(),
+        spl_data: OutputData::default(),
         sol_data: data.clone(),
     };
     let anonymous_sender_bytes = anonymous_sender.serialize()?;
@@ -472,7 +472,7 @@ fn serialization_vectors(
                 asset_id: SOL_ASSET_ID,
             }),
             sol_amount: Some(8),
-            spl_data: Data::default(),
+            spl_data: OutputData::default(),
             sol_data: data.clone(),
         }),
         recipient_slots: vec![TransferPlaintextRecipient {
@@ -588,7 +588,7 @@ fn serialization_vectors(
     let proofless_error = Proofless::deserialize(&proofless_bytes[..proofless_bytes.len() - 1])
         .expect_err("short borsh payload");
 
-    let data_300 = Data::new(vec![DataRecord::Memo(vec![7; 300])]);
+    let data_300 = OutputData::new(vec![DataRecord::Memo(vec![7; 300])]);
     let data_300_bytes = wincode::serialize(&data_300)?;
     assert_eq!(&data_300_bytes[2..4], &[44, 1]);
     let schemes = [0, 1, 2, 3, 5, 6, 7]
@@ -1484,7 +1484,7 @@ fn history_note(keypair: &ShieldedKeypair, amount: u64, position: u8) -> Utxo {
         amount,
         blinding: zolana_transaction::derive_blinding(&BLINDING_SEED, position),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     }
 }
 
@@ -1612,8 +1612,8 @@ impl HistoryAnonymous<'_> {
             sol_amount: self.change,
             blinding_seed: self.blinding_seed,
             recipient_viewing_pks: recipient_pks.clone(),
-            spl_data: Data::default(),
-            sol_data: Data::default(),
+            spl_data: OutputData::default(),
+            sol_data: OutputData::default(),
         };
         let change = AnonymousSenderBundle::into_utxos(
             plaintext.clone(),

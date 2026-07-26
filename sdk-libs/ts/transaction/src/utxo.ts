@@ -6,7 +6,7 @@ import {
   type ShieldedKeypair,
 } from "@zolana/keypair";
 
-import { Data, type DataRecord } from "./data.js";
+import { OutputData, type DataRecord } from "./data.js";
 import { TransactionError } from "./error.js";
 import {
   ZERO_32,
@@ -29,7 +29,7 @@ export interface UtxoInit {
   readonly asset: Address;
   readonly amount: bigint;
   readonly blinding: Blinding;
-  readonly data?: Data;
+  readonly data?: OutputData;
   readonly zoneProgramId?: Address;
 }
 
@@ -42,7 +42,7 @@ export interface UtxoInit {
  */
 export function resolveZoneProgramId(
   zoneProgramId: Address | undefined,
-  data: Data,
+  data: OutputData,
 ): Address | undefined {
   if (!data.zoneData()) return undefined;
   if (zoneProgramId === undefined) {
@@ -170,7 +170,7 @@ export class Utxo {
   readonly asset: Address;
   readonly amount: bigint;
   readonly blinding: Blinding;
-  readonly data: Data;
+  readonly data: OutputData;
   readonly zoneProgramId?: Address;
 
   constructor(input: UtxoInit) {
@@ -178,7 +178,7 @@ export class Utxo {
     this.asset = input.asset;
     this.amount = checkU64(input.amount, "amount");
     this.blinding = checked<Blinding>(input.blinding, 31, "blinding");
-    this.data = new Data((input.data ?? new Data()).records());
+    this.data = new OutputData((input.data ?? new OutputData()).records());
     if (input.zoneProgramId !== undefined) this.zoneProgramId = input.zoneProgramId;
   }
 
@@ -361,7 +361,7 @@ export interface ProofOutputUtxo {
   readonly zoneDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   readonly ownerTag?: Bytes32;
-  readonly data: Data;
+  readonly data: OutputData;
   ownerHash(): Bytes32;
   hash(): Bytes32;
   isDummy(): boolean;
@@ -393,7 +393,7 @@ export interface ProofOutputInit {
   readonly zoneDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   readonly ownerTag?: Bytes32;
-  readonly data?: Data;
+  readonly data?: OutputData;
 }
 
 const DATA_RECORD_ORDER: Readonly<Record<DataRecord["kind"], number>> = Object.freeze({
@@ -402,9 +402,9 @@ const DATA_RECORD_ORDER: Readonly<Record<DataRecord["kind"], number>> = Object.f
   memo: 2,
 });
 
-/** One record per kind, kept in the canonical order `Data.validate` requires. */
-function withDataRecord(data: Data, record: DataRecord): Data {
-  return new Data(
+/** One record per kind, kept in the canonical order `OutputData.validate` requires. */
+function withDataRecord(data: OutputData, record: DataRecord): OutputData {
+  return new OutputData(
     [...data.records().filter((existing) => existing.kind !== record.kind), record].sort(
       (left, right) => DATA_RECORD_ORDER[left.kind] - DATA_RECORD_ORDER[right.kind],
     ),
@@ -414,7 +414,7 @@ function withDataRecord(data: Data, record: DataRecord): Data {
 export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
   const blinding = checked<Bytes31>(input.blinding ?? random31(), 31, "output blinding");
   const amount = checkU64(input.amount, "output amount");
-  const data = new Data((input.data ?? new Data()).records());
+  const data = new OutputData((input.data ?? new OutputData()).records());
   const { zoneDataHash: suppliedZoneDataHash, ...rest } = input;
   const zoneDataHash = normalizeZoneDataHash(suppliedZoneDataHash);
   const init: ProofOutputInit = {

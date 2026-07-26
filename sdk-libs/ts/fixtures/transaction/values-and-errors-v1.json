@@ -28,7 +28,7 @@
   "owningPacket": "P00",
   "responsibility": "logical values and typed error evidence",
   "rustPath": "sdk-libs/transaction/src/instructions/transact/shape.rs",
-  "rustSymbol": "canonical_shape; Data::validate",
+  "rustSymbol": "canonical_shape; OutputData::validate",
   "schema": "zolana-ts-fixtures-v1",
   "version": "1"
 }

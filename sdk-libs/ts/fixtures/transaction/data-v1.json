@@ -52,7 +52,7 @@
   "owningPacket": "P00",
   "responsibility": "record order, accessors, u16 lengths, round trips, and malformed data",
   "rustPath": "sdk-libs/transaction/src/data.rs",
-  "rustSymbol": "DataRecord; Data",
+  "rustSymbol": "DataRecord; OutputData",
   "schema": "zolana-ts-fixtures-v1",
   "version": "1"
 }

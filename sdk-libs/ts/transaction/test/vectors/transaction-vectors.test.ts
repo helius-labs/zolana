@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AssetRegistry,
-  Data,
+  OutputData,
   SppProofInputUtxo,
   SOL_MINT,
   TransactionError,
@@ -64,7 +64,7 @@ function transactionErrorCode(action: () => unknown): string {
 }
 
 describe("manifest-verified Rust transaction vectors", () => {
-  it("matches canonical Data bytes, accessors, and malformed errors", () => {
+  it("matches canonical OutputData bytes, accessors, and malformed errors", () => {
     const fixture = load("transaction/data-v1.json");
     const inputs = section(fixture, "inputs");
     const expected = section(fixture, "expected");
@@ -74,7 +74,7 @@ describe("manifest-verified Rust transaction vectors", () => {
       const kind = tag === "ZoneData" ? "zoneData" : tag === "UtxoData" ? "utxoData" : "memo";
       return { kind, bytes: hexBytes(fixtureString(record, "bytes")) } as const;
     });
-    const data = new Data(records);
+    const data = new OutputData(records);
     const bytes = encodeData(data);
 
     expect(hex(bytes)).toBe(fixtureString(expected, "wincodeBytes"));
@@ -94,14 +94,14 @@ describe("manifest-verified Rust transaction vectors", () => {
     expect(() => decodeData(Uint8Array.from([...bytes, 0]))).toThrow(TransactionError);
     expect(
       () =>
-        new Data([
+        new OutputData([
           { kind: "memo", bytes: Uint8Array.of(1) },
           { kind: "memo", bytes: Uint8Array.of(2) },
         ]),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_DUPLICATE_DATA_RECORD" }));
     expect(
       () =>
-        new Data([
+        new OutputData([
           { kind: "memo", bytes: Uint8Array.of(1) },
           { kind: "zoneData", bytes: Uint8Array.of(2) },
         ]),
@@ -121,7 +121,7 @@ describe("manifest-verified Rust transaction vectors", () => {
       asset: encodeAddress(hexBytes(fixtureString(value, "assetBytes"))),
       amount: BigInt(fixtureString(value, "amount")),
       blinding,
-      data: new Data([
+      data: new OutputData([
         { kind: "utxoData", bytes: Uint8Array.of(1, 2, 3) },
         { kind: "memo", bytes: new TextEncoder().encode("hello") },
       ]),
@@ -144,7 +144,7 @@ describe("manifest-verified Rust transaction vectors", () => {
       asset: SOL_MINT,
       amount: 1n,
       blinding,
-      data: new Data([{ kind: "zoneData", bytes: Uint8Array.of(1) }]),
+      data: new OutputData([{ kind: "zoneData", bytes: Uint8Array.of(1) }]),
     });
     expect(unbound.zoneProgramId).toBeUndefined();
     expect(() =>
@@ -272,13 +272,13 @@ describe("manifest-verified Rust transaction vectors", () => {
       inputs: Number(fixtureString(fixtureObject(valuesExpected.shape), "inputs")),
       outputs: Number(fixtureString(fixtureObject(valuesExpected.shape), "outputs")),
     });
-    expect(new Data([{ kind: "memo", bytes: Uint8Array.of(4) }]).memo()).toEqual(
+    expect(new OutputData([{ kind: "memo", bytes: Uint8Array.of(4) }]).memo()).toEqual(
       hexBytes(fixtureString(fixtureObject(valuesExpected.canonicalData), "memoBytes")),
     );
     expect(() => canonicalShape(99, 99)).toThrow("TRANSACTION_UNSUPPORTED_SHAPE");
     expect(
       () =>
-        new Data([
+        new OutputData([
           { kind: "memo", bytes: Uint8Array.of(4) },
           { kind: "memo", bytes: Uint8Array.of(5) },
         ]),

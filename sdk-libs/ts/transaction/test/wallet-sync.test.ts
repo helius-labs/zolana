@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AssetRegistry,
-  Data,
+  OutputData,
   SOL_MINT,
   Utxo,
   Wallet,
@@ -240,7 +240,7 @@ describe("manifest-verified wallet behavior", () => {
         asset: encodeAddress(hexBytes(fixtureString(data, "assetBytes"))),
         amount: BigInt(fixtureString(data, "amount")),
         blinding: hexBytes(fixtureString(data, "blindingBytes")) as Bytes31,
-        data: new Data(),
+        data: new OutputData(),
       });
       const outputContext = {
         hash: hexBytes(fixtureString(row, "hashBytes")) as Bytes32,

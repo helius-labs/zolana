@@ -4,7 +4,7 @@ use zolana_keypair::{
 };
 
 use crate::{
-    data::Data,
+    data::OutputData,
     error::TransactionError,
     utxo::{normalized_zone_data_hash, ProofInputUtxo, Utxo},
 };
@@ -44,7 +44,7 @@ impl SppProofInputUtxo {
             amount: 0,
             blinding: random_blinding(),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         Self {
             utxo,
@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(field_of(&amount), "amount");
 
         let mut data = SppProofInputUtxo::new_dummy();
-        data.utxo.data = Data::new(vec![DataRecord::UtxoData(vec![1])]);
+        data.utxo.data = OutputData::new(vec![DataRecord::UtxoData(vec![1])]);
         assert_eq!(field_of(&data), "data");
 
         let mut zone = SppProofInputUtxo::new_dummy();

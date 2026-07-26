@@ -156,8 +156,8 @@ const TYPESCRIPT_ONLY: Readonly<Record<string, Readonly<Record<string, string>>>
     encryptedSchemeToByte: "EncryptedScheme::to_byte, which has no impl block here",
     outputDataEncoding: "the OutputDataEncoding discriminant, which zolana_event owns in Rust",
     OutputDataEncoding: "the OutputDataEncoding discriminant, which zolana_event owns in Rust",
-    decodeData: "Data::deserialize, which has no impl block here",
-    encodeData: "Data::serialize, which has no impl block here",
+    decodeData: "OutputData::deserialize, which has no impl block here",
+    encodeData: "OutputData::serialize, which has no impl block here",
     decodeOutputData: "the borsh OutputDataEncoding reader zolana_event owns in Rust",
     encodeOutputData: "the borsh OutputDataEncoding writer zolana_event owns in Rust",
     decryptConfidentialAsSender:

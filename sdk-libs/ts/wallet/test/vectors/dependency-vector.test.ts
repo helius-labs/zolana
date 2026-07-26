@@ -1,6 +1,6 @@
 import type { Address, Bytes32 } from "@zolana/interface";
 import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
-import { AssetRegistry, Data, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
+import { AssetRegistry, OutputData, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
 import { describe, expect, it } from "vitest";
 
 import { LocalWalletAuthority, createMerge, createSplit } from "../../src/index.js";
@@ -29,7 +29,7 @@ function funded(keypair: ShieldedKeypair, amounts: readonly bigint[]): Wallet {
         asset: SOL_MINT,
         amount,
         blinding: new Uint8Array(31).fill(index + 1) as import("@zolana/interface").Bytes31,
-        data: new Data(),
+        data: new OutputData(),
       }),
       outputContext: {
         hash: new Uint8Array(32).fill(index + 1) as Bytes32,

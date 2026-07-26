@@ -56,7 +56,7 @@ use zolana_test_utils::smart_account::{self, StandardSigners};
 use zolana_transaction::{
     instructions::transact::PrivateTxHash,
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
-    AssetRegistry, Data, LocalWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
+    AssetRegistry, OutputData, LocalWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
     SOL_MINT,
 };
 use zolana_tree::TreeAccount;
@@ -183,7 +183,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         amount: AMOUNT,
         blinding: payer_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let payer_owner_pk_hash = payer_utxo.owner.hash()?;
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
@@ -396,7 +396,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     assert_eq!(
         recipient_hash,
@@ -847,7 +847,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             amount: AMOUNT,
             blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, blinding);
         let shield_ix = Deposit {
@@ -1044,7 +1044,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             amount: total_amount - TRANSFER_AMOUNT,
             blinding: change_plaintext.blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let recipient_note = Utxo {
             owner: payer_public_key,
@@ -1052,7 +1052,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             amount: TRANSFER_AMOUNT,
             blinding: recipient_plaintext.blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let change_note = RealSpendNote::new(
             change_note,
@@ -1601,7 +1601,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
             amount: half,
             blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let owner_field = owner_hash(&utxo.owner, &sender_nullifier_pk)?;
         let shield_data = ZolanaProgramTest::sol_shield_data(half, owner_field, blinding);
@@ -1736,7 +1736,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         amount: TRANSFER_AMOUNT,
         blinding: recipient_plaintext.blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
 
     // The recipient wallet is handed only the on-chain ciphertext and recovers by

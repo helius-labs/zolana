@@ -14,7 +14,7 @@ import {
   BN254_MODULUS_DEC,
   ConfidentialSplit,
   ConfidentialTransfer,
-  Data,
+  OutputData,
   EncryptedScheme,
   MERGE_INPUTS,
   Merge,
@@ -65,6 +65,7 @@ import {
   decodeConfidential,
   decodeData,
   decodeMerge,
+  decodeOutputData,
   decodeProofless,
   decodeSplitEncrypted,
   decryptAnonymous,
@@ -75,6 +76,7 @@ import {
   encodeConfidential,
   encodeData,
   encodeMerge,
+  encodeOutputData,
   encodePlaintextTransfer,
   encodeProofless,
   encodeSplitBundle,
@@ -222,7 +224,7 @@ function noncanonicalDummy(fields: readonly string[]): SppProofInputUtxo {
         blinding: new Uint8Array(31) as Bytes31,
         ...(set.has("data")
           ? {
-              data: new Data([{ kind: "memo", bytes: Uint8Array.from(BUILDER_RECORD_BYTES.memo) }]),
+              data: new OutputData([{ kind: "memo", bytes: Uint8Array.from(BUILDER_RECORD_BYTES.memo) }]),
             }
           : {}),
         ...(set.has("zone_program_id") ? { zoneProgramId: oracle.merge.zone as Address } : {}),
@@ -269,10 +271,10 @@ describe("the Rust oracle and TypeScript agree on UTXO data records", () => {
         (record) => ({ kind: record.kind, bytes: bytes(record.bytesHex) }) as DataRecord,
       );
       if (testCase.error !== null) {
-        expect(codeOf(() => new Data(records))).toBe(testCase.error);
+        expect(codeOf(() => new OutputData(records))).toBe(testCase.error);
         return;
       }
-      const data = new Data(records);
+      const data = new OutputData(records);
       const encoded = encodeData(data);
       expect(hex(encoded)).toBe(testCase.encodedHex);
       expect(
@@ -528,7 +530,7 @@ describe("the Rust oracle and TypeScript agree on the key-free plaintext layouts
         amount: BigInt(entry.amount),
         blinding: bytes(entry.blindingHex) as Bytes31,
         ...(entry.zoneProgramId === null ? {} : { zoneProgramId: entry.zoneProgramId as Address }),
-        data: new Data(
+        data: new OutputData(
           entry.records.map(
             (record) => ({ kind: record.kind, bytes: bytes(record.bytesHex) }) as DataRecord,
           ),
@@ -754,7 +756,7 @@ describe("the Rust oracle and TypeScript agree on the from-UTXO conversions", ()
         spec.position === null
           ? (new Uint8Array(31).fill(99) as Bytes31)
           : deriveBlinding(blindingSeed, spec.position),
-      data: new Data(
+      data: new OutputData(
         spec.records.map(
           (record) => ({ kind: record.kind, bytes: bytes(record.bytesHex) }) as DataRecord,
         ),
@@ -1031,7 +1033,7 @@ function mergeInput(spec: MergeInputSpec): SppProofInputUtxo {
       asset: spec.asset as Address,
       amount: BigInt(spec.amount),
       blinding: deriveBlinding(BUILDER_BLINDING_SEED, spec.position),
-      data: new Data(
+      data: new OutputData(
         spec.records.map((kind) => ({ kind, bytes: Uint8Array.from(BUILDER_RECORD_BYTES[kind]) })),
       ),
       ...(spec.zone === null ? {} : { zoneProgramId: spec.zone as Address }),
@@ -1112,7 +1114,7 @@ describe("the Rust oracle and TypeScript agree on the merge builders", () => {
                 asset: first.utxo.asset,
                 amount: first.utxo.amount,
                 blinding: first.utxo.blinding,
-                data: new Data([{ kind: "utxoData", bytes: Uint8Array.from([4, 5]) }]),
+                data: new OutputData([{ kind: "utxoData", bytes: Uint8Array.from([4, 5]) }]),
                 ...(first.utxo.zoneProgramId === undefined
                   ? {}
                   : { zoneProgramId: first.utxo.zoneProgramId }),
@@ -1985,7 +1987,7 @@ describe("the Rust oracle and TypeScript agree on wallet balances", () => {
           asset: mints[note.mint] as Address,
           amount: BigInt(note.amount),
           blinding: new Uint8Array(31).fill(index + 1) as Bytes31,
-          data: new Data(),
+          data: new OutputData(),
         }),
         outputContext: {
           hash: filled(index + 1),

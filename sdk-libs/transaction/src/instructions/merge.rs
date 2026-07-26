@@ -219,7 +219,7 @@ mod tests {
     use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair, ViewingKey};
 
     use super::*;
-    use crate::{data::DataRecord, utxo::Utxo, Data};
+    use crate::{data::DataRecord, utxo::Utxo, OutputData};
 
     fn plain_input(keypair: &ShieldedKeypair, asset: Address, amount: u64) -> SppProofInputUtxo {
         let utxo = Utxo {
@@ -228,7 +228,7 @@ mod tests {
             amount,
             blinding: random_blinding(),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
     }
@@ -275,7 +275,7 @@ mod tests {
             amount: 10,
             blinding: random_blinding(),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let input = SppProofInputUtxo::new(utxo, &other);
 
@@ -306,7 +306,7 @@ mod tests {
     fn rejects_input_carrying_inline_data() {
         let keypair = ShieldedKeypair::new().expect("keypair");
         let mut input = plain_input(&keypair, Address::default(), 10);
-        input.utxo.data = Data::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
+        input.utxo.data = OutputData::new(vec![DataRecord::Memo(b"utxo".to_vec())]);
 
         let Err(error) = Merge::new(&keypair, vec![input]) else {
             panic!("input carrying data must be rejected");

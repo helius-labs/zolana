@@ -79,10 +79,6 @@
         "kind": "value"
       },
       {
-        "name": "Data",
-        "kind": "value"
-      },
-      {
         "name": "DataRecord",
         "kind": "type"
       },
@@ -185,6 +181,10 @@
       {
         "name": "OutputContext",
         "kind": "type"
+      },
+      {
+        "name": "OutputData",
+        "kind": "value"
       },
       {
         "name": "outputDataEncoding",

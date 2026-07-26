@@ -56,7 +56,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetRegistry, Data, Utxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, OutputData, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 
@@ -315,7 +315,7 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
     SectionTable {
         title: "Transaction Size".into(),
         headers: vec![
-            "Instruction Data".into(),
+            "Instruction OutputData".into(),
             "Accounts".into(),
             "Legacy Tx".into(),
             "v0 + ALT Tx".into(),
@@ -393,7 +393,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         amount: INPUT_AMOUNT,
         blinding: input_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
 
     let taker = ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([0x4d; 32]))
@@ -574,7 +574,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut
         amount: DESTINATION_AMOUNT,
         blinding: taker_in_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
 
@@ -721,7 +721,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBench
         amount: DESTINATION_AMOUNT,
         blinding: taker_in_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
 

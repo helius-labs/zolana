@@ -144,7 +144,7 @@ mod tests {
     use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair};
 
     use super::*;
-    use crate::{instructions::merge::MERGE_INPUTS, utxo::Utxo, Data, DataRecord};
+    use crate::{instructions::merge::MERGE_INPUTS, utxo::Utxo, OutputData, DataRecord};
 
     const ZONE: [u8; 32] = [3u8; 32];
 
@@ -155,7 +155,7 @@ mod tests {
             amount,
             blinding: random_blinding(),
             zone_program_id: Some(Address::new_from_array(ZONE)),
-            data: Data::default(),
+            data: OutputData::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
     }
@@ -232,7 +232,7 @@ mod tests {
             amount: 10,
             blinding: random_blinding(),
             zone_program_id: Some(zone),
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let input = SppProofInputUtxo::new(utxo, &other);
 
@@ -273,7 +273,7 @@ mod tests {
         let keypair = ShieldedKeypair::new().expect("keypair");
         let zone = Address::new_from_array(ZONE);
         let mut input = zone_input(&keypair, 10);
-        input.utxo.data = Data::new(vec![DataRecord::UtxoData(vec![1])]);
+        input.utxo.data = OutputData::new(vec![DataRecord::UtxoData(vec![1])]);
 
         let Err(error) = MergeZone::new(&keypair, vec![input], zone, None) else {
             panic!("utxo program data must be rejected");

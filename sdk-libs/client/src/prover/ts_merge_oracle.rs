@@ -35,7 +35,7 @@ use zolana_transaction::{
         transact::SppProofOutputUtxo,
         types::{InputUtxoContext, SppProofInputUtxo},
     },
-    Data, Utxo, SOL_MINT,
+    OutputData, Utxo, SOL_MINT,
 };
 
 use crate::{
@@ -98,7 +98,7 @@ fn real_input(
             amount: REAL_INPUT_AMOUNTS[position as usize],
             blinding: derive_blinding(&BLINDING_SEED, position),
             zone_program_id,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         keypair,
     )
@@ -115,7 +115,7 @@ fn dummy_input(position: u8) -> SppProofInputUtxo {
             amount: 0,
             blinding: derive_blinding(&BLINDING_SEED, position),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         nullifier_key: NullifierKey::from_secret([0; 31]),
         data_hash: None,

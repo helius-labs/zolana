@@ -2,7 +2,7 @@ import type { Address, Bytes16, Bytes31, Bytes32 } from "@zolana/interface";
 import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
 import { describe, expect, it } from "vitest";
 
-import { AssetRegistry, Data, SOL_MINT, Utxo, deriveBlinding } from "../src/index.js";
+import { AssetRegistry, OutputData, SOL_MINT, Utxo, deriveBlinding } from "../src/index.js";
 import { decodeAddress, hashField } from "../src/internal.js";
 import {
   EncryptedScheme,
@@ -91,7 +91,7 @@ describe("manifest-verified transaction serialization", () => {
     const inputs = section(fixture, "inputs");
     const families = fixtureObject(section(fixture, "expected").families, "fixture families");
     const { keypair, recipient, recipientViewing, tx } = keys(inputs);
-    const data = new Data([{ kind: "memo", bytes: new TextEncoder().encode("codec") }]);
+    const data = new OutputData([{ kind: "memo", bytes: new TextEncoder().encode("codec") }]);
     const seed = hexBytes(fixtureString(inputs, "blindingSeedBytes")) as Bytes31;
     const salt = hexBytes(fixtureString(inputs, "saltBytes")) as Bytes16;
 
@@ -149,7 +149,7 @@ describe("manifest-verified transaction serialization", () => {
       anonymousRecipientUtxo(
         {
           ...anonymousRecipient,
-          data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]),
+          data: new OutputData([{ kind: "utxoData", bytes: Uint8Array.of(1) }]),
         },
         new AssetRegistry(),
       ).data.utxoData(),
@@ -159,7 +159,7 @@ describe("manifest-verified transaction serialization", () => {
       anonymousRecipientUtxo(
         {
           ...anonymousRecipient,
-          data: new Data([{ kind: "zoneData", bytes: Uint8Array.of(2) }]),
+          data: new OutputData([{ kind: "zoneData", bytes: Uint8Array.of(2) }]),
         },
         new AssetRegistry(),
         zoneProgramId,
@@ -173,7 +173,7 @@ describe("manifest-verified transaction serialization", () => {
       solAmount: 36n,
       blindingSeed: seed,
       recipientViewingPublicKeys: [recipient.viewingPublicKey()],
-      splData: new Data(),
+      splData: new OutputData(),
       solData: data,
     };
     const senderExpected = fixtureObject(families.anonymousSender);
@@ -217,7 +217,7 @@ describe("manifest-verified transaction serialization", () => {
         ownerPublicKey: keypair.signingPublicKey(),
         spl: { amount: 7n, assetId: 1n },
         solAmount: 8n,
-        splData: new Data(),
+        splData: new OutputData(),
         solData: data,
       },
       recipientSlots: [
@@ -294,7 +294,7 @@ describe("manifest-verified transaction serialization", () => {
           asset: SOL_MINT,
           amount: 55n,
           blinding: deriveBlinding(seed, 1),
-          data: new Data(),
+          data: new OutputData(),
         }),
         keypair.signingPublicKey(),
         assets,
@@ -319,7 +319,7 @@ describe("manifest-verified transaction serialization", () => {
    * `AnonymousTransferRecipientPlaintext::{serialize,deserialize}` at the
    * frozen revision: wincode's `ReadError` and `WriteError` both land in
    * `TransactionError::{Deserialize,Serialize}`
-   * (`sdk-libs/transaction/src/error.rs:250-260`), and `Data::validate` runs
+   * (`sdk-libs/transaction/src/error.rs:250-260`), and `OutputData::validate` runs
    * inside `serialize` (`serialization/anonymous.rs:29-38`).
    */
   it("sorts a malformed anonymous body into the category Rust does", () => {
@@ -332,7 +332,7 @@ describe("manifest-verified transaction serialization", () => {
       assetId: 1n,
       amount: 19n,
       blinding: deriveBlinding(seed, 2),
-      data: new Data([{ kind: "memo", bytes: new TextEncoder().encode("hi") }]),
+      data: new OutputData([{ kind: "memo", bytes: new TextEncoder().encode("hi") }]),
     };
     const bytes = encodeAnonymousRecipient(plaintext);
 
@@ -375,8 +375,8 @@ describe("manifest-verified transaction serialization", () => {
           { length: 256 },
           () => recipient.viewingPublicKey(),
         ),
-        splData: new Data(),
-        solData: new Data(),
+        splData: new OutputData(),
+        solData: new OutputData(),
       }),
     ).toThrow(
       expect.objectContaining({
@@ -413,7 +413,7 @@ describe("manifest-verified transaction serialization", () => {
         encryptConfidential(
           spent,
           recipientPublicKey,
-          { assetId: 1n, amount: 55n, blinding: deriveBlinding(seed, 1), data: new Data() },
+          { assetId: 1n, amount: 55n, blinding: deriveBlinding(seed, 1), data: new OutputData() },
           salt,
           0,
         ),

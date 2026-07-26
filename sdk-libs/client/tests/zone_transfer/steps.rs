@@ -32,7 +32,7 @@ use zolana_interface::{
 use zolana_keypair::{
     hash::sha256, random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey,
 };
-use zolana_transaction::{Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{OutputData, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use crate::{
     test_indexer::TestIndexer,
@@ -299,7 +299,7 @@ fn build_real_inputs(
             amount: *amount,
             blinding: random_blinding(),
             zone_program_id: Some(zone),
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let nullifier_pk = kp.nullifier_key.pubkey().expect("nullifier pubkey");
         let utxo_hash = utxo
@@ -347,7 +347,7 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
         zone_data_hash: None,
         data_hash: None,
         owner_tag: None,
-        data: Data::default(),
+        data: OutputData::default(),
     }
 }
 
@@ -368,7 +368,7 @@ fn dummy_input() -> TransferSpendInput {
         amount: 0,
         blinding: random_blinding(),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     TransferSpendInput {
         utxo,

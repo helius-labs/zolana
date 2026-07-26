@@ -1007,7 +1007,7 @@ mod tests {
     use solana_keypair::Keypair;
     use solana_signer::Signer;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{AssetRegistry, Data, Utxo, Wallet, WalletUtxo, SOL_MINT};
+    use zolana_transaction::{AssetRegistry, OutputData, Utxo, Wallet, WalletUtxo, SOL_MINT};
 
     use super::*;
     use crate::{
@@ -1578,7 +1578,7 @@ mod tests {
             amount,
             blinding: [7u8; 31],
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let nullifier_key = &keypair.nullifier_key;
         let nullifier_pubkey = nullifier_key.pubkey().expect("nullifier pubkey");

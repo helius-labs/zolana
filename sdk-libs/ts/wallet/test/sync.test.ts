@@ -4,7 +4,7 @@ import { splAssetRegistryAccountCodec } from "@zolana/interface/codecs";
 import { randomBlinding, ShieldedKeypair } from "@zolana/keypair";
 import {
   AssetRegistry,
-  Data,
+  OutputData,
   EncryptedScheme,
   SOL_ASSET_ID,
   SOL_MINT,
@@ -39,7 +39,7 @@ function state(): Readonly<{
         asset: SOL_MINT,
         amount,
         blinding: randomBlinding(),
-        data: new Data(),
+        data: new OutputData(),
       }),
       outputContext: { hash: bytes32(index + 1), tree: TREE, leafIndex: BigInt(index) },
       nullifier: bytes32(index + 10),
@@ -75,7 +75,7 @@ function depositMatch(
     asset: SOL_MINT,
     amount: DEPOSIT_AMOUNT,
     blinding,
-    data: new Data(),
+    data: new OutputData(),
   });
   return {
     slot: 5n,
@@ -278,7 +278,7 @@ describe("wallet sync", () => {
       asset: SOL_MINT,
       amount: 7n,
       blinding,
-      data: new Data(),
+      data: new OutputData(),
     });
     const envelope = await new LocalWalletAuthority({
       solanaPublicKey: OWNER,
@@ -293,8 +293,8 @@ describe("wallet sync", () => {
         solAmount: 1n,
         blindingSeed: randomBlinding(),
         recipientViewingPublicKeys: [keypair.viewingKey().publicKey()],
-        splData: new Data(),
-        solData: new Data(),
+        splData: new OutputData(),
+        solData: new OutputData(),
       },
       recipients: [
         {
@@ -306,7 +306,7 @@ describe("wallet sync", () => {
             assetId: SOL_ASSET_ID,
             amount: 7n,
             blinding,
-            data: new Data(),
+            data: new OutputData(),
           },
         },
       ],

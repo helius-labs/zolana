@@ -48,7 +48,7 @@ use zolana_transaction::{
         types::SppProofInputUtxo,
     },
     serialization::split::{Split, SplitBundlePlaintext, SplitEncode},
-    ApprovalRequest, AssetRegistry, Data, EncryptedSplit, EncryptedTransfer, LocalWalletAuthority,
+    ApprovalRequest, AssetRegistry, OutputData, EncryptedSplit, EncryptedTransfer, LocalWalletAuthority,
     OutputContext, SyncWalletAuthority, TransactionError, Utxo, UtxoSerialization, Wallet,
     WalletUtxo, SOL_MINT,
 };
@@ -405,7 +405,7 @@ fn wallet_with_amounts(
             amount,
             blinding: derive_blinding(&BLINDING_SEED, position as u8),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         let nullifier_key = keypair.nullifier_key.pubkey()?;
         let hash = utxo.hash(&nullifier_key, &[0; 32], &[0; 32])?;
@@ -785,7 +785,7 @@ fn deterministic_dummy(position: u8) -> SppProofInputUtxo {
             amount: 0,
             blinding: derive_blinding(&BLINDING_SEED, position),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         nullifier_key: NullifierKey::from_secret([0; 31]),
         data_hash: None,

@@ -10,7 +10,7 @@ import type { ShieldedAddress } from "@zolana/keypair";
 import {
   ConfidentialTransfer,
   SppProofInputUtxo,
-  type Data,
+  type OutputData,
   type SppProofInputs,
   type Utxo,
   type Wallet,
@@ -27,7 +27,7 @@ function sameOptionalHash(left: Bytes32 | undefined, right: Bytes32 | undefined)
   return equalBytes(left, right);
 }
 
-function sameData(left: Data, right: Data): boolean {
+function sameData(left: OutputData, right: OutputData): boolean {
   const records = left.records();
   const other = right.records();
   return (

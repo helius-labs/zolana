@@ -135,7 +135,7 @@
     },
     {
       "path": "transaction/data-v1.json",
-      "sha256": "e469e1dfba8e9ae80e2bad3b5f437ab2115bbf06eb05071e33437e9fb93580d3"
+      "sha256": "e876aa8cf768696fe44f9b7889373a7801a6da79a3c3591ca5e8668571787741"
     },
     {
       "path": "transaction/frozen-tests-v1.json",
@@ -167,7 +167,7 @@
     },
     {
       "path": "transaction/values-and-errors-v1.json",
-      "sha256": "836dd15edee85e2b38794bb49a71ca74887916a433e5c0fd6c9d73bb0dda8fdd"
+      "sha256": "3dd48d6464454c13f120fa0864672c9fbb9855c7fa0c3c2ae394bc4b7898558b"
     },
     {
       "path": "transaction/wallet-state-v1.json",

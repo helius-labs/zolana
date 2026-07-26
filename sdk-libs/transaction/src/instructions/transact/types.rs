@@ -6,13 +6,13 @@ use zolana_keypair::{hash::poseidon, random_blinding, P256Pubkey, ShieldedAddres
 
 use super::external_data::ExternalData;
 use crate::{
-    data::{Data, DataRecord},
+    data::{OutputData, DataRecord},
     error::TransactionError,
     utxo::{normalized_zone_data_hash, Blinding, ProofInputUtxo, Utxo},
 };
 
 /// Canonical ordering key for data records: `ZoneData` < `UtxoData` < `Memo`,
-/// matching `Data::validate`.
+/// matching `OutputData::validate`.
 fn canonical_data_order(record: &DataRecord) -> u8 {
     match record {
         DataRecord::ZoneData(_) => 0,
@@ -53,7 +53,7 @@ pub struct SppProofOutputUtxo {
     pub data_hash: Option<[u8; 32]>,
     pub owner_address: Option<ShieldedAddress>,
     pub owner_tag: Option<[u8; 32]>,
-    pub data: Data,
+    pub data: OutputData,
 }
 
 impl SppProofOutputUtxo {
@@ -259,7 +259,7 @@ mod tests {
                 amount: 0,
                 blinding: [4u8; 31],
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             nullifier_pk: [0u8; 32],
             zone_data_hash: None,

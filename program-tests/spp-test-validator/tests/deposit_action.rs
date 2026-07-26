@@ -15,7 +15,7 @@ use zolana_interface::{
     pda,
 };
 use zolana_keypair::{random_blinding, ShieldedAddress};
-use zolana_transaction::{Data, Utxo, SOL_MINT};
+use zolana_transaction::{OutputData, Utxo, SOL_MINT};
 
 /// Outcome of a shield: the on-chain signature and the created note, ready to
 /// spend (and re-discoverable by `Wallet::sync` from the deposit's `owner`).
@@ -135,7 +135,7 @@ impl Deposit<'_> {
             amount: self.amount,
             blinding,
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         Ok(DepositResult {
             signature,

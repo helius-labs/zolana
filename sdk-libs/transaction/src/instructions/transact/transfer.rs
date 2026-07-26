@@ -19,7 +19,7 @@ use super::{
     ExternalData, SppProofOutputUtxo,
 };
 use crate::{
-    data::Data,
+    data::OutputData,
     error::TransactionError,
     instructions::types::SppProofInputUtxo,
     serialization::{
@@ -560,7 +560,7 @@ fn dummy_ciphertext_len(
             amount: 0,
             blinding: random_blinding(),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         [0u8; VIEW_TAG_LEN],
         &ConfidentialEncode {
@@ -578,7 +578,7 @@ mod tests {
     use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 
     use super::*;
-    use crate::{data::Data, utxo::Utxo};
+    use crate::{data::OutputData, utxo::Utxo};
 
     const SPL_MINT: Address = Address::new_from_array([4u8; 32]);
 
@@ -603,7 +603,7 @@ mod tests {
                     amount: 100,
                     blinding: derive_blinding(&[11u8; 31], 0),
                     zone_program_id: None,
-                    data: Data::default(),
+                    data: OutputData::default(),
                 },
                 &keypair,
             )],
@@ -776,7 +776,7 @@ mod tests {
                 amount,
                 blinding: random_blinding(),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             sender,
         )

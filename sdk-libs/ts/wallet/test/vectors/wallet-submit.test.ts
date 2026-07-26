@@ -4,7 +4,7 @@ import type { Address, Bytes32, Bytes33 } from "@zolana/interface";
 import { ShieldedKeypair } from "@zolana/keypair";
 import {
   AssetRegistry,
-  Data,
+  OutputData,
   type SppProofInputUtxo,
   SOL_MINT,
   Utxo,
@@ -82,7 +82,7 @@ function prepared(localKeypair: ShieldedKeypair, tree: Address) {
         asset: SOL_MINT,
         amount,
         blinding: new Uint8Array(31).fill(index + 1) as import("@zolana/interface").Bytes31,
-        data: new Data(),
+        data: new OutputData(),
       });
       return {
         utxo,

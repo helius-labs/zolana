@@ -11,7 +11,7 @@ use zolana_transaction::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode},
         split::{Split, SplitEncode},
     },
-    AssetRegistry, Data, DecodeCx, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
+    AssetRegistry, OutputData, DecodeCx, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
 };
 
 const SENDER_SLOT_COUNT: usize = 2;
@@ -23,7 +23,7 @@ fn sample_utxo(owner: &ShieldedKeypair, counter: &mut u64) -> Utxo {
         amount: 100,
         blinding: unique31(counter, 0xBB),
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     }
 }
 
@@ -48,7 +48,7 @@ fn sender_bundle_body(recipient_count: u16) -> (ShieldedKeypair, Vec<u8>, Option
         amount: 50,
         blinding: blinding_seed,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     }];
 
     let owner_cx = OwnerCx {
@@ -214,7 +214,7 @@ fn decrypt(c: &mut Criterion) {
             amount: 100,
             blinding: zolana_transaction::derive_blinding(&split_blinding_seed, i),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         })
         .collect();
     let split_owner_cx = OwnerCx {

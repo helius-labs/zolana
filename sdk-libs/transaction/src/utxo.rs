@@ -5,7 +5,7 @@ pub use zolana_interface::UTXO_DOMAIN;
 use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
 
 use crate::{
-    data::Data, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
+    data::OutputData, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
     AssetRegistry,
 };
 
@@ -36,7 +36,7 @@ pub struct Utxo {
     pub amount: u64,
     pub blinding: Blinding,
     pub zone_program_id: Option<Address>,
-    pub data: Data,
+    pub data: OutputData,
 }
 
 fn right_align<const N: usize>(bytes: &[u8; N]) -> [u8; 32] {
@@ -48,7 +48,7 @@ fn right_align<const N: usize>(bytes: &[u8; N]) -> [u8; 32] {
 
 pub(crate) fn resolve_zone_program_id(
     zone_program_id: Option<Address>,
-    data: &Data,
+    data: &OutputData,
 ) -> Result<Option<Address>, TransactionError> {
     if data.zone_data().is_none() {
         return Ok(None);

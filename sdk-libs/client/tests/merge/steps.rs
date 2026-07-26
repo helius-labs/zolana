@@ -14,7 +14,7 @@ use zolana_client::{
 use zolana_interface::verifying_keys::merge_8_1;
 use zolana_keypair::{random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::spp_proof_inputs::asset_field, Data, SppProofOutputUtxo, Utxo,
+    instructions::transact::spp_proof_inputs::asset_field, OutputData, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{test_indexer::TestIndexer, world::MergeWorld};
@@ -65,7 +65,7 @@ impl MergeWorld {
                 amount,
                 blinding: random_blinding(),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             };
             let utxo_hash = utxo
                 .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
@@ -137,7 +137,7 @@ impl MergeWorld {
             zone_data_hash: None,
             data_hash: None,
             owner_tag: None,
-            data: Data::default(),
+            data: OutputData::default(),
         };
         assert_eq!(
             reconstructed.hash().expect("reconstructed utxo hash"),

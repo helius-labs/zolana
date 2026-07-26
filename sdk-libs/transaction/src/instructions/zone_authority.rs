@@ -119,7 +119,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        data::Data,
+        data::OutputData,
         instructions::transact::spp_proof_inputs::{asset_field, signed_to_field},
         utxo::Utxo,
         ExternalData, SOL_MINT,
@@ -144,7 +144,7 @@ mod tests {
                 amount: 500,
                 blinding: [5u8; BLINDING_LEN],
                 zone_program_id,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             keypair,
         )

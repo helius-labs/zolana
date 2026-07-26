@@ -49,7 +49,7 @@ use zolana_transaction::{
         transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
         types::{InputUtxoContext, SppProofInputUtxo},
     },
-    Data, Utxo, SOL_MINT,
+    OutputData, Utxo, SOL_MINT,
 };
 
 const FIXTURE: &str = "sdk-libs/ts/vectors/prover-request-parity-v1.json";
@@ -606,7 +606,7 @@ fn confidential_inputs(
                 amount: 0,
                 blinding: derive_blinding(&BLINDING_SEED, position as u8),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             nullifier_key: NullifierKey::from_secret([0; 31]),
             data_hash: None,
@@ -710,7 +710,7 @@ fn confidential_real_input(keypair: &ShieldedKeypair) -> SppProofInputUtxo {
             amount: 100,
             blinding: derive_blinding(&BLINDING_SEED, 0),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         keypair,
     )
@@ -736,7 +736,7 @@ fn zone_real_input(keypair: &ShieldedKeypair, position: u8) -> SppProofInputUtxo
             amount: ZONE_INPUT_AMOUNT,
             blinding: derive_blinding(&ZONE_BLINDING_SEED, position),
             zone_program_id: Some(Address::new_from_array(ZONE_PROGRAM)),
-            data: Data::default(),
+            data: OutputData::default(),
         },
         keypair,
     )
@@ -760,7 +760,7 @@ fn zone_proof_inputs(
                         amount: 0,
                         blinding: derive_blinding(&ZONE_BLINDING_SEED, index as u8),
                         zone_program_id: None,
-                        data: Data::default(),
+                        data: OutputData::default(),
                     },
                     nullifier_key: NullifierKey::from_secret([0; 31]),
                     data_hash: None,
@@ -933,7 +933,7 @@ fn merge_inputs(keypair: &ShieldedKeypair, zone: Option<Address>) -> Vec<SppProo
                     amount: *amount,
                     blinding: derive_blinding(&MERGE_BLINDING_SEED, position as u8),
                     zone_program_id: zone,
-                    data: Data::default(),
+                    data: OutputData::default(),
                 },
                 keypair,
             )
@@ -948,7 +948,7 @@ fn merge_inputs(keypair: &ShieldedKeypair, zone: Option<Address>) -> Vec<SppProo
                 amount: 0,
                 blinding: derive_blinding(&MERGE_BLINDING_SEED, position),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             nullifier_key: NullifierKey::from_secret([0; 31]),
             data_hash: None,

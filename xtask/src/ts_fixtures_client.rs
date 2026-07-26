@@ -44,7 +44,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetRegistry, Data, TransactionError, Utxo, SOL_MINT,
+    AssetRegistry, OutputData, TransactionError, Utxo, SOL_MINT,
 };
 
 const P256_SECRET: [u8; 32] = [
@@ -430,7 +430,7 @@ fn real_input(keypair: &ShieldedKeypair) -> SppProofInputUtxo {
             amount: 100,
             blinding: derive_blinding(&BLINDING_SEED, 0),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         keypair,
     )
@@ -444,7 +444,7 @@ fn dummy_input(position: u8) -> SppProofInputUtxo {
             amount: 0,
             blinding: derive_blinding(&BLINDING_SEED, position),
             zone_program_id: None,
-            data: Data::default(),
+            data: OutputData::default(),
         },
         nullifier_key: NullifierKey::from_secret([0; 31]),
         data_hash: None,
@@ -1234,7 +1234,7 @@ fn workflow_inputs(
                 amount,
                 blinding: derive_blinding(&BLINDING_SEED, position),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             sender,
         )
@@ -1255,7 +1255,7 @@ fn workflow_inputs(
                 amount,
                 blinding: derive_blinding(&BLINDING_SEED, position),
                 zone_program_id: None,
-                data: Data::default(),
+                data: OutputData::default(),
             },
             nullifier_key,
         )

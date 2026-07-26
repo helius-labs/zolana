@@ -47,7 +47,7 @@ use zolana_hasher::Poseidon;
 use zolana_keypair::{hash::owner_hash, shielded::ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{AssetRegistry, Data, Utxo, SOL_MINT};
+use zolana_transaction::{AssetRegistry, OutputData, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{nullifier_tree, pack_proof, start_prover};
@@ -107,7 +107,7 @@ fn p256_owned_input_withdraws_via_confidential_rail() {
         amount: AMOUNT,
         blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let owner_field =
         owner_hash(&sender.signing_pubkey(), &sender_nullifier_pk).expect("owner field");

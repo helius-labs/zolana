@@ -30,7 +30,7 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use zolana_keypair::{shielded::ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
-    AssetRegistry, Data, LocalWalletAuthority, OutputContext, Utxo, Wallet, WalletUtxo, SOL_MINT,
+    AssetRegistry, OutputData, LocalWalletAuthority, OutputContext, Utxo, Wallet, WalletUtxo, SOL_MINT,
 };
 use zolana_wallet::{
     create_merge, create_split, create_withdrawal, sign_shielded_transaction_sync, MergeParams,
@@ -320,7 +320,7 @@ fn rail_wallet(authority: &ShieldedKeypair, note_owner: &ShieldedKeypair) -> Res
             amount: 10,
             blinding: [1u8; 31],
             zone_program_id: None,
-            data: Data::new(Vec::new()),
+            data: OutputData::new(Vec::new()),
         },
         output_context: OutputContext {
             hash: note_hash(0),
@@ -543,7 +543,7 @@ fn build_wallet(id: &str) -> Result<(ShieldedKeypair, Wallet)> {
                 amount: note.amount,
                 blinding,
                 zone_program_id: (note.kind == "zoneBound").then_some(ZONE_PROGRAM),
-                data: Data::new(Vec::new()),
+                data: OutputData::new(Vec::new()),
             },
             output_context: OutputContext {
                 hash: note_hash(index),

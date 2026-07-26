@@ -12,7 +12,7 @@ use zolana_transaction::{
         },
         confidential::{Confidential, ConfidentialEncode},
     },
-    Address, AssetRegistry, Data, EncryptedScheme, LocalWalletAuthority, OutputContext, OutputSlot,
+    Address, AssetRegistry, OutputData, EncryptedScheme, LocalWalletAuthority, OutputContext, OutputSlot,
     OwnerCx, ShieldedTransaction, Utxo, UtxoSerialization, Wallet, SOL_MINT,
 };
 
@@ -115,7 +115,7 @@ pub fn build_transfer(
         amount: spec.amount,
         blinding: spec.blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
 
     let sender_plaintext = AnonymousTransferSenderPlaintext {
@@ -125,8 +125,8 @@ pub fn build_transfer(
         sol_amount: spec.change_amount,
         blinding_seed: spec.blinding_seed,
         recipient_viewing_pks: vec![spec.recipient.viewing_pubkey()],
-        spl_data: Data::default(),
-        sol_data: Data::default(),
+        spl_data: OutputData::default(),
+        sol_data: OutputData::default(),
     };
 
     let sender_owner_cx = OwnerCx {
@@ -231,7 +231,7 @@ pub fn build_unified_transfer(
         amount: spec.change_amount,
         blinding: spec.change_blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
     let recipient_utxo = Utxo {
         owner: spec.recipient.signing_pubkey(),
@@ -239,7 +239,7 @@ pub fn build_unified_transfer(
         amount: spec.amount,
         blinding: spec.blinding,
         zone_program_id: None,
-        data: Data::default(),
+        data: OutputData::default(),
     };
 
     let sender_owner_cx = OwnerCx {

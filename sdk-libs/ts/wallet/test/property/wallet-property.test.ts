@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Address, Bytes32 } from "@zolana/interface";
 import { randomBlinding, ShieldedKeypair } from "@zolana/keypair";
-import { AssetRegistry, Data, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
+import { AssetRegistry, OutputData, SOL_MINT, Utxo, Wallet } from "@zolana/transaction";
 
 import { createDeposit, createSplit, WalletError } from "../../src/index.js";
 
@@ -25,7 +25,7 @@ function fundedWallet(amounts: readonly bigint[]): Wallet {
         asset: SOL_MINT,
         amount,
         blinding: randomBlinding(),
-        data: new Data(),
+        data: new OutputData(),
       }),
       outputContext: {
         hash: bytes32(index + 1),

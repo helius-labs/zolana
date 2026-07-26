@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AssetRegistry,
-  Data,
+  OutputData,
   SppProofInputUtxo,
   SOL_MINT,
   TRANSACTION_ERROR_CODES,
@@ -76,7 +76,7 @@ function noncanonicalDummies(): readonly (readonly [
     [
       "data",
       {
-        utxo: zeroOwnerUtxo({ data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]) }),
+        utxo: zeroOwnerUtxo({ data: new OutputData([{ kind: "utxoData", bytes: Uint8Array.of(1) }]) }),
         nullifierKey: ZERO_NULLIFIER_KEY(),
       },
     ],
@@ -123,29 +123,29 @@ function keyMaterial(): Readonly<{
 describe("transaction core", () => {
   it("copies and validates canonical data records", () => {
     const memo = Uint8Array.of(4);
-    const data = new Data([{ kind: "memo", bytes: memo }]);
+    const data = new OutputData([{ kind: "memo", bytes: memo }]);
     memo[0] = 9;
     expect(data.memo()).toEqual(Uint8Array.of(4));
 
     expect(
       () =>
-        new Data([
+        new OutputData([
           { kind: "memo", bytes: Uint8Array.of(1) },
           { kind: "memo", bytes: Uint8Array.of(2) },
         ]),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_DUPLICATE_DATA_RECORD" }));
     expect(
       () =>
-        new Data([
+        new OutputData([
           { kind: "memo", bytes: Uint8Array.of(1) },
           { kind: "zoneData", bytes: Uint8Array.of(2) },
         ]),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_NON_CANONICAL_DATA_ORDER" }));
 
-    expect(() => new Data([{ kind: "invalid", bytes: Uint8Array.of(1) }] as never)).toThrow(
+    expect(() => new OutputData([{ kind: "invalid", bytes: Uint8Array.of(1) }] as never)).toThrow(
       expect.objectContaining({ code: "TRANSACTION_BAD_DISCRIMINATOR" }),
     );
-    const oversized = new Data([{ kind: "memo", bytes: new Uint8Array(0x1_0000) }]);
+    const oversized = new OutputData([{ kind: "memo", bytes: new Uint8Array(0x1_0000) }]);
     expect(() => encodeData(oversized)).toThrow(
       expect.objectContaining({ code: "TRANSACTION_SERIALIZE" }),
     );

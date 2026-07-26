@@ -15,7 +15,7 @@ function copyRecord(record: DataRecord): DataRecord {
   return Object.freeze({ kind: record.kind, bytes: new Uint8Array(record.bytes) });
 }
 
-export class Data {
+export class OutputData {
   readonly #records: readonly DataRecord[];
 
   constructor(records: readonly DataRecord[] = []) {
