@@ -104,6 +104,19 @@ by subject was considered and dropped on 2026-07-26: finishing the stages is
 worth more than a navigable log, and rewriting history under agents that are
 still committing would be unsafe anyway.
 
+## Build before you run the suite
+
+`npm run build`, then the tests. Packages resolve each other through their
+`exports` maps, so `@zolana/api` reads `@zolana/indexer-api`'s built output
+rather than the sources beside it. A `dist` left over from before a change
+produces failures that look like logic errors and cannot be found by reading the
+source, because the source is correct.
+
+This cost roughly an agent-hour on 2026-07-26. Nineteen tests were reported
+failing, a worker was dispatched to judge each one, and a clean rebuild passed
+all of them. The tell was a test flipping across a merge whose diff over both
+packages was empty: a merge does not rebuild `dist`.
+
 ## A failure mode that has already cost us
 
 Do not commit another worktree's uncommitted files. Twice on 2026-07-26 an agent
