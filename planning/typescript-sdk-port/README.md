@@ -57,16 +57,20 @@ the full SDK completion gates, which the pull request must close to be
 production-ready:
 
 1. `port/g2`, the `Fq2` limb-order fix for G2 compression, its seven lint errors, and the documents that recorded the wrong cause — the one release blocker
-2. `port/gate3-flows`, unmocking the prover in the submission flows and extending the live suite to the spend flows
-3. `port/gate-ci`, the pull-request merge tier (`G9-1`, `G9-2`) and fixture-provenance gates (`G8-1`, `G8-2`)
-4. `port/gate-shapes`, shape and rail coverage for EdDSA and P256, plus named zone and merge-zone rejection coverage
+2. `port/gate-ci`, the pull-request merge tier (`G9-1`, `G9-2`) and fixture-provenance gates (`G8-1`, `G8-2`)
+3. `port/gate-shapes`, shape and rail coverage for EdDSA and P256, plus named zone and merge-zone rejection coverage
+4. `port/gate1-walk`, the per-package evidence walk across all eleven packages that closes package gate 1
 
 Merged and closed: `port/gate12-pkg` (the eleven-package census, `G9-4`, `G6-2`,
-`F041`) and `port/gate6-photon` (the live Photon contract suite, eleven tests
-against a same-revision indexer, which found no field-shape disagreement).
+`F041`), `port/gate6-photon` (a live Photon contract suite of eleven tests against
+a same-revision indexer, which found no field-shape disagreement), and
+`port/gate3-flows` (all eight named flows now carry real-stack or real-prover
+evidence, and no flow rests on a mock alone).
 
-One gate line has no owner yet and is queued for the next free slot: the
-per-package evidence walk that closes package gate 1.
+`port/g2` is the critical path. Four spend-flow submissions — split, merge,
+private transfer, withdraw — prove against the real prover but cannot reach the
+chain until the `Fq2` limb order is fixed, and every gate line waiting on
+submission waits on that one commit.
 
 Two overlaps between them are known and benign. Each new suite registers an
 `xtask` binary in `xtask/Cargo.toml` and a generator name in
