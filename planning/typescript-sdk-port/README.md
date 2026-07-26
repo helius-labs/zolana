@@ -27,20 +27,20 @@ node sdk-libs/ts/config/pkp-entry-gate.mjs
 node sdk-libs/ts/config/port-health.mjs
 ```
 
-Last update: 2026-07-26 01:50 UTC. Times in this file are true UTC; some earlier
+Last update: 2026-07-26 09:15 UTC. Times in this file are true UTC; some earlier
 entries wrote the local `+02:00` clock and labelled it UTC.
 
 | | |
 | --- | --- |
-| Rows the table calls supported | 105 of 145, the figure the gate reports. Seven more are closed on a confirmed `NOT_APPLICABLE` disposition, which the gate counts separately |
+| Rows the table calls supported | 106 of 145, the figure the gate reports. Seven more are closed on a confirmed `NOT_APPLICABLE` disposition, which the gate counts separately |
 | Rows carrying an attributable verdict | 145 of 145. None is unexamined, and each one's verdict is now traceable to a log entry |
-| Rows carrying an adverse verdict | 30: 20 `PARTIAL`, 10 `DIVERGENT`. No row is `BLOCKED`, `MISSING`, or `STALE` |
-| Rows evidenced, but the table still shows them open | None. The reconciliation backlog is drained as of this update |
+| Rows carrying an adverse verdict | 29: 20 `PARTIAL`, 9 `DIVERGENT`. No row is `BLOCKED`, `MISSING`, or `STALE` |
+| Rows evidenced, but the table still shows them open | `T14` and `T15`, on the wallet-history port merged at `569544e0`. Its row update is written; no reconciler has folded it |
 | Rows this branch cannot close | None. See [scope-and-denominator.md](scope-and-denominator.md) |
-| Branch | 1941 unit tests pass, with vectors, property, cross-language and prover suites alongside them; formatting, typecheck and lint are clean |
-| Phase | 2 of 4: remediation, and further into it than the last update read. Phases 3 and 4 not started |
-| Entry gate to the cryptographic phase | Criteria 1 and 3 pass. Criterion 2 fails on the 30 adverse rows, which is now the only substantive one. Criterion 4 has no known red job: the stale `transaction-parity-v1.json` is regenerated and the `typescript / static` lint is fixed, so it needs a clean run rather than a fix |
-| Reconciliation debt | None outstanding. The six row updates named in the last update are folded in, and two of them moved no row |
+| Branch | Build, unit tests, lint and typecheck are green at `569544e0`, verified on the history branch before it merged |
+| Phase | 2 of 4: remediation. Phases 3 and 4 not started |
+| Entry gate to the cryptographic phase | Criteria 1, 3 and 4 pass. Criterion 2 fails on the 29 adverse rows and is the only one left |
+| Reconciliation debt | One row update outstanding, `row-updates/tx-history.md`. The `c03-rpc-surface.md` update is also unfolded: it needs judgement rather than arithmetic, because eight of the fifteen methods it calls missing are Rust trait declarations with no implementor |
 | Continuous integration | No known red job; the last two were a stale committed oracle and a type assertion the `K11` narrowing made redundant, both fixed. Runs are cancelling each other because agents push while a run is in flight, so a simultaneous green needs a quiet window more than it needs another fix. One failure mode is designed in and worth knowing before it fires: `typescript / static`, `suites` and `packaging` now install a Rust toolchain, so a change to `program-libs/hasher` without a regenerated `@zolana/hasher` artifact turns those three red on the build's refusal |
 
 **Do not trust a row that says `PARITY` without reading its evidence.** An audit
