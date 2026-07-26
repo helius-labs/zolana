@@ -1,8 +1,44 @@
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
+
+/// Prefer `CARGO_TARGET_DIR` so a custom target layout still finds the binary CI
+/// (and local warmup) built with `cargo build -p xtask --bin groth16-verify`.
+function groth16VerifyBin(): string {
+  const targetDir = process.env["CARGO_TARGET_DIR"] ?? path.join(workspaceRoot, "target");
+  return path.join(targetDir, "debug", "groth16-verify");
+}
+
+/// Resolve the pre-built oracle. Compiling under vitest via `cargo run` is
+/// forbidden: a cold compile under a parallel suite pool exceeds the test
+/// budget and surfaces only as a timeout.
+function resolveGroth16VerifyBin(): string {
+  const bin = groth16VerifyBin();
+  if (!existsSync(bin)) {
+    throw new Error(
+      [
+        `missing groth16-verify oracle binary: ${bin}`,
+        "TypeScript suites require it pre-built; they do not compile xtask under vitest.",
+        "Build with: cargo build -p xtask --bin groth16-verify",
+      ].join("\n"),
+    );
+  }
+  return bin;
+}
+
+function runGroth16Verify(args: readonly string[], input?: string) {
+  const result = spawnSync(resolveGroth16VerifyBin(), [...args], {
+    cwd: workspaceRoot,
+    input,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.error) throw result.error;
+  return result;
+}
 
 export type VerifyFamily =
   | "confidential"
@@ -44,17 +80,7 @@ export type VerifyResult =
 /// Call the test-only Rust oracle that decompresses with `groth16_solana` and
 /// verifies against the embedded release verifying keys. Network is unused.
 export function callGroth16Verify(request: VerifyRequest): VerifyResult {
-  const result = spawnSync(
-    "rustup",
-    ["run", "1.97.0", "cargo", "run", "-q", "-p", "xtask", "--bin", "groth16-verify"],
-    {
-      cwd: workspaceRoot,
-      input: JSON.stringify(request),
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-    },
-  );
-  if (result.error) throw result.error;
+  const result = runGroth16Verify([], JSON.stringify(request));
   if (result.status !== 0) {
     throw new Error(`groth16-verify exited ${String(result.status)}: ${result.stderr}`);
   }
@@ -68,16 +94,7 @@ export function callGroth16Verify(request: VerifyRequest): VerifyResult {
 }
 
 export function groth16VerifySelfCheck(): void {
-  const result = spawnSync(
-    "rustup",
-    ["run", "1.97.0", "cargo", "run", "-q", "-p", "xtask", "--bin", "groth16-verify", "--", "--check"],
-    {
-      cwd: workspaceRoot,
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-    },
-  );
-  if (result.error) throw result.error;
+  const result = runGroth16Verify(["--check"]);
   if (result.status !== 0) {
     throw new Error(`groth16-verify --check failed: ${result.stderr}`);
   }
@@ -116,17 +133,7 @@ export function proofWire(
 
 /// Compress through `solana_bn254::alt_bn128_*_compress_be` (parity oracle).
 export function rustCompressProof(proof: VerifyProof): VerifyProof {
-  const result = spawnSync(
-    "rustup",
-    ["run", "1.97.0", "cargo", "run", "-q", "-p", "xtask", "--bin", "groth16-verify"],
-    {
-      cwd: workspaceRoot,
-      input: JSON.stringify({ op: "compress", proof }),
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-    },
-  );
-  if (result.error) throw result.error;
+  const result = runGroth16Verify([], JSON.stringify({ op: "compress", proof }));
   if (result.status !== 0) {
     throw new Error(`groth16-verify compress exited ${String(result.status)}: ${result.stderr}`);
   }
