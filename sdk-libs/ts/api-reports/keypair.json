@@ -1,0 +1,249 @@
+{
+  "package": "@zolana/keypair",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "BLINDING_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "Bytes16",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes31",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes32",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes33",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes34",
+        "kind": "type"
+      },
+      {
+        "name": "Bytes64",
+        "kind": "type"
+      },
+      {
+        "name": "CompressedShieldedAddress",
+        "kind": "value"
+      },
+      {
+        "name": "DST_VIEW_ROOT",
+        "kind": "value"
+      },
+      {
+        "name": "EcdsaSignature",
+        "kind": "type"
+      },
+      {
+        "name": "hashField",
+        "kind": "value"
+      },
+      {
+        "name": "initializePoseidon",
+        "kind": "value"
+      },
+      {
+        "name": "isPoseidonInitialized",
+        "kind": "value"
+      },
+      {
+        "name": "KEYPAIR_ERROR_RUST_VARIANT",
+        "kind": "value"
+      },
+      {
+        "name": "KeypairError",
+        "kind": "value"
+      },
+      {
+        "name": "KeypairErrorCode",
+        "kind": "type"
+      },
+      {
+        "name": "KeypairErrorDetails",
+        "kind": "type"
+      },
+      {
+        "name": "NullifierKey",
+        "kind": "value"
+      },
+      {
+        "name": "ownerHash",
+        "kind": "value"
+      },
+      {
+        "name": "P_CONST_SEC1",
+        "kind": "value"
+      },
+      {
+        "name": "P256_PUBLIC_KEY_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "P256PublicKey",
+        "kind": "value"
+      },
+      {
+        "name": "P256Signature",
+        "kind": "type"
+      },
+      {
+        "name": "poseidon",
+        "kind": "value"
+      },
+      {
+        "name": "randomBlinding",
+        "kind": "value"
+      },
+      {
+        "name": "randomSalt",
+        "kind": "value"
+      },
+      {
+        "name": "Salt",
+        "kind": "type"
+      },
+      {
+        "name": "SALT_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "sha256Be",
+        "kind": "value"
+      },
+      {
+        "name": "sha256Bytes",
+        "kind": "value"
+      },
+      {
+        "name": "SHIELDED_PUBLIC_KEY_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "ShieldedAddress",
+        "kind": "value"
+      },
+      {
+        "name": "ShieldedKeypair",
+        "kind": "value"
+      },
+      {
+        "name": "ShieldedKeypairLike",
+        "kind": "type"
+      },
+      {
+        "name": "ShieldedPublicKey",
+        "kind": "value"
+      },
+      {
+        "name": "Signature",
+        "kind": "type"
+      },
+      {
+        "name": "SignatureType",
+        "kind": "type"
+      },
+      {
+        "name": "SigningKey",
+        "kind": "value"
+      },
+      {
+        "name": "splitBigEndian128",
+        "kind": "value"
+      },
+      {
+        "name": "VIEW_TAG_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "ViewingKey",
+        "kind": "value"
+      },
+      {
+        "name": "ViewingKeyLike",
+        "kind": "type"
+      },
+      {
+        "name": "ViewTag",
+        "kind": "type"
+      }
+    ],
+    "./merge": [
+      {
+        "name": "decryptVerifiable",
+        "kind": "value"
+      },
+      {
+        "name": "encryptVerifiable",
+        "kind": "value"
+      },
+      {
+        "name": "MAX_INFO_LENGTH",
+        "kind": "value"
+      },
+      {
+        "name": "MERGE_INFO",
+        "kind": "value"
+      },
+      {
+        "name": "mergeCiphertextHash",
+        "kind": "value"
+      },
+      {
+        "name": "MergeCiphertextPublicInputs",
+        "kind": "type"
+      },
+      {
+        "name": "mergePublicContribution",
+        "kind": "value"
+      },
+      {
+        "name": "symmetricApply",
+        "kind": "value"
+      }
+    ],
+    "./hash": [
+      {
+        "name": "hashField",
+        "kind": "value"
+      },
+      {
+        "name": "ownerHash",
+        "kind": "value"
+      },
+      {
+        "name": "poseidon",
+        "kind": "value"
+      },
+      {
+        "name": "sha256Be",
+        "kind": "value"
+      },
+      {
+        "name": "sha256Bytes",
+        "kind": "value"
+      },
+      {
+        "name": "splitBigEndian128",
+        "kind": "value"
+      }
+    ],
+    "./traits": [
+      {
+        "name": "ShieldedKeypairLike",
+        "kind": "type"
+      },
+      {
+        "name": "ViewingKeyLike",
+        "kind": "type"
+      }
+    ]
+  }
+}

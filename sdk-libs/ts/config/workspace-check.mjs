@@ -251,6 +251,8 @@ async function checkScaffold() {
     "transaction",
     "indexer-api",
     "api",
+    "client",
+    "wallet",
     "merkle-tree",
     "smart-account-client",
   ];
@@ -287,12 +289,30 @@ async function checkScaffold() {
   }
 }
 
+async function checkApiReports() {
+  const { spawnSync } = await import("node:child_process");
+  const result = spawnSync(
+    process.execPath,
+    [path.join(path.dirname(fileURLToPath(import.meta.url)), "api-check.mjs")],
+    {
+      cwd: path.resolve(packagesRoot, "../.."),
+      stdio: "inherit",
+    },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
 const command = process.argv[2];
 if (command === "exports") await checkExports();
 else if (command === "dependencies") await checkDependencies();
-else if (command === "api") await checkScaffold();
+else if (command === "api") {
+  await checkScaffold();
+  await checkApiReports();
+} else if (command === "scaffold") await checkScaffold();
 else {
   await checkExports();
   await checkDependencies();
   await checkScaffold();
+  await checkApiReports();
 }

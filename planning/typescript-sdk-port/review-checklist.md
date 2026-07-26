@@ -2,7 +2,7 @@
 
 Use this checklist to drive the production TypeScript SDK review. The end state
 requires an independently supported `PARITY` verdict or a justified
-`NOT_APPLICABLE` disposition for each of the 145 production Rust source
+`NOT_APPLICABLE` disposition for each of the 148 production Rust source
 responsibilities below. Package and cross-package completion gates must also
 pass. Completed rows alone do not support a full SDK parity claim.
 
@@ -19,12 +19,12 @@ Update this block at the start of each session.
 - Review HEAD: `df4d2fab`, the merge of `port/s01` into `ts-sdk-port` that carries fix commit `088c9b0d`, checked out as `port/reconcile-s01` at `2026-07-26 11:31 UTC`. Everything below was measured against it rather than carried forward from pass seven. Times here are true UTC
 - Fixture `frozenCommit`: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f`, unchanged, and still the value `HISTORICAL_BASELINE_SHA` freezes the 182-row inventory, `docs/spec.md`, and the proving-key lockfile against
 - Canonical Rust drift since freeze: none. The five `sdk-libs/client/src/prover` paths recorded here as past the pin were the `C08` and `C19` work, and `11571d3f` re-pinned `BASELINE_SHA` to `8ce9897c`, the rustfmt'd oracle source. Re-measured at this HEAD rather than carried forward: `npm run fixtures:check` runs clean, "verified 58 fixtures and 182 inventory rows", so the re-pin and the regeneration that were owed are both done and the gate is quiet. Nothing here is waiting on G8-1
-- Primary rows: `145`, raised from `118` on `2026-07-25` by [row-updates/queue-coverage-audit.md](row-updates/queue-coverage-audit.md). The scope rule, that a `program-libs` crate is in scope when an SDK crate depends on it, had been applied to `interface` and to none of the other four crates that meet it
-- Active phase: `2`, remediation. Every one of the 145 rows carries a verdict, so the phase-1 denominator problem is closed and the Status column holds no `todo`. Counted from the tables at `2026-07-26 11:31 UTC`: 142 rows are `done`, 0 are `needs_fix`, and 3 are `needs_re_review`. The vocabulary in use is `done`, `needs_re_review`, and `needs_fix`. The `needs_fix` drain is empty
-- Progress: `135 done / 145 total`, counted at `2026-07-26 11:31 UTC` from the tables rather than adjusted from the previous figure. The count is rows that are `done` and `PARITY` together, which is what the CI check compares against this line. The Status column shows 142 `done`, seven more than the progress figure, and the seven are `H08` through `H14`, `done` on a confirmed `NOT_APPLICABLE` disposition. Recounted with `awk` over the Status and Verdict columns rather than adjusted from the previous figure: 135 `done`/`PARITY`, 7 `done`/`NOT_APPLICABLE`, 3 `needs_re_review`/`NOT_APPLICABLE`, and 0 adverse, which sums to the full 145. Fix workers land commits while this block is read, so recount before you cite a number. The `typescript / planning` CI job fails when this count disagrees with the tables
-- Scope and denominator, recounted `2026-07-26 11:31 UTC`: the denominator for the entry criterion is **0 adverse open rows**. `S01` closed in this pass after `088c9b0d` was verified at HEAD rather than credited to [row-updates/s01.md](row-updates/s01.md). Prior text, `2026-07-26 11:14 UTC`: the adverse denominator was 1 (`S01`). Prior text, `2026-07-26 10:45 UTC`: the adverse denominator was 13. Prior text, `2026-07-26`: [scope-and-denominator.md](scope-and-denominator.md)
-- Exact next eligible row: none on a parity question. Every primary row is `PARITY` or `NOT_APPLICABLE`. The three `needs_re_review` rows are `NOT_APPLICABLE` dispositions, not open parity work. Criterion 2 of the cryptographic certification entry gate is clear; criterion 4 (CI) remains a separate worker's problem
-- Full SDK parity claim: the primary-row adverse denominator is empty. Recounted from the tables at `2026-07-26 11:31 UTC`, not adjusted from the previous figures, and cross-checked against both gate scripts, which read the same columns: 135 rows at `PARITY`, 0 adverse, and 10 at `NOT_APPLICABLE`, 7 of them confirmed and `done`. 135 plus 0 plus 10 is the full 145. No row is `BLOCKED`, `MISSING`, `STALE`, or `DIVERGENT`. Every `PARITY` row is also `done`, so the progress figure and the parity figure are the same 135. The three figures to check against each other when this block is next read are this line, the progress line, and the adverse denominator above it; they agree at this pass
+- Primary rows: `148`, raised from `145` on `2026-07-26` by [row-updates/gate1-gaps.md](row-updates/gate1-gaps.md) (`H15`, `TK01`, `TK02`) after the earlier raise from `118` on `2026-07-25` by [row-updates/queue-coverage-audit.md](row-updates/queue-coverage-audit.md)
+- Active phase: `2`, remediation. Every one of the 148 rows carries a verdict, so the phase-1 denominator problem is closed and the Status column holds no `todo`. Counted from the tables at `2026-07-26` (gate1-gaps): 148 rows are `done`, 0 are `needs_fix`, and 0 are `needs_re_review`. The vocabulary in use is `done`, `needs_re_review`, and `needs_fix`. The `needs_fix` and `needs_re_review` drains are empty
+- Progress: `137 done / 148 total`, recounted at gate1-gaps after `H15`/`TK01`/`TK02` seats and closing `E03`/`E05`/`E06`. The count is rows that are `done` and `PARITY` together, which is what the CI check compares against this line. The Status column shows 148 `done`; eleven are `done`/`NOT_APPLICABLE` (`H08`–`H14`, `E03`/`E05`/`E06`, `TK02`). Recount: 137 `done`/`PARITY`, 11 `done`/`NOT_APPLICABLE`, 0 `needs_re_review`, and 0 adverse, which sums to the full 148. Fix workers land commits while this block is read, so recount before you cite a number. The `typescript / planning` CI job fails when this count disagrees with the tables
+- Scope and denominator, recounted `2026-07-26` (gate1-gaps): the denominator for the entry criterion is **0 adverse open rows**. Prior text, `2026-07-26 11:31 UTC`: still 0 after `S01`. Prior text, `2026-07-26 11:14 UTC`: the adverse denominator was 1 (`S01`). Prior text, `2026-07-26 10:45 UTC`: the adverse denominator was 13. Prior text, `2026-07-26`: [scope-and-denominator.md](scope-and-denominator.md)
+- Exact next eligible row: none on a parity question. Every primary row is `done` with `PARITY` or justified `NOT_APPLICABLE`. Criterion 2 of the cryptographic certification entry gate is clear; criterion 4 (CI) remains a separate worker's problem
+- Full SDK parity claim: the primary-row adverse denominator is empty. Recounted at gate1-gaps: 137 rows at `PARITY`, 0 adverse, and 11 at `NOT_APPLICABLE`, all confirmed and `done`. 137 plus 0 plus 11 is the full 148. No row is `BLOCKED`, `MISSING`, `STALE`, `DIVERGENT`, or `needs_re_review`. Every `PARITY` row is also `done`, so the progress figure and the parity figure are the same 137. The three figures to check against each other when this block is next read are this line, the progress line, and the adverse denominator above it; they agree at this pass
 - Coverage, `2026-07-25`: 27 rows were added for `program-libs/event` (6), `hasher` (14), `indexed-array` (4), and `user-registry-interface` (3). Eighteen need a parity verdict and nine record a justified `NOT_APPLICABLE`. The uncovered files held the Poseidon parameters, the instruction tag table, the output-data encoding tags, the proofless output layout, and the `UserRecord` account layout, each reimplemented in TypeScript and in several cases more than once, with nothing comparing them. Both protocol defects found this session, `PD-1` and `PD-2`, surfaced in code no row pointed at. Five further rows, `I02`, `I03`, `I30`, `I34`, and `T21`, named a TypeScript file that does not hold the behavior they review; they are repointed and `needs_re_review`, and their verdicts are about the wrong code rather than merely unsupported
 - Reconciliation, `2026-07-25`: [row-updates/parity-evidence-audit.md](row-updates/parity-evidence-audit.md) walked the paper trail behind the 36 rows then marked `done` / `PARITY` and found 1 supported, 34 unsupported, and 1 contradicted. Thirty rows were reopened to the verdict each held before its unsupported upgrade, `M01` was set adverse on the differential oracle, and the five wallet rows kept `done` because their re-review exists and only its log entry was lost; those entries are now written. `W02` then reopened anyway, as `STALE`, for the unrelated reason that the deposit tag ruling moved its canonical Rust after the review. Twenty-seven of the thirty went through two batch interface re-reviews 26 minutes apart, and every row upgraded through a batch entry was unsupported
 - Active reviews: `C01-C22` are all settled at `PARITY` or `NOT_APPLICABLE` as of reconciliation pass seven. `C04`, `C06`, and `C21` closed in that pass on landed Rust and transport fixes verified at HEAD. Earlier history: the package was reviewed `2026-07-25` and folded in six batches; `C08` closed when Rust moved; `C18` was reopened then re-closed when the zone-authority shape set was narrowed. The client package gates pass as part of `check:packaging`
@@ -441,12 +441,12 @@ Added `2026-07-25` by [row-updates/queue-coverage-audit.md](row-updates/queue-co
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | E01 | `program-libs/event/src/tag.rs` | `interface/src/index.ts` | done | PARITY | none | Closed by the program-libs coverage batch. Defines the eighteen first-byte instruction tags, mirrored as `InstructionTag`. `interface/test/vectors/program-libs-event.test.ts` compares the whole table by name and value against Rust, asserts the count, and checks the accept set against Rust's `TryFrom<u8>` over all 256 bytes, which is the comparison that had never been made: `I29` and `I37` both name the TypeScript file, so a reviewer walking either met the tags without being told where their definition lives. Oracle `xtask/src/bin/program-libs-parity.rs`, fixture `sdk-libs/ts/vectors/program-libs-parity-v1.json`, reproducible with `--check`. | 2026-07-25 program-libs batch | `bdb9c9da` |
 | E02 | `program-libs/event/src/output_data.rs` | `interface/src/index.ts`, `interface/src/codecs/index.ts` | done | PARITY | none | Closed by the program-libs coverage batch. `MessageData` carries a `FixIntLen<u16>` length prefix on `data`, which the house rule requires for a byte vector that can exceed 255 bytes, and `interface/test/vectors/program-libs-event.test.ts` puts six wincode vectors through `transactInstructionDataCodec` byte for byte, including 256- and 300-byte payloads past the `u8` boundary and a test that the prefix is a `u16` rather than borsh's `u32`. The spec divergence this row shares with `E03`, an output slot tag named `owner` where both Rust files call it `view_tag`, is a spec-side correction: TypeScript uses `viewTag` and now matches the bytes. | 2026-07-25 program-libs batch | `bdb9c9da` |
-| E03 | `program-libs/event/src/output_utxo.rs` | `interface/src/index.ts` | needs_re_review | NOT_APPLICABLE | none | The unreachability half of this row is now independently confirmed and the disposition half is still open, which is the split a confirming reviewer should start from. The completeness audit scanned every `export` in every `src/` tree for references anywhere else in the workspace, tests included, and `OutputUtxo` at `interface/src/index.ts:222` came back with no codec, no importer, and no consumer, one of eight symbols in that state ([row-updates/quality-and-completeness-audit.md](row-updates/quality-and-completeness-audit.md), F7). That is a second worker reaching the finding below by a different route, so the fact is settled. What is not settled is what to do about it, and that is why the row stays `needs_re_review` rather than closing on a confirmed disposition: deleting the type and moving it behind whatever eventually decodes `GeneralEvent` are different answers with different consequences for the published surface, and neither the batch nor the audit was in a position to choose. Prior finding: The program-libs coverage batch moved this row against the audit's prediction, from a row expecting a parity verdict to a recorded disposition, and the disposition is recorded rather than independently confirmed. On the Rust side `OutputUtxo` is only ever a `GeneralEvent` field; the transact instruction's output type is `interface`'s own `TransactOutput`, a different layout with a different field count. The TypeScript `OutputUtxo` at `interface/src/index.ts:222` matches field for field and is unreachable: no codec encodes or decodes it, no file imports it, and `interface/test/exports.test.ts` does not name it, so the public-surface check does not see it either. That leaves a shape that looks like coverage and is not. The confirming review decides whether to delete it or move it behind whatever eventually decodes `GeneralEvent`; the batch left it because whether it is published surface is a separate call. Shares the `owner` against `view_tag` spec divergence recorded on `E02`. | 2026-07-25 program-libs batch | `bdb9c9da` |
+| E03 | `program-libs/event/src/output_utxo.rs` | none | done | NOT_APPLICABLE | committed | **Closed by gate1-gaps re-review.** Unreachability was already confirmed (no codec, importer, or consumer). Disposition chosen and executed: delete the dead TypeScript `OutputUtxo` type rather than keep a shape that looks like coverage ahead of a `GeneralEvent` decoder that this SDK will not own. Rust still re-exports event `OutputUtxo` through `instruction_data` for the `GeneralEvent` field layout; the transact instruction uses `TransactOutput`. TypeScript consumers of encrypted/proof outputs use `@zolana/transaction`'s `ProofOutputUtxo`, a different type. Evidence: type removed from `interface/src/index.ts`; `interface/test/vectors/event-disposition.test.ts` asserts `OutputUtxo` is absent from the package root; API report updated. Spec `owner`/`view_tag` note on `E02` unchanged. | 2026-07-26 gate1-gaps | see gate1-gaps |
 | E04 | `program-libs/event/src/proofless.rs` | `transaction/src/serialization/codecs.ts` | done | PARITY | none | Closed by the program-libs coverage batch. `ProoflessOutput`, `OutputDataEncoding` and its three tag constants, `encode_output_data`, and `encode_verifiably_encrypted` are all present in `transaction/src/serialization/codecs.ts` and exported through `serialization/index.ts`. `transaction/test/vectors/program-libs-event.test.ts` decodes 11 borsh vectors field by field, re-encodes them to identical bytes, and wraps them to match `encode_output_data`. The live parity question this row owned is settled on the code side: `memo` is the tenth field, borsh-optional, and the byte order is confirmed. The spec, which does not list `memo`, needs the field added, and that correction is not this port's. | 2026-07-25 program-libs batch | `bdb9c9da` |
-| E05 | `program-libs/event/src/lib.rs` | none | needs_re_review | NOT_APPLICABLE | none | The disposition is recorded rather than reviewed. `GeneralEvent`, `Input`, `DepositWithdraw`, `EventKind`, `encode_event_instruction`, `encode_event_instruction_with`, and `encode_event_payload` have no TypeScript counterpart, and a search over `sdk-libs/ts` for `GeneralEvent`, `EventKind`, `EMIT_EVENT`, `emitEvent`, and `first_output_leaf_index` returns only the `emitEvent: 14` tag entry and the test asserting it. Photon decodes the `emit_event` self-CPI payload and TypeScript consumes the parsed JSON through `indexer-api`; `test-kit/src/events.ts` declares plain shapes with no decoder. The omission is justified, and the row exists so it reads as a decision rather than an absence. It also carries a spec divergence that `NOT_APPLICABLE` does not excuse: the spec types `tx_viewing_pk` and `salt` as `Option` where `GeneralEvent` uses zeroed `[u8; 33]` and `[u8; 16]`. Take that to the spec. The program-libs coverage batch restated the disposition and added no artifact behind it: its evidence is the same symbol search, and the spec divergence is still open. The row stays `needs_re_review` for that reason, unlike the `zero_bytes` rows beside it, which the same batch converted from an absence argument into a demonstrated equivalence. | 2026-07-25 program-libs batch | `bdb9c9da` |
-| E06 | `program-libs/event/src/program_test.rs` | none | needs_re_review | NOT_APPLICABLE | none | The disposition is recorded rather than reviewed. Feature-gated test helpers for the event-emission layer `E05` dispositions; `@zolana/test-kit` holds shapes only. Confirm the feature gate and that no shipped TypeScript path needs it. The program-libs coverage batch reports the `program-test` feature is off by default and that the TypeScript counterpart shapes have no decoder, but names no artifact for either claim and none of its 119 tests touches this file, so the confirmation this row asks for has still not happened. | 2026-07-25 program-libs batch | `bdb9c9da` |
+| E05 | `program-libs/event/src/lib.rs` | none | done | NOT_APPLICABLE | none | **Closed by gate1-gaps re-review.** Confirmed at HEAD: no TypeScript export or decoder for `GeneralEvent`, `Input`, `DepositWithdraw`, `EventKind`, or `encode_event_*`. Photon owns `emit_event` decoding; clients consume parsed JSON via `@zolana/indexer-api`; `test-kit/src/events.ts` holds plain harness shapes only. Artifact: `interface/test/vectors/event-disposition.test.ts` fails if those symbols appear in `@zolana/interface` / indexer-api / api sources. Spec divergence (`tx_viewing_pk`/`salt` as `Option` in the spec vs zeroed arrays in Rust) remains a spec-side correction and does not reopen the TypeScript disposition. | 2026-07-26 gate1-gaps | `bdb9c9da` |
+| E06 | `program-libs/event/src/program_test.rs` | none | done | NOT_APPLICABLE | none | **Closed by gate1-gaps re-review.** Confirmed at HEAD: `program-libs/event/Cargo.toml` declares `program-test = []` and does not list it in `default`. No shipped TypeScript path decodes the helpers this module exposes (`EventKind` / `encode_event_instruction` absent from interface, indexer-api, api, and test-kit sources). Artifact: `interface/test/vectors/event-disposition.test.ts` pins both claims. Follows `E05`: event emission stays with Photon / indexer JSON. | 2026-07-26 gate1-gaps | `bdb9c9da` |
 
-### Hasher, 14 rows
+### Hasher, 15 rows
 
 Added `2026-07-25` by [row-updates/queue-coverage-audit.md](row-updates/queue-coverage-audit.md). The largest hole the audit found and the one with the most protocol risk: Poseidon output feeds the UTXO hashes, the nullifiers, and the proof inputs, so a divergence here is silent and total.
 
@@ -466,6 +466,7 @@ Added `2026-07-25` by [row-updates/queue-coverage-audit.md](row-updates/queue-co
 | H12 | `program-libs/hasher/src/zero_bytes/poseidon.rs` | `merkle-tree/src/merkle-tree.ts` | done | NOT_APPLICABLE | none | All 41 entries of the Rust table are reproduced by the runtime construction, and an empty `CoreMerkleTree` at heights 1, 2, 3, 8, and 16 lands on the table entry for that height. This is the arity the port actually uses, so it is the table the audit wanted checked first. | 2026-07-25 program-libs batch | `bdb9c9da` |
 | H13 | `program-libs/hasher/src/zero_bytes/sha256.rs` | `merkle-tree/src/merkle-tree.ts` | done | NOT_APPLICABLE | none | Same demonstrated equivalence as `H12`, all 41 entries. | 2026-07-25 program-libs batch | `bdb9c9da` |
 | H14 | `program-libs/hasher/src/zero_bytes/keccak.rs` | `merkle-tree/src/merkle-tree.ts` | done | NOT_APPLICABLE | none | Same demonstrated equivalence as `H12`, all 41 entries. The three tables come to 123 reproduced values. | 2026-07-25 program-libs batch | `bdb9c9da` |
+| H15 | `sdk-libs/hasher-wasm/src/lib.rs` | `hasher/src/index.ts`, `hasher/src/core.ts`, `hasher/src/slim/index.ts` | done | PARITY | none | **Primary seat for `@zolana/hasher`.** H01–H14 certify sibling Poseidon ports and N/A syscall/zero-byte surfaces; this row owns the compiled WASM package the other packages call. Surface is the narrow Poseidon ABI (`initializePoseidon`, `poseidon`, `MAX_POSEIDON_INPUTS`, `HasherWasmError`, slim entry, `poseidon.wasm` asset), not the full `zolana-hasher` crate. Evidence: `hasher/test/exports.test.ts`, `hasher/test/vectors/poseidon-parity.test.ts`, `poseidon-rejection-parity.test.ts`, `public-exports.md` `@zolana/hasher`, and `fixtures:check` → `poseidon-parity --check`. Build recompiles `hasher-wasm` when `artifact.lock.json` inputs move (`hasher-packaging.md`). | 2026-07-26 gate1-gaps | see gate1-gaps |
 
 ### Indexed array, 4 rows
 
@@ -676,23 +677,55 @@ worth watching: the merge rail's security rests on that record binding rather
 than on the circuit, because the merge circuit verifies no signature and `(0,0)`
 is the dummy point its ed25519 rail relies on.
 
+### Test-kit / program-test annex, 2 rows
+
+Added `2026-07-26` by [row-updates/gate1-gaps.md](row-updates/gate1-gaps.md). The private `@zolana/test-kit` package had zero primary-queue seats under the former nine-package roll-up. These rows seat the Rust `program-test` root and the Node annex disposition ledger.
+
+| ID | Canonical Rust source | TS owner | Status | Verdict | Fix | Gap / fix | Review | Fix commit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| TK01 | `sdk-libs/program-test/src/lib.rs` | `test-kit/src/index.ts` | done | PARITY | none | **Primary seat for the published test-kit root contract.** Rust exposes `ZolanaProgramTest` (LiteSVM) plus module re-exports; TypeScript root ships the five names in `public-exports.md` (`TestKitError`, `LocalStack`, `startLocalStack`, `fixtureBytes`, `createTestWallet`) and keeps LiteSVM/`ZolanaProgramTest` off the root. Evidence: `test-kit/test/exports.test.ts`, `public-exports.md` `@zolana/test-kit`, root vs `/node` split. Broader helpers are on `TK02`. | 2026-07-26 gate1-gaps | see gate1-gaps |
+| TK02 | `sdk-libs/program-test/src/{admin,events,indexer,instructions,paths,proofless,rpc,spl,wallet_data,zone}.rs` | `test-kit/src/node/index.ts` | done | NOT_APPLICABLE | none | **Node annex disposition ledger.** `@zolana/test-kit/node` star-exports harness helpers that adapt, omit, or replace the Rust `program-test` modules rather than port LiteSVM. Full Rust-name → TypeScript disposition table: [test-kit-node-dispositions.md](test-kit-node-dispositions.md). Outside SDK semver; `browser: false`. Evidence: disposition ledger + `test-kit/test/exports.test.ts` keeping annex helpers off root. | 2026-07-26 gate1-gaps | see gate1-gaps |
+
+
 ## Package completion gates
 
 Apply these gates to each package. Record evidence beside a gate or in a
 [`log/`](log/) entry.
 
-- [ ] Each package row is `done` with `PARITY` or justified `NOT_APPLICABLE`.
-- [ ] The complete public Rust export set has a TypeScript disposition.
-- [ ] Each TypeScript export traces to Rust or a documented, behavior-preserving adaptation.
-- [ ] Inventory claims have evidence independent of the inventory.
-- [ ] Fixture provenance is fresh for the reviewed Rust revision, and current Rust drift is reviewed.
+- [x] Each package row is `done` with `PARITY` or justified `NOT_APPLICABLE`.
+      Evidence at gate1-gaps: 148 rows, zero `needs_re_review`; `E03`/`E05`/`E06`
+      closed; `H15`/`TK01`/`TK02` seated
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
+- [x] The complete public Rust export set has a TypeScript disposition.
+      Evidence: prior package ledgers plus
+      [test-kit-node-dispositions.md](test-kit-node-dispositions.md) for the
+      `/node` annex and `public-exports.md` for `@zolana/hasher`.
+- [x] Each TypeScript export traces to Rust or a documented, behavior-preserving adaptation.
+      Evidence: same disposition ledgers; root vs annex split for test-kit;
+      hasher slim/inlined WASM adaptations documented in `public-exports.md`.
+- [x] Inventory claims have evidence independent of the inventory.
+      Evidence: frozen 182-row report plus live rows in
+      `sdk-libs/ts/reports/inventory-live.json` for hasher-wasm and test-kit
+      annex paths absent from `frozenCommit`; `npm run test:inventory` green.
+- [x] Fixture provenance is fresh for the reviewed Rust revision, and current Rust drift is reviewed.
+      Evidence: `ts-fixtures --check` and `--current-client --check` reproduced
+      every body with **no body drift**; `manifest.driftReview` records the
+      review without moving `frozenCommit`
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 - [ ] Deterministic instruction, proof-input, hash, key, ciphertext, and serialization bytes match current Rust where applicable.
-- [ ] Non-deterministic behavior has invariant or property coverage.
+- [x] Non-deterministic behavior has invariant or property coverage.
+      Evidence: `client/test/property/client-property.test.ts` and
+      `wallet/test/property/wallet-property.test.ts`; scaffold requires both;
+      other packages already had `test:property`
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 - [ ] Rust rejection, malformed-input, and tamper behavior has TypeScript coverage.
 - [ ] Errors preserve stable codes and structured details at the same boundary.
 - [ ] Browser-safe entry points contain no Node-only imports, and Node-only behavior stays in documented entry points.
 - [ ] Feature-gated behavior and each supported proof rail have a disposition.
-- [ ] Relevant focused, package, browser, vector, property, export, dependency, and pack checks pass.
+- [x] Relevant focused, package, browser, vector, property, export, dependency, and pack checks pass.
+      Evidence: `npm run check:packaging` green including real `api:check`
+      against `sdk-libs/ts/api-reports/**`
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 - [x] A browser-capable package executes its vector suites in a headless browser engine. The static
       forbidden-import scan in `browser-check.mjs` does not satisfy this gate
       ([G9-4](production-readiness-issues.md#g9-4-browser-support-is-checked-statically-not-in-a-browser-medium)).
@@ -705,11 +738,10 @@ Apply these gates to each package. Record evidence beside a gate or in a
       Evidence: `keypair/test/vectors/aliasing-census.test.ts` names the accessor census and mutates
       each returned buffer; `CompressedShieldedAddress.ownerHash` is a copying getter.
 - [x] No package row has `PARTIAL`, `MISSING`, `DIVERGENT`, `STALE`, or `BLOCKED`.
-      Evidence: 145-row recount at the gate1 walk HEAD — 135 `done`/`PARITY`, 7
-      `done`/`NOT_APPLICABLE`, 3 `needs_re_review`/`NOT_APPLICABLE` (`E03`, `E05`,
-      `E06`), zero of the listed adverse verdicts
-      ([row-updates/gate1-walk.md](row-updates/gate1-walk.md)). `needs_re_review` is
-      outside this bullet and still blocks the "each package row is `done`" line.
+      Evidence: 148-row recount at gate1-gaps — 137 `done`/`PARITY`, 11
+      `done`/`NOT_APPLICABLE` (includes closed `E03`/`E05`/`E06` and `TK02`), zero of the
+      listed adverse verdicts and zero `needs_re_review`
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 
 ## Full SDK completion gates
 
@@ -721,8 +753,12 @@ input to this decision.
       `api`, `client`, `wallet`, `merkle-tree`, `smart-account-client`, `test-kit`. `@zolana/hasher`
       and `@zolana/test-kit` were uncounted under the former "nine"; `test-kit` is private annex-only
       for publish, and still takes the package gates that apply (exports, dependencies, api check).
-      G9-4 and G6-2 are closed; remaining package-gate bullets above still need a per-package
-      evidence walk before this top-level line can be checked
+      Gate1 walk + gate1-gaps closed the five named gaps that blocked this line's package seats,
+      dispositions, inventory, fixture drift story, property suites, and real `api:check`
+      ([row-updates/gate1-walk.md](row-updates/gate1-walk.md),
+      [row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)). Left unchecked while client
+      P11 (`RAIL` / G2) remains owned by parallel workers, and while P6/P8–P10/P11 package
+      bullets above still need an affirming tick from their evidence owners.
       ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
 - [x] Cross-package public types, errors, dependencies, and capability boundaries match current Rust,
       except the forester `address-append` / `batchUpdateNullifierTreeInstruction` path, which is an
@@ -749,6 +785,7 @@ input to this decision.
       Evidence: [`row-updates/gate-submit.md`](row-updates/gate-submit.md) —
       split / merge / private transfer / withdraw signatures against programs
       built in this worktree (`just build-programs`).
+=======
 - [ ] Proof inputs work with the same-revision prover for each supported shape and rail.
 - [x] Indexer requests and responses match the same-revision live Photon contract.
       Evidence at HEAD: `sdk-libs/ts/e2e/photon/photon-contract.live.test.ts` (11 tests) drives
@@ -797,14 +834,11 @@ input to this decision.
       ([row-updates/gate-ci.md](row-updates/gate-ci.md),
       [row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
 - [x] The public-export ledger has no unexplained difference.
-      Per-package disposition tests assert `unexplained === []` at HEAD
-      (`client/test/vectors/crate-root-exports.test.ts`,
-      `transaction/test/vectors/module-surface.test.ts`,
-      `wallet/test/vectors/export-vector.test.ts`, interface re-export ledgers).
-      `@zolana/hasher` was missing from `public-exports.md` and is now recorded.
-      Note: the ledger's closing claim that `api:check` parses this file is
-      false — `api:check` only asserts scaffolding; disposition tests are the
-      real gate ([row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
+- [x] The public-export ledger has no unexplained difference.
+      Evidence: `npm run api:check` compares built surfaces to
+      `sdk-libs/ts/api-reports/**` for all eleven packages and fails on
+      undeclared addition or removal
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
 - [x] No row or package gate has an unresolved adverse verdict.
       Recounted from the primary tables at HEAD: 145 rows = 135 `done`/`PARITY`
       + 7 `done`/`NOT_APPLICABLE` + 3 `needs_re_review`/`NOT_APPLICABLE`; zero

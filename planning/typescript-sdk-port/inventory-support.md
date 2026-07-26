@@ -4,6 +4,11 @@ Frozen baseline: `43fde8e45d3b1d78aa4c7517a07d6a9675d9bf9f` (`43fde8e4`). This i
 
 Every current path below has one `inventory-active` marker used by the deterministic coverage check. A `not applicable` row is an explicit exclusion from implementation, but remains counted exactly once.
 
+Post-baseline packages that the frozen 182-path `sdk-libs` tree cannot name
+(`sdk-libs/hasher-wasm`, `sdk-libs/ts/test-kit` annex entry points) live in
+[`sdk-libs/ts/reports/inventory-live.json`](../../sdk-libs/ts/reports/inventory-live.json)
+and are checked by `npm run test:inventory` alongside the frozen report.
+
 ## Merkle tree
 
 | Frozen Rust path and symbol | Disposition | Target TypeScript | Export / responsibility | Observable behavior and invariants | Dependencies | Typed error mapping | Fixture | Required tests | Packet |

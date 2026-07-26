@@ -5,6 +5,17 @@
     "interface": "8ce9897ccd7de06ef924b9cfb90c8d4a45451b71",
     "merkleTree": "4d9a39f17c709c1dcb0ec9f5caf6b0ab935ecffa"
   },
+  "driftReview": {
+    "commitsSinceFrozenTouchingFixtureSources": 84,
+    "finding": "no-body-drift",
+    "generators": [
+      "ts-fixtures --check",
+      "ts-fixtures --current-client --check"
+    ],
+    "notes": "frozenCommit stays the historical inventory/spec/proving-key pin. Family stamps (baseline/interface/merkleTree/client) advance only when a fixture body changes. Regenerating against current working-tree Rust reproduced every committed body byte-for-byte, including after the G2 compression fix at c1a9b35e (client tip ahead of the client stamp, which correctly did not move). No behavioural drift to accept or dispute.",
+    "reviewedAgainst": "7218405507f46e273f1a7c1e9dbf20d9a4277066",
+    "reviewedAt": "2026-07-26"
+  },
   "files": [
     {
       "path": "api/prover-request-v1.json",
@@ -256,8 +267,12 @@
       "compatibility": "Live stamp for client/errors-v1.json, client/lib.json, and client/rpc-indexer-v1.json. Each fixture sourceRevision must equal this pin. May diverge from baseline and frozenCommit.",
       "regenerationTrigger": "Advances only when a current-client fixture body changes; unrelated tip moves under sdk-libs/client/src do not invalidate or rewrite the stamp."
     },
+    "driftReview": {
+      "compatibility": "Reviewed regeneration against current working-tree Rust. finding must be no-body-drift or a named body-change finding with an accepted disposition. Does not move frozenCommit.",
+      "regenerationTrigger": "Re-run ts-fixtures --check (and --current-client --check) whenever sdk-libs or program-libs sources that feed fixtures change; update reviewedAgainst/reviewedAt/finding."
+    },
     "frozenCommit": {
-      "compatibility": "Historical inventory, spec, and proving-key pin. Must equal historicalBaselineCommit and photonSchemaRevision. api/transport-v1.json sourceRevision must equal this pin.",
+      "compatibility": "Historical inventory, spec, and proving-key pin. Must equal historicalBaselineCommit and photonSchemaRevision. api/transport-v1.json sourceRevision must equal this pin. Staleness relative to tip is expected; body freshness is enforced by generator --check plus driftReview.",
       "mustAgreeWith": [
         "historicalBaselineCommit",
         "photonSchemaRevision"

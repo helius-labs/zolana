@@ -29,8 +29,9 @@ const NON_ADVERSE_VERDICTS = new Set([PARITY_VERDICT, "NOT_APPLICABLE"]);
 // The table's own marker for a column with nothing in it yet.
 const ABSENT = "-";
 
-const ROW_ID = /\b([A-Z])(\d{2})\b/g;
-const ROW_ID_RANGE = /\b([A-Z])(\d{2})\s*-\s*\1?(\d{2})\b/g;
+// One or two letter prefixes: package letters (`H15`) and annex seats (`TK01`).
+const ROW_ID = /\b([A-Z]{1,2})(\d{2})\b/g;
+const ROW_ID_RANGE = /\b([A-Z]{1,2})(\d{2})\s*-\s*\1?(\d{2})\b/g;
 
 // Fields a log entry uses to record a verdict. Every other field is ignored,
 // including `Exact next file`, which names the *next* row in the queue: a body
@@ -67,7 +68,7 @@ const verdicts = readVocabulary("Assign one verdict after each review:", "verdic
 // Queue rows. Nine fixed columns, one row per canonical Rust source file.
 const rows = new Map();
 for (const [index, line] of lines.entries()) {
-  if (!/^\| [A-Z]\d{2} \|/.test(line)) continue;
+  if (!/^\| [A-Z]{1,2}\d{2} \|/.test(line)) continue;
   const cells = line.split("|").map((cell) => cell.trim());
   const [, id, , , status, verdict] = cells;
   if (rows.has(id)) fail(`row ${id} appears twice in the queue tables`);

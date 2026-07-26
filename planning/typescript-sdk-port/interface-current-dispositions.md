@@ -24,14 +24,22 @@ files.
 
 ## Event surface
 
-- `InstructionTag`, `MessageData`, and `OutputUtxo` are represented in
-  `@zolana/interface` because instruction data uses them directly.
+- `InstructionTag` and `MessageData` are represented in `@zolana/interface`
+  because instruction data uses them directly (`TransactIxData::messages`).
+- Event-slot `OutputUtxo` is **not** a TypeScript interface export. Rust
+  re-exports it through `instruction_data` for the `GeneralEvent` field layout,
+  but the transact instruction carries `TransactOutput`. The unreachable
+  TypeScript `OutputUtxo` type was deleted under `E03`
+  ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)); do not confuse it
+  with `@zolana/transaction`'s `ProofOutputUtxo`.
 - `GeneralEvent`, `Input`, `DepositWithdraw`, and `EventKind` remain owned by
   the Rust event crate and Photon schema. TypeScript clients consume Photon
   response types from `@zolana/indexer-api`; they do not construct event
-  self-CPI instructions.
+  self-CPI instructions. Confirmed by
+  `interface/test/vectors/event-disposition.test.ts` (`E05`).
 - Rust event encoders and `program-test` log extraction are not TypeScript
-  interface exports. Output payload encoding remains in
+  interface exports. The `program-test` Cargo feature stays off by default
+  (`E06`). Output payload encoding remains in
   `@zolana/transaction/serialization`, where wallet behavior uses it.
 - Generated verifying-key modules, compile-time macros, `PROGRAM_ID_PUBKEY`,
   and mutable account initialization methods are not applicable to the

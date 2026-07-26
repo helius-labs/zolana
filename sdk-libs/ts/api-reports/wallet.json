@@ -1,0 +1,539 @@
+{
+  "package": "@zolana/wallet",
+  "entryPoints": {
+    ".": [
+      {
+        "name": "AnonymousRecipientSlot",
+        "kind": "type"
+      },
+      {
+        "name": "ApprovalRequest",
+        "kind": "type"
+      },
+      {
+        "name": "backfillAssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "buildDepositTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "buildPrivateTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "buildRegistrationTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "CounterpartyCounter",
+        "kind": "type"
+      },
+      {
+        "name": "createAssociatedTokenAccount",
+        "kind": "value"
+      },
+      {
+        "name": "createDeposit",
+        "kind": "value"
+      },
+      {
+        "name": "CreatedMerge",
+        "kind": "type"
+      },
+      {
+        "name": "CreatedSplit",
+        "kind": "type"
+      },
+      {
+        "name": "CreatedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "CreatedWithdrawal",
+        "kind": "type"
+      },
+      {
+        "name": "createMerge",
+        "kind": "value"
+      },
+      {
+        "name": "createSplit",
+        "kind": "value"
+      },
+      {
+        "name": "createTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "createWithdrawal",
+        "kind": "value"
+      },
+      {
+        "name": "decodeUserRecordAccount",
+        "kind": "value"
+      },
+      {
+        "name": "deposit",
+        "kind": "value"
+      },
+      {
+        "name": "Deposit",
+        "kind": "value"
+      },
+      {
+        "name": "DepositParams",
+        "kind": "type"
+      },
+      {
+        "name": "DepositSplAccounts",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedEnvelope",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedSplit",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "ensureRegistered",
+        "kind": "value"
+      },
+      {
+        "name": "fetchUserRecord",
+        "kind": "value"
+      },
+      {
+        "name": "fetchUserRecordChecked",
+        "kind": "value"
+      },
+      {
+        "name": "fetchUserRecordOptionalChecked",
+        "kind": "value"
+      },
+      {
+        "name": "getPrivateTokenBalances",
+        "kind": "value"
+      },
+      {
+        "name": "getPrivateTransactions",
+        "kind": "value"
+      },
+      {
+        "name": "initializePoseidon",
+        "kind": "value"
+      },
+      {
+        "name": "isPoseidonInitialized",
+        "kind": "value"
+      },
+      {
+        "name": "isWalletRegistered",
+        "kind": "value"
+      },
+      {
+        "name": "LocalWalletAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "MergeMaterial",
+        "kind": "value"
+      },
+      {
+        "name": "MergeParams",
+        "kind": "type"
+      },
+      {
+        "name": "P256Signature",
+        "kind": "type"
+      },
+      {
+        "name": "recipientConfidentialViewTag",
+        "kind": "value"
+      },
+      {
+        "name": "registerIfAbsent",
+        "kind": "value"
+      },
+      {
+        "name": "ResolvedAddress",
+        "kind": "type"
+      },
+      {
+        "name": "resolvedAddressFromRecord",
+        "kind": "value"
+      },
+      {
+        "name": "resolveRegisteredAddress",
+        "kind": "value"
+      },
+      {
+        "name": "senderViewingPublicKey",
+        "kind": "value"
+      },
+      {
+        "name": "signPrivateTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "SplitParams",
+        "kind": "type"
+      },
+      {
+        "name": "StrictRegistration",
+        "kind": "type"
+      },
+      {
+        "name": "submitMergeTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "SubmitMergeTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "SubmittedMerge",
+        "kind": "type"
+      },
+      {
+        "name": "SyncDelegateEntry",
+        "kind": "type"
+      },
+      {
+        "name": "syncWallet",
+        "kind": "value"
+      },
+      {
+        "name": "SyncWalletAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "SyncWalletConfig",
+        "kind": "type"
+      },
+      {
+        "name": "TransactionSigner",
+        "kind": "type"
+      },
+      {
+        "name": "TransferParams",
+        "kind": "type"
+      },
+      {
+        "name": "TransferRecipient",
+        "kind": "type"
+      },
+      {
+        "name": "tryResolveRegisteredAddress",
+        "kind": "value"
+      },
+      {
+        "name": "UnsignedPrivateTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "UserRecord",
+        "kind": "type"
+      },
+      {
+        "name": "validateRegisteredKeypair",
+        "kind": "value"
+      },
+      {
+        "name": "ViewingKeyCounters",
+        "kind": "type"
+      },
+      {
+        "name": "WALLET_ERROR_CODES",
+        "kind": "value"
+      },
+      {
+        "name": "WalletAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletError",
+        "kind": "value"
+      },
+      {
+        "name": "WalletErrorCode",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncMaterial",
+        "kind": "type"
+      },
+      {
+        "name": "WithdrawalParams",
+        "kind": "type"
+      }
+    ],
+    "./authority": [
+      {
+        "name": "AnonymousRecipientSlot",
+        "kind": "type"
+      },
+      {
+        "name": "ApprovalRequest",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedEnvelope",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedSplit",
+        "kind": "type"
+      },
+      {
+        "name": "EncryptedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "LocalWalletAuthority",
+        "kind": "value"
+      },
+      {
+        "name": "P256Signature",
+        "kind": "type"
+      },
+      {
+        "name": "SyncWalletAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletAuthority",
+        "kind": "type"
+      },
+      {
+        "name": "WalletSyncMaterial",
+        "kind": "type"
+      }
+    ],
+    "./registry": [
+      {
+        "name": "buildRegistrationTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "decodeUserRecordAccount",
+        "kind": "value"
+      },
+      {
+        "name": "ensureRegistered",
+        "kind": "value"
+      },
+      {
+        "name": "fetchUserRecord",
+        "kind": "value"
+      },
+      {
+        "name": "fetchUserRecordChecked",
+        "kind": "value"
+      },
+      {
+        "name": "fetchUserRecordOptionalChecked",
+        "kind": "value"
+      },
+      {
+        "name": "isWalletRegistered",
+        "kind": "value"
+      },
+      {
+        "name": "recipientConfidentialViewTag",
+        "kind": "value"
+      },
+      {
+        "name": "registerIfAbsent",
+        "kind": "value"
+      },
+      {
+        "name": "ResolvedAddress",
+        "kind": "type"
+      },
+      {
+        "name": "resolvedAddressFromRecord",
+        "kind": "value"
+      },
+      {
+        "name": "resolveRegisteredAddress",
+        "kind": "value"
+      },
+      {
+        "name": "senderViewingPublicKey",
+        "kind": "value"
+      },
+      {
+        "name": "StrictRegistration",
+        "kind": "type"
+      },
+      {
+        "name": "SyncDelegateEntry",
+        "kind": "type"
+      },
+      {
+        "name": "tryResolveRegisteredAddress",
+        "kind": "value"
+      },
+      {
+        "name": "UserRecord",
+        "kind": "type"
+      },
+      {
+        "name": "validateRegisteredKeypair",
+        "kind": "value"
+      }
+    ],
+    "./actions": [
+      {
+        "name": "buildDepositTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "buildPrivateTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "createAssociatedTokenAccount",
+        "kind": "value"
+      },
+      {
+        "name": "createDeposit",
+        "kind": "value"
+      },
+      {
+        "name": "CreatedMerge",
+        "kind": "type"
+      },
+      {
+        "name": "CreatedSplit",
+        "kind": "type"
+      },
+      {
+        "name": "CreatedTransfer",
+        "kind": "type"
+      },
+      {
+        "name": "CreatedWithdrawal",
+        "kind": "type"
+      },
+      {
+        "name": "createMerge",
+        "kind": "value"
+      },
+      {
+        "name": "createSplit",
+        "kind": "value"
+      },
+      {
+        "name": "createTransfer",
+        "kind": "value"
+      },
+      {
+        "name": "createWithdrawal",
+        "kind": "value"
+      },
+      {
+        "name": "deposit",
+        "kind": "value"
+      },
+      {
+        "name": "Deposit",
+        "kind": "value"
+      },
+      {
+        "name": "DepositParams",
+        "kind": "type"
+      },
+      {
+        "name": "MergeMaterial",
+        "kind": "value"
+      },
+      {
+        "name": "MergeParams",
+        "kind": "type"
+      },
+      {
+        "name": "ResolvedAddress",
+        "kind": "type"
+      },
+      {
+        "name": "signPrivateTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "SplitParams",
+        "kind": "type"
+      },
+      {
+        "name": "submitMergeTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "SubmitMergeTransaction",
+        "kind": "type"
+      },
+      {
+        "name": "SubmittedMerge",
+        "kind": "type"
+      },
+      {
+        "name": "TransactionSigner",
+        "kind": "type"
+      },
+      {
+        "name": "TransferParams",
+        "kind": "type"
+      },
+      {
+        "name": "TransferRecipient",
+        "kind": "type"
+      },
+      {
+        "name": "UnsignedPrivateTransaction",
+        "kind": "value"
+      },
+      {
+        "name": "WithdrawalParams",
+        "kind": "type"
+      }
+    ],
+    "./sync": [
+      {
+        "name": "backfillAssetRegistry",
+        "kind": "value"
+      },
+      {
+        "name": "CounterpartyCounter",
+        "kind": "type"
+      },
+      {
+        "name": "getPrivateTokenBalances",
+        "kind": "value"
+      },
+      {
+        "name": "getPrivateTransactions",
+        "kind": "value"
+      },
+      {
+        "name": "syncWallet",
+        "kind": "value"
+      },
+      {
+        "name": "SyncWalletConfig",
+        "kind": "type"
+      },
+      {
+        "name": "ViewingKeyCounters",
+        "kind": "type"
+      }
+    ]
+  }
+}

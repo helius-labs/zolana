@@ -1,6 +1,8 @@
 // Regenerate every Rust-side TypeScript fixture and fail when a committed file
 // has drifted. Each generator lives in `xtask/src/bin/` and supports `--check`.
-// After generators, revision-compatibility and verifying-key provenance run.
+// After generators, revision-compatibility, driftReview, and verifying-key
+// provenance run. Body freshness is the generator --check; frozenCommit is the
+// historical pin and is not advanced by a quiet regeneration.
 //
 //   node sdk-libs/ts/config/fixtures-check.mjs
 

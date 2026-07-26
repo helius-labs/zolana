@@ -1900,8 +1900,9 @@ SDK semver.
   root entry point is the five names above; `@zolana/test-kit/node` re-exports
   a broader Node-only annex for e2e helpers and is outside SDK semver.
 
-Per-package export disposition tests
-(`crate-root-exports.test.ts`, `module-surface.test.ts`, `export-vector.test.ts`,
-interface re-export ledgers) fail on unexplained root exports. `npm run api:check`
-only asserts package scaffolding (scripts, browser/vector hooks); it does not
-parse this file.
+Per-package `exports.test.ts` / export-vector suites pin runtime allowlists.
+`npm run api:check` runs the package scaffold check and compares each package's
+built public export surface to the committed reports under
+`sdk-libs/ts/api-reports/`, failing on an undeclared addition or removal.
+Regenerate with `npm run api:update` after an intentional surface change.
+This file remains the human-readable allowlist; the machine gate is the report.
