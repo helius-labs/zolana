@@ -313,8 +313,8 @@ for (const { file, minutes, branches } of collisions.sort((a, b) => b.minutes - 
     .join(", ");
   problems.push(
     `${file} has been changed on ${branches.length} live branches for ${minutes} min ` +
-      `(${named}); either one agent is redoing the other's work, or the loser of the ` +
-      "merge silently loses it",
+      `(${named}); either one agent is repeating the other's work, or one of them ` +
+      "loses it at the merge without being told",
   );
 }
 report.push(
