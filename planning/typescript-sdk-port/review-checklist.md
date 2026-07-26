@@ -735,18 +735,55 @@ input to this decision.
 - [ ] No row or package gate has an unresolved adverse verdict.
 - [ ] Full CI, fixture regeneration, browser, packed-package consumer, action
       E2E, and instruction E2E commands pass from a clean checkout.
-- [ ] A repository workflow runs the TypeScript merge tier on pull requests. A gate in this section
+      Evidence at `6bcd79ae` ([row-updates/gate-ci.md](row-updates/gate-ci.md)):
+      `fixtures:check`, `test:browser`, `check:browser-runtime`, `pack:check`,
+      `test:e2e:actions` (9 pass / 1 skip), and `test:e2e:instructions` (7 pass)
+      all exit 0 after `npm install` + `npm run build`. Left unchecked because
+      `check:static` / `lint:packages` still fails on the seven pre-existing errors
+      in `sdk-libs/ts/client/test/vectors/g2-compression-live.test.ts` owned by
+      `port/g2`; this worker did not touch that file.
+- [x] A repository workflow runs the TypeScript merge tier on pull requests. A gate in this section
       is not satisfied by a local run
       ([G9-1](production-readiness-issues.md#g9-1-no-workflow-runs-the-typescript-suite-blocker)).
-- [ ] The merge tier runs the cross-language, prover, browser, fixture, packed-package, and
+      Evidence: `.github/workflows/typescript.yml` triggers on `pull_request`
+      (`opened`, `synchronize`, `reopened`, `ready_for_review`) for non-draft PRs
+      and runs `gate-scope`, `planning`, `static`, `suites`, `packaging`,
+      `browser-runtime`, `fixtures`, `e2e`, then aggregating `merge-gate`
+      (`typescript / merge gate`). `gate-scope` runs `npm run check:scope`, which
+      asserts `package.json` `check` equals the six job sub-scripts. The
+      repository Standard Ruleset does not currently list these as required status
+      checks; the workflow still runs the merge tier on every non-draft PR.
+- [x] The merge tier runs the cross-language, prover, browser, fixture, packed-package, and
       package-lint suites, and the aggregate `check` script states the scope it actually has
       ([G9-2](production-readiness-issues.md#g9-2-the-aggregate-check-script-omits-most-certification-gates-blocker)).
-- [ ] `sdk-libs/ts/fixtures/manifest.json` states a compatibility rule and a regeneration trigger per
+      Evidence: `check` =
+      `check:static && check:suites && check:packaging && check:browser-runtime &&
+      check:fixtures && check:e2e`. Suites cover `test:cross` and `test:prover`
+      (both exit 0 here); packaging covers `test:browser` and `pack:check`;
+      `lint:packages` is package-lint inside `check:static`; fixtures and e2e are
+      separate CI jobs because they need Rust history / localnet. Scope is stated
+      by `npm run check:scope` (`sdk-libs/ts/config/check-scope.mjs`), which
+      `check:static` and the workflow `gate-scope` job both run.
+- [x] `sdk-libs/ts/fixtures/manifest.json` states a compatibility rule and a regeneration trigger per
       revision key, and a check rejects a fixture consumed against an incompatible pin
       ([G8-1](production-readiness-issues.md#g8-1-the-manifest-pins-multiple-source-revisions-high)).
-- [ ] Each proof fixture records the verifying-key module and its SHA-256, and the gate fails when
+      Evidence: `revisionCompatibility` covers all nine identity keys; bound
+      fixtures (`client/errors-v1.json`, `client/lib.json`,
+      `client/rpc-indexer-v1.json` → `client`; `merkle-tree/paths-v1.json` →
+      `merkleTree`; `api/transport-v1.json` → `frozenCommit`) are checked by
+      `sdk-libs/ts/config/fixtures-provenance.mjs` after generators.
+      Control: rewriting `errors-v1.json` `sourceRevision` to zeros fails the
+      gate. `errors-v1.json` stamp stayed `2ca98d82543f5aa8610fc3b37cb1bcae4c5f8e47`
+      across regen (body-gated stamp preserved).
+- [x] Each proof fixture records the verifying-key module and its SHA-256, and the gate fails when
       that identity differs from the key the verifier loads
       ([G8-2](production-readiness-issues.md#g8-2-verifying-key-provenance-is-not-tied-to-the-fixtures-high)).
+      Evidence: `proof-validity-v1`, `proof-result-compression-v1`, and
+      `proof-input-v1` carry `verifyingKeys[{module,rail,sha256}]` matching
+      `program-libs/interface/src/verifying_keys/<module>.rs` as loaded by
+      `xtask groth16-verify` / `select_vk`. Control: zeroing
+      `proof-input-v1` sha256 fails provenance. Emitted by `ts-fixtures` and
+      enforced in `fixtures-provenance.mjs`.
 
 ## Copy-paste `/loop` prompt
 
