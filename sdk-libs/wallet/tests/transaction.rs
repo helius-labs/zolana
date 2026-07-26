@@ -38,8 +38,8 @@ use zolana_transaction::{
         DecodeCx, UtxoSerialization,
     },
     utxo::derive_blinding,
-    AssetRegistry, OutputData, ExternalData, OutputContext, SppProofOutputUtxo, TransactionError, Utxo,
-    Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, ExternalData, OutputContext, OutputData, SppProofOutputUtxo, TransactionError,
+    Utxo, Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,

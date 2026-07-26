@@ -611,8 +611,9 @@ mod tests {
             merge::{Merge, MergeEncode},
             Proofless,
         },
-        Address, AssetRegistry, OutputData, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
-        PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
+        Address, AssetRegistry, LocalWalletAuthority, OutputData, OwnerCx,
+        PrivateTransactionDirection, PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo,
+        SOL_MINT,
     };
 
     use super::*;

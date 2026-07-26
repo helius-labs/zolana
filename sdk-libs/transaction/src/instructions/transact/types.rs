@@ -6,7 +6,7 @@ use zolana_keypair::{hash::poseidon, random_blinding, P256Pubkey, ShieldedAddres
 
 use super::external_data::ExternalData;
 use crate::{
-    data::{OutputData, DataRecord},
+    data::{DataRecord, OutputData},
     error::TransactionError,
     utxo::{normalized_zone_data_hash, Blinding, ProofInputUtxo, Utxo},
 };

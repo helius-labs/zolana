@@ -59,7 +59,7 @@ use zolana_transaction::{
         split::{Split, SplitEncode, SplitEncryptedUtxos},
         DecodeCx, OwnerCx, UtxoSerialization,
     },
-    AssetBalance, AssetRegistry, OutputData, DataRecord, EncryptedScheme, Filter, OutputContext,
+    AssetBalance, AssetRegistry, DataRecord, EncryptedScheme, Filter, OutputContext, OutputData,
     ProofInputUtxo, TransactionError, Utxo, Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT, SPLIT,
 };
 

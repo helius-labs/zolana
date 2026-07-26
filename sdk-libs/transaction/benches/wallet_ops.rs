@@ -11,7 +11,7 @@ use zolana_transaction::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode},
         split::{Split, SplitEncode},
     },
-    AssetRegistry, OutputData, DecodeCx, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
+    AssetRegistry, DecodeCx, OutputData, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
 };
 
 const SENDER_SLOT_COUNT: usize = 2;

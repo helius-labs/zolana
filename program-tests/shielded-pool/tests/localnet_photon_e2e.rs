@@ -56,7 +56,7 @@ use zolana_test_utils::smart_account::{self, StandardSigners};
 use zolana_transaction::{
     instructions::transact::PrivateTxHash,
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
-    AssetRegistry, OutputData, LocalWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
+    AssetRegistry, LocalWalletAuthority, OutputData, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
     SOL_MINT,
 };
 use zolana_tree::TreeAccount;

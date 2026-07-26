@@ -9,7 +9,7 @@ use common::{
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
 use zolana_transaction::{
     serialization::split::{Split, SplitEncode},
-    Address, AssetRegistry, OutputData, OutputContext, OutputSlot, OwnerCx, ShieldedTransaction,
+    Address, AssetRegistry, OutputContext, OutputData, OutputSlot, OwnerCx, ShieldedTransaction,
     SyncReport, Utxo, UtxoSerialization, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 

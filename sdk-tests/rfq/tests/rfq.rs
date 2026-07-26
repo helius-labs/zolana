@@ -14,7 +14,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetBalance, OutputData, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
+    AssetBalance, Filter, OutputData, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::sync_wallet;
 

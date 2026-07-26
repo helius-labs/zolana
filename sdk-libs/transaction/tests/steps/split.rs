@@ -4,7 +4,7 @@ use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
 use zolana_transaction::{
-    data::{OutputData, DataRecord},
+    data::{DataRecord, OutputData},
     serialization::{
         split::{Split, SplitBundlePlaintext, SplitEncode},
         DecodeCx, OwnerCx, UtxoSerialization,

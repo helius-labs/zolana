@@ -4,7 +4,7 @@ use zolana_event::ProoflessOutput;
 
 use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
-    data::{OutputData, DataRecord},
+    data::{DataRecord, OutputData},
     error::TransactionError,
     utxo::Utxo,
     EncryptedScheme,

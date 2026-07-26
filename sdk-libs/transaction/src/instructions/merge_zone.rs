@@ -144,7 +144,7 @@ mod tests {
     use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair};
 
     use super::*;
-    use crate::{instructions::merge::MERGE_INPUTS, utxo::Utxo, OutputData, DataRecord};
+    use crate::{instructions::merge::MERGE_INPUTS, utxo::Utxo, DataRecord, OutputData};
 
     const ZONE: [u8; 32] = [3u8; 32];
 

@@ -3,7 +3,7 @@ use cucumber::then;
 use zolana_event::MessageData;
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, PublicKey};
 use zolana_transaction::{
-    data::{OutputData, DataRecord},
+    data::{DataRecord, OutputData},
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,

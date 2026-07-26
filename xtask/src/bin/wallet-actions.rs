@@ -30,7 +30,8 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use zolana_keypair::{shielded::ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
-    AssetRegistry, OutputData, LocalWalletAuthority, OutputContext, Utxo, Wallet, WalletUtxo, SOL_MINT,
+    AssetRegistry, LocalWalletAuthority, OutputContext, OutputData, Utxo, Wallet, WalletUtxo,
+    SOL_MINT,
 };
 use zolana_wallet::{
     create_merge, create_split, create_withdrawal, sign_shielded_transaction_sync, MergeParams,

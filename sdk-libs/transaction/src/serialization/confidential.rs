@@ -6,7 +6,9 @@ use zolana_keypair::{
 };
 
 use super::{single_utxo, validate_owner, validate_zone, DecodeCx, OwnerCx, UtxoSerialization};
-use crate::{data::OutputData, error::TransactionError, utxo::Utxo, AssetRegistry, EncryptedScheme};
+use crate::{
+    data::OutputData, error::TransactionError, utxo::Utxo, AssetRegistry, EncryptedScheme,
+};
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct ConfidentialOutputPlaintext {

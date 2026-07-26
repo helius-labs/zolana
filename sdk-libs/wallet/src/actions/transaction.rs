@@ -917,7 +917,7 @@ mod tests {
     use borsh::to_vec;
     use solana_account::Account;
     use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{OutputData, DataRecord, Utxo, WalletUtxo};
+    use zolana_transaction::{DataRecord, OutputData, Utxo, WalletUtxo};
     use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
     use super::*;

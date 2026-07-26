@@ -6,7 +6,7 @@
 use solana_address::Address;
 use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    data::{OutputData, DataRecord},
+    data::{DataRecord, OutputData},
     error::TransactionError,
     serialization::{
         anonymous::AnonymousTransferRecipientPlaintext,

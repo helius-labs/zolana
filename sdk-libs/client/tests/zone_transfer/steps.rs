@@ -32,7 +32,7 @@ use zolana_interface::{
 use zolana_keypair::{
     hash::sha256, random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey,
 };
-use zolana_transaction::{OutputData, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT};
+use zolana_transaction::{ExternalData, OutputData, SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use crate::{
     test_indexer::TestIndexer,

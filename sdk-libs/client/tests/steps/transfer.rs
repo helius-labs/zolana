@@ -23,7 +23,7 @@ use zolana_transaction::{
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::derive_blinding,
-    AssetRegistry, OutputData, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    AssetRegistry, ExternalData, OutputData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
 use crate::{

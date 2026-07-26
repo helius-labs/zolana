@@ -24,7 +24,7 @@ use zolana_interface::{
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
     instructions::transact::{shape::Shape as TxShape, PublicAmounts as TxPublicAmounts},
-    OutputData, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    ExternalData, OutputData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
 use crate::{

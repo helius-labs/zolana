@@ -2,7 +2,7 @@ use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, ShieldedKeypair};
 use zolana_transaction::{
-    data::{OutputData, DataRecord},
+    data::{DataRecord, OutputData},
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,

@@ -21,7 +21,7 @@ use zolana_interface::instruction::{builders::Deposit, tag};
 use zolana_program_test::TestIndexer;
 use zolana_test_utils::smart_account::{standard_accounts, StandardSigners};
 use zolana_transaction::{
-    derive_blinding, instructions::transact::canonical_shape, AssetRegistry, OutputData, DataRecord,
+    derive_blinding, instructions::transact::canonical_shape, AssetRegistry, DataRecord, OutputData,
 };
 
 /// Single source of truth for the historical fixture baseline commit. Pins the
@@ -513,9 +513,10 @@ fn production_fixtures(
 
     let shape = canonical_shape(2, 3)?;
     let shape_error = canonical_shape(99, 99).expect_err("unsupported shape");
-    let duplicate_error = OutputData::new(vec![DataRecord::Memo(vec![1]), DataRecord::Memo(vec![2])])
-        .validate()
-        .expect_err("duplicate data");
+    let duplicate_error =
+        OutputData::new(vec![DataRecord::Memo(vec![1]), DataRecord::Memo(vec![2])])
+            .validate()
+            .expect_err("duplicate data");
     let canonical_data = OutputData::new(vec![
         DataRecord::ZoneData(vec![1]),
         DataRecord::UtxoData(vec![2, 3]),

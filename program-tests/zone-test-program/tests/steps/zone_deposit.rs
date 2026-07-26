@@ -20,7 +20,7 @@ use zolana_test_utils::{
     spl::mint_to,
     test_validator_asserts::{assert_zone_deposit, fetch_account, ZoneDepositAssertArgs},
 };
-use zolana_transaction::{OutputData, LocalWalletAuthority, Utxo, Wallet, SOL_MINT};
+use zolana_transaction::{LocalWalletAuthority, OutputData, Utxo, Wallet, SOL_MINT};
 
 use crate::{
     actor::{SplZoneDepositAccounts, ZoneDepositRecord},

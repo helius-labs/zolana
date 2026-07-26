@@ -5,8 +5,8 @@ pub use zolana_interface::UTXO_DOMAIN;
 use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
 
 use crate::{
-    data::OutputData, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
-    AssetRegistry,
+    data::OutputData, error::TransactionError,
+    serialization::confidential::ConfidentialOutputPlaintext, AssetRegistry,
 };
 
 fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {

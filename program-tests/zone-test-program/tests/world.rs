@@ -33,7 +33,7 @@ use zolana_test_utils::{
     test_validator_asserts::assert_create_spl_interface,
 };
 use zolana_transaction::{
-    serialization::confidential::Confidential, AssetRegistry, OutputData, LocalWalletAuthority,
+    serialization::confidential::Confidential, AssetRegistry, LocalWalletAuthority, OutputData,
     ShieldedTransaction, Utxo, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 

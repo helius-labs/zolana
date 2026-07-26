@@ -12,8 +12,8 @@ use zolana_transaction::{
         },
         confidential::{Confidential, ConfidentialEncode},
     },
-    Address, AssetRegistry, OutputData, EncryptedScheme, LocalWalletAuthority, OutputContext, OutputSlot,
-    OwnerCx, ShieldedTransaction, Utxo, UtxoSerialization, Wallet, SOL_MINT,
+    Address, AssetRegistry, EncryptedScheme, LocalWalletAuthority, OutputContext, OutputData,
+    OutputSlot, OwnerCx, ShieldedTransaction, Utxo, UtxoSerialization, Wallet, SOL_MINT,
 };
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {

@@ -6,7 +6,7 @@ use zolana_keypair::{
     ViewingKey,
 };
 use zolana_transaction::{
-    data::{OutputData, DataRecord},
+    data::{DataRecord, OutputData},
     serialization::{
         anonymous::AnonymousTransferSenderPlaintext,
         confidential::ConfidentialOutputPlaintext,

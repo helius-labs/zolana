@@ -7,7 +7,7 @@ use zolana_transaction::{
         OwnerCx, UtxoSerialization,
     },
     wallet::{AssetBalance, PrivateTransactionDirection, PrivateTransactionKind, Wallet},
-    Address, AssetRegistry, OutputData, LocalWalletAuthority, OutputContext, OutputSlot,
+    Address, AssetRegistry, LocalWalletAuthority, OutputContext, OutputData, OutputSlot,
     ShieldedTransaction, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 

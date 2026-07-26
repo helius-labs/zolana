@@ -1,7 +1,7 @@
 use cucumber::{then, when};
 use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ShieldedKeypair};
 use zolana_transaction::{
-    data::{OutputData, DataRecord},
+    data::{DataRecord, OutputData},
     serialization::plaintext::{
         TransferPlaintextRecipient, TransferPlaintextSender, TransferPlaintextSplChange,
         TransferPlaintextUtxos,

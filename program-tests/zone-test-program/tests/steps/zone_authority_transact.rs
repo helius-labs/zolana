@@ -41,7 +41,7 @@ use zolana_test_utils::test_validator_asserts::{
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
-    OutputData, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization, SOL_MINT,
+    ExternalData, OutputData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization, SOL_MINT,
 };
 
 use crate::{
