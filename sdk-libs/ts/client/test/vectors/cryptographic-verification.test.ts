@@ -59,9 +59,11 @@ const FAST_CONFIDENTIAL: readonly {
 ];
 
 describe("P4 cryptographic verification oracle (always on)", () => {
+  // Spawns `cargo run -p xtask --bin groth16-verify -- --check`. Cold CI
+  // runners regularly spend >120s compiling xtask before the check starts.
   it("self-checks every embedded verifying key and rejects garbage", () => {
     groth16VerifySelfCheck();
-  }, 120_000);
+  }, 300_000);
 
   it("classifies commitment-on-eddsa as rail_mismatch", () => {
     const result = callGroth16Verify({
@@ -128,7 +130,7 @@ describe("P4 cryptographic verification oracle (always on)", () => {
       if (result.ok) throw new Error("unreachable");
       expect(["encoding", "verification_failure"]).toContain(result.code);
     },
-    120_000,
+    300_000,
   );
 });
 
