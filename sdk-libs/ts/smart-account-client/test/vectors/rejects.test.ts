@@ -52,7 +52,16 @@ function inner(accounts: readonly Address[]) {
   };
 }
 
-function typescriptAccepted(id: string): boolean {
+/** Rust panic kind → TypeScript `SmartAccountClientError.code` at the builder. */
+const REJECT_CODES: Readonly<Record<string, `SMART_ACCOUNT_${string}`>> = {
+  "execute-256-signers": "SMART_ACCOUNT_TOO_MANY_SIGNERS",
+  "execute-256-inner-instructions": "SMART_ACCOUNT_TOO_MANY_INSTRUCTIONS",
+  "execute-256-accounts-per-instruction": "SMART_ACCOUNT_TOO_MANY_ACCOUNTS",
+  "execute-257-compiled-accounts": "SMART_ACCOUNT_TOO_MANY_ACCOUNTS",
+  "execute-255-distinct-accounts-compiled-overflow": "SMART_ACCOUNT_TOO_MANY_ACCOUNTS",
+};
+
+function runCase(id: string): "accepted" | SmartAccountClientError {
   try {
     switch (id) {
       case "create-empty-signers":
@@ -64,7 +73,7 @@ function typescriptAccepted(id: string): boolean {
           threshold: 1,
           timeLock: 0,
         });
-        return true;
+        return "accepted";
       case "create-duplicate-signers": {
         const key = uniqueAddress(7);
         createSmartAccountInstruction({
@@ -78,7 +87,7 @@ function typescriptAccepted(id: string): boolean {
           threshold: 1,
           timeLock: 0,
         });
-        return true;
+        return "accepted";
       }
       case "create-zero-threshold":
         createSmartAccountInstruction({
@@ -89,7 +98,7 @@ function typescriptAccepted(id: string): boolean {
           threshold: 0,
           timeLock: 0,
         });
-        return true;
+        return "accepted";
       case "execute-255-signers":
         executeSyncInstruction({
           settings: SETTINGS,
@@ -97,7 +106,7 @@ function typescriptAccepted(id: string): boolean {
           signerKeys: Array.from({ length: 255 }, (_, index) => uniqueAddress(index + 10)),
           innerInstructions: [],
         });
-        return true;
+        return "accepted";
       case "execute-255-inner-instructions":
         executeSyncInstruction({
           settings: SETTINGS,
@@ -105,7 +114,7 @@ function typescriptAccepted(id: string): boolean {
           signerKeys: [],
           innerInstructions: Array.from({ length: 255 }, () => inner([])),
         });
-        return true;
+        return "accepted";
       case "execute-255-accounts-per-instruction": {
         const repeated = uniqueAddress(300);
         executeSyncInstruction({
@@ -114,7 +123,7 @@ function typescriptAccepted(id: string): boolean {
           signerKeys: [],
           innerInstructions: [inner(Array.from({ length: 255 }, () => repeated))],
         });
-        return true;
+        return "accepted";
       }
       case "execute-256-compiled-accounts": {
         const instruction = executeSyncInstruction({
@@ -126,7 +135,7 @@ function typescriptAccepted(id: string): boolean {
           ],
         });
         expect(instruction.accounts).toHaveLength(258);
-        return true;
+        return "accepted";
       }
       case "execute-duplicate-signer-keys": {
         const member = uniqueAddress(42);
@@ -136,7 +145,7 @@ function typescriptAccepted(id: string): boolean {
           signerKeys: [member, member],
           innerInstructions: [],
         });
-        return true;
+        return "accepted";
       }
       case "execute-256-signers":
         executeSyncInstruction({
@@ -145,7 +154,7 @@ function typescriptAccepted(id: string): boolean {
           signerKeys: Array.from({ length: 256 }, (_, index) => uniqueAddress(index + 10)),
           innerInstructions: [],
         });
-        return true;
+        return "accepted";
       case "execute-256-inner-instructions":
         executeSyncInstruction({
           settings: SETTINGS,
@@ -153,7 +162,7 @@ function typescriptAccepted(id: string): boolean {
           signerKeys: [],
           innerInstructions: Array.from({ length: 256 }, () => inner([])),
         });
-        return true;
+        return "accepted";
       case "execute-256-accounts-per-instruction": {
         const repeated = uniqueAddress(300);
         executeSyncInstruction({
@@ -162,7 +171,7 @@ function typescriptAccepted(id: string): boolean {
           signerKeys: [],
           innerInstructions: [inner(Array.from({ length: 256 }, () => repeated))],
         });
-        return true;
+        return "accepted";
       }
       case "execute-257-compiled-accounts":
         executeSyncInstruction({
@@ -173,7 +182,7 @@ function typescriptAccepted(id: string): boolean {
             inner(Array.from({ length: 255 }, (_, index) => uniqueAddress(index + 1000))),
           ],
         });
-        return true;
+        return "accepted";
       case "execute-255-distinct-accounts-compiled-overflow":
         executeSyncInstruction({
           settings: SETTINGS,
@@ -183,12 +192,12 @@ function typescriptAccepted(id: string): boolean {
             inner(Array.from({ length: 255 }, (_, index) => uniqueAddress(index + 2000))),
           ],
         });
-        return true;
+        return "accepted";
       default:
         throw new Error(`unhandled case ${id}`);
     }
   } catch (error) {
-    if (error instanceof SmartAccountClientError) return false;
+    if (error instanceof SmartAccountClientError) return error;
     throw error;
   }
 }
@@ -202,15 +211,17 @@ describe("smart-account rejects (Rust-generated)", () => {
   for (const testCase of fixture.accepts as AcceptCase[]) {
     it(`accepts ${testCase.id}`, () => {
       expect(testCase.accepted).toBe(true);
-      expect(typescriptAccepted(testCase.id)).toBe(true);
+      expect(runCase(testCase.id)).toBe("accepted");
     });
   }
 
   for (const testCase of fixture.rejects as RejectCase[]) {
-    it(`rejects ${testCase.id} (${testCase.kind})`, () => {
+    it(`rejects ${testCase.id} (${testCase.kind}) with ${REJECT_CODES[testCase.id]}`, () => {
       expect(testCase.accepted).toBe(false);
       expect(testCase.rustPanic.length).toBeGreaterThan(0);
-      expect(typescriptAccepted(testCase.id)).toBe(false);
+      const result = runCase(testCase.id);
+      expect(result).toBeInstanceOf(SmartAccountClientError);
+      expect((result as SmartAccountClientError).code).toBe(REJECT_CODES[testCase.id]);
     });
   }
 
