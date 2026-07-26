@@ -40,9 +40,12 @@ const ASSET_NAME = "poseidon.wasm";
 // `Cargo.lock` rather than the workspace manifest pins what actually gets
 // built: the wrapper crate is its own workspace, so the lock is where a
 // dependency version becomes a fact. The toolchain file is here because rustup
-// resolves it from the crate directory, so it selects the compiler.
+// resolves it from the crate directory, so it selects the compiler, and the
+// cargo configuration because it is where a repository-wide `rustflags` would
+// live.
 const SOURCE_FILES = [
   "rust-toolchain.toml",
+  ".cargo/config.toml",
   "Cargo.toml",
   "program-libs/hasher/Cargo.toml",
   "sdk-libs/hasher-wasm/Cargo.toml",
@@ -104,8 +107,12 @@ function compile() {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
     throw new Error(
-      "the Rust hasher changed and cargo is not on PATH, so @zolana/hasher cannot be built; " +
-        "install the toolchain named in rust-toolchain.toml and the wasm32-unknown-unknown target",
+      [
+        "the Rust hasher changed since src/artifact.ts was generated, and cargo is not on PATH.",
+        "Install the toolchain rust-toolchain.toml names, add the wasm32-unknown-unknown target,",
+        "then commit the regenerated src/artifact.ts and artifact.lock.json alongside the Rust:",
+        "until they are committed, every build of @zolana/hasher has to compile the crate itself.",
+      ].join(" "),
     );
   }
   return readFile(compiled);
