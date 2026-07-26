@@ -1,6 +1,6 @@
 import { InterfaceError } from "./errors.js";
 import type { Address, Signature, Transaction } from "./index.js";
-import { addressBytes } from "./internal.js";
+import { addressBytes, decodeCompactU16 } from "./internal.js";
 
 /**
  * Position of `address` in a compiled message's signer list, which is also its
@@ -54,22 +54,6 @@ export function withSignature(
     messageBytes: new Uint8Array(transaction.messageBytes),
     signatures: Object.freeze(signatures),
   });
-}
-
-function decodeCompactU16(
-  bytes: Uint8Array,
-  offset: number,
-): Readonly<{ value: number; length: number }> {
-  let value = 0;
-  for (let index = 0; index < 3; index++) {
-    const byte = bytes[offset + index];
-    if (byte === undefined) {
-      throw new InterfaceError("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
-    }
-    value |= (byte & 0x7f) << (index * 7);
-    if ((byte & 0x80) === 0) return { value, length: index + 1 };
-  }
-  throw new InterfaceError("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
 }
 
 function equal(left: Uint8Array, right: Uint8Array): boolean {

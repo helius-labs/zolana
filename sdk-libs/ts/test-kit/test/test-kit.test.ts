@@ -53,7 +53,7 @@ describe("public test-kit contract", () => {
     expect(() => decodeBase58Address("", "account")).toThrow(
       expect.objectContaining({
         code: "TEST_KIT_INVALID_CONFIG",
-        details: { field: "account", expected: 32, actual: 1 },
+        details: { field: "account", expected: 32, actual: 0 },
       }),
     );
     expect(() => decodeBase58Address("0", "account")).toThrow(

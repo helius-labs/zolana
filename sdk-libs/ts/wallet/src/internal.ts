@@ -1,8 +1,11 @@
 import type { Address, Bytes32 } from "@zolana/interface";
+import {
+  decodeBase58 as decodeBase58Canonical,
+  decodeBase64 as decodeBase64Canonical,
+  encodeBase58 as encodeBase58Canonical,
+} from "@zolana/interface";
 
 import { WalletError } from "./error.js";
-
-const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export function copy32(value: Uint8Array, field: string): Bytes32 {
   if (!(value instanceof Uint8Array) || value.length !== 32) {
@@ -34,25 +37,15 @@ export function decodeBase58(value: string, length: number, field: string): Uint
   if (typeof value !== "string" || value.length === 0) {
     throw new WalletError("WALLET_INVALID_ADDRESS", { details: { field } });
   }
-  const bytes = [0];
-  for (const character of value) {
-    const digit = BASE58.indexOf(character);
-    if (digit < 0) {
-      throw new WalletError("WALLET_INVALID_ADDRESS", { details: { field } });
-    }
-    let carry = digit;
-    for (let index = 0; index < bytes.length; index++) {
-      const next = (bytes[index] ?? 0) * 58 + carry;
-      bytes[index] = next & 0xff;
-      carry = next >> 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
+  let result: Uint8Array;
+  try {
+    result = decodeBase58Canonical(value);
+  } catch {
+    throw new WalletError("WALLET_INVALID_ADDRESS", { details: { field } });
   }
-  for (let index = 0; index < value.length - 1 && value[index] === "1"; index++) bytes.push(0);
-  const result = Uint8Array.from(bytes.reverse());
+  if (encodeBase58Canonical(result) !== value) {
+    throw new WalletError("WALLET_INVALID_ADDRESS", { details: { field } });
+  }
   if (result.length !== length) {
     throw new WalletError("WALLET_INVALID_LENGTH", {
       details: { field, expected: length, actual: result.length },
@@ -62,29 +55,7 @@ export function decodeBase58(value: string, length: number, field: string): Uint
 }
 
 export function encodeBase58(value: Uint8Array): string {
-  if (value.length === 0) return "";
-  const digits = [0];
-  for (const byte of value) {
-    let carry = byte;
-    for (let index = 0; index < digits.length; index++) {
-      const next = (digits[index] ?? 0) * 256 + carry;
-      digits[index] = next % 58;
-      carry = Math.floor(next / 58);
-    }
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = Math.floor(carry / 58);
-    }
-  }
-  let prefix = "";
-  for (let index = 0; index < value.length - 1 && value[index] === 0; index++) prefix += "1";
-  return (
-    prefix +
-    digits
-      .reverse()
-      .map((digit) => BASE58[digit])
-      .join("")
-  );
+  return encodeBase58Canonical(value);
 }
 
 export function checkedAddress(value: Address, field: string): Address {
@@ -103,26 +74,9 @@ export function concat(...parts: readonly Uint8Array[]): Uint8Array {
 }
 
 export function base64Bytes(value: string): Uint8Array {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  const clean = value.endsWith("==")
-    ? value.slice(0, -2)
-    : value.endsWith("=")
-      ? value.slice(0, -1)
-      : value;
-  if (clean.length % 4 === 1) throw new WalletError("WALLET_INVALID_BASE64");
-  let bits = 0;
-  let bitCount = 0;
-  const output: number[] = [];
-  for (const character of clean) {
-    const digit = alphabet.indexOf(character);
-    if (digit < 0) throw new WalletError("WALLET_INVALID_BASE64");
-    bits = bits * 64 + digit;
-    bitCount += 6;
-    if (bitCount >= 8) {
-      bitCount -= 8;
-      output.push((bits >> bitCount) & 0xff);
-      bits &= (1 << bitCount) - 1;
-    }
+  try {
+    return decodeBase64Canonical(value);
+  } catch {
+    throw new WalletError("WALLET_INVALID_BASE64");
   }
-  return Uint8Array.from(output);
 }

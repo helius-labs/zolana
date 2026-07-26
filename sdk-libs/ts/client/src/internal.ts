@@ -12,6 +12,12 @@ import type {
   RequestContext,
   Signature,
 } from "@zolana/interface";
+import {
+  decodeBase58 as decodeBase58Canonical,
+  decodeBase64 as decodeBase64Canonical,
+  encodeBase58 as encodeBase58Canonical,
+  encodeBase64 as encodeBase64Canonical,
+} from "@zolana/interface";
 import { hashField as canonicalHashField } from "@zolana/keypair/hash";
 
 import { ClientError, hasherError } from "./error.js";
@@ -20,9 +26,6 @@ export const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const P256_MODULUS =
   0xffff_ffff_0000_0001_0000_0000_0000_0000_0000_0000_ffff_ffff_ffff_ffff_ffff_ffffn;
-const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 export function checkedBytes<Length extends 16 | 31 | 32 | 33 | 64 | 128>(
   value: unknown,
   length: Length,
@@ -152,34 +155,16 @@ export function sha256Bytes(bytes: Uint8Array): Bytes32 {
 
 /** Decode base58 once; length is whatever the encoding represents. */
 export function decodeBase58Bytes(value: unknown, fieldName: string): Uint8Array {
-  if (typeof value !== "string" || value.length === 0) {
+  if (typeof value !== "string") {
     throw new ClientError("CLIENT_INVALID_BASE58", { details: { field: fieldName } });
   }
-  const bytes = [0];
-  for (const character of value) {
-    const digit = BASE58.indexOf(character);
-    if (digit < 0) {
-      throw new ClientError("CLIENT_INVALID_BASE58", { details: { field: fieldName } });
-    }
-    let carry = digit;
-    for (let index = 0; index < bytes.length; index++) {
-      const next = (bytes[index] ?? 0) * 58 + carry;
-      bytes[index] = next & 0xff;
-      carry = next >>> 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>>= 8;
-    }
+  let result: Uint8Array;
+  try {
+    result = decodeBase58Canonical(value);
+  } catch {
+    throw new ClientError("CLIENT_INVALID_BASE58", { details: { field: fieldName } });
   }
-  let zeroes = 0;
-  while (value.charAt(zeroes) === "1") zeroes++;
-  const extra = bytes.length === 1 && bytes[0] === 0 ? 0 : bytes.length;
-  const result = new Uint8Array(zeroes + extra);
-  for (let index = 0; index < extra; index++) {
-    result[result.length - 1 - index] = bytes[index] ?? 0;
-  }
-  if (encodeBase58(result) !== value) {
+  if (encodeBase58Canonical(result) !== value) {
     throw new ClientError("CLIENT_INVALID_BASE58", {
       details: { field: fieldName, actualLength: result.length },
     });
@@ -188,11 +173,6 @@ export function decodeBase58Bytes(value: unknown, fieldName: string): Uint8Array
 }
 
 export function decodeBase58(value: unknown, length: number, fieldName: string): Uint8Array {
-  // Empty base58 is the empty byte string in bs58 and in the sibling base64
-  // decoder. Instruction data can be empty; addresses and signatures cannot.
-  if (typeof value === "string" && value.length === 0 && length === 0) {
-    return new Uint8Array(0);
-  }
   const result = decodeBase58Bytes(value, fieldName);
   if (result.length !== length) {
     throw new ClientError("CLIENT_INVALID_BASE58", {
@@ -213,30 +193,7 @@ export function compareBytes(left: Uint8Array, right: Uint8Array): number {
 }
 
 export function encodeBase58(value: Uint8Array): string {
-  const digits = [0];
-  for (const byte of value) {
-    let carry = byte;
-    for (let index = 0; index < digits.length; index++) {
-      const next = (digits[index] ?? 0) * 256 + carry;
-      digits[index] = next % 58;
-      carry = Math.floor(next / 58);
-    }
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = Math.floor(carry / 58);
-    }
-  }
-  let output = "";
-  for (const byte of value) {
-    if (byte !== 0) break;
-    output += "1";
-  }
-  const allZero = output.length === value.length;
-  for (let index = digits.length - 1; index >= 0; index--) {
-    if (allZero && index === 0) continue;
-    output += BASE58.charAt(digits[index] ?? 0);
-  }
-  return output;
+  return encodeBase58Canonical(value);
 }
 
 export function addressBytes(value: Address): Bytes32 {
@@ -248,45 +205,18 @@ export function signatureBytes(value: Signature): Bytes64 {
 }
 
 export function encodeBase64(value: Uint8Array): string {
-  let output = "";
-  for (let index = 0; index < value.length; index += 3) {
-    const a = value[index] ?? 0;
-    const b = value[index + 1] ?? 0;
-    const c = value[index + 2] ?? 0;
-    const bits = (a << 16) | (b << 8) | c;
-    output += BASE64.charAt((bits >>> 18) & 63);
-    output += BASE64.charAt((bits >>> 12) & 63);
-    output += index + 1 < value.length ? BASE64.charAt((bits >>> 6) & 63) : "=";
-    output += index + 2 < value.length ? BASE64.charAt(bits & 63) : "=";
-  }
-  return output;
+  return encodeBase64Canonical(value);
 }
 
 export function decodeBase64(value: unknown, fieldName: string): Uint8Array {
-  if (
-    typeof value !== "string" ||
-    value.length % 4 !== 0 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
-  ) {
+  if (typeof value !== "string") {
     throw new ClientError("CLIENT_INVALID_BASE64", { details: { field: fieldName } });
   }
-  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
-  const result = new Uint8Array((value.length / 4) * 3 - padding);
-  let output = 0;
-  for (let index = 0; index < value.length; index += 4) {
-    const a = BASE64.indexOf(value[index] ?? "");
-    const b = BASE64.indexOf(value[index + 1] ?? "");
-    const c = value[index + 2] === "=" ? 0 : BASE64.indexOf(value[index + 2] ?? "");
-    const d = value[index + 3] === "=" ? 0 : BASE64.indexOf(value[index + 3] ?? "");
-    const bits = (a << 18) | (b << 12) | (c << 6) | d;
-    if (output < result.length) result[output++] = bits >>> 16;
-    if (output < result.length) result[output++] = bits >>> 8;
-    if (output < result.length) result[output++] = bits;
-  }
-  if (encodeBase64(result) !== value) {
+  try {
+    return decodeBase64Canonical(value);
+  } catch {
     throw new ClientError("CLIENT_INVALID_BASE64", { details: { field: fieldName } });
   }
-  return result;
 }
 
 export function p256Coordinates(bytes: Bytes33): readonly [bigint, bigint] {

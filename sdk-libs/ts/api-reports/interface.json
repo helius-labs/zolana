@@ -79,6 +79,18 @@
         "kind": "type"
       },
       {
+        "name": "decodeBase58",
+        "kind": "value"
+      },
+      {
+        "name": "decodeBase64",
+        "kind": "value"
+      },
+      {
+        "name": "decodeCompactU16",
+        "kind": "value"
+      },
+      {
         "name": "DecodedShieldedPoolError",
         "kind": "type"
       },
@@ -113,6 +125,18 @@
       {
         "name": "DepositSplAccounts",
         "kind": "type"
+      },
+      {
+        "name": "encodeBase58",
+        "kind": "value"
+      },
+      {
+        "name": "encodeBase64",
+        "kind": "value"
+      },
+      {
+        "name": "encodeCompactU16",
+        "kind": "value"
       },
       {
         "name": "externalDataHash",

@@ -52,8 +52,7 @@
   "types": "./dist/es/index.d.ts",
   "dependencies": {
     "@noble/hashes": "^2.2.0",
-    "@zolana/interface": "0.1.0",
-    "bs58": "^6.0.0"
+    "@zolana/interface": "0.1.0"
   },
   "scripts": {
     "build": "node ../config/build.mjs smart-account-client",

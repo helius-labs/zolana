@@ -1,4 +1,10 @@
 import type { Address, Bytes32, Signature } from "@zolana/interface";
+import {
+  decodeBase58 as decodeBase58Canonical,
+  decodeBase64 as decodeBase64Canonical,
+  encodeBase58 as encodeBase58Canonical,
+  encodeBase64 as encodeBase64Canonical,
+} from "@zolana/interface";
 
 import type { Base64String, Hash, Limit } from "./types.js";
 
@@ -28,8 +34,10 @@ export class IndexerSchemaError extends Error {
   }
 }
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/** Max Bitcoin-base58 length of a 32-byte payload. */
+const MAX_BASE58_32_LEN = 44;
+/** Max Bitcoin-base58 length of a 64-byte signature. */
+const MAX_BASE58_64_LEN = 88;
 
 function fail(
   code: IndexerSchemaErrorCode,
@@ -53,103 +61,27 @@ function describeActual(value: unknown): unknown {
 }
 
 function encodeBase58(bytes: Uint8Array): string {
-  if (bytes.length === 0) return "";
-  const digits = [0];
-  for (const byte of bytes) {
-    let carry = byte;
-    for (let index = 0; index < digits.length; index += 1) {
-      const value = (digits[index] ?? 0) * 256 + carry;
-      digits[index] = value % 58;
-      carry = Math.floor(value / 58);
-    }
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = Math.floor(carry / 58);
-    }
-  }
-  let encoded = "";
-  for (const byte of bytes) {
-    if (byte !== 0) break;
-    encoded += "1";
-  }
-  const hasOnlyZeroBytes = encoded.length === bytes.length;
-  for (let index = digits.length - 1; index >= 0; index -= 1) {
-    if (hasOnlyZeroBytes && index === 0) continue;
-    encoded += BASE58_ALPHABET.charAt(digits[index] ?? 0);
-  }
-  return encoded;
+  return encodeBase58Canonical(bytes);
 }
 
 function decodeBase58(value: string): Uint8Array | undefined {
-  if (value.length === 0) return undefined;
-  const bytes = [0];
-  for (const character of value) {
-    const digit = BASE58_ALPHABET.indexOf(character);
-    if (digit < 0) return undefined;
-    let carry = digit;
-    for (let index = 0; index < bytes.length; index += 1) {
-      const next = (bytes[index] ?? 0) * 58 + carry;
-      bytes[index] = next & 0xff;
-      carry = next >>> 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>>= 8;
-    }
+  try {
+    return decodeBase58Canonical(value);
+  } catch {
+    return undefined;
   }
-  let leadingZeroes = 0;
-  while (leadingZeroes < value.length && value[leadingZeroes] === "1") {
-    leadingZeroes += 1;
-  }
-  const decoded = new Uint8Array(leadingZeroes + bytes.length);
-  for (let index = 0; index < bytes.length; index += 1) {
-    decoded[decoded.length - 1 - index] = bytes[index] ?? 0;
-  }
-  if (leadingZeroes > 0 && bytes.length === 1 && bytes[0] === 0) {
-    return decoded.slice(0, -1);
-  }
-  return decoded;
 }
 
 function encodeBase64(bytes: Uint8Array): string {
-  let encoded = "";
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index] ?? 0;
-    const second = bytes[index + 1] ?? 0;
-    const third = bytes[index + 2] ?? 0;
-    const bits = (first << 16) | (second << 8) | third;
-    encoded += BASE64_ALPHABET.charAt((bits >>> 18) & 63);
-    encoded += BASE64_ALPHABET.charAt((bits >>> 12) & 63);
-    encoded += index + 1 < bytes.length ? BASE64_ALPHABET.charAt((bits >>> 6) & 63) : "=";
-    encoded += index + 2 < bytes.length ? BASE64_ALPHABET.charAt(bits & 63) : "=";
-  }
-  return encoded;
+  return encodeBase64Canonical(bytes);
 }
 
 function decodeBase64(value: string, path: string): Uint8Array {
-  if (
-    value.length % 4 !== 0 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
-  ) {
+  try {
+    return decodeBase64Canonical(value);
+  } catch {
     return fail("INDEXER_SCHEMA_INVALID_BASE64", path, "canonical base64", value);
   }
-  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
-  const bytes = new Uint8Array((value.length / 4) * 3 - padding);
-  let outputIndex = 0;
-  for (let index = 0; index < value.length; index += 4) {
-    const a = BASE64_ALPHABET.indexOf(value[index] ?? "");
-    const b = BASE64_ALPHABET.indexOf(value[index + 1] ?? "");
-    const c = value[index + 2] === "=" ? 0 : BASE64_ALPHABET.indexOf(value[index + 2] ?? "");
-    const d = value[index + 3] === "=" ? 0 : BASE64_ALPHABET.indexOf(value[index + 3] ?? "");
-    const bits = (a << 18) | (b << 12) | (c << 6) | d;
-    if (outputIndex < bytes.length) bytes[outputIndex++] = (bits >>> 16) & 0xff;
-    if (outputIndex < bytes.length) bytes[outputIndex++] = (bits >>> 8) & 0xff;
-    if (outputIndex < bytes.length) bytes[outputIndex++] = bits & 0xff;
-  }
-  if (encodeBase64(bytes) !== value) {
-    return fail("INDEXER_SCHEMA_INVALID_BASE64", path, "canonical base64", value);
-  }
-  return bytes;
 }
 
 export function base64String(value: string | Uint8Array): Base64String {
@@ -185,7 +117,7 @@ export function base64Bytes(value: Base64String): Uint8Array {
  * sized decode as the same `WrongSize`, so both map to the same code here.
  */
 function parseHash(value: string, path: string): Uint8Array {
-  if (value.length > 44) {
+  if (value.length > MAX_BASE58_32_LEN) {
     return fail("INDEXER_SCHEMA_HASH_WRONG_SIZE", path, "a base58 encoded 32-byte hash", value);
   }
   const bytes = decodeBase58(value);
@@ -263,7 +195,7 @@ export function checkedBase64(value: unknown, path: string): Base64String {
 }
 
 export function checkedAddress(value: unknown, path: string): Address {
-  if (typeof value !== "string" || value.length > 44) {
+  if (typeof value !== "string" || value.length > MAX_BASE58_32_LEN) {
     return fail("INDEXER_SCHEMA_INVALID_ADDRESS", path, "a base58 encoded address", value);
   }
   const bytes = decodeBase58(value);
@@ -274,7 +206,7 @@ export function checkedAddress(value: unknown, path: string): Address {
 }
 
 export function checkedSignature(value: unknown, path: string): Signature {
-  if (typeof value !== "string" || value.length > 88) {
+  if (typeof value !== "string" || value.length > MAX_BASE58_64_LEN) {
     return fail("INDEXER_SCHEMA_INVALID_SIGNATURE", path, "a base58 encoded signature", value);
   }
   const bytes = decodeBase58(value);

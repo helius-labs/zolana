@@ -1,9 +1,21 @@
+import bs58Import from "bs58";
+
 import { InterfaceError } from "./errors.js";
 import type { Address } from "./index.js";
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-const BASE58_INDEX = new Map(Array.from(BASE58_ALPHABET, (character, index) => [character, index]));
 const PDA_MARKER = new TextEncoder().encode("ProgramDerivedAddress");
+/** Max Bitcoin-base58 length of a 32-byte payload (Solana addresses / hashes). */
+const MAX_BASE58_32_LEN = 44;
+
+/**
+ * bs58's CJS build is `exports.default = …` with `__esModule`. The CommonJS
+ * transpile of a default import therefore sometimes yields the module namespace
+ * (`{ default: api }`) instead of the api; unwrap once so both halves work.
+ */
+const bs58 =
+  typeof (bs58Import as { encode?: unknown }).encode === "function"
+    ? bs58Import
+    : (bs58Import as unknown as { default: typeof bs58Import }).default;
 
 export function fail(
   code: InterfaceError["code"],
@@ -63,7 +75,16 @@ export function addressBytes(value: Address, name = "address"): Uint8Array {
   if (typeof value !== "string") {
     fail("INTERFACE_INVALID_ADDRESS", { name, actual: typeof value });
   }
-  const bytes = decodeBase58(value);
+  // Addresses are 32 bytes; reject empty and over-long encodings before decode.
+  if (value.length === 0 || value.length > MAX_BASE58_32_LEN) {
+    fail("INTERFACE_INVALID_ADDRESS", { name, actual: value });
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = decodeBase58(value);
+  } catch (cause) {
+    fail("INTERFACE_INVALID_ADDRESS", { name, actual: value }, cause);
+  }
   if (bytes.length !== 32 || encodeBase58(bytes) !== value) {
     fail("INTERFACE_INVALID_ADDRESS", { name, actual: value });
   }
@@ -75,37 +96,116 @@ export function checkedAddress(value: string, name = "address"): Address {
   return value as Address;
 }
 
-export function encodeBase58(bytes: Uint8Array): Address {
-  let value = 0n;
-  for (const byte of bytes) value = value * 256n + BigInt(byte);
-  let encoded = "";
-  while (value > 0n) {
-    encoded = arrayValue(BASE58_ALPHABET, Number(value % 58n)) + encoded;
-    value /= 58n;
-  }
-  let zeros = 0;
-  while (zeros < bytes.length && bytes[zeros] === 0) zeros += 1;
-  return ("1".repeat(zeros) + encoded) as Address;
+/** Bitcoin-base58 encode. Empty input is the empty string. */
+export function encodeBase58(bytes: Uint8Array): string {
+  return bs58.encode(bytes);
 }
 
-function decodeBase58(value: string): Uint8Array {
-  if (value.length === 0 || value.length > 44) {
-    fail("INTERFACE_INVALID_ADDRESS", { actual: value });
+/**
+ * Bitcoin-base58 decode. Empty string is empty bytes (bs58 / Rust). Invalid
+ * alphabet characters throw; callers that need typed errors must catch.
+ */
+export function decodeBase58(value: string): Uint8Array {
+  return bs58.decode(value);
+}
+
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Standard base64 encode with `=` padding. Empty input is the empty string. */
+export function encodeBase64(bytes: Uint8Array): string {
+  let encoded = "";
+  for (let index = 0; index < bytes.length; index += 3) {
+    const first = bytes[index] ?? 0;
+    const second = bytes[index + 1] ?? 0;
+    const third = bytes[index + 2] ?? 0;
+    const bits = (first << 16) | (second << 8) | third;
+    encoded += BASE64_ALPHABET.charAt((bits >>> 18) & 63);
+    encoded += BASE64_ALPHABET.charAt((bits >>> 12) & 63);
+    encoded += index + 1 < bytes.length ? BASE64_ALPHABET.charAt((bits >>> 6) & 63) : "=";
+    encoded += index + 2 < bytes.length ? BASE64_ALPHABET.charAt(bits & 63) : "=";
   }
-  let decoded = 0n;
-  for (const character of value) {
-    const digit = BASE58_INDEX.get(character);
-    if (digit === undefined) fail("INTERFACE_INVALID_ADDRESS", { actual: value });
-    decoded = decoded * 58n + BigInt(digit);
+  return encoded;
+}
+
+/**
+ * Standard base64 decode. Requires `=` padding when needed, rejects URL-safe
+ * alphabets and non-alphabet characters, and refuses any string that does not
+ * re-encode to itself (non-canonical padding bits). Callers wrap typed errors.
+ */
+export function decodeBase64(value: string): Uint8Array {
+  if (
+    typeof value !== "string" ||
+    value.length % 4 !== 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
+  ) {
+    throw new Error("invalid base64");
   }
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  const bytes = new Uint8Array((value.length / 4) * 3 - padding);
+  let output = 0;
+  for (let index = 0; index < value.length; index += 4) {
+    const a = BASE64_ALPHABET.indexOf(value[index] ?? "");
+    const b = BASE64_ALPHABET.indexOf(value[index + 1] ?? "");
+    const c = value[index + 2] === "=" ? 0 : BASE64_ALPHABET.indexOf(value[index + 2] ?? "");
+    const d = value[index + 3] === "=" ? 0 : BASE64_ALPHABET.indexOf(value[index + 3] ?? "");
+    const bits = (a << 18) | (b << 12) | (c << 6) | d;
+    if (output < bytes.length) bytes[output++] = (bits >>> 16) & 0xff;
+    if (output < bytes.length) bytes[output++] = (bits >>> 8) & 0xff;
+    if (output < bytes.length) bytes[output++] = bits & 0xff;
+  }
+  if (encodeBase64(bytes) !== value) {
+    throw new Error("invalid base64");
+  }
+  return bytes;
+}
+
+/**
+ * Solana compact-u16 (shortvec) encode: seven value bits per byte, high bit
+ * continuation, minimum width. Values outside `0..=0xffff` throw.
+ */
+export function encodeCompactU16(value: number): Uint8Array {
+  const checked = unsigned(value, 0xffff, "compactU16");
   const bytes: number[] = [];
-  while (decoded > 0n) {
-    bytes.push(Number(decoded & 255n));
-    decoded >>= 8n;
+  let remaining = checked;
+  do {
+    let byte = remaining & 0x7f;
+    remaining >>>= 7;
+    if (remaining !== 0) byte |= 0x80;
+    bytes.push(byte);
+  } while (remaining !== 0);
+  return Uint8Array.from(bytes);
+}
+
+/**
+ * Solana compact-u16 decode. Matches `solana_short_vec::decode_shortu16_len`:
+ * rejects truncated input, continuation on the third byte, values above u16,
+ * and non-canonical multi-byte aliases (a zero byte after the first).
+ */
+export function decodeCompactU16(
+  bytes: Uint8Array,
+  offset = 0,
+): Readonly<{ value: number; length: number }> {
+  let value = 0;
+  for (let index = 0; index < 3; index++) {
+    const byte = bytes[offset + index];
+    if (byte === undefined) {
+      fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+    }
+    // A zero byte after the first is always an alias of a shorter encoding.
+    if (byte === 0 && index !== 0) {
+      fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+    }
+    if (index === 2 && (byte & 0x80) !== 0) {
+      fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+    }
+    const next = value | ((byte & 0x7f) << (index * 7));
+    if (next > 0xffff) {
+      fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
+    }
+    value = next;
+    if ((byte & 0x80) === 0) return { value, length: index + 1 };
   }
-  let zeros = 0;
-  while (zeros < value.length && value[zeros] === "1") zeros += 1;
-  return Uint8Array.from([...new Array<number>(zeros).fill(0), ...bytes.reverse()]);
+  fail("INTERFACE_INVALID_TRANSACTION", { field: "compactU16" });
 }
 
 export function findProgramAddress(
@@ -124,7 +224,7 @@ function createProgramAddress(seeds: readonly Uint8Array[], program: Address): A
     fail("INTERFACE_INVALID_PDA", { reason: "seed bounds" });
   }
   const digest = sha256(concat([...seeds, addressBytes(program), PDA_MARKER]));
-  return isEd25519Point(digest) ? undefined : encodeBase58(digest);
+  return isEd25519Point(digest) ? undefined : (encodeBase58(digest) as Address);
 }
 
 /**

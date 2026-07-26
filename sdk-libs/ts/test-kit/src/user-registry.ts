@@ -1,5 +1,10 @@
 import type { Rpc } from "@zolana/client";
-import { checkedTransactionSize } from "@zolana/interface";
+import {
+  checkedTransactionSize,
+  decodeBase58 as decodeBase58Canonical,
+  encodeBase58,
+  encodeCompactU16,
+} from "@zolana/interface";
 import type {
   Address,
   Bytes32,
@@ -16,7 +21,6 @@ import { TestKitError } from "./error.js";
 
 const USER_REGISTRY_PROGRAM_ID = "EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc" as Address;
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
-const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export interface UserRecordAddress {
   readonly address: Address;
@@ -396,43 +400,26 @@ function compileTransaction(
 }
 
 function compactU16(value: number): Uint8Array {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff) {
+  try {
+    return encodeCompactU16(value);
+  } catch {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
       details: { field: "transactionLength" },
     });
   }
-  const bytes: number[] = [];
-  let remaining = value;
-  do {
-    let byte = remaining & 0x7f;
-    remaining >>>= 7;
-    if (remaining !== 0) byte |= 0x80;
-    bytes.push(byte);
-  } while (remaining !== 0);
-  return Uint8Array.from(bytes);
 }
 
 function decodeBase58(value: string, field: string): Uint8Array {
   if (typeof value !== "string" || value.length === 0) {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
   }
-  let decoded = 0n;
-  for (const character of value) {
-    const digit = BASE58.indexOf(character);
-    if (digit < 0) {
-      throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
-    }
-    decoded = decoded * 58n + BigInt(digit);
+  let result: Uint8Array;
+  try {
+    result = decodeBase58Canonical(value);
+  } catch {
+    throw new TestKitError("TEST_KIT_INVALID_CONFIG", { details: { field } });
   }
-  const bytes: number[] = [];
-  while (decoded > 0n) {
-    bytes.push(Number(decoded & 255n));
-    decoded >>= 8n;
-  }
-  let zeros = 0;
-  while (zeros < value.length && value[zeros] === "1") zeros++;
-  const result = Uint8Array.from([...new Array<number>(zeros).fill(0), ...bytes.reverse()]);
-  if (result.length !== 32) {
+  if (encodeBase58(result) !== value || result.length !== 32) {
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
       details: { field, expected: 32, actual: result.length },
     });
