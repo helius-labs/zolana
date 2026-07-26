@@ -12,7 +12,7 @@ import { SMART_ACCOUNT_PROGRAM_ID } from "@zolana/smart-account-client";
 import { TestKitError } from "../error.js";
 import type { LocalStack } from "../index.js";
 import { ZONE_TEST_PROGRAM_ID } from "../instructions.js";
-import { WORKSPACE_ROOT } from "../paths.js";
+import { cargoTargetDir, WORKSPACE_ROOT } from "../paths.js";
 import { writeProgramConfigFixture } from "../standard-accounts.js";
 
 export * from "../admin.js";
@@ -113,19 +113,20 @@ export async function startLocalStack(
   };
 
   try {
+    const targetDir = cargoTargetDir(workspace);
     if (urls.external.rpc) {
       await waitForRpc(urls.rpcUrl, "validator", input.signal);
     } else {
       const programPath =
-        input.programPath ?? path.join(workspace, "target/deploy/shielded_pool_program.so");
+        input.programPath ?? path.join(targetDir, "deploy/shielded_pool_program.so");
       const programs = [
         [SHIELDED_POOL_PROGRAM_ID, programPath],
-        [USER_REGISTRY_PROGRAM_ID, path.join(workspace, "target/deploy/zolana_user_registry.so")],
+        [USER_REGISTRY_PROGRAM_ID, path.join(targetDir, "deploy/zolana_user_registry.so")],
         [
           SMART_ACCOUNT_PROGRAM_ID,
-          path.join(workspace, "target/deploy/squads_smart_account_program.so"),
+          path.join(targetDir, "deploy/squads_smart_account_program.so"),
         ],
-        [ZONE_TEST_PROGRAM_ID, path.join(workspace, "target/deploy/zone_test_program.so")],
+        [ZONE_TEST_PROGRAM_ID, path.join(targetDir, "deploy/zone_test_program.so")],
       ] as const;
       await Promise.all(
         programs.map(([, file], index) =>
@@ -176,7 +177,7 @@ export async function startLocalStack(
       }).proverMetrics;
       await assertPortAvailable(new URL(`http://127.0.0.1:${String(metricsPort)}`));
       const proverBinary =
-        process.env["ZOLANA_PROVER_BIN"] ?? path.join(workspace, "target/prover-server");
+        process.env["ZOLANA_PROVER_BIN"] ?? path.join(targetDir, "prover-server");
       await requireFile(proverBinary, "proverBinary");
       owned.push(
         spawnOwned(
@@ -203,7 +204,7 @@ export async function startLocalStack(
     } else {
       await assertPortAvailable(urls.indexerUrl);
       const photonBinary =
-        process.env["ZOLANA_PHOTON_BIN"] ?? path.join(workspace, "target/debug/photon");
+        process.env["ZOLANA_PHOTON_BIN"] ?? path.join(targetDir, "debug/photon");
       await requireFile(photonBinary, "photonBinary");
       // Omit `--db-url`: Photon runs `RingsMigrator` only when the URL is unset
       // and then uses an ephemeral SQLite file. A caller-supplied URL skips
@@ -281,10 +282,18 @@ async function requireFile(file: string, field: string): Promise<void> {
   try {
     await access(file);
   } catch {
+    // Path and recipe are part of the refusal so a custom `CARGO_TARGET_DIR`
+    // or a skipped build is obvious, rather than a later program error.
     throw new TestKitError("TEST_KIT_INVALID_CONFIG", {
-      details: { field, reason: "missing" },
+      details: { field, reason: "missing", path: file, hint: binaryBuildHint(field) },
     });
   }
+}
+
+function binaryBuildHint(field: string): string {
+  if (field === "photonBinary") return "just build-photon";
+  if (field === "proverBinary") return "just build-prover-server";
+  return "just build-programs";
 }
 
 async function assertPortAvailable(url: URL): Promise<void> {

@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { createTestWallet, fixtureBytes, startLocalStack, TestKitError } from "../src/index.js";
 import {
+  cargoTargetDir,
   createE2eHarness,
   createProtocolConfigInstructions,
   createZoneConfig,
@@ -361,6 +362,18 @@ describe("standard protocol material and instruction helpers", () => {
         }),
       ).toBe("/tmp/pool.so");
     });
+    withEnvironment(
+      { CARGO_TARGET_DIR: "/tmp/shared-target", SHIELDED_POOL_PROGRAM_PATH: undefined },
+      () => {
+        expect(cargoTargetDir("/workspace")).toBe("/tmp/shared-target");
+        expect(
+          programBinaryPath("/workspace", {
+            environmentVariable: "SHIELDED_POOL_PROGRAM_PATH",
+            fileName: "shielded_pool_program.so",
+          }),
+        ).toBe("/tmp/shared-target/deploy/shielded_pool_program.so");
+      },
+    );
   });
 });
 

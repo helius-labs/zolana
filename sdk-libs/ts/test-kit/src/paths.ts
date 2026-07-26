@@ -31,6 +31,16 @@ export const FIXTURES_ROOT = path.resolve(packageRoot(), "../fixtures");
 /** The repository root, which the local stack reads built binaries from. */
 export const WORKSPACE_ROOT = path.resolve(packageRoot(), "../../..");
 
+/**
+ * Cargo's output directory for this process. Matches `CARGO_TARGET_DIR` when
+ * set (shared targets across worktrees) and otherwise `<workspace>/target`,
+ * which is where `just build-programs` / `just build-photon` write by default.
+ */
+export function cargoTargetDir(workspace: string = WORKSPACE_ROOT): string {
+  const override = process.env["CARGO_TARGET_DIR"]?.trim();
+  return override && override !== "" ? path.resolve(override) : path.resolve(workspace, "target");
+}
+
 export function programBinaryPath(
   workspace: string,
   input: Readonly<{ environmentVariable: string; fileName: string }>,
@@ -38,5 +48,5 @@ export function programBinaryPath(
   const override = process.env[input.environmentVariable]?.trim();
   return override && override !== ""
     ? path.resolve(override)
-    : path.resolve(workspace, "target/deploy", input.fileName);
+    : path.resolve(cargoTargetDir(workspace), "deploy", input.fileName);
 }
