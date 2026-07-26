@@ -81,7 +81,8 @@ export const packageConfigurations = {
   },
   "smart-account-client": {
     entryPoints: ["."],
-    dependencies: ["@zolana/interface"],
+    dependencies: ["@noble/hashes", "@zolana/interface", "bs58"],
+    browserDependencies: ["@noble/hashes/sha2.js", "bs58"],
     browser: true,
   },
   "test-kit": {
