@@ -109,11 +109,7 @@ fn run() -> Result<()> {
     if reports_only {
         let inventory = inventory(&root)?;
         let out = root.join("sdk-libs/ts");
-        write_inventory_report(
-            &out.join("reports/inventory.json"),
-            &inventory,
-            &baseline,
-        )?;
+        write_inventory_report(&out.join("reports/inventory.json"), &inventory, &baseline)?;
         write_packet_report(&out, &inventory, &baseline)?;
         stamp_packet_frozen_commits(&out.join("reports/packets"), &baseline)?;
         println!("regenerated reports for {} inventory rows", inventory.len());
@@ -451,11 +447,7 @@ fn generate(root: &Path, out: &Path, inventory: &[InventoryRow], baseline: &str)
     for (relative, record) in records {
         write_json(&fixtures.join(relative), &record)?;
     }
-    write_inventory_report(
-        &out.join("reports/inventory.json"),
-        inventory,
-        baseline,
-    )?;
+    write_inventory_report(&out.join("reports/inventory.json"), inventory, baseline)?;
     write_manifest(root, &fixtures, &client_revision, baseline)?;
     verify_manifest(&fixtures, &client_revision, baseline)?;
     write_packet_report(out, inventory, baseline)?;
@@ -2947,8 +2939,7 @@ fn stamp_packet_frozen_commits(packets_dir: &Path, baseline: &str) -> Result<()>
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?;
+        let text = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         let Some(updated) = replace_frozen_commit_value(&text, baseline) else {
             continue;
         };
@@ -3257,8 +3248,7 @@ mod tests {
     fn production_fixture_ids_are_unique_and_secrets_are_marked() {
         let root = workspace_root().expect("workspace root");
         let baseline = historical_baseline_commit(&root).expect("historical baseline");
-        let (fixtures, _) =
-            production_fixtures(&root, &baseline).expect("production fixtures");
+        let (fixtures, _) = production_fixtures(&root, &baseline).expect("production fixtures");
         assert_eq!(fixtures.len(), EXPECTED_FIXTURE_COUNT);
         let ids = fixtures
             .iter()
