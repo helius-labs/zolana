@@ -4,8 +4,18 @@ mod inputs;
 mod json;
 pub mod merge;
 pub mod merge_zone;
+#[cfg(test)]
+mod oracle_file;
 mod proof;
 pub mod transact;
+#[cfg(test)]
+mod ts_merge_oracle;
+#[cfg(test)]
+mod ts_poll_oracle;
+#[cfg(test)]
+mod ts_proof_oracle;
+#[cfg(test)]
+mod ts_zone_oracle;
 pub mod zone_authority;
 
 pub use client::{

@@ -1,0 +1,65 @@
+{
+  "name": "@zolana/test-kit",
+  "version": "0.1.0",
+  "description": "Private Node-only test support for Zolana packages.",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/test-kit"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/test-kit",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19.0 <23"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "default": "./dist/es/index.js"
+    },
+    "./node": {
+      "import": {
+        "types": "./dist/es/node/index.d.ts",
+        "default": "./dist/es/node/index.js"
+      },
+      "default": "./dist/es/node/index.js"
+    },
+    "./fixtures": {
+      "import": {
+        "types": "./dist/es/fixtures/index.d.ts",
+        "default": "./dist/es/fixtures/index.js"
+      },
+      "default": "./dist/es/fixtures/index.js"
+    }
+  },
+  "main": "./dist/es/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
+  "dependencies": {
+    "@zolana/api": "0.1.0",
+    "@zolana/client": "0.1.0",
+    "@zolana/interface": "0.1.0",
+    "@zolana/keypair": "0.1.0",
+    "@zolana/smart-account-client": "0.1.0",
+    "@zolana/transaction": "0.1.0",
+    "@zolana/wallet": "0.1.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs test-kit",
+    "typecheck": "node ../config/typecheck.mjs test-kit",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}

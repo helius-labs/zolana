@@ -12,7 +12,7 @@ use zolana_transaction::{
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, right_align_slice},
+        field::{be, checked_be, right_align_slice},
         resolve_shape,
         transact::witness::SpendProof,
         Shape, TransferInput, TransferOutput, TransferP256Inputs,
@@ -314,20 +314,32 @@ pub(crate) fn assemble_inputs(
         check_path_length(state.path.len(), STATE_TREE_HEIGHT)?;
         check_path_length(nf.path.len(), NULLIFIER_TREE_HEIGHT)?;
 
+        // Merkle witness bytes come off the indexer wire and are never hashed
+        // locally, so this is the check TypeScript `bytesField` runs and the
+        // only place a value at or above the BN254 scalar modulus can still
+        // reach assembly. P256 coordinates stay on unchecked `be`.
         inputs.push(TransferInput {
             utxo: utxo_inputs,
             is_dummy: BigUint::ZERO,
-            state_path_elements: state.path.iter().map(be).collect(),
+            state_path_elements: state
+                .path
+                .iter()
+                .map(checked_be)
+                .collect::<Result<Vec<_>, _>>()?,
             state_path_index: BigUint::from(state.leaf_index),
-            nullifier_low_value: be(&nf.low_element),
-            nullifier_next_value: be(&nf.high_element),
-            nullifier_low_path_elements: nf.path.iter().map(be).collect(),
+            nullifier_low_value: checked_be(&nf.low_element)?,
+            nullifier_next_value: checked_be(&nf.high_element)?,
+            nullifier_low_path_elements: nf
+                .path
+                .iter()
+                .map(checked_be)
+                .collect::<Result<Vec<_>, _>>()?,
             nullifier_low_path_index: BigUint::from(nf.low_element_index),
-            utxo_tree_root: be(&state.root),
-            nullifier_tree_root: be(&nf.root),
-            nullifier: be(&nullifier),
-            owner_pk_hash: be(&owner_pk_hash),
-            nullifier_secret: be(&nullifier_secret),
+            utxo_tree_root: checked_be(&state.root)?,
+            nullifier_tree_root: checked_be(&nf.root)?,
+            nullifier: checked_be(&nullifier)?,
+            owner_pk_hash: checked_be(&owner_pk_hash)?,
+            nullifier_secret: checked_be(&nullifier_secret)?,
         });
         input_hashes.push(utxo_hash);
         nullifiers.push(nullifier);

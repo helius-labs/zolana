@@ -30,7 +30,7 @@ pub struct SpendProof {
 /// input (non-zero owner) consumes the next proof, dummy slots stay proofless
 /// and mirror the first real input's roots during assembly. Shared by every
 /// witness builder (transact, merge, merge-zone, zone-authority).
-pub(crate) fn attach_input_proofs(
+pub fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
 ) -> Result<Vec<TransferSpendInput>, ClientError> {
@@ -214,21 +214,22 @@ pub fn assemble(
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
 
-    // Signer indices for the real inputs only; dummies (zero owner) inherit the
-    // first real input's signer below. A zero owner reads as P256, so it must
-    // never reach `signature_type`.
-    let mut real_signer_indices: Vec<u8> = Vec::new();
-    for spend in proof_inputs
-        .input_utxos
-        .iter()
-        .filter(|spend| !spend.is_dummy())
-    {
+    // Signer index per padded slot: `None` marks a dummy, which inherits the
+    // first real input's signer below. A zero owner reads as P256, so a dummy
+    // must never reach `signature_type`. Slots are kept because a dummy ahead of
+    // a real input would otherwise shift every later real input's signer.
+    let mut signer_per_slot: Vec<Option<u8>> = Vec::with_capacity(proof_inputs.input_utxos.len());
+    for spend in proof_inputs.input_utxos.iter() {
+        if spend.is_dummy() {
+            signer_per_slot.push(None);
+            continue;
+        }
         let signer = if spend.utxo.owner.signature_type()? == SignatureType::P256 {
             P256_OWNED_SIGNER
         } else {
             DEFAULT_EDDSA_SIGNER_INDEX
         };
-        real_signer_indices.push(signer);
+        signer_per_slot.push(Some(signer));
     }
 
     let zolana_transaction::ExternalData {
@@ -274,35 +275,36 @@ pub fn assemble(
         };
 
     if nullifiers.len() != shape.n_inputs() || root_indices.len() != shape.n_inputs() {
-        return Err(ClientError::WitnessInputCountMismatch {
+        return Err(ClientError::ProofInputCountMismatch {
             got: nullifiers.len(),
             expected: shape.n_inputs(),
         });
     }
 
-    let dummy_signer = real_signer_indices
-        .first()
-        .copied()
+    let dummy_signer = signer_per_slot
+        .iter()
+        .find_map(|signer| *signer)
         .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
     let mut inputs = Vec::with_capacity(shape.n_inputs());
     for i in 0..shape.n_inputs() {
         let nullifier_hash = *nullifiers
             .get(i)
-            .ok_or(ClientError::WitnessInputCountMismatch {
+            .ok_or(ClientError::ProofInputCountMismatch {
                 got: nullifiers.len(),
                 expected: shape.n_inputs(),
             })?;
         let &(utxo_tree_root_index, nullifier_tree_root_index) =
             root_indices
                 .get(i)
-                .ok_or(ClientError::WitnessInputCountMismatch {
+                .ok_or(ClientError::ProofInputCountMismatch {
                     got: root_indices.len(),
                     expected: shape.n_inputs(),
                 })?;
-        let eddsa_signer_index = match real_signer_indices.get(i) {
-            Some(&signer) => signer,
-            None => dummy_signer,
-        };
+        let eddsa_signer_index = signer_per_slot
+            .get(i)
+            .copied()
+            .flatten()
+            .unwrap_or(dummy_signer);
         inputs.push(InputUtxo {
             nullifier_hash,
             nullifier_tree_root_index,

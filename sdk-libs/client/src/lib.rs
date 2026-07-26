@@ -24,14 +24,17 @@ pub mod solana_rpc;
 
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
-pub use error::ClientError;
+pub use error::{ClientError, RetryErrorCause};
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
     canonical_shape,
     merge::MergeWitness,
     resolve_shape, spawn_prover,
-    transact::{assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof},
+    transact::{
+        assemble, attach_input_proofs, into_prover, AssembledTransfer, CircuitType, ProverInputs,
+        SpendProof,
+    },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
     CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness,
     P256Owner, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicAmounts, Shape,

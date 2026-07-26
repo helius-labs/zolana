@@ -1,0 +1,73 @@
+{
+  "expected": {
+    "accountKeys": [
+      "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+      "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm",
+      "11111111111111111111111111111111",
+      "ComputeBudget111111111111111111111111111111",
+      "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+      "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2"
+    ],
+    "instructions": [
+      {
+        "accounts": [],
+        "programIdIndex": 3
+      },
+      {
+        "accounts": [
+          1,
+          0,
+          5,
+          2,
+          4
+        ],
+        "programIdIndex": 4
+      }
+    ],
+    "numReadonlySignedAccounts": 0,
+    "numReadonlyUnsignedAccounts": 4,
+    "numRequiredSignatures": 1
+  },
+  "expectedZone": {
+    "accountKeys": [
+      "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+      "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm",
+      "11111111111111111111111111111111",
+      "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+      "ComputeBudget111111111111111111111111111111",
+      "sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA",
+      "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx"
+    ],
+    "instructions": [
+      {
+        "accounts": [],
+        "programIdIndex": 4
+      },
+      {
+        "accounts": [
+          1,
+          6,
+          0,
+          2,
+          5
+        ],
+        "programIdIndex": 3
+      }
+    ],
+    "numReadonlySignedAccounts": 0,
+    "numReadonlyUnsignedAccounts": 5,
+    "numRequiredSignatures": 1
+  },
+  "generator": "cargo test -p zolana-client --lib --features client client::tests::merge_message_account_order_oracle",
+  "input": {
+    "computeUnitLimit": 1400000,
+    "payer": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "recentBlockhash": "4ahfaxgYLok1PoFu7qHhRPuRwR9fhNPTcdKn69Nkbf6U",
+    "tree": "4WnNSfDXkWSnFi1PgXxn8X8fhFwU2Jhe4Df82mL9rKmm",
+    "userRecord": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+    "zoneAuthority": "2fMJU7ij5i6pnYHvxHkJHsrVHNcUgWg5hySYBr4qvGDx",
+    "zoneProgram": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+  },
+  "note": "Account keys and compiled indexes only; the instruction data bytes belong to the interface rows.",
+  "source": "solana_message::Message::new over sdk-libs/wallet/src/actions/submit.rs's instruction list"
+}

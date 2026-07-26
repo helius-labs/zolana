@@ -415,6 +415,11 @@ pub struct MergeParams<'a> {
     /// Explicit input utxo commitment hashes, or `None` to auto-sweep the wallet's
     /// smallest plain utxos of `asset`.
     pub inputs: Option<Vec<[u8; 32]>>,
+    /// Spend tree to bind. When set, auto-sweep and explicit-hash selection both
+    /// filter to this tree. When omitted, a single tree is inferred from the
+    /// wallet (or the first named input settles it); holdings that straddle a
+    /// rollover still refuse with [`ClientError::AmbiguousTree`].
+    pub tree: Option<Address>,
 }
 
 /// Build an up-to-8-in/1-out consolidation of same-owner, same-asset plain utxos
@@ -423,12 +428,16 @@ pub struct MergeParams<'a> {
 /// viewing key, so it does not build an [`UnsignedPrivateTransaction`] or take an
 /// authority signing step; the keypair is threaded straight to submission.
 pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientError> {
-    // Explicitly named inputs bind the spend to the first named utxo's tree
-    // (the rest must match it), so `Merge::new` can report precise per-input
-    // reasons; auto-sweep resolves the tree over the eligible (plain) utxos.
-    let tree = match request.inputs.as_ref().and_then(|hashes| hashes.first()) {
-        Some(&hash) => named_input_tree(request.wallet, request.asset, hash)?,
-        None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
+    // A caller-selected tree wins over inference. Without one, named inputs bind
+    // to the first named utxo's tree (the rest must match it) and auto-sweep
+    // resolves over the eligible plain utxos — refusing when more than one tree
+    // holds the asset.
+    let tree = match request.tree {
+        Some(tree) => tree,
+        None => match request.inputs.as_ref().and_then(|hashes| hashes.first()) {
+            Some(&hash) => named_input_tree(request.wallet, request.asset, hash)?,
+            None => resolve_spend_tree(request.wallet, request.asset, is_plain_utxo)?,
+        },
     };
     let inputs = select_merge_inputs(
         request.wallet,
@@ -1765,6 +1774,7 @@ mod tests {
             keypair: &keypair,
             asset: SOL_MINT,
             inputs: None,
+            tree: None,
         })
         .expect("merge");
 
@@ -1773,5 +1783,109 @@ mod tests {
         assert_eq!(created.tree, Address::default());
         assert_eq!(created.prepared.inputs.len(), MERGE_INPUTS);
         assert_eq!(created.prepared.output.amount, 60);
+    }
+
+    /// A wallet straddling a tree rollover can merge each tree when the caller
+    /// names it; omitting the selector still refuses as ambiguous.
+    #[test]
+    fn create_merge_tree_selector_disambiguates_a_rollover() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let primary = Address::default();
+        let secondary = Address::new_from_array([9u8; 32]);
+        push_utxo(&mut wallet, &keypair, 3, [1u8; 31]);
+        push_utxo(&mut wallet, &keypair, 5, [2u8; 31]);
+        let a = push_utxo(&mut wallet, &keypair, 7, [3u8; 31]);
+        let b = push_utxo(&mut wallet, &keypair, 11, [4u8; 31]);
+        for hash in [a, b] {
+            wallet
+                .utxos
+                .iter_mut()
+                .find(|entry| entry.output_context.hash == hash)
+                .expect("pushed utxo")
+                .output_context
+                .tree = secondary;
+        }
+
+        let omitted = match create_merge(MergeParams {
+            wallet: &wallet,
+            keypair: &keypair,
+            asset: SOL_MINT,
+            inputs: None,
+            tree: None,
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("an omitted selector must refuse a two-tree wallet"),
+        };
+        assert!(matches!(
+            omitted,
+            ClientError::AmbiguousTree {
+                asset,
+                tree_count: 2,
+            } if asset == SOL_MINT
+        ));
+
+        let primary_merge = create_merge(MergeParams {
+            wallet: &wallet,
+            keypair: &keypair,
+            asset: SOL_MINT,
+            inputs: None,
+            tree: Some(primary),
+        })
+        .expect("merge primary");
+        assert_eq!(primary_merge.tree, primary);
+        assert_eq!(primary_merge.num_inputs, 2);
+        assert_eq!(primary_merge.merged_amount, 8);
+
+        let secondary_merge = create_merge(MergeParams {
+            wallet: &wallet,
+            keypair: &keypair,
+            asset: SOL_MINT,
+            inputs: None,
+            tree: Some(secondary),
+        })
+        .expect("merge secondary");
+        assert_eq!(secondary_merge.tree, secondary);
+        assert_eq!(secondary_merge.num_inputs, 2);
+        assert_eq!(secondary_merge.merged_amount, 18);
+    }
+
+    /// With a selector set, a named hash on another tree is a precise mismatch
+    /// that names both trees — not an unavailable-utxo or ambiguous-tree error.
+    #[test]
+    fn create_merge_tree_selector_rejects_a_mixed_tree_explicit_hash() {
+        let keypair = ShieldedKeypair::new().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let primary = Address::default();
+        let secondary = Address::new_from_array([9u8; 32]);
+        let a = push_utxo(&mut wallet, &keypair, 3, [1u8; 31]);
+        let b = push_utxo(&mut wallet, &keypair, 5, [2u8; 31]);
+        wallet
+            .utxos
+            .iter_mut()
+            .find(|entry| entry.output_context.hash == b)
+            .expect("pushed utxo")
+            .output_context
+            .tree = secondary;
+
+        let error = match create_merge(MergeParams {
+            wallet: &wallet,
+            keypair: &keypair,
+            asset: SOL_MINT,
+            inputs: Some(vec![a, b]),
+            tree: Some(primary),
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("a mixed-tree explicit selection must be rejected"),
+        };
+
+        assert!(matches!(
+            error,
+            ClientError::InputUtxoTreeMismatch {
+                hash,
+                utxo_tree,
+                spend_tree,
+            } if hash == b && utxo_tree == secondary && spend_tree == primary
+        ));
     }
 }

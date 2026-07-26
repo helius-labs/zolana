@@ -1,0 +1,67 @@
+{
+  "name": "@zolana/smart-account-client",
+  "version": "0.1.0",
+  "description": "Browser-safe Zolana smart-account instruction builders.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/smart-account-client"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/smart-account-client",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19.0 <23"
+  },
+  "browserslist": [
+    "chrome >= 94",
+    "edge >= 94",
+    "firefox >= 93",
+    "safari >= 16.4",
+    "ios >= 16.4"
+  ],
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/es/index.js"
+    }
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
+  "dependencies": {
+    "@noble/hashes": "^2.2.0",
+    "@zolana/interface": "0.1.0",
+    "bs58": "^6.0.0"
+  },
+  "scripts": {
+    "build": "node ../config/build.mjs smart-account-client",
+    "typecheck": "node ../config/typecheck.mjs smart-account-client",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
+    "test:property": "vitest run --config ../config/vitest.property.config.js",
+    "test:browser": "node ../config/browser-check.mjs smart-account-client",
+    "api:check": "node ../config/workspace-check.mjs api"
+  }
+}
