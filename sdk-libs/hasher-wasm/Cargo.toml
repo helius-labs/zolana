@@ -1,0 +1,28 @@
+[package]
+name = "zolana-hasher-wasm"
+version = "0.1.0"
+description = "WebAssembly wrapper over zolana-hasher's Poseidon for the TypeScript SDK."
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# Its own workspace on purpose. The artifact wants `opt-level = "z"`, fat LTO,
+# and `panic = "abort"`, and a profile only takes effect at a workspace root, so
+# sharing the repository workspace would mean imposing those on every crate in
+# it. The path dependency still resolves into the repository.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zolana-hasher = { path = "../../program-libs/hasher", default-features = false, features = [
+    "poseidon",
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

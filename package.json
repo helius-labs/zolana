@@ -1,0 +1,18 @@
+{
+  "name": "zolana",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@10.9.8",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "sdk-libs/ts"
+  ],
+  "scripts": {
+    "build:ts": "npm run build --workspace @zolana/sdk",
+    "check:ts": "npm run check --workspace @zolana/sdk",
+    "test:ts": "npm run test --workspace @zolana/sdk",
+    "test:ts:e2e": "npm run test:e2e --workspace @zolana/sdk"
+  }
+}

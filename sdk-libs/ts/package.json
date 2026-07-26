@@ -1,0 +1,85 @@
+{
+  "name": "@zolana/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Zolana shielded protocol.",
+  "license": "Apache-2.0",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./addresses": {
+      "types": "./dist/addresses.d.ts",
+      "import": "./dist/addresses.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js"
+    },
+    "./instructions": {
+      "types": "./dist/instructions.d.ts",
+      "import": "./dist/instructions.js"
+    },
+    "./interface": {
+      "types": "./dist/interface/index.d.ts",
+      "import": "./dist/interface/index.js"
+    },
+    "./keypair": {
+      "types": "./dist/keypair/index.d.ts",
+      "import": "./dist/keypair/index.js"
+    },
+    "./transaction": {
+      "types": "./dist/transaction/index.d.ts",
+      "import": "./dist/transaction/index.js"
+    },
+    "./wallet": {
+      "types": "./dist/wallet/index.d.ts",
+      "import": "./dist/wallet/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node -e \"import('node:fs/promises').then(({ rm }) => rm('dist', { recursive: true, force: true }))\"",
+    "build:wasm": "node scripts/poseidon-wasm.mjs --build",
+    "check:wasm": "node scripts/poseidon-wasm.mjs --check",
+    "verify:wasm": "node scripts/poseidon-wasm.mjs --verify",
+    "format:wasm:check": "cargo fmt --manifest-path ../hasher-wasm/Cargo.toml --check",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+    "prepack": "npm run check:wasm && npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint --deny-warnings src test api/test transaction/test wallet/test scripts",
+    "test": "vitest run --exclude test/e2e/**",
+    "test:e2e": "vitest run test/e2e",
+    "check": "npm run check:wasm && npm run format:wasm:check && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "@solana-program/compute-budget": "^0.17.0",
+    "@solana-program/token": "^0.15.0"
+  },
+  "devDependencies": {
+    "@solana/kit": "^7.0.0",
+    "@types/node": "^24.0.0",
+    "oxfmt": "^0.60.0",
+    "oxlint": "^1.75.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "@solana/kit": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

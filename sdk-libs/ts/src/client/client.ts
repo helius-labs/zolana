@@ -1,0 +1,1018 @@
+import {
+  getSetComputeUnitLimitInstruction,
+  getSetComputeUnitPriceInstruction,
+} from "@solana-program/compute-budget";
+import {
+  assertIsAddress,
+  assertIsSignature,
+  getAddressEncoder,
+  getBase64Encoder,
+  type Address,
+  type Commitment,
+  type Instruction,
+  type Signature,
+  type Transaction,
+  type TransactionSigner,
+} from "@solana/kit";
+
+import { ZolanaApi } from "../api/index.js";
+import {
+  mergeTransactInstruction,
+  mergeZoneInstruction,
+  transactInstruction,
+  type MergeTransactInstructionData,
+} from "../interface/instructions/index.js";
+import { checkedTransactionSize, DEFAULT_TREE_ADDRESS } from "../interface/index.js";
+import type {
+  Bytes32,
+  RequestContext,
+  TransactInstructionData,
+  TransactWithdrawal,
+} from "../interface/index.js";
+import type { NullifierKey, P256PublicKey, ShieldedPublicKey } from "../keypair/index.js";
+import {
+  PreparedMerge,
+  PreparedMergeZone,
+  SppProofInputs,
+  type InputUtxoContext,
+} from "../transaction/index.js";
+
+import { ClientError, fromClientCause, isClientError } from "./error.js";
+import { sha256Bytes } from "./internal.js";
+import { ZolanaIndexer } from "./indexer.js";
+import {
+  buildUnsignedTransaction as buildKitUnsignedTransaction,
+  createKitClients,
+  isTransactionSignOnlySigner,
+  runKitRpc,
+  sendAndConfirmTransaction as sendKitTransaction,
+  signAndSendInstructions as signAndSendKitInstructions,
+  type LatestBlockhash,
+  type SolanaRpc,
+  type SolanaRpcSubscriptions,
+  type TransactionSignOnlySigner,
+} from "./kit.js";
+import { assemble } from "./prover/assembly.js";
+import { ProverClient, proveMerge, proveMergeZone, type AsyncPollConfig } from "./prover/client.js";
+import { assembleMerge, assembleMergeZone } from "./prover/merge.js";
+import { compressProof } from "./prover/proof.js";
+import { DEFAULT_INDEXER_RPC_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
+import {
+  type GetByTagsRequest,
+  type GetEncryptedUtxosByTagsResponse,
+  type GetMerkleProofsResponse,
+  type GetNonInclusionProofsResponse,
+  type GetShieldedTransactionsByTagsResponse,
+  type IndexerRpcConfig,
+  type Rpc,
+  type RpcAccount,
+  type SpendProof,
+} from "./rpc.js";
+
+const DEFAULT_TRANSACT_CU_LIMIT = 300_000;
+const DEFAULT_COMMITMENT: Commitment = "confirmed";
+
+export interface ZolanaClientConfig {
+  readonly rpcUrl: string | URL;
+  readonly rpcSubscriptionsUrl?: string | URL;
+  readonly indexerUrl: string | URL;
+  readonly apiKey?: string;
+  readonly proverUrl: string | URL;
+  readonly tree?: Address;
+  readonly commitment?: Commitment;
+  readonly computeUnitLimit?: number;
+  readonly computeUnitPriceMicroLamports?: bigint;
+  readonly indexerConfig?: IndexerRpcConfig;
+  readonly proverAsyncPoll?: AsyncPollConfig;
+  readonly fetch?: typeof globalThis.fetch;
+}
+
+export interface SignedPrivateTransaction {
+  readonly transaction: SppProofInputs;
+  readonly withdrawal?: TransactWithdrawal;
+  readonly tree: Address;
+}
+
+export interface SubmittedPrivateTransaction {
+  readonly signature: Signature;
+  readonly outputTags: readonly Bytes32[];
+}
+
+export interface MergeMaterialInput {
+  readonly signingPublicKey: ShieldedPublicKey;
+  readonly viewingPublicKey: P256PublicKey;
+  readonly nullifierKey: NullifierKey;
+}
+
+export interface ProvedMerge {
+  readonly data: MergeTransactInstructionData;
+  readonly outputHash: Bytes32;
+}
+
+export interface ProvedMergeZone extends ProvedMerge {
+  readonly zoneProgramId: Address;
+}
+
+export class ZolanaClient implements Rpc {
+  readonly tree: Address;
+  readonly rpc: SolanaRpc;
+  readonly rpcSubscriptions: SolanaRpcSubscriptions;
+  readonly commitment: Commitment;
+  readonly #indexer: ZolanaIndexer;
+  readonly #prover: ProverClient;
+  readonly #computeUnitLimit: number;
+  readonly #computeUnitPrice: bigint | undefined;
+  readonly #indexerConfig: IndexerRpcConfig;
+
+  constructor(input: ZolanaClientConfig) {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_CONFIG");
+    }
+
+    const tree = input.tree ?? DEFAULT_TREE_ADDRESS;
+    checkedAddress(tree, "tree");
+    const commitment = input.commitment ?? DEFAULT_COMMITMENT;
+    if (!isCommitment(commitment)) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "commitment" } });
+    }
+    if (input.fetch !== undefined && typeof input.fetch !== "function") {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
+    }
+
+    const kit = createKitClients({
+      rpcUrl: input.rpcUrl,
+      ...(input.rpcSubscriptionsUrl === undefined
+        ? {}
+        : { rpcSubscriptionsUrl: input.rpcSubscriptionsUrl }),
+    });
+    const indexerUrl = checkedHttpUrl(input.indexerUrl, "indexerUrl");
+    const proverUrl = checkedHttpUrl(input.proverUrl, "proverUrl");
+    let indexer: ZolanaIndexer;
+    try {
+      indexer = new ZolanaIndexer(
+        new ZolanaApi({
+          url: indexerUrl,
+          ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
+          ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+        }),
+      );
+    } catch (cause) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", {
+        details: { field: input.apiKey === undefined ? "indexerUrl" : "apiKey" },
+        cause,
+      });
+    }
+    let prover: ProverClient;
+    try {
+      prover = new ProverClient({
+        url: proverUrl,
+        ...(input.proverAsyncPoll === undefined ? {} : { asyncPoll: input.proverAsyncPoll }),
+        ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+      });
+    } catch (cause) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", {
+        details: { field: input.proverAsyncPoll === undefined ? "proverUrl" : "proverAsyncPoll" },
+        cause,
+      });
+    }
+
+    this.#computeUnitLimit = checkedU32(
+      input.computeUnitLimit ?? DEFAULT_TRANSACT_CU_LIMIT,
+      "computeUnitLimit",
+    );
+    if (
+      input.computeUnitPriceMicroLamports !== undefined &&
+      (input.computeUnitPriceMicroLamports < 0n ||
+        input.computeUnitPriceMicroLamports > 0xffff_ffff_ffff_ffffn)
+    ) {
+      throw new ClientError("CLIENT_INVALID_INTEGER", {
+        details: { field: "computeUnitPriceMicroLamports" },
+      });
+    }
+    this.rpc = kit.rpc;
+    this.rpcSubscriptions = kit.rpcSubscriptions;
+    this.commitment = commitment;
+    this.#indexer = indexer;
+    this.#prover = prover;
+    this.tree = tree;
+    this.#computeUnitPrice = input.computeUnitPriceMicroLamports;
+    const indexerConfig = input.indexerConfig ?? DEFAULT_INDEXER_RPC_CONFIG;
+    validatePollConfig(indexerConfig.poll);
+    this.#indexerConfig = indexerConfig;
+  }
+
+  /// Mirrors Rust's `ZolanaClient::indexer_config`: the config every indexer
+  /// call falls back to and the schedule confirmation polls.
+  get indexerConfig(): IndexerRpcConfig {
+    return this.#indexerConfig;
+  }
+
+  async getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined> {
+    checkedAddress(address, "address");
+    const { value } = await runKitRpc("getAccountInfo", context, (abortSignal) =>
+      this.rpc
+        .getAccountInfo(address, { commitment: this.commitment, encoding: "base64" })
+        .send({ abortSignal }),
+    );
+    return value === null ? undefined : decodeRpcAccount(value, "getAccountInfo");
+  }
+
+  async getMultipleAccounts(
+    addresses: readonly Address[],
+    context?: RequestContext,
+  ): Promise<readonly (RpcAccount | undefined)[]> {
+    addresses.forEach((address) => checkedAddress(address, "address"));
+    const { value } = await runKitRpc("getMultipleAccounts", context, (abortSignal) =>
+      this.rpc
+        .getMultipleAccounts(addresses, {
+          commitment: this.commitment,
+          encoding: "base64",
+        })
+        .send({ abortSignal }),
+    );
+    if (value.length !== addresses.length) {
+      throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+        details: {
+          method: "getMultipleAccounts",
+          expected: addresses.length,
+          actual: value.length,
+        },
+      });
+    }
+    return Object.freeze(
+      value.map((account) =>
+        account === null ? undefined : decodeRpcAccount(account, "getMultipleAccounts"),
+      ),
+    );
+  }
+
+  async getBalance(address: Address, context?: RequestContext): Promise<bigint> {
+    checkedAddress(address, "address");
+    const { value } = await runKitRpc("getBalance", context, (abortSignal) =>
+      this.rpc.getBalance(address, { commitment: this.commitment }).send({ abortSignal }),
+    );
+    return value;
+  }
+
+  async getLatestBlockhash(context?: RequestContext): Promise<LatestBlockhash> {
+    const { value } = await runKitRpc("getLatestBlockhash", context, (abortSignal) =>
+      this.rpc.getLatestBlockhash({ commitment: this.commitment }).send({ abortSignal }),
+    );
+    return value;
+  }
+
+  sendTransaction(
+    transaction: Transaction,
+    config: Readonly<{ skipPreflight?: boolean }> = {},
+    context?: RequestContext,
+  ): Promise<Signature> {
+    return sendKitTransaction(this, transaction, config, context);
+  }
+
+  signAndSendInstructions(
+    input: Readonly<{
+      feePayer: TransactionSigner;
+      instructions: readonly Instruction[];
+      additionalSigners?: readonly TransactionSigner[];
+      skipPreflight?: boolean;
+      onReadyToSubmit?: () => void;
+    }>,
+    context?: RequestContext,
+  ): Promise<Signature> {
+    return signAndSendKitInstructions(this, input, context);
+  }
+
+  getEncryptedUtxosByTags(
+    request: GetByTagsRequest,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetEncryptedUtxosByTagsResponse> {
+    return this.#indexer.getEncryptedUtxosByTags(request, this.#configOr(config), context);
+  }
+
+  getShieldedTransactionsByTags(
+    request: GetByTagsRequest,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetShieldedTransactionsByTagsResponse> {
+    return this.#indexer.getShieldedTransactionsByTags(request, this.#configOr(config), context);
+  }
+
+  getMerkleProofs(
+    treeAccount: Address,
+    leaves: readonly Bytes32[],
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetMerkleProofsResponse> {
+    return this.#indexer.getMerkleProofs(treeAccount, leaves, this.#configOr(config), context);
+  }
+
+  getNonInclusionProofs(
+    treeAccount: Address,
+    leaves: readonly Bytes32[],
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetNonInclusionProofsResponse> {
+    return this.#indexer.getNonInclusionProofs(
+      treeAccount,
+      leaves,
+      this.#configOr(config),
+      context,
+    );
+  }
+
+  /// `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes
+  /// nothing gets the client's config, not the indexer's own default.
+  #configOr(config: IndexerRpcConfig | undefined): IndexerRpcConfig {
+    return config ?? this.#indexerConfig;
+  }
+
+  async getInputMerkleProofs(
+    inputUtxoCommitments: readonly InputUtxoContext[],
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<readonly SpendProof[]> {
+    const inputCandidates: unknown = inputUtxoCommitments;
+    if (!Array.isArray(inputCandidates)) {
+      throw new ClientError("CLIENT_INVALID_INPUT_CONTEXT");
+    }
+    const commitments = inputCandidates.map((candidate: unknown, index) => {
+      if (typeof candidate !== "object" || candidate === null) {
+        throw new ClientError("CLIENT_INVALID_INPUT_CONTEXT", { details: { index } });
+      }
+      const item = candidate as Record<string, unknown>;
+      const itemIndex = item["index"];
+      const utxoHash = item["utxoHash"];
+      const nullifier = item["nullifier"];
+      if (
+        typeof itemIndex !== "number" ||
+        !Number.isSafeInteger(itemIndex) ||
+        itemIndex < 0 ||
+        !(utxoHash instanceof Uint8Array) ||
+        utxoHash.length !== 32 ||
+        !(nullifier instanceof Uint8Array) ||
+        nullifier.length !== 32
+      ) {
+        throw new ClientError("CLIENT_INVALID_INPUT_CONTEXT", { details: { index } });
+      }
+      return Object.freeze({
+        index: itemIndex,
+        utxoHash: new Uint8Array(utxoHash) as Bytes32,
+        nullifier: new Uint8Array(nullifier) as Bytes32,
+      });
+    });
+    const [state, nullifier] = await Promise.all([
+      this.getMerkleProofs(
+        this.tree,
+        commitments.map((item) => item.utxoHash),
+        config,
+        context,
+      ),
+      this.getNonInclusionProofs(
+        this.tree,
+        commitments.map((item) => item.nullifier),
+        config,
+        context,
+      ),
+    ]);
+    if (
+      state.proofs.length !== commitments.length ||
+      nullifier.proofs.length !== commitments.length
+    ) {
+      throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
+        details: {
+          expected: commitments.length,
+          state: state.proofs.length,
+          nullifier: nullifier.proofs.length,
+        },
+      });
+    }
+    return Object.freeze(
+      commitments.map((commitment, index) => {
+        const stateProof = state.proofs[index];
+        const nullifierProof = nullifier.proofs[index];
+        if (!stateProof || !nullifierProof) {
+          throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
+            details: { index },
+          });
+        }
+        if (!equal(stateProof.leaf, commitment.utxoHash)) {
+          throw new ClientError("CLIENT_STATE_PROOF_LEAF_MISMATCH", {
+            details: { index },
+          });
+        }
+        // Rust finishes the state proof before starting the nullifier one, so a
+        // pair wrong in both ways names the state tree and not the nullifier leaf.
+        if (stateProof.merkleContext.tree !== this.tree) {
+          throw new ClientError("CLIENT_STATE_PROOF_TREE_MISMATCH", {
+            details: { index },
+          });
+        }
+        if (!equal(nullifierProof.leaf, commitment.nullifier)) {
+          throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
+            details: { index },
+          });
+        }
+        if (nullifierProof.merkleContext.tree !== this.tree) {
+          throw new ClientError("CLIENT_NULLIFIER_PROOF_TREE_MISMATCH", {
+            details: { index },
+          });
+        }
+        return Object.freeze({ state: stateProof, nullifier: nullifierProof });
+      }),
+    );
+  }
+
+  async proveTransact(
+    proofInputs: SppProofInputs,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<TransactInstructionData> {
+    if (!(proofInputs instanceof SppProofInputs)) {
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    }
+    try {
+      const proofs = await this.getInputMerkleProofs(proofInputs.inputContexts(), config, context);
+      const assembled = assemble(proofInputs, proofs);
+      const proof = await this.#prover.prove(assembled.proverInputs, context);
+      return assembled.withProof(compressProof(proof).toTransactProof());
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveMerge(
+    input: Readonly<{
+      prepared: PreparedMerge;
+      material: MergeMaterialInput;
+      indexer?: Pick<Rpc, "getInputMerkleProofs">;
+    }>,
+    context?: RequestContext,
+  ): Promise<ProvedMerge> {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_MERGE");
+    }
+    const assembled = await assembleMerge(
+      input.prepared,
+      input.material,
+      input.indexer ?? this,
+      this.tree,
+      context,
+    );
+    const compressed = compressProof(
+      await proveMerge(this.#prover, assembled.proverInputs, context),
+    );
+    const commitment = compressed.commitment;
+    if (!commitment) throw new ClientError("CLIENT_MERGE_PROOF_COMMITMENT");
+    return Object.freeze({
+      data: assembled.instructionData({
+        a: compressed.a,
+        b: compressed.b,
+        c: compressed.c,
+        commitment: commitment.commitment,
+        commitmentPok: commitment.commitmentPok,
+      }),
+      outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
+    });
+  }
+
+  async proveMergeZone(
+    input: Readonly<{
+      prepared: PreparedMergeZone;
+      material: MergeMaterialInput;
+      indexer?: Pick<Rpc, "getInputMerkleProofs">;
+    }>,
+    context?: RequestContext,
+  ): Promise<ProvedMergeZone> {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_MERGE");
+    }
+    const assembled = await assembleMergeZone(
+      input.prepared,
+      input.material,
+      input.indexer ?? this,
+      this.tree,
+      context,
+    );
+    const compressed = compressProof(
+      await proveMergeZone(this.#prover, assembled.proverInputs, context),
+    );
+    const commitment = compressed.commitment;
+    if (!commitment) throw new ClientError("CLIENT_MERGE_PROOF_COMMITMENT");
+    return Object.freeze({
+      data: assembled.instructionData({
+        a: compressed.a,
+        b: compressed.b,
+        c: compressed.c,
+        commitment: commitment.commitment,
+        commitmentPok: commitment.commitmentPok,
+      }),
+      outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
+      zoneProgramId: input.prepared.zoneProgramId,
+    });
+  }
+
+  async finishMergeSubmissionUnsigned(
+    input: Readonly<{
+      proved: ProvedMerge;
+      feePayer: Address;
+      userRecord: Address;
+    }>,
+    context?: RequestContext,
+  ): Promise<Transaction> {
+    const candidate: unknown = input;
+    const proved =
+      typeof candidate === "object" && candidate !== null
+        ? (candidate as Record<string, unknown>)["proved"]
+        : undefined;
+    if (!isProvedMerge(proved)) {
+      throw new ClientError("CLIENT_INVALID_MERGE");
+    }
+    if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
+      throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
+    }
+    checkedAddress(input.feePayer, "feePayer");
+    checkedAddress(input.userRecord, "userRecord");
+    const lifetime = await this.getLatestBlockhash(context);
+    return buildUnsignedMergeTransaction({
+      tree: this.tree,
+      feePayer: input.feePayer,
+      userRecord: input.userRecord,
+      lifetime,
+      data: proved.data,
+    });
+  }
+
+  async finishMergeZoneSubmissionUnsigned(
+    input: Readonly<{
+      proved: ProvedMergeZone;
+      feePayer: Address;
+      zoneProgramId: Address;
+      mergeViewTag: Bytes32;
+    }>,
+    context?: RequestContext,
+  ): Promise<Transaction> {
+    const candidate: unknown = input;
+    const proved =
+      typeof candidate === "object" && candidate !== null
+        ? (candidate as Record<string, unknown>)["proved"]
+        : undefined;
+    if (!isProvedMergeZone(proved) || proved.zoneProgramId !== input.zoneProgramId) {
+      throw new ClientError("CLIENT_INVALID_MERGE");
+    }
+    if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
+      throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
+    }
+    checkedAddress(input.feePayer, "feePayer");
+    checkedAddress(input.zoneProgramId, "zoneProgramId");
+    if (!(input.mergeViewTag instanceof Uint8Array) || input.mergeViewTag.length !== 32) {
+      throw new ClientError("CLIENT_INVALID_MERGE");
+    }
+    const lifetime = await this.getLatestBlockhash(context);
+    return await buildUnsignedMergeZoneTransaction({
+      tree: this.tree,
+      feePayer: input.feePayer,
+      zoneProgramId: input.zoneProgramId,
+      mergeViewTag: input.mergeViewTag,
+      lifetime,
+      data: proved.data,
+    });
+  }
+
+  async finishSubmissionUnsigned(
+    input: Readonly<{
+      signed: SignedPrivateTransaction;
+      feePayer: Address;
+      setupInstructions?: readonly Instruction[];
+    }>,
+    context?: RequestContext,
+  ): Promise<Transaction> {
+    const { data } = await this.#preparePrivateSubmission(input, context);
+    const lifetime = await this.getLatestBlockhash(context);
+    return buildUnsignedTransaction({
+      computeUnitLimit: this.#computeUnitLimit,
+      ...(this.#computeUnitPrice === undefined
+        ? {}
+        : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
+      feePayer: input.feePayer,
+      tree: input.signed.tree,
+      ...(input.setupInstructions === undefined
+        ? {}
+        : { setupInstructions: input.setupInstructions }),
+      ...(input.signed.withdrawal === undefined ? {} : { withdrawal: input.signed.withdrawal }),
+      data,
+      lifetime,
+    });
+  }
+
+  async submitPrivateTransaction(
+    input: Readonly<{
+      signed: SignedPrivateTransaction;
+      feePayer: TransactionSignOnlySigner;
+      setupInstructions?: readonly Instruction[];
+      skipPreflight?: boolean;
+      onReadyToSubmit?: () => void;
+    }>,
+    context?: RequestContext,
+  ): Promise<SubmittedPrivateTransaction> {
+    if (!isTransactionSignOnlySigner(input.feePayer)) {
+      throw new ClientError("CLIENT_SOLANA_TRANSACTION_SIGNING", {
+        details: { reason: "private submission requires a signer that does not send" },
+      });
+    }
+    const { data, outputTags } = await this.#preparePrivateSubmission(
+      { signed: input.signed, feePayer: input.feePayer.address },
+      context,
+    );
+    const signature = await this.signAndSendInstructions(
+      {
+        feePayer: input.feePayer,
+        instructions: privateTransactionInstructions({
+          computeUnitLimit: this.#computeUnitLimit,
+          ...(this.#computeUnitPrice === undefined
+            ? {}
+            : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
+          payer: input.feePayer.address,
+          tree: input.signed.tree,
+          ...(input.setupInstructions === undefined
+            ? {}
+            : { setupInstructions: input.setupInstructions }),
+          ...(input.signed.withdrawal === undefined ? {} : { withdrawal: input.signed.withdrawal }),
+          data,
+        }),
+        ...(input.skipPreflight === undefined ? {} : { skipPreflight: input.skipPreflight }),
+        ...(input.onReadyToSubmit === undefined ? {} : { onReadyToSubmit: input.onReadyToSubmit }),
+      },
+      context,
+    );
+    return Object.freeze({ signature, outputTags });
+  }
+
+  async #preparePrivateSubmission(
+    input: Readonly<{ signed: SignedPrivateTransaction; feePayer: Address }>,
+    context?: RequestContext,
+  ): Promise<Readonly<{ data: TransactInstructionData; outputTags: readonly Bytes32[] }>> {
+    const candidate: unknown = input;
+    if (typeof candidate !== "object" || candidate === null) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    checkedAddress(input.feePayer, "feePayer");
+    if (!isSignedPrivateTransaction(input.signed)) {
+      throw new ClientError("CLIENT_INVALID_TRANSACTION");
+    }
+    const payerHash = sha256Bytes(new Uint8Array(getAddressEncoder().encode(input.feePayer)));
+    payerHash[0] = 0;
+    if (!equal(payerHash, input.signed.transaction.payerPublicKeyHash)) {
+      throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
+    }
+    if (input.signed.tree !== this.tree) {
+      throw new ClientError("CLIENT_TREE_MISMATCH", {
+        details: { transactionTree: input.signed.tree, clientTree: this.tree },
+      });
+    }
+    const data = await this.proveTransact(input.signed.transaction, undefined, context);
+    return Object.freeze({
+      data,
+      outputTags: privateOutputTags(input.signed.transaction),
+    });
+  }
+
+  async confirmPrivateTransaction(
+    signature: Signature,
+    outputTags: readonly Bytes32[],
+    context?: RequestContext,
+  ): Promise<void> {
+    checkedSignature(signature);
+    const tags = copyOutputTags(outputTags);
+    if (tags.length === 0) throw new ClientError("CLIENT_MISSING_OUTPUT");
+    try {
+      await pollUntil(
+        async () => {
+          let cursor: Uint8Array | undefined;
+          const seenCursors = new Set<string>();
+          do {
+            const response = await this.getShieldedTransactionsByTags(
+              { tags, limit: 100, ...(cursor === undefined ? {} : { cursor }) },
+              { ...this.#indexerConfig, waitForIndexer: false },
+              context,
+            );
+            if (
+              response.transactions.some((transaction) => transaction.txSignature === signature)
+            ) {
+              return true;
+            }
+            cursor = response.nextCursor;
+            if (cursor !== undefined) {
+              const key = Array.from(cursor).join(",");
+              if (seenCursors.has(key)) {
+                throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+                  details: {
+                    method: "getShieldedTransactionsByTags",
+                    path: "$.next_cursor",
+                  },
+                });
+              }
+              seenCursors.add(key);
+            }
+          } while (cursor !== undefined);
+          return false;
+        },
+        (found) => found,
+        {
+          config: this.#indexerConfig.poll,
+          ...(context === undefined ? {} : { context }),
+        },
+      );
+      return;
+    } catch (cause) {
+      if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
+      throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
+        details: {
+          signature,
+          expectedTags: tags.length,
+          attempts: this.#indexerConfig.poll.numRetries + 1,
+        },
+        cause,
+      });
+    }
+  }
+}
+
+export function buildUnsignedTransaction(
+  input: Readonly<{
+    computeUnitLimit: number;
+    computeUnitPriceMicroLamports?: bigint;
+    feePayer: Address;
+    tree: Address;
+    setupInstructions?: readonly Instruction[];
+    withdrawal?: TransactWithdrawal;
+    data: TransactInstructionData;
+    lifetime: LatestBlockhash;
+  }>,
+): Transaction {
+  checkedAddress(input.feePayer, "feePayer");
+  checkedAddress(input.tree, "tree");
+  const instructions = privateTransactionInstructions({ ...input, payer: input.feePayer });
+  return checkedTransactionSize(
+    compileKitTransaction(input.feePayer, input.lifetime, instructions),
+    {
+      inputs: input.data.inputs.length,
+      outputs: input.data.outputs.length,
+    },
+  );
+}
+
+function privateTransactionInstructions(
+  input: Readonly<{
+    computeUnitLimit: number;
+    computeUnitPriceMicroLamports?: bigint;
+    payer: Address;
+    tree: Address;
+    setupInstructions?: readonly Instruction[];
+    withdrawal?: TransactWithdrawal;
+    data: TransactInstructionData;
+  }>,
+): readonly Instruction[] {
+  checkedAddress(input.tree, "tree");
+  checkedU32(input.computeUnitLimit, "computeUnitLimit");
+  checkedComputeUnitPrice(input.computeUnitPriceMicroLamports);
+  return [
+    getSetComputeUnitLimitInstruction({ units: input.computeUnitLimit }),
+    ...(input.computeUnitPriceMicroLamports === undefined
+      ? []
+      : [
+          getSetComputeUnitPriceInstruction({
+            microLamports: input.computeUnitPriceMicroLamports,
+          }),
+        ]),
+    ...(input.setupInstructions ?? []),
+    transactInstruction({
+      payer: input.payer,
+      tree: input.tree,
+      data: input.data,
+      ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
+    }),
+  ];
+}
+
+export function buildUnsignedMergeTransaction(
+  input: Readonly<{
+    tree: Address;
+    feePayer: Address;
+    userRecord: Address;
+    lifetime: LatestBlockhash;
+    data: MergeTransactInstructionData;
+  }>,
+): Transaction {
+  checkedAddress(input.tree, "tree");
+  checkedAddress(input.feePayer, "feePayer");
+  checkedAddress(input.userRecord, "userRecord");
+  return checkedTransactionSize(
+    compileKitTransaction(input.feePayer, input.lifetime, [
+      getSetComputeUnitLimitInstruction({ units: 1_400_000 }),
+      mergeTransactInstruction({
+        tree: input.tree,
+        payer: input.feePayer,
+        userRecord: input.userRecord,
+        data: input.data,
+      }),
+    ]),
+  );
+}
+
+export async function buildUnsignedMergeZoneTransaction(
+  input: Readonly<{
+    tree: Address;
+    feePayer: Address;
+    zoneProgramId: Address;
+    mergeViewTag: Bytes32;
+    lifetime: LatestBlockhash;
+    data: MergeTransactInstructionData;
+  }>,
+): Promise<Transaction> {
+  checkedAddress(input.tree, "tree");
+  checkedAddress(input.feePayer, "feePayer");
+  checkedAddress(input.zoneProgramId, "zoneProgramId");
+  if (!(input.mergeViewTag instanceof Uint8Array) || input.mergeViewTag.length !== 32) {
+    throw new ClientError("CLIENT_INVALID_MERGE");
+  }
+  return checkedTransactionSize(
+    compileKitTransaction(input.feePayer, input.lifetime, [
+      getSetComputeUnitLimitInstruction({ units: 1_400_000 }),
+      await mergeZoneInstruction({
+        tree: input.tree,
+        zoneProgramId: input.zoneProgramId,
+        payer: input.feePayer,
+        data: input.data,
+        mergeViewTag: input.mergeViewTag,
+      }),
+    ]),
+  );
+}
+
+function compileKitTransaction(
+  feePayer: Address,
+  lifetime: LatestBlockhash,
+  instructions: readonly Instruction[],
+): Transaction {
+  try {
+    return buildKitUnsignedTransaction({ feePayer, instructions, lifetime });
+  } catch (cause) {
+    throw new ClientError("CLIENT_TRANSACTION_ASSEMBLY", { cause });
+  }
+}
+
+function checkedU32(value: number, fieldName: string): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff_ffff) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: fieldName } });
+  }
+  return value;
+}
+
+function checkedComputeUnitPrice(value: bigint | undefined): void {
+  if (value !== undefined && (value < 0n || value > 0xffff_ffff_ffff_ffffn)) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", {
+      details: { field: "computeUnitPriceMicroLamports" },
+    });
+  }
+}
+
+function checkedAddress(value: Address, field: string): void {
+  try {
+    assertIsAddress(value);
+  } catch {
+    throw new ClientError("CLIENT_INVALID_BASE58", { details: { field } });
+  }
+}
+
+function checkedSignature(value: Signature): void {
+  try {
+    assertIsSignature(value);
+  } catch {
+    throw new ClientError("CLIENT_INVALID_BASE58", {
+      details: { field: "signature" },
+    });
+  }
+}
+
+function copyOutputTags(value: readonly Bytes32[]): readonly Bytes32[] {
+  const candidate: unknown = value;
+  if (!Array.isArray(candidate)) {
+    throw new ClientError("CLIENT_INVALID_CONFIG", {
+      details: { field: "outputTags" },
+    });
+  }
+  return Object.freeze(
+    candidate.map((tag: unknown, index) => {
+      if (!(tag instanceof Uint8Array) || tag.length !== 32) {
+        throw new ClientError("CLIENT_INVALID_LENGTH", {
+          details: {
+            field: `outputTags[${String(index)}]`,
+            expected: 32,
+            actual: tag instanceof Uint8Array ? tag.length : -1,
+          },
+        });
+      }
+      return new Uint8Array(tag) as Bytes32;
+    }),
+  );
+}
+
+function privateOutputTags(transaction: SppProofInputs): readonly Bytes32[] {
+  const unique = new Map<string, Bytes32>();
+  for (const tag of [
+    ...transaction.externalData.resolvedOwnerTags,
+    ...transaction.externalData.messages.map((message) => message.viewTag),
+  ]) {
+    const copy = new Uint8Array(tag) as Bytes32;
+    unique.set(Array.from(copy, (byte) => byte.toString(16).padStart(2, "0")).join(""), copy);
+  }
+  return Object.freeze([...unique.values()]);
+}
+
+function checkedHttpUrl(value: string | URL, field: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value instanceof URL ? value.href : value);
+  } catch {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field } });
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hash !== ""
+  ) {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field } });
+  }
+  return url;
+}
+
+function isCommitment(value: unknown): value is Commitment {
+  return value === "processed" || value === "confirmed" || value === "finalized";
+}
+
+function decodeRpcAccount(
+  account: Readonly<{
+    owner: Address;
+    lamports: bigint;
+    data: readonly [string, "base64"];
+  }>,
+  method: string,
+): RpcAccount {
+  try {
+    return Object.freeze({
+      owner: account.owner,
+      data: new Uint8Array(getBase64Encoder().encode(account.data[0])),
+      lamports: account.lamports,
+    });
+  } catch (cause) {
+    throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+      details: { method, path: "result.value.data" },
+      cause,
+    });
+  }
+}
+
+function equal(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index++) {
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return difference === 0;
+}
+
+function isProvedMerge(value: unknown): value is ProvedMerge {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  const data = candidate["data"];
+  const outputHash = candidate["outputHash"];
+  const dataOutputHash =
+    typeof data === "object" && data !== null
+      ? (data as Record<string, unknown>)["outputUtxoHash"]
+      : undefined;
+  return (
+    outputHash instanceof Uint8Array &&
+    outputHash.length === 32 &&
+    dataOutputHash instanceof Uint8Array &&
+    dataOutputHash.length === 32
+  );
+}
+
+function isProvedMergeZone(value: unknown): value is ProvedMergeZone {
+  return (
+    isProvedMerge(value) && "zoneProgramId" in value && typeof value.zoneProgramId === "string"
+  );
+}
+
+function isSignedPrivateTransaction(value: unknown): value is SignedPrivateTransaction {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate["transaction"] instanceof SppProofInputs && typeof candidate["tree"] === "string"
+  );
+}

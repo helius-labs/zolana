@@ -79,6 +79,52 @@ test-sdk-libs:
     cargo test -p zolana-client --test solana_rpc --features solana-rpc
     cargo test -p zolana-wallet
 
+# TypeScript SDK formatting, linting, types, unit tests, and package build.
+test-ts:
+    npm run check:ts
+
+# Full TypeScript SDK flow against a fresh validator, Photon, and prover.
+test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    bin="target/debug/zolana"
+    workdir="target/ts-sdk-e2e"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    rm -rf "$workdir"
+    mkdir -p "$workdir"
+    export ZOLANA_CONFIG_DIR="$PWD/$workdir"
+    export ZOLANA_PHOTON_BIN="$PWD/{{photon-bin}}"
+    export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
+    cleanup
+    sleep 2
+
+    "$bin" dev start --with-photon --no-use-surfpool \
+      --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
+      --photon-port {{localnet-photon-port}} \
+      --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
+      --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    "$bin" config set --rpc-url {{localnet-rpc-url}} \
+      --indexer-url {{localnet-photon-url}} --prover-url {{localnet-prover-url}} >/dev/null
+    "$bin" wallet new --outfile "$workdir/authority.json"
+    tree="$("$bin" dev pool create-tree --keypair "$workdir/authority.json" \
+      --tree-keypair "$workdir/tree.json" --airdrop-lamports 20000000000 \
+      | sed -n 's/^ok tree //p')"
+    test -n "$tree"
+
+    ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
+      ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
+      ZOLANA_TREE="$tree" npm run test:ts:e2e
+
+test-ts-all: test-ts test-ts-e2e
+
 # Photon unit and SQLite-backed integration tests. The Postgres migration smoke
 # test runs in CI where a database service is available.
 test-photon:
@@ -806,7 +852,7 @@ publish-spp-keys:
     aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key'
 
 build-photon:
-    cargo build --locked -p photon-indexer --bin photon
+    cargo build --locked -p photon-indexer --bin photon --target-dir target
 
 ensure-photon:
     #!/usr/bin/env bash
