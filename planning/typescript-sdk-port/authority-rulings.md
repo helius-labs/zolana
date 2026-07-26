@@ -2257,6 +2257,51 @@ Sequencing: four of the six touch files that the client-surface reconciliation i
 rewriting, so they land after it rather than beside it. Fixing a function while
 another branch moves it means resolving the same conflict twice.
 
+## Register tail: the remaining rows, ruled row by row
+
+The owner ruled on each remaining row after each was restated as its runtime
+consequence rather than its register id. Sixteen land in this pull request, one
+defers, one is dismissed.
+
+### Land in this pull request
+
+| Row | Ruling |
+| --- | --- |
+| `F123` | Use the exported page-limit constants instead of literal bounds, so a constant change cannot leave the validator behind |
+| `F144` | Delete the unused fixture offset rather than correcting it. It was computed for a 33-byte owner key that is 34 bytes, and no code reads it, so the value only exists to mislead a future reader |
+| `F127` | Publish the test-only secret so the keypair hash fixture can be recomputed. A fixture that must be taken on faith defeats the purpose of having fixtures |
+| `F146` | Either return a read-only registry type or mutate the live one. Today the getter hands back a copy, so inserting appears to work and changes nothing, while the same call against Rust's live registry does what the caller expects |
+| `F124` | Derive the payer key hash inside zone-authority preparation, or verify the one passed. An unchecked caller hash fails later and further from its cause |
+| `F142-P` | Decode transaction data once instead of trying every length from 1 to 1232 and then decoding again |
+| `F076` | Strip the hardcoded pull request number and the review-gate scripts. This port's coordination tooling should not become permanent repository infrastructure |
+| `F079` | Scope the TypeScript tier by path and reuse build artifacts between jobs |
+| `F083` | Define the baseline commit once instead of copying it into many fixture files, where moving it means a wide edit with a chance to miss one |
+
+### Deferred
+
+`F094`, the Merkle append that copies the whole tree per leaf. Correct but
+quadratic for bulk appends, and changing it alters how a failure rolls back
+mid-append. Filed as a follow-up rather than taken beside the release.
+
+### Dismissed
+
+`F013` asked for release notes and a version story for the Rust SDK behaviour
+that changes inside this pull request, namely the P256 signing nonce derivation
+and the padding leak that made dummy outputs distinguishable. The owner dismissed
+it: the crates are pre-release with no consumers, so breaking changes carry no
+migration cost and there is nothing to note for anyone. This is consistent with
+the earlier standing ruling that breaking changes are acceptable before 1.0.
+
+### Pending a Light Protocol check
+
+`F130`, the two opposite rules about what may appear in error details: `keypair`
+admits only a known-safe list while `client` keeps arbitrary scalar values, so an
+error raised on the client path can carry data the keypair path would have
+stripped. The owner's instinct is one fail-closed rule everywhere, and asked that
+Light Protocol's handling be checked first under the standing rule that an open
+question is resolved the way Light resolved it. Implementation waits on that
+finding.
+
 ## Register tail: swept after the cryptographic phase
 
 Roughly 26 findings remain below the commitment-affecting tier, mostly duplicated
