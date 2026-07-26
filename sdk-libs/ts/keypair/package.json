@@ -1,0 +1,114 @@
+{
+  "name": "@zolana/keypair",
+  "version": "0.1.0",
+  "description": "Zolana private key material, signatures, viewing, and encryption.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/helius-labs/zolana.git",
+    "directory": "sdk-libs/ts/keypair"
+  },
+  "homepage": "https://github.com/helius-labs/zolana/tree/main/sdk-libs/ts/keypair",
+  "bugs": {
+    "url": "https://github.com/helius-labs/zolana/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19.0 <23"
+  },
+  "browserslist": [
+    "chrome >= 94",
+    "edge >= 94",
+    "firefox >= 93",
+    "safari >= 16.4",
+    "ios >= 16.4"
+  ],
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "import": {
+        "types": "./dist/es/index.d.ts",
+        "default": "./dist/es/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
+      "default": "./dist/es/index.js"
+    },
+    "./merge": {
+      "browser": {
+        "types": "./dist/es/merge/index.d.ts",
+        "default": "./dist/es/merge/index.js"
+      },
+      "import": {
+        "types": "./dist/es/merge/index.d.ts",
+        "default": "./dist/es/merge/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/merge/index.d.ts",
+        "default": "./dist/cjs/merge/index.js"
+      },
+      "default": "./dist/es/merge/index.js"
+    },
+    "./hash": {
+      "browser": {
+        "types": "./dist/es/hash/index.d.ts",
+        "default": "./dist/es/hash/index.js"
+      },
+      "import": {
+        "types": "./dist/es/hash/index.d.ts",
+        "default": "./dist/es/hash/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/hash/index.d.ts",
+        "default": "./dist/cjs/hash/index.js"
+      },
+      "default": "./dist/es/hash/index.js"
+    },
+    "./traits": {
+      "browser": {
+        "types": "./dist/es/traits/index.d.ts",
+        "default": "./dist/es/traits/index.js"
+      },
+      "import": {
+        "types": "./dist/es/traits/index.d.ts",
+        "default": "./dist/es/traits/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/traits/index.d.ts",
+        "default": "./dist/cjs/traits/index.js"
+      },
+      "default": "./dist/es/traits/index.js"
+    }
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/es/index.js",
+  "types": "./dist/es/index.d.ts",
+  "scripts": {
+    "build": "node ../config/build.mjs keypair",
+    "typecheck": "node ../config/typecheck.mjs keypair",
+    "test:unit": "vitest run --config ../config/vitest.package.config.js --passWithNoTests",
+    "test:vectors": "vitest run --config ../config/vitest.vectors.config.js",
+    "test:property": "vitest run --config ../config/vitest.property.config.js",
+    "test:browser": "node ../config/browser-check.mjs keypair",
+    "api:check": "node ../config/workspace-check.mjs api"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "@zolana/hasher": "0.1.0",
+    "@zolana/interface": "0.1.0"
+  }
+}

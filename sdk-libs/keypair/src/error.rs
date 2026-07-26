@@ -25,4 +25,13 @@ pub enum KeypairError {
 
     #[error("field element input exceeds 32 bytes")]
     FieldElementTooLong,
+
+    #[error("p256 prehash must be 32 bytes, got {0}")]
+    InvalidPrehashLength(usize),
+
+    /// `pack_info` packs the key-schedule `info` into two field elements, so an
+    /// `info` longer than 62 bytes has nowhere to go. Refusing it keeps a caller
+    /// supplied label from indexing past the second limb.
+    #[error("key-schedule info exceeds 62 bytes")]
+    InfoTooLong,
 }

@@ -156,6 +156,10 @@ impl ShieldedKeypair {
         self.signing_key.sign(msg)
     }
 
+    pub fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], KeypairError> {
+        self.signing_key.try_sign(msg)
+    }
+
     pub fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
