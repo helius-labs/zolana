@@ -662,7 +662,7 @@ test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 
 # Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
 # building the SPP instructions by hand and submitting them
-# (sdk-tests/client/examples/deposit_transfer_withdraw.rs). Boots
+# (sdk-tests/rust-client/examples/deposit_transfer_withdraw.rs). Boots
 # solana-test-validator via the `zolana` CLI with the shielded pool, the user
 # registry, and the Squads smart account, plus Photon and the SPP prover --
 # mirroring test-spp-validator.
@@ -682,6 +682,33 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo run -p client-example --example deposit_transfer_withdraw
+
+# TypeScript counterpart of test-client-example (sdk-tests/typescript-client).
+test-ts-example: build-programs build-prover-server ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # startLocalStack spawns its own validator, prover, and Photon from
+    # ZOLANA_PORT_OFFSET, so the localnet URL variables are deliberately not
+    # exported here: setting them makes the harness attach to an external stack
+    # instead of building one. ZOLANA_PROVER_URL is exported for every recipe,
+    # so it has to be dropped explicitly.
+    unset ZOLANA_PROVER_URL
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    # The harness spawns from its own working directory, so both binaries have
+    # to be absolute. photon-bin defaults to a repo-relative path but is an
+    # absolute one whenever ZOLANA_PHOTON_BIN is already set.
+    photon="{{photon-bin}}"
+    [[ "$photon" == /* ]] || photon="$(pwd)/$photon"
+    export ZOLANA_PHOTON_BIN="$photon"
+    export ZOLANA_PROVER_BIN="$(pwd)/target/prover-server"
+    npm run build
+    npm run test:e2e:example
 
 # Dynamic-swap example lifecycle tests
 # (sdk-tests/dynamic-swap/test/tests/{pair,escrow_flow,escrow_refund}.rs). Each
