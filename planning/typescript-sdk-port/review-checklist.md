@@ -712,16 +712,59 @@ Apply these gates to each package. Record evidence beside a gate or in a
       every body with **no body drift**; `manifest.driftReview` records the
       review without moving `frozenCommit`
       ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
-- [ ] Deterministic instruction, proof-input, hash, key, ciphertext, and serialization bytes match current Rust where applicable.
+- [x] Deterministic instruction, proof-input, hash, key, ciphertext, and serialization bytes match current Rust where applicable.
+      Evidence per package in
+      [row-updates/gate-packages.md](row-updates/gate-packages.md) (P6): Rust
+      oracles / gated vectors for hasher through smart-account-client; test-kit
+      N/A (harness). Named suites include
+      `hasher/test/vectors/poseidon-parity.test.ts`,
+      `interface/test/vectors/rust-oracle.test.ts`,
+      `keypair/test/vectors/keypair-parity.test.ts`,
+      `transaction/test/vectors/rust-oracle.test.ts`,
+      `client/test/vectors/*oracle*.test.ts`,
+      `wallet/test/vectors/deposit-vector.test.ts`,
+      `merkle-tree/test/vectors/merkle-semantics.test.ts`.
 - [x] Non-deterministic behavior has invariant or property coverage.
       Evidence: `client/test/property/client-property.test.ts` and
       `wallet/test/property/wallet-property.test.ts`; scaffold requires both;
       other packages already had `test:property`
       ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
-- [ ] Rust rejection, malformed-input, and tamper behavior has TypeScript coverage.
-- [ ] Errors preserve stable codes and structured details at the same boundary.
-- [ ] Browser-safe entry points contain no Node-only imports, and Node-only behavior stays in documented entry points.
-- [ ] Feature-gated behavior and each supported proof rail have a disposition.
+- [x] Rust rejection, malformed-input, and tamper behavior has TypeScript coverage.
+      Evidence per package in
+      [row-updates/gate-packages.md](row-updates/gate-packages.md) (P8):
+      Rust-generated reject/tamper vectors for hasher
+      (`poseidon-rejection-parity.test.ts`), indexer-api
+      (`schema-rejects.test.ts` ← `indexer-schema-rejects-v1.json`),
+      smart-account-client (`rejects.test.ts` ← `smart-account-rejects-v1.json`,
+      now pins `SmartAccountClientError.code` per case), plus oracle reject
+      arms in interface/keypair/transaction/client/wallet/merkle-tree; test-kit
+      hand-written malformed/abort coverage in `test-kit.test.ts`.
+- [x] Errors preserve stable codes and structured details at the same boundary.
+      Evidence per package in
+      [row-updates/gate-packages.md](row-updates/gate-packages.md) (P9):
+      full enum oracles at interface (`rust-oracle.test.ts` errors), keypair
+      (`error-redaction-certification.test.ts`), client
+      (`error.test.ts` ← `fixtures/client/errors-v1.json`); hasher wrapper vs
+      Rust codes in `poseidon-rejection-parity.test.ts`; wallet
+      `WALLET_ERROR_CODES` closed scan; test-kit `TEST_KIT_*` closed scan in
+      `test-kit/test/exports.test.ts`; smart-account reject→code map in
+      `rejects.test.ts`.
+- [x] Browser-safe entry points contain no Node-only imports, and Node-only behavior stays in documented entry points.
+      Evidence per package in
+      [row-updates/gate-packages.md](row-updates/gate-packages.md) (P10):
+      ten production packages `browser: true` with dual export conditions and
+      `test:browser` → `browser-check.mjs`; test-kit `browser: false` with
+      documented `./node` / `./fixtures` annexes; `npm run test:browser` inside
+      `check:packaging`.
+- [x] Feature-gated behavior and each supported proof rail have a disposition.
+      Evidence per package in
+      [row-updates/gate-packages.md](row-updates/gate-packages.md) (P11):
+      `client/test/vectors/shape-rail-coverage.test.ts` (10×2 confidential,
+      zone×10, zone-authority×4, merge/merge-zone); G2 fix in
+      `client/src/prover/proof.ts` + `g2.md`; forester `address-append`
+      unsupported via `circuit-types.test.ts`; interface/keypair/transaction
+      rail dispositions; N/A for hasher/api/indexer-api/wallet/merkle-tree/
+      smart-account-client/test-kit.
 - [x] Relevant focused, package, browser, vector, property, export, dependency, and pack checks pass.
       Evidence: `npm run check:packaging` green including real `api:check`
       against `sdk-libs/ts/api-reports/**`
@@ -748,18 +791,17 @@ Apply these gates to each package. Record evidence beside a gate or in a
 A full SDK parity claim requires the gate set below. Per-file completion is one
 input to this decision.
 
-- [ ] Each of the eleven workspace packages passes its package gates. The workspace list is root
+- [x] Each of the eleven workspace packages passes its package gates. The workspace list is root
       `package.json` `workspaces`: `hasher`, `interface`, `keypair`, `transaction`, `indexer-api`,
       `api`, `client`, `wallet`, `merkle-tree`, `smart-account-client`, `test-kit`. `@zolana/hasher`
       and `@zolana/test-kit` were uncounted under the former "nine"; `test-kit` is private annex-only
       for publish, and still takes the package gates that apply (exports, dependencies, api check).
-      Gate1 walk + gate1-gaps closed the five named gaps that blocked this line's package seats,
-      dispositions, inventory, fixture drift story, property suites, and real `api:check`
-      ([row-updates/gate1-walk.md](row-updates/gate1-walk.md),
-      [row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)). Left unchecked while client
-      P11 (`RAIL` / G2) remains owned by parallel workers, and while P6/P8–P10/P11 package
-      bullets above still need an affirming tick from their evidence owners.
-      ([row-updates/gate12-pkg.md](row-updates/gate12-pkg.md)).
+      Package-completion bullets P1–P15 all checked with named per-package evidence after the
+      real `api:check` census and surface reconciliation; walk record
+      [row-updates/gate-packages.md](row-updates/gate-packages.md). Prior gap seats in
+      [row-updates/gate1-walk.md](row-updates/gate1-walk.md) /
+      [row-updates/gate1-gaps.md](row-updates/gate1-gaps.md); client P11 (`RAIL` / G2) closed by
+      `shape-rail-coverage.test.ts` and `g2.md` on this tree.
 - [x] Cross-package public types, errors, dependencies, and capability boundaries match current Rust,
       except the forester `address-append` / `batchUpdateNullifierTreeInstruction` path, which is an
       owner-ruled unsupported capability (no TypeScript forester; builder withdrawn; codec and tag
@@ -785,7 +827,6 @@ input to this decision.
       Evidence: [`row-updates/gate-submit.md`](row-updates/gate-submit.md) —
       split / merge / private transfer / withdraw signatures against programs
       built in this worktree (`just build-programs`).
-=======
 - [x] Proof inputs work with the same-revision prover for each supported shape and rail.
       Evidence at `a547447e`: `npm run test:p4:full` (verbose) against
       `target/prover-server` at port offset 400 — **53/53** live prove+verify
@@ -844,17 +885,18 @@ input to this decision.
       [row-updates/gate-ci.md](row-updates/gate-ci.md),
       [row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
 - [x] The public-export ledger has no unexplained difference.
-- [x] The public-export ledger has no unexplained difference.
       Evidence: `npm run api:check` compares built surfaces to
       `sdk-libs/ts/api-reports/**` for all eleven packages and fails on
       undeclared addition or removal
-      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md)).
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md),
+      [row-updates/gate-packages.md](row-updates/gate-packages.md) export census).
 - [x] No row or package gate has an unresolved adverse verdict.
-      Recounted from the primary tables at HEAD: 145 rows = 135 `done`/`PARITY`
-      + 7 `done`/`NOT_APPLICABLE` + 3 `needs_re_review`/`NOT_APPLICABLE`; zero
-      `MISSING` / `PARTIAL` / `OPEN` / `STALE` / `DIVERGENT` / `BLOCKED`.
-      Unchecked package-completion bullets are incomplete evidence walks, not
-      adverse verdicts ([row-updates/gate-ledger.md](row-updates/gate-ledger.md)).
+      Recounted after gate1-gaps: 148 rows = 137 `done`/`PARITY` + 11
+      `done`/`NOT_APPLICABLE` (includes closed `E03`/`E05`/`E06` and `H15`/
+      `TK01`/`TK02`); zero `MISSING` / `PARTIAL` / `OPEN` / `STALE` /
+      `DIVERGENT` / `BLOCKED` and zero `needs_re_review`
+      ([row-updates/gate1-gaps.md](row-updates/gate1-gaps.md),
+      [row-updates/gate-packages.md](row-updates/gate-packages.md)).
 - [x] Full CI, fixture regeneration, browser, packed-package consumer, action
       E2E, and instruction E2E commands pass from a clean checkout.
       Evidence at `a547447e` ([row-updates/gate-prover.md](row-updates/gate-prover.md)):

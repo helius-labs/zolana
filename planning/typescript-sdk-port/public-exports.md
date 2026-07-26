@@ -1399,8 +1399,10 @@ leaves either side without a disposition. The names Rust re-exports from
 `zolana_transaction` reach a caller through `@zolana/transaction`, which
 `@zolana/client` depends on, rather than through a duplicate export.
 `ZoneTransferProver`, `ZoneTransferP256Prover`, `ZoneAuthorityProver`, and
-their result and witness types are deferred to PKP-05 by review-checklist rows
-C13, C14, and C18.
+their result and witness types are adapted to free functions
+`assembleZone`, `assembleZoneP256`, `assembleZoneAuthority`, and
+`assembleZoneAuthorityWitness` (plus `AssembledZone` / `AssembledZoneP256`
+result types). Rows C13, C14, and C18 are closed on that adaptation.
 
 The client proof interfaces are semantic byte-valued types owned by
 `@zolana/client`; they are not aliases or re-exports of
