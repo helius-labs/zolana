@@ -21,7 +21,6 @@ import { type AssetRegistry } from "../wallet/asset.js";
 import {
   SppProofInputs,
   createExternalData,
-  exactShape,
   type ExternalData,
   type InputUtxoContext,
   type PublicAmounts,
@@ -560,6 +559,11 @@ export interface PreparedZoneAuthority {
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly publicAmounts: PublicAmounts;
+  /**
+   * Its `instructionDiscriminator` must be `ZONE_AUTHORITY_TRANSACT` (tag 3) so
+   * the `externalDataHash` the proof commits to matches what the program
+   * recomputes on-chain.
+   */
   readonly externalData: ExternalData;
   readonly zoneProgramId: Address;
   readonly payerPublicKeyHash: Bytes32;
@@ -595,9 +599,11 @@ export function prepareZoneAuthority(
       throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH", { index });
     }
   }
-  // The padded slot counts must name a proving system that exists, and the
-  // public leg has to resolve to fields, exactly as an owner-signed transact
-  // requires. Both come from `SppProofInputs` so the two rails cannot drift.
+  // The padded slot counts must name a proving system that exists, exactly as
+  // `SppProofInputs` requires of an owner-signed transact, and the public leg is
+  // read off the external data rather than taken from the caller so the amounts
+  // the proof commits to cannot contradict the hash the program recomputes.
+  // Both come from `SppProofInputs` so the two rails cannot drift.
   const proofInputs = new SppProofInputs({
     payerPublicKeyHash: input.payerPublicKeyHash,
     inputUtxos: input.inputs,

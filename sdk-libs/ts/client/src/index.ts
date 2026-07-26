@@ -24,6 +24,10 @@ export type { SignatureStatus } from "./solana-rpc.js";
 // `./rpc.js`, which both entry points share.
 export {
   assemble,
+  assembleZone,
+  assembleZoneAuthority,
+  assembleZoneAuthorityWitness,
+  assembleZoneP256,
   canonicalShape,
   compressProof,
   intoProver,
@@ -33,6 +37,8 @@ export {
 } from "./prover/index.js";
 export type {
   AssembledTransfer,
+  AssembledZone,
+  AssembledZoneP256,
   AsyncPollConfig,
   CompressedProof,
   Field,
@@ -43,6 +49,7 @@ export type {
   TransferInputs,
   TransferOutput,
   TransferP256Inputs,
+  ZoneProverInputs,
 } from "./prover/index.js";
 export {
   DEFAULT_INDEXER_POLL_CONFIG,

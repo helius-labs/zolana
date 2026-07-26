@@ -1,12 +1,5 @@
 import type { Address, Bytes16, Bytes31, Bytes32 } from "@zolana/interface";
-import {
-  NullifierKey,
-  P256PublicKey,
-  ShieldedKeypair,
-  SigningKey,
-  ViewingKey,
-  type Bytes33,
-} from "@zolana/keypair";
+import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "@zolana/keypair";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -793,8 +786,8 @@ describe("manifest-verified transaction builders", () => {
       });
     const payerPublicKeyHash = new Uint8Array(32).fill(3) as Bytes32;
     const externalData = createExternalData({
-      txViewingPublicKey: P256PublicKey.fromBytes(new Uint8Array(33).fill(2) as Bytes33),
-      salt: new Uint8Array(16).fill(3) as Bytes16,
+      txViewingPublicKey: sender.keypair.viewingPublicKey(),
+      salt: new Uint8Array(16) as Bytes16,
       outputs: [],
       resolvedOwnerTags: [],
       messages: [],
@@ -824,8 +817,9 @@ describe("manifest-verified transaction builders", () => {
       );
     }
     // A public leg in either direction is gated by neither the program nor the
-    // circuit, so the authority rail must be able to build both, and the
-    // amounts have to reach the prepared form as the fields the proof carries.
+    // circuit, so the authority rail must be able to build both, and the leg it
+    // reports is the one the external-data hash already commits to, reaching the
+    // prepared form as the fields the proof carries rather than as raw amounts.
     for (const amount of [10n, -10n]) {
       expect(
         prepare({ externalData: externalData.withPublicSol(amount, SOL_MINT) }).publicAmounts,

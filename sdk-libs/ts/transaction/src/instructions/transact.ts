@@ -529,7 +529,7 @@ export class SppProofInputs {
     return Object.freeze({
       sol: signedToField(this.externalData.publicSolAmount ?? 0n),
       spl: signedToField(spl),
-      asset: spl === 0n ? (copy(ZERO_32) as Bytes32) : assetField(this.#publicSplAsset()),
+      asset: spl === 0n ? copy(ZERO_32) : assetField(this.#publicSplAsset()),
     });
   }
 

@@ -1,12 +1,6 @@
-import type { Address, Bytes32, TransactInstructionData, TransactProof } from "@zolana/interface";
+import type { Bytes32, TransactInstructionData, TransactProof } from "@zolana/interface";
 import type { P256PublicKey, ShieldedPublicKey } from "@zolana/keypair";
-import {
-  ProofInputUtxo,
-  SOL_MINT,
-  SppProofInputs,
-  TransactionError,
-  type ProofOutputUtxo,
-} from "@zolana/transaction";
+import { ProofInputUtxo, SppProofInputs, type ProofOutputUtxo } from "@zolana/transaction";
 
 import { ClientError, fromClientCause } from "../error.js";
 import {

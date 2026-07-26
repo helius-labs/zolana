@@ -1460,6 +1460,14 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
           }),
         ),
       ];
+      const empty = createExternalData({
+        // Outside `externalDataHash` on both sides; only the type needs a key.
+        txViewingPublicKey: owner.viewingPublicKey(),
+        salt: new Uint8Array(16) as Bytes16,
+        outputs: [],
+        resolvedOwnerTags: [],
+        messages: [],
+      });
       const prepare = (): PreparedZoneAuthority =>
         prepareZoneAuthority({
           inputs: [
@@ -1478,6 +1486,13 @@ describe("the Rust oracle and TypeScript agree on the zone-authority rail", () =
             ProofInputUtxo.dummy(blinding),
           ],
           outputs,
+          externalData:
+            testCase.publicSol === null
+              ? empty
+              : empty.withPublicSol(
+                  BigInt(testCase.publicSol),
+                  "11111111111111111111111111111111" as Address,
+                ),
           zoneProgramId: testCase.pinnedZone as Address,
           payerPublicKeyHash,
           externalData:

@@ -1,5 +1,5 @@
 import type { Address, Bytes32, Shape } from "@zolana/interface";
-import { SppProofInputs } from "@zolana/transaction";
+import { SppProofInputs, type PreparedZoneAuthority } from "@zolana/transaction";
 
 import { ClientError, fromClientCause } from "../error.js";
 import {
@@ -291,6 +291,33 @@ export function assembleZoneAuthority(
     );
     const publicInputHash = hashChain(baseChain(value, 0n));
     return result(value, transferInputsOf(value, publicInputHash), "transferZoneAuthority");
+  } catch (cause) {
+    throw fromClientCause(cause);
+  }
+}
+
+/// Rust `ZoneAuthorityWitness` together with its
+/// `TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver`: fold the fetched
+/// Merkle proofs into a prepared zone-authority transition. One
+/// [`SpendProof`] per real (non-dummy) input, in input order, exactly as Rust
+/// `attach_input_proofs` consumes them. The zone comes off the prepared value,
+/// which pinned it and bound every real UTXO to it, so the proof cannot be
+/// bound to a zone the preparation did not check.
+export function assembleZoneAuthorityWitness(
+  prepared: PreparedZoneAuthority,
+  spendProofs: readonly SpendProof[],
+): AssembledZone {
+  try {
+    return assembleZoneAuthority(
+      new SppProofInputs({
+        payerPublicKeyHash: prepared.payerPublicKeyHash,
+        inputUtxos: prepared.inputs,
+        outputs: prepared.outputs,
+        externalData: prepared.externalData,
+      }),
+      spendProofs,
+      prepared.zoneProgramId,
+    );
   } catch (cause) {
     throw fromClientCause(cause);
   }
