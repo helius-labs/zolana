@@ -360,7 +360,7 @@ describe("P1 merge owner-binding tails", () => {
     );
     const contribution = mergePublicContribution(
       assembly.txViewingPublicKey,
-      assembly.ciphertext as Uint8Array,
+      assembly.ciphertext,
     );
     expect(chainHex(assembly.nullifiers.map(bytesToBigInt))).toBe(expected.nullifierChain);
     expect(hex(assembly.outputHash)).toBe(expected.outputHashBytes);
@@ -421,7 +421,7 @@ describe("P1 merge owner-binding tails", () => {
     );
     const contribution = mergePublicContribution(
       assembly.txViewingPublicKey,
-      assembly.ciphertext as Uint8Array,
+      assembly.ciphertext,
     );
     expect(expected.ownerBindingTail["kind"]).toBe("zone");
     expect(hex(contribution.txViewingPublicKeyLow)).toBe(
