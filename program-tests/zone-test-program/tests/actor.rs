@@ -7,7 +7,7 @@ use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_interface::instruction::ZoneDepositIxData;
+use zolana_interface::instruction::ZoneAssetDeposit;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 
@@ -17,7 +17,7 @@ use zolana_transaction::{AssetRegistry, Utxo, Wallet, WalletUtxo};
 #[derive(Clone)]
 pub(crate) struct ZoneDepositRecord {
     pub(crate) signature: Signature,
-    pub(crate) data: ZoneDepositIxData,
+    pub(crate) data: ZoneAssetDeposit,
     pub(crate) tree_before: Account,
     pub(crate) spl: Option<SplZoneDepositAccounts>,
 }
@@ -49,10 +49,6 @@ pub(crate) struct Actor {
 }
 
 impl Actor {
-    pub(crate) fn new() -> Result<Self> {
-        Self::with_keypair(ShieldedKeypair::new()?)
-    }
-
     pub(crate) fn with_keypair(keypair: ShieldedKeypair) -> Result<Self> {
         let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
         Ok(Self {

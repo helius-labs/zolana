@@ -28,8 +28,6 @@ pub trait ViewingKeyTrait {
 
     fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<ViewTag, KeypairError>;
 
-    fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError>;
-
     fn get_send_shared_view_tag(
         &self,
         counterparty: &P256Pubkey,
@@ -76,20 +74,6 @@ pub trait ViewingKeyTrait {
         salt: Salt,
         slot_index: u32,
     ) -> Result<Vec<u8>, KeypairError>;
-
-    // encryption with poseidon kdf keypair
-    fn encrypt_verifiable(
-        &self,
-        user_viewing_pk: &P256Pubkey,
-        plaintext: &[u8],
-    ) -> Result<(Vec<u8>, P256Pubkey), KeypairError>;
-
-    // decryption with poseidon kdf keypair
-    fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError>;
 }
 
 /// Forwards to the inherent `ViewingKey` methods. Inherent methods win method
@@ -110,10 +94,6 @@ impl ViewingKeyTrait for ViewingKey {
 
     fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<ViewTag, KeypairError> {
         self.get_recipient_request_view_tag(request_count)
-    }
-
-    fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError> {
-        self.get_merge_view_tag(merge_count)
     }
 
     fn get_send_shared_view_tag(
@@ -172,22 +152,6 @@ impl ViewingKeyTrait for ViewingKey {
     ) -> Result<Vec<u8>, KeypairError> {
         self.decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
     }
-
-    fn encrypt_verifiable(
-        &self,
-        user_viewing_pk: &P256Pubkey,
-        plaintext: &[u8],
-    ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
-        self.encrypt_verifiable(user_viewing_pk, plaintext)
-    }
-
-    fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.decrypt_verifiable(tx_viewing_pubkey, ciphertext)
-    }
 }
 
 /// Forwards to the keypair's inner `viewing_key`, so a full [`ShieldedKeypair`]
@@ -208,10 +172,6 @@ impl ViewingKeyTrait for ShieldedKeypair {
     fn get_recipient_request_view_tag(&self, request_count: u64) -> Result<ViewTag, KeypairError> {
         self.viewing_key
             .get_recipient_request_view_tag(request_count)
-    }
-
-    fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError> {
-        self.viewing_key.get_merge_view_tag(merge_count)
     }
 
     fn get_send_shared_view_tag(
@@ -274,23 +234,5 @@ impl ViewingKeyTrait for ShieldedKeypair {
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
             .decrypt_slot_ephemeral(recipient_pubkey, ciphertext, salt, slot_index)
-    }
-
-    fn encrypt_verifiable(
-        &self,
-        user_viewing_pk: &P256Pubkey,
-        plaintext: &[u8],
-    ) -> Result<(Vec<u8>, P256Pubkey), KeypairError> {
-        self.viewing_key
-            .encrypt_verifiable(user_viewing_pk, plaintext)
-    }
-
-    fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_verifiable(tx_viewing_pubkey, ciphertext)
     }
 }

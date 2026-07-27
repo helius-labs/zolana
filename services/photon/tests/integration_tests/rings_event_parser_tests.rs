@@ -54,8 +54,8 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
-    encode_event_instruction, encode_output_data, encode_verifiably_encrypted, DepositWithdraw,
-    EventKind, GeneralEvent, Input, OutputUtxo, ProoflessOutput,
+    encode_event_instruction, encode_output_data, encode_verifiably_encrypted, EventKind,
+    GeneralEvent, Input, OutputUtxo, ProoflessOutput, SplTransfer,
 };
 use zolana_indexer_api::{
     GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
@@ -90,6 +90,7 @@ fn parses_proofless_shield_event_with_photon_parser() {
         parse_rings_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::DEPOSIT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 0);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -109,6 +110,7 @@ fn parses_shielded_transfer_event_with_photon_parser() {
         parse_rings_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 1);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -137,6 +139,7 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
     );
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 2);
     let tx_viewing_pk = rings_tx
@@ -170,6 +173,7 @@ fn parses_unshield_event_with_photon_parser() {
     let state_update = parse_rings_update(unshield_transaction_info(), UNSHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 4);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -1523,12 +1527,11 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 0,
             output_tree: TEST_TREE,
-            relay_fee: None,
-            deposit_withdraw: Some(DepositWithdraw {
+            spl_transfers: vec![SplTransfer {
                 is_deposit: true,
                 amount: 100,
                 asset: None,
-            }),
+            }],
         },
     )
 }
@@ -1536,7 +1539,11 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
 fn proofless_output_payload() -> Vec<u8> {
     encode_output_data(ProoflessOutput {
         owner: [1; 32],
-        blinding: [2; 31],
+        blinding: {
+            let mut blinding = [2; 32];
+            blinding[0] = 0;
+            blinding
+        },
         asset: [0; 32],
         amount: 100,
         data_hash: None,
@@ -1565,8 +1572,7 @@ fn shielded_transfer_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 1,
             output_tree: TEST_TREE,
-            relay_fee: None,
-            deposit_withdraw: None,
+            spl_transfers: Vec::new(),
         },
     )
 }
@@ -1588,12 +1594,11 @@ fn unshield_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 4,
             output_tree: TEST_TREE,
-            relay_fee: None,
-            deposit_withdraw: Some(DepositWithdraw {
+            spl_transfers: vec![SplTransfer {
                 is_deposit: false,
                 amount: 40,
                 asset: None,
-            }),
+            }],
         },
     )
 }
@@ -1615,8 +1620,7 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
             salt: [6; 16],
             first_output_leaf_index: 2,
             output_tree: TEST_TREE,
-            relay_fee: None,
-            deposit_withdraw: None,
+            spl_transfers: Vec::new(),
         },
     )
 }

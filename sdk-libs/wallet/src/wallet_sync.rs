@@ -9,9 +9,9 @@ use zolana_interface::{
 };
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
-    AssetBalance, EncryptedScheme, OutputContext, OutputSlot, PrivateTransaction,
-    ShieldedTransaction, SyncReport, SyncWalletAuthority, TransactionError, Wallet,
-    WalletAuthority, WalletSyncMaterial, DEFAULT_TAG_WINDOW,
+    AssetBalance, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction, SyncReport,
+    SyncWalletAuthority, TransactionError, Wallet, WalletAuthority, WalletSyncMaterial,
+    DEFAULT_TAG_WINDOW,
 };
 
 use zolana_client::{
@@ -89,7 +89,15 @@ where
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
+        let nullifiers = wallet_query_nullifiers(wallet);
         fetch_shielded_transactions(indexer, &tags, &mut transactions, config, rpc_config)?;
+        fetch_shielded_transactions_by_nullifiers(
+            indexer,
+            &nullifiers,
+            &mut transactions,
+            config,
+            rpc_config,
+        )?;
         fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config, rpc_config)?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
@@ -165,8 +173,17 @@ where
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
+        let nullifiers = wallet_query_nullifiers(wallet);
         fetch_shielded_transactions_async(indexer, &tags, &mut transactions, config, rpc_config)
             .await?;
+        fetch_shielded_transactions_by_nullifiers_async(
+            indexer,
+            &nullifiers,
+            &mut transactions,
+            config,
+            rpc_config,
+        )
+        .await?;
         fetch_proofless_deposits_async(indexer, &tags, &mut proofless_deposits, config, rpc_config)
             .await?;
 
@@ -349,6 +366,10 @@ fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
     })
 }
 
+fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
+    wallet.utxos.iter().map(|utxo| utxo.nullifier).collect()
+}
+
 fn fetch_shielded_transactions<I: Rpc>(
     indexer: &I,
     tags: &[ViewTag],
@@ -370,10 +391,7 @@ fn fetch_shielded_transactions<I: Rpc>(
                 // endpoint before marking them as proofless. They are discovered
                 // through `get_encrypted_utxos_by_tags` below, not as decryptable
                 // shielded transfers.
-                if tx.proofless
-                    || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
-                        && !has_merge_ciphertext(&tx))
-                {
+                if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                     continue;
                 }
                 let key = tx.tx_signature.to_string();
@@ -407,10 +425,7 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
                 )
                 .await?;
             for tx in response.transactions {
-                if tx.proofless
-                    || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
-                        && !has_merge_ciphertext(&tx))
-                {
+                if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                     continue;
                 }
                 let key = tx.tx_signature.to_string();
@@ -425,21 +440,64 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
     Ok(())
 }
 
-fn has_merge_ciphertext(tx: &RpcShieldedTransaction) -> bool {
-    tx.output_slots.iter().any(|slot| {
-        let Ok(output_data) = borsh::from_slice::<zolana_event::OutputDataEncoding>(&slot.payload)
-        else {
-            return false;
-        };
-        let blob = match output_data {
-            zolana_event::OutputDataEncoding::Encrypted(blob)
-            | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
-            | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
-        };
-        blob.first()
-            .and_then(|b| EncryptedScheme::from_byte(*b).ok())
-            == Some(EncryptedScheme::Merge)
-    })
+fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
+    indexer: &I,
+    nullifiers: &[[u8; 32]],
+    out: &mut HashMap<String, ShieldedTransaction>,
+    config: SyncWalletConfig,
+    rpc_config: Option<IndexerRpcConfig>,
+) -> Result<(), ClientError> {
+    for chunk in nullifiers.chunks(config.tag_query_chunk) {
+        let mut cursor = None;
+        loop {
+            let response = indexer.get_shielded_transactions_by_nullifiers(
+                chunk.to_vec(),
+                cursor,
+                Some(config.page_limit),
+                rpc_config,
+            )?;
+            for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
+                let key = tx.tx_signature.to_string();
+                out.entry(key).or_insert(convert_sync_transaction(tx)?);
+            }
+            cursor = response.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
+    indexer: &I,
+    nullifiers: &[[u8; 32]],
+    out: &mut HashMap<String, ShieldedTransaction>,
+    config: SyncWalletConfig,
+    rpc_config: Option<IndexerRpcConfig>,
+) -> Result<(), ClientError> {
+    for chunk in nullifiers.chunks(config.tag_query_chunk) {
+        let mut cursor = None;
+        loop {
+            let response = indexer
+                .get_shielded_transactions_by_nullifiers(
+                    chunk.to_vec(),
+                    cursor,
+                    Some(config.page_limit),
+                    rpc_config,
+                )
+                .await?;
+            for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
+                let key = tx.tx_signature.to_string();
+                out.entry(key).or_insert(convert_sync_transaction(tx)?);
+            }
+            cursor = response.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn fetch_proofless_deposits<I>(
@@ -598,27 +656,24 @@ mod tests {
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair, ViewingKey};
+    use zolana_keypair::{ShieldedKeypair, ViewingKey};
     use zolana_transaction::{
         instructions::{
             merge::Merge as MergePlan,
             transact::{
-                ConfidentialTransfer, SppProofInputs, WithdrawalTarget, SPP_SUPPORTED_SHAPES,
+                ConfidentialTransfer, SettlementTarget, SppProofInputs, SPP_SUPPORTED_SHAPES,
             },
             types::SppProofInputUtxo,
         },
-        serialization::{
-            merge::{Merge, MergeEncode},
-            Proofless,
-        },
+        serialization::Proofless,
         Address, AssetRegistry, Data, LocalWalletAuthority, OwnerCx, PrivateTransactionDirection,
         PrivateTransactionKind, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
     };
 
     use super::*;
     use zolana_client::rpc::{
-        Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
-        OutputContext, OutputSlot,
+        Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
 
     #[derive(Default)]
@@ -665,6 +720,25 @@ mod tests {
                 next_cursor: None,
             })
         }
+
+        fn get_shielded_transactions_by_nullifiers(
+            &self,
+            nullifiers: Vec<ViewTag>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+            Ok(GetShieldedTransactionsByNullifiersResponse {
+                context: Context { block_time: 0 },
+                transactions: self
+                    .transactions
+                    .iter()
+                    .filter(|tx| tx.nullifiers.iter().any(|nf| nullifiers.contains(nf)))
+                    .cloned()
+                    .collect(),
+                next_cursor: None,
+            })
+        }
     }
 
     #[async_trait::async_trait]
@@ -695,6 +769,16 @@ mod tests {
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit, config)
         }
+
+        async fn get_shielded_transactions_by_nullifiers(
+            &self,
+            nullifiers: Vec<ViewTag>,
+            cursor: Option<Vec<u8>>,
+            limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, cursor, limit, config)
+        }
     }
 
     const SPL_ASSET_ID: u64 = 2;
@@ -702,6 +786,10 @@ mod tests {
 
     fn local_authority(keypair: &ShieldedKeypair) -> LocalWalletAuthority<'_> {
         LocalWalletAuthority::new(Address::default(), keypair)
+    }
+
+    fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
+        ShieldedKeypair::from_ed25519(&[seed; 32], ViewingKey::new()).expect("Ed25519 keypair")
     }
 
     #[tokio::test]
@@ -728,8 +816,8 @@ mod tests {
     #[test]
     fn sync_wallet_records_confidential_transfer_history_without_duplicates() {
         let assets = AssetRegistry::default();
-        let alice = ShieldedKeypair::new().expect("alice");
-        let bob = ShieldedKeypair::new().expect("bob");
+        let alice = ed25519_keypair(1);
+        let bob = ed25519_keypair(2);
         let funding = confidential_transfer_tx(&bob, &alice, SOL_MINT, 100, 1, &assets);
 
         let mut wallet = Wallet::new(
@@ -792,8 +880,8 @@ mod tests {
             .filter(|shape| shape.n_outputs() >= 3)
             .enumerate()
         {
-            let sender = ShieldedKeypair::new().expect("sender");
-            let recipient = ShieldedKeypair::new().expect("recipient");
+            let sender = ed25519_keypair(3);
+            let recipient = ed25519_keypair(4);
             let recipient_count = shape.n_outputs() - 2;
             let input = SppProofInputUtxo::new(
                 test_utxo(&sender, SOL_MINT, recipient_count as u64, case as u8),
@@ -807,7 +895,7 @@ mod tests {
             .with_shape(shape);
 
             for _ in 1..recipient_count {
-                let decoy = ShieldedKeypair::new().expect("decoy recipient");
+                let decoy = ed25519_keypair(5);
                 transfer
                     .send(
                         &decoy.shielded_address().expect("decoy address"),
@@ -852,7 +940,7 @@ mod tests {
     #[test]
     fn sync_wallet_records_confidential_public_withdrawal_history() {
         let assets = AssetRegistry::default();
-        let alice = ShieldedKeypair::new().expect("alice");
+        let alice = ed25519_keypair(6);
         let input = SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 100, 7), &alice);
         let withdrawal = signed_to_shielded_tx(
             confidential_withdrawal(&alice, vec![input], SOL_MINT, 30, &assets),
@@ -883,8 +971,8 @@ mod tests {
     #[test]
     fn sync_wallet_records_confidential_multi_asset_outbound_rows() {
         let assets = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("assets");
-        let alice = ShieldedKeypair::new().expect("alice");
-        let bob = ShieldedKeypair::new().expect("bob");
+        let alice = ed25519_keypair(7);
+        let bob = ed25519_keypair(8);
         let inputs = vec![
             SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 100, 8), &alice),
             SppProofInputUtxo::new(test_utxo(&alice, SPL_MINT, 100, 9), &alice),
@@ -922,13 +1010,12 @@ mod tests {
 
     #[test]
     fn sync_wallet_records_merge_history() {
-        let assets = AssetRegistry::default();
         let alice = ShieldedKeypair::new().expect("alice");
         let inputs = vec![
             SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 30, 10), &alice),
             SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 70, 11), &alice),
         ];
-        let tx = merge_tx(&alice, inputs, 1, &assets);
+        let tx = merge_tx(&alice, inputs, 1);
         let mut wallet = wallet_with_utxos(&alice, &[(SOL_MINT, 30, 10), (SOL_MINT, 70, 11)]);
 
         let report = sync_wallet(
@@ -1196,7 +1283,7 @@ mod tests {
             .withdraw(
                 withdraw_asset,
                 withdraw_amount,
-                WithdrawalTarget::Sol {
+                SettlementTarget::Sol {
                     user_sol_account: Address::new_from_array([9u8; 32]),
                 },
             )
@@ -1220,7 +1307,7 @@ mod tests {
             .withdraw(
                 asset,
                 amount,
-                WithdrawalTarget::Sol {
+                SettlementTarget::Sol {
                     user_sol_account: Address::new_from_array([9u8; 32]),
                 },
             )
@@ -1275,7 +1362,6 @@ mod tests {
         owner: &ShieldedKeypair,
         inputs: Vec<SppProofInputUtxo>,
         slot: u64,
-        assets: &AssetRegistry,
     ) -> ShieldedTransaction {
         let merge = MergePlan::new(owner, inputs).expect("merge plan");
         let prepared = merge.prepare();
@@ -1295,37 +1381,23 @@ mod tests {
                 &[0u8; 32],
             )
             .expect("output hash");
-        let tx_key = ViewingKey::new();
-        let ciphertext = Merge::encode(
-            std::slice::from_ref(&output),
-            &OwnerCx {
-                owner: owner.signing_pubkey(),
-                assets,
-                zone_program_id: None,
-            },
-            owner
-                .signing_pubkey()
-                .confidential_view_tag()
-                .expect("owner tag"),
-            &MergeEncode {
-                tx: tx_key,
-                user_viewing_pk: owner.viewing_pubkey(),
-            },
-        )
-        .expect("merge ciphertext");
+        let output_view_tag = owner
+            .signing_pubkey()
+            .confidential_view_tag()
+            .expect("owner tag");
         ShieldedTransaction {
             slot,
             tx_signature: signature_for_slot(slot),
             tx_viewing_pk: None,
             salt: None,
             output_slots: vec![OutputSlot {
-                view_tag: ciphertext.view_tag,
+                view_tag: output_view_tag,
                 output_context: OutputContext {
                     hash: output_hash,
                     tree: Address::new_from_array([slot as u8; 32]),
                     leaf_index: 0,
                 },
-                payload: ciphertext.data,
+                payload: Vec::new(),
             }],
             messages: Vec::new(),
             nullifiers: commitments
@@ -1388,20 +1460,24 @@ mod tests {
     }
 
     fn test_utxo(owner: &ShieldedKeypair, asset: Address, amount: u64, seed: u8) -> Utxo {
+        let mut blinding = [seed; 32];
+        blinding[0] = 0;
         Utxo {
             owner: owner.signing_pubkey(),
             asset,
             amount,
-            blinding: [seed; BLINDING_LEN],
+            blinding,
             zone_program_id: None,
             data: Data::default(),
         }
     }
 
     fn proofless_output_for_keypair(keypair: &ShieldedKeypair, amount: u64) -> ProoflessOutput {
+        let mut blinding = [9u8; 32];
+        blinding[0] = 0;
         ProoflessOutput {
             owner: keypair.owner_hash().expect("owner hash"),
-            blinding: [9u8; BLINDING_LEN],
+            blinding,
             asset: SOL_MINT.to_bytes(),
             amount,
             data_hash: None,
@@ -1473,8 +1549,8 @@ mod tests {
         // id, refresh the registry from the on-chain SplAssetRegistry account,
         // and decode the note on the retry.
         let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
-        let sender = ShieldedKeypair::new().expect("sender");
-        let alice = ShieldedKeypair::new().expect("alice");
+        let sender = ed25519_keypair(9);
+        let alice = ed25519_keypair(10);
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
         // Alice's wallet only knows SOL — the SPL id is unknown at first.
@@ -1508,8 +1584,8 @@ mod tests {
         // (e.g. get_program_accounts unavailable / empty). The note stays
         // undecoded and the refresh does not loop.
         let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
-        let sender = ShieldedKeypair::new().expect("sender");
-        let alice = ShieldedKeypair::new().expect("alice");
+        let sender = ed25519_keypair(11);
+        let alice = ed25519_keypair(12);
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
         let mut wallet = Wallet::new(
@@ -1536,8 +1612,8 @@ mod tests {
         // When the wallet already knows every asset, sync decodes on the first
         // pass and never records an unknown id.
         let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
-        let sender = ShieldedKeypair::new().expect("sender");
-        let alice = ShieldedKeypair::new().expect("alice");
+        let sender = ed25519_keypair(13);
+        let alice = ed25519_keypair(14);
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
         let mut wallet = Wallet::new(

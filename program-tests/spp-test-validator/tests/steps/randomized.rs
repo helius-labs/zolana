@@ -32,6 +32,7 @@ use zolana_interface::pda;
 use zolana_test_utils::test_validator_asserts::{fetch_account, token_amount};
 use zolana_transaction::SOL_MINT;
 
+use crate::world::ACTOR_FEE_FUNDING;
 use crate::{actor::Actor, LifecycleWorld};
 
 /// Maximum real inputs the 8-in/1-out merge circuit consolidates at once.
@@ -40,8 +41,6 @@ const MAX_MERGE_INPUTS: usize = 8;
 /// Extra lamports airdropped to the global payer to fund all SOL deposits in the run
 /// (SPL deposits mint their own tokens, so they do not draw on this).
 const PAYER_DEPOSIT_FUNDING: u64 = 2_000_000_000_000;
-/// Lamports airdropped to each actor to pay the fees of the spends it authorizes.
-const ACTOR_FEE_FUNDING: u64 = 1_000_000_000;
 /// Base unit of a SOL deposit; the actual amount is a small multiple of this so 500
 /// deposits stay within the payer's funded balance.
 const SOL_DEPOSIT_UNIT: u64 = 50_000_000;

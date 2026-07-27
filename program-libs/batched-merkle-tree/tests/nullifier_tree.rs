@@ -294,7 +294,7 @@ fn nullifier_tree_single_update() {
     let mut queued = Vec::new();
     for _ in 0..10u64 {
         let nullifier = random_nullifier(&mut rng);
-        account.insert_address_into_queue(&nullifier).unwrap();
+        account.insert_nullifier_into_queue(&nullifier).unwrap();
         queued.push(nullifier);
     }
 
@@ -315,7 +315,7 @@ fn fill_pending_batch_and_prepare(
     for _ in 0..count {
         let nullifier = random_nullifier(rng);
         let mut account = load_nullifier_tree(account_data, pubkey);
-        account.insert_address_into_queue(&nullifier).unwrap();
+        account.insert_nullifier_into_queue(&nullifier).unwrap();
         queued.push(nullifier);
     }
     let account = load_nullifier_tree(account_data, pubkey);
@@ -583,7 +583,7 @@ fn nullifier_tree_submit_index_errors() {
     for _ in 0..zkp_batch_size {
         let nullifier = random_nullifier(&mut rng);
         let mut account = load_nullifier_tree(&mut account_data, &pubkey);
-        account.insert_address_into_queue(&nullifier).unwrap();
+        account.insert_nullifier_into_queue(&nullifier).unwrap();
     }
 
     let dummy = InstructionDataAddressAppendInputs {

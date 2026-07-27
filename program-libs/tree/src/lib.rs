@@ -1,10 +1,12 @@
 //! Clean tree types for the shielded pool.
+pub mod error;
 pub mod smt;
 
 use core::mem::{size_of, MaybeUninit};
 
-use pinocchio::{AccountView, Address};
-pub use smt::{TreeError, UtxoTreeLayout};
+pub use error::TreeError;
+use pinocchio::{account::RefMut, AccountView, Address};
+pub use smt::UtxoTreeLayout;
 use wincode::{
     config::{ConfigCore, ZeroCopy},
     io::Reader,
@@ -15,9 +17,9 @@ use zolana_batched_merkle_tree::{
     constants::{
         ADDRESS_BLOOM_FILTER_CAPACITY, ADDRESS_BLOOM_FILTER_NUM_HASHES,
         DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN, DEFAULT_ADDRESS_BATCH_SIZE,
-        DEFAULT_ADDRESS_ZKP_BATCH_SIZE,
+        DEFAULT_ADDRESS_ZKP_BATCH_SIZE, DEFAULT_BATCH_ADDRESS_TREE_HEIGHT,
     },
-    initialize_address_tree::init_batched_nullifier_merkle_tree_into_layout,
+    initialize_address_tree::{init_batched_nullifier_merkle_tree_into_layout, match_circuit_size},
     merkle_tree::BatchedMerkleTreeAccount,
     zero_copy::TreeAccountLayout as NullifierLayout,
 };
@@ -90,9 +92,17 @@ type SppTreeLayout = TreeAccountLayout<
     NULLIFIER_ZKP,
 >;
 
+/// The layout reference either borrows caller-provided bytes (`init`,
+/// `from_bytes`) or owns the account-data borrow guard, so the account's
+/// borrow flag stays set for as long as the `TreeAccount` is alive.
+enum LayoutRef<'a> {
+    Raw(&'a mut SppTreeLayout),
+    Account(RefMut<'a, SppTreeLayout>),
+}
+
 pub struct TreeAccount<'a> {
     pubkey: [u8; 32],
-    layout: &'a mut SppTreeLayout,
+    layout: LayoutRef<'a>,
 }
 
 impl<'a> TreeAccount<'a> {
@@ -119,7 +129,19 @@ impl<'a> TreeAccount<'a> {
         if utxo_tree_height as usize != POOL_UTXO_HEIGHT {
             return Err(TreeError::HeightTooLarge);
         }
-        if nullifier_params.root_history_capacity as usize != NULLIFIER_RH
+        // Validate before dividing: the params are untrusted instruction data,
+        // so a zero zkp batch size must not reach the quotient below (or the
+        // `%` in `QueueBatches::init`), and an arbitrary height must not reach
+        // `2u64.pow(height)` in the nullifier init. The zkp batch size must
+        // have a verifying key, otherwise no batch update can ever be proven
+        // and the queue wedges once both batches fill.
+        if nullifier_params.height != DEFAULT_BATCH_ADDRESS_TREE_HEIGHT
+            || nullifier_params.input_queue_batch_size == 0
+            || !match_circuit_size(nullifier_params.input_queue_zkp_batch_size)
+            || !nullifier_params
+                .input_queue_batch_size
+                .is_multiple_of(nullifier_params.input_queue_zkp_batch_size)
+            || nullifier_params.root_history_capacity as usize != NULLIFIER_RH
             || (nullifier_params.input_queue_batch_size
                 / nullifier_params.input_queue_zkp_batch_size) as usize
                 != NULLIFIER_ZKP
@@ -127,7 +149,7 @@ impl<'a> TreeAccount<'a> {
             return Err(TreeError::AddressInit);
         }
         if bytes.len() != size_of::<SppTreeLayout>() {
-            return Err(TreeError::BufferTooSmall);
+            return Err(TreeError::InvalidBufferSize);
         }
 
         let layout: &'a mut SppTreeLayout =
@@ -148,18 +170,20 @@ impl<'a> TreeAccount<'a> {
         >(nullifier_params, &mut layout.nullifier, pubkey.into())
         .map_err(|_| TreeError::AddressInit)?;
 
-        Ok(Self { pubkey, layout })
+        Ok(Self {
+            pubkey,
+            layout: LayoutRef::Raw(layout),
+        })
     }
 
     pub fn from_bytes(bytes: &'a mut [u8], pubkey: [u8; 32]) -> Result<Self, TreeError> {
         let layout: &'a mut SppTreeLayout =
             wincode::deserialize_mut(bytes).map_err(|_| TreeError::Deserialize)?;
-        if layout.utxo.subtrees_len as usize != POOL_UTXO_HEIGHT
-            || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
-        {
-            return Err(TreeError::Deserialize);
-        }
-        Ok(Self { pubkey, layout })
+        check_layout(layout)?;
+        Ok(Self {
+            pubkey,
+            layout: LayoutRef::Raw(layout),
+        })
     }
 
     /// Load a writable tree from its account, checking program ownership, the
@@ -199,17 +223,38 @@ impl<'a> TreeAccount<'a> {
             return Err(TreeError::InvalidOwner);
         }
         let pubkey = account.address().to_bytes();
-        // SAFETY: `account` is borrowed exclusively (`&mut`), so no other live
-        // borrow of its data exists while the returned view is in scope.
-        let bytes = unsafe { account.borrow_unchecked_mut() }; // TODO: refactor this it is not necessary we can use ref mut
+        let bytes = account.try_borrow_mut().map_err(|_| TreeError::Borrowed)?;
         if bytes.first() != Some(&discriminator) {
             return Err(TreeError::InvalidDiscriminator);
         }
-        Self::from_bytes(bytes, pubkey)
+        let layout: RefMut<'a, SppTreeLayout> =
+            RefMut::filter_map(bytes, |bytes| wincode::deserialize_mut(bytes).ok())
+                .map_err(|_| TreeError::Deserialize)?;
+        check_layout(&layout)?;
+        Ok(Self {
+            pubkey,
+            layout: LayoutRef::Account(layout),
+        })
+    }
+
+    #[inline(always)]
+    fn layout(&self) -> &SppTreeLayout {
+        match &self.layout {
+            LayoutRef::Raw(layout) => layout,
+            LayoutRef::Account(layout) => layout,
+        }
+    }
+
+    #[inline(always)]
+    fn layout_mut(&mut self) -> &mut SppTreeLayout {
+        match &mut self.layout {
+            LayoutRef::Raw(layout) => layout,
+            LayoutRef::Account(layout) => layout,
+        }
     }
 
     pub fn utxo_tree(&mut self) -> &mut UtxoTreeLayout<POOL_UTXO_HEIGHT> {
-        &mut self.layout.utxo
+        &mut self.layout_mut().utxo
     }
 
     pub fn nullifer_tree(
@@ -221,16 +266,36 @@ impl<'a> TreeAccount<'a> {
         NULLIFIER_BLOOM,
         NULLIFIER_ZKP,
     > {
-        BatchedMerkleTreeAccount::from_layout(&self.pubkey.into(), &mut self.layout.nullifier)
+        let pubkey = self.pubkey;
+        BatchedMerkleTreeAccount::from_layout(&pubkey.into(), &mut self.layout_mut().nullifier)
+    }
+
+    /// Whether a proof may contain dummy input slots at the current tree state.
+    ///
+    /// Nullifier capacity counts queue reservations, not only leaves already
+    /// applied by the forester. Equality is allowed; dummies are disabled only
+    /// once the nullifier tree has strictly fewer leaves left than the state
+    /// tree.
+    pub fn allow_dummy_inputs(&mut self) -> Result<bool, TreeError> {
+        let utxo_tree = self.utxo_tree();
+        let state_remaining = utxo_tree
+            .capacity()
+            .checked_sub(utxo_tree.next_index())
+            .ok_or(TreeError::InvalidCapacity)?;
+        let nullifier_remaining = self
+            .nullifer_tree()
+            .remaining_queue_capacity()
+            .map_err(|_| TreeError::InvalidCapacity)?;
+        Ok(dummy_inputs_allowed(nullifier_remaining, state_remaining))
     }
 
     pub fn get_utxo_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {
-        self.layout.utxo.root_by_index(index)
+        self.layout().utxo.root_by_index(index)
     }
 
     pub fn get_nullifier_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {
         let root = *self
-            .layout
+            .layout()
             .nullifier
             .root_history
             .data
@@ -243,20 +308,34 @@ impl<'a> TreeAccount<'a> {
     }
 
     pub fn discriminator(&self) -> u8 {
-        self.layout.discriminator
+        self.layout().discriminator
     }
 
     pub fn state(&self) -> u8 {
-        self.layout.state
+        self.layout().state
     }
 
     pub fn is_paused(&self) -> bool {
-        self.layout.state == PAUSED
+        self.layout().state == PAUSED
     }
 
     pub fn set_paused(&mut self, paused: bool) {
-        self.layout.state = if paused { PAUSED } else { INITIALIZED };
+        self.layout_mut().state = if paused { PAUSED } else { INITIALIZED };
     }
+}
+
+#[inline]
+const fn dummy_inputs_allowed(nullifier_remaining: u64, state_remaining: u64) -> bool {
+    nullifier_remaining >= state_remaining
+}
+
+fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
+    if layout.utxo.subtrees_len as usize != POOL_UTXO_HEIGHT
+        || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
+    {
+        return Err(TreeError::Deserialize);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -299,11 +378,18 @@ mod layout_equivalence {
             layout.utxo.init(POOL_UTXO_HEIGHT).unwrap();
             let mut leaf = [0u8; 32];
             leaf[31] = 9;
-            layout.utxo.append(leaf);
+            layout.utxo.append(leaf).unwrap();
             layout.nullifier.root_history.data[3] = [7u8; 32];
         }
         let reloaded: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("reload");
         assert_eq!(reloaded.utxo.next_index(), 1);
         assert_eq!(reloaded.nullifier.root_history.data[3], [7u8; 32]);
+    }
+
+    #[test]
+    fn dummy_input_policy_disables_only_after_nullifier_capacity_falls_behind() {
+        assert!(dummy_inputs_allowed(10, 9));
+        assert!(dummy_inputs_allowed(10, 10));
+        assert!(!dummy_inputs_allowed(9, 10));
     }
 }

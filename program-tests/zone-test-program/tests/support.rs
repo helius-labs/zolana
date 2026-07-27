@@ -13,7 +13,7 @@ use solana_pubkey::Pubkey;
 /// ownership inside the proof; Eddsa proves it with an ed25519 signature on the
 /// transaction, checked by the program against the eddsa signer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Rail {
+pub(crate) enum Variant {
     P256,
     Eddsa,
 }

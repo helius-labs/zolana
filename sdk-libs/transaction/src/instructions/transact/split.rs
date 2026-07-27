@@ -5,12 +5,8 @@ use zolana_interface::{
     shape::Shape,
 };
 use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN},
-    hash::sha256_be,
-    random_salt,
-    shielded::ShieldedAddress,
-    viewing_key::random_blinding,
-    P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
+    constants::SALT_LEN, hash::sha256_be, random_salt, shielded::ShieldedAddress,
+    viewing_key::random_blinding, P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
 };
 
 use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
@@ -38,7 +34,7 @@ pub struct ConfidentialSplit {
     pub num_outputs: u8,
     pub per_output_amount: u64,
     pub payer_pubkey_hash: [u8; 32],
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
 }
 
 const MIN_PARTS: u8 = 2;
@@ -161,11 +157,7 @@ impl ConfidentialSplit {
             },
         )?;
 
-        let mut signed = prepared.finalize(tx_viewing_pk, salt, bundle)?;
-        if keypair.curve()? == SignatureType::P256 {
-            signed.sign_p256(keypair)?;
-        }
-        Ok(signed)
+        prepared.finalize(tx_viewing_pk, salt, bundle)
     }
 }
 
@@ -177,7 +169,7 @@ pub struct PreparedSplit {
     pub asset: Address,
     pub per_output_amount: u64,
     pub num_outputs: u8,
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
     pub payer_pubkey_hash: [u8; 32],
 }
 
@@ -229,6 +221,9 @@ impl PreparedSplit {
             payer_pubkey_hash,
             ..
         } = self;
+        if owner.signing_pubkey.signature_type()? == SignatureType::P256 {
+            return Err(TransactionError::P256TransactUnsupported);
+        }
         let owner_view_tag = owner.signing_pubkey.confidential_view_tag()?;
 
         let mut transact_outputs = Vec::with_capacity(outputs.len());
@@ -257,7 +252,6 @@ impl PreparedSplit {
             output_utxos: outputs,
             external_data,
             payer_pubkey_hash,
-            p256_signature: None,
         })
     }
 }
@@ -266,7 +260,7 @@ impl PreparedSplit {
 mod tests {
     use borsh::BorshDeserialize;
     use zolana_event::OutputDataEncoding;
-    use zolana_keypair::ShieldedKeypair;
+    use zolana_keypair::{ShieldedKeypair, ViewingKey};
 
     use super::*;
     use crate::{
@@ -278,11 +272,15 @@ mod tests {
             owner: keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount,
-            blinding: [5u8; BLINDING_LEN],
+            blinding: [5u8; 32],
             zone_program_id: None,
             data: Data::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
+    }
+
+    fn ed25519_keypair() -> ShieldedKeypair {
+        ShieldedKeypair::from_ed25519(&[7u8; 32], ViewingKey::new()).expect("Ed25519 keypair")
     }
 
     fn assemble(keypair: &ShieldedKeypair, amount: u64, parts: u8) -> SppProofInputs {
@@ -347,7 +345,7 @@ mod tests {
 
     #[test]
     fn split_assembles_covered_bundle_with_padding() {
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ed25519_keypair();
         let parts = 3u8;
         let per_output = 100u64;
         let amount = per_output * u64::from(parts);
@@ -400,7 +398,7 @@ mod tests {
 
     #[test]
     fn split_bundle_round_trips_to_output_hashes() {
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ed25519_keypair();
         let parts = 3u8;
         let per_output = 100u64;
         let amount = per_output * u64::from(parts);

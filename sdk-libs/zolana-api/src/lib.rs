@@ -6,7 +6,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
+        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
+        GetShieldedTransactionsByTags,
     },
     RpcMethod,
 };
@@ -15,11 +16,12 @@ pub use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
-    GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, Hash, IndexedShieldedTransaction, Limit, MerkleContext,
-    MerkleProof, NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
-    SerializablePubkey, SerializableSignature, ShieldedTransaction, PAGE_LIMIT,
+    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, Hash,
+    IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
+    NullifierQueueElement, RingsOutputContext, RingsOutputSlot, SerializablePubkey,
+    SerializableSignature, ShieldedTransaction, PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -203,6 +205,20 @@ impl ZolanaApi {
         .await
     }
 
+    pub async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<Hash>,
+        cursor: Option<Base64String>,
+        limit: Option<u64>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
+        self.call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
+            nullifiers,
+            cursor,
+            limit: optional_limit(limit)?,
+        })
+        .await
+    }
+
     pub async fn get_merkle_proofs(
         &self,
         tree_account: SerializablePubkey,
@@ -345,6 +361,19 @@ impl BlockingZolanaApi {
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ApiError> {
         self.call::<GetShieldedTransactionsBySignature>(GetShieldedTransactionsBySignatureRequest {
             tx_signature,
+        })
+    }
+
+    pub fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<Hash>,
+        cursor: Option<Base64String>,
+        limit: Option<u64>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
+        self.call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
+            nullifiers,
+            cursor,
+            limit: optional_limit(limit)?,
         })
     }
 

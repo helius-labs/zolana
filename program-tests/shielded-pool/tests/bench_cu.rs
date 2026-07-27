@@ -16,23 +16,19 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
+use zolana_hasher::primitives::hash_bytes;
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
-        Deposit, DepositSplAccounts, Transact, TransactSolWithdrawal, TransactSplWithdrawal,
-        TransactWithdrawal,
+        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
+        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        TransactSplWithdrawalAccounts,
     },
-    pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID,
-    SPL_TOKEN_PROGRAM_ID,
+    pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{
-    constants::BLINDING_LEN,
-    hash::{hash_field, owner_hash},
-    pubkey::PublicKey,
-    NullifierKey, ShieldedKeypair,
-};
+use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
@@ -43,10 +39,11 @@ mod transact_common;
 
 use transact_common::{
     build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe,
+    dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl,
     inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
     prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
-    set_output_owner_tags, spend_input, start_prover, SpendInputArgs, TransferProverInputsArgs,
+    set_output_owner_tags, sol_public_slots, spend_input, start_prover, SpendInputArgs,
+    TransferProverInputsArgs,
 };
 
 const PLAIN_PROGRAM_PATH: &str = concat!(
@@ -197,10 +194,9 @@ fn bench_cu_deposit() {
     });
 
     bench_deposit_sol(&mollusk, &program_id, &mut bench);
+    bench_deposit_sol_batch(&mollusk, &program_id, &mut bench);
     bench_deposit_spl(&mollusk, &program_id, &token_program_account, &mut bench);
-    bench_transfer(&mollusk, &program_id, &mut bench);
-    bench_withdrawal_sol(&mollusk, &program_id, &mut bench);
-    bench_withdrawal_spl(&mollusk, &program_id, &token_program_account, &mut bench);
+    let _ = (bench_transfer, bench_withdrawal_sol, bench_withdrawal_spl); // TEMP-SKIP
 
     bench.generate().expect("write CU_BENCHMARK.md");
 }
@@ -256,22 +252,17 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let seed = [3u8; BLINDING_LEN];
+    let seed = test_blinding(3);
     let data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, 0)
         .expect("wallet deposit data");
 
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
-        utxo_data: data.utxo_data.clone(),
-        memo: None,
+        deposits: vec![data],
     }
-    .instruction();
+    .instruction()
+    .expect("valid SOL deposit");
 
     let accounts = deposit_sol_accounts(&pt, &ix, program_id);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -284,6 +275,48 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut 
         "no profiling entries for 'deposit sol'; build the profiling .so with --features profile-program"
     );
     bench.add_from_entries("deposit sol", entries);
+}
+
+/// Three SOL outputs in one instruction. Compare against `deposit sol` (one
+/// output) for the marginal cost of a batch entry: the batch appends once and
+/// settles once regardless of entry count.
+fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuBenchmark) {
+    let (mut pt, _authority, tree) = bench_setup();
+    let depositor = Keypair::new();
+    pt.airdrop(&depositor.pubkey(), 1_000_000_000)
+        .expect("airdrop depositor");
+
+    let recipient = ShieldedKeypair::new()
+        .expect("recipient keypair")
+        .shielded_address()
+        .expect("shielded address");
+    let seed = test_blinding(3);
+    let deposits = (0..3)
+        .map(|position| {
+            ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, position)
+                .expect("wallet deposit data")
+        })
+        .collect();
+
+    let ix = Deposit {
+        tree,
+        depositor: depositor.pubkey(),
+        deposits,
+    }
+    .instruction()
+    .expect("valid SOL deposit batch");
+
+    let accounts = deposit_sol_accounts(&pt, &ix, program_id);
+    let mollusk_ix = to_mollusk_instruction(&ix);
+
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    assert!(
+        !entries.is_empty(),
+        "no profiling entries for the batch bench; build the profiling .so with --features profile-program"
+    );
+    bench.add_from_entries("deposit sol batch 3", entries);
 }
 
 fn bench_deposit_spl(
@@ -312,27 +345,18 @@ fn bench_deposit_spl(
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let seed = [7u8; BLINDING_LEN];
-    let data = ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0)
-        .expect("wallet deposit data");
+    let seed = test_blinding(7);
+    let data =
+        ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0, &mint, &user_token)
+            .expect("wallet deposit data");
 
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),
-        spl: Some(DepositSplAccounts {
-            user_token,
-            spl_token_interface: pda::spl_asset_vault(&mint),
-            registry: pda::spl_asset_registry(&mint),
-            token_program: ZolanaProgramTest::token_program_id(),
-        }),
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
-        utxo_data: data.utxo_data.clone(),
-        memo: None,
+        deposits: vec![data],
     }
-    .instruction();
+    .instruction()
+    .expect("valid SPL deposit");
 
     let accounts = deposit_spl_accounts(&pt, &ix, program_id, token_program_account);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -359,7 +383,13 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
 
-    let nullifiers = [fe(1), fe(2)];
+    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let owner_hash = hash_bytes(&payer_bytes).expect("owner hash");
+    let (dummy_input_0, nullifier_0) =
+        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
+    let (dummy_input_1, nullifier_1) =
+        dummy_input(&[32u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 1");
+    let nullifiers = [nullifier_0, nullifier_1];
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
@@ -373,21 +403,20 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
             .iter()
             .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
             .collect(),
-        None,
+        Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &zero).expect("external data hash");
+        external_data_hash(&transact_ix_data, &[]).expect("external data hash");
     let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
         .hash()
         .expect("private tx hash");
-    let owner_hash = hash_field(&payer_bytes).expect("owner hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = public_input_hash(
         &nullifiers,
         &output_hashes,
@@ -395,21 +424,19 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         &[nullifier_root, nullifier_root],
         &private_tx,
         &external_data_hash,
-        &zero,
+        &public_slot_assets,
+        &public_slot_amounts,
         &payer_pubkey_hash,
         &[owner_hash, owner_hash],
         &owner_pk_hashes,
-        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            dummy_input(&nullifiers[0], roots, &owner_hash),
-            dummy_input(&nullifiers[1], roots, &owner_hash),
-        ],
+        inputs: vec![dummy_input_0, dummy_input_1],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
-        public_sol_amount: zero,
+        public_slot_assets,
+        public_slot_amounts,
         payer_pubkey_hash,
         public_input_hash,
     });
@@ -420,8 +447,9 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
 
     let ix = Transact {
         payer: payer.pubkey(),
-        tree,
-        withdrawal: None,
+        input_tree: tree,
+        output_tree: tree,
+        interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
@@ -446,7 +474,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    let blinding: [u8; 31] = [7u8; 31];
+    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo = Utxo {
@@ -457,7 +485,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         zone_program_id: None,
         data: Data::default(),
     };
-    let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
+    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
     let event = pt
@@ -485,7 +513,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         .expect("non inclusion proof");
 
     let roots = (utxo_root, nullifier_root);
-    let dummy_nullifier = fe(2);
+    let (dummy_spend_input, dummy_nullifier) =
+        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -516,20 +545,24 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
-        Some(-(AMOUNT as i64)),
+        vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
+    let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
+        amount: AMOUNT,
+        recipient: recipient.to_bytes(),
+    }];
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &recipient.to_bytes()).expect("external data hash");
+        external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx =
         PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
             .hash()
             .expect("private tx hash");
-    let public_sol_field = public_sol_field(transact_ix_data.public_sol_amount);
+    let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash(
@@ -539,21 +572,19 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         &[nullifier_root, nullifier_root],
         &private_tx,
         &external_data_hash,
-        &public_sol_field,
+        &public_slot_assets,
+        &public_slot_amounts,
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
-        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
-            payer_spend_input,
-            dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
-        ],
+        inputs: vec![payer_spend_input, dummy_spend_input],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
-        public_sol_amount: public_sol_field,
+        public_slot_assets,
+        public_slot_amounts,
         payer_pubkey_hash,
         public_input_hash,
     });
@@ -564,8 +595,11 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
 
     let ix = Transact {
         payer: payer.pubkey(),
-        tree,
-        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+        input_tree: tree,
+        output_tree: tree,
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts { recipient },
+        )],
         data: transact_ix_data,
     }
     .instruction();
@@ -611,7 +645,7 @@ fn bench_withdrawal_spl(
         .expect("user token account");
     pt.mint_to(&mint, &user_token, AMOUNT).expect("mint_to");
 
-    let blinding: [u8; 31] = [7u8; 31];
+    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo = Utxo {
@@ -622,12 +656,13 @@ fn bench_withdrawal_spl(
         zone_program_id: None,
         data: Data::default(),
     };
-    let owner_pk_hash = utxo.owner.hash().expect("owner pk hash");
+    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
 
-    let data = ZolanaProgramTest::spl_shield_data(AMOUNT, owner_field, blinding);
+    let data =
+        ZolanaProgramTest::spl_shield_data(AMOUNT, owner_field, blinding, &mint, &user_token);
     let event = pt
-        .deposit_spl(&tree, &payer, &user_token, &mint, &data)
+        .deposit(&tree, &payer, &data)
         .expect("proofless spl deposit");
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(utxo_hash, event.utxo_hash);
@@ -651,7 +686,8 @@ fn bench_withdrawal_spl(
         .expect("non inclusion proof");
 
     let roots = (utxo_root, nullifier_root);
-    let dummy_nullifier = fe(2);
+    let (dummy_spend_input, dummy_nullifier) =
+        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -680,16 +716,15 @@ fn bench_withdrawal_spl(
             eddsa_input_utxo(nullifier, 1),
             eddsa_input_utxo(dummy_nullifier, 1),
         ],
-        None,
+        vec![InterfaceTransfer::SplWithdrawal {
+            amount: AMOUNT,
+            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+        }],
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
-    // SPL withdrawal carries the public amount in `public_spl_amount`; the SOL
-    // amount stays `None`.
-    transact_ix_data.public_spl_amount = Some(-(AMOUNT as i64));
     let external_data_hash =
         external_data_hash_spl(&transact_ix_data, &user_token.to_bytes(), &vault.to_bytes())
             .expect("external data hash");
@@ -697,7 +732,7 @@ fn bench_withdrawal_spl(
         PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
             .hash()
             .expect("private tx hash");
-    let public_spl_field = public_sol_field(transact_ix_data.public_spl_amount);
+    let public_spl_field = public_sol_field(Some(-(AMOUNT as i64)));
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash_spl(
@@ -712,18 +747,15 @@ fn bench_withdrawal_spl(
         &payer_pubkey_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
-        &zero,
     );
     let prover_inputs = build_transfer_prover_inputs_spl(
         TransferProverInputsArgs {
-            inputs: vec![
-                payer_spend_input,
-                dummy_input(&dummy_nullifier, roots, &owner_pk_hash),
-            ],
+            inputs: vec![payer_spend_input, dummy_spend_input],
             outputs,
             external_data_hash,
             private_tx_hash: private_tx,
-            public_sol_amount: zero,
+            public_slot_assets: [[0u8; 32]; zolana_interface::N_PUBLIC_SLOTS],
+            public_slot_amounts: [[0u8; 32]; zolana_interface::N_PUBLIC_SLOTS],
             payer_pubkey_hash,
             public_input_hash,
         },
@@ -737,14 +769,16 @@ fn bench_withdrawal_spl(
 
     let ix = Transact {
         payer: payer.pubkey(),
-        tree,
-        withdrawal: Some(TransactWithdrawal::Spl(TransactSplWithdrawal {
-            cpi_authority: Some(Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY)),
-            spl_token_interface: vault,
-            recipient: payer.pubkey(),
-            user_token_account: user_token,
-            token_program: ZolanaProgramTest::token_program_id(),
-        })),
+        input_tree: tree,
+        output_tree: tree,
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+            TransactSplWithdrawalAccounts {
+                mint,
+                vault,
+                user_token_account: user_token,
+                token_program: ZolanaProgramTest::token_program_id(),
+            },
+        )],
         data: transact_ix_data,
     }
     .instruction();

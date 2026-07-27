@@ -19,14 +19,6 @@ pub enum HasherError {
     InvalidInputLength(usize, usize),
     #[error("Invalid number of fields")]
     InvalidNumFields,
-    #[error("Empty input")]
-    EmptyInput,
-    #[error("Borsh serialization failed.")]
-    BorshError,
-    #[error(
-        "Option hash to field size returned [0u8;32], a collision with None for an Option type."
-    )]
-    OptionHashToFieldSizeZero,
     #[error("Poseidon feature is not enabled. Without feature poseidon only syscalls are accessible in target os solana")]
     PoseidonFeatureNotEnabled,
     #[error("SHA256 feature is not enabled. Enable the sha256 feature to use SHA256 hashing in non-Solana targets")]
@@ -47,9 +39,6 @@ impl From<HasherError> for u32 {
             HasherError::UnknownSolanaSyscall(e) => e.try_into().unwrap_or(7004),
             HasherError::InvalidInputLength(_, _) => 7005,
             HasherError::InvalidNumFields => 7006,
-            HasherError::EmptyInput => 7007,
-            HasherError::BorshError => 7008,
-            HasherError::OptionHashToFieldSizeZero => 7009,
             HasherError::PoseidonFeatureNotEnabled => 7010,
             HasherError::Sha256FeatureNotEnabled => 7011,
             HasherError::KeccakFeatureNotEnabled => 7012,

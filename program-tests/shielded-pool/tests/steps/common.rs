@@ -66,11 +66,6 @@ fn rejected_invalid_tree(world: &mut ShieldedPoolWorld) {
     assert_pool_error(world.last_error(), ShieldedPoolError::InvalidTreeAccounts);
 }
 
-#[then(expr = "the operation is rejected as an invalid transact shape")]
-fn rejected_invalid_shape(world: &mut ShieldedPoolWorld) {
-    assert_pool_error(world.last_error(), ShieldedPoolError::InvalidTransactShape);
-}
-
 #[then(expr = "the operation is rejected as invalid settlement accounts")]
 fn rejected_invalid_settlement(world: &mut ShieldedPoolWorld) {
     assert_pool_error(

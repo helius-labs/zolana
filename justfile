@@ -106,6 +106,15 @@ test-client-async-transfer-queue: build-prover-server build-cli
 test-programs: build-programs build-prover-server build-cli
     cargo test -p shielded-pool-tests
 
+# Proving-key-independent interface, program, and LiteSVM proofless tests.
+# The BDD target covers pool administration, direct deposit batches, and zone
+# deposits (including the fixture program's signed CPI into SPP), but none of
+# the transact targets that spawn the prover.
+test-proofless-programs: build-programs
+    cargo test -p zolana-interface --features solana
+    cargo test -p shielded-pool-program --lib --tests
+    cargo test -p shielded-pool-tests --test bdd
+
 # Aggregate of all CI-runnable Rust tests.
 test-all: test test-programs test-user-registry-litesvm
 
@@ -168,14 +177,14 @@ bench-shielded-pool: build-programs
 # published keys are the only set matching the committed Rust verifying keys;
 # regenerating locally (regen-swap-keys) requires publishing a new release and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v3"
+swap-keys-tag := "swap-keys-v4"
 
 # Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
 # (escrow_open/escrow_settle). The release assets are
 # the only key set matching the committed Rust verifying keys; rotating locally
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v3"
+dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
 
 ensure-swap-keys:
     #!/usr/bin/env bash
@@ -298,7 +307,7 @@ bench-rfq:
 # committed Rust verifying keys; regenerating locally (regen-escrow-keys)
 # requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
 # plus the committed verifying keys together.
-escrow-keys-tag := "escrow-keys-v1"
+escrow-keys-tag := "escrow-keys-v2"
 
 ensure-escrow-keys:
     #!/usr/bin/env bash
@@ -380,6 +389,15 @@ bench-dynamic-swap:
 
 # === Local validator helpers ===
 
+# Local-validator proofless deposit coverage only. Unlike test-localnet-e2e,
+# this starts no prover and runs no transact/withdraw circuit.
+test-localnet-deposit: build-programs build-cli
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
+
 # Local-validator end-to-end SOL cycle.
 test-localnet-e2e: build-programs build-prover-server build-cli
     #!/usr/bin/env bash
@@ -387,6 +405,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     eval "$(cargo run -q -p xtask -- program-ids)"
     cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_e2e -- --nocapture
+    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
@@ -415,7 +434,7 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
 # Spawn a localnet (validator + prover + photon) via the `zolana` CLI, bootstrap a
 # pool tree with an authority wallet, then run the tools/cli_smoke.sh coverage
 # script against it: one pass over every CLI operation using the real binary,
-# both asset rails (SOL + SPL) and both wallet rails (ed25519 + P256). The
+# both asset rails (SOL + SPL) on the supported ed25519 wallet rail. The
 # authority wallet doubles as the smoke actor so the SPL `test-mint` rail is
 # permitted. Services and workdir are torn down on exit.
 test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
@@ -424,7 +443,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
     eval "$(cargo run -q -p xtask -- program-ids)"
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
-    bin="target/release/zolana"
+    bin="target/debug/zolana"
     workdir="target/cli-smoke"
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -487,9 +506,9 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle
 
-# Run only the decode scenario from test-spp-validator, which prints the parsed
-# `transact` instruction data, its named accounts, and the emitted event. The test
-# binary has `harness = false`, so the prints reach the terminal directly.
+# Run only the emitted-event decode scenario from test-spp-validator, which
+# prints the parsed `GeneralEvent`. The test binary has `harness = false`, so
+# the output reaches the terminal directly.
 test-spp-validator-decode: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -505,7 +524,7 @@ test-spp-validator-decode: build-programs build-prover-server build-cli ensure-p
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "instruction data and accounts decode"
+      cargo test -p spp-test-validator --test lifecycle -- --name "A SOL transfer's emitted event decodes"
 
 # Run only the merge scenarios from test-spp-validator (the 1-8 consolidation
 # outline plus the disabled-service negative). For debugging the merge flow without
@@ -527,7 +546,7 @@ test-spp-validator-merge: build-programs build-prover-server build-cli ensure-ph
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo test -p spp-test-validator --test lifecycle -- --name "Merge service"
 
-# Run only the randomized 500-transaction workload from test-spp-validator. This is
+# Run only the randomized 50-transaction workload from test-spp-validator. This is
 # intentionally isolated in CI because it is the longest and quietest scenario.
 test-spp-validator-randomized: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
@@ -547,7 +566,7 @@ test-spp-validator-randomized: build-programs build-prover-server build-cli ensu
       cargo test -p spp-test-validator --test lifecycle -- --name "Fifty randomized eddsa transactions"
 
 # Run the non-merge, non-randomized spp-validator scenarios: eddsa signer, P256
-# signer, mixed lifecycle, SOL lifecycle, and instruction/event decode.
+# signer, mixed lifecycle, SOL lifecycle, and emitted-event decode.
 test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
@@ -563,7 +582,7 @@ test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cl
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo test -p spp-test-validator --test lifecycle -- --name "authorizes SOL, SPL, and mixed transfers|Fifty mixed transactions|Transfer recipient and sender change|instruction data and accounts decode"
+      cargo test -p spp-test-validator --test lifecycle -- --name "authorizes SOL, SPL, and mixed transfers|Fifty mixed transactions|Transfer recipient and sender change|A SOL transfer's emitted event decodes"
 
 # Run only the mixed-lifecycle scenario from test-spp-validator (deposits,
 # transfers, SOL withdrawals, and merges across three owners). For exercising the
@@ -787,12 +806,39 @@ build-prover-server:
     mkdir -p target
     cd prover/server && go build -o ../../target/prover-server .
 
+# Regenerate all proving keys (transfer, merge, and batch address-append), the
+# committed verifying keys in both crates, and proving-keys.lock. groth16 setup
+# is non-deterministic, so the batched-merkle-tree vkeys are regenerated with
+# the keys -- commit both together. Mirrors scripts/rotate_proving_keys.sh
+# minus the fingerprint refresh and the S3 upload (publish-spp-keys).
 build-spp-keys:
     #!/usr/bin/env bash
     set -euo pipefail
-    prover/server/scripts/generate_keys_transfer.sh "{{spp-keys-dir}}"
-    prover/server/scripts/generate_keys_merge.sh "{{spp-keys-dir}}"
-    prover/server/scripts/regenerate_all_vkeys.sh "$(pwd)/{{spp-keys-dir}}"
+    keys_dir="$(cd "$(dirname "{{spp-keys-dir}}")" && pwd)/$(basename "{{spp-keys-dir}}")"
+    prover/server/scripts/generate_keys_transfer.sh "$keys_dir"
+    prover/server/scripts/generate_keys_merge.sh "$keys_dir"
+    # The generate_* scripts leave the light-prover binary in prover/server.
+    for spec in 10 250; do
+        prover/server/light-prover setup \
+            --circuit address-append \
+            --address-append-tree-height 40 \
+            --address-append-batch-size "$spec" \
+            --output "$keys_dir/batch_address-append_40_${spec}.key" \
+            --output-vkey "$keys_dir/batch_address-append_40_${spec}.vkey"
+    done
+    prover/server/scripts/regenerate_all_vkeys.sh "$keys_dir"
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' EXIT
+    for spec in 10 250; do
+        stem="batch_address-append_40_${spec}"
+        module="batch_address_append_40_${spec}"
+        prover/server/light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
+        cargo run -q -p xtask -- bsb22-vk \
+            "$tmp_dir/${stem}.vkbin" \
+            "program-libs/batched-merkle-tree/src/verify/verifying_keys" \
+            "${module}.rs"
+    done
+    python3 prover/server/scripts/generate_lockfile.py "$keys_dir"
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
 # (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws

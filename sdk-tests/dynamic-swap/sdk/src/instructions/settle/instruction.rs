@@ -34,10 +34,10 @@ impl Settle {
         } = self;
 
         // Both inputs (order, reservation) are owned by the escrow_authority PDA,
-        // forwarded at tail slot 3: [caller(payer)=0, tree=1, system_program=2,
-        // escrow_authority=3, program=4]. The program flips the PDA to a signer via
-        // invoke_signed.
-        const ESCROW_AUTHORITY_POSITION: u8 = 3;
+        // forwarded at tail slot 4: [caller(payer)=0, input_tree=1,
+        // output_tree=2, system_program=3, escrow_authority=4, program=5].
+        // The program flips the PDA to a signer via invoke_signed.
+        const ESCROW_AUTHORITY_POSITION: u8 = 4;
         route_input(&mut transact, 0, ESCROW_AUTHORITY_POSITION)?;
         route_input(&mut transact, 1, ESCROW_AUTHORITY_POSITION)?;
 
@@ -52,10 +52,10 @@ impl Settle {
             AccountMeta::new_readonly(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new(rent_recipient, false),
-            // Forwarded SPP `transact` CPI tail: payer, tree, System Program for
-            // fee collection, the escrow_authority account (flipped to a signer
-            // in-program), then the shielded-pool program.
+            // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
+            // System Program, escrow authority, then SPP.
             AccountMeta::new_readonly(caller, true),
+            AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(escrow_authority_pda(&pair), false),

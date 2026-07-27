@@ -28,6 +28,10 @@ use crate::{
     },
 };
 
+/// Lamports airdropped to each actor's ed25519 signer to pay the fees of the
+/// spends it authorizes; deposits stay funded by the global payer.
+pub(crate) const ACTOR_FEE_FUNDING: u64 = 1_000_000_000;
+
 /// An SPL asset a scenario registers: its mint, the vault the deposit credits,
 /// and the shared funding token account (owned by the payer).
 #[derive(Clone, Copy)]
@@ -39,8 +43,10 @@ pub(crate) struct SplAsset {
 
 /// Which ownership rail the last transfer took. P256 proves ownership inside the
 /// proof; Eddsa proves it with an ed25519 signature on the transaction, checked by
-/// the program against the eddsa signer.
+/// the program against the eddsa signer. The P256 rail is removed; the variant is
+/// kept so rail assertions document what a spend must NOT take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum Rail {
     P256,
     Eddsa,
@@ -212,7 +218,14 @@ impl LifecycleWorld {
 
     pub(crate) fn ensure_actor(&mut self, name: &str) -> Result<()> {
         if !self.actors.contains_key(name) {
-            self.actors.insert(name.to_string(), Actor::new()?);
+            // Eddsa-rail actor (the P256 rail is removed): its shielded identity
+            // derives from a fresh ed25519 signer, funded to pay the fees of the
+            // spends it authorizes (the eddsa rail reads the owner at signer
+            // index 0 / the fee payer).
+            let signer = Keypair::new();
+            self.rpc.airdrop(&signer.pubkey(), ACTOR_FEE_FUNDING)?;
+            let actor = Actor::eddsa(signer)?;
+            self.actors.insert(name.to_string(), actor);
         }
         Ok(())
     }

@@ -21,11 +21,22 @@ pub fn create_hash_chain_from_array<const T: usize>(
 /// # Returns
 /// - `Result<[u8; 32], HasherError>`: The resulting hash chain or an error.
 pub fn create_hash_chain_from_slice(inputs: &[[u8; 32]]) -> Result<[u8; 32], HasherError> {
-    if inputs.is_empty() {
+    create_hash_chain(inputs.iter())
+}
+
+/// Creates a hash chain from a slice of borrowed [u8; 32] arrays.
+pub fn create_hash_chain_from_slice_ref(inputs: &[&[u8; 32]]) -> Result<[u8; 32], HasherError> {
+    create_hash_chain(inputs.iter().copied())
+}
+
+fn create_hash_chain<'a>(
+    mut inputs: impl Iterator<Item = &'a [u8; 32]>,
+) -> Result<[u8; 32], HasherError> {
+    let Some(first) = inputs.next() else {
         return Ok([0u8; 32]);
-    }
-    let mut hash_chain = inputs[0];
-    for input in inputs.iter().skip(1) {
+    };
+    let mut hash_chain = *first;
+    for input in inputs {
         hash_chain = Poseidon::hashv(&[&hash_chain, input])?;
     }
     Ok(hash_chain)

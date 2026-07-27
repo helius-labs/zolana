@@ -1,161 +1,72 @@
-//! Canonical `no_std`-compatible merge field math, used by the on-chain
-//! `merge_transact` instruction. Every function mirrors the merge circuit
-//! (`prover/server/circuits/spp_merge`) byte-for-byte; the client cross-checks the
-//! same vectors via `zolana-keypair`, so byte order is load-bearing.
+//! Canonical `no_std`-compatible fixed-length byte commitments shared by the
+//! merge program, SDK, and circuits.
 
-use zolana_hasher::{Hasher, HasherError, Poseidon};
+use zolana_hasher::{primitives::hash_bytes, HasherError};
 
 const P256_PUBKEY_LEN: usize = 33;
 
-/// `pk_field` of a SEC1-compressed P256 public key, matching the circuit's
-/// `Poseidon(bool_fe(y_is_odd), Poseidon(x_low_128, x_high_128))`. The compressed
-/// encoding is `prefix(1) || x(32)`, with `prefix == 0x02` for even y and `0x03`
-/// for odd y; `x_high_128` is the high 16 bytes of `x` and `x_low_128` the low 16,
-/// each right-aligned, matching the keypair `hash_field` split.
-pub fn pk_field_compressed(compressed: &[u8; P256_PUBKEY_LEN]) -> Result<[u8; 32], HasherError> {
+fn parse_compressed(compressed: &[u8; P256_PUBKEY_LEN]) -> Result<[u8; 32], HasherError> {
     let prefix = compressed[0];
     if prefix != 0x02 && prefix != 0x03 {
         return Err(HasherError::InvalidInputLength(usize::from(prefix), 0));
     }
-    let y_is_odd = prefix == 0x03;
-    let x = compressed
-        .get(1..P256_PUBKEY_LEN)
-        .ok_or(HasherError::InvalidInputLength(0, P256_PUBKEY_LEN - 1))?;
-    let high = x.get(0..16).ok_or(HasherError::InvalidInputLength(0, 16))?;
-    let low = x
-        .get(16..32)
-        .ok_or(HasherError::InvalidInputLength(16, 32))?;
-    let x_hash = Poseidon::hashv(&[&right_align_16(low), &right_align_16(high)])?;
-    Poseidon::hashv(&[&bool_fe(y_is_odd), &x_hash])
+    let mut x = [0u8; 32];
+    x.copy_from_slice(&compressed[1..]);
+    Ok(x)
 }
 
-/// Owner-identity `pk_field` of a SEC1-compressed P256 public key: the parity-free
-/// `Poseidon(x_low_128, x_high_128)` (the y-parity is carried in the encrypted data,
-/// not the owner identity), so a P256 owner has the same pk_field shape as an ed25519
-/// owner. Matches the circuit `OwnerPkFieldGadget` and keypair
-/// `PublicKey::owner_pk_field`. The compressed prefix is still validated.
-pub fn owner_pk_field_compressed(
+/// Proof-input hash of a complete SEC1-compressed P256 viewing key.
+pub fn pk_field_compressed(compressed: &[u8; P256_PUBKEY_LEN]) -> Result<[u8; 32], HasherError> {
+    parse_compressed(compressed)?;
+    hash_bytes(compressed)
+}
+
+/// Owner-identity proof-input hash of the 32-byte x-coordinate. SEC1 parity is
+/// validated but intentionally excluded from the owner tag.
+pub fn owner_proof_input_hash_compressed(
     compressed: &[u8; P256_PUBKEY_LEN],
 ) -> Result<[u8; 32], HasherError> {
-    let prefix = compressed[0];
-    if prefix != 0x02 && prefix != 0x03 {
-        return Err(HasherError::InvalidInputLength(usize::from(prefix), 0));
-    }
-    let x = compressed
-        .get(1..P256_PUBKEY_LEN)
-        .ok_or(HasherError::InvalidInputLength(0, P256_PUBKEY_LEN - 1))?;
-    let high = x.get(0..16).ok_or(HasherError::InvalidInputLength(0, 16))?;
-    let low = x
-        .get(16..32)
-        .ok_or(HasherError::InvalidInputLength(16, 32))?;
-    Poseidon::hashv(&[&right_align_16(low), &right_align_16(high)])
+    hash_bytes(&parse_compressed(compressed)?)
 }
 
-/// `pack33` mirrors `Pack33To2FECircuit`: `lo[1..32] = b[0..31]` and the trailing
-/// two bytes go into `hi[30..32]`. Returns `(lo, hi)`.
-pub fn pack33(b: &[u8; P256_PUBKEY_LEN]) -> ([u8; 32], [u8; 32]) {
-    let mut lo = [0u8; 32];
-    if let (Some(dst), Some(src)) = (lo.get_mut(1..32), b.get(0..31)) {
-        dst.copy_from_slice(src);
-    }
-    let mut hi = [0u8; 32];
-    if let Some(byte) = b.get(31) {
-        hi[30] = *byte;
-    }
-    if let Some(byte) = b.get(32) {
-        hi[31] = *byte;
-    }
-    (lo, hi)
-}
-
-/// Poseidon hash of a ciphertext, mirroring `PoseidonHash(PackBytesBE(ct, 16))`:
-/// 16-byte big-endian chunks right-aligned into field elements (last chunk may be
-/// short), then `Poseidon::hashv` over all chunks.
-pub fn ciphertext_hash(ciphertext: &[u8]) -> Result<[u8; 32], HasherError> {
-    let chunks: Vec<[u8; 32]> = ciphertext.chunks(16).map(right_align_16).collect();
-    let refs: Vec<&[u8]> = chunks.iter().map(|c| c.as_slice()).collect();
-    Poseidon::hashv(&refs)
-}
-
-fn right_align_16(bytes: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let len = bytes.len().min(32);
-    if let (Some(dst), Some(src)) = (out.get_mut(32 - len..32), bytes.get(..len)) {
-        dst.copy_from_slice(src);
-    }
-    out
-}
-
-fn bool_fe(b: bool) -> [u8; 32] {
-    let mut fe = [0u8; 32];
-    if b {
-        fe[31] = 1;
-    }
-    fe
+/// Fixed-length ciphertext proof-input hash.
+pub fn ciphertext_hash<const N: usize>(ciphertext: &[u8; N]) -> Result<[u8; 32], HasherError> {
+    hash_bytes(ciphertext)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn hex_to_vec(s: &str) -> Vec<u8> {
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-            .collect()
-    }
-
-    fn hex_to_33(s: &str) -> [u8; 33] {
-        let v = hex_to_vec(s);
-        let mut out = [0u8; 33];
-        out.copy_from_slice(&v);
-        out
-    }
-
-    // Cross-checks `pack33` and `ciphertext_hash` against the `matches_circuit_vector`
-    // fixture in `sdk-libs/keypair/src/merge.rs`, which is itself validated against
-    // the Go circuit via `test.IsSolved`.
-    const TX_VIEWING_PK_HEX: &str =
-        "02fb50388f29498d0a93ad25ec4c34037b9d3cc3cca4787eb6fedabe2b3003eac8";
-    const CIPHERTEXT_HEX: &str = "d52cccc7053c653d83c840fcb12c3a1dd6ac2263a9f4c705d784dfd894234b6b5271590160bddbb7191a0eeb96646aa5397e0acb27b605aec6f1ceadcd2726cab1a675d511f202";
-    const CT_HASH_HEX: &str = "2418c4f8d103a80bcc365a28f6172e7cd9cbfe71a301c19f775a64187ed2f453";
-
-    #[test]
-    fn ciphertext_hash_matches_circuit_vector() {
-        let ciphertext = hex_to_vec(CIPHERTEXT_HEX);
-        let got = ciphertext_hash(&ciphertext).unwrap();
-        assert_eq!(got.to_vec(), hex_to_vec(CT_HASH_HEX));
+    fn sec1(prefix: u8) -> [u8; 33] {
+        let mut key = [0u8; 33];
+        key[0] = prefix;
+        for (index, byte) in key.iter_mut().enumerate().skip(1) {
+            *byte = index as u8;
+        }
+        key
     }
 
     #[test]
-    fn pack33_low_high_split() {
-        let pk = hex_to_33(TX_VIEWING_PK_HEX);
-        let (lo, hi) = pack33(&pk);
-        assert_eq!(lo[0], 0);
-        assert_eq!(&lo[1..32], &pk[0..31]);
-        assert_eq!(&hi[0..30], &[0u8; 30]);
-        assert_eq!(hi[30], pk[31]);
-        assert_eq!(hi[31], pk[32]);
+    fn rejects_invalid_sec1_prefix() {
+        let mut key = sec1(0x02);
+        key[0] = 0x04;
+        assert!(pk_field_compressed(&key).is_err());
+        assert!(owner_proof_input_hash_compressed(&key).is_err());
     }
 
     #[test]
-    fn pk_field_rejects_bad_prefix() {
-        let mut pk = [0u8; 33];
-        pk[0] = 0x04;
-        assert!(pk_field_compressed(&pk).is_err());
-        pk[0] = 0x00;
-        assert!(pk_field_compressed(&pk).is_err());
-    }
-
-    #[test]
-    fn pk_field_distinguishes_parity() {
-        let mut even = hex_to_33(TX_VIEWING_PK_HEX);
-        even[0] = 0x02;
+    fn viewing_hash_binds_parity_but_owner_hash_does_not() {
+        let even = sec1(0x02);
         let mut odd = even;
         odd[0] = 0x03;
-        let even_hash = pk_field_compressed(&even).unwrap();
-        let odd_hash = pk_field_compressed(&odd).unwrap();
-        assert_ne!(even_hash, odd_hash);
-        assert_eq!(even_hash, pk_field_compressed(&even).unwrap());
+        assert_ne!(
+            pk_field_compressed(&even).unwrap(),
+            pk_field_compressed(&odd).unwrap()
+        );
+        assert_eq!(
+            owner_proof_input_hash_compressed(&even).unwrap(),
+            owner_proof_input_hash_compressed(&odd).unwrap()
+        );
     }
 }

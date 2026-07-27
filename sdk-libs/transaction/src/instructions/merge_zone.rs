@@ -7,17 +7,13 @@
 //! signing step. Every input and the output share a `zone_program_id`; policy-data
 //! hashes remain in the witness and the zone selects the output policy-data hash.
 
-use p256::SecretKey;
 use solana_address::Address;
-use zolana_keypair::{P256Pubkey, PublicKey, ShieldedKeypairTrait};
+use zolana_keypair::{merge::merge_output_blinding, PublicKey, ShieldedKeypairTrait};
 
 use crate::{
     error::TransactionError,
     instructions::{
-        merge::{
-            fresh_tx_viewing_sk, has_utxo_data, pad_with_dummies, real_input_contexts,
-            validate_merge_inputs,
-        },
+        merge::{has_utxo_data, pad_with_dummies, real_input_contexts, validate_merge_inputs},
         types::{InputUtxoContext, SppProofInputUtxo},
     },
     SppProofOutputUtxo,
@@ -32,8 +28,6 @@ pub struct MergeZone {
     output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
-    user_viewing_pk: P256Pubkey,
-    tx_viewing_sk: SecretKey,
     zone_program_id: Address,
 }
 
@@ -62,6 +56,7 @@ impl MergeZone {
             Ok(())
         })?;
 
+        let first_nullifier = inputs[0].nullifier()?;
         // The merged output preserves zone ownership.
         let output = match output_zone_data_hash {
             Some(zone_data_hash) => {
@@ -72,6 +67,9 @@ impl MergeZone {
                 .with_zone_program_id(zone_program_id),
         };
 
+        let mut output = output;
+        output.blinding = merge_output_blinding(&keypair.nullifier_key(), &first_nullifier)?;
+
         Ok(Self {
             inputs,
             output,
@@ -79,8 +77,6 @@ impl MergeZone {
             // expiry`, so set this explicitly for a relayer deadline.
             expiry_unix_ts: u64::MAX,
             signing_pubkey: keypair.signing_pubkey(),
-            user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk: fresh_tx_viewing_sk()?,
             zone_program_id,
         })
     }
@@ -99,8 +95,6 @@ impl MergeZone {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            user_viewing_pk,
-            tx_viewing_sk,
             zone_program_id,
         } = self;
         pad_with_dummies(&mut inputs);
@@ -109,8 +103,6 @@ impl MergeZone {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            user_viewing_pk,
-            tx_viewing_sk,
             zone_program_id,
         }
     }
@@ -126,8 +118,6 @@ pub struct PreparedMergeZone {
     pub output: SppProofOutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
-    pub user_viewing_pk: P256Pubkey,
-    pub tx_viewing_sk: SecretKey,
     pub zone_program_id: Address,
 }
 
@@ -136,6 +126,15 @@ impl PreparedMergeZone {
     /// while policy-zone data remains part of each input commitment.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         real_input_contexts(&self.inputs, has_utxo_data)
+    }
+
+    /// Deterministic padding nullifiers whose non-inclusion proofs must be
+    /// fetched before constructing the merge-zone circuit witness.
+    pub fn dummy_nullifiers(
+        &self,
+        nullifier_key: &zolana_keypair::NullifierKey,
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        super::merge::derive_dummy_nullifiers(&self.inputs, nullifier_key)
     }
 }
 

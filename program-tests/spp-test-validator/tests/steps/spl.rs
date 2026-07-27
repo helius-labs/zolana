@@ -59,6 +59,7 @@ impl LifecycleWorld {
             let ix = CreateSplInterface {
                 authority: protocol_vault,
                 mint,
+                token_program: zolana_interface::pda::spl_token_program_id(),
             }
             .instruction();
             let sync_ix = execute_sync_ix(&protocol_settings, 0, &[authority.pubkey()], &[ix]);

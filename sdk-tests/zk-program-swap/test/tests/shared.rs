@@ -23,14 +23,18 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{
+    constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey,
+};
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
 };
-use zolana_transaction::{AssetRegistry, Wallet, SOL_MINT};
+use zolana_transaction::{
+    instructions::types::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, Wallet, SOL_MINT,
+};
 use zolana_user_registry_interface::user_registry_program_id;
 use zolana_wallet::{sync_wallet, Deposit, DepositParams};
 
@@ -46,6 +50,7 @@ pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
     pub maker: TestWallet,
+    pub maker_input: SppProofInputUtxo,
     pub taker: TestWallet,
     pub spl_mint: Address,
 }
@@ -223,6 +228,7 @@ pub fn setup() -> Result<TestEnv> {
     let interface_ix = CreateSplInterface {
         authority: accounts.protocol_vault,
         mint: spl_mint,
+        token_program: zolana_interface::pda::spl_token_program_id(),
     }
     .instruction();
     let interface_sync = smart_account::execute_sync_ix(
@@ -255,23 +261,41 @@ pub fn setup() -> Result<TestEnv> {
         .expect("ed25519 seed is the first 32 bytes");
     let taker_shielded_keypair = ShieldedKeypair::from_ed25519(&taker_seed, ViewingKey::new())?;
 
-    // Fund the actors: shield the maker's SPL (the source it orders) and the
-    // taker's SOL (what it pays). Then discover the notes through each party's
-    // wallet, which scans the indexer for its view tags and decrypts its own
-    // outputs. Photon lags the validator, so poll sync until both notes appear.
-    Deposit::new(DepositParams {
-        recipient: &maker_shielded_keypair.shielded_address()?,
+    // Fund the actors: shield the maker-funded SPL to the order authority so it
+    // can authorize the data-bearing order output, and shield the taker's SOL
+    // directly to the taker.
+    let order_nullifier_key = NullifierKey::from_secret([0u8; BLINDING_LEN]);
+    let order_authority_address = ShieldedAddress {
+        signing_pubkey: PublicKey::from_ed25519(swap_sdk::order_authority_pda().as_array()),
+        nullifier_pubkey: order_nullifier_key.pubkey()?,
+        viewing_pubkey: maker_shielded_keypair.viewing_pubkey(),
+    };
+    let maker_deposit = Deposit::new(DepositParams {
+        recipient: &order_authority_address,
         asset: spl_mint,
         amount: MAKER_SHIELD_SPL,
         spl_token_account: Some(spl_funding),
+        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
-    })?
-    .send(&rpc, &payer, tree, &payer)?;
+    })?;
+    maker_deposit.send(&rpc, &payer, tree, &payer)?;
+    let maker_input = SppProofInputUtxo::new(
+        Utxo {
+            owner: order_authority_address.signing_pubkey,
+            asset: spl_mint,
+            amount: MAKER_SHIELD_SPL,
+            blinding: maker_deposit.deposit.blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        },
+        order_nullifier_key,
+    );
     Deposit::new(DepositParams {
         recipient: &taker_shielded_keypair.shielded_address()?,
         asset: SOL_MINT,
         amount: DESTINATION_AMOUNT,
         spl_token_account: None,
+        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?
     .send(&rpc, &payer, tree, &payer)?;
@@ -283,15 +307,10 @@ pub fn setup() -> Result<TestEnv> {
         .shielded_address()
         .map_err(|e| anyhow!("taker address: {e:?}"))?;
 
-    // The deposits above already confirmed on-chain, and `sync_wallet` waits for
-    // indexer freshness by default (and handles proofless-deposit discovery plus
-    // asset-registry backfill internally), so one sync per actor is enough --
-    // no manual poll loop needed.
-    let mut maker_wallet =
+    // The taker's deposit is wallet-owned, so discover it through the indexer.
+    // The maker-funded input is program-owned and retained explicitly above.
+    let maker_wallet =
         Wallet::new(maker_address, assets.clone()).map_err(|e| anyhow!("maker wallet: {e:?}"))?;
-    sync_wallet(&mut maker_wallet, &maker_shielded_keypair, &indexer)
-        .map_err(|e| anyhow!("sync maker deposit: {e:?}"))?;
-
     let mut taker_wallet =
         Wallet::new(taker_address, assets.clone()).map_err(|e| anyhow!("taker wallet: {e:?}"))?;
     sync_wallet(&mut taker_wallet, &taker_shielded_keypair, &indexer)
@@ -313,6 +332,7 @@ pub fn setup() -> Result<TestEnv> {
             wallet: maker_wallet,
             keypair: maker_shielded_keypair,
         },
+        maker_input,
         taker: TestWallet {
             wallet: taker_wallet,
             keypair: taker_shielded_keypair,

@@ -11,7 +11,6 @@ import (
 	"zolana/prover/prover/common"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
-	"zolana/prover/prover/transfer"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 )
 
@@ -539,9 +538,6 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
 		proof, proofError = w.processBatchAddressAppendProof(job.Payload)
-	case common.TransferP256ConfidentialCircuitType,
-		common.TransferP256ZoneCircuitType:
-		proof, proofError = w.processTransferP256Proof(job.Payload)
 	case common.TransferConfidentialCircuitType,
 		common.TransferZoneCircuitType,
 		common.TransferZoneAuthorityCircuitType:
@@ -588,22 +584,6 @@ func (w *BaseQueueWorker) processBatchAddressAppendProof(payload json.RawMessage
 
 	logging.Logger().Info().Msg("Processing batch address append proof")
 	return nullifiertree.ProveBatchAddressAppend(ps, &params)
-}
-
-func (w *BaseQueueWorker) processTransferP256Proof(payload json.RawMessage) (*common.Proof, error) {
-	var params transfer.TransferParameters
-	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("unmarshal transfer params: %w", err)
-	}
-	circuitType := common.TransferP256ZoneCircuitType
-	if params.Confidential {
-		circuitType = common.TransferP256ConfidentialCircuitType
-	}
-	ps, err := w.keyManager.GetTransferSystem(circuitType, params.NInputs, params.NOutputs)
-	if err != nil {
-		return nil, fmt.Errorf("transfer: %w", err)
-	}
-	return transfer.ProveTransfer(ps, &params)
 }
 
 func (w *BaseQueueWorker) processTransferEddsaProof(payload json.RawMessage) (*common.Proof, error) {

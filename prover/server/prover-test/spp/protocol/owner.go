@@ -25,19 +25,14 @@ func OwnerHash(ownerKeyHash, nullifierPk *big.Int) (*big.Int, error) {
 }
 
 func SolanaPkField(pubkey [32]byte) (*big.Int, error) {
-	h, err := poseidon.Hash([]*big.Int{
-		fieldFromU128BE(pubkey[16:]),
-		fieldFromU128BE(pubkey[:16]),
-	})
+	h, err := HashBytes(pubkey[:])
 	if err != nil {
 		return nil, fmt.Errorf("spp: solana pk hash: %w", err)
 	}
 	return h, nil
 }
 
-// p256XHash computes hash_field(x) = Poseidon(x_low128, x_high128) from a
-// SEC1-compressed P256 key (validating the prefix). This is the parity-free owner
-// pk_field; the viewing variant folds the y-parity on top.
+// p256XHash commits the x-coordinate of a validated SEC1-compressed P256 key.
 func p256XHash(compressed []byte) (*big.Int, error) {
 	if len(compressed) != 33 {
 		return nil, fmt.Errorf("expected 33-byte compressed P256 public key, got %d", len(compressed))
@@ -51,15 +46,10 @@ func p256XHash(compressed []byte) (*big.Int, error) {
 	}
 	var xBytes [32]byte
 	x.FillBytes(xBytes[:])
-	return poseidon.Hash([]*big.Int{
-		fieldFromU128BE(xBytes[16:]),
-		fieldFromU128BE(xBytes[:16]),
-	})
+	return HashBytes(xBytes[:])
 }
 
-// OwnerPkField is the rail-agnostic, parity-free owner pk_field: hash_field(x),
-// matching the circuit OwnerPkFieldGadget and Rust PublicKey::owner_pk_field. The
-// y-parity is carried in the encrypted data, not the owner identity.
+// OwnerPkField is the parity-free commitment of a P256 x-coordinate.
 func OwnerPkField(compressed []byte) (*big.Int, error) {
 	xHash, err := p256XHash(compressed)
 	if err != nil {
@@ -68,8 +58,8 @@ func OwnerPkField(compressed []byte) (*big.Int, error) {
 	return xHash, nil
 }
 
-// P256PkField is the VIEWING-key pk_field: Poseidon(y_is_odd, hash_field(x)),
-// matching the circuit P256PkFieldGadget. The owner key uses OwnerPkField instead.
+// P256PkField is the viewing-key commitment:
+// Poseidon(y_is_odd, HashBytes(x)).
 func P256PkField(compressed []byte) (*big.Int, error) {
 	xHash, err := p256XHash(compressed)
 	if err != nil {
@@ -83,8 +73,4 @@ func P256PkField(compressed []byte) (*big.Int, error) {
 		return nil, fmt.Errorf("spp: P256 viewing pk_field: %w", err)
 	}
 	return h, nil
-}
-
-func fieldFromU128BE(bytes []byte) *big.Int {
-	return new(big.Int).SetBytes(bytes)
 }

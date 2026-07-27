@@ -20,7 +20,7 @@ pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
 };
-use zolana_interface::{instruction::DepositIxData, state::state_root_offset};
+use zolana_interface::{instruction::AssetDeposit, state::state_root_offset};
 use zolana_program_test::DepositOutput;
 pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
 pub use zone_transact::{assert_zone_transact, ZoneTransactAssertArgs};
@@ -36,7 +36,7 @@ pub fn to_address(pubkey: &Pubkey) -> Address {
 }
 
 pub fn expected_deposit_view(
-    data: &DepositIxData,
+    data: &AssetDeposit,
     expected_amount: u64,
     expected_asset: Address,
     event: &DepositOutput,

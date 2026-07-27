@@ -228,23 +228,44 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
         args.push(db_url.clone());
     }
 
-    println!("Starting Photon: {} {}", photon.display(), args.join(" "));
-    let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
-    wait_for_http_get_with_child(
-        opts.photon_port,
-        "/readiness",
-        READINESS_TIMEOUT,
-        READINESS_STABLE_CHECKS,
-        &mut child,
-        "photon",
-    )
-    .with_context(|| format!("Photon on port {} did not become ready", opts.photon_port))?;
-    println!(
-        "Photon indexer is ready at http://127.0.0.1:{}",
-        opts.photon_port
-    );
-    std::mem::forget(child);
-    Ok(())
+    const START_ATTEMPTS: u32 = 3;
+    for attempt in 1..=START_ATTEMPTS {
+        println!("Starting Photon: {} {}", photon.display(), args.join(" "));
+        let mut child = spawn_service(&photon, &args, "photon", &opts.log_dir)?;
+        let readiness = wait_for_http_get_with_child(
+            opts.photon_port,
+            "/readiness",
+            READINESS_TIMEOUT,
+            READINESS_STABLE_CHECKS,
+            &mut child,
+            "photon",
+        )
+        .with_context(|| format!("Photon on port {} did not become ready", opts.photon_port));
+
+        match readiness {
+            Ok(()) => {
+                println!(
+                    "Photon indexer is ready at http://127.0.0.1:{}",
+                    opts.photon_port
+                );
+                std::mem::forget(child);
+                return Ok(());
+            }
+            Err(error) if attempt < START_ATTEMPTS => {
+                eprintln!(
+                    "Photon startup attempt {attempt}/{START_ATTEMPTS} failed: {error:#}; retrying"
+                );
+                let _ = child.kill();
+                let _ = child.wait();
+                stop_name("photon");
+                stop_port(opts.photon_port);
+                thread::sleep(Duration::from_secs(1));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    unreachable!("Photon startup attempts are nonzero")
 }
 
 #[cfg(test)]

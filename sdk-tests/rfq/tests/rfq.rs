@@ -14,13 +14,13 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetBalance, Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
+    Address, AssetBalance, Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::sync_wallet;
 
 // `Transact` appends the System Program and shielded-pool program after the
-// payer/tree pair, so the additional taker signer lands at account index 4.
-const TAKER_SIGNER_INDEX: u8 = 4;
+// payer/tree accounts, so the additional taker signer lands at account index 5.
+const TAKER_SIGNER_INDEX: u8 = 5;
 
 #[test]
 fn cosigned_rfq_settlement() -> Result<()> {
@@ -77,7 +77,11 @@ fn cosigned_rfq_settlement() -> Result<()> {
     );
 
     let mut data = client
-        .prove_transact(proof_inputs, Some(IndexerRpcConfig::wait()))
+        .prove_transact(
+            Address::new_from_array(tree.to_bytes()),
+            proof_inputs,
+            Some(IndexerRpcConfig::wait()),
+        )
         .map_err(|e| anyhow!("prove transact: {e:?}"))?;
     data.inputs
         .get_mut(1)
@@ -86,8 +90,9 @@ fn cosigned_rfq_settlement() -> Result<()> {
 
     let mut ix = Transact {
         payer: maker_solana.pubkey(),
-        tree,
-        withdrawal: None,
+        input_tree: tree,
+        output_tree: tree,
+        interface_transfer_accounts: Vec::new(),
         data,
     }
     .instruction();

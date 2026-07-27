@@ -1,7 +1,7 @@
 use crate::{
-    constants::{BLINDING_LEN, SALT_LEN},
+    constants::SALT_LEN,
     error::KeypairError,
-    hash::{owner_hash, pack33, poseidon},
+    hash::{owner_hash, poseidon},
     nullifier_key::NullifierKey,
     pubkey::{P256Pubkey, PublicKey},
     signing_key::SigningKey,
@@ -39,8 +39,9 @@ pub struct CompressedShieldedAddress {
 
 impl CompressedShieldedAddress {
     pub fn hash(&self) -> Result<[u8; 32], KeypairError> {
-        let (lo, hi) = pack33(self.viewing_pubkey.as_bytes());
-        poseidon(&[&self.owner_hash, &lo, &hi])
+        let viewing_key_hash =
+            zolana_hasher::primitives::hash_bytes(self.viewing_pubkey.as_bytes())?;
+        poseidon(&[&self.owner_hash, &viewing_key_hash])
     }
 }
 
@@ -159,7 +160,7 @@ impl ShieldedKeypair {
     pub fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
-        blinding: &[u8; BLINDING_LEN],
+        blinding: &[u8; 32],
     ) -> Result<[u8; 32], KeypairError> {
         self.nullifier_key.nullifier(utxo_hash, blinding)
     }
@@ -173,15 +174,6 @@ impl ShieldedKeypair {
     ) -> Result<Vec<u8>, KeypairError> {
         self.viewing_key
             .decrypt_utxo(ciphertext, tx_viewing_pubkey, salt, slot_index)
-    }
-
-    pub fn decrypt_verifiable(
-        &self,
-        tx_viewing_pubkey: &P256Pubkey,
-        ciphertext: &[u8],
-    ) -> Result<Vec<u8>, KeypairError> {
-        self.viewing_key
-            .decrypt_verifiable(tx_viewing_pubkey, ciphertext)
     }
 
     pub fn get_sender_view_tag(&self, tx_count: u64) -> Result<[u8; 32], KeypairError> {
@@ -211,10 +203,6 @@ impl ShieldedKeypair {
     ) -> Result<[u8; 32], KeypairError> {
         self.viewing_key
             .get_recipient_shared_view_tag(counterparty, i)
-    }
-
-    pub fn get_merge_view_tag(&self, merge_count: u64) -> Result<[u8; 32], KeypairError> {
-        self.viewing_key.get_merge_view_tag(merge_count)
     }
 
     pub fn recipient_bootstrap_view_tag(&self) -> [u8; 32] {

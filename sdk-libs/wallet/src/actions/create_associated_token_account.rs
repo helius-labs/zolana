@@ -21,10 +21,27 @@ pub fn create_associated_token_account<R: Rpc>(
     owner: &Pubkey,
     mint: &Pubkey,
 ) -> Result<(Signature, Pubkey), ClientError> {
+    create_associated_token_account_with_program(
+        rpc,
+        payer,
+        owner,
+        mint,
+        &zolana_interface::pda::spl_token_program_id(),
+    )
+}
+
+pub fn create_associated_token_account_with_program<R: Rpc>(
+    rpc: &R,
+    payer: &Keypair,
+    owner: &Pubkey,
+    mint: &Pubkey,
+    token_program: &Pubkey,
+) -> Result<(Signature, Pubkey), ClientError> {
     let builder = CreateAssociatedTokenAccount {
         payer: payer.pubkey(),
         owner: *owner,
         mint: *mint,
+        token_program: *token_program,
     };
     let ata = builder.address();
     let ix = builder.instruction();

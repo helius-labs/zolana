@@ -6,12 +6,15 @@ use borsh::BorshSerialize;
 #[cfg(feature = "solana")]
 pub use builders::*;
 pub use instruction_data::{
-    fetch_tag, BatchUpdateNullifierTreeData, CompressedProof, CreateProtocolConfigData,
-    CreateZoneConfigData, DepositIxData, InputUtxo, MergeExternalDataHash, MergeTransactIxData,
-    MergeTransactIxDataRef, MergeZoneIxData, MergeZoneIxDataRef, MessageData, OutputDataRef,
-    OutputUtxo, OwnerTag, P256Proof, P256ProofRef, PauseTreeData, ResolvedOutput, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof, UpdateProtocolConfigData,
-    UpdateZoneConfigData, UpdateZoneConfigOwnerData, UtxoData, ZoneDepositIxData,
+    fetch_tag, validate_interface_transfers, BatchUpdateNullifierTreeData, CircuitId,
+    CompressedProof, CreateProtocolConfigData, CreateZoneConfigData, DepositAssetKind,
+    DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef, InputUtxo, InterfaceTransfer,
+    MergeExternalDataHash, MergeTransactIxData, MergeTransactIxDataRef, MergeZoneIxData,
+    MergeZoneIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData,
+    ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput,
+    TransactOutputRef, TransactProof, UpdateProtocolConfigData, UpdateZoneConfigData,
+    UpdateZoneConfigOwnerData, UtxoData, UtxoDataRef, ZoneDepositEntry, ZoneDepositEntryRef,
+    ZoneDepositIxData, ZoneDepositIxDataRef, MAX_DEPOSIT_ASSETS,
 };
 pub use zolana_event::{tag, tag::InstructionTag};
 

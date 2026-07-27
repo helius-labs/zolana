@@ -1,5 +1,5 @@
 use cucumber::{given, then, when};
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
+use zolana_keypair::viewing_key::random_salt;
 use zolana_transaction::{
     serialization::{
         anonymous::AnonymousTransferSenderPlaintext,
@@ -68,7 +68,7 @@ fn record_transfer(
         spl_asset_id: 0,
         spl_amount: 0,
         sol_amount: change_amount,
-        blinding_seed: [seq; BLINDING_LEN],
+        blinding_seed: [seq; 32],
         recipient_viewing_pks: vec![recipient_kp.viewing_pubkey()],
         spl_data: Data::default(),
         sol_data: Data::default(),
@@ -78,7 +78,13 @@ fn record_transfer(
     let specs = vec![RecipientSpec {
         keypair: recipient_kp.clone(),
         amount,
-        blinding: [seq.wrapping_add(100); BLINDING_LEN],
+        // Right-aligned 31-byte fill: a field element must stay below the BN254
+        // modulus (a 32-byte 0x65.. fill would exceed it).
+        blinding: {
+            let mut b = [0u8; 32];
+            b[1..].fill(seq.wrapping_add(100));
+            b
+        },
         asset: SOL_MINT,
         asset_id: SOL_ASSET_ID,
         view_tag,
@@ -194,7 +200,7 @@ fn recorded_split(world: &mut TransactionWorld, owner: String, parts: u8) {
         num_outputs: parts,
         asset_id: SOL_ASSET_ID,
         asset_amount: input.amount / u64::from(parts),
-        blinding_seed: [seq; BLINDING_LEN],
+        blinding_seed: [seq; 32],
         data: Data::default(),
     };
     let outputs = bundle.clone().into_utxos(&assets, None).unwrap();
@@ -220,7 +226,7 @@ fn recorded_split(world: &mut TransactionWorld, owner: String, parts: u8) {
             recipient_pubkey: owner_kp.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [seq; BLINDING_LEN],
+            blinding_seed: [seq; 32],
         },
     )
     .unwrap();

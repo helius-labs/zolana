@@ -15,6 +15,32 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
+type InclusionProof struct {
+	Roots          []frontend.Variable
+	Leaves         []frontend.Variable
+	InPathIndices  []frontend.Variable
+	InPathElements [][]frontend.Variable
+
+	NumberOfCompressedAccounts uint32
+	Height                     uint32
+}
+
+func (g InclusionProof) DefineGadget(api frontend.API) interface{} {
+	currentHash := make([]frontend.Variable, g.NumberOfCompressedAccounts)
+	for proofIndex := 0; proofIndex < int(g.NumberOfCompressedAccounts); proofIndex++ {
+		currentPath := api.ToBinary(g.InPathIndices[proofIndex], int(g.Height))
+		hash := gadget.MerkleRootGadget{
+			Hash:   g.Leaves[proofIndex],
+			Index:  currentPath,
+			Path:   g.InPathElements[proofIndex],
+			Height: int(g.Height),
+		}
+		currentHash[proofIndex] = abstractor.Call(api, hash)
+		api.AssertIsEqual(currentHash[proofIndex], g.Roots[proofIndex])
+	}
+	return currentHash
+}
+
 // InclusionCircuit proves each Leaves[i] is a leaf of the state tree with
 // root Roots[i]. The public input hash chains the column hash chains, the
 // same compression the SPP transaction circuit applies to its public columns.
@@ -37,7 +63,7 @@ func (circuit *InclusionCircuit) Define(api frontend.API) error {
 	})
 	api.AssertIsEqual(circuit.PublicInputHash, publicInputsHash)
 
-	abstractor.Call1(api, gadget.InclusionProof{
+	abstractor.Call1(api, InclusionProof{
 		Roots:          circuit.Roots,
 		Leaves:         circuit.Leaves,
 		InPathIndices:  circuit.InPathIndices,

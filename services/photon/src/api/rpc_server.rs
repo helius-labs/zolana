@@ -11,7 +11,8 @@ use tower_http::cors::{Any, CorsLayer};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
+        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
+        GetShieldedTransactionsByTags,
     },
     RpcMethod,
 };
@@ -115,6 +116,17 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
             let api = rpc_context.as_ref();
             let payload = rpc_params.parse()?;
             api.get_shielded_transactions_by_tags(payload)
+                .await
+                .map_err(ErrorObjectOwned::from)
+        },
+    )?;
+
+    module.register_async_method(
+        GetShieldedTransactionsByNullifiers::NAME,
+        |rpc_params, rpc_context, _extensions| async move {
+            let api = rpc_context.as_ref();
+            let payload = rpc_params.parse()?;
+            api.get_shielded_transactions_by_nullifiers(payload)
                 .await
                 .map_err(ErrorObjectOwned::from)
         },

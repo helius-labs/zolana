@@ -37,9 +37,17 @@ for key in $keys; do
 done
 
 {
+    echo "mod circuit;"
+    echo "pub use circuit::CircuitId;"
+    echo
     echo "$modules" | sort -u | while read -r module; do
-        [ -n "$module" ] && echo "pub mod $module;"
+        if [ -n "$module" ]; then
+            echo '#[cfg(feature = "verifying-keys")]'
+            echo "pub mod $module;"
+        fi
     done
 } >"$vkey_dir/mod.rs"
+
+rustfmt "$vkey_dir"/*.rs
 
 echo "Regenerated verifying keys into $vkey_dir"

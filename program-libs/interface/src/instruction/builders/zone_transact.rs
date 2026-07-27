@@ -2,23 +2,29 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{builders::transact::TransactWithdrawal, tag, TransactIxData},
-    pda, PROGRAM_ID_PUBKEY, SOL_INTERFACE_PUBKEY,
+    instruction::{
+        builders::transact::{
+            append_interface_transfer_accounts, TransactInterfaceTransferAccounts,
+        },
+        tag, TransactIxData,
+    },
+    pda, PROGRAM_ID_PUBKEY,
 };
 
-/// Builder for the `zone_transact` instruction, the anonymous policy-zone analog
+/// Builder for the `zone_transact` instruction, the confidential policy-zone analog
 /// of [`super::transact::Transact`]. The account layout mirrors the program
-/// loader (`ZoneTransactAccounts::validate_and_parse`): `payer`, `tree`, the
-/// `ZoneConfig` account (the zone's `zone_auth` PDA), the optional public-amount
-/// accounts, then the program account last for the `emit_event` self-CPI. The
-/// zone identity is read from the `ZoneConfig`, so it is not part of the
-/// instruction data.
+/// loader (`ZoneTransactAccounts::validate_and_parse`): `payer`, `input_tree`,
+/// `output_tree`, the `ZoneConfig` account (the zone's `zone_auth` PDA), the
+/// optional public-amount accounts, then the program account last for the
+/// `emit_event` self-CPI. The zone identity is read from the `ZoneConfig`, so it
+/// is not part of the instruction data.
 pub struct ZoneTransact {
     pub payer: Pubkey,
-    pub tree: Pubkey,
+    pub input_tree: Pubkey,
+    pub output_tree: Pubkey,
     /// Calling zone program; its `ZoneConfig` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
-    pub withdrawal: Option<TransactWithdrawal>,
+    pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     pub data: TransactIxData,
 }
 
@@ -49,27 +55,15 @@ impl ZoneTransact {
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.tree, false),
+            AccountMeta::new(self.input_tree, false),
+            AccountMeta::new(self.output_tree, false),
             AccountMeta::new_readonly(zone_config, auth_signer),
         ];
-        match &self.withdrawal {
-            Some(TransactWithdrawal::Sol(sol)) => {
-                accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
-                accounts.push(AccountMeta::new(sol.recipient, false));
-            }
-            Some(TransactWithdrawal::Spl(spl)) => {
-                if let Some(cpi_authority) = spl.cpi_authority {
-                    accounts.push(AccountMeta::new_readonly(cpi_authority, false));
-                }
-                accounts.push(AccountMeta::new(spl.spl_token_interface, false));
-                accounts.push(AccountMeta::new(spl.recipient, false));
-                accounts.push(AccountMeta::new(spl.user_token_account, false));
-                accounts.push(AccountMeta::new_readonly(spl.token_program, false));
-            }
-            None => {}
-        }
-        accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
-        // Program account, loadable for the `emit_event` self-CPI.
+        append_interface_transfer_accounts(
+            &mut accounts,
+            &self.data.interface_transfers,
+            &self.interface_transfer_accounts,
+        );
         accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Instruction {
@@ -83,20 +77,20 @@ impl ZoneTransact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::instruction_data::transact::{TransactIxData, TransactProof};
+    use crate::instruction::instruction_data::transact::{
+        CircuitId, TransactIxData, TransactProof,
+    };
 
     fn empty_data() -> TransactIxData {
         TransactIxData {
-            proof: TransactProof::zeroed_eddsa(),
+            proof: TransactProof::zeroed(),
             expiry_unix_ts: u64::MAX,
-            relayer_fee: 0,
             private_tx_hash: [0u8; 32],
-            p256_signing_pk_x: None,
+            circuit: CircuitId::ZoneEddsa(0, 0, 3),
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             inputs: Vec::new(),
-            public_sol_amount: None,
-            public_spl_amount: None,
+            interface_transfers: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             outputs: Vec::new(),
@@ -104,17 +98,19 @@ mod tests {
         }
     }
 
-    /// A pure shielded `zone_transact` lays out `payer`, `tree`, the
-    /// `ZoneConfig` (canonical `zone_auth` PDA), the System Program, and the
-    /// program account, and tags the instruction data with `ZONE_TRANSACT`.
+    /// A pure shielded `zone_transact` lays out `payer`, `input_tree`,
+    /// `output_tree`, the `ZoneConfig` (canonical `zone_auth` PDA), the System
+    /// Program, and the program account, and tags the instruction data with
+    /// `ZONE_TRANSACT`.
     #[test]
     fn instruction_account_order_and_zone_config() {
         let zone_program_id = Pubkey::new_unique();
         let builder = ZoneTransact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             zone_program_id,
-            withdrawal: None,
+            interface_transfer_accounts: Vec::new(),
             data: empty_data(),
         };
 
@@ -128,7 +124,8 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.tree,
+                builder.input_tree,
+                builder.output_tree,
                 zone_config,
                 Pubkey::default(),
                 PROGRAM_ID_PUBKEY
@@ -136,7 +133,7 @@ mod tests {
         );
         // `.instruction()` targets the zone program, so the `zone_auth` PDA is not
         // a transaction-level signer.
-        assert!(!ix.accounts[2].is_signer);
+        assert!(!ix.accounts[3].is_signer);
         assert!(ix.accounts[0].is_signer);
     }
 
@@ -146,15 +143,16 @@ mod tests {
         let zone_program_id = Pubkey::new_unique();
         let builder = ZoneTransact {
             payer: Pubkey::new_unique(),
-            tree: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
             zone_program_id,
-            withdrawal: None,
+            interface_transfer_accounts: Vec::new(),
             data: empty_data(),
         };
 
         let ix = builder.cpi_instruction();
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.accounts[2].pubkey, pda::zone_auth(&zone_program_id).0);
-        assert!(ix.accounts[2].is_signer);
+        assert_eq!(ix.accounts[3].pubkey, pda::zone_auth(&zone_program_id).0);
+        assert!(ix.accounts[3].is_signer);
     }
 }

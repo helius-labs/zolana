@@ -3,6 +3,7 @@ package transaction
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -62,7 +63,7 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 		{"input data_hash", func(tx *ProofTransactionRequest) { tx.Inputs[0].Utxo.DataHash = proofFieldInput(big.NewInt(1)) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tx, payerHash, err := benchmarkTransaction(shape, false)
+			tx, payerHash, err := benchmarkTransaction(shape)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,7 +78,7 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 
 func TestBuildProofAssignmentAcceptsDistinctNullifierSecrets(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape, false)
+	tx, payerHash, err := benchmarkTransaction(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,10 +99,8 @@ func TestBuildProofAssignmentAcceptsDistinctNullifierSecrets(t *testing.T) {
 	solveAssignment(t, shape, built)
 }
 
-func TestBuildProofAssignmentRejectsBadPublicAmountRequests(t *testing.T) {
+func TestBuildProofAssignmentRejectsBadInterfaceTransferRequests(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	validMint := "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
-	amount := uint64(1)
 
 	tests := []struct {
 		name    string
@@ -109,48 +108,53 @@ func TestBuildProofAssignmentRejectsBadPublicAmountRequests(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "invalid mode",
+			name: "transfer count exceeds u8 encoding",
 			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicAmountMode = 3
+				tx.InterfaceTransfers = make([]InterfaceTransferRequest, MaxInterfaceTransfers+1)
+				for i := range tx.InterfaceTransfers {
+					tx.InterfaceTransfers[i].Amount = 1
+				}
 			},
-			wantErr: "invalid public_amount_mode",
+			wantErr: "interface_transfers length 256 exceeds u8 encoding maximum 255",
 		},
 		{
-			name: "transfer sol amount",
+			name: "zero amount",
 			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicSolAmount = &amount
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{Amount: 0}}
 			},
-			wantErr: "transfer mode carries public settlement",
-		},
-		{
-			name: "transfer spl amount",
-			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicSplAmount = &amount
-				tx.PublicSplAssetPubkey = validMint
-			},
-			wantErr: "transfer mode carries public settlement",
-		},
-		{
-			name: "shield relayer fee",
-			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicAmountMode = publicAmountShield
-				tx.RelayerFee = 1
-			},
-			wantErr: "shield mode carries relayer fee",
+			wantErr: "interface_transfers[0].amount must be nonzero",
 		},
 		{
 			name: "missing spl mint",
 			mutate: func(tx *ProofTransactionRequest) {
-				tx.PublicAmountMode = publicAmountShield
-				tx.PublicSplAmount = &amount
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{IsSpl: true, Amount: 1}}
 			},
-			wantErr: "public_spl_asset_pubkey",
+			wantErr: "interface_transfers[0].asset",
+		},
+		{
+			name: "missing user account",
+			mutate: func(tx *ProofTransactionRequest) {
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{Amount: 1}}
+			},
+			wantErr: "interface_transfers[0].user_account",
+		},
+		{
+			name: "missing SPL pool account",
+			mutate: func(tx *ProofTransactionRequest) {
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{
+					IsSpl:       true,
+					Asset:       testMintA,
+					Amount:      1,
+					UserAccount: strings.Repeat("11", 32),
+				}}
+			},
+			wantErr: "interface_transfers[0].pool_account",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tx, payerHash, err := benchmarkTransaction(shape, false)
+			tx, payerHash, err := benchmarkTransaction(shape)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -251,23 +255,34 @@ func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
 }
 
 func TestExternalDataFieldHashMatchesVector(t *testing.T) {
+	// Known-answer vector for the canonical Rust ExternalDataHash layout:
+	// counted direction-tagged transfers, absent optional zone hashes, the
+	// transaction encryption context, counted resolved outputs with Some/None
+	// data, and an empty counted message section.
 	data := externalDataPreimage{
 		InstructionDiscriminator: 0x0d,
-		RelayerFee:               0x1234,
 		ExpiryUnixTs:             0x1122334455667788,
-		PublicSolAmount:          0x0102030405060708,
-		PublicSplAmount:          0x1112131415161718,
-		EncryptedUtxos:           []byte{0xaa, 0xbb, 0xcc},
+		InterfaceTransfers: []resolvedInterfaceTransfer{
+			{amount: 0x0102030405060708},
+			{isSpl: true, isDeposit: true, amount: 0x1112131415161718},
+		},
+		Outputs: []resolvedOutput{
+			{hasData: true, data: []byte{0xaa, 0xbb, 0xcc}},
+			{},
+		},
 	}
-	for i := range data.SenderViewTag {
-		data.SenderViewTag[i] = byte(i)
-		data.UserSolAccount[i] = byte(0x20 + i)
-		data.UserSplToken[i] = byte(0x40 + i)
-		data.SplTokenInterface[i] = byte(0x60 + i)
+	for i := range data.Outputs[0].ownerTag {
+		data.InterfaceTransfers[0].userAccount[i] = byte(0x20 + i)
+		data.InterfaceTransfers[1].userAccount[i] = byte(0x40 + i)
+		data.InterfaceTransfers[1].poolAccount[i] = byte(0x60 + i)
+		data.Outputs[0].utxoHash[i] = byte(i)
+		data.Outputs[0].ownerTag[i] = byte(0x80 + i)
+		data.Outputs[1].utxoHash[i] = byte(0xa0 + i)
+		data.Outputs[1].ownerTag[i] = byte(0xc0 + i)
 	}
 
 	got := externalDataFieldHash(data)
-	const want = "003cee91f18bdad1f50991823f95d10e840ab34792721e22dbda3eea4c014742"
+	const want = "002dd852de9b27e16b074ab1fe930f1ff5fcd8cf21aef89a3bd430e83d7e902f"
 	if parse.FieldHex(got) != want {
 		t.Fatalf("external data hash = %s, want %s", parse.FieldHex(got), want)
 	}
@@ -278,6 +293,221 @@ func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 	withDifferentExpiry.ExpiryUnixTs ^= 1
 	if parse.FieldHex(externalDataFieldHash(withDifferentExpiry)) == want {
 		t.Fatal("external_data_hash did not change when expiry_unix_ts changed")
+	}
+}
+
+func TestExternalDataFieldHashBindsOrderedTaggedInterfaceTransfers(t *testing.T) {
+	userA := [32]byte{1}
+	userB := [32]byte{2}
+	pool := [32]byte{3}
+	base := externalDataPreimage{
+		InterfaceTransfers: []resolvedInterfaceTransfer{
+			{amount: 5, userAccount: userA},
+			{isSpl: true, isDeposit: true, amount: 7, userAccount: userB, poolAccount: pool},
+		},
+	}
+	baseHash := externalDataFieldHash(base)
+
+	reordered := base
+	reordered.InterfaceTransfers = []resolvedInterfaceTransfer{
+		base.InterfaceTransfers[1],
+		base.InterfaceTransfers[0],
+	}
+	if externalDataFieldHash(reordered).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind interface transfer order")
+	}
+
+	oneTransfer := base
+	oneTransfer.InterfaceTransfers = base.InterfaceTransfers[:1]
+	if externalDataFieldHash(oneTransfer).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind interface transfer count")
+	}
+
+	differentTag := base
+	differentTag.InterfaceTransfers = append(
+		[]resolvedInterfaceTransfer(nil),
+		base.InterfaceTransfers...,
+	)
+	differentTag.InterfaceTransfers[0].isSpl = true
+	differentTag.InterfaceTransfers[0].poolAccount = pool
+	if externalDataFieldHash(differentTag).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind interface transfer tag")
+	}
+
+	differentDirection := base
+	differentDirection.InterfaceTransfers = append(
+		[]resolvedInterfaceTransfer(nil),
+		base.InterfaceTransfers...,
+	)
+	differentDirection.InterfaceTransfers[0].isDeposit = true
+	if externalDataFieldHash(differentDirection).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind interface transfer direction")
+	}
+
+	differentRecipient := base
+	differentRecipient.InterfaceTransfers = append(
+		[]resolvedInterfaceTransfer(nil),
+		base.InterfaceTransfers...,
+	)
+	differentRecipient.InterfaceTransfers[0].userAccount[0] ^= 1
+	if externalDataFieldHash(differentRecipient).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind interface transfer recipient")
+	}
+}
+
+func TestExternalDataFieldHashBindsEncryptionContextAndOptionalHashPresence(t *testing.T) {
+	base := externalDataPreimage{
+		TxViewingPk: [33]byte{1},
+		Salt:        [16]byte{2},
+	}
+	baseHash := externalDataFieldHash(base)
+
+	differentPk := base
+	differentPk.TxViewingPk[0] ^= 1
+	if externalDataFieldHash(differentPk).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind tx_viewing_pk")
+	}
+
+	differentSalt := base
+	differentSalt.Salt[0] ^= 1
+	if externalDataFieldHash(differentSalt).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind salt")
+	}
+
+	dataHashPresent := base
+	dataHashPresent.DataHashPresent = true
+	if externalDataFieldHash(dataHashPresent).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash collapsed absent data_hash and present zero data_hash")
+	}
+
+	zoneDataHashPresent := base
+	zoneDataHashPresent.ZoneDataHashPresent = true
+	if externalDataFieldHash(zoneDataHashPresent).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash collapsed absent zone_data_hash and present zero zone_data_hash")
+	}
+}
+
+func TestResolveOutputsMatchesSingleSenderBundle(t *testing.T) {
+	ownerTag := [32]byte{9}
+	outputs, err := resolveOutputs(
+		[]*big.Int{big.NewInt(1), big.NewInt(2)},
+		ownerTag,
+		[]byte{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outputs) != 2 {
+		t.Fatalf("outputs length = %d, want 2", len(outputs))
+	}
+	for i, output := range outputs {
+		if output.ownerTag != ownerTag {
+			t.Fatalf("output %d owner tag = %x, want %x", i, output.ownerTag, ownerTag)
+		}
+	}
+	if !outputs[0].hasData || len(outputs[0].data) != 0 {
+		t.Fatal("first output must carry Some(empty) for an empty sender bundle")
+	}
+	if outputs[1].hasData {
+		t.Fatal("second output must carry None")
+	}
+
+	withSomeEmpty := externalDataFieldHash(externalDataPreimage{Outputs: outputs})
+	outputs[0].hasData = false
+	withNone := externalDataFieldHash(externalDataPreimage{Outputs: outputs})
+	if withSomeEmpty.Cmp(withNone) == 0 {
+		t.Fatal("external_data_hash collapsed Some(empty) and None")
+	}
+}
+
+func TestInstructionOutputHashesExcludeCircuitPadding(t *testing.T) {
+	real := big.NewInt(1)
+	dummy := big.NewInt(2)
+	got, err := instructionOutputHashes([]*big.Int{real, dummy}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != real {
+		t.Fatalf("instruction output hashes = %v, want only the real hash", got)
+	}
+
+	ownerTag := [32]byte{9}
+	realOutputs, err := resolveOutputs(got, ownerTag, []byte{0xaa})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withPadding, err := resolveOutputs([]*big.Int{real, dummy}, ownerTag, []byte{0xaa})
+	if err != nil {
+		t.Fatal(err)
+	}
+	realHash := externalDataFieldHash(externalDataPreimage{Outputs: realOutputs})
+	paddedHash := externalDataFieldHash(externalDataPreimage{Outputs: withPadding})
+	if realHash.Cmp(paddedHash) == 0 {
+		t.Fatal("external_data_hash did not distinguish real outputs from circuit padding")
+	}
+
+	if _, err := instructionOutputHashes([]*big.Int{real}, 2); err == nil {
+		t.Fatal("out-of-range real output count must be rejected")
+	}
+}
+
+func TestInterfaceTransferRequestJSONSupportsFullU64(t *testing.T) {
+	var transfer InterfaceTransferRequest
+	if err := json.Unmarshal([]byte(`{"is_deposit":true,"amount":18446744073709551615}`), &transfer); err != nil {
+		t.Fatal(err)
+	}
+	if !transfer.IsDeposit || transfer.Amount != math.MaxUint64 {
+		t.Fatalf("decoded interface transfer = %+v", transfer)
+	}
+	if err := json.Unmarshal([]byte(`{"amount":-1}`), &transfer); err == nil {
+		t.Fatal("negative interface-transfer magnitude must be rejected")
+	}
+}
+
+func TestSameAssetTransfersRemainSeparateInHashAndBundleOutput(t *testing.T) {
+	requests := []InterfaceTransferRequest{
+		{
+			IsSpl:       true,
+			IsDeposit:   true,
+			Asset:       testMintA,
+			Amount:      8,
+			UserAccount: strings.Repeat("41", 32),
+			PoolAccount: strings.Repeat("61", 32),
+		},
+		{
+			IsSpl:       true,
+			Asset:       testMintA,
+			Amount:      3,
+			UserAccount: strings.Repeat("42", 32),
+			PoolAccount: strings.Repeat("62", 32),
+		},
+	}
+	normalized, err := normalizedInterfaceTransfers(requests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized) != 2 ||
+		normalized[0].UserAccount == normalized[1].UserAccount ||
+		normalized[0].PoolAccount == normalized[1].PoolAccount {
+		t.Fatalf("normalized interface transfers lost settlement identity: %+v", normalized)
+	}
+
+	resolved, err := resolveInterfaceTransfers(requests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	separateHash := externalDataFieldHash(externalDataPreimage{InterfaceTransfers: resolved})
+	aggregatedHash := externalDataFieldHash(externalDataPreimage{
+		InterfaceTransfers: []resolvedInterfaceTransfer{{
+			isSpl:       true,
+			isDeposit:   true,
+			amount:      5,
+			userAccount: resolved[0].userAccount,
+			poolAccount: resolved[0].poolAccount,
+		}},
+	})
+	if separateHash.Cmp(aggregatedHash) == 0 {
+		t.Fatal("external_data_hash collapsed separate same-asset interface transfers")
 	}
 }
 

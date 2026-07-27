@@ -1,9 +1,6 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN},
-    P256Pubkey, PublicKey, ViewingKey,
-};
+use zolana_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
@@ -21,7 +18,7 @@ pub struct AnonymousTransferRecipientPlaintext {
     pub sender_pubkey: P256Pubkey,
     pub asset_id: u64,
     pub amount: u64,
-    pub blinding: [u8; BLINDING_LEN],
+    pub blinding: [u8; 32],
     pub data: Data,
 }
 
@@ -64,7 +61,7 @@ pub struct AnonymousTransferSenderPlaintext {
     pub spl_asset_id: u64,
     pub spl_amount: u64,
     pub sol_amount: u64,
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
     #[wincode(with = "containers::Vec<P256PubkeySchema, FixIntLen<u8>>")]
     pub recipient_viewing_pks: Vec<P256Pubkey>,
     pub spl_data: Data,
@@ -186,7 +183,7 @@ pub struct AnonymousSenderEncode {
     pub self_pubkey: P256Pubkey,
     pub salt: [u8; SALT_LEN],
     pub slot_index: u32,
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding_seed: [u8; 32],
     pub recipient_viewing_pks: Vec<P256Pubkey>,
 }
 
@@ -262,7 +259,7 @@ impl UtxoSerialization for AnonymousSenderBundle {
 
 #[cfg(test)]
 mod tests {
-    use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ViewingKey};
+    use zolana_keypair::{PublicKey, ViewingKey};
 
     use super::*;
     use crate::{data::DataRecord, SOL_ASSET_ID};
@@ -273,7 +270,7 @@ mod tests {
             sender_pubkey: ViewingKey::new().pubkey(),
             asset_id: SOL_ASSET_ID,
             amount: 7,
-            blinding: [3u8; BLINDING_LEN],
+            blinding: [3u8; 32],
             data,
         }
     }

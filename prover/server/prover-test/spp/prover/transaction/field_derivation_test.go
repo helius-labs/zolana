@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"os"
+	"slices"
 	"testing"
 
 	"zolana/prover/prover-test/spp/parse"
@@ -11,26 +12,33 @@ import (
 )
 
 type fieldDerivationVector struct {
-	ExternalDataHash     externalDataHashVector `json:"external_data_hash"`
-	SolanaPkField        solanaPkFieldVector    `json:"solana_pk_hash"`
-	P256MessageHash      p256MessageHashVector  `json:"p256_message_hash"`
-	NegativeU64          []u64FieldVector       `json:"negative_u64"`
-	PublicAmounts        []publicAmountVector   `json:"public_amounts"`
-	PublicSplAssetPubkey string                 `json:"public_spl_asset_pubkey"`
+	ExternalDataHash externalDataHashVector `json:"external_data_hash"`
+	SolanaPkField    solanaPkFieldVector    `json:"solana_pk_hash"`
+	NegativeU64      []u64FieldVector       `json:"negative_u64"`
+	PublicSlots      []publicSlotsVector    `json:"public_slots"`
 }
 
 type externalDataHashVector struct {
-	InstructionDiscriminator uint8  `json:"instruction_discriminator"`
-	SenderViewTag            string `json:"sender_view_tag"`
-	RelayerFee               uint16 `json:"relayer_fee"`
-	ExpiryUnixTs             uint64 `json:"expiry_unix_ts"`
-	PublicSolAmount          uint64 `json:"public_sol_amount"`
-	PublicSplAmount          uint64 `json:"public_spl_amount"`
-	UserSolAccount           string `json:"user_sol_account"`
-	UserSplTokenAccount      string `json:"user_spl_token_account"`
-	SplTokenInterface        string `json:"spl_token_interface"`
-	EncryptedUtxos           string `json:"encrypted_utxos"`
-	Hash                     string `json:"hash"`
+	InstructionDiscriminator uint8                     `json:"instruction_discriminator"`
+	SenderViewTag            string                    `json:"sender_view_tag"`
+	TxViewingPk              string                    `json:"tx_viewing_pk"`
+	Salt                     string                    `json:"salt"`
+	ExpiryUnixTs             uint64                    `json:"expiry_unix_ts"`
+	InterfaceTransfers       []interfaceTransferVector `json:"interface_transfers"`
+	DataHash                 string                    `json:"data_hash"`
+	ZoneDataHash             string                    `json:"zone_data_hash"`
+	OutputHashes             []string                  `json:"output_hashes"`
+	EncryptedUtxos           string                    `json:"encrypted_utxos"`
+	Hash                     string                    `json:"hash"`
+}
+
+type interfaceTransferVector struct {
+	IsSpl       bool   `json:"is_spl"`
+	IsDeposit   bool   `json:"is_deposit"`
+	Asset       string `json:"asset"`
+	Amount      uint64 `json:"amount"`
+	UserAccount string `json:"user_account"`
+	PoolAccount string `json:"pool_account"`
 }
 
 type solanaPkFieldVector struct {
@@ -38,41 +46,41 @@ type solanaPkFieldVector struct {
 	Hash   string `json:"hash"`
 }
 
-type p256MessageHashVector struct {
-	PrivateTxHash string `json:"private_tx_hash"`
-	Hash          string `json:"hash"`
-}
-
 type u64FieldVector struct {
 	Amount uint64 `json:"amount"`
 	Field  string `json:"field"`
 }
 
-type publicAmountVector struct {
-	Name            string `json:"name"`
-	Mode            uint8  `json:"mode"`
-	RelayerFee      uint16 `json:"relayer_fee"`
-	PublicSolAmount uint64 `json:"public_sol_amount"`
-	PublicSplAmount uint64 `json:"public_spl_amount"`
-	Sol             string `json:"sol"`
-	Spl             string `json:"spl"`
+type publicSlotsVector struct {
+	Name               string                    `json:"name"`
+	InterfaceTransfers []interfaceTransferVector `json:"interface_transfers"`
+	SlotAmounts        []string                  `json:"slot_amounts"`
 }
 
 func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 	vector := readFieldDerivationVector(t)
 
 	external := vector.ExternalDataHash
+	senderViewTag := mustHex32(t, external.SenderViewTag)
+	outputs, err := resolveOutputs(
+		vectorFieldValues(t, external.OutputHashes),
+		senderViewTag,
+		mustHexBytes(t, external.EncryptedUtxos),
+	)
+	if err != nil {
+		t.Fatalf("resolve external outputs: %v", err)
+	}
 	gotExternal := externalDataFieldHash(externalDataPreimage{
 		InstructionDiscriminator: external.InstructionDiscriminator,
-		SenderViewTag:            mustHex32(t, external.SenderViewTag),
-		RelayerFee:               external.RelayerFee,
 		ExpiryUnixTs:             external.ExpiryUnixTs,
-		PublicSolAmount:          external.PublicSolAmount,
-		PublicSplAmount:          external.PublicSplAmount,
-		UserSolAccount:           mustHex32(t, external.UserSolAccount),
-		UserSplToken:             mustHex32(t, external.UserSplTokenAccount),
-		SplTokenInterface:        mustHex32(t, external.SplTokenInterface),
-		EncryptedUtxos:           mustHexBytes(t, external.EncryptedUtxos),
+		InterfaceTransfers:       vectorResolvedInterfaceTransfers(t, external.InterfaceTransfers),
+		DataHashPresent:          false,
+		DataHash:                 mustFieldBytes(t, external.DataHash),
+		ZoneDataHashPresent:      false,
+		ZoneDataHash:             mustFieldBytes(t, external.ZoneDataHash),
+		TxViewingPk:              mustHex33(t, external.TxViewingPk),
+		Salt:                     mustHex16(t, external.Salt),
+		Outputs:                  outputs,
 	})
 	expectField(t, "external_data_hash", gotExternal, external.Hash)
 
@@ -82,37 +90,74 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 	}
 	expectField(t, "solana_pk_hash", solanaHash, vector.SolanaPkField.Hash)
 
-	p256Digest, err := protocol.P256MessageDigest(mustField(t, vector.P256MessageHash.PrivateTxHash))
-	if err != nil {
-		t.Fatalf("p256 message digest: %v", err)
-	}
-	p256MessageLow, p256MessageHigh := protocol.P256MessageLimbs(p256Digest)
-	p256MessageHash, err := protocol.P256MessageHashField(p256MessageLow, p256MessageHigh)
-	if err != nil {
-		t.Fatalf("p256 message hash field: %v", err)
-	}
-	expectField(t, "p256_message_hash", p256MessageHash, vector.P256MessageHash.Hash)
-
 	for _, item := range vector.NegativeU64 {
 		value := new(big.Int).SetUint64(item.Amount)
 		got := protocol.SignedToField(value.Neg(value))
 		expectField(t, "negative_u64 "+new(big.Int).SetUint64(item.Amount).String(), got, item.Field)
 	}
 
-	for _, item := range vector.PublicAmounts {
-		amounts, err := derivePublicAmounts(ProofTransactionRequest{
-			PublicAmountMode:     item.Mode,
-			RelayerFee:           item.RelayerFee,
-			PublicSolAmount:      &item.PublicSolAmount,
-			PublicSplAmount:      &item.PublicSplAmount,
-			PublicSplAssetPubkey: vector.PublicSplAssetPubkey,
+	for _, item := range vector.PublicSlots {
+		slots, err := derivePublicSlots(ProofTransactionRequest{
+			InterfaceTransfers: vectorInterfaceTransferRequests(item.InterfaceTransfers),
 		})
 		if err != nil {
-			t.Fatalf("public amount %s: %v", item.Name, err)
+			t.Fatalf("public slots %s: %v", item.Name, err)
 		}
-		expectField(t, "public_amounts."+item.Name+".sol", amounts.sol, item.Sol)
-		expectField(t, "public_amounts."+item.Name+".spl", amounts.spl, item.Spl)
+		if len(item.SlotAmounts) != protocol.NPublicSlots {
+			t.Fatalf("public slots %s: got %d expected amounts, want %d", item.Name, len(item.SlotAmounts), protocol.NPublicSlots)
+		}
+		if !slices.EqualFunc(
+			slots.amounts[:],
+			item.SlotAmounts,
+			func(got *big.Int, want string) bool {
+				return got.Cmp(mustField(t, want)) == 0
+			},
+		) {
+			t.Errorf("public_slots.%s amounts mismatch: got %v, want %v", item.Name, slots.amounts, item.SlotAmounts)
+		}
 	}
+}
+
+func vectorFieldValues(t *testing.T, values []string) []*big.Int {
+	t.Helper()
+	out := make([]*big.Int, 0, len(values))
+	for _, value := range values {
+		out = append(out, mustField(t, value))
+	}
+	return out
+}
+
+func vectorInterfaceTransferRequests(transfers []interfaceTransferVector) []InterfaceTransferRequest {
+	out := make([]InterfaceTransferRequest, 0, len(transfers))
+	for _, transfer := range transfers {
+		out = append(out, InterfaceTransferRequest{
+			IsSpl:       transfer.IsSpl,
+			IsDeposit:   transfer.IsDeposit,
+			Asset:       transfer.Asset,
+			Amount:      transfer.Amount,
+			UserAccount: transfer.UserAccount,
+			PoolAccount: transfer.PoolAccount,
+		})
+	}
+	return out
+}
+
+func vectorResolvedInterfaceTransfers(t *testing.T, transfers []interfaceTransferVector) []resolvedInterfaceTransfer {
+	t.Helper()
+	out := make([]resolvedInterfaceTransfer, 0, len(transfers))
+	for _, transfer := range transfers {
+		resolved := resolvedInterfaceTransfer{
+			isSpl:       transfer.IsSpl,
+			isDeposit:   transfer.IsDeposit,
+			amount:      transfer.Amount,
+			userAccount: mustHex32(t, transfer.UserAccount),
+		}
+		if transfer.IsSpl {
+			resolved.poolAccount = mustHex32(t, transfer.PoolAccount)
+		}
+		out = append(out, resolved)
+	}
+	return out
 }
 
 func readFieldDerivationVector(t *testing.T) fieldDerivationVector {
@@ -159,6 +204,37 @@ func mustHexBytes(t *testing.T, value string) []byte {
 	out, err := parse.HexBytes(value)
 	if err != nil {
 		t.Fatalf("parse hex bytes %q: %v", value, err)
+	}
+	return out
+}
+
+func mustHex33(t *testing.T, value string) [33]byte {
+	t.Helper()
+	bytes := mustHexBytes(t, value)
+	if len(bytes) != 33 {
+		t.Fatalf("parse hex33 %q: expected 33 bytes, got %d", value, len(bytes))
+	}
+	var out [33]byte
+	copy(out[:], bytes)
+	return out
+}
+
+func mustHex16(t *testing.T, value string) [16]byte {
+	t.Helper()
+	bytes := mustHexBytes(t, value)
+	if len(bytes) != 16 {
+		t.Fatalf("parse hex16 %q: expected 16 bytes, got %d", value, len(bytes))
+	}
+	var out [16]byte
+	copy(out[:], bytes)
+	return out
+}
+
+func mustFieldBytes(t *testing.T, value string) [32]byte {
+	t.Helper()
+	out, err := parse.FieldBytes(mustField(t, value))
+	if err != nil {
+		t.Fatalf("encode field %q: %v", value, err)
 	}
 	return out
 }

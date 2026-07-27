@@ -8,18 +8,12 @@ import (
 
 // Full-field less-than comparison.
 //
-// AssertIsLess (proof_gadgets.go) is the narrow variant: a single 2^N-offset
-// decomposition, sound only when both operands are < 2^N (e.g. address-tree
-// range values truncated to 31 bytes). It is constraint-frozen against the
-// address-tree setup keys, so do not change its R1CS.
-//
-// The comparator below is the full-field variant. The nullifier tree accepts
-// any canonical field element (init sentinel p-1, insertable domain
-// 0 < v < p-1), so ordering proofs compare full field values. The single
-// 2^N-offset trick is unsound here: for a near p the offset sum a + 2^N - b
-// wraps mod p and a false "a < b" decomposes cleanly, forging non-inclusion.
-// Instead each operand is decomposed canonically once and compared as two
-// bounded limbs.
+// The nullifier tree accepts any canonical field element (init sentinel p-1,
+// insertable domain 0 < v < p-1), so ordering proofs compare full field values.
+// A single 2^N-offset decomposition is unsound here: for a near p the offset
+// sum a + 2^N - b wraps mod p and a false "a < b" decomposes cleanly, forging
+// non-inclusion. Instead each operand is decomposed canonically once and
+// compared as two bounded limbs.
 
 // fieldLimbs is a field element split at the bit midpoint into two bounded
 // limbs. Built only by CanonicalLimbs, which pins the decomposition.

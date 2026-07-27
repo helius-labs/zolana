@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
     event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
-    proofless_output, EventKind, GeneralEvent, ProoflessOutput,
+    proofless_outputs, EventKind, GeneralEvent, ProoflessOutput,
 };
 pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 use zolana_transaction::ShieldedTransaction;
@@ -44,12 +44,11 @@ impl DepositOutput {
             salt: [0u8; 16],
             first_output_leaf_index: self.leaf_index,
             output_tree: self.output_tree,
-            relay_fee: None,
-            deposit_withdraw: Some(zolana_event::DepositWithdraw {
+            spl_transfers: vec![zolana_event::SplTransfer {
                 is_deposit: true,
                 amount: self.output.amount,
                 asset: Some(self.output.asset),
-            }),
+            }],
         }
     }
 }
@@ -140,7 +139,9 @@ pub fn indexed_events_from_meta(
     ))
 }
 
-pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, ProgramTestError> {
+pub fn deposit_outputs_from_event(
+    event: &IndexedEvent,
+) -> Result<Vec<DepositOutput>, ProgramTestError> {
     let general_event = general_event_from_indexed(event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid shielded-pool event tag={} payload_len={} error={err:?}",
@@ -148,23 +149,47 @@ pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, 
             event.payload.len()
         ))
     })?;
-    let output = proofless_output(general_event).map_err(|err| {
+    let outputs = proofless_outputs(general_event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid proofless output tag={} payload_len={} error={err:?}",
             event.tag,
             event.payload.len()
         ))
     })?;
-    let slot = general_event.outputs.first().ok_or_else(|| {
-        ProgramTestError::Event("proofless deposit event has no output slot".into())
-    })?;
-    Ok(DepositOutput {
-        view_tag: slot.view_tag,
-        utxo_hash: slot.utxo_hash,
-        output_tree: general_event.output_tree,
-        leaf_index: general_event.first_output_leaf_index,
-        output,
-    })
+    general_event
+        .outputs
+        .iter()
+        .zip(outputs)
+        .enumerate()
+        .map(|(offset, (slot, output))| {
+            let leaf_index = general_event
+                .first_output_leaf_index
+                .checked_add(offset as u64)
+                .ok_or_else(|| {
+                    ProgramTestError::Event("deposit output leaf index overflowed".into())
+                })?;
+            Ok(DepositOutput {
+                view_tag: slot.view_tag,
+                utxo_hash: slot.utxo_hash,
+                output_tree: general_event.output_tree,
+                leaf_index,
+                output,
+            })
+        })
+        .collect()
+}
+
+pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, ProgramTestError> {
+    let mut outputs = deposit_outputs_from_event(event)?;
+    if outputs.len() != 1 {
+        return Err(ProgramTestError::Event(format!(
+            "expected one proofless deposit output, event carries {}",
+            outputs.len()
+        )));
+    }
+    outputs
+        .pop()
+        .ok_or_else(|| ProgramTestError::Event("proofless deposit event has no output slot".into()))
 }
 
 /// Replay every indexed shielded-pool event into the in-memory test indexer.
@@ -176,8 +201,9 @@ pub fn index_events(
     for event in events {
         match event_kind_from_indexed(event) {
             Some(EventKind::Deposit) => {
-                let deposit = deposit_output_from_event(event)?;
-                indexer.record_deposit(&deposit)?;
+                for deposit in deposit_outputs_from_event(event)? {
+                    indexer.record_deposit(&deposit)?;
+                }
                 indexer.record_transaction(
                     signature,
                     general_event_from_indexed(event).map_err(|err| {

@@ -22,6 +22,7 @@ solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
+spl-token-2022-interface = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
@@ -87,9 +88,9 @@ name = "shield_withdraw"
 path = "tests/transact/shield_withdraw.rs"
 
 [[test]]
-name = "p256"
-path = "tests/transact/p256.rs"
+name = "interface_transfers"
+path = "tests/transact/interface_transfers.rs"
 
 [[test]]
-name = "both_amounts"
-path = "tests/transact/both_amounts.rs"
+name = "mixed_interface_transfers"
+path = "tests/transact/mixed_interface_transfers.rs"

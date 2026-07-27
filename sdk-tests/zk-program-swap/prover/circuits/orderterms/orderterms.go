@@ -4,7 +4,6 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/gadget"
-	ve "zolana/prover/circuits/verifiable-encryption"
 )
 
 const TakeModeDerived uint64 = 0
@@ -29,8 +28,8 @@ func (o OrderTerms) Check(api frontend.API) {
 }
 
 func (o OrderTerms) MakerAddressFE(api frontend.API) frontend.Variable {
-	lo, hi := ve.Pack33To2FECircuit(api, o.MakerViewingPk)
-	return gadget.PoseidonHash(api, []frontend.Variable{o.MakerOwnerHash, lo, hi})
+	viewingKeyHash := gadget.HashChain(api, gadget.PackBytesBE(api, o.MakerViewingPk[:]))
+	return gadget.PoseidonHash(api, []frontend.Variable{o.MakerOwnerHash, viewingKeyHash})
 }
 
 func (o OrderTerms) DataHash(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {

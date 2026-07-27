@@ -1,10 +1,11 @@
-use bytemuck::{from_bytes, from_bytes_mut};
 use pinocchio::{
     account::{Ref, RefMut},
     error::ProgramError,
     AccountView,
 };
 use zolana_interface::{error::ShieldedPoolError, state::ProtocolConfig};
+
+use crate::instructions::shared::{load_config, load_config_mut};
 
 // ---------------------------------------------------------------------------
 // Protocol config
@@ -14,40 +15,22 @@ use zolana_interface::{error::ShieldedPoolError, state::ProtocolConfig};
 pub fn load_protocol_config<'a>(
     account: &'a AccountView,
 ) -> Result<Ref<'a, ProtocolConfig>, ProgramError> {
-    if !account.owned_by(&crate::ID) {
-        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
-    }
-    let data = account
-        .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
-    if data.len() != ProtocolConfig::SIZE {
-        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
-    }
-    let config = Ref::map(data, |d| from_bytes::<ProtocolConfig>(d));
-    config
-        .check_discriminator()
-        .map_err(ShieldedPoolError::from)?;
-    Ok(config)
+    load_config(
+        account,
+        ShieldedPoolError::InvalidProtocolConfig,
+        |config: &ProtocolConfig| config.check_discriminator().is_ok(),
+    )
 }
 
 #[inline(always)]
 pub fn load_protocol_config_mut<'a>(
     account: &'a mut AccountView,
 ) -> Result<RefMut<'a, ProtocolConfig>, ProgramError> {
-    if !account.is_writable() || !account.owned_by(&crate::ID) {
-        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
-    }
-    let data = account
-        .try_borrow_mut()
-        .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
-    if data.len() != ProtocolConfig::SIZE {
-        return Err(ShieldedPoolError::InvalidProtocolConfig.into());
-    }
-    let config = RefMut::map(data, |d| from_bytes_mut::<ProtocolConfig>(d));
-    config
-        .check_discriminator()
-        .map_err(ShieldedPoolError::from)?;
-    Ok(config)
+    load_config_mut(
+        account,
+        ShieldedPoolError::InvalidProtocolConfig,
+        |config: &ProtocolConfig| config.check_discriminator().is_ok(),
+    )
 }
 
 /// Load the protocol config and require `authority` to be a signer that matches

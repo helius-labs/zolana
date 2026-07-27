@@ -8,8 +8,8 @@ import (
 )
 
 // solAssetValue is the UTXO asset field for native SOL: the default (all-zero)
-// address encoded like any Address in a UTXO commitment, Poseidon(low_128,
-// high_128) == Poseidon(0, 0). Spec: SOL is Address::default(), and the SPL
+// address encoded like any fixed 32-byte Address in a UTXO commitment:
+// HashBytes([0; 32]) == Poseidon(0, 0). Spec: SOL is Address::default(), and the SPL
 // asset uses the same SolanaPkField encoding (on-chain public_spl_asset).
 var solAssetValue = mustSolAsset()
 
@@ -27,7 +27,13 @@ func SolAsset() *big.Int {
 	return new(big.Int).Set(solAssetValue)
 }
 
-const UtxoDomain = 1
+// UTXO domain tags: the circuit classifies input and output slots by the
+// domain tag alone (mirrors circuits/spp_transaction/shared).
+const (
+	DummyDomain   = 1
+	AddressDomain = 2
+	UtxoDomain    = 3
+)
 
 type Utxo struct {
 	Domain        *big.Int

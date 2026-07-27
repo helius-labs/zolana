@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	mergecircuit "zolana/prover/circuits/spp_merge"
-	transaction "zolana/prover/circuits/spp_transaction"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -17,9 +17,6 @@ import (
 func (p *MergeParameters) ValidateShape() error {
 	if len(p.Inputs) != mergecircuit.MergeInputs {
 		return fmt.Errorf("merge: wrong number of inputs: got %d, expected %d", len(p.Inputs), mergecircuit.MergeInputs)
-	}
-	if got := len(p.UserViewingPubkey); got != 65 {
-		return fmt.Errorf("merge: user viewing pubkey must be 65 bytes, got %d", got)
 	}
 	for i := range p.Inputs {
 		if got := len(p.Inputs[i].StatePathElements); got != transaction.StateTreeHeight {

@@ -10,4 +10,5 @@ publish = false
 zolana-batched-merkle-tree = { workspace = true }
 zolana-hasher = { workspace = true }
 pinocchio = { workspace = true }
+thiserror = { workspace = true }
 wincode = { workspace = true }

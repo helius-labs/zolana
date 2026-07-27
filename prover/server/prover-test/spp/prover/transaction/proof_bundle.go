@@ -17,30 +17,31 @@ type ProofBundleRequest struct {
 }
 
 type ProofTransactionRequest struct {
-	Name                     string              `json:"name"`
-	InstructionDiscriminator uint8               `json:"instruction_discriminator"`
-	ExpiryUnixTs             uint64              `json:"expiry_unix_ts"`
-	SenderViewTag            string              `json:"sender_view_tag"`
-	RelayerFee               uint16              `json:"relayer_fee"`
-	PublicAmountMode         uint8               `json:"public_amount_mode"`
-	PublicSolAmount          *uint64             `json:"public_sol_amount"`
-	PublicSplAmount          *uint64             `json:"public_spl_amount"`
-	PublicSplAssetPubkey     string              `json:"public_spl_asset_pubkey"`
-	EncryptedUtxos           string              `json:"encrypted_utxos"`
-	UserSolAccount           string              `json:"user_sol_account"`
-	UserSplTokenAccount      string              `json:"user_spl_token_account"`
-	SplTokenInterface        string              `json:"spl_token_interface"`
-	StateEntries             []ProofStateEntry   `json:"state_entries"`
-	Inputs                   []ProofInputRequest `json:"inputs"`
-	Outputs                  []ProofUtxoRequest  `json:"outputs"`
-	UtxoTreeRootIndex        []uint16            `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex   []uint16            `json:"nullifier_tree_root_index"`
-	NullifierEntries         []string            `json:"nullifier_entries"`
-	DataHash                 string              `json:"data_hash"`
-	ZoneDataHash             string              `json:"zone_data_hash"`
-	P256OwnerPubkey          string              `json:"p256_owner_pubkey,omitempty"`
-	P256SignatureR           string              `json:"p256_signature_r,omitempty"`
-	P256SignatureS           string              `json:"p256_signature_s,omitempty"`
+	Name                     string                     `json:"name"`
+	InstructionDiscriminator uint8                      `json:"instruction_discriminator"`
+	ExpiryUnixTs             uint64                     `json:"expiry_unix_ts"`
+	SenderViewTag            string                     `json:"sender_view_tag"`
+	TxViewingPk              string                     `json:"tx_viewing_pk"`
+	Salt                     string                     `json:"salt"`
+	InterfaceTransfers       []InterfaceTransferRequest `json:"interface_transfers"`
+	EncryptedUtxos           string                     `json:"encrypted_utxos"`
+	StateEntries             []ProofStateEntry          `json:"state_entries"`
+	Inputs                   []ProofInputRequest        `json:"inputs"`
+	Outputs                  []ProofUtxoRequest         `json:"outputs"`
+	UtxoTreeRootIndex        []uint16                   `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex   []uint16                   `json:"nullifier_tree_root_index"`
+	NullifierEntries         []string                   `json:"nullifier_entries"`
+	DataHash                 string                     `json:"data_hash"`
+	ZoneDataHash             string                     `json:"zone_data_hash"`
+}
+
+type InterfaceTransferRequest struct {
+	IsSpl       bool   `json:"is_spl"`
+	IsDeposit   bool   `json:"is_deposit"`
+	Asset       string `json:"asset"`
+	Amount      uint64 `json:"amount"`
+	UserAccount string `json:"user_account"`
+	PoolAccount string `json:"pool_account"`
 }
 
 type ProofStateEntry struct {
@@ -75,27 +76,21 @@ type ProofBundle struct {
 }
 
 type ProofTransaction struct {
-	Name                   string        `json:"name"`
-	ExpiryUnixTs           uint64        `json:"expiry_unix_ts"`
-	SenderViewTag          string        `json:"sender_view_tag"`
-	Proof                  *common.Proof `json:"proof"`
-	RelayerFee             uint16        `json:"relayer_fee"`
-	Nullifiers             []string      `json:"nullifiers"`
-	OutputUtxoHashes       []string      `json:"output_utxo_hashes"`
-	UtxoTreeRootIndex      []uint16      `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex []uint16      `json:"nullifier_tree_root_index"`
-	PrivateTxHash          string        `json:"private_tx_hash"`
-	PublicAmountMode       uint8         `json:"public_amount_mode"`
-	PublicSolAmount        *uint64       `json:"public_sol_amount"`
-	PublicSplAmount        *uint64       `json:"public_spl_amount"`
-	PublicSplAssetPubkey   string        `json:"public_spl_asset_pubkey"`
-	EncryptedUtxos         string        `json:"encrypted_utxos"`
-	RequiresP256           bool          `json:"requires_p256"`
-	PublicInputHash        string        `json:"public_input_hash"`
-	ExternalDataHash       string        `json:"external_data_hash"`
-	UserSolAccount         string        `json:"user_sol_account"`
-	UserSplTokenAccount    string        `json:"user_spl_token_account"`
-	SplTokenInterface      string        `json:"spl_token_interface"`
+	Name                   string                     `json:"name"`
+	ExpiryUnixTs           uint64                     `json:"expiry_unix_ts"`
+	SenderViewTag          string                     `json:"sender_view_tag"`
+	TxViewingPk            string                     `json:"tx_viewing_pk"`
+	Salt                   string                     `json:"salt"`
+	Proof                  *common.Proof              `json:"proof"`
+	Nullifiers             []string                   `json:"nullifiers"`
+	OutputUtxoHashes       []string                   `json:"output_utxo_hashes"`
+	UtxoTreeRootIndex      []uint16                   `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex []uint16                   `json:"nullifier_tree_root_index"`
+	PrivateTxHash          string                     `json:"private_tx_hash"`
+	InterfaceTransfers     []InterfaceTransferRequest `json:"interface_transfers"`
+	EncryptedUtxos         string                     `json:"encrypted_utxos"`
+	PublicInputHash        string                     `json:"public_input_hash"`
+	ExternalDataHash       string                     `json:"external_data_hash"`
 
 	SolanaOwnerPubkeys      []string            `json:"solana_owner_pubkeys"`
 	OutputUtxos             []ProofUtxoResponse `json:"output_utxos"`
@@ -112,10 +107,8 @@ type ProofSigningPayloadBundle struct {
 }
 
 type ProofSigningPayloadTransaction struct {
-	Name                  string `json:"name"`
-	PrivateTxHash         string `json:"private_tx_hash"`
-	P256MessageHash       string `json:"p256_message_hash"`
-	RequiresP256Signature bool   `json:"requires_p256_signature"`
+	Name          string `json:"name"`
+	PrivateTxHash string `json:"private_tx_hash"`
 }
 
 type ProofUtxoResponse struct {
@@ -212,18 +205,15 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 }
 
 func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHash *big.Int) (ProofTransaction, error) {
-	if ps.RequiresP256 != TransactionRequiresP256(tx) {
-		return ProofTransaction{}, fmt.Errorf(
-			"spp: proving system rail mismatch: system requiresP256=%v, transaction requiresP256=%v",
-			ps.RequiresP256, TransactionRequiresP256(tx),
-		)
+	if TransactionRequiresP256(tx) {
+		return ProofTransaction{}, fmt.Errorf("spp: transaction %q uses the removed P256 ownership rail", tx.Name)
 	}
 	built, err := buildProofAssignment(ps.Shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofTransaction{}, err
 	}
 	assignment, publicInputs, publicInputHash, outputUtxos, transcript :=
-		built.circuit, built.publicInputs, built.publicInputHash, built.outputUtxos, built.transcript
+		built.witness, built.publicInputs, built.publicInputHash, built.outputUtxos, built.transcript
 	proof, err := Prove(ps, assignment)
 	if err != nil {
 		return ProofTransaction{}, err
@@ -240,25 +230,26 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 	if err != nil {
 		return ProofTransaction{}, err
 	}
-	userSolAccount, err := parse.OptionalHex32(tx.UserSolAccount)
+	interfaceTransfers, err := normalizedInterfaceTransfers(tx.InterfaceTransfers)
 	if err != nil {
-		return ProofTransaction{}, fmt.Errorf("user_sol_account: %w", err)
+		return ProofTransaction{}, err
 	}
-	userSplTokenAccount, err := parse.OptionalHex32(tx.UserSplTokenAccount)
+	txViewingPk, err := fixedHexBytes(tx.TxViewingPk, 33)
 	if err != nil {
-		return ProofTransaction{}, fmt.Errorf("user_spl_token_account: %w", err)
+		return ProofTransaction{}, fmt.Errorf("tx_viewing_pk: %w", err)
 	}
-	splTokenInterface, err := parse.OptionalHex32(tx.SplTokenInterface)
+	salt, err := fixedHexBytes(tx.Salt, 16)
 	if err != nil {
-		return ProofTransaction{}, fmt.Errorf("spl_token_interface: %w", err)
+		return ProofTransaction{}, fmt.Errorf("salt: %w", err)
 	}
 
 	return ProofTransaction{
 		Name:          tx.Name,
 		ExpiryUnixTs:  tx.ExpiryUnixTs,
 		SenderViewTag: parse.HexString(tx.SenderViewTag),
+		TxViewingPk:   parse.BytesHex(txViewingPk),
+		Salt:          parse.BytesHex(salt),
 		Proof:         &common.Proof{Proof: proof},
-		RelayerFee:    tx.RelayerFee,
 		// Real-length public transcript. transcript.{nullifiers,outputHashes} are
 		// padded to the circuit shape (reals first, then dummy slots), but the
 		// on-chain TransactData wants the real-length arrays (it pads
@@ -271,17 +262,10 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		UtxoTreeRootIndex:       utxoRootIndices,
 		NullifierTreeRootIndex:  nullifierTreeRootIndices,
 		PrivateTxHash:           parse.FieldHex(publicInputs.PrivateTxHash),
-		PublicAmountMode:        tx.PublicAmountMode,
-		PublicSolAmount:         tx.PublicSolAmount,
-		PublicSplAmount:         tx.PublicSplAmount,
-		PublicSplAssetPubkey:    parse.HexString(tx.PublicSplAssetPubkey),
+		InterfaceTransfers:      interfaceTransfers,
 		EncryptedUtxos:          parse.HexString(tx.EncryptedUtxos),
-		RequiresP256:            transcript.requiresP256OwnerWitness,
 		PublicInputHash:         parse.FieldHex(publicInputHash),
 		ExternalDataHash:        parse.FieldHex(publicInputs.ExternalDataHash),
-		UserSolAccount:          parse.BytesHex(userSolAccount[:]),
-		UserSplTokenAccount:     parse.BytesHex(userSplTokenAccount[:]),
-		SplTokenInterface:       parse.BytesHex(splTokenInterface[:]),
 		SolanaOwnerPubkeys:      transcript.solanaOwnerPubkeys,
 		OutputUtxos:             outputUtxos,
 		DebugInputUtxoHashes:    proofBigIntHexes(transcript.inputHashes),
@@ -291,18 +275,48 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 	}, nil
 }
 
+func normalizedInterfaceTransfers(transfers []InterfaceTransferRequest) ([]InterfaceTransferRequest, error) {
+	out := make([]InterfaceTransferRequest, 0, len(transfers))
+	for position, transfer := range transfers {
+		userAccount, err := parse.Hex32(transfer.UserAccount)
+		if err != nil {
+			return nil, fmt.Errorf("interface_transfers[%d].user_account: %w", position, err)
+		}
+		normalized := InterfaceTransferRequest{
+			IsSpl:       transfer.IsSpl,
+			IsDeposit:   transfer.IsDeposit,
+			Amount:      transfer.Amount,
+			UserAccount: parse.BytesHex(userAccount[:]),
+		}
+		if transfer.IsSpl {
+			asset, err := parse.Hex32(transfer.Asset)
+			if err != nil {
+				return nil, fmt.Errorf("interface_transfers[%d].asset: %w", position, err)
+			}
+			poolAccount, err := parse.Hex32(transfer.PoolAccount)
+			if err != nil {
+				return nil, fmt.Errorf("interface_transfers[%d].pool_account: %w", position, err)
+			}
+			normalized.Asset = parse.BytesHex(asset[:])
+			normalized.PoolAccount = parse.BytesHex(poolAccount[:])
+		} else if transfer.Asset != "" {
+			return nil, fmt.Errorf("interface_transfers[%d].asset must be empty for SOL", position)
+		} else if transfer.PoolAccount != "" {
+			return nil, fmt.Errorf("interface_transfers[%d].pool_account must be empty for SOL", position)
+		}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
 func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransactionRequest, payerHash *big.Int) (ProofSigningPayloadTransaction, error) {
-	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{
-		AllowMissingP256Signature: true,
-	})
+	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
 	if err != nil {
 		return ProofSigningPayloadTransaction{}, err
 	}
 	return ProofSigningPayloadTransaction{
-		Name:                  tx.Name,
-		PrivateTxHash:         parse.FieldHex(built.publicInputs.PrivateTxHash),
-		P256MessageHash:       parse.BytesHex(built.p256MessageDigest[:]),
-		RequiresP256Signature: built.transcript.requiresP256OwnerWitness,
+		Name:          tx.Name,
+		PrivateTxHash: parse.FieldHex(built.publicInputs.PrivateTxHash),
 	}, nil
 }
 

@@ -1,7 +1,7 @@
 use solana_address::Address;
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_keypair::{
-    constants::{BLINDING_LEN, P256_PUBKEY_LEN, SALT_LEN},
+    constants::{P256_PUBKEY_LEN, SALT_LEN},
     P256Pubkey, PublicKey, ViewingKey,
 };
 
@@ -12,7 +12,7 @@ use crate::{data::Data, error::TransactionError, utxo::Utxo, AssetRegistry, Encr
 pub struct ConfidentialOutputPlaintext {
     pub asset_id: u64,
     pub amount: u64,
-    pub blinding: [u8; BLINDING_LEN],
+    pub blinding: [u8; 32],
     pub zone_program_id: Option<Address>,
     pub data: Data,
 }
@@ -149,7 +149,6 @@ impl UtxoSerialization for Confidential {
 mod tests {
     use borsh::BorshDeserialize;
     use zolana_event::OutputDataEncoding;
-    use zolana_keypair::constants::BLINDING_LEN;
 
     use super::*;
     use crate::{data::Data, SOL_ASSET_ID};
@@ -161,7 +160,7 @@ mod tests {
         ConfidentialOutputPlaintext {
             asset_id: SOL_ASSET_ID,
             amount: 42,
-            blinding: [7u8; BLINDING_LEN],
+            blinding: [7u8; 32],
             zone_program_id: None,
             data: Data::default(),
         }

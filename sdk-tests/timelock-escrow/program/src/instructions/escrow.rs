@@ -7,7 +7,7 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use crate::{
     error::TimelockEscrowError,
     instructions::{
-        shared::cpi_spp_transact,
+        shared::cpi_spp_transact_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
     verifying_keys::escrow,
@@ -51,5 +51,5 @@ pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
 
     let spp_accounts = iter.remaining()?;
-    cpi_spp_transact(spp_accounts, &transact_bytes)
+    cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

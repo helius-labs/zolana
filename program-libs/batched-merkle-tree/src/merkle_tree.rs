@@ -280,7 +280,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         })
     }
 
-    pub fn insert_address_into_queue(
+    pub fn insert_nullifier_into_queue(
         &mut self,
         address: &[u8; 32],
     ) -> Result<(), BatchedMerkleTreeError> {
@@ -341,15 +341,15 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     ///   -> R1 -> B0.2
     ///   -> R2 -> B0.3
     ///   -> R3 -> B0.4 - final B0 root
-    ///   B0.sequence_number = 13 (3 + account.root.length)
+    ///   B0.sequence_number = 14 (4 + account.root.length)
     ///   B0.root_index = 3
     /// - execute some B1 root updates
     ///   -> R4 -> B1.1
     ///   -> R5 -> B1.2
     ///   -> R6 -> B1.3
     ///   -> R7 -> B1.4 - final B1 (update batch 0) root
-    ///   B0.sequence_number = 17 (7 + account.root.length)
-    ///   B0.root_index = 7
+    ///   B1.sequence_number = 18 (8 + account.root.length)
+    ///   B1.root_index = 7
     ///   current_sequence_number = 8
     ///
     /// Timeslot 2:
@@ -431,7 +431,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 .batches
                 .get(current_batch)
                 .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
-            let current_batch_is_not_inserted = current.get_state() != BatchState::Inserted;
+            let current_batch_is_not_inserted = current.checked_state()? != BatchState::Inserted;
             let num_inserted_elements = current.get_num_inserted_elements();
             let current_batch_is_half_full = num_inserted_elements >= batch_size / 2;
             current_batch_is_half_full && current_batch_is_not_inserted
@@ -443,7 +443,8 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .get_mut(previous_pending_batch_index)
             .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
 
-        let previous_batch_is_inserted = previous_pending_batch.get_state() == BatchState::Inserted;
+        let previous_batch_is_inserted =
+            previous_pending_batch.checked_state()? == BatchState::Inserted;
         let previous_batch_is_ready =
             previous_batch_is_inserted && !previous_pending_batch.bloom_filter_is_zeroed();
 
@@ -565,18 +566,44 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     }
 
     /// Checks if the tree is full, optionally for a batch size.
-    /// If batch_size is provided, checks if there is enough space for the batch.
+    /// A batch of `batch_size` values fits iff its last leaf index
+    /// (`next_index + batch_size - 1`) is below `capacity`, i.e. the tree is
+    /// full iff `next_index + batch_size > capacity`. Without a batch size,
+    /// checks room for a single leaf.
     pub fn tree_is_full(&self, batch_size: Option<u64>) -> bool {
-        self.next_index + batch_size.unwrap_or_default() >= self.capacity
+        self.next_index + batch_size.unwrap_or(1) > self.capacity
     }
 
+    /// Checks that the next queued value still fits into the tree. Queued
+    /// values are appended in queue order starting at the current batch's
+    /// `start_index` (the init element occupies leaf 0, so queue sequence
+    /// numbers are one behind tree leaf indices); the value fits iff that
+    /// leaf index is below `capacity`.
     pub fn check_queue_next_index_reached_tree_capacity(
         &self,
     ) -> Result<(), BatchedMerkleTreeError> {
-        if self.queue_batches.next_index >= self.capacity {
+        let leaf_index = self.next_queued_leaf_index()?;
+        if leaf_index >= self.capacity {
             return Err(BatchedMerkleTreeError::TreeIsFull);
         }
         Ok(())
+    }
+
+    /// Leaf index reserved by the next queue insertion. This includes values
+    /// already queued but not yet applied to the Merkle tree.
+    pub fn next_queued_leaf_index(&self) -> Result<u64, BatchedMerkleTreeError> {
+        let current_batch = self.queue_batches.get_current_batch()?;
+        current_batch
+            .start_index
+            .checked_add(current_batch.get_num_inserted_elements())
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
+    }
+
+    /// Number of leaves not yet reserved by the queue.
+    pub fn remaining_queue_capacity(&self) -> Result<u64, BatchedMerkleTreeError> {
+        self.capacity
+            .checked_sub(self.next_queued_leaf_index()?)
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
     }
 
     /// Checks if the tree is full, optionally for a batch size.
@@ -1261,7 +1288,7 @@ mod test {
             )
             .unwrap();
             let address = rng.gen();
-            let result = account.insert_address_into_queue(&address);
+            let result = account.insert_nullifier_into_queue(&address);
             assert_eq!(
                 result.unwrap_err(),
                 BatchedMerkleTreeError::BloomFilterNotZeroed
@@ -1291,7 +1318,7 @@ mod test {
         for i in 0..batch_size {
             println!("inserting address: {}", i);
             let address = rng.gen();
-            account.insert_address_into_queue(&address)?;
+            account.insert_nullifier_into_queue(&address)?;
         }
         Ok(account)
     }
@@ -1322,24 +1349,30 @@ mod test {
             .is_ok());
 
         let rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
+        // The init element occupies leaf 0, so only capacity - 1 values fit.
         let account = insert_rnd_addresses::<10, 3, 1000, 200>(
             &mut account_data,
-            tree_capacity - 1,
+            tree_capacity - 2,
             rng,
             &pubkey,
         )
         .unwrap();
-        // 2. tree at capacity - 1 is not full
+        // 2. one free leaf left: not full
         assert!(account
             .check_queue_next_index_reached_tree_capacity()
             .is_ok());
-        // 3. tree at capacity is full
+        // 3. the last value fills the last leaf: full
         let account =
             insert_rnd_addresses::<10, 3, 1000, 200>(&mut account_data, 1, rng, &pubkey).unwrap();
         assert_eq!(
             account
                 .check_queue_next_index_reached_tree_capacity()
                 .unwrap_err(),
+            BatchedMerkleTreeError::TreeIsFull
+        );
+        // 4. one more value does not fit and must be rejected.
+        assert_eq!(
+            account.insert_nullifier_into_queue(&rng.gen()).unwrap_err(),
             BatchedMerkleTreeError::TreeIsFull
         );
     }
@@ -1371,7 +1404,7 @@ mod test {
         for _ in 0..batch_size {
             let address = rng.gen();
             inserted_elements.push(address);
-            account.insert_address_into_queue(&address).unwrap();
+            account.insert_nullifier_into_queue(&address).unwrap();
         }
         // 1. Non inclusion of inserted elements should fail
         for address in inserted_elements.iter() {
@@ -1391,7 +1424,7 @@ mod test {
         for _ in 0..batch_size {
             let address = rng.gen();
             inserted_elements.push(address);
-            account.insert_address_into_queue(&address).unwrap();
+            account.insert_nullifier_into_queue(&address).unwrap();
         }
         // 3. Non inclusion of inserted elements should fail
         for address in inserted_elements.iter() {
@@ -1453,11 +1486,20 @@ mod test {
         assert!(account.check_tree_is_full(None).is_ok());
         assert!(!account.tree_is_full(Some(1)));
         assert!(account.check_tree_is_full(Some(1)).is_ok());
+        // A batch of 2 fills the last two leaves exactly: not full.
+        assert!(!account.tree_is_full(Some(2)));
+        assert!(account.check_tree_is_full(Some(2)).is_ok());
+        // A batch of 3 would write past the last leaf: full.
+        assert!(account.tree_is_full(Some(3)));
+        assert!(account.check_tree_is_full(Some(3)).is_err());
         account.next_index = account.capacity - 1;
         assert!(!account.tree_is_full(None));
         assert!(account.check_tree_is_full(None).is_ok());
-        assert!(account.tree_is_full(Some(1)));
-        assert!(account.check_tree_is_full(Some(1)).is_err());
+        // The final leaf still fits a single value (or a batch of 1).
+        assert!(!account.tree_is_full(Some(1)));
+        assert!(account.check_tree_is_full(Some(1)).is_ok());
+        assert!(account.tree_is_full(Some(2)));
+        assert!(account.check_tree_is_full(Some(2)).is_err());
         account.next_index = account.capacity;
         assert!(account.tree_is_full(None));
         assert!(account.check_tree_is_full(None).is_err());

@@ -37,8 +37,9 @@ func NewAESGadget(api frontend.API) *AESGadget {
 	return &AESGadget{api: api, sbox: sbox, RCon: RCon, t0: t0, t1: t1, t2: t2, t3: t3}
 }
 
-// Encrypt performs AES-256 encryption of a single 16-byte block.
-// key must be 32 bytes. Returns the 16-byte ciphertext.
+// Encrypt performs AES encryption of a single 16-byte block.
+// key must be 16 bytes (AES-128) or 32 bytes (AES-256).
+// Returns the 16-byte ciphertext.
 func (g *AESGadget) Encrypt(key []frontend.Variable, pt [16]frontend.Variable) [16]frontend.Variable {
 	keySize := len(key)
 	rounds := 14
@@ -88,6 +89,9 @@ func (g *AESGadget) Encrypt(key []frontend.Variable, pt [16]frontend.Variable) [
 // Returns a flat slice of frontend.Variable (one per byte).
 func (g *AESGadget) ExpandKey(key []frontend.Variable) []frontend.Variable {
 	keySize := len(key)
+	if keySize != 16 && keySize != 32 {
+		panic("aes: key must be 16 bytes (AES-128) or 32 bytes (AES-256)")
+	}
 	rounds := 14
 	if keySize == 16 {
 		rounds = 10

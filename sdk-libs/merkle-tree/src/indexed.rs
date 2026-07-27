@@ -201,7 +201,7 @@ where
 // TODO: check why next_index is usize while index is I
 /// We prove non-inclusion by:
 /// 1. Showing that value is greater than leaf_lower_range_value and less than leaf_higher_range_value
-/// 2. Showing that the leaf_hash H(leaf_lower_range_value, leaf_next_index, leaf_higher_value) is included in the root (Merkle tree)
+/// 2. Showing that the leaf_hash H(leaf_lower_range_value, leaf_higher_range_value) is included in the root (Merkle tree)
 #[derive(Debug)]
 pub struct NonInclusionProof {
     pub root: [u8; 32],
