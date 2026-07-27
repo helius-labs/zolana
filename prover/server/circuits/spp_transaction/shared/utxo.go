@@ -57,10 +57,10 @@ func (u UtxoCircuitFields) assertInDefaultZone(api frontend.API) {
 	api.AssertIsEqual(u.ZoneDataHash, 0)
 }
 
-// checkDummy returns 1 iff every field except the domain and blinding is zero,
+// CheckDummy returns 1 iff every field except the domain and blinding is zero,
 // so the utxo carries nothing; the blinding stays free so dummy hashes are
 // indistinguishable from real UTXO hashes.
-func (u UtxoCircuitFields) checkDummy(api frontend.API) frontend.Variable {
+func (u UtxoCircuitFields) CheckDummy(api frontend.API) frontend.Variable {
 	return allZero(api,
 		u.Owner,
 		u.Asset,

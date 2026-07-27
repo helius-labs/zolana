@@ -25,6 +25,7 @@ use crate::{
         },
         MergeInputs, TransferInput, TransferOutput,
     },
+    rpc::NonInclusionProof,
 };
 
 /// Merge consolidates up to 8 inputs sharing one owner, asset, and nullifier
@@ -58,7 +59,8 @@ pub struct MergeProofResult {
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
     /// Per-input references into the tree's root caches (length 8; dummy slots
-    /// mirror the first real input), for the `merge_transact` instruction data.
+    /// mirror the first real input's UTXO root while carrying their own
+    /// nullifier non-inclusion root), for the `merge_transact` instruction data.
     pub utxo_tree_root_indices: Vec<u16>,
     pub nullifier_tree_root_indices: Vec<u16>,
     pub output_hash: [u8; 32],
@@ -303,6 +305,7 @@ pub struct MergeWitness {
     pub prepared: PreparedMerge,
     pub nullifier_key: NullifierKey,
     pub proofs: Vec<SpendProof>,
+    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
 impl TryFrom<MergeWitness> for MergeProver {
@@ -313,6 +316,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             prepared,
             nullifier_key,
             proofs,
+            dummy_nullifier_proofs,
         } = witness;
         let PreparedMerge {
             inputs,
@@ -321,7 +325,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             signing_pubkey,
         } = prepared;
 
-        let mut spends = attach_input_proofs(inputs, &proofs, &[])?;
+        let mut spends = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
         // Default-merge inputs are plain utxos; no data hashes ride along.
         for spend in &mut spends {
             spend.data_hash = None;

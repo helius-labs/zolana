@@ -7,24 +7,17 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
-// constrainOutput assembles and hashes the single merged output: a bare UTXO
-// owned by user_owner_hash carrying the merged asset and the amount summed from
-// the inputs. Its leaf fields are shared/constant except the derived blinding
-// (and, on the zone rail, the free ZoneDataHash). The merged output is always
-// real, so no dummy gating applies. Returns its UTXO hash for the
-// private-transaction-hash chain.
 func constrainOutput(
 	api frontend.API,
 	out Output,
+	hash,
 	blinding,
 	userOwnerHash,
 	asset,
 	amount,
 	zoneProgramID frontend.Variable,
 ) frontend.Variable {
-	// The merged amount is assembled from the input sum, not witnessed. Range-check
-	// it to 64 bits (pairs with the per-input checks so sum(inputs) == output holds
-	// over the integers, not just mod p).
+
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: amount})
 
 	utxo := transaction.UtxoCircuitFields{
@@ -37,5 +30,6 @@ func constrainOutput(
 		ZoneDataHash:  out.ZoneDataHash,
 		ZoneProgramID: zoneProgramID,
 	}
-	return transaction.UtxoHashCircuit(api, utxo)
+	// DataHash is fixed to zero, so no owner signature is needed.
+	return transaction.ConstrainOutput(api, utxo, hash, frontend.Variable(0))
 }

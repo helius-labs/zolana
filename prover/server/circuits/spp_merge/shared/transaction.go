@@ -213,17 +213,18 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 			i,
 		)
 	}
-	assertDistinctNullifiers(api, nullifiers)
-	outputBlinding := MergeOutputBlinding(api, t.Inputs[0].Blinding, nullifiers[0])
+	transaction.AssertDistinctNullifiers(api, nullifiers)
 
 	sumInputs := frontend.Variable(0)
 	for i := range t.Inputs {
 		sumInputs = api.Add(sumInputs, t.Inputs[i].Amount)
 	}
 
+	outputBlinding := MergeOutputBlinding(api, t.Inputs[0].Blinding, nullifiers[0])
 	outputHash := constrainOutput(
 		api,
 		t.Output,
+		t.Public.OutputHash,
 		outputBlinding,
 		userOwnerHash,
 		t.Asset,
@@ -247,23 +248,8 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	for i := range nullifiers {
 		api.AssertIsEqual(t.Public.Nullifiers[i], nullifiers[i])
 	}
-	api.AssertIsEqual(t.Public.OutputHash, outputHash)
 
 	return Derived{
 		OwnerPkHash: t.OwnerPkHash,
 	}, nil
-}
-
-// assertDistinctNullifiers requires every published nullifier to be distinct,
-// over real and dummy slots alike. Two mechanisms guard two attacks: the
-// deterministic dummy derivation (see constrainInput) keeps a real wallet
-// nullifier out of padding slots, and distinctness keeps the same real input
-// from filling two slots, which would double-count its value in the output.
-func assertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
-	for i := range nullifiers {
-		for j := i + 1; j < len(nullifiers); j++ {
-			same := api.IsZero(api.Sub(nullifiers[i], nullifiers[j]))
-			api.AssertIsEqual(same, 0)
-		}
-	}
 }

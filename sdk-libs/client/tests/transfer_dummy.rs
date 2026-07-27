@@ -96,7 +96,7 @@ fn async_queue_result_count() -> Option<u64> {
     )
 }
 
-fn dummy_external_data() -> ExternalData {
+fn dummy_external_data(owner_tag: [u8; 32], n_outputs: usize) -> ExternalData {
     ExternalData {
         instruction_discriminator: 0,
         expiry_unix_ts: 0,
@@ -105,14 +105,14 @@ fn dummy_external_data() -> ExternalData {
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        outputs: (0..3)
+        outputs: (0..n_outputs)
             .map(|_| TransactOutput {
                 utxo_hash: [0u8; 32],
-                owner_tag: OwnerTag::Inline([0u8; 32]),
+                owner_tag: OwnerTag::Inline(owner_tag),
                 data: None,
             })
             .collect(),
-        resolved_owner_tags: vec![[0u8; 32]; 3],
+        resolved_owner_tags: vec![owner_tag; n_outputs],
         messages: Vec::new(),
     }
 }
@@ -200,12 +200,13 @@ fn dummy_input() -> TransferSpendInput {
     }
 }
 
-/// A padding output: zero owner hash, random blinding.
-fn dummy_output() -> SppProofOutputUtxo {
+/// A padding output tagged to a real input owner, with random blinding.
+fn dummy_output(owner_tag: [u8; 32]) -> SppProofOutputUtxo {
     let mut blinding = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut blinding[1..]);
     SppProofOutputUtxo {
         blinding,
+        owner_tag: Some(owner_tag),
         ..Default::default()
     }
 }
@@ -232,16 +233,22 @@ fn eddsa_confidential_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifying
 /// `transfer_confidential_{shape}` verifying key. Exercises proof generation +
 /// on-chain-style Groth16 verification for every supported shape, not just (2,3).
 fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
-    let mut inputs = vec![real_input()];
+    let real_input = real_input();
+    let owner_tag = real_input
+        .utxo
+        .owner
+        .confidential_view_tag()
+        .expect("real input owner tag");
+    let mut inputs = vec![real_input];
     for _ in 1..n_in {
         inputs.push(dummy_input());
     }
-    let outputs = (0..n_out).map(|_| dummy_output()).collect();
+    let outputs = (0..n_out).map(|_| dummy_output(owner_tag)).collect();
 
     let prover = TransferProver {
         inputs,
         outputs,
-        external_data: dummy_external_data(),
+        external_data: dummy_external_data(owner_tag, n_out),
         public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
         allow_dummy_inputs: true,
@@ -296,10 +303,20 @@ fn dummy_transfer_2_3_proof_verifies() {
     start_prover();
     let queued_results_before = async_queue_result_count();
 
+    let real_input = real_input();
+    let owner_tag = real_input
+        .utxo
+        .owner
+        .confidential_view_tag()
+        .expect("real input owner tag");
     let prover = TransferProver {
-        inputs: vec![real_input(), dummy_input()],
-        outputs: vec![dummy_output(), dummy_output(), dummy_output()],
-        external_data: dummy_external_data(),
+        inputs: vec![real_input, dummy_input()],
+        outputs: vec![
+            dummy_output(owner_tag),
+            dummy_output(owner_tag),
+            dummy_output(owner_tag),
+        ],
+        external_data: dummy_external_data(owner_tag, 3),
         public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
         allow_dummy_inputs: true,

@@ -13,7 +13,7 @@ import (
 // 3. No signatures are enforced in the program or circuit.
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
-// 6. Many UTXOs to one UTXO
+// 6. 1/many UTXOs to one UTXO
 // 7. The output UTXO is derived completely deterministically from the
 // input UTXOs so that the owner can derive it without decrypting the transaction cipher text.
 
@@ -67,6 +67,7 @@ func (c *ZoneCircuit) Define(api frontend.API) error {
 	if err := tx.ValidateLayout(c.NumInputs); err != nil {
 		return err
 	}
+	api.AssertIsDifferent(c.ZoneProgramID, 0)
 	if _, err := tx.Constrain(api); err != nil {
 		return err
 	}

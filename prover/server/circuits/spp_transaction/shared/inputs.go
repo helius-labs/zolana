@@ -63,9 +63,9 @@ func inputUtxos(inputs []Input) []UtxoCircuitFields {
 	return out
 }
 
-// assertDistinctNullifiers asserts pairwise inequality so no input slot is
+// AssertDistinctNullifiers asserts pairwise inequality so no input slot is
 // spent twice within one proof.
-func assertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
+func AssertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
 	for i := range nullifiers {
 		for j := i + 1; j < len(nullifiers); j++ {
 			api.AssertIsDifferent(nullifiers[i], nullifiers[j])
@@ -112,7 +112,7 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// Dummy checks:
 	// 1. All UTXO fields and nullifier secret 0, except the blinding.
 	{
-		AssertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
+		AssertWhen(api, in.isDummy(api), in.Utxo.CheckDummy(api))
 		assertZeroWhen(api, in.isDummy(api), in.NullifierSecret)
 	}
 	// Address checks:

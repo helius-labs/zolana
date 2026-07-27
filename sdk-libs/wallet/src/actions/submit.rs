@@ -109,11 +109,29 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     let commitments = prepared.input_utxo_hashes()?;
     let proofs = indexer.get_input_merkle_proofs_for_tree(input_tree, &commitments, None)?;
     ensure_proofs_match_input_tree(&proofs, input_tree)?;
+    let dummy_nullifiers = prepared.dummy_nullifiers()?;
+    let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
+        Vec::new()
+    } else {
+        indexer
+            .get_non_inclusion_proofs(input_tree, dummy_nullifiers, None)?
+            .proofs
+    };
+    for proof in &dummy_nullifier_proofs {
+        let proof_tree = proof.merkle_context.tree;
+        if proof_tree != input_tree {
+            return Err(ClientError::MergeInputTreeMismatch {
+                proof_tree: proof_tree.to_bytes(),
+                input_tree: input_tree.to_bytes(),
+            });
+        }
+    }
 
     let result = MergeProver::try_from(MergeWitness {
         prepared,
         nullifier_key: material.nullifier_key.clone(),
         proofs,
+        dummy_nullifier_proofs,
     })?
     .build()?;
 

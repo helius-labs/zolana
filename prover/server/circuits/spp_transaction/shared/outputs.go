@@ -21,7 +21,8 @@ func OutputOwners(outputs []UtxoCircuitFields) []frontend.Variable {
 	return owners
 }
 
-func constrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned frontend.Variable) frontend.Variable {
+// ConstrainOutput validates and hash-binds one transaction output.
+func ConstrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned frontend.Variable) frontend.Variable {
 	isUtxo := utxo.isUtxo(api)
 	api.AssertIsEqual(api.Add(isUtxo, utxo.isDummy(api)), 1)
 
@@ -29,7 +30,7 @@ func constrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned
 	assertZeroWhen(api, isUtxo, api.IsZero(utxo.Asset))
 
 	// 1. All fields must be 0 except blinding.
-	AssertWhen(api, utxo.isDummy(api), utxo.checkDummy(api))
+	AssertWhen(api, utxo.isDummy(api), utxo.CheckDummy(api))
 
 	// 2. if utxo program data is set owner must have signed.
 	dataIsSet := api.Sub(1, api.IsZero(utxo.DataHash))

@@ -33,6 +33,7 @@ const (
 type mergeFixtureOptions struct {
 	rail              mergeFixtureRail
 	eddsa             bool
+	asset             *big.Int
 	zoneProgramID     *big.Int
 	inputZoneData     []*big.Int
 	outputZoneData    *big.Int
@@ -109,6 +110,9 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	}
 
 	asset := big.NewInt(1)
+	if options.asset != nil {
+		asset = new(big.Int).Set(options.asset)
+	}
 	const numReal = 2
 	amounts := []*big.Int{big.NewInt(5), big.NewInt(7)}
 	blindings := []*big.Int{big.NewInt(0x1111), big.NewInt(0x2222)}
@@ -256,6 +260,14 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		}
 		return nf
 	}
+	dummyNfWitnesses := make(map[int]protocol.NonInclusionWitness, merge.MergeInputs-numReal)
+	for i := numReal; i < merge.MergeInputs; i++ {
+		w, err := nfTree.NonInclusionWitness(dummyNullifier(i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dummyNfWitnesses[i] = w
+	}
 
 	// Public columns (real + dummy), reused verbatim in the public input hash.
 	pubNullifiers := make([]*big.Int, merge.MergeInputs)
@@ -324,19 +336,20 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			in.NullifierNextValue = nfWitnesses[i].NextValue
 			fillPath(in.NullifierLowPathElements, nfWitnesses[i].PathElements)
 			in.NullifierLowPathIndex = big.NewInt(int64(nfWitnesses[i].LowIndex))
-		} else {
-			in.Domain = big.NewInt(protocol.DummyDomain)
-			in.Amount = big.NewInt(0)
-			in.Blinding = big.NewInt(0)
-			in.ZoneDataHash = big.NewInt(0)
-			zeroPath(in.StatePathElements)
-			in.StatePathIndex = big.NewInt(0)
-			in.NullifierLowValue = big.NewInt(0)
-			in.NullifierNextValue = big.NewInt(0)
-			zeroPath(in.NullifierLowPathElements)
-			in.NullifierLowPathIndex = big.NewInt(0)
+			} else {
+				in.Domain = big.NewInt(protocol.DummyDomain)
+				in.Amount = big.NewInt(0)
+				in.Blinding = big.NewInt(0)
+				in.ZoneDataHash = big.NewInt(0)
+				zeroPath(in.StatePathElements)
+				in.StatePathIndex = big.NewInt(0)
+				w := dummyNfWitnesses[i]
+				in.NullifierLowValue = w.LowValue
+				in.NullifierNextValue = w.NextValue
+				fillPath(in.NullifierLowPathElements, w.PathElements)
+				in.NullifierLowPathIndex = big.NewInt(int64(w.LowIndex))
+			}
 		}
-	}
 	if options.duplicateFirstInput {
 		inputs[1] = inputs[0]
 		inputs[1].Amount = amounts[1]

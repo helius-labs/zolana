@@ -46,6 +46,16 @@ func TestMergeZoneCircuitRejectsWrongZoneProgram(t *testing.T) {
 	}
 }
 
+// A zero zone program would collapse the policy-zone rail into default-zone
+// UTXO semantics. Build a self-consistent zero-zone witness to isolate the
+// explicit nonzero-zone invariant.
+func TestMergeZoneCircuitRejectsZeroZoneProgram(t *testing.T) {
+	a := buildZoneWitness(t, big.NewInt(0))
+	if err := test.IsSolved(merge.NewMergeZoneCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected zero-zone-program failure, got solved")
+	}
+}
+
 // The carried output zone-data hash must equal Output.Utxo.ZoneDataHash; a
 // mismatch means the instruction/event does not describe the proven output.
 func TestMergeZoneCircuitRejectsWrongOutputZoneDataHash(t *testing.T) {

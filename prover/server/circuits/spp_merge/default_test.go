@@ -161,6 +161,15 @@ func TestMergeCircuitRejectsWrongAsset(t *testing.T) {
 	}
 }
 
+// Asset zero is reserved for content-less slots. Build an otherwise internally
+// consistent asset-zero merge so only the real-output asset invariant rejects it.
+func TestMergeCircuitRejectsZeroAsset(t *testing.T) {
+	a := buildDefaultWitness(t, mergeFixtureOptions{asset: big.NewInt(0)})
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected zero-asset failure, got solved")
+	}
+}
+
 func TestMergeCircuitRejectsWrongOwner(t *testing.T) {
 	a := buildValidWitness(t)
 	a.OwnerPkHash = big.NewInt(0xBADBAD)
@@ -203,6 +212,22 @@ func TestMergeCircuitRejectsNonzeroDefaultZoneData(t *testing.T) {
 				t.Fatal("expected default-zone data assertion to fail, got solved")
 			}
 		})
+	}
+}
+
+func TestMergeCircuitRejectsNonzeroDummyZoneData(t *testing.T) {
+	a := buildValidWitness(t)
+	a.Inputs[2].ZoneDataHash = big.NewInt(1)
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected canonical-dummy failure, got solved")
+	}
+}
+
+func TestMergeCircuitRejectsBadDummyNonInclusionProof(t *testing.T) {
+	a := buildValidWitness(t)
+	a.Inputs[2].NullifierLowPathElements[0] = big.NewInt(1)
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected dummy nullifier non-inclusion failure, got solved")
 	}
 }
 

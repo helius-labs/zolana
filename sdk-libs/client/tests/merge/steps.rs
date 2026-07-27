@@ -85,10 +85,17 @@ impl MergeWorld {
         let proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
             .expect("merkle proofs");
+        let dummy_nullifier_proofs = prepared
+            .dummy_nullifiers()
+            .expect("dummy nullifiers")
+            .into_iter()
+            .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
+            .collect();
         let result = MergeProver::try_from(MergeWitness {
             prepared,
             nullifier_key: sender.nullifier_key.clone(),
             proofs,
+            dummy_nullifier_proofs,
         })
         .expect("merge prover")
         .build()

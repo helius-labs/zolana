@@ -126,12 +126,12 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		}
 		inputHashes[i], addressHashes[i] = constrainInput(api, in, signals)
 	}
-	assertDistinctNullifiers(api, t.Nullifiers)
+	AssertDistinctNullifiers(api, t.Nullifiers)
 
 	// 2. check outputs
 	outputHashes := make([]frontend.Variable, t.Shape.NOutputs)
 	for i, utxo := range t.Outputs {
-		outputHashes[i] = constrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i])
+		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i])
 	}
 
 	// 3. check balance

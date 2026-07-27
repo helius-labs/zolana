@@ -29,9 +29,7 @@ pub struct SpendProof {
 /// Attach the fetched Merkle proofs to the proof inputs positionally: each real
 /// input (non-zero owner) consumes the next spend proof, each dummy slot consumes
 /// the next dummy non-inclusion proof (the transact circuit checks non-inclusion
-/// for every slot). Callers whose circuit skips dummy non-inclusion (merge,
-/// merge-zone) pass no dummy proofs; those dummies mirror the first real input's
-/// witness during assembly. Shared by every witness builder (transact, merge,
+/// for every slot). Shared by every witness builder (transact, merge,
 /// merge-zone, zone-authority).
 pub(crate) fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,

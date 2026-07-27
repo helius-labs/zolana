@@ -127,6 +127,12 @@ impl PreparedMergeZone {
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         real_input_contexts(&self.inputs, has_utxo_data)
     }
+
+    /// Deterministic padding nullifiers whose non-inclusion proofs must be
+    /// fetched before constructing the merge-zone circuit witness.
+    pub fn dummy_nullifiers(&self) -> Result<Vec<[u8; 32]>, TransactionError> {
+        super::merge::derive_dummy_nullifiers(&self.inputs)
+    }
 }
 
 #[cfg(test)]

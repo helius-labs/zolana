@@ -25,6 +25,7 @@ use crate::{
             witness::{attach_input_proofs, SpendProof},
         },
     },
+    rpc::NonInclusionProof,
 };
 
 /// Policy-zone merge consolidates up to 8 inputs sharing one owner, asset,
@@ -102,6 +103,7 @@ pub struct MergeZoneWitness {
     pub prepared: PreparedMergeZone,
     pub nullifier_key: NullifierKey,
     pub proofs: Vec<SpendProof>,
+    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
 impl TryFrom<MergeZoneWitness> for MergeZoneProver {
@@ -112,6 +114,7 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             prepared,
             nullifier_key,
             proofs,
+            dummy_nullifier_proofs,
         } = witness;
         let PreparedMergeZone {
             inputs,
@@ -121,7 +124,7 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             zone_program_id,
         } = prepared;
 
-        let spends = attach_input_proofs(inputs, &proofs, &[])?;
+        let spends = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
 
         Ok(MergeZoneProver {
             inputs: spends,

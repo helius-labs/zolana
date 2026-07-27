@@ -4,7 +4,10 @@
 //! in-circuit from the nullifier secret, so there is no signing step.
 
 use solana_address::Address;
-use zolana_keypair::{merge::merge_output_blinding, PublicKey, ShieldedKeypairTrait};
+use zolana_keypair::{
+    merge::{merge_dummy_nullifier, merge_output_blinding},
+    PublicKey, ShieldedKeypairTrait,
+};
 
 use crate::{
     error::TransactionError,
@@ -140,6 +143,25 @@ pub(crate) fn pad_with_dummies(inputs: &mut Vec<SppProofInputUtxo>) {
     }
 }
 
+pub(crate) fn derive_dummy_nullifiers(
+    inputs: &[SppProofInputUtxo],
+) -> Result<Vec<[u8; 32]>, TransactionError> {
+    let first = inputs.first().ok_or(TransactionError::NoInputs)?;
+    if first.is_dummy() {
+        return Err(TransactionError::NoInputs);
+    }
+    let first_nullifier = first.nullifier()?;
+    inputs
+        .iter()
+        .enumerate()
+        .filter(|(_, input)| input.is_dummy())
+        .map(|(slot, _)| {
+            merge_dummy_nullifier(&first.utxo.blinding, &first_nullifier, slot as u8)
+                .map_err(Into::into)
+        })
+        .collect()
+}
+
 /// Commitments for the real inputs only; dummy padding has a zero owner and no
 /// meaningful commitment to look up. `has_disqualifying_data` re-applies the
 /// rail's data policy so a prepared plan cannot smuggle in an input its rail
@@ -180,6 +202,12 @@ impl PreparedMerge {
     /// inputs, so an input that committed to program or zone data is rejected.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         real_input_contexts(&self.inputs, has_data)
+    }
+
+    /// Deterministic padding nullifiers whose non-inclusion proofs must be
+    /// fetched before constructing the merge circuit witness.
+    pub fn dummy_nullifiers(&self) -> Result<Vec<[u8; 32]>, TransactionError> {
+        derive_dummy_nullifiers(&self.inputs)
     }
 }
 
