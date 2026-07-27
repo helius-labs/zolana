@@ -10,6 +10,8 @@ members = [
     "program-libs/interface",
     "program-libs/user-registry-interface",
     "program-libs/tree",
+    "third-party/agave-bn254/bn254-batch-syscall",
+    "third-party/agave-bn254/bn254-groth16-batch",
     "program-tests/shielded-pool",
     "program-tests/spp-test-validator",
     "program-tests/test-utils",
@@ -87,6 +89,8 @@ aligned-sized = "1.1.0"
 light-array-map = "0.2.0"
 zolana-account-checks = { path = "program-libs/account-checks", version = "0.8.0", default-features = false }
 zolana-batched-merkle-tree = { path = "program-libs/batched-merkle-tree", version = "0.11.0" }
+solana-bn254-batch-syscall = { path = "third-party/agave-bn254/bn254-batch-syscall", version = "0.1.0", features = ["agave-unstable-api"] }
+solana-bn254-groth16-batch = { path = "third-party/agave-bn254/bn254-groth16-batch", version = "0.1.0", features = ["agave-unstable-api"] }
 zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
@@ -107,6 +111,8 @@ solana-address = { version = "2.6", features = ["atomic", "borsh", "bytemuck", "
 solana-address-lookup-table-interface = { version = "3.0", features = ["bytemuck", "bincode"] }
 solana-banks-client = { version = "=4.0.0-rc.0", features = ["agave-unstable-api"] }
 solana-bn254 = "3.2.1"
+solana-define-syscall = "4.0.1"
+solana-keccak-hasher = { version = "3.1.0", default-features = false }
 solana-clock = "3.0"
 solana-commitment-config = "3.1"
 solana-compute-budget = "3.1"
@@ -156,7 +162,7 @@ bb8 = "0.8.6"
 bincode = { version = "2.0.1", features = ["serde"] }
 bitvec = { version = "1.0.1", default-features = false }
 bs58 = "0.5.1"
-bytemuck = { version = "1.19.0", features = ["derive"] }
+bytemuck = { version = "1.19.0", features = ["derive", "min_const_generics"] }
 bytes = "1.12.0"
 cadence = "1.8.0"
 cadence-macros = "1.8.0"
@@ -215,6 +221,7 @@ zerocopy = "0.8.25"
 
 # Prover math/crypto.
 ark-bn254 = "0.5"
+ark-ec = "0.5"
 ark-ff = "=0.5.0"
 ark-serialize = "0.5"
 ark-std = "0.5"

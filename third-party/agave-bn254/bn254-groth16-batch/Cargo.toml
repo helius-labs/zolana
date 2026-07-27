@@ -1,0 +1,27 @@
+[package]
+name = "solana-bn254-groth16-batch"
+description = "Shim: sources are ../agave/bn254-groth16-batch (not vendored)"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = ["agave-unstable-api"]
+agave-unstable-api = []
+
+[dependencies]
+ark-bn254 = { workspace = true }
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+solana-bn254-batch-syscall = { workspace = true }
+solana-keccak-hasher = { workspace = true, features = ["sha3"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+ark-std = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = ['cfg(target_os, values("solana"))']
