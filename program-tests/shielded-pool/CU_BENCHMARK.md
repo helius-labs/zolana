@@ -21,8 +21,8 @@ Regenerate with `just bench-shielded-pool`.
 | --------------------- | ---------- | ---------- |
 | `settle_sol`          |      1,224 |      1,224 |
 | `process_instruction` |         31 |         31 |
-| `process_deposit`     |     39,954 |     38,699 |
-| `process_instruction` |     40,006 |         52 |
+| `process_deposit`     |     38,411 |     37,156 |
+| `process_instruction` |     38,461 |         50 |
 
 ## 2. Deposit sol batch 3
 
@@ -30,15 +30,15 @@ Regenerate with `just bench-shielded-pool`.
 | --------------------- | ---------- | ---------- |
 | `settle_sol`          |      1,224 |      1,224 |
 | `process_instruction` |         31 |         31 |
-| `process_deposit`     |     51,890 |     50,635 |
-| `process_instruction` |     51,942 |         52 |
+| `process_deposit`     |     49,915 |     48,660 |
+| `process_instruction` |     49,965 |         50 |
 
 ## 3. Deposit spl
 
 | Function              |   Total CU |     Net CU |
 | --------------------- | ---------- | ---------- |
-| `settle_spl`          |      1,195 |      1,195 |
+| `settle_spl_deposit`  |      1,249 |      1,249 |
 | `process_instruction` |         31 |         31 |
-| `process_deposit`     |     41,409 |     40,183 |
-| `process_instruction` |     41,461 |         52 |
+| `process_deposit`     |     39,310 |     38,030 |
+| `process_instruction` |     39,360 |         50 |
 
