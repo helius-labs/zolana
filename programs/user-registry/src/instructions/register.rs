@@ -4,7 +4,7 @@ use zolana_user_registry_interface::{instruction::RegisterData, UserRecord};
 use super::common::{check_record_pda, check_system_program, create_record_account, write_record};
 use crate::error::{fail, UserRegistryError};
 
-/// Creates a per-owner record with static shielded keys and no sync delegate.
+/// Creates a per-owner record with its shielded keys and merging disabled.
 pub fn process_register(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -38,7 +38,7 @@ pub fn process_register(
         owner,
         &owner_address,
         bump,
-        UserRecord::space_for(0),
+        UserRecord::SIZE,
         program_id,
     )?;
 
@@ -48,8 +48,6 @@ pub fn process_register(
         owner_p256: data.owner_p256,
         nullifier_pubkey: data.nullifier_pubkey,
         viewing_pubkey: data.viewing_pubkey,
-        sync_delegate: None,
-        entries: Vec::new(),
         merging_enabled: false,
     };
     write_record(record, &state)

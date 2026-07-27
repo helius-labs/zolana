@@ -73,11 +73,7 @@
     - [Operations](#operations-1)
       - [`get_record`](#get_record)
       - [`register`](#register)
-      - [`set_delegate`](#set_delegate)
-      - [`rotate_sync_delegate_key`](#rotate_sync_delegate_key)
-      - [`revoke_sync_delegate`](#revoke_sync_delegate)
       - [`set_merging_enabled`](#set_merging_enabled)
-  - [Sync Delegate](#sync-delegate)
 - [User Flows](#user-flows)
   - [First Time Sync Wallet](#first-time-sync-wallet)
   - [Merge Flow](#merge-flow)
@@ -92,9 +88,9 @@ Confidential transfers are performed by a minimal Solana Privacy Program (SPP) t
 
 For wallet sync at Solana RPC speed, the owner pubkey prefixes every encrypted UTXO so wallets and indexers locate relevant outputs without trial decryption.
 
-For compatibility with Solana addresses, a registry maps Solana addresses to shielded addresses and delegate keys, so a sender holding only a recipient's Solana address can pay them privately.
+For compatibility with Solana addresses, a registry maps Solana addresses to shielded addresses, so a sender holding only a recipient's Solana address can pay them privately.
 
-Two opt-in services improve user experience. A merge service consolidates fragmented balances without per-merge wallet signatures, once the owner enables merging on their registry record. A sync delegate watches owner tags and surfaces relevant transactions to lightweight wallet implementations without local decryption.
+An optional merge service consolidates fragmented balances without per-merge wallet signatures once the owner enables merging on their registry record.
 
 The document specifies the key derivation, UTXO layout, SPP accounts and instructions, the zone program interface, the ZK program interface, the ZK circuits, the indexer / prover / relayer / zone RPC / merge service / registry interfaces, and user flows.
 
@@ -176,7 +172,7 @@ UTXOs are inherently concurrent. Every transaction to a user will fragment the u
 
 The default zone is confidential and has no policy: amounts and assets are private, owners are public. Each output is tagged by its owner pubkey (the Ed25519 signer by default, or a P256 owner), bound to the output UTXO in the SPP proof, so wallets sync by querying the indexer for their own pubkey.
 Users invoke the SPP directly.
-Optional merge services and sync delegates can be used to improve UX.
+An optional merge service can be used to improve UX.
 
 ### Transfer
 
@@ -238,7 +234,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | Type | Definition | Description |
 | --- | --- | --- |
 | `PublicKey` | `[u8; 34]` | 1-byte scheme prefix + 33-byte body: a P256 SEC1-compressed point, or an Ed25519 public key. The protocol's scheme-tagged key, used wherever a key may be either curve — UTXO owners (`signing_pk` / `owner_pubkey`). |
-| `P256Pubkey` | `[u8; 33]` | P256 public key, SEC1-compressed. No scheme prefix; used where the key is P256 by construction — viewing / ECDH keys (`tx_viewing_pk`, registry `viewing_pk` / `sync_pk`). |
+| `P256Pubkey` | `[u8; 33]` | P256 public key, SEC1-compressed. No scheme prefix; used where the key is P256 by construction — viewing / ECDH keys (`tx_viewing_pk`, registry `viewing_pk`). |
 | `P256Keypair` | — | A P256 `(secret, public)` keypair; its public half is a `P256Pubkey`. |
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
@@ -318,7 +314,7 @@ Symmetric key to derive nullifiers.
 
 # ViewingKey
 
-`(viewing_sk, viewing_pk)` — P-256 keypair, used for HPKE encryption and to derive view-tag secrets. While a sync delegate is set the epoch uses a shared P256 key (see [Sync Delegate](#sync-delegate)). Viewing keys can rotate.
+`(viewing_sk, viewing_pk)` — P-256 keypair, used for HPKE encryption and to derive view-tag secrets. Viewing keys can rotate.
 
 **Constructor:** `ViewingKey::from_seed(wallet_seed, account)` — `HKDF-SHA256(∅, wallet_seed, "TSPP/seed/p256_viewing" || u32_be(account), L=48)` reduced to a P-256 scalar. Flat HKDF, implemented (not the SLIP-0010 path above); ed25519 owners: `wallet_seed` = the Ed25519 secret.
 
@@ -404,7 +400,7 @@ A recipients wallet cannot pre-derive shared tags for every possible sender. The
 ### Merge view tag
 
 5. **`merge_view_tag`** — used by [`merge_zone`](#merge_zone) only. `merge_transact` is a confidential [default-zone](#default-zone) operation, so it tags the merged output by the owner's signing pubkey — the same owner-pubkey tag every default-zone output carries (see [recipient slot](#recipient-slot)). The merge proof binds the signing `pk_field` to the output, and replay protection comes from the input nullifiers, so it needs no separate single-use view tag.
-    - Derived by: the owner (wallet) and its [sync delegate](#sync-delegate), independently — both derive from `view_root` (see [Derived secrets](#derived-secrets)); the merge service holds no keys and is handed pre-derived values (see [Merge Service](#merge-service-1)).
+    - Derived by: the owner wallet from `view_root` (see [Derived secrets](#derived-secrets)); the merge service holds no keys and is handed pre-derived values (see [Merge Service](#merge-service-1)).
     - Tx sent by: the zone program (`merge_zone`).
     - Indexed by: the owner.
     - Counter: a single per-user `merge_count` (`wallet.merge_count`), advanced on every `merge_zone`.
@@ -1022,7 +1018,7 @@ ZK proof for [`merge_transact`](#merge_transact). Consolidates `N` input UTXOs o
 | --- | --- |
 | owner signing key witness | Rail-selected, mirroring the [SPP Proof](#spp-proof---solana-privacy-zk-proof) owner rails: a P256 owner witnesses the canonical point `(x, y)` and compressed-key parity and recomputes `pk_field(user_signing_pk)` in-circuit; a Solana (ed25519) owner witnesses the precomputed `pk_field(user_signing_pk)` directly (the P256 point witness is then an unused dummy). Either way it produces the same `pk_field(user_signing_pk)` public input (see [Shielded Address](#shielded-address)). Merge verifies no signature on either rail; ownership rests on the shared `nullifier_secret` and the owner-preserving output. |
 | `user_nullifier_pk` | shared owner's nullifier commitment, a 32-byte field element |
-| `nullifier_secret` | wallet's symmetric nullifier secret; held by the sync delegate that operates this merge service |
+| `nullifier_secret` | wallet's symmetric nullifier secret; supplied with the merge proof inputs |
 | `user_viewing_pk` | owner's P256 viewing pubkey; the proof recomputes the public `pk_field(user_viewing_pk)` from it, which SPP checks against `UserRecord.viewing_pubkey` |
 | `tx_viewing_sk` | ephemeral P256 scalar used in ECDH; `tx_viewing_pk == tx_viewing_sk · G_P256`. Fresh per merge (no salt). |
 
@@ -2062,19 +2058,19 @@ UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they ar
 
 **Lifecycle.** The owner enables merging on their [registry record](#registry) (`merging_enabled = true`); to stop, the owner disables it (`merging_enabled = false`).
 
-1. The user (or its [sync delegate](#sync-delegate)) hands the service decrypted UTXOs and the merge proof inputs (see Merging UTXOs below). The merged output is indexed by the owner pubkey, so no view tag is pre-derived for `merge_transact`.
+1. The user hands the service decrypted UTXOs and the merge proof inputs (see Merging UTXOs below). The merged output is indexed by the owner pubkey, so no view tag is pre-derived for `merge_transact`.
 2. The service builds and submits [`merge_transact`](#merge_transact), paying fees as any caller may.
 3. To stop, the owner disables merging (set `merging_enabled = false`) via [`set_merging_enabled`](#set_merging_enabled) or stops sharing inputs.
 
-**Merging UTXOs.** A merge service needs decrypted UTXOs but does not hold encryption keys. Therefore a wallet or [sync delegate](#sync-delegate) must trigger the merge service and supply the merge proof inputs.
+**Merging UTXOs.** A merge service needs decrypted UTXOs but does not hold encryption keys. Therefore the wallet must trigger the merge service and supply the merge proof inputs.
 
 **Sync.** After each `merge_transact`, the merged ciphertext is indexed by the owner pubkey (the public `pk_field(user_signing_pk)`). The wallet finds it by scanning that tag (see [First Time Sync Wallet](#first-time-sync-wallet)).
 
-**Threat model.** The merge service cannot change ownership, encrypt incorrectly, or destroy value; it can leak private information out-of-protocol or refuse to process a transaction. It cannot encrypt incorrectly because `merge_transact` binds the output to the owner's registered `viewing_pk` (see Checks). A merge is value-preserving: it only reconsolidates the user's own same-owner, same-asset UTXOs into one output owned by that same user, bound to the owner's registered signing / viewing keys by the proof. Even though any caller may submit `merge_transact` once the owner has enabled merging, a caller cannot decrypt the user's UTXOs or build the merge proof without the user's viewing and nullifier secrets, which only the user (or its sync delegate) provides. A caller the user never feeds therefore cannot act on that user's UTXOs, so safety does not depend on an explicit per-service authorization.
+**Threat model.** The merge service cannot change ownership, encrypt incorrectly, or destroy value; it can leak private information out-of-protocol or refuse to process a transaction. It cannot encrypt incorrectly because `merge_transact` binds the output to the owner's registered `viewing_pk` (see Checks). A merge is value-preserving: it only reconsolidates the user's own same-owner, same-asset UTXOs into one output owned by that same user, bound to the owner's registered signing / viewing keys by the proof. Even though any caller may submit `merge_transact` once the owner has enabled merging, a caller cannot decrypt the user's UTXOs or build the merge proof without the user's viewing and nullifier secrets, which only the user provides. A caller the user never feeds therefore cannot act on that user's UTXOs, so safety does not depend on an explicit per-service authorization.
 
 ## Registry
 
-Out-of-protocol service. For each user's Solana pubkey, the registry publishes their [ShieldedAddress](#shielded-address) and current sync delegate. Can be implemented as a Solana program or server.
+Out-of-protocol service. For each user's Solana pubkey, the registry publishes their [ShieldedAddress](#shielded-address) and merge opt-in. Can be implemented as a Solana program or server.
 
 ### Record
 
@@ -2086,45 +2082,22 @@ struct Record {
     /// `None` for Solana-only signing keys.
     owner_p256: Option<P256Pubkey>,
     nullifier_pk: [u8; 32],
-    /// Static. The wallet's ECDH viewing pubkey (see [ViewingKey](#viewingkey)),
-    /// published to senders while no delegate is set.
+    /// The wallet's ECDH viewing pubkey (see [ViewingKey](#viewingkey)).
     viewing_pk: P256Pubkey,
     /// Opt-in for [`merge_transact`](#merge_transact); default `false`. When `true`,
     /// any caller may run the merge for this owner. SPP binds the merge to
     /// `owner_p256` and `viewing_pk`, so the merged output is encrypted to the
     /// owner's registered key.
     merging_enabled: bool,
-    /// Solana pubkey of the current sync delegate, or none.
-    delegate: Option<Address>,
-    /// Append-only list of delegate entries.
-    entries: Vec<Entry>,
-}
-
-struct Entry {
-    /// Sync delegate Solana pubkey at the time this entry was appended.
-    delegate: Address,
-    /// Delegate's P-256 ECDH pubkey.
-    sync_pk: P256Pubkey,
-    /// Shared viewing pubkey published to senders for this entry:
-    /// `KDF(ECDH(signing_sk, sync_pk)) · G`.
-    viewing_pk: P256Pubkey,
-    /// Unix seconds; set at the moment the entry is appended.
-    created_at: i64,
 }
 ```
 
 Invariants:
 
-- While a delegate is active, the current delegate is set if and only if `entries` is non-empty.
-- After `revoke_sync_delegate`, the delegate is cleared; historical `entries` remain append-only.
-- `entries` is append-only: never modified or removed.
 - `nullifier_pk` is wallet-wide and does not rotate. There is no operation to replace it; rotation requires creating a new Record.
 - Once created, a record account is permanent: there is no close or delete operation. Rent remains locked for the lifetime of the account.
 
-The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects from the record:
-
-- (`owner_hash`, latest entry's `viewing_pk`) while a delegate is set.
-- (`owner_hash`, `viewing_pk`) while no delegate is set.
+The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects directly from the record.
 
 ### Operations
 
@@ -2146,7 +2119,7 @@ struct GetRecordResponse {
 
 #### `register`
 
-Creates a record with the given owner P-256 pubkey (optional), nullifier pubkey, and viewing pubkey, no delegate, and no entries. Fails if a record for `owner` already exists. Registry rejects non-canonical `nullifier_pk` values (`>= Fr`).
+Creates a record with the given owner P-256 pubkey (optional), nullifier pubkey, and viewing pubkey. Fails if a record for `owner` already exists. Registry rejects non-canonical `nullifier_pk` values (`>= Fr`).
 
 Authorized signer: `owner`.
 
@@ -2158,44 +2131,6 @@ struct RegisterRequest {
     nullifier_pk: [u8; 32],
     viewing_pk: P256Pubkey,
 }
-```
-
-#### `set_delegate`
-
-Appoints or replaces the current delegate. Appends a new entry recording the delegate address and keys. The appointment rotates `viewing_sk`; the wallet resets `tx_count`, `request_count`, `known_senders`, and `known_recipients`.
-
-Authorized signer: `owner`.
-
-```rust
-struct SetDelegateRequest {
-    delegate: Address,
-    sync_pk: P256Pubkey,
-    viewing_pk: P256Pubkey,
-}
-```
-
-#### `rotate_sync_delegate_key`
-
-Appends a new entry under the same delegate. The record's `delegate` field is unchanged; the new entry copies the current delegate address. Like `set_delegate`, this rotates `viewing_sk` and resets the wallet's per-key counters and `known_*` maps.
-
-
-Authorized signer: current delegate.
-
-```rust
-struct RotateSyncDelegateKeyRequest {
-    sync_pk: P256Pubkey,
-    viewing_pk: P256Pubkey,
-}
-```
-
-#### `revoke_sync_delegate`
-
-Removes the current delegate. `entries` is not modified. `viewing_sk` becomes the wallet's own viewing key (see [ViewingKey](#viewingkey)); the wallet resets per-key counters and `known_*` maps for that key.
-
-Authorized signer: `owner` or current delegate.
-
-```rust
-struct RevokeSyncDelegateRequest {}
 ```
 
 #### `set_merging_enabled`
@@ -2210,30 +2145,19 @@ struct SetMergingEnabledRequest {
 }
 ```
 
-## Sync Delegate
-
-A sync delegate can optionally be set up by a wallet.The sync delegate holds a shared [`ViewingKey`](#viewingkey) and the wallet's nullifier key. Based on those keys it can scans owner tags and view tags, decrypts ciphertexts, computes nullifiers, marks spent, and builds merge proofs.
-
-**Setup** Sync delegate appointment is recorded in the [Registry](#registry) via [`set_delegate`](#set_delegate). Wallet and delegate then share two values out-of-band:
-
-1. The current entry's `viewing_sk` — both sides derive it via `ECDH`. To scan history the wallet may also share prior keys `[(key_index, viewing_sk_k)]` (**hand-over**); otherwise the delegate scans only the current entry and the wallet keeps decrypting earlier ones (**forward-only**). From each shared `viewing_sk` the delegate derives that epoch's `view_root` and its self-rooted secrets (see [Derived secrets](#derived-secrets)).
-2. The [NullifierKey](#nullifierkey).
-
-**Rotation considerations.** `nullifier_pk` is wallet-wide and does not rotate. A former delegate can retain the `nullifier_secret`, but computing a [nullifier](#nullifier) also requires `blinding`. The delegate only has `blinding` for UTXOs whose ciphertext it decrypted. After `set_delegate` / `rotate_sync_delegate_key` / `revoke_sync_delegate` the wallet should migrate existing UTXOs via normal `transact`. For UTXOs that were not migrated, the revoked sync delegate can check whether those UTXOs are spent.
-
 # User Flows
 
 ## First Time Sync Wallet
 
 Restores a fresh wallet including fetching and decrypting all user UTXOs from a BIP-39 mnemonic.
-The flow can be executed by the users wallet or the sync delegate.
+The flow is executed by the user's wallet.
 The same flow can be used to resync a wallet or poll.
 
 **Wallet State**
 ```
 ViewingKeyEntry {
     key:                ViewingKey,
-    created_at:         i64,                    // mirrors registry Entry.created_at; the no-delegate entry uses 0
+    created_at:         i64,
     tx_count:           u64,
     request_count:      u64,
     known_senders:      map<sender_pubkey    → u64>,
@@ -2243,7 +2167,7 @@ ViewingKeyEntry {
 
 Wallet {
     signing_key:        SigningKey,
-    viewing_history:    Vec<ViewingKeyEntry>,   // append-only, chronological (oldest first); the tail is the current entry
+    viewing_history:    Vec<ViewingKeyEntry>,   // locally retained keys, oldest first
     known_zones:        map<zone_program_id → zone_rpc_url>,
     Utxos:              Vec<Utxo>,
     last_synced:        Timestamp,
@@ -2253,14 +2177,12 @@ Wallet {
 `viewing_entry` denotes `viewing_history.last()` throughout this section.
 
 1. **Initialize the wallet.**
-    1. Obtain a `SigningKey`.
-    2. Call `registry.get_record(solana_pubkey)`.
-    3. For each registry entry in chronological order, construct a `ViewingKey` (see [ViewingKey](#viewingkey)) and append a fresh `ViewingKeyEntry` to `viewing_history`, copying `created_at` from the registry entry.
-    4. If `entries` is empty, append a single `ViewingKeyEntry` whose `ViewingKey` is the wallet's viewing keypair (see [ViewingKey](#viewingkey)).
+    1. Restore the signing and viewing keys from the wallet mnemonic.
+    2. Append the wallet's [`ViewingKey`](#viewingkey) to `viewing_history`.
 
 2. **Default-zone sync, anonymous-zone sync, and merge sync run as independent parallel branches.**
 
-    1. **Default-zone sync (confidential).** One call: `indexer.get_shielded_transactions_by_tags` with the wallet's `owner_pubkey` tag; matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. Decrypt each encrypted ciphertext via the current viewing key (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The tag derives from the signing key, which does not rotate, so the scan is independent of `viewing_history`.
+    1. **Default-zone sync (confidential).** One call: `indexer.get_shielded_transactions_by_tags` with the wallet's `owner_pubkey` tag; matches the wallet's encrypted change bundles, encrypted recipient slots, and [plaintext transfer](#plaintext-transfer) slots. Try the locally retained viewing keys against each encrypted ciphertext (plaintext slots need none); store the UTXOs with each transaction's `nullifiers`. The tag derives from the signing key, so discovery does not depend on the viewing key.
 
     2. **Anonymous-zone sync — for each anonymous zone in `known_zones`, for each viewing key `k` in parallel:**
         1. **Phase 1 — scan own view tags (concurrent within `k`).**
@@ -2296,7 +2218,7 @@ Assumptions:
 4. Per-key scans run concurrently. Within a key, Phase 1 (`sender_view_tag`, `recipient_request_view_tag`, `recipient_bootstrap_view_tag`) runs concurrently, and Phase 2 per-sender / per-recipient scans run concurrently.
 5. Each known sender has < 10 000 incoming transfers per key; each known recipient has < 10 000 outgoing transfers per key.
 
-Figures below are **per viewing key**. With `E` keys (the wallet's own key plus delegate entries), sequential totals multiply by `E`; parallel totals add ECDH cost only since RTTs overlap.
+Figures below are per locally retained viewing key.
 
 | Tx history | Known senders | Phase 1 RTTs | Phase 2 RTTs | Total RTTs | Decrypt (sequential) | Total (sequential) | Total (parallel, ≥10 threads) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -2323,7 +2245,7 @@ sequenceDiagram
 
     Note over Wallet,Merge: Per-batch handover
     Wallet->>Wallet: select up to 8 fragmented UTXOs (same owner, same asset)
-    Wallet->>Merge: plaintext inputs<br/>nullifier_secret already held by the service as sync delegate
+    Wallet->>Merge: plaintext inputs + merge proof inputs<br/>(including nullifier_secret)
 
     Note over Merge: Build witness + proof
     Merge->>Merge: build merge proof (witness includes nullifier_secret):<br/>- ownership / asset / value conservation<br/>- inclusion (UTXO tree) + nullifier non-inclusion<br/>- owner hash binding + nullifier secret binding<br/>- nullifier = Poseidon(utxo_hash, blinding, nullifier_secret) per input<br/>- verifiable encryption to user_viewing_pk<br/>(no authority in the proof)

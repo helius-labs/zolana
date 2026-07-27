@@ -183,8 +183,7 @@ impl ViewingKey {
         )
     }
 
-    /// Merge view tag for the merged output at `merge_count`; derived by the
-    /// owner and its sync delegate, indexed by the owner.
+    /// Policy-zone merge view tag for the merged output at `merge_count`.
     pub fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError> {
         let secret = self.merge_view_tag_secret()?;
         expand_view_tag(

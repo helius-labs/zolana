@@ -3,13 +3,10 @@
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_user_registry_interface::{
-    instruction::{
-        self as user_registry_instruction, RegisterData, RotateSyncDelegateKeyData,
-        SetSyncDelegateData, UpdateKeysData,
-    },
+    instruction::{self as user_registry_instruction, RegisterData, UpdateKeysData},
     user_record_pda,
 };
-pub use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry, UserRecord};
+pub use zolana_user_registry_interface::{user_registry_program_id, UserRecord};
 
 pub fn build_register_ix(
     owner: &Pubkey,
@@ -27,46 +24,6 @@ pub fn build_register_ix(
             viewing_pubkey,
         },
     )
-}
-
-pub fn build_set_sync_delegate_ix(
-    owner: &Pubkey,
-    sync_delegate: Pubkey,
-    sync_pubkey: [u8; 33],
-    viewing_pubkey: [u8; 33],
-) -> Instruction {
-    let (user_record, _bump) = user_record_pda(owner);
-    user_registry_instruction::set_sync_delegate(
-        user_record,
-        *owner,
-        SetSyncDelegateData {
-            sync_delegate: sync_delegate.to_bytes(),
-            sync_pubkey,
-            viewing_pubkey,
-        },
-    )
-}
-
-pub fn build_rotate_sync_delegate_key_ix(
-    owner: &Pubkey,
-    sync_delegate: &Pubkey,
-    sync_pubkey: [u8; 33],
-    viewing_pubkey: [u8; 33],
-) -> Instruction {
-    let (user_record, _bump) = user_record_pda(owner);
-    user_registry_instruction::rotate_sync_delegate_key(
-        user_record,
-        *sync_delegate,
-        RotateSyncDelegateKeyData {
-            sync_pubkey,
-            viewing_pubkey,
-        },
-    )
-}
-
-pub fn build_revoke_sync_delegate_ix(owner: &Pubkey, signer: &Pubkey) -> Instruction {
-    let (user_record, _bump) = user_record_pda(owner);
-    user_registry_instruction::revoke_sync_delegate(user_record, *signer)
 }
 
 pub fn build_set_merging_enabled_ix(owner: &Pubkey, signer: &Pubkey, enabled: bool) -> Instruction {

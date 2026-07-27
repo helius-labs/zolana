@@ -4,8 +4,7 @@ use zolana_user_registry_interface::instruction::SetMergingEnabledData;
 use super::common::{check_record_pda_with_bump, read_record, write_record};
 use crate::error::{fail, UserRegistryError};
 
-/// Enables or disables merging for this record. Only the record owner may sign;
-/// the sync delegate cannot change the merging opt-in.
+/// Enables or disables merging for this record. Only the record owner may sign.
 pub fn process_set_merging_enabled(
     program_id: &Address,
     accounts: &mut [AccountView],
