@@ -6,7 +6,8 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::Movement,
     instruction::{
-        DepositAssetKind, DepositEntry, DepositIxData, ZoneDepositIxData, MAX_DEPOSIT_ASSETS,
+        DepositAssetKind, DepositEntryRef, DepositIxDataRef, ZoneDepositIxDataRef,
+        MAX_DEPOSIT_ASSETS,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
@@ -21,54 +22,53 @@ use crate::instructions::{
     settlement::{settle_sol, settle_spl_deposit, Settlement},
 };
 
-pub(crate) struct ZoneData {
-    pub data_hash: [u8; 32],
-    pub data: Vec<u8>,
+pub(crate) struct ZoneData<'a> {
+    pub data_hash: &'a [u8; 32],
+    pub data: &'a [u8],
 }
 
-struct ProcessingEntry {
-    deposit: DepositEntry,
-    zone: Option<ZoneData>,
+struct ProcessingEntry<'a> {
+    deposit: DepositEntryRef<'a>,
+    zone: Option<ZoneData<'a>>,
 }
 
 #[profile]
 pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let data =
-        DepositIxData::deserialize(data).map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-    let entries = data
-        .deposits
-        .into_iter()
-        .map(|deposit| ProcessingEntry {
+    let data = DepositIxDataRef::from_bytes(data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+    process_deposit_internal::<false>(
+        accounts,
+        &data.assets,
+        data.deposits.into_iter().map(|deposit| ProcessingEntry {
             deposit,
             zone: None,
-        })
-        .collect();
-    process_deposit_internal::<false>(accounts, &data.assets, entries)
+        }),
+    )
 }
 
 pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let data = ZoneDepositIxData::deserialize(data)
+    let data = ZoneDepositIxDataRef::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-    let entries = data
-        .deposits
-        .into_iter()
-        .map(|entry| ProcessingEntry {
+    process_deposit_internal::<true>(
+        accounts,
+        &data.assets,
+        data.deposits.into_iter().map(|entry| ProcessingEntry {
             deposit: entry.deposit,
             zone: Some(ZoneData {
                 data_hash: entry.zone_data_hash,
                 data: entry.zone_data,
             }),
-        })
-        .collect();
-    process_deposit_internal::<true>(accounts, &data.assets, entries)
+        }),
+    )
 }
 
-fn process_deposit_internal<const HAS_ZONE: bool>(
+fn process_deposit_internal<'a, const HAS_ZONE: bool>(
     accounts: &mut [AccountView],
     assets: &[DepositAssetKind],
-    entries: Vec<ProcessingEntry>,
+    entries: impl ExactSizeIterator<Item = ProcessingEntry<'a>>,
 ) -> ProgramResult {
-    if entries.is_empty() {
+    let entry_count = entries.len();
+    if entry_count == 0 {
         return Err(ShieldedPoolError::EmptyDepositBatch.into());
     }
 
@@ -84,8 +84,8 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
 
     let mut asset_sums: ArrayMap<u8, u64, MAX_DEPOSIT_ASSETS> = ArrayMap::new();
-    let mut outputs = Vec::with_capacity(entries.len());
-    let mut utxo_hashes = Vec::with_capacity(entries.len());
+    let mut outputs = Vec::with_capacity(entry_count);
+    let mut utxo_hashes = Vec::with_capacity(entry_count);
 
     // Load the tree before hashing so a paused tree costs no Poseidon work, and
     // keep the one borrow until the batch append below (never load it twice).
@@ -101,18 +101,18 @@ fn process_deposit_internal<const HAS_ZONE: bool>(
             .get(usize::from(deposit.asset_index))
             .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
 
-        let data_hash = match &deposit.utxo_data {
+        let data_hash = match deposit.utxo_data {
             Some(utxo_data) => utxo_data.data_hash,
-            None => zero,
+            None => &zero,
         };
         let owner_utxo_hash =
             Poseidon::hashv(&[deposit.owner.as_slice(), deposit.blinding.as_slice()])
                 .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
-        let zone_data_hash = match &zone {
+        let zone_data_hash = match zone.as_ref() {
             Some(zone) => zone.data_hash,
-            None => zero,
+            None => &zero,
         };
-        let zone_hash = hash_with_program_id(&zone_data_hash, &zone_program_id_field)?;
+        let zone_hash = hash_with_program_id(zone_data_hash, &zone_program_id_field)?;
         let utxo_hash = Poseidon::hashv(&[
             UTXO_DOMAIN_FIELD.as_slice(),
             group.asset_field.as_slice(),

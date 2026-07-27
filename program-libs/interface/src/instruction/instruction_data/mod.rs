@@ -8,7 +8,8 @@ pub mod zone_config;
 
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
 pub use deposit::{
-    DepositAssetKind, DepositEntry, DepositIxData, UtxoData, ZoneDepositEntry, ZoneDepositIxData,
+    DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef, UtxoData,
+    UtxoDataRef, ZoneDepositEntry, ZoneDepositEntryRef, ZoneDepositIxData, ZoneDepositIxDataRef,
     MAX_DEPOSIT_ASSETS,
 };
 pub use merge_transact::{

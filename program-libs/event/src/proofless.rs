@@ -16,6 +16,25 @@ pub struct ProoflessOutput {
     pub memo: Option<Vec<u8>>,
 }
 
+/// Borrowed serialization view of [`ProoflessOutput`].
+///
+/// This has the same Borsh representation as the owned type while allowing an
+/// on-chain processor to write instruction-backed payloads directly into the
+/// final encoded output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize)]
+pub struct ProoflessOutputRef<'a> {
+    pub owner: &'a [u8; 32],
+    pub blinding: &'a [u8; 32],
+    pub asset: &'a [u8; 32],
+    pub amount: u64,
+    pub data_hash: Option<&'a [u8; 32]>,
+    pub utxo_data: Option<&'a [u8]>,
+    pub zone_program_id: Option<&'a [u8; 32]>,
+    pub zone_data_hash: Option<&'a [u8; 32]>,
+    pub zone_data: Option<&'a [u8]>,
+    pub memo: Option<&'a [u8]>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum OutputDataEncoding {
     Plaintext(Vec<u8>),
@@ -44,9 +63,25 @@ pub const PLAINTEXT_OUTPUT_FIXED_LEN: usize = 224;
 /// writes the body once into one buffer instead of serializing it into a `Vec`
 /// and copying that `Vec` into the enum's length-prefixed payload.
 pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
-    let variable_len = data.utxo_data.as_ref().map_or(0, Vec::len)
-        + data.zone_data.as_ref().map_or(0, Vec::len)
-        + data.memo.as_ref().map_or(0, Vec::len);
+    encode_output_data_ref(ProoflessOutputRef {
+        owner: &data.owner,
+        blinding: &data.blinding,
+        asset: &data.asset,
+        amount: data.amount,
+        data_hash: data.data_hash.as_ref(),
+        utxo_data: data.utxo_data.as_deref(),
+        zone_program_id: data.zone_program_id.as_ref(),
+        zone_data_hash: data.zone_data_hash.as_ref(),
+        zone_data: data.zone_data.as_deref(),
+        memo: data.memo.as_deref(),
+    })
+}
+
+/// Borrowed counterpart of [`encode_output_data`].
+pub fn encode_output_data_ref(data: ProoflessOutputRef<'_>) -> Vec<u8> {
+    let variable_len = data.utxo_data.map_or(0, <[u8]>::len)
+        + data.zone_data.map_or(0, <[u8]>::len)
+        + data.memo.map_or(0, <[u8]>::len);
     let mut out = Vec::with_capacity(PLAINTEXT_OUTPUT_FIXED_LEN + variable_len);
     out.push(OutputDataEncoding::PLAINTEXT_TAG);
     // Body length, patched in below once the body is written.

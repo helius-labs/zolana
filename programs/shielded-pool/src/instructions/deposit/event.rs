@@ -1,7 +1,7 @@
 use pinocchio::ProgramResult;
 use zolana_interface::{
-    event::{encode_output_data, EventKind, GeneralEvent, Movement, ProoflessOutput},
-    instruction::{DepositEntry, OutputUtxo},
+    event::{encode_output_data_ref, EventKind, GeneralEvent, Movement, ProoflessOutputRef},
+    instruction::{DepositEntryRef, OutputUtxo},
 };
 
 use super::processor::ZoneData;
@@ -13,9 +13,9 @@ pub(crate) struct ProoflessOutputCtx {
     pub zone_program_id: Option<[u8; 32]>,
 }
 
-pub(crate) fn proofless_output_utxo(
-    entry: DepositEntry,
-    zone: Option<ZoneData>,
+pub(crate) fn proofless_output_utxo<'a>(
+    entry: DepositEntryRef<'a>,
+    zone: Option<ZoneData<'a>>,
     ctx: ProoflessOutputCtx,
 ) -> OutputUtxo {
     let (data_hash, utxo_data) = match entry.utxo_data {
@@ -26,20 +26,20 @@ pub(crate) fn proofless_output_utxo(
         Some(zone) => (Some(zone.data_hash), Some(zone.data)),
         None => (None, None),
     };
-    let data = encode_output_data(ProoflessOutput {
+    let data = encode_output_data_ref(ProoflessOutputRef {
         owner: entry.owner,
         blinding: entry.blinding,
-        asset: ctx.asset,
+        asset: &ctx.asset,
         amount: entry.amount,
         data_hash,
         utxo_data,
-        zone_program_id: ctx.zone_program_id,
+        zone_program_id: ctx.zone_program_id.as_ref(),
         zone_data_hash,
         zone_data,
         memo: entry.memo,
     });
     OutputUtxo {
-        view_tag: entry.view_tag,
+        view_tag: *entry.view_tag,
         utxo_hash: ctx.utxo_hash,
         data,
     }

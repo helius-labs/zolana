@@ -1,4 +1,11 @@
-use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+use wincode::{
+    config::{Configuration, DEFAULT_PREALLOCATION_SIZE_LIMIT},
+    containers,
+    len::FixIntLen,
+    SchemaRead, SchemaWrite,
+};
+
+type DepositRefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
 
 /// Application data committed into the deposited UTXO's `data_hash`. The deposit
 /// is authorized by the payer (non-zone) or the `ZoneConfig` account (zone); the
@@ -83,6 +90,26 @@ impl DepositIxData {
     }
 }
 
+/// Borrowed view of [`UtxoData`]. The payload aliases the instruction buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+pub struct UtxoDataRef<'a> {
+    pub data_hash: &'a [u8; 32],
+    pub data: &'a [u8],
+}
+
+/// Borrowed view of [`DepositEntry`]. Variable-size data aliases the
+/// instruction buffer rather than allocating per entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+pub struct DepositEntryRef<'a> {
+    pub asset_index: u8,
+    pub view_tag: &'a [u8; 32],
+    pub owner: &'a [u8; 32],
+    pub blinding: &'a [u8; 32],
+    pub amount: u64,
+    pub utxo_data: Option<UtxoDataRef<'a>>,
+    pub memo: Option<&'a [u8]>,
+}
+
 /// One output of a batched policy-zone deposit.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ZoneDepositEntry {
@@ -114,5 +141,45 @@ impl ZoneDepositIxData {
 
     pub fn deserialize(data: &[u8]) -> Result<Self, wincode::Error> {
         Ok(wincode::deserialize_exact(data)?)
+    }
+}
+
+/// Borrowed view of [`ZoneDepositEntry`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+pub struct ZoneDepositEntryRef<'a> {
+    pub deposit: DepositEntryRef<'a>,
+    pub zone_data_hash: &'a [u8; 32],
+    pub zone_data: &'a [u8],
+}
+
+/// Borrowed on-chain view of [`DepositIxData`]. Entry payloads alias the
+/// instruction buffer.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
+pub struct DepositIxDataRef<'a> {
+    #[wincode(with = "containers::Vec<DepositAssetKind, FixIntLen<u8>>")]
+    pub assets: Vec<DepositAssetKind>,
+    #[wincode(with = "containers::Vec<DepositEntryRef<'a>, FixIntLen<u8>>")]
+    pub deposits: Vec<DepositEntryRef<'a>>,
+}
+
+impl<'a> DepositIxDataRef<'a> {
+    pub fn from_bytes(data: &'a [u8]) -> wincode::ReadResult<Self> {
+        wincode::config::deserialize_exact(data, DepositRefConfig::new())
+    }
+}
+
+/// Borrowed on-chain view of [`ZoneDepositIxData`]. Entry payloads alias the
+/// instruction buffer.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
+pub struct ZoneDepositIxDataRef<'a> {
+    #[wincode(with = "containers::Vec<DepositAssetKind, FixIntLen<u8>>")]
+    pub assets: Vec<DepositAssetKind>,
+    #[wincode(with = "containers::Vec<ZoneDepositEntryRef<'a>, FixIntLen<u8>>")]
+    pub deposits: Vec<ZoneDepositEntryRef<'a>>,
+}
+
+impl<'a> ZoneDepositIxDataRef<'a> {
+    pub fn from_bytes(data: &'a [u8]) -> wincode::ReadResult<Self> {
+        wincode::config::deserialize_exact(data, DepositRefConfig::new())
     }
 }
