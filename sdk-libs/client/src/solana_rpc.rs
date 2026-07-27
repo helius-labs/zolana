@@ -31,7 +31,10 @@ use solana_transaction_status_client_types::{
 use zolana_event::{InstructionGroup, ParsedInstruction};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{fetch_tag, TransactIxData},
+        instruction_data::{
+            deposit::DepositIxData,
+            transact::{fetch_tag, TransactIxData},
+        },
         tag,
     },
     SHIELDED_POOL_PROGRAM_ID,
@@ -62,30 +65,33 @@ pub struct ConfirmedInstructionGroups {
 
 const DEFAULT_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Unique `view_tag`s from a confirmed shielded-pool `TRANSACT` instruction,
-/// found either as the transaction's outer instruction (a direct `Transact`
-/// call) or as an inner instruction (a program CPIing into `transact`, e.g.
-/// the zk-program-swap `Make`/`Take`/`Cancel` wrappers).
+/// Unique output `view_tag`s from a confirmed shielded-pool instruction, found
+/// either as the transaction's outer instruction (a direct `Transact` or
+/// `Deposit` call) or as an inner instruction (a program CPIing into the pool,
+/// e.g. the zk-program-swap `Make`/`Take`/`Cancel` wrappers).
+///
+/// Deposits are proofless and carry a single output slot, so they publish their
+/// `view_tag` directly instead of resolving it from an owner tag.
 pub fn transact_output_view_tags_from_instruction_groups(
     groups: &ConfirmedInstructionGroups,
 ) -> Result<Vec<[u8; 32]>, ClientError> {
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     for group in &groups.groups {
         for instruction in std::iter::once(&group.outer).chain(group.inner.iter()) {
-            if let Some(tags) = transact_view_tags(instruction, program_id)? {
+            if let Some(tags) = output_view_tags(instruction, program_id)? {
                 return Ok(tags);
             }
         }
     }
     Err(ClientError::Rpc(
-        "confirmed transaction has no shielded-pool TRANSACT instruction".into(),
+        "confirmed transaction has no shielded-pool TRANSACT or DEPOSIT instruction".into(),
     ))
 }
 
-/// Returns the output `view_tag`s if `instruction` is a `TRANSACT` call to
-/// `program_id`, `None` if it is unrelated, or an error if it matches but its
-/// payload cannot be decoded.
-fn transact_view_tags(
+/// Returns the output `view_tag`s if `instruction` is a shielded-pool call this
+/// confirmation path can reconcile, `None` if it is unrelated, or an error if it
+/// matches but its payload cannot be decoded.
+fn output_view_tags(
     instruction: &ParsedInstruction,
     program_id: Pubkey,
 ) -> Result<Option<Vec<[u8; 32]>>, ClientError> {
@@ -95,9 +101,30 @@ fn transact_view_tags(
     let Some(instruction_tag) = instruction.data.first() else {
         return Ok(None);
     };
-    if *instruction_tag != tag::TRANSACT {
-        return Ok(None);
+    match *instruction_tag {
+        tag::TRANSACT => transact_view_tags(instruction),
+        tag::DEPOSIT => deposit_view_tags(instruction),
+        _ => Ok(None),
     }
+}
+
+/// Returns the single output `view_tag` carried in a `DEPOSIT` payload.
+fn deposit_view_tags(
+    instruction: &ParsedInstruction,
+) -> Result<Option<Vec<[u8; 32]>>, ClientError> {
+    let payload = instruction.data.get(1..).ok_or_else(|| {
+        ClientError::Rpc("deposit instruction data is missing its payload".into())
+    })?;
+    let deposit_data = DepositIxData::deserialize(payload)
+        .map_err(|err| ClientError::Rpc(format!("decode deposit instruction data: {err}")))?;
+    Ok(Some(vec![deposit_data.view_tag]))
+}
+
+/// Returns the output `view_tag`s resolved from a `TRANSACT` payload's owner
+/// tags.
+fn transact_view_tags(
+    instruction: &ParsedInstruction,
+) -> Result<Option<Vec<[u8; 32]>>, ClientError> {
     let payload = instruction.data.get(1..).ok_or_else(|| {
         ClientError::Rpc("transact instruction data is missing its payload".into())
     })?;
