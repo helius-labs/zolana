@@ -33,10 +33,10 @@ use swap_sdk::{
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
 };
-use zolana_batch_syscalls::with_batch_syscalls;
+use zolana_batch_syscalls::LiteSVM_with_batch_syscalls;
 use zolana_client::{
-    MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT,
-    STATE_TREE_HEIGHT,
+    assemble, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, ProverInputs, SpendProof,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
@@ -186,16 +186,55 @@ fn build_spend_proofs(
 fn prove_transact(
     proof_inputs: SppProofInputs,
     spend_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
     prover: &ProverClient,
 ) -> (TransactIxData, Duration) {
-    prover
-        .prove_transact(proof_inputs.clone(), spend_proofs, &[])
-        .expect("warm prove transact");
+    let assembled =
+        assemble(proof_inputs.clone(), spend_proofs, dummy_nullifier_proofs).expect("assemble");
+    let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+    prover.prove_transfer(inputs).expect("warm prove");
     let start = Instant::now();
-    let transact = prover
-        .prove_transact(proof_inputs, spend_proofs, &[])
-        .expect("prove transact");
+    let assembled = assemble(proof_inputs, spend_proofs, dummy_nullifier_proofs).expect("assemble");
+    let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+    let proof = prover.prove_transfer(inputs).expect("prove transfer");
+    let transact = assembled.with_proof(
+        zolana_client::ProofCompressed::try_from(proof)
+            .expect("compress")
+            .to_transact_proof(),
+    );
     (transact, start.elapsed())
+}
+
+fn dummy_nullifier_proofs_for(
+    proof_inputs: &SppProofInputs,
+    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
+) -> Vec<NonInclusionProof> {
+    let merkle_context = MerkleContext {
+        tree_type: 0,
+        tree: Address::default(),
+    };
+    proof_inputs
+        .dummy_nullifiers()
+        .expect("dummy nullifiers")
+        .into_iter()
+        .map(|nullifier| {
+            let nf = nf_tree
+                .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+                .expect("dummy nf proof");
+            NonInclusionProof {
+                leaf: nullifier,
+                merkle_context: merkle_context.clone(),
+                path: nf.merkle_proof.to_vec(),
+                low_element: nf.leaf_lower_range_value,
+                low_element_index: nf.leaf_index as u64,
+                high_element: nf.leaf_higher_range_value,
+                high_element_index: 0,
+                root: nf.root,
+                root_seq: 0,
+                root_index: 0,
+            }
+        })
+        .collect()
 }
 
 struct SvmHarness {
@@ -210,10 +249,11 @@ impl SvmHarness {
             spp_path.exists() && swap_path.exists(),
             "missing SBF under {SBF_DIR}; run just bench-batch-cu"
         );
-        let mut svm = litesvm::LiteSVM::new();
-        if batch {
-            svm = with_batch_syscalls(svm);
-        }
+        let mut svm = if batch {
+            LiteSVM_with_batch_syscalls()
+        } else {
+            litesvm::LiteSVM::new()
+        };
         let spp_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         svm.add_program(spp_id, &std::fs::read(&spp_path).expect("read spp"))
             .expect("add spp");
@@ -299,143 +339,12 @@ impl SvmHarness {
 }
 
 fn measure_make() -> (u64, u64) {
-    const INPUT_AMOUNT: u64 = 1_000_000;
-    const SOURCE_AMOUNT: u64 = 400_000;
-    const EXPIRY: u64 = 1_900_000_000;
-
-    let tree = Keypair::new().pubkey();
-    let payer = Keypair::new();
-    let maker = keypair_from_payer(&payer);
-
-    let input_utxo = Utxo {
-        owner: maker.signing_pubkey(),
-        asset: SOL_MINT,
-        amount: INPUT_AMOUNT,
-        blinding: random_blinding(),
-        zone_program_id: None,
-        data: Data::default(),
-    };
-    let taker = ShieldedKeypair::from_solana_keypair(&Keypair::new_from_array([0x4d; 32]))
-        .expect("taker");
-    let taker_address = taker.shielded_address().expect("taker address");
-    let terms = OrderTerms {
-        destination_mint: Address::new_from_array([7u8; 32]),
-        destination_amount: 250,
-        destination: maker.shielded_address().expect("maker address"),
-        taker: Address::new_from_array(taker.signing_pubkey().as_ed25519().expect("taker pk")),
-        expiry: EXPIRY,
-        take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
-    };
-    let order_utxo = OrderUtxo {
-        terms,
-        blinding: random_blinding(),
-        source_mint: SOL_MINT,
-        source_amount: SOURCE_AMOUNT,
-        destination_asset_id: 2,
-    };
-    let order_output_utxo = order_utxo
-        .output_utxo(taker_address.viewing_pubkey)
-        .expect("order output");
-
-    let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let spend = SppProofInputUtxo::new(input_utxo, &maker);
-    let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
-    let assets = AssetRegistry::default();
-    let leftover =
-        input_sum(&input_utxos, &order_output_utxo.asset) - i128::from(order_output_utxo.amount);
-    let change_amount = u64::try_from(leftover).expect("balance");
-    let change = SppProofOutputUtxo::new(
-        order_output_utxo.asset,
-        change_amount,
-        maker.shielded_address().expect("maker address"),
-    )
-    .expect("change");
-    let order_utxo_hash = order_output_utxo.hash().expect("order hash");
-    let marker_message = OrderMarker {
-        order_utxo_hash,
-        maker_pubkey: payer.pubkey(),
-        taker_address,
-    }
-    .message()
-    .expect("marker");
-    let tvk = get_transaction_viewing_key(&maker, &input_utxos).expect("tvk");
-    let encoded =
-        encrypt_transaction_data(&[change.clone(), order_output_utxo], &assets, &tvk)
-            .expect("encode");
-    let external_data = ExternalData::new(
-        *tvk.pubkey().as_bytes(),
-        encoded.salt,
-        encoded.outputs,
-        encoded.resolved_owner_tags,
-        vec![marker_message],
-    );
-    let spp_proof_inputs =
-        SppProofInputs::new(input_utxos, encoded.output_utxos, external_data, payer_address);
-    let commitments = spp_proof_inputs.input_utxo_hashes().expect("commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|c| c.utxo_hash).collect();
-    let (tree_bytes, utxo_root, nullifier_root, root_index) = build_tree_bytes(&tree, &leaves);
-    let state_tree = local_state_tree(&leaves);
-    let nf_tree = nullifier_tree();
-    let spend_proofs = build_spend_proofs(
-        &tree,
-        &state_tree,
-        &nf_tree,
-        &commitments,
-        utxo_root,
-        nullifier_root,
-        root_index,
-    );
-    let make_params = MakeProofInputParams {
-        order_utxo,
-        change,
-        spp_tx_hashes: SppTxHashes::new(&spp_proof_inputs).expect("hashes"),
-    };
-    let prover = ProverClient::local();
-    let swap_prover = SwapProverClient::new();
-    let (transact, _) = prove_transact(spp_proof_inputs, &spend_proofs, &prover);
-    let make_proof = swap_prover
-        .prove_make(&make_params.to_proof_inputs().expect("make inputs"))
-        .expect("make prove");
-
-    let legacy_ix = Make {
-        payer: payer.pubkey(),
-        tree,
-        make_proof: make_proof.clone().into(),
-        spp_proof: transact.clone(),
-    }
-    .instruction()
-    .expect("make ix");
-
-    let foreign_vk = Keypair::new().pubkey();
-    let vk_bytes = pack_standard_vk(&swap_program::verifying_keys::make::VERIFYINGKEY);
-    let batch_ix = MakeBatch {
-        payer: payer.pubkey(),
-        foreign_vk,
-        tree,
-        make_proof: make_proof.into(),
-        spp_proof: transact,
-    }
-    .instruction()
-    .expect("make batch ix");
-
-    // Fresh SVM per incarnation so tree state is independent.
-    let mut legacy_svm = SvmHarness::new(false);
-    legacy_svm.set_tree(&tree, tree_bytes.clone());
-    legacy_svm.set_system(&payer.pubkey(), 100_000_000_000);
-    legacy_svm.ensure_accounts(&legacy_ix, &[(tree, tree_bytes.clone())]);
-    let cu_legacy = legacy_svm.run_cu(legacy_ix, &payer, &[]);
-
-    let mut batch_svm = SvmHarness::new(true);
-    batch_svm.set_tree(&tree, tree_bytes.clone());
-    batch_svm.set_system(&payer.pubkey(), 100_000_000_000);
-    batch_svm.set_data(&foreign_vk, vk_bytes);
-    batch_svm.ensure_accounts(
-        &batch_ix,
-        &[(tree, tree_bytes), (foreign_vk, Vec::new())],
-    );
-    let cu_batch = batch_svm.run_cu(batch_ix, &payer, &[]);
-
-    (cu_legacy, cu_batch)
+    // SPP circuit rejects data_hash on outputs whose owner is not an input
+    // signer (default_eddsa_only outputs.go). The make order UTXO is PDA-owned
+    // with terms data_hash, so a full make SPP proof cannot satisfy constraints
+    // under the current circuit. Measure take/cancel dual instead.
+    eprintln!("skip make dual: PDA-owned data_hash output rejected by SPP circuit");
+    (0, 0)
 }
 
 fn measure_take() -> (u64, u64) {
@@ -507,6 +416,8 @@ fn measure_take() -> (u64, u64) {
     let (tree_bytes, utxo_root, nullifier_root, root_index) = build_tree_bytes(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
     let nf_tree = nullifier_tree();
+    assert_eq!(state_tree.root(), utxo_root, "take state root");
+    assert_eq!(nf_tree.root(), nullifier_root, "take nf root");
     let spend_proofs = build_spend_proofs(
         &tree,
         &state_tree,
@@ -526,9 +437,10 @@ fn measure_take() -> (u64, u64) {
             .hash()
             .expect("external data hash"),
     };
+    let dummy_nfs = dummy_nullifier_proofs_for(&spp_proof_inputs, &nf_tree);
     let prover = ProverClient::local();
     let swap_prover = SwapProverClient::new();
-    let (transact, _) = prove_transact(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, _) = prove_transact(spp_proof_inputs, &spend_proofs, &dummy_nfs, &prover);
     let take_proof = swap_prover
         .prove_take(&take_params.to_proof_inputs().expect("take inputs"))
         .expect("take prove");
@@ -633,6 +545,8 @@ fn measure_cancel() -> (u64, u64) {
     let (tree_bytes, utxo_root, nullifier_root, root_index) = build_tree_bytes(&tree, &leaves);
     let state_tree = local_state_tree(&leaves);
     let nf_tree = nullifier_tree();
+    assert_eq!(state_tree.root(), utxo_root, "cancel state root");
+    assert_eq!(nf_tree.root(), nullifier_root, "cancel nf root");
     let spend_proofs = build_spend_proofs(
         &tree,
         &state_tree,
@@ -651,9 +565,10 @@ fn measure_cancel() -> (u64, u64) {
             .hash()
             .expect("external data hash"),
     };
+    let dummy_nfs = dummy_nullifier_proofs_for(&spp_proof_inputs, &nf_tree);
     let prover = ProverClient::local();
     let swap_prover = SwapProverClient::new();
-    let (transact, _) = prove_transact(spp_proof_inputs, &spend_proofs, &prover);
+    let (transact, _) = prove_transact(spp_proof_inputs, &spend_proofs, &dummy_nfs, &prover);
     let cancel_proof = swap_prover
         .prove_cancel(&cancel_params.to_proof_inputs().expect("cancel inputs"))
         .expect("cancel prove");
@@ -745,12 +660,18 @@ fn bench_batch_cu_dual() {
 
     println!("measuring make…");
     let (ml, mb) = measure_make();
-    results.insert("Swap make", (ml, mb));
-    report.push_str(&format!(
-        "| Swap make | {ml} | {mb} | {} |\n",
-        ml as i64 - mb as i64
-    ));
-    println!("make legacy={ml} batch={mb}");
+    if ml > 0 {
+        results.insert("Swap make", (ml, mb));
+        report.push_str(&format!(
+            "| Swap make | {ml} | {mb} | {} |\n",
+            ml as i64 - mb as i64
+        ));
+        println!("make legacy={ml} batch={mb}");
+    } else {
+        report.push_str(
+            "| Swap make | n/a | n/a | PDA data_hash blocked by SPP circuit |\n",
+        );
+    }
 
     println!("measuring take…");
     let (tl, tb) = measure_take();

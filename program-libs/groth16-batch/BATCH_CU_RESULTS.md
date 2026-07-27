@@ -1,19 +1,20 @@
-# Fold-only CU (agave prices × Independent same-vk layout)
+# Batch dual CU (LiteSVM + agave batch syscalls)
 
-Host trapdoor fold verifies for each N. Syscall CU uses the same `msm_cost` / `pairing_cost` LiteSVM charges when the fold runs on SBF.
+| Use case | Legacy CU | Batch CU | Delta |
+| --- | ---: | ---: | ---: |
+| Swap make | n/a | n/a | PDA data_hash blocked by SPP circuit |
+| Swap take | 269481 | 270878 | -1397 |
+| Swap cancel | 260690 | 262078 | -1388 |
 
-| N | Host fold | Syscall CU |
-| ---: | --- | ---: |
-| 1 | ok | 72603 |
-| 2 | ok | 92395 |
-| 4 | ok | 131784 |
-| 8 | ok | 207730 |
-| 16 | ok | 358107 |
 
-## Compose mixed-key k=2
+## Dual LiteSVM full-path CU (just bench-batch-cu)
 
-Syscall CU ≈ 127960
+| Use case | Legacy CU | Batch CU | Delta |
+| --- | ---: | ---: | ---: |
+| Swap take | 269481 | 270878 | -1397 |
+| Swap cancel | 260690 | 262078 | -1388 |
+| Swap make | n/a | n/a | PDA-owned `data_hash` output rejected by SPP circuit |
 
-## vs solo ×2 (rough IC+pairing only)
+Batch mixed-key k=2 is slightly higher than legacy for these shapes: solo app verify is cheap relative to SPP, and the RLC still pays n+3k pairing structure.
 
-Solo×2 ≈ 124674; batch N=2 = 92395; delta ≈ 32279
+Prover fix: rebuild `target/prover-server` after circuit changes; re-download keys to match `proving-keys.lock`.

@@ -125,10 +125,11 @@ impl ZolanaProgramTest {
         }
 
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-        let mut svm = LiteSVM::new();
-        if batch_syscalls {
-            svm = zolana_batch_syscalls::with_batch_syscalls(svm);
-        }
+        let mut svm = if batch_syscalls {
+            zolana_batch_syscalls::LiteSVM_with_batch_syscalls()
+        } else {
+            LiteSVM::new()
+        };
         let program_bytes = std::fs::read(path)?;
         svm.add_program(program_id, &program_bytes)
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;

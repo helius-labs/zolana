@@ -36,11 +36,11 @@ Account delta measured here: legacy_tx +33, v0+ALT +2.
 | BatchTransact | batch | 4 | | 1201 | 1175 | 1232 |
 | ComposeTransact | batch | 2 | | 701 | 644 | 1232 |
 | Swap make | legacy | 2 | 258987 | 1124 | 1098 | 1232 |
-| Swap make | batch | 2 | | 1157 | 1100 | 1232 |
+| Swap make | batch | 2 | n/a | 1157 | 1100 | 1232 |
 | Swap take | legacy | 2 | 261268 | 1056 | 999 | 1232 |
-| Swap take | batch | 2 | | 1089 | 1001 | 1232 |
+| Swap take | batch | 2 | 270878 | 1089 | 1001 | 1232 |
 | Swap cancel | legacy | 2 | 252641 | 871 | 814 | 1232 |
-| Swap cancel | batch | 2 | | 904 | 816 | 1232 |
+| Swap cancel | batch | 2 | 262078 | 904 | 816 | 1232 |
 | Swap take_ve | legacy | 2 | 395782 | | | 1232 |
 | Swap take_ve | batch | — | n/a | n/a | n/a | n/a |
 | Create escrow | legacy | 2 | 271556 | 1294 | 1175 | 1232 |

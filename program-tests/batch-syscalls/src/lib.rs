@@ -47,9 +47,31 @@ pub fn pairing_cost(num_pairs: u64) -> u64 {
 }
 
 /// Register `sol_alt_bn128_g1_msm` and `sol_alt_bn128_pairing_check`.
+///
+/// **Must** run after `with_builtins()` and **before** `with_default_programs()`.
+/// Prefer [`LiteSVM_with_batch_syscalls`] which builds a full environment in order.
 pub fn with_batch_syscalls(svm: LiteSVM) -> LiteSVM {
     svm.with_custom_syscall("sol_alt_bn128_g1_msm", SyscallG1Msm::vm)
         .with_custom_syscall("sol_alt_bn128_pairing_check", SyscallPairingCheck::vm)
+}
+
+/// Build LiteSVM with the batch syscalls registered at the correct construction
+/// point (after builtins, before default programs).
+#[allow(non_snake_case)]
+pub fn LiteSVM_with_batch_syscalls() -> LiteSVM {
+    // Mirror LiteSVM::into_basic, inserting custom syscalls before programs.
+    const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
+    LiteSVM::default()
+        .with_mainnet_features()
+        .with_builtins()
+        .with_custom_syscall("sol_alt_bn128_g1_msm", SyscallG1Msm::vm)
+        .with_custom_syscall("sol_alt_bn128_pairing_check", SyscallPairingCheck::vm)
+        .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL))
+        .with_sysvars()
+        .with_feature_accounts()
+        .with_default_programs()
+        .with_sigverify(true)
+        .with_blockhash_check(true)
 }
 
 fn translate<'a>(
