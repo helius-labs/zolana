@@ -2,7 +2,9 @@ use anyhow::Result;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
 use zolana_transaction::Address;
-use zolana_wallet::{create_withdrawal, sign_private_transaction_sync, WithdrawalParams};
+use zolana_wallet::{
+    create_withdrawal, sign_private_transaction_sync, WithdrawalLeg, WithdrawalParams,
+};
 
 use super::{
     resolve::get_network,
@@ -33,14 +35,19 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     // An SPL withdrawal settles into the recipient's associated token account,
     // which the on-chain settlement validates, so create it first (no-op for
     // SOL). The funding wallet pays for the account.
-    ensure_owner_spl_token_account(&client, &ctx.material.funding, recipient, asset)?;
+    let spl_token_program =
+        ensure_owner_spl_token_account(&client, &ctx.material.funding, recipient, asset)?
+            .map(|(_, token_program)| token_program);
 
     let withdrawal = create_withdrawal(WithdrawalParams {
         wallet: &ctx.wallet,
         payer: Address::new_from_array(ctx.material.funding.pubkey().to_bytes()),
-        recipient,
-        asset,
-        amount: opts.amount,
+        legs: vec![WithdrawalLeg {
+            recipient,
+            asset,
+            amount: opts.amount,
+            spl_token_program,
+        }],
     })?;
     let transaction = sign_private_transaction_sync(
         withdrawal.transaction,

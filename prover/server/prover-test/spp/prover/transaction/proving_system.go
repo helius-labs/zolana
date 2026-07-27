@@ -7,7 +7,8 @@ import (
 	"io"
 	"os"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	customzone "zolana/prover/circuits/spp_transaction/custom"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -18,10 +19,10 @@ import (
 	gnarkio "github.com/consensys/gnark/io"
 )
 
-// ProofSystem holds keys and constraints for one transaction circuit shape and
-// ownership rail. RequiresP256 selects the P256-capable circuit (true) or the
-// Solana-only variant (false, ~7x fewer constraints). It is serialized in the
-// key-file header so a loaded system self-describes its rail.
+// ProofSystem holds keys and constraints for one transaction circuit shape.
+// RequiresP256 is a legacy header flag from the removed P256 ownership rail;
+// it is still serialized so existing key files parse, and is always false for
+// newly compiled systems.
 type ProofSystem struct {
 	Shape            protocol.Shape
 	RequiresP256     bool
@@ -30,17 +31,9 @@ type ProofSystem struct {
 	VerifyingKey     groth16.VerifyingKey
 }
 
-func Compile(shape protocol.Shape, requiresP256 bool) (constraint.ConstraintSystem, error) {
-	var (
-		circuit *txcircuit.Circuit
-		err     error
-	)
+func Compile(shape protocol.Shape) (constraint.ConstraintSystem, error) {
 	txShape := txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs}
-	if requiresP256 {
-		circuit, err = txcircuit.NewTransferP256ZoneCircuit(txShape)
-	} else {
-		circuit, err = txcircuit.NewTransferZoneCircuit(txShape)
-	}
+	circuit, err := customzone.NewCustomZoneEddsaOnlyCircuit(txShape)
 	if err != nil {
 		return nil, err
 	}
@@ -52,8 +45,8 @@ func Compile(shape protocol.Shape, requiresP256 bool) (constraint.ConstraintSyst
 	)
 }
 
-func Setup(shape protocol.Shape, requiresP256 bool) (*ProofSystem, error) {
-	ccs, err := Compile(shape, requiresP256)
+func Setup(shape protocol.Shape) (*ProofSystem, error) {
+	ccs, err := Compile(shape)
 	if err != nil {
 		return nil, err
 	}
@@ -63,14 +56,13 @@ func Setup(shape protocol.Shape, requiresP256 bool) (*ProofSystem, error) {
 	}
 	return &ProofSystem{
 		Shape:            shape,
-		RequiresP256:     requiresP256,
 		ConstraintSystem: ccs,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,
 	}, nil
 }
 
-func Prove(ps *ProofSystem, assignment *txcircuit.Circuit) (groth16.Proof, error) {
+func Prove(ps *ProofSystem, assignment frontend.Circuit) (groth16.Proof, error) {
 	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
 	if err != nil {
 		return nil, err
@@ -78,7 +70,7 @@ func Prove(ps *ProofSystem, assignment *txcircuit.Circuit) (groth16.Proof, error
 	return groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 }
 
-func Verify(ps *ProofSystem, assignment *txcircuit.Circuit, proof groth16.Proof) error {
+func Verify(ps *ProofSystem, assignment frontend.Circuit, proof groth16.Proof) error {
 	witness, err := frontend.NewWitness(
 		assignment,
 		ecc.BN254.ScalarField(),
@@ -155,7 +147,7 @@ func boolToU32(b bool) uint32 {
 func (ps *ProofSystem) WriteTo(w io.Writer) (int64, error) {
 	var total int64
 	var buf [4]byte
-	// Header: NInputs, NOutputs, RequiresP256. Serializing the ownership rail
+	// Header: NInputs, NOutputs, RequiresP256 (legacy, always false). Serializing the ownership rail
 	// makes the key self-describing — the prover binds the matching circuit
 	// without inferring the rail from the filename.
 	fields := []uint32{uint32(ps.Shape.NInputs), uint32(ps.Shape.NOutputs), boolToU32(ps.RequiresP256)}

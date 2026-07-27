@@ -64,14 +64,23 @@ pub enum TransactionError {
     #[error("transaction has no inputs")]
     NoInputs,
 
-    #[error("withdrawal already set")]
-    WithdrawalAlreadySet,
+    #[error("too many interface transfers: got {got}, max {max}")]
+    TooManyInterfaceTransfers { got: usize, max: usize },
 
-    #[error("public sol leg already set")]
-    PublicSolAlreadySet,
+    #[error("public settlement requires at least one interface transfer")]
+    NoInterfaceTransfers,
 
-    #[error("public spl leg already set")]
-    PublicSplAlreadySet,
+    #[error("interface transfer amount must be nonzero")]
+    ZeroInterfaceTransferAmount,
+
+    #[error("settlement target type does not match asset {asset}")]
+    SettlementTargetMismatch { asset: Address },
+
+    #[error("public movement sum overflow for asset {asset}")]
+    PublicMovementOverflow { asset: Address },
+
+    #[error("too many active public assets: got {got}, max {max}")]
+    TooManyPublicAssets { got: usize, max: usize },
 
     #[error("zone hashes already set")]
     ZoneHashesAlreadySet,
@@ -79,11 +88,8 @@ pub enum TransactionError {
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
 
-    #[error("public spl amount set but no spl asset among the transaction utxos")]
-    MissingPublicSplAsset,
-
-    #[error("p256 signing requires a p256 keypair")]
-    SignerNotP256,
+    #[error("default transact supports Ed25519 owners only")]
+    P256TransactUnsupported,
 
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },

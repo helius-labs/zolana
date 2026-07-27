@@ -265,6 +265,7 @@ pub fn setup() -> Result<TestEnv> {
     let interface_ix = CreateSplInterface {
         authority: accounts.protocol_vault,
         mint: spl_mint,
+        token_program: zolana_interface::pda::spl_token_program_id(),
     }
     .instruction();
     let interface_sync = smart_account::execute_sync_ix(
@@ -306,10 +307,11 @@ pub fn setup() -> Result<TestEnv> {
         asset: spl_mint,
         amount: USER_SPL_SHIELD,
         spl_token_account: Some(spl_funding),
+        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?;
     user_deposit.send(&rpc, &payer, tree, &payer)?;
-    let user_spl_blinding = user_deposit.data.blinding;
+    let user_spl_blinding = user_deposit.deposit.blinding;
 
     // Register both parties in the user directory (keyed by their Solana
     // pubkeys). On settle, the caller resolves the recipient's shielded address

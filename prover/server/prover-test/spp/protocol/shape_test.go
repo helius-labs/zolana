@@ -113,14 +113,18 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"utxo_tree_roots",
 		"nullifier_tree_roots",
 		"private_tx_hash",
-		"p256_message_hash",
 		"external_data_hash",
-		"public_sol_amount",
-		"public_spl_amount",
-		"public_spl_asset_pubkey",
+		"public_asset_0",
+		"public_amount_0",
+		"public_asset_1",
+		"public_amount_1",
+		"public_asset_2",
+		"public_amount_2",
 		"zone_program_id",
 		"payer_pubkey_hash",
+		"allow_dummy_inputs",
 		"input_owner_pk_hashes",
+		"output_owner_pk_hashes",
 	}
 
 	names := PublicInputNames()

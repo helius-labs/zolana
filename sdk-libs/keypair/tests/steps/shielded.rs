@@ -1,7 +1,7 @@
 use cucumber::then;
 use zolana_keypair::{
-    constants::BLINDING_LEN, hash::owner_hash, random_salt, CompressedShieldedAddress,
-    NullifierKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey,
+    hash::owner_hash, random_salt, CompressedShieldedAddress, NullifierKey, ShieldedAddress,
+    ShieldedKeypair, SigningKey, ViewingKey,
 };
 
 use crate::KeypairWorld;
@@ -43,7 +43,7 @@ fn facade_sign_nullifier(world: &mut KeypairWorld, name: String) {
     let msg = [7u8; 32];
     assert!(kp.signing_key.verify(&msg, &kp.sign(&msg)));
     let utxo_hash = [5u8; 32];
-    let blinding = [6u8; BLINDING_LEN];
+    let blinding = [6u8; 32];
     assert_eq!(
         kp.nullifier(&utxo_hash, &blinding).unwrap(),
         kp.nullifier_key.nullifier(&utxo_hash, &blinding).unwrap()
@@ -67,7 +67,7 @@ fn facade_shared_tags(world: &mut KeypairWorld, sender: String, recipient: Strin
 fn facade_transfer(world: &mut KeypairWorld, sender: String, recipient: String) {
     let first_nullifier = world
         .keypair(&sender)
-        .nullifier(&[1u8; 32], &[2u8; BLINDING_LEN])
+        .nullifier(&[1u8; 32], &[2u8; 32])
         .unwrap();
     let recipient_pubkey = world.keypair(&recipient).viewing_pubkey();
     let payload = b"owner || asset || amount || blinding".to_vec();

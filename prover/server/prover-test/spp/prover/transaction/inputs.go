@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"strings"
 
-	txcircuit "zolana/prover/circuits/spp_transaction"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
 )
@@ -69,18 +69,13 @@ func buildInputWitnesses(
 		witness.NullifierSecret = input.nullifierSecret
 		if input.isP256 {
 			inputs.requiresP256OwnerWitness = true
-			witness.OwnerPkHash = big.NewInt(0)
 			inputs.inputOwnerPkHashes[i] = big.NewInt(0)
 		} else {
-			witness.OwnerPkHash = input.ownerKeyHash
 			inputs.inputOwnerPkHashes[i] = input.ownerKeyHash
 			inputs.solanaOwnerPubkeys[i] = input.ownerSolanaPubkey
 		}
 		utxoRoot := state.root
 		nullifierTreeRoot := nullifierTree.Root()
-		witness.Nullifier = nullifier
-		witness.UtxoTreeRoot = utxoRoot
-		witness.NullifierTreeRoot = nullifierTreeRoot
 
 		proof, ok := state.proofs[input.leafIndex]
 		if !ok {
@@ -115,19 +110,27 @@ func buildInputWitnesses(
 		if err != nil {
 			return inputWitnesses{}, fmt.Errorf("dummy input %d utxo hash: %w", i, err)
 		}
-		nullifierSecret, err := randomBlinding()
-		if err != nil {
-			return inputWitnesses{}, fmt.Errorf("dummy input %d nullifier secret: %w", i, err)
-		}
-		nullifier, err := protocol.Nullifier(utxoHash, blinding, nullifierSecret)
+		// A dummy derives its nullifier over the dummified utxo hash with
+		// nullifier_secret = 0; the blinding is its sole source of
+		// unpredictability. The circuit checks non-inclusion for every slot,
+		// dummies included, so the dummy carries a real low-element witness.
+		nullifier, err := protocol.Nullifier(utxoHash, blinding, big.NewInt(0))
 		if err != nil {
 			return inputWitnesses{}, fmt.Errorf("dummy input %d nullifier: %w", i, err)
 		}
-		witness := dummyInputWitness(dummyUtxoFields(blinding), nullifier)
+		witness := dummyInputWitness(dummyUtxoFields(blinding))
+		nfWitness, err := nullifierTree.NonInclusionWitness(nullifier)
+		if err != nil {
+			return inputWitnesses{}, fmt.Errorf("dummy input %d nullifier non-inclusion: %w", i, err)
+		}
+		witness.NullifierLowValue = nfWitness.LowValue
+		witness.NullifierNextValue = nfWitness.NextValue
+		fillPathElements(witness.NullifierLowPathElements, nfWitness.PathElements)
+		witness.NullifierLowPathIndex = pathIndexVariable(nfWitness.LowIndex)
 		inputs.inputs[i] = witness
 		inputs.hashes[i] = big.NewInt(0)
 		inputs.utxoRoots[i] = big.NewInt(0)
-		inputs.nullifierTreeRoots[i] = big.NewInt(0)
+		inputs.nullifierTreeRoots[i] = nullifierTree.Root()
 		inputs.nullifiers[i] = nullifier
 		inputs.inputOwnerPkHashes[i] = big.NewInt(0)
 	}
@@ -136,29 +139,25 @@ func buildInputWitnesses(
 
 func newInputWitness() txcircuit.Input {
 	return txcircuit.Input{
-		IsDummy:                  big.NewInt(0),
 		StatePathElements:        zeroVariables(protocol.StateTreeHeight),
 		StatePathIndex:           big.NewInt(0),
 		NullifierLowPathElements: zeroVariables(protocol.NullifierTreeHeight),
 		NullifierLowPathIndex:    big.NewInt(0),
 		NullifierLowValue:        big.NewInt(0),
 		NullifierNextValue:       big.NewInt(0),
-		UtxoTreeRoot:             big.NewInt(0),
-		NullifierTreeRoot:        big.NewInt(0),
-		OwnerPkHash:              big.NewInt(0),
 		NullifierSecret:          big.NewInt(0),
 	}
 }
 
-// dummyInputWitness fills an unused input slot with a random-blinded UTXO and
-// derived nullifier so the public transcript is indistinguishable from a real
-// input. Every spend check is skipped in-circuit; roots stay zero because the
-// on-chain verifier treats missing root indices as zero.
-func dummyInputWitness(utxo txcircuit.UtxoCircuitFields, nullifier *big.Int) txcircuit.Input {
+// dummyInputWitness fills an unused input slot with a random-blinded UTXO so
+// the public transcript is indistinguishable from a real input. Ownership and
+// inclusion are skipped in-circuit; the caller attaches the real nullifier
+// non-inclusion witness (checked for every slot) and publishes the derived
+// dummy nullifier. The public state root stays zero because the on-chain
+// verifier treats missing root indices as zero.
+func dummyInputWitness(utxo txcircuit.UtxoCircuitFields) txcircuit.Input {
 	witness := newInputWitness()
-	witness.IsDummy = big.NewInt(1)
 	witness.Utxo = utxo
-	witness.Nullifier = nullifier
 	return witness
 }
 

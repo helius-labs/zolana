@@ -2,8 +2,8 @@
 //! spends the sender's SOL UTXOs and moves the public SOL amount out of the pool
 //! to an external recipient account, keeping a SOL change UTXO for the sender.
 //! Mirrors `execute_transfer` except it calls `transfer.withdraw(..)` instead of
-//! `transfer.send(..)` and sets `withdrawal: Some(..)` on the `Transact` builder, so the
-//! builder appends the `sol_interface` custody PDA and the recipient account.
+//! `transfer.send(..)` and adds a SOL interface transfer to the `Transact` builder, so
+//! the builder appends the `sol_interface` custody PDA and the recipient account.
 
 use anyhow::{anyhow, Result};
 use cucumber::when;
@@ -14,13 +14,14 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     assemble, ConfidentialTransfer, ProverClient, ProverInputs, SpendProof, SppProofInputUtxo,
-    WithdrawalTarget,
 };
-use zolana_interface::instruction::{Transact, TransactSolWithdrawal, TransactWithdrawal};
+use zolana_interface::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+};
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::{Utxo, SOL_MINT};
+use zolana_transaction::{instructions::transact::SettlementTarget, Utxo, SOL_MINT};
 
 use crate::{
     localnet::{send_transaction, transact_proof, SOL_CHANGE_POSITION, ZERO},
@@ -67,7 +68,7 @@ impl LifecycleWorld {
 
         let from_keypair = self.actor(from).keypair.clone();
         // An eddsa actor pays and signs its own spend (the owner sits at signer index
-        // 0 / the fee payer); a P256 actor falls back to the global payer.
+        // 0 / the fee payer); actors without a signer fall back to the global payer.
         let fee_payer = self
             .actor(from)
             .solana_signer
@@ -86,7 +87,7 @@ impl LifecycleWorld {
         transfer.withdraw(
             SOL_MINT,
             amount,
-            WithdrawalTarget::Sol {
+            SettlementTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.pubkey().to_bytes()),
             },
         )?;
@@ -104,13 +105,18 @@ impl LifecycleWorld {
             );
             spend_proofs.push(SpendProof { state, nullifier });
         }
+        // The circuit checks non-inclusion for every slot, so each padding dummy
+        // needs a real low-element witness for its own nullifier.
+        let dummy_proofs: Vec<_> = proof_inputs
+            .dummy_nullifiers()?
+            .into_iter()
+            .map(|nullifier| {
+                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier)
+            })
+            .collect();
 
-        let assembled = assemble(proof_inputs, &spend_proofs)?;
+        let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let (proof, rail) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (
-                ProverClient::local().prove_transfer_p256(inputs)?,
-                Rail::P256,
-            ),
             ProverInputs::Eddsa(inputs) => {
                 (ProverClient::local().prove_transfer(inputs)?, Rail::Eddsa)
             }
@@ -120,10 +126,13 @@ impl LifecycleWorld {
 
         let withdraw_ix = Transact {
             payer: fee_payer.pubkey(),
-            tree: self.tree,
-            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal {
-                recipient: recipient.pubkey(),
-            })),
+            input_tree: self.tree,
+            output_tree: self.tree,
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts {
+                    recipient: recipient.pubkey(),
+                },
+            )],
             data: ix_data,
         }
         .instruction();

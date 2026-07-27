@@ -17,6 +17,12 @@ name = "indexed_events"
 path = "tests/indexed_events.rs"
 required-features = ["program-test"]
 
+[[test]]
+name = "output_data"
+path = "tests/output_data.rs"
+required-features = ["program-test"]
+
+
 [dependencies]
 borsh = { workspace = true }
 solana-pubkey = { workspace = true }

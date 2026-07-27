@@ -1,5 +1,5 @@
 use cucumber::{then, when};
-use zolana_keypair::{constants::BLINDING_LEN, PublicKey, ShieldedKeypair};
+use zolana_keypair::{PublicKey, ShieldedKeypair};
 use zolana_transaction::{
     data::{Data, DataRecord},
     serialization::plaintext::{
@@ -12,7 +12,7 @@ use zolana_transaction::{
 
 use crate::TransactionWorld;
 
-const SEED: [u8; BLINDING_LEN] = [1u8; BLINDING_LEN];
+const SEED: [u8; 32] = [1u8; 32];
 
 fn registry() -> AssetRegistry {
     AssetRegistry::new([(2u64, Address::new_from_array([9u8; 32]))]).unwrap()

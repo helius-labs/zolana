@@ -155,6 +155,7 @@ pub fn create_spl_interface<R: Rpc>(
     let ix = CreateSplInterface {
         authority: authority.pubkey(),
         mint: *mint,
+        token_program: token_program_id(),
     }
     .instruction();
     rpc.create_and_send_transaction(&[ix], to_address(&authority.pubkey()), &[authority])?;

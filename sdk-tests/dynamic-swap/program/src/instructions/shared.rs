@@ -7,7 +7,8 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_hasher::{Hasher, Poseidon};
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::error::DynamicSwapError;
@@ -18,30 +19,17 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
     bytes
 }
 
-/// `owner_pk_field` for an ed25519 owner: `Poseidon(value[16..32], value[0..16])`
-/// with each half right-aligned into a field element. Matches
-/// `zolana_keypair::hash::hash_field` so a Solana signer pubkey maps to the
-/// `owner_pk_field` committed by a circuit's owner-hash binding.
-pub fn hash_field(value: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-    let mut low = [0u8; 32];
-    low[16..].copy_from_slice(&value[16..32]);
-    let mut high = [0u8; 32];
-    high[16..].copy_from_slice(&value[0..16]);
-    Poseidon::hashv(&[low.as_slice(), high.as_slice()])
-        .map_err(|_| DynamicSwapError::HashingFailed.into())
-}
-
 /// The escrow_authority PDA's owner-hash for `pair`, recomputed from the PDA
 /// itself so the program never trusts a client value for the `escrow_open`
 /// circuit's `EscrowAuthorityOwnerHash` public input. Mirrors the SDK's
 /// `EscrowUtxo::order_utxo_owner_hash`: `Poseidon(owner_pk_field(pda),
 /// nullifier_pubkey)`, where for an ed25519 owner `owner_pk_field ==
-/// hash_field(pda_bytes)` and the constant zero-secret nullifier key's pubkey
+/// hash_bytes(pda_bytes)` and the constant zero-secret nullifier key's pubkey
 /// is `Poseidon(fe_right_align([0u8; 31])) == Poseidon([0u8; 32])`.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub fn escrow_authority_owner_hash(pair: &Address) -> Result<[u8; 32], ProgramError> {
     let (pda, _bump) = derive_authority_pda(crate::ESCROW_AUTHORITY_PDA_SEED, pair);
-    let owner_pk_field = hash_field(pda.as_array())?;
+    let owner_pk_field = hash_bytes(pda.as_array()).map_err(DynamicSwapError::from)?;
     let nullifier_pubkey =
         Poseidon::hashv(&[[0u8; 32].as_slice()]).map_err(|_| DynamicSwapError::HashingFailed)?;
     Poseidon::hashv(&[owner_pk_field.as_slice(), nullifier_pubkey.as_slice()])

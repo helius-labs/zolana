@@ -1,4 +1,4 @@
-//! # light-hasher
+//! # zolana-hasher
 //!
 //! Trait for generic hash function usage on Solana.
 //!
@@ -10,7 +10,7 @@
 //! | [`Sha256`] | SHA-256 hash |
 //! | [`HasherError`] | Error type for hash operations |
 //! | [`hash_chain`] | Sequential hash chaining |
-//! | [`hash_to_field_size`] | Truncate hash output to BN254 field size |
+//! | [`primitives`] | Fixed-length byte packing and Poseidon commitments |
 //! | [`zero_bytes`] | Precomputed zero-leaf hashes per hasher |
 
 #![allow(unexpected_cfgs)]
@@ -28,9 +28,9 @@ pub use std::{string::String, vec, vec::Vec};
 pub mod bigint;
 pub mod errors;
 pub mod hash_chain;
-pub mod hash_to_field_size;
 pub mod keccak;
 pub mod poseidon;
+pub mod primitives;
 pub mod sha256;
 pub mod syscalls;
 pub mod zero_bytes;

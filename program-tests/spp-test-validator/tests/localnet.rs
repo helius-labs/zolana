@@ -9,7 +9,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::Transaction;
 use zolana_client::{spawn_prover, Proof, ProofCompressed, Rpc, SolanaRpc};
-use zolana_interface::instruction::instruction_data::transact::{P256Proof, TransactProof};
+use zolana_interface::instruction::instruction_data::{
+    merge_transact::MergeProof, transact::TransactProof,
+};
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_test_utils::smart_account;
 use zolana_user_registry_interface::user_registry_program_id;
@@ -25,12 +27,11 @@ pub(crate) const RECIPIENT_POSITION_BASE: u8 = 2;
 
 /// The P256-rail merge proof (always BSB22-committed), via the shared
 /// `ProofCompressed::to_merge_proof` conversion.
-pub(crate) fn pack_proof(proof: &Proof) -> Result<P256Proof> {
+pub(crate) fn pack_proof(proof: &Proof) -> Result<MergeProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_merge_proof()?)
 }
 
-/// Build the `transact` proof enum: the eddsa rail omits the BSB22 commitment, the
-/// P256 rail keeps it.
+/// Build the compressed proof carried by a `transact` instruction.
 pub(crate) fn transact_proof(proof: &Proof) -> Result<TransactProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
 }

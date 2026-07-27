@@ -7,7 +7,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
 pub use proofless::{
-    encode_output_data, encode_verifiably_encrypted, OutputDataEncoding, ProoflessOutput,
+    encode_output_data, encode_output_data_ref, encode_verifiably_encrypted, OutputDataEncoding,
+    ProoflessOutput, ProoflessOutputRef, PLAINTEXT_OUTPUT_FIXED_LEN,
 };
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
@@ -32,9 +33,10 @@ pub struct GeneralEvent {
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
-    pub relay_fee: Option<u64>,
-    /// `Some` for shield/unshield, `None` for shielded transfer.
-    pub deposit_withdraw: Option<DepositWithdraw>,
+    /// Per-asset public SPL transfers: empty for a shielded transfer, one entry per
+    /// settled interface transfer. A batched `deposit` carries one entry per deposited
+    /// asset.
+    pub spl_transfers: Vec<SplTransfer>,
 }
 
 /// One spent input. Inputs may originate from different trees.
@@ -46,7 +48,7 @@ pub struct Input {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct DepositWithdraw {
+pub struct SplTransfer {
     pub is_deposit: bool,
     pub amount: u64,
     pub asset: Option<[u8; 32]>,

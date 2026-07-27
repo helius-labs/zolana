@@ -12,6 +12,4 @@ pub(crate) mod settlement;
 pub(crate) mod shared;
 pub mod transact;
 pub(crate) mod verifier;
-pub mod zone_authority_transact;
 pub mod zone_config;
-pub mod zone_transact;

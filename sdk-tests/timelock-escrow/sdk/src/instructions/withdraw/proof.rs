@@ -27,7 +27,10 @@ impl WithdrawProofInputParams {
             bail!("source output owner does not match the escrow creator");
         }
         let terms_input = EscrowTermsProofInput::try_from(terms)?;
-        let owner_pk_field = creator.signing_pubkey.owner_pk_field().map_err(err)?;
+        let owner_pk_field = creator
+            .signing_pubkey
+            .owner_proof_input_hash()
+            .map_err(err)?;
         let escrow_utxo =
             ProofInputUtxo::try_from(&self.escrow_utxo.to_input_utxo()?).map_err(err)?;
         let source_output = ProofInputUtxo::try_from(&self.source_output).map_err(err)?;

@@ -12,10 +12,10 @@ use tokio::time::sleep as async_sleep;
 use crate::{
     error::ClientError,
     prover::{
-        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
+        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_zone, to_json_p256,
-            to_json_p256_zone, to_json_zone, to_json_zone_authority,
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_zone, to_json_zone,
+            to_json_zone_authority,
         },
         proof::{proof_from_gnark_json, Proof},
     },
@@ -154,12 +154,6 @@ impl ProverClient {
         self
     }
 
-    /// Prove a P256-rail transfer, returning the uncompressed negated proof. Use
-    /// `ProofCompressed::try_from` for the wire format.
-    pub fn prove_transfer_p256(&self, inputs: &TransferP256Inputs) -> Result<Proof, ClientError> {
-        self.send(to_json_p256(inputs))
-    }
-
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
@@ -186,17 +180,9 @@ impl ProverClient {
         self.send(to_json_merge_zone(inputs))
     }
 
-    /// Prove an eddsa anonymous policy-zone transfer (`transfer-zone`).
+    /// Prove an eddsa confidential policy-zone transfer (`transfer-zone`).
     pub fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.send(to_json_zone(inputs))
-    }
-
-    /// Prove a P256 anonymous policy-zone transfer (`transfer-p256-zone`).
-    pub fn prove_transfer_p256_zone(
-        &self,
-        inputs: &TransferP256Inputs,
-    ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_zone(inputs))
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -371,15 +357,6 @@ impl AsyncProverClient {
         self
     }
 
-    /// Prove a P256-rail transfer, returning the uncompressed negated proof. Use
-    /// `ProofCompressed::try_from` for the wire format.
-    pub async fn prove_transfer_p256(
-        &self,
-        inputs: &TransferP256Inputs,
-    ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256(inputs)).await
-    }
-
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
@@ -403,13 +380,6 @@ impl AsyncProverClient {
 
     pub async fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.send(to_json_zone(inputs)).await
-    }
-
-    pub async fn prove_transfer_p256_zone(
-        &self,
-        inputs: &TransferP256Inputs,
-    ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_zone(inputs)).await
     }
 
     pub async fn prove_batch_address_append(

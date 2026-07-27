@@ -77,42 +77,6 @@ func MustPrivateTxHash(t testing.TB, inputs, outputs, addresses []*big.Int, exte
 	return MustHash(t, value, err)
 }
 
-// MustP256MessageDigest returns the full SHA-256 ECDSA message digest of
-// privateTxHash (the bytes the P256 owner signs).
-func MustP256MessageDigest(t testing.TB, privateTxHash *big.Int) [32]byte {
-	t.Helper()
-	digest, err := protocol.P256MessageDigest(privateTxHash)
-	if err != nil {
-		t.Fatalf("p256 message digest: %v", err)
-	}
-	return digest
-}
-
-// MustP256MessageLimbs returns the big-endian low/high 128-bit limbs of the
-// message digest, as assigned to the circuit witness.
-func MustP256MessageLimbs(t testing.TB, privateTxHash *big.Int) (low, high *big.Int) {
-	t.Helper()
-	digest := MustP256MessageDigest(t, privateTxHash)
-	low, high = protocol.P256MessageLimbs(digest)
-	return low, high
-}
-
-// MustP256MessageHashField returns the public-input field Poseidon(low, high)
-// for the message digest of privateTxHash.
-func MustP256MessageHashField(t testing.TB, privateTxHash *big.Int) *big.Int {
-	t.Helper()
-	low, high := MustP256MessageLimbs(t, privateTxHash)
-	return MustP256FieldFromLimbs(t, low, high)
-}
-
-// MustP256FieldFromLimbs folds explicit message-hash limbs into the public-input
-// field Poseidon(low, high). On the Solana-only rail both limbs are 0.
-func MustP256FieldFromLimbs(t testing.TB, low, high *big.Int) *big.Int {
-	t.Helper()
-	value, err := protocol.P256MessageHashField(low, high)
-	return MustHash(t, value, err)
-}
-
 func MustBuildSparseStateTree(t testing.TB, entries map[uint64]*big.Int) (*big.Int, map[uint64]protocol.StateTreeWitness) {
 	t.Helper()
 	root, proofs, err := protocol.BuildSparseStateTree(entries)

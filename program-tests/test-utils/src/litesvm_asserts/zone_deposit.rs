@@ -1,7 +1,7 @@
 //! Post-instruction checks for `zone_deposit` (policy-zone deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::ZoneDepositIxData;
+use zolana_interface::instruction::ZoneAssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -20,7 +20,7 @@ pub fn litesvm_assert_zone_deposit<A: SyncWalletAuthority + ?Sized>(
     program_test: &mut ZolanaProgramTest,
     tree: &Pubkey,
     event: &DepositOutput,
-    data: &ZoneDepositIxData,
+    data: &ZoneAssetDeposit,
     expected_amount: u64,
     expected_asset: [u8; 32],
     expected_zone_program_id: [u8; 32],
@@ -30,9 +30,9 @@ pub fn litesvm_assert_zone_deposit<A: SyncWalletAuthority + ?Sized>(
 ) {
     assert_eq!(event.output.amount, expected_amount, "event amount");
     assert_eq!(event.output.asset, expected_asset, "event asset");
-    assert_eq!(event.output.owner, data.owner, "owner");
-    assert_eq!(event.output.blinding, data.blinding, "blinding");
-    assert_eq!(event.view_tag, data.view_tag, "view tag");
+    assert_eq!(event.output.owner, data.deposit.owner, "owner");
+    assert_eq!(event.output.blinding, data.deposit.blinding, "blinding");
+    assert_eq!(event.view_tag, data.deposit.view_tag, "view tag");
     assert_eq!(
         event.output.zone_program_id,
         Some(expected_zone_program_id),
@@ -54,7 +54,7 @@ pub fn litesvm_assert_zone_deposit<A: SyncWalletAuthority + ?Sized>(
 
     let by_tag: Vec<_> = program_test
         .indexer()
-        .fetch_by_view_tag(&data.view_tag)
+        .fetch_by_view_tag(&data.deposit.view_tag)
         .collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
 

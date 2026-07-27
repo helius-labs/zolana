@@ -1,11 +1,12 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
-use crate::{instruction::tag, pda, PROGRAM_ID_PUBKEY, SPL_TOKEN_PROGRAM_ID};
+use crate::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 
 pub struct CreateSplInterface {
     pub authority: Pubkey,
     pub mint: Pubkey,
+    pub token_program: Pubkey,
 }
 
 impl CreateSplInterface {
@@ -20,7 +21,7 @@ impl CreateSplInterface {
                 AccountMeta::new_readonly(self.mint, false),
                 AccountMeta::new(pda::spl_asset_vault(&self.mint), false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
-                AccountMeta::new_readonly(Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID), false),
+                AccountMeta::new_readonly(self.token_program, false),
             ],
             data: vec![tag::CREATE_SPL_INTERFACE],
         }

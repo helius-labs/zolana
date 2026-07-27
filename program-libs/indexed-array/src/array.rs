@@ -284,21 +284,26 @@ where
         Ok(low_element)
     }
 
-    /// Returns the hash of the given element. That hash consists of:
-    ///
-    /// * The value of the given element.
-    /// * The `next_index` of the given element.
-    /// * The value of the element pointed by `next_index`.
+    /// Returns the leaf hash of the given element, `H(value, next_value)`,
+    /// matching the on-chain indexed-tree leaf format. `next_value` is the
+    /// value of the element pointed to by `next_index` — except for the
+    /// highest element, whose `next_index` is 0 ("points past the end") and
+    /// whose next value is the `highest_value` sentinel.
     pub fn hash_element(&self, index: I) -> Result<[u8; 32], IndexedArrayError> {
         let element = self
             .elements
             .get(index.into())
             .ok_or(IndexedArrayError::IndexHigherThanMax)?;
-        let next_element = self
-            .elements
-            .get(element.next_index.into())
-            .ok_or(IndexedArrayError::IndexHigherThanMax)?;
-        element.hash::<H>(&next_element.value)
+        let next_value = if element.next_index == I::zero() {
+            &self.highest_value
+        } else {
+            &self
+                .elements
+                .get(element.next_index.into())
+                .ok_or(IndexedArrayError::IndexHigherThanMax)?
+                .value
+        };
+        element.hash::<H>(next_value)
     }
 
     /// Returns an updated low element and a new element, created based on the

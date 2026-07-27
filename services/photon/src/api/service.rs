@@ -7,13 +7,14 @@ use utoipa::PartialSchema;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
+        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
+        GetShieldedTransactionsByTags,
     },
     GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetMerkleProofsResponse,
     GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
-    GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, RpcMethod,
+    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, RpcMethod,
 };
 
 use super::{
@@ -23,8 +24,8 @@ use super::{
         get_indexer_slot::get_indexer_slot,
         rings::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
-            get_nullifier_queue_elements, get_shielded_transactions_by_signature,
-            get_shielded_transactions_by_tags,
+            get_nullifier_queue_elements, get_shielded_transactions_by_nullifiers,
+            get_shielded_transactions_by_signature, get_shielded_transactions_by_tags,
         },
     },
 };
@@ -104,6 +105,13 @@ impl PhotonApi {
         get_shielded_transactions_by_signature(self.db_conn.as_ref(), request).await
     }
 
+    pub async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        request: GetRingsByNullifiersRequest,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, PhotonApiError> {
+        get_shielded_transactions_by_nullifiers(self.db_conn.as_ref(), request).await
+    }
+
     pub async fn get_merkle_proofs(
         &self,
         request: GetMerkleProofsRequest,
@@ -130,6 +138,7 @@ impl PhotonApi {
             method_api_spec::<GetEncryptedUtxosByTags>(),
             method_api_spec::<GetShieldedTransactionsBySignature>(),
             method_api_spec::<GetShieldedTransactionsByTags>(),
+            method_api_spec::<GetShieldedTransactionsByNullifiers>(),
             method_api_spec::<GetMerkleProofs>(),
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),

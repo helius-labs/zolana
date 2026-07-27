@@ -73,7 +73,7 @@ mod tests {
     use solana_address::Address;
     use solana_keypair::Keypair;
     use swap_prover::TAKE_MODE_DERIVED;
-    use zolana_keypair::{constants::BLINDING_LEN, shielded::ShieldedKeypair};
+    use zolana_keypair::shielded::ShieldedKeypair;
     use zolana_transaction::SOL_MINT;
 
     use super::*;
@@ -102,7 +102,7 @@ mod tests {
                 expiry: 1_700_000_000,
                 take_mode: TAKE_MODE_DERIVED,
             },
-            blinding: [11u8; BLINDING_LEN],
+            blinding: crate::shared::test_blinding(11),
             source_mint: SOL_MINT,
             source_amount: 400_000,
             destination_asset_id: 1,

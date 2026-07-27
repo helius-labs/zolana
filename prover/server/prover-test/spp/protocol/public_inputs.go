@@ -5,20 +5,27 @@ import (
 	"math/big"
 )
 
+// NPublicSlots mirrors the circuit constant of the same name.
+const NPublicSlots = 3
+
 var publicInputNames = [...]string{
 	"nullifiers",
 	"output_utxo_hashes",
 	"utxo_tree_roots",
 	"nullifier_tree_roots",
 	"private_tx_hash",
-	"p256_message_hash",
 	"external_data_hash",
-	"public_sol_amount",
-	"public_spl_amount",
-	"public_spl_asset_pubkey",
+	"public_asset_0",
+	"public_amount_0",
+	"public_asset_1",
+	"public_amount_1",
+	"public_asset_2",
+	"public_amount_2",
 	"zone_program_id",
 	"payer_pubkey_hash",
+	"allow_dummy_inputs",
 	"input_owner_pk_hashes",
+	"output_owner_pk_hashes",
 }
 
 // PublicInputNames returns the PublicInputHash preimage order.
@@ -29,25 +36,23 @@ func PublicInputNames() []string {
 }
 
 type PublicInputs struct {
-	Nullifiers           []*big.Int
-	OutputUtxoHashes     []*big.Int
-	UtxoTreeRoots        []*big.Int
-	NullifierTreeRoots   []*big.Int
-	PrivateTxHash        *big.Int
-	P256MessageHash      *big.Int
-	ExternalDataHash     *big.Int
-	PublicSolAmount      *big.Int
-	PublicSplAmount      *big.Int
-	PublicSplAssetPubkey *big.Int
-	ZoneProgramID        *big.Int
-	PayerPubkeyHash      *big.Int
-	InputOwnerPkHashes   []*big.Int
+	Nullifiers         []*big.Int
+	OutputUtxoHashes   []*big.Int
+	UtxoTreeRoots      []*big.Int
+	NullifierTreeRoots []*big.Int
+	PrivateTxHash      *big.Int
+	ExternalDataHash   *big.Int
+	PublicAssets       [NPublicSlots]*big.Int
+	PublicAmounts      [NPublicSlots]*big.Int
+	ZoneProgramID      *big.Int
+	PayerPubkeyHash    *big.Int
+	AllowDummyInputs   *big.Int
+	InputOwnerPkHashes []*big.Int
 
-	// Confidential appends the output owner tag chain and the shared P256 signing
-	// key's pk_field to the preimage (see spec circuit-variants).
+	// Confidential appends the output owner tag chain to the preimage for both
+	// default-zone and custom-zone confidential transfers.
 	Confidential        bool
 	OutputOwnerPkHashes []*big.Int
-	P256SigningPkField  *big.Int
 
 	// ZoneAuthority omits the input owner pk_field chain from the preimage: the
 	// zone-authority variant keeps input owners private (anonymous) since the zone
@@ -78,14 +83,18 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		utxoRootChain,
 		nullifierTreeRootChain,
 		inputs.PrivateTxHash,
-		inputs.P256MessageHash,
 		inputs.ExternalDataHash,
-		inputs.PublicSolAmount,
-		inputs.PublicSplAmount,
-		inputs.PublicSplAssetPubkey,
+	}
+	for i := 0; i < NPublicSlots; i++ {
+		fields = append(fields, inputs.PublicAssets[i], inputs.PublicAmounts[i])
+	}
+	// Everything from here on is variant-dependent, so the preimage keeps the
+	// owner tags each variant publishes at the end.
+	fields = append(fields,
 		inputs.ZoneProgramID,
 		inputs.PayerPubkeyHash,
-	}
+		inputs.AllowDummyInputs,
+	)
 	// The zone-authority variant keeps input owner pk_fields private; every other
 	// variant commits them so SPP can route the per-input signer check.
 	if !inputs.ZoneAuthority {
@@ -100,7 +109,7 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		if err != nil {
 			return nil, fmt.Errorf("spp: public input hash output owner chain: %w", err)
 		}
-		fields = append(fields, outputOwnerChain, inputs.P256SigningPkField)
+		fields = append(fields, outputOwnerChain)
 	}
 	return HashChain(fields)
 }

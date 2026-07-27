@@ -1,16 +1,16 @@
 //! Proofless SOL deposit steps.
 
-use cucumber::{given, then, when};
+use cucumber::{then, when};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{tag, DepositIxData},
+    instruction::{tag, DepositAssetKind, DepositEntry, DepositIxData},
     pda,
 };
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::ZolanaProgramTest;
+use zolana_keypair::ShieldedKeypair;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_deposit;
 use zolana_transaction::{AssetRegistry, LocalWalletAuthority, Wallet};
 
@@ -26,7 +26,6 @@ fn sol_accounts(
         AccountMeta::new(*depositor, true),
         AccountMeta::new_readonly(Pubkey::default(), false),
         AccountMeta::new(pda::sol_interface(), false),
-        AccountMeta::new(*depositor, false),
         AccountMeta::new_readonly(program_test.program_id, false),
     ]
 }
@@ -36,9 +35,20 @@ fn send_raw(world: &mut ShieldedPoolWorld, accounts: Vec<AccountMeta>) {
     let program_id = world.rpc().program_id;
     let mut data = vec![tag::DEPOSIT];
     data.extend_from_slice(
-        &ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 31])
-            .serialize()
-            .expect("proofless ix data serialization is infallible"),
+        &DepositIxData {
+            assets: vec![DepositAssetKind::Sol],
+            deposits: vec![DepositEntry {
+                asset_index: 0,
+                view_tag: [0u8; 32],
+                owner: [8u8; 32],
+                blinding: test_blinding(8),
+                amount: 1_000_000,
+                utxo_data: None,
+                memo: None,
+            }],
+        }
+        .serialize()
+        .expect("proofless ix data serialization is infallible"),
     );
     let ix = Instruction {
         program_id,
@@ -52,13 +62,6 @@ fn send_raw(world: &mut ShieldedPoolWorld, accounts: Vec<AccountMeta>) {
     world.last_error = result.err();
 }
 
-fn assert_invalid_amount_shape(world: &mut ShieldedPoolWorld, data: &DepositIxData) {
-    let tree = world.tree().pubkey();
-    let depositor = world.depositor().insecure_clone();
-    let err = world.rpc().deposit(&tree, &depositor, data).unwrap_err();
-    assert_pool_error(err, ShieldedPoolError::InvalidTransactShape);
-}
-
 // === success ===
 
 #[when(expr = "the depositor shields {int} lamports to a fresh recipient")]
@@ -70,7 +73,7 @@ fn shield_sol(world: &mut ShieldedPoolWorld, amount: u64) {
         AssetRegistry::default(),
     )
     .expect("wallet");
-    let seed = [3u8; BLINDING_LEN];
+    let seed = test_blinding(3);
     let mut data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity, &seed, 0)
         .expect("wallet deposit data");
     // Exercise the proofless memo end-to-end: instruction data -> emitted event
@@ -108,44 +111,6 @@ fn event_emitted(world: &mut ShieldedPoolWorld) {
     assert!(world.last_proofless_view.is_some());
 }
 
-// === bad amount shapes ===
-
-#[given(expr = "the indexer UTXO count is recorded")]
-fn record_indexer(world: &mut ShieldedPoolWorld) {
-    world.indexed_utxo_count_before = Some(world.rpc().indexer().utxos().len());
-}
-
-#[when(expr = "the depositor shields zero lamports")]
-fn shield_zero_sol(world: &mut ShieldedPoolWorld) {
-    let zero = ZolanaProgramTest::sol_shield_data(0, [1u8; 32], [1u8; 31]);
-    assert_invalid_amount_shape(world, &zero);
-}
-
-#[when(expr = "the depositor shields zero SPL tokens")]
-fn shield_zero_spl(world: &mut ShieldedPoolWorld) {
-    // Route through the SPL account shape so this is a distinct transaction from
-    // the zero-lamports case; the positive-amount check rejects it before the
-    // settlement accounts are read, so the dummy mint/token account never load.
-    let tree = world.tree().pubkey();
-    let depositor = world.depositor().insecure_clone();
-    let mint = Pubkey::new_unique();
-    let user_token = Pubkey::new_unique();
-    let zero_spl = ZolanaProgramTest::spl_shield_data(0, [1u8; 32], [1u8; 31]);
-    let err = world
-        .rpc()
-        .deposit_spl(&tree, &depositor, &user_token, &mint, &zero_spl)
-        .unwrap_err();
-    assert_pool_error(err, ShieldedPoolError::InvalidTransactShape);
-}
-
-#[then(expr = "the indexer UTXO count is unchanged")]
-fn indexer_unchanged(world: &mut ShieldedPoolWorld) {
-    let before = world
-        .indexed_utxo_count_before
-        .expect("indexer count recorded");
-    assert_eq!(world.rpc().indexer().utxos().len(), before);
-}
-
 // === account shape violations ===
 
 #[when(expr = "the depositor shields with the program account missing")]
@@ -171,16 +136,16 @@ fn shape_extra_account(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts.insert(5, AccountMeta::new_readonly(Pubkey::new_unique(), false));
+    accounts.insert(4, AccountMeta::new_readonly(Pubkey::new_unique(), false));
     send_raw(world, accounts);
 }
 
-#[when(expr = "the depositor shields with a foreign source account")]
-fn shape_foreign_source(world: &mut ShieldedPoolWorld) {
+#[when(expr = "the depositor shields with a read-only depositor")]
+fn shape_readonly_depositor(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts[4] = AccountMeta::new(Pubkey::new_unique(), false);
+    accounts[1] = AccountMeta::new_readonly(dep, true);
     send_raw(world, accounts);
 }
 
@@ -211,7 +176,7 @@ fn shield_into_paused(world: &mut ShieldedPoolWorld, amount: u64) {
     let depositor = world.depositor().insecure_clone();
     let err = world
         .rpc()
-        .deposit_sol(&tree, &depositor, amount, [2u8; 32], [2u8; 31])
+        .deposit_sol(&tree, &depositor, amount, [2u8; 32], test_blinding(2))
         .unwrap_err();
     world.last_error = Some(err);
 }
@@ -237,7 +202,7 @@ fn shield_after_unpause(world: &mut ShieldedPoolWorld, amount: u64) {
     let depositor = world.depositor().insecure_clone();
     world
         .rpc()
-        .deposit_sol(&tree, &depositor, amount, [5u8; 32], [5u8; 31])
+        .deposit_sol(&tree, &depositor, amount, [5u8; 32], test_blinding(5))
         .expect("deposit after unpause");
 }
 
@@ -249,7 +214,7 @@ fn shield_unaffordable(world: &mut ShieldedPoolWorld, amount: u64) {
     let depositor = world.depositor().insecure_clone();
     let err = world
         .rpc()
-        .deposit_sol(&tree, &depositor, amount, [3u8; 32], [3u8; 31])
+        .deposit_sol(&tree, &depositor, amount, [3u8; 32], test_blinding(3))
         .unwrap_err();
     world.last_error = Some(err);
 }
@@ -270,7 +235,7 @@ fn rejected_insufficient(world: &mut ShieldedPoolWorld) {
 fn repeat_deposits(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
     let depositor = world.depositor().insecure_clone();
-    let data = ZolanaProgramTest::sol_shield_data(amount, [4u8; 32], [4u8; 31]);
+    let data = ZolanaProgramTest::sol_shield_data(amount, [4u8; 32], test_blinding(4));
     let root0 = world.rpc().state_root(&tree).expect("root");
     world.rpc().deposit(&tree, &depositor, &data).expect("d1");
     let root1 = world.rpc().state_root(&tree).expect("root");
@@ -334,6 +299,6 @@ fn too_few_accounts(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts.drain(2..5);
+    accounts.drain(2..4);
     send_raw(world, accounts);
 }

@@ -105,8 +105,6 @@ impl Hasher for Poseidon {
         #[cfg(target_os = "solana")]
         {
             use crate::HASH_BYTES;
-            // TODO: reenable once LightHasher refactor is merged
-            // solana_program::msg!("remove len check onchain.");
             for val in _vals {
                 if val.len() != 32 {
                     return Err(HasherError::InvalidInputLength(val.len(), 32));

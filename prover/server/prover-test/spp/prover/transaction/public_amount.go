@@ -8,86 +8,111 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 )
 
-const (
-	publicAmountTransfer = 0
-	publicAmountShield   = 1
-	publicAmountUnshield = 2
-)
+// MaxInterfaceTransfers is the encoding ceiling: external_data_hash encodes
+// the ordered interface-transfer count in one byte. Solana transaction size and account
+// limits impose a much lower practical bound for real transactions.
+const MaxInterfaceTransfers = 1<<8 - 1
 
-type publicAmounts struct {
-	sol   *big.Int
-	spl   *big.Int
-	asset *big.Int
+type publicSlots struct {
+	assets  [protocol.NPublicSlots]*big.Int
+	amounts [protocol.NPublicSlots]*big.Int
 }
 
-// derivePublicAmounts computes the signed public amounts the balance circuit
-// consumes (`inSum + publicAmount == outSum` per asset). Each is the net
-// external flow as a field element, Tornado-Nova style: deposit is positive,
-// withdrawal is negative and wrapped mod p by SignedToField (so `-x` becomes
-// `p - x`), and the relayer fee is folded into the withdrawal — but only on the
-// SOL leg, since fees are paid in SOL.
-func derivePublicAmounts(tx ProofTransactionRequest) (publicAmounts, error) {
-	sol := u64OrZero(tx.PublicSolAmount)
-	spl := u64OrZero(tx.PublicSplAmount)
-	// Validate the per-mode invariants with one switch on the mode (mirrors the
-	// switch in signedSolAmount/signedSplAmount), so the invalid-mode guard and
-	// the mode-specific checks live in one place.
-	switch tx.PublicAmountMode {
-	case publicAmountTransfer:
-		if sol != 0 || spl != 0 || tx.RelayerFee != 0 {
-			return publicAmounts{}, fmt.Errorf("spp: transfer mode carries public settlement")
-		}
-	case publicAmountShield:
-		if tx.RelayerFee != 0 {
-			return publicAmounts{}, fmt.Errorf("spp: shield mode carries relayer fee")
-		}
-	case publicAmountUnshield:
-		// Withdraws may carry a relayer fee and public settlement.
-	default:
-		return publicAmounts{}, fmt.Errorf("spp: invalid public_amount_mode %d", tx.PublicAmountMode)
+type aggregatedPublicAsset struct {
+	asset  *big.Int
+	amount *big.Int
+}
+
+func derivePublicSlots(tx ProofTransactionRequest) (publicSlots, error) {
+	if len(tx.InterfaceTransfers) > MaxInterfaceTransfers {
+		return publicSlots{}, fmt.Errorf(
+			"spp: interface_transfers length %d exceeds u8 encoding maximum %d",
+			len(tx.InterfaceTransfers),
+			MaxInterfaceTransfers,
+		)
 	}
 
-	asset := big.NewInt(0)
-	if spl != 0 {
-		mint, err := parse.Hex32(tx.PublicSplAssetPubkey)
+	aggregates := make([]*aggregatedPublicAsset, 0, len(tx.InterfaceTransfers))
+	for position, transfer := range tx.InterfaceTransfers {
+		if transfer.Amount == 0 {
+			return publicSlots{}, fmt.Errorf("spp: interface_transfers[%d].amount must be nonzero", position)
+		}
+		asset, err := interfaceTransferAsset(transfer, position)
 		if err != nil {
-			return publicAmounts{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
+			return publicSlots{}, err
 		}
-		asset, err = protocol.SolanaPkField(mint)
-		if err != nil {
-			return publicAmounts{}, fmt.Errorf("public_spl_asset_pubkey: %w", err)
+		found := false
+		for _, aggregate := range aggregates {
+			if aggregate.asset.Cmp(asset) == 0 {
+				aggregate.amount.Add(aggregate.amount, signedInterfaceTransferAmount(transfer))
+				found = true
+				break
+			}
+		}
+		if !found {
+			aggregates = append(aggregates, &aggregatedPublicAsset{
+				asset:  asset,
+				amount: signedInterfaceTransferAmount(transfer),
+			})
 		}
 	}
 
-	return publicAmounts{
-		sol:   signedSolAmount(tx.PublicAmountMode, sol, tx.RelayerFee),
-		spl:   signedSplAmount(tx.PublicAmountMode, spl),
-		asset: asset,
-	}, nil
+	activeCount := 0
+	for _, aggregate := range aggregates {
+		if aggregate.amount.Sign() != 0 {
+			activeCount++
+		}
+	}
+	if activeCount > protocol.NPublicSlots {
+		return publicSlots{}, fmt.Errorf(
+			"spp: interface transfers aggregate to more than %d distinct nonzero assets",
+			protocol.NPublicSlots,
+		)
+	}
+	assets := make([]*big.Int, 0, protocol.NPublicSlots)
+	amounts := make([]*big.Int, 0, protocol.NPublicSlots)
+	for _, aggregate := range aggregates {
+		if aggregate.amount.Sign() == 0 {
+			continue
+		}
+		if new(big.Int).Abs(new(big.Int).Set(aggregate.amount)).BitLen() > 64 {
+			return publicSlots{}, fmt.Errorf("spp: interface transfer aggregate magnitude exceeds u64")
+		}
+		assets = append(assets, aggregate.asset)
+		amounts = append(amounts, protocol.SignedToField(aggregate.amount))
+	}
+	for len(assets) < protocol.NPublicSlots {
+		assets = append(assets, big.NewInt(0))
+		amounts = append(amounts, big.NewInt(0))
+	}
+	var slots publicSlots
+	copy(slots.assets[:], assets)
+	copy(slots.amounts[:], amounts)
+	return slots, nil
 }
 
-func signedSolAmount(mode uint8, amount uint64, relayerFee uint16) *big.Int {
-	value := new(big.Int).SetUint64(amount)
-	switch mode {
-	case publicAmountTransfer:
-		return big.NewInt(0)
-	case publicAmountShield:
-		return value
-	case publicAmountUnshield:
-		value.Add(value, new(big.Int).SetUint64(uint64(relayerFee)))
-		value.Neg(value)
+func signedInterfaceTransferAmount(transfer InterfaceTransferRequest) *big.Int {
+	amount := new(big.Int).SetUint64(transfer.Amount)
+	if !transfer.IsDeposit {
+		amount.Neg(amount)
 	}
-	return protocol.SignedToField(value)
+	return amount
 }
 
-func signedSplAmount(mode uint8, amount uint64) *big.Int {
-	value := new(big.Int).SetUint64(amount)
-	switch mode {
-	case publicAmountShield:
-		return value
-	case publicAmountUnshield:
-		return protocol.SignedToField(value.Neg(value))
-	default:
-		return big.NewInt(0)
+func interfaceTransferAsset(transfer InterfaceTransferRequest, index int) (*big.Int, error) {
+	if !transfer.IsSpl {
+		if transfer.Asset != "" {
+			return nil, fmt.Errorf("interface_transfers[%d].asset must be empty for SOL", index)
+		}
+		return protocol.SolAsset(), nil
 	}
+	mint, err := parse.Hex32(transfer.Asset)
+	if err != nil {
+		return nil, fmt.Errorf("interface_transfers[%d].asset: %w", index, err)
+	}
+	asset, err := protocol.SolanaPkField(mint)
+	if err != nil {
+		return nil, fmt.Errorf("interface_transfers[%d].asset: %w", index, err)
+	}
+	return asset, nil
 }

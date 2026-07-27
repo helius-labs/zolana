@@ -171,7 +171,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
         for _ in 0..total {
             let mut value: [u8; 32] = rng.gen();
             value[0] = 0;
-            account.insert_address_into_queue(&value).unwrap();
+            account.insert_nullifier_into_queue(&value).unwrap();
             queued.push(value);
         }
     }

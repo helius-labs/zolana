@@ -30,7 +30,7 @@ use zolana_interface::{state::state_root_offset, SHIELDED_POOL_PROGRAM_ID};
 mod admin;
 pub mod events;
 pub use events::{
-    deposit_output_from_event, index_events, indexed_events_from_meta,
+    deposit_output_from_event, deposit_outputs_from_event, index_events, indexed_events_from_meta,
     parsed_instruction_from_compiled, parsed_instruction_groups_from_meta, single_deposit_view,
     DepositOutput, IndexedEvent, InstructionGroup, ParsedInstruction,
 };
@@ -46,12 +46,21 @@ pub use instructions::{
 mod paths;
 use paths::default_program_path;
 mod proofless;
+pub use proofless::DepositBatch;
 pub mod rpc;
 pub use rpc::IndexedTransaction;
 pub use zolana_client::Rpc;
 mod spl;
 mod wallet_data;
 mod zone;
+
+/// Build the canonical 32-byte field representation of a repeated legacy
+/// 31-byte test blinding.
+pub fn test_blinding(byte: u8) -> [u8; 32] {
+    let mut blinding = [byte; 32];
+    blinding[0] = 0;
+    blinding
+}
 
 #[derive(Debug, Error)]
 pub enum ProgramTestError {
@@ -63,6 +72,8 @@ pub enum ProgramTestError {
     Io(#[from] std::io::Error),
     #[error("transaction: {0}")]
     Transaction(#[from] zolana_transaction::TransactionError),
+    #[error("deposit builder: {0}")]
+    DepositBuild(#[from] zolana_interface::instruction::DepositBuildError),
     #[error("indexer: {0}")]
     Indexer(#[from] IndexerError),
     #[error("event: {0}")]

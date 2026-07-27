@@ -10,8 +10,8 @@ use zolana_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda,
     state::{ProtocolConfig, SplAssetRegistry},
-    PROGRAM_ID_PUBKEY, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, SPL_TOKEN_MINT_ACCOUNT_LEN,
-    SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
+    PROGRAM_ID_PUBKEY, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR,
+    SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_MINT_TO_DISCRIMINATOR, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_transaction::Address;
 
@@ -23,7 +23,10 @@ use super::{
         system_create_account_ix,
     },
 };
-use crate::{args::TestMintOptions, cli_config::CliConfigFile};
+use crate::{
+    args::{TestMintOptions, TestMintTokenProgram},
+    cli_config::CliConfigFile,
+};
 
 pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
@@ -48,17 +51,26 @@ pub(crate) fn run_test_mint(opts: TestMintOptions) -> Result<()> {
         );
     }
 
-    let mint = create_mint(&rpc, authority)?;
+    let token_program = token_program_id(opts.token_program);
+    let mint = create_mint(&rpc, authority, token_program)?;
     let token_account = ensure_owner_spl_token_account(
         &rpc,
         authority,
         material.funding.pubkey(),
         Address::new_from_array(mint.to_bytes()),
     )?
+    .map(|(token_account, _)| token_account)
     .ok_or_else(|| anyhow::anyhow!("SPL mint unexpectedly resolved to the SOL asset"))?;
-    mint_to(&rpc, authority, &mint, &token_account, opts.amount)?;
+    mint_to(
+        &rpc,
+        authority,
+        &mint,
+        &token_account,
+        token_program,
+        opts.amount,
+    )?;
     ensure_asset_counter(&rpc, authority)?;
-    ensure_spl_interface(&rpc, authority, &mint)?;
+    ensure_spl_interface(&rpc, authority, &mint, token_program)?;
     let asset_id = fetch_asset_id(&rpc, &mint)?;
 
     let mut config = CliConfigFile::load()?;
@@ -108,11 +120,14 @@ fn validate_spl_creation_policy(
     Ok(())
 }
 
-fn token_program_id() -> Pubkey {
-    Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
+fn token_program_id(kind: TestMintTokenProgram) -> Pubkey {
+    match kind {
+        TestMintTokenProgram::Legacy => Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID),
+        TestMintTokenProgram::Token2022 => Pubkey::new_from_array(SPL_TOKEN_2022_PROGRAM_ID),
+    }
 }
 
-fn create_mint(rpc: &SolanaRpc, authority: &Keypair) -> Result<Pubkey> {
+fn create_mint(rpc: &SolanaRpc, authority: &Keypair, token_program: Pubkey) -> Result<Pubkey> {
     let mint = Keypair::new();
     let rent = rpc.get_minimum_balance_for_rent_exemption(SPL_TOKEN_MINT_ACCOUNT_LEN)?;
     let create_ix = system_create_account_ix(
@@ -120,13 +135,13 @@ fn create_mint(rpc: &SolanaRpc, authority: &Keypair) -> Result<Pubkey> {
         &mint.pubkey(),
         rent,
         SPL_TOKEN_MINT_ACCOUNT_LEN as u64,
-        &token_program_id(),
+        &token_program,
     );
     let mut data = vec![SPL_TOKEN_INITIALIZE_MINT2_DISCRIMINATOR, 9];
     data.extend_from_slice(&authority.pubkey().to_bytes());
     data.push(0);
     let init_ix = Instruction {
-        program_id: token_program_id(),
+        program_id: token_program,
         accounts: vec![AccountMeta::new(mint.pubkey(), false)],
         data,
     };
@@ -145,12 +160,13 @@ fn mint_to(
     authority: &Keypair,
     mint: &Pubkey,
     token_account: &Pubkey,
+    token_program: Pubkey,
     amount: u64,
 ) -> Result<()> {
     let mut data = vec![SPL_TOKEN_MINT_TO_DISCRIMINATOR];
     data.extend_from_slice(&amount.to_le_bytes());
     let ix = Instruction {
-        program_id: token_program_id(),
+        program_id: token_program,
         accounts: vec![
             AccountMeta::new(*mint, false),
             AccountMeta::new(*token_account, false),
@@ -183,7 +199,12 @@ fn ensure_asset_counter(rpc: &SolanaRpc, authority: &Keypair) -> Result<()> {
     Ok(())
 }
 
-fn ensure_spl_interface(rpc: &SolanaRpc, authority: &Keypair, mint: &Pubkey) -> Result<()> {
+fn ensure_spl_interface(
+    rpc: &SolanaRpc,
+    authority: &Keypair,
+    mint: &Pubkey,
+    token_program: Pubkey,
+) -> Result<()> {
     let registry = pda::spl_asset_registry(mint);
     if rpc
         .get_account(Address::new_from_array(registry.to_bytes()))?
@@ -195,6 +216,7 @@ fn ensure_spl_interface(rpc: &SolanaRpc, authority: &Keypair, mint: &Pubkey) -> 
     let ix = CreateSplInterface {
         authority: authority.pubkey(),
         mint: *mint,
+        token_program,
     }
     .instruction();
     let payer = Address::new_from_array(authority.pubkey().to_bytes());

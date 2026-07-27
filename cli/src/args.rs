@@ -1,4 +1,4 @@
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -534,6 +534,14 @@ pub(crate) struct TestMintOptions {
     pub(crate) amount: u64,
 
     #[arg(
+        long,
+        value_enum,
+        default_value_t = TestMintTokenProgram::Legacy,
+        help = "Token program that owns the test mint"
+    )]
+    pub(crate) token_program: TestMintTokenProgram,
+
+    #[arg(
         long = "authority-path",
         help = "Wallet file whose funding key is protocol and mint authority (default: --keypair wallet)",
         value_name = "PATH"
@@ -545,6 +553,12 @@ pub(crate) struct TestMintOptions {
         help = "Request a localnet airdrop for the authority before creating accounts"
     )]
     pub(crate) airdrop_lamports: Option<u64>,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TestMintTokenProgram {
+    Legacy,
+    Token2022,
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
@@ -1178,6 +1192,7 @@ mod tests {
                 indexer_url: None,
             },
             amount: 1_000_000,
+            token_program: TestMintTokenProgram::Legacy,
             authority_path: Some("/tmp/admin.pid.json".to_string()),
             airdrop_lamports: Some(1_000_000_000),
         };

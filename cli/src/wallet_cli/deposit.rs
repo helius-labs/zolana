@@ -10,6 +10,7 @@ use super::{
     transaction::maybe_airdrop,
     util::{
         configured_spl_token_account, ensure_positive, format_address, parse_address, parse_pubkey,
+        resolve_spl_token_program,
     },
 };
 use crate::{args::DepositOptions, cli_config::CliConfigFile};
@@ -32,11 +33,20 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
         .transpose()?
         .unwrap_or_else(|| material.funding.pubkey());
     let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
+    let spl_token_program = if asset == zolana_transaction::SOL_MINT {
+        None
+    } else {
+        Some(resolve_spl_token_program(
+            &rpc,
+            &solana_pubkey::Pubkey::new_from_array(asset.to_bytes()),
+        )?)
+    };
     let deposit = create_deposit(DepositParams {
         recipient: &recipient.address,
         asset,
         amount: opts.amount,
         spl_token_account,
+        spl_token_program,
         memo: None,
     })?;
     let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;

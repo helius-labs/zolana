@@ -5,15 +5,12 @@ use zolana_transaction::{instructions::transact::SppProofOutputUtxo, utxo::Blind
 
 use crate::err;
 
-// Places the 31-byte blinding in bytes [1..32], leaving the top byte zero so the
-// result is a valid BN254 field element. Asserted at compile time so a Blinding
-// width change is a build error, not a silent `copy_from_slice` panic.
-const _: () = assert!(core::mem::size_of::<Blinding>() == 31);
+// A Blinding is already a 32-byte big-endian field element. Asserted at compile
+// time so a Blinding width change is a build error, not a silent mismatch.
+const _: () = assert!(core::mem::size_of::<Blinding>() == 32);
 
 pub(crate) fn right_align_blinding(blinding: &Blinding) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[1..].copy_from_slice(blinding);
-    out
+    *blinding
 }
 
 pub(crate) fn check_output_utxo(

@@ -29,6 +29,12 @@ Feature: SPL asset registration and deposits
     Then a proofless deposit event is emitted
     And the recipient owns 1 UTXO
 
+  Scenario: A zero-token SPL deposit is accepted
+    Given an SPL depositor holding 1000000 tokens
+    When the SPL depositor shields 0 tokens to a fresh recipient
+    Then a proofless deposit event is emitted
+    And the recipient owns 1 UTXO
+
   Scenario: A deposit from a foreign token account is rejected
     Given an SPL depositor holding 1000000 tokens
     When the SPL depositor shields from a foreign token account

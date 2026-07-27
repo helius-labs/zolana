@@ -14,6 +14,13 @@ pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 10;
 pub const UPDATE_ZONE_CONFIG: u8 = 11;
 pub const MERGE_TRANSACT: u8 = 12;
 pub const ZONE_MERGE_TRANSACT: u8 = 13;
+/// No-op self-CPI target used to log events as inner-instruction data. The
+/// program performs no validation on this tag, so ANY program can CPI the
+/// shielded pool with `EMIT_EVENT` and forged payload bytes. Consumers MUST
+/// only trust an `EMIT_EVENT` inner instruction whose direct parent
+/// (reconstructed via `stack_height`) is a shielded-pool instruction with a
+/// state-transitioning tag (never `EMIT_EVENT` itself) -- see photon's
+/// `rings_event_parser::is_event_source` for the reference filter.
 pub const EMIT_EVENT: u8 = 14;
 pub const ZONE_DEPOSIT: u8 = 15;
 pub const CREATE_ASSET_COUNTER: u8 = 16;

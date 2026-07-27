@@ -13,10 +13,8 @@ use swap_program::{
 };
 use swap_prover::{CancelProofInputs, CircuitId, OrderTermsProofInput, TAKE_MODE_DERIVED};
 use swap_sdk::state::DataHash;
-use zolana_keypair::{
-    hash::{hash_field, poseidon},
-    ViewingKey,
-};
+use zolana_hasher::primitives::hash_bytes;
+use zolana_keypair::{hash::poseidon, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
@@ -45,8 +43,8 @@ fn fe(byte: u8) -> [u8; 32] {
 }
 
 fn blinding(byte: u8) -> Blinding {
-    let mut out = [0u8; 31];
-    out[30] = byte;
+    let mut out = [0u8; 32];
+    out[31] = byte;
     out
 }
 
@@ -57,7 +55,7 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
         poseidon(&[&maker_owner_pk_field, &maker_nullifier_pk]).expect("owner hash");
     let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     let order = OrderTermsProofInput {
-        destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
+        destination_asset: hash_bytes(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,
         maker_owner_hash,
         maker_viewing_pk,

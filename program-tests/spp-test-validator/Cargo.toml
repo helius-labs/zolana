@@ -11,7 +11,6 @@ autotests = false
 
 [dependencies]
 anyhow = { workspace = true }
-p256 = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-compute-budget-interface = { workspace = true }

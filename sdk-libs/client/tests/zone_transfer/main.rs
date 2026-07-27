@@ -1,12 +1,10 @@
-//! End-to-end BDD tests for the zone-transfer circuits (`zone_transact`). Each
+//! End-to-end BDD tests for the zone-transfer circuit (`zone_transact`). Each
 //! scenario builds a zone-owned state transition over a chosen shape, proves it on
-//! the prover server, and verifies against the committed verifying key:
-//! `transfer_zone_<shape>` for the ed25519 (Solana-only) rail (vanilla Groth16) and
-//! `transfer_p256_zone_<shape>` for the P256 rail (Groth16 with a BSB22 commitment).
+//! the prover server, and verifies against the committed `transfer_zone_<shape>`
+//! verifying key (ed25519 rail, vanilla Groth16; the P256 rail is removed).
 //!
 //! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `transfer_zone_<shape>.key` and `transfer_p256_zone_<shape>.key` proving keys
-//! available.
+//! `transfer_zone_<shape>.key` proving keys available.
 //!
 //! Run with: `cargo test -p zolana-client --test zone_transfer_proving`
 

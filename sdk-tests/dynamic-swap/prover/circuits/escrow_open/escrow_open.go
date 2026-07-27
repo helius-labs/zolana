@@ -4,19 +4,20 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/gadget"
-	spp "zolana/prover/circuits/spp_transaction"
+	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
 // Circuit binds create_escrow's 2-in/3-out real shape (taker's source UTXO +
 // maker's funding UTXO spent; order, reservation, and maker-change UTXOs
 // created), the exact supported IN2_OUT3 shape with no padding on either side.
-// Both inputs are user-owned and separately authorized (the taker signs
-// SourceIn, the maker signs MakerFunding). Requires the source input to match
-// OrderAmount exactly (no taker change output): create_escrow's instruction data
-// already sits at Solana's whole-transaction size limit, so each side
-// pre-consolidates its own note off the create path. OrderAmount is the one
-// private witness shared across the order UTXO's amount, the reservation's
-// worst-case size (order_amount * max_price), and the maker-change decrement.
+// The taker signs SourceIn; the program signs the escrow-authority-owned
+// MakerFunding input, which authorizes the data-bearing program outputs. Requires
+// the source input to match OrderAmount exactly (no taker change output):
+// create_escrow's instruction data already sits at Solana's whole-transaction
+// size limit, so each side pre-consolidates its own note off the create path.
+// OrderAmount is the one private witness shared across the order UTXO's amount,
+// the reservation's worst-case size (order_amount * max_price), and the
+// maker-change decrement.
 type Circuit struct {
 	Public PublicInputs
 

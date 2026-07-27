@@ -1,7 +1,7 @@
 //! Post-instruction checks for `deposit` (SOL deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::DepositIxData;
+use zolana_interface::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -18,7 +18,7 @@ pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
     program_test: &mut ZolanaProgramTest,
     tree: &Pubkey,
     event: &DepositOutput,
-    data: &DepositIxData,
+    data: &AssetDeposit,
     expected_amount: u64,
     expected_asset: [u8; 32],
     root_before: [u8; 32],

@@ -1,31 +1,32 @@
-use ark_bn254::Fr;
-use light_poseidon::{Poseidon, PoseidonBytesHasher};
 use solana_address::Address;
-pub use zolana_interface::UTXO_DOMAIN;
-use zolana_keypair::{constants::BLINDING_LEN, hash::sha256_be, NullifierKey, PublicKey};
+use zolana_hasher::{
+    primitives::{hash_bytes, right_align},
+    Hasher, Poseidon,
+};
+pub use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
+use zolana_keypair::{hash::sha256_be, NullifierKey, PublicKey};
 
 use crate::{
     data::Data, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
     AssetRegistry,
 };
 
-fn poseidon(inputs: &[&[u8]]) -> Result<[u8; 32], TransactionError> {
-    let mut hasher = Poseidon::<Fr>::new_circom(inputs.len())
-        .map_err(|e| TransactionError::Poseidon(e.to_string()))?;
-    hasher
-        .hash_bytes_be(inputs)
-        .map_err(|e| TransactionError::Poseidon(e.to_string()))
-}
+/// A UTXO blinding: a 32-byte big-endian BN254 field element. Generators
+/// (random values, `derive_blinding`) right-align 31 bytes so the value is
+/// always below the field modulus; the merge output blinding is a Poseidon
+/// output, which is a field element by construction.
+pub type Blinding = [u8; 32];
 
-pub type Blinding = [u8; BLINDING_LEN];
-
-pub fn derive_blinding(seed: &[u8; BLINDING_LEN], position: u8) -> Blinding {
-    let mut preimage = [0u8; BLINDING_LEN + 1];
-    preimage[..BLINDING_LEN].copy_from_slice(seed);
-    preimage[BLINDING_LEN] = position;
+/// Derives the output blinding for `position` from a 32-byte seed. The
+/// preimage uses the seed's low 31 bytes, so a right-aligned 31-byte seed
+/// yields the same values as the legacy 31-byte representation.
+pub fn derive_blinding(seed: &Blinding, position: u8) -> Blinding {
+    let mut preimage = [0u8; 32];
+    preimage[..31].copy_from_slice(&seed[1..]);
+    preimage[31] = position;
     let digest = sha256_be(&preimage);
-    let mut out = [0u8; BLINDING_LEN];
-    out.copy_from_slice(&digest[1..]);
+    let mut out = [0u8; 32];
+    out[1..].copy_from_slice(&digest[1..]);
     out
 }
 
@@ -37,13 +38,6 @@ pub struct Utxo {
     pub blinding: Blinding,
     pub zone_program_id: Option<Address>,
     pub data: Data,
-}
-
-fn right_align<const N: usize>(bytes: &[u8; N]) -> [u8; 32] {
-    const { assert!(N <= 32) }
-    let mut out = [0u8; 32];
-    out[32 - N..].copy_from_slice(bytes);
-    out
 }
 
 pub(crate) fn resolve_zone_program_id(
@@ -59,15 +53,17 @@ pub(crate) fn resolve_zone_program_id(
     Ok(zone_program_id)
 }
 
-pub fn zone_program_id_field(
+pub fn zone_program_id_proof_input_hash(
     zone_program_id: &Option<Address>,
 ) -> Result<[u8; 32], TransactionError> {
-    program_id_field(zone_program_id)
+    program_id_proof_input_hash(zone_program_id)
 }
 
-pub fn program_id_field(program_id: &Option<Address>) -> Result<[u8; 32], TransactionError> {
+pub fn program_id_proof_input_hash(
+    program_id: &Option<Address>,
+) -> Result<[u8; 32], TransactionError> {
     match program_id {
-        Some(id) => zolana_keypair::hash::hash_field(id.as_array()).map_err(TransactionError::from),
+        Some(id) => Ok(hash_bytes(id.as_array())?),
         None => Ok([0u8; 32]),
     }
 }
@@ -77,7 +73,7 @@ pub fn owner_utxo_hash(
     blinding: &Blinding,
 ) -> Result<[u8; 32], TransactionError> {
     let blinding = right_align(blinding);
-    poseidon(&[owner_hash, &blinding])
+    Ok(Poseidon::hashv(&[owner_hash, &blinding])?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -102,13 +98,24 @@ impl ProofInputUtxo {
         Ok(Self {
             domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
             owner_hash,
-            asset: zolana_keypair::hash::hash_field(asset.as_array())?,
+            asset: hash_bytes(asset.as_array())?,
             amount: right_align(&amount.to_be_bytes()),
             blinding: right_align(blinding),
             data_hash: [0u8; 32],
             zone_data_hash: [0u8; 32],
             zone_program_id: [0u8; 32],
         })
+    }
+
+    /// Padding (dummy) slot: the circuit requires every field except the domain
+    /// tag and blinding to be zero, so dummy hashes are indistinguishable from
+    /// real ones while the slot provably carries nothing.
+    pub fn new_dummy(blinding: &Blinding) -> Self {
+        Self {
+            domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
+            blinding: right_align(blinding),
+            ..Default::default()
+        }
     }
 
     pub fn with_data_hash(mut self, data_hash: [u8; 32]) -> Self {
@@ -122,21 +129,21 @@ impl ProofInputUtxo {
         zone_program_id: &Option<Address>,
     ) -> Result<Self, TransactionError> {
         self.zone_data_hash = zone_data_hash;
-        self.zone_program_id = program_id_field(zone_program_id)?;
+        self.zone_program_id = program_id_proof_input_hash(zone_program_id)?;
         Ok(self)
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        let zone_hash = poseidon(&[&self.zone_data_hash, &self.zone_program_id])?;
-        let owner_utxo_hash = poseidon(&[&self.owner_hash, &self.blinding])?;
-        poseidon(&[
+        let zone_hash = Poseidon::hashv(&[&self.zone_data_hash, &self.zone_program_id])?;
+        let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, &self.blinding])?;
+        Ok(Poseidon::hashv(&[
             &self.domain,
             &self.asset,
             &self.amount,
             &self.data_hash,
             &zone_hash,
             &owner_utxo_hash,
-        ])
+        ])?)
     }
 }
 

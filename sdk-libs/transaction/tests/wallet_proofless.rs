@@ -1,12 +1,12 @@
 use zolana_event::{encode_output_data, ProoflessOutput};
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     Address, AssetRegistry, LocalWalletAuthority, OutputContext, OutputSlot, ProofInputUtxo,
     ShieldedTransaction, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
 fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTransaction {
-    let blinding = [9u8; BLINDING_LEN];
+    let blinding = [9u8; 32];
     let data_hash = [14u8; 32];
     let owner = keypair.owner_hash().expect("owner hash");
     let utxo_hash = ProofInputUtxo::new(owner, &SOL_MINT, amount, &blinding)

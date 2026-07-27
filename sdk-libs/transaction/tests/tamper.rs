@@ -1,7 +1,7 @@
 mod common;
 
 use common::{build_transfer, keypair_from_index, local_authority, wallet_for, TransferSpec};
-use zolana_keypair::constants::{BLINDING_LEN, P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
+use zolana_keypair::constants::{P256_PUBKEY_LEN, PUBLIC_KEY_LEN};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -27,8 +27,12 @@ fn transfer_alice_receives() -> (ShieldedTransaction, Utxo, AssetRegistry) {
             sender_view_tag: bob.get_sender_view_tag(0).unwrap(),
             first_nullifier: [0xAB; 32],
             change_amount: 0,
-            blinding: [0xBB; BLINDING_LEN],
-            blinding_seed: [0xCC; BLINDING_LEN],
+            blinding: {
+                let mut b = [0u8; 32];
+                b[1..].fill(0xBB);
+                b
+            },
+            blinding_seed: [0xCC; 32],
         },
     );
     (tx, recipient_utxo, assets)

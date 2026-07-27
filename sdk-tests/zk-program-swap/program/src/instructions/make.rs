@@ -8,7 +8,7 @@ use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use crate::{
     error::SwapError,
     instructions::{
-        shared::cpi_spp_transact,
+        shared::cpi_spp_transact_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
     verifying_keys::make,
@@ -77,5 +77,5 @@ pub fn process_make_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         .map_err(|_| SwapError::InvalidInstructionData)?;
 
     let spp_accounts = iter.remaining()?;
-    cpi_spp_transact(spp_accounts, &transact_bytes)
+    cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

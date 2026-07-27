@@ -6,12 +6,15 @@
 //! element set differs (input owner pk_fields stay private, no confidential
 //! appendix).
 
+use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_keypair::hash::hash_field;
 use zolana_transaction::{
-    instructions::{transact::PrivateTxHash, zone_authority::PreparedZoneAuthority},
-    utxo::program_id_field,
+    instructions::{
+        transact::{PrivateTxHash, PublicMovements},
+        zone_authority::PreparedZoneAuthority,
+    },
+    utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -21,13 +24,12 @@ use crate::{
         field::be,
         resolve_shape,
         transact::{
-            p256_and_eddsa::{
-                assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, TransferSpendInput,
-            },
+            assembly::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
             witness::{attach_input_proofs, SpendProof},
         },
         Shape, TransferInputs,
     },
+    rpc::NonInclusionProof,
 };
 
 /// Zone-authority state transition over zone-owned UTXOs. The zone authority is
@@ -42,8 +44,9 @@ pub struct ZoneAuthorityProver {
     /// Transaction-level public data; its `instruction_discriminator` must be
     /// `ZONE_AUTHORITY_TRANSACT` (Tag 3) so `external_data_hash` matches on-chain.
     pub external_data: ExternalData,
-    pub public_amounts: PublicAmounts,
+    pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
     pub zone_program_id: Option<Address>,
@@ -79,37 +82,38 @@ impl ZoneAuthorityProver {
         // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
         // zone field to this public input.
-        let zone_program_id = program_id_field(&self.zone_program_id)?;
+        let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
 
-        // Zone-authority public-input layout: the 12 base elements, with input owner
-        // pk_fields kept private (no owner chain) and no confidential appendix.
-        // Mirrors NewTransferZoneAuthorityCircuit's publicInputHash. hash_field(&[0;32])
-        // == Poseidon(0, 0), matching the circuit's zeroed P256MessageHash element.
-        let public_input = create_hash_chain_from_slice(&[
+        // Zone-authority public-input layout: input owner pk_fields stay private
+        // (no owner chain) and there is no confidential appendix.
+        let slots = self.public_movements.interleaved();
+        let mut elements = Vec::with_capacity(9 + slots.len());
+        elements.extend([
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
             create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
             create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
             private_tx,
-            hash_field(&[0u8; 32])?,
             external_data_hash,
-            self.public_amounts.sol,
-            self.public_amounts.spl,
-            self.public_amounts.asset,
+        ]);
+        elements.extend(slots);
+        elements.extend([
             zone_program_id,
             self.payer_pubkey_hash,
-        ])?;
+            crate::prover::transact::assembly::bool_field(self.allow_dummy_inputs),
+        ]);
+        let public_input = create_hash_chain_from_slice(&elements)?;
 
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             public_input_hash: be(&public_input),
         };
 
@@ -130,35 +134,40 @@ impl ZoneAuthorityProver {
 pub struct ZoneAuthorityWitness {
     pub prepared: PreparedZoneAuthority,
     pub proofs: Vec<SpendProof>,
+    /// One nullifier non-inclusion proof per dummy input, in dummy-slot order.
+    /// Unlike merge, the shared transfer circuit checks non-inclusion for every
+    /// slot, including padding.
+    pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
 impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
     type Error = ClientError;
 
     fn try_from(witness: ZoneAuthorityWitness) -> Result<Self, Self::Error> {
-        let ZoneAuthorityWitness { prepared, proofs } = witness;
+        let ZoneAuthorityWitness {
+            prepared,
+            proofs,
+            dummy_nullifier_proofs,
+        } = witness;
         let PreparedZoneAuthority {
             inputs,
             outputs,
-            public_amounts,
+            public_movements,
             external_data,
             payer_pubkey_hash,
             zone_program_id,
             shape,
         } = prepared;
 
-        let spends = attach_input_proofs(inputs, &proofs)?;
+        let spends = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
 
         Ok(ZoneAuthorityProver {
             inputs: spends,
             outputs,
             external_data,
-            public_amounts: PublicAmounts {
-                sol: public_amounts.sol,
-                spl: public_amounts.spl,
-                asset: public_amounts.asset,
-            },
+            public_movements,
             payer_pubkey_hash,
+            allow_dummy_inputs: true,
             zone_program_id,
             shape: Some(shape),
         })

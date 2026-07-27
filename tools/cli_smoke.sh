@@ -4,7 +4,7 @@
 # Zolana environment (localnet or devnet): the shielded-pool program, pool tree,
 # prover, and Photon indexer must all be reachable. Runs every CLI operation once,
 # in dependency order, asserting each step, and exercises both the SOL and SPL
-# asset rails plus the ed25519 and P256 wallet rails. Replaces the older
+# asset rails on the supported ed25519 wallet rail. Replaces the older
 # pingpong.sh / pingpong_parallel.sh soak scripts, which targeted a superseded
 # wallet-name/SOL-float CLI surface.
 #
@@ -68,7 +68,6 @@ export ZOLANA_CONFIG_DIR="$WORKDIR"
 
 ALICE="$WORKDIR/alice.json"   # ed25519 rail, primary actor
 BOB="$WORKDIR/bob.json"       # ed25519 rail, transfer recipient
-CAROL="$WORKDIR/carol.json"   # P256 rail, cross-rail transfer recipient
 
 PASS=0 FAIL=0 SKIP=0
 LAST_OUT=""
@@ -238,25 +237,21 @@ step "config get"        - config get
 step "config asset path" - config asset path
 step "config asset list" - config asset list
 
-# --- 2. wallets (ed25519 x2, P256 x1) ----------------------------------------
+# --- 2. wallets (ed25519) ----------------------------------------------------
 new_wallet "wallet new alice (ed25519)" "$ALICE"
 new_wallet "wallet new bob (ed25519)"   "$BOB"
-new_wallet "wallet new carol (P256)"    "$CAROL" --p256
 
 step "wallet address alice (owner hash)"  - wallet address --keypair "$ALICE"
 ALICE_FUND="$(funding_pubkey "$ALICE")"
 BOB_FUND="$(funding_pubkey "$BOB")"
-CAROL_FUND="$(funding_pubkey "$CAROL")"
 log "  alice funding=$ALICE_FUND"
 log "  bob   funding=$BOB_FUND"
-log "  carol funding=$CAROL_FUND"
 
 # --- 3. fund funding keys, then register on-chain ----------------------------
-for a in "$ALICE_FUND" "$BOB_FUND" "$CAROL_FUND"; do fund_pubkey "$a"; done
+for a in "$ALICE_FUND" "$BOB_FUND"; do fund_pubkey "$a"; done
 
 step "register alice" register wallet register --keypair "$ALICE"
 step "register bob"   register wallet register --keypair "$BOB"
-step "register carol" register wallet register --keypair "$CAROL"
 
 # --- 4. SOL rail: deposit -> transfer -> withdraw -> split -> merge -----------
 step "deposit SOL (alice, self)"      deposit deposit --keypair "$ALICE" --amount "$DEPOSIT"
@@ -268,9 +263,6 @@ step "utxos SOL alice"                utxos   utxos   --keypair "$ALICE" --mint 
 # registered recipient (ed25519) -> shielded
 transfer_step "transfer SOL alice -> bob (shielded)"   shielded \
   transfer --keypair "$ALICE" --to "$BOB_FUND"   --amount "$TRANSFER" --mint SOL
-# registered recipient (P256) -> shielded, cross-rail
-transfer_step "transfer SOL alice -> carol (shielded, P256)" shielded \
-  transfer --keypair "$ALICE" --to "$CAROL_FUND" --amount "$TRANSFER" --mint SOL
 # unregistered recipient -> automatic public withdrawal fallback (CLI: mode=withdraw)
 transfer_step "transfer SOL alice -> FUNDER (withdrawal fallback)" withdraw \
   transfer --keypair "$ALICE" --to "$FUNDER_PUBKEY" --amount "$WITHDRAW" --mint SOL
@@ -334,7 +326,6 @@ log "----------------------------------------------------------------"
 step "final sync alice"    sync    sync    --keypair "$ALICE"
 step "final balance alice" balance balance --keypair "$ALICE"
 step "final balance bob"   balance balance --keypair "$BOB"
-step "final balance carol" balance balance --keypair "$CAROL"
 
 summary
 [[ "$FAIL" -eq 0 ]] || exit 1
