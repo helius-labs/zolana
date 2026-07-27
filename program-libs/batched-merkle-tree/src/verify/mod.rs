@@ -2,7 +2,8 @@
 //!
 //! | Function | Description |
 //! |----------|-------------|
-//! | [`verify_batch_address_update`] | Verify batch address update (10 or 250) |
+//! | [`verify_batch_address_update`] | One address-append proof (legacy) |
+//! | [`verify_batch_address_update_many`] | Same-vk RLC batch (agave fold) |
 //! | [`verify`] | Generic Groth16 proof verification |
 
 use groth16_solana::{
@@ -60,6 +61,10 @@ pub enum VerifierError {
     InvalidBatchSize,
     #[error("Invalid proof size: expected 128 bytes, got {0}")]
     InvalidProofSize(usize),
+    #[error("BatchVerifyFailed")]
+    BatchVerifyFailed,
+    #[error("EmptyBatch")]
+    EmptyBatch,
 }
 
 impl From<VerifierError> for u32 {
@@ -73,6 +78,8 @@ impl From<VerifierError> for u32 {
             ProofVerificationFailed => 13006,
             InvalidBatchSize => 13007,
             InvalidProofSize(_) => 13008,
+            BatchVerifyFailed => 13009,
+            EmptyBatch => 13010,
         }
     }
 }
@@ -157,5 +164,62 @@ pub fn verify_batch_address_update(
             &batch_address_append_40_250::VERIFYINGKEY,
         ),
         _ => Err(InvalidPublicInputsLength),
+    }
+}
+
+fn address_append_vk(batch_size: u64) -> Result<&'static Groth16Verifyingkey<'static>, VerifierError> {
+    match batch_size {
+        10 => Ok(&batch_address_append_40_10::VERIFYINGKEY),
+        250 => Ok(&batch_address_append_40_250::VERIFYINGKEY),
+        _ => Err(InvalidBatchSize),
+    }
+}
+
+/// Same-vk RLC over N address-append proofs (agave fold via zolana-groth16-batch).
+#[inline(never)]
+pub fn verify_batch_address_update_many(
+    batch_size: u64,
+    items: &[([u8; 32], &CompressedProof)],
+) -> Result<(), VerifierError> {
+    if items.is_empty() {
+        return Err(EmptyBatch);
+    }
+    let vk = address_append_vk(batch_size)?;
+    let mut wire = Vec::with_capacity(items.len());
+    for (pi, proof) in items {
+        wire.push((
+            zolana_groth16_batch::WireProof {
+                a: proof.a,
+                b: proof.b,
+                c: proof.c,
+            },
+            *pi,
+        ));
+    }
+    match zolana_groth16_batch::batch_verify_wire(vk, &wire) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(ProofVerificationFailed),
+        Err(zolana_groth16_batch::WireError::Empty) => Err(EmptyBatch),
+        Err(zolana_groth16_batch::WireError::Decompress) => Err(DecompressG1Failed),
+        Err(_) => Err(BatchVerifyFailed),
+    }
+}
+
+#[cfg(test)]
+mod batch_many_tests {
+    use super::*;
+
+    #[test]
+    fn many_empty_rejects() {
+        assert_eq!(verify_batch_address_update_many(10, &[]), Err(EmptyBatch));
+    }
+
+    #[test]
+    fn many_bad_size_rejects() {
+        let p = CompressedProof::default();
+        assert_eq!(
+            verify_batch_address_update_many(7, &[([0u8; 32], &p)]),
+            Err(InvalidBatchSize)
+        );
     }
 }

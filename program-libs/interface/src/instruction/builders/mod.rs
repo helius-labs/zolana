@@ -1,4 +1,5 @@
 mod batch_update_nullifier_tree;
+mod batch_update_nullifier_tree_many;
 mod create_asset_counter;
 mod create_associated_token_account;
 mod create_spl_interface;
@@ -14,6 +15,7 @@ mod zone_deposit;
 mod zone_transact;
 
 pub use batch_update_nullifier_tree::BatchUpdateNullifierTree;
+pub use batch_update_nullifier_tree_many::BatchUpdateNullifierTreeMany;
 pub use create_asset_counter::CreateAssetCounter;
 pub use create_associated_token_account::CreateAssociatedTokenAccount;
 pub use create_spl_interface::CreateSplInterface;

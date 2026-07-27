@@ -30,6 +30,7 @@ wincode = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
 zolana-bloom-filter = { workspace = true }
 groth16-solana = { workspace = true }
+zolana-groth16-batch = { workspace = true }
 thiserror = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }

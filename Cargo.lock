@@ -11223,6 +11223,7 @@ dependencies = [
  "zolana-account-checks",
  "zolana-bloom-filter",
  "zolana-client",
+ "zolana-groth16-batch",
  "zolana-hasher",
  "zolana-indexed-array",
  "zolana-merkle-tree",

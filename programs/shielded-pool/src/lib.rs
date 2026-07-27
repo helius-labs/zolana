@@ -5,7 +5,9 @@ use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, 
 use zolana_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
-    batch_update_nullifier_tree::process_batch_update_nullifier_tree,
+    batch_update_nullifier_tree::{
+        process_batch_update_nullifier_tree, process_batch_update_nullifier_tree_many,
+    },
     create_asset_counter::process_create_asset_counter,
     create_spl_interface::processor::process_create_spl_interface,
     create_tree::process_create_tree,
@@ -57,6 +59,9 @@ pub fn process_instruction(
         InstructionTag::CreateTree => process_create_tree(accounts, payload),
         InstructionTag::BatchUpdateNullifierTree => {
             process_batch_update_nullifier_tree(accounts, payload)
+        }
+        InstructionTag::BatchUpdateNullifierTreeMany => {
+            process_batch_update_nullifier_tree_many(accounts, payload)
         }
         InstructionTag::Deposit => process_deposit(accounts, payload),
         InstructionTag::ZoneDeposit => process_zone_deposit(accounts, payload),
