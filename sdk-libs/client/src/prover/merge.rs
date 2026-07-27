@@ -166,15 +166,16 @@ impl MergeProver {
         let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
 
         // Dummy slots publish deterministic nullifiers derived from the first
-        // real nullifier; override the placeholder nullifiers the generic assembly
-        // computed from the dummies' blindings.
+        // real input's private blinding and nullifier; override the placeholder
+        // nullifiers the generic assembly computed from the dummies' blindings.
+        let first_blinding = self.inputs[0].utxo.blinding;
         let first_nullifier = *assembled_inputs
             .nullifiers
             .first()
             .ok_or(ClientError::NoInputs)?;
         for (i, spend) in self.inputs.iter().enumerate() {
             if spend.proof.is_none() {
-                let dummy = merge_dummy_nullifier(&first_nullifier, i as u8)?;
+                let dummy = merge_dummy_nullifier(&first_blinding, &first_nullifier, i as u8)?;
                 assembled_inputs.nullifiers[i] = dummy;
                 assembled_inputs.inputs[i].nullifier = BigUint::from_bytes_be(&dummy);
             }

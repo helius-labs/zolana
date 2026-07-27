@@ -45,15 +45,19 @@ pub fn merge_output_blinding(
 }
 
 /// The published nullifier of a dummy (padding) input slot, derived in-circuit
-/// from the first real input's nullifier and the slot index. Deterministic
-/// dummies cannot smuggle a real wallet nullifier into a padding slot.
+/// from the first real input's private, commitment-bound blinding, its
+/// single-use nullifier, and the slot index. The private seed hides which slots
+/// are padding, while the fixed derivation prevents a prover from smuggling a
+/// real wallet nullifier into one.
 pub fn merge_dummy_nullifier(
+    first_input_blinding: &[u8; 32],
     first_nullifier: &[u8; 32],
     slot_index: u8,
 ) -> Result<[u8; 32], KeypairError> {
     let index = fe_u32(u32::from(slot_index));
     poseidon(&[
         &fe_u32(DOMAIN_MERGE_DUMMY_NULLIFIER),
+        first_input_blinding,
         first_nullifier,
         &index,
     ])
@@ -129,18 +133,22 @@ mod tests {
             merge_output_blinding(&first_blinding, &fe_u32(8)).unwrap()
         );
         assert_eq!(
-            hex::encode(merge_dummy_nullifier(&first_nullifier, 3).unwrap()),
-            "25b36ec4cdd3a53a0a9dc93cc69559307c365c84c595dce88cb257261e05aa80",
+            hex::encode(merge_dummy_nullifier(&first_blinding, &first_nullifier, 3).unwrap()),
+            "1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914",
         );
         // Domain separation: the two derivations never collide, and the first
-        // nullifier and slot index both bind.
+        // blinding, nullifier, and slot index all bind.
         assert_ne!(
-            merge_dummy_nullifier(&first_nullifier, 3).unwrap(),
-            merge_dummy_nullifier(&first_nullifier, 4).unwrap()
+            merge_dummy_nullifier(&first_blinding, &first_nullifier, 3).unwrap(),
+            merge_dummy_nullifier(&first_blinding, &first_nullifier, 4).unwrap()
         );
         assert_ne!(
-            merge_dummy_nullifier(&first_nullifier, 3).unwrap(),
-            merge_dummy_nullifier(&fe_u32(8), 3).unwrap()
+            merge_dummy_nullifier(&first_blinding, &first_nullifier, 3).unwrap(),
+            merge_dummy_nullifier(&first_blinding, &fe_u32(8), 3).unwrap()
+        );
+        assert_ne!(
+            merge_dummy_nullifier(&first_blinding, &first_nullifier, 3).unwrap(),
+            merge_dummy_nullifier(&fe_u32(43), &first_nullifier, 3).unwrap()
         );
     }
 }

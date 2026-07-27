@@ -9,7 +9,16 @@ import (
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
 )
 
-// Root aliases preserve the circuit API consumed by the prover package.
+// Properties:
+// 1. Confidentiality - Input and output UTXO owner pubkeys are public inputs.
+// 2. Dummy public inputs are indistinguishable from UTXO public inputs.
+// 3. No signatures are enforced in the program or circuit.
+// 4. Balances are preserved.
+// 5. Input and output utxos are owned by the same owner.
+// 6. Many UTXOs to one UTXO
+// 7. The output UTXO is derived completely deterministically from the
+// input UTXOs so that the owner can derive it without decrypting the transaction cipher text.
+
 type (
 	Input  = mergeshared.Input
 	Output = mergeshared.Output

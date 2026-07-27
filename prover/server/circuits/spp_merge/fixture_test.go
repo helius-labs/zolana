@@ -243,10 +243,13 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	}
 
 	// Dummy slots publish deterministic nullifiers derived from the first real
-	// nullifier, mirroring the in-circuit derivation.
+	// input's private blinding and nullifier, mirroring the in-circuit derivation.
 	dummyNullifier := func(slot int) *big.Int {
 		nf, err := poseidon.Hash([]*big.Int{
-			big.NewInt(mergeshared.MergeDummyNullifierDomain), nullifiers[0], big.NewInt(int64(slot)),
+			big.NewInt(mergeshared.MergeDummyNullifierDomain),
+			blindings[0],
+			nullifiers[0],
+			big.NewInt(int64(slot)),
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -24,6 +24,7 @@ func constrainInput(
 	utxoTreeRoot,
 	nullifierTreeRoot,
 	zoneProgramID,
+	firstInputBlinding,
 	firstNullifier frontend.Variable,
 	slotIndex int,
 ) (frontend.Variable, frontend.Variable) {
@@ -83,14 +84,19 @@ func constrainInput(
 	// input. A dummy slot's nullifier is derived deterministically from the merge
 	// first real nullifier, so a merge service cannot park a real wallet nullifier in a
 	// padding slot (which would burn that UTXO without adding its value to the
-	// output). The trade-off is that published dummies are recognizable, so the
-	// merge's real arity is visible.
+	// output). The first input's private, commitment-bound blinding seeds the
+	// derivation so published dummy nullifiers remain indistinguishable from real
+	// ones.
 	nullifier := abstractor.Call(api, transaction.NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Blinding,
 		NullifierSecret: nullifierSecret,
 	})
-	nullifier = api.Select(isDummy, MergeDummyNullifier(api, firstNullifier, slotIndex), nullifier)
+	nullifier = api.Select(
+		isDummy,
+		MergeDummyNullifier(api, firstInputBlinding, firstNullifier, slotIndex),
+		nullifier,
+	)
 
 	// Non-inclusion: the low leaf is in the nullifier tree and brackets the
 	// nullifier (NullifierLowValue < Nullifier < NullifierNextValue).

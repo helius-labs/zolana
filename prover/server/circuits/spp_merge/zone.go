@@ -7,9 +7,16 @@ import (
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
 )
 
-// ZoneCircuit is the policy-zone merge rail. Owner identity stays private;
-// the output zone-data hash and zone program are appended to the common merge
-// public-input-hash preimage.
+// Properties:
+// 1. Anonymity - the owner of the merged UTXOs is not revealed.
+// 2. Dummy public inputs are indistinguishable from UTXO public inputs.
+// 3. No signatures are enforced in the program or circuit.
+// 4. Balances are preserved.
+// 5. Input and output utxos are owned by the same owner.
+// 6. Many UTXOs to one UTXO
+// 7. The output UTXO is derived completely deterministically from the
+// input UTXOs so that the owner can derive it without decrypting the transaction cipher text.
+
 type ZoneCircuit struct {
 	NumInputs int `gnark:"-"`
 

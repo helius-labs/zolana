@@ -27,9 +27,17 @@ func MergeOutputBlinding(api frontend.API, firstInputBlinding, firstNullifier fr
 }
 
 // MergeDummyNullifier derives the published nullifier of a dummy (padding)
-// input slot from the first real input's nullifier and the slot index.
-func MergeDummyNullifier(api frontend.API, firstNullifier frontend.Variable, slotIndex int) frontend.Variable {
+// input slot from the first real input's private, commitment-bound blinding,
+// its single-use nullifier, and the slot index. The private seed keeps padding
+// nullifiers indistinguishable from real ones while the fixed derivation prevents
+// a prover from placing an arbitrary wallet nullifier in a dummy slot.
+func MergeDummyNullifier(
+	api frontend.API,
+	firstInputBlinding,
+	firstNullifier frontend.Variable,
+	slotIndex int,
+) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
-		MergeDummyNullifierDomain, firstNullifier, slotIndex,
+		MergeDummyNullifierDomain, firstInputBlinding, firstNullifier, slotIndex,
 	})
 }

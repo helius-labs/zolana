@@ -18,7 +18,7 @@ type derivationCircuit struct {
 
 func (c *derivationCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.ExpectedBlinding, MergeOutputBlinding(api, c.FirstBlinding, c.Tag))
-	api.AssertIsEqual(c.ExpectedDummy, MergeDummyNullifier(api, c.Tag, 3))
+	api.AssertIsEqual(c.ExpectedDummy, MergeDummyNullifier(api, c.FirstBlinding, c.Tag, 3))
 	return nil
 }
 
@@ -38,12 +38,12 @@ func TestRecoveryDerivationsMatchRustVectors(t *testing.T) {
 		FirstBlinding:    big.NewInt(42),
 		Tag:              big.NewInt(7),
 		ExpectedBlinding: mustBig("2f6bd14769ab9af9cdede9526bb87e83ee9ba49a41f8e2b7158b50433f541897"),
-		ExpectedDummy:    mustBig("25b36ec4cdd3a53a0a9dc93cc69559307c365c84c595dce88cb257261e05aa80"),
+		ExpectedDummy:    mustBig("1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914"),
 	}
 	assert := test.NewAssert(t)
 	assert.SolvingSucceeded(&derivationCircuit{}, &witness, test.WithCurves(ecc.BN254))
 
-	witness.ExpectedBlinding = mustBig("25b36ec4cdd3a53a0a9dc93cc69559307c365c84c595dce88cb257261e05aa80")
+	witness.ExpectedBlinding = mustBig("1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914")
 	assert.SolvingFailed(&derivationCircuit{}, &witness, test.WithCurves(ecc.BN254))
 }
 

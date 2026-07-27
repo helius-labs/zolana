@@ -194,6 +194,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Public.UtxoTreeRoots[0],
 		t.Public.NullifierTreeRoots[0],
 		t.ZoneProgramID,
+		t.Inputs[0].Blinding,
 		frontend.Variable(0),
 		0,
 	)
@@ -207,6 +208,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 			t.Public.UtxoTreeRoots[i],
 			t.Public.NullifierTreeRoots[i],
 			t.ZoneProgramID,
+			t.Inputs[0].Blinding,
 			nullifiers[0],
 			i,
 		)
