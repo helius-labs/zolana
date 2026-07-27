@@ -7,7 +7,10 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{
+    instruction::tag::{COMPOSE_TRANSACT, TRANSACT},
+    SHIELDED_POOL_PROGRAM_ID,
+};
 
 use crate::error::SwapError;
 
@@ -33,6 +36,103 @@ pub fn check_after_window(now: i64, expiry_unix_ts: u64) -> ProgramResult {
     } else {
         Err(SwapError::NotYetExpired.into())
     }
+}
+
+/// Compose_transact payload (includes tag). Standard Groth16 only.
+pub fn compose_ix_data(
+    foreign_pi: &[u8; 32],
+    a: &[u8; 32],
+    b: &[u8; 64],
+    c: &[u8; 32],
+    transact_bytes: &[u8],
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(1 + 160 + transact_bytes.len());
+    data.push(COMPOSE_TRANSACT);
+    data.extend_from_slice(foreign_pi);
+    data.extend_from_slice(a);
+    data.extend_from_slice(b);
+    data.extend_from_slice(c);
+    data.extend_from_slice(transact_bytes);
+    data
+}
+
+#[inline(never)]
+#[profile]
+pub fn cpi_spp_compose(spp_accounts: &[AccountView], compose_data: &[u8]) -> ProgramResult {
+    let spp_program_account = spp_accounts
+        .last()
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    if spp_program_account.address() != &spp_id {
+        return Err(SwapError::InvalidShieldedPoolProgram.into());
+    }
+    let metas: Vec<InstructionAccount> = spp_accounts
+        .iter()
+        .map(|account| {
+            InstructionAccount::new(
+                account.address(),
+                account.is_writable(),
+                account.is_signer(),
+            )
+        })
+        .collect();
+    let instruction = InstructionView {
+        program_id: &spp_id,
+        accounts: &metas,
+        data: compose_data,
+    };
+    invoke_with_bounds::<16, _>(&instruction, spp_accounts)
+}
+
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+#[inline(never)]
+#[profile]
+pub fn cpi_spp_compose_signed(
+    spp_accounts: &[AccountView],
+    compose_data: &[u8],
+) -> ProgramResult {
+    let (order_authority, bump) =
+        Address::find_program_address(&[crate::ORDER_AUTHORITY_PDA_SEED], &crate::ID);
+    let spp_program_account = spp_accounts
+        .last()
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    if spp_program_account.address() != &spp_id {
+        return Err(SwapError::InvalidShieldedPoolProgram.into());
+    }
+    if !spp_accounts
+        .iter()
+        .any(|a| a.address() == &order_authority)
+    {
+        return Err(SwapError::MissingOrderAuthority.into());
+    }
+    let metas: Vec<InstructionAccount> = spp_accounts
+        .iter()
+        .map(|account| {
+            let is_signer = account.is_signer() || account.address() == &order_authority;
+            InstructionAccount::new(account.address(), account.is_writable(), is_signer)
+        })
+        .collect();
+    let instruction = InstructionView {
+        program_id: &spp_id,
+        accounts: &metas,
+        data: compose_data,
+    };
+    let bump = [bump];
+    let seeds = [
+        Seed::from(crate::ORDER_AUTHORITY_PDA_SEED),
+        Seed::from(&bump),
+    ];
+    let signer = Signer::from(&seeds);
+    invoke_signed_with_bounds::<16, _>(&instruction, spp_accounts, core::slice::from_ref(&signer))
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+pub fn cpi_spp_compose_signed(
+    _spp_accounts: &[AccountView],
+    _compose_data: &[u8],
+) -> ProgramResult {
+    Ok(())
 }
 
 #[inline(never)]

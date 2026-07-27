@@ -5,7 +5,8 @@ pub mod verifying_keys;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
-    process_cancel_ix, process_make_ix, process_take_ix, process_take_verifiable_encryption_ix,
+    process_cancel_batch_ix, process_cancel_ix, process_make_batch_ix, process_make_ix,
+    process_take_batch_ix, process_take_ix, process_take_verifiable_encryption_ix,
 };
 
 pub mod tag {
@@ -13,6 +14,9 @@ pub mod tag {
     pub const TAKE: u8 = 3;
     pub const CANCEL: u8 = 4;
     pub const TAKE_VERIFIABLE_ENCRYPTION: u8 = 5;
+    pub const MAKE_BATCH: u8 = 6;
+    pub const TAKE_BATCH: u8 = 7;
+    pub const CANCEL_BATCH: u8 = 8;
 }
 
 pub const ORDER_AUTHORITY_PDA_SEED: &[u8] = b"order_authority";
@@ -42,6 +46,9 @@ pub fn process_instruction(
         tag::TAKE => process_take_ix(accounts, ix_data),
         tag::CANCEL => process_cancel_ix(accounts, ix_data),
         tag::TAKE_VERIFIABLE_ENCRYPTION => process_take_verifiable_encryption_ix(accounts, ix_data),
+        tag::MAKE_BATCH => process_make_batch_ix(accounts, ix_data),
+        tag::TAKE_BATCH => process_take_batch_ix(accounts, ix_data),
+        tag::CANCEL_BATCH => process_cancel_batch_ix(accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
