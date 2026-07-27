@@ -5955,6 +5955,7 @@ dependencies = [
  "solana-signature 3.4.1",
  "solana-signer",
  "solana-transaction",
+ "spl-token-2022-interface",
  "tokio",
  "zolana-client",
  "zolana-event",

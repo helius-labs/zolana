@@ -1,12 +1,14 @@
 use light_program_profiler::profile;
 use pinocchio::{
     cpi::{invoke_signed, Seed, Signer},
+    error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, ProgramResult,
 };
+use spl_token_2022_interface::{extension::PodStateWithExtensions, pod::PodAccount};
 use zolana_interface::{
-    SHIELDED_POOL_CPI_AUTHORITY_BUMP, SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED,
-    SPL_TOKEN_TRANSFER_CHECKED_DISCRIMINATOR,
+    error::ShieldedPoolError, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
+    SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SPL_TOKEN_TRANSFER_CHECKED_DISCRIMINATOR,
 };
 
 use super::account::{SplDepositAccounts, SplWithdrawalAccounts};
@@ -54,6 +56,7 @@ impl SplTransferCpi<'_> {
 #[inline(never)]
 #[profile]
 pub fn settle_spl_deposit(settlement: &SplDepositAccounts<'_>, amount: u64) -> ProgramResult {
+    let vault_amount_before = token_account_amount(settlement.vault)?;
     SplTransferCpi {
         token_program: settlement.token_program,
         from: settlement.user_token_account,
@@ -63,7 +66,17 @@ pub fn settle_spl_deposit(settlement: &SplDepositAccounts<'_>, amount: u64) -> P
         amount,
         decimals: settlement.decimals,
     }
-    .invoke()
+    .invoke()?;
+
+    let vault_amount_after = token_account_amount(settlement.vault)?;
+    let expected_vault_amount = vault_amount_before
+        .checked_add(amount)
+        .ok_or(ShieldedPoolError::PublicSettlementFailed)?;
+    if vault_amount_after != expected_vault_amount {
+        return Err(ShieldedPoolError::PublicSettlementFailed.into());
+    }
+
+    Ok(())
 }
 
 #[inline(never)]
@@ -85,4 +98,15 @@ pub fn settle_spl_withdrawal(settlement: &SplWithdrawalAccounts<'_>, amount: u64
         decimals: settlement.decimals,
     }
     .invoke_signed(core::slice::from_ref(&signer))
+}
+
+/// Read the transferable base balance. Token-2022 extension balances such as
+/// `withheld_amount` deliberately do not count as vault collateral.
+fn token_account_amount(account: &AccountView) -> Result<u64, ProgramError> {
+    let data = account
+        .try_borrow()
+        .map_err(|_| ShieldedPoolError::PublicSettlementFailed)?;
+    let state = PodStateWithExtensions::<PodAccount>::unpack(&data)
+        .map_err(|_| ShieldedPoolError::PublicSettlementFailed)?;
+    Ok(u64::from(state.base.amount))
 }
