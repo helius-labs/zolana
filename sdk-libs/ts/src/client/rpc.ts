@@ -1,11 +1,8 @@
-import type { Address, Signature, Transaction } from "@solana/kit";
+import type { Address, Signature } from "@solana/kit";
 
-import type { Bytes16, Bytes32, RequestContext } from "../interface/index.js";
+import type { Bytes16, Bytes32 } from "../interface/index.js";
 import type { P256PublicKey } from "../keypair/index.js";
-import type { InputUtxoContext } from "../transaction/index.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/index.js";
-
-import type { IndexerRpcConfig } from "./retry.js";
 
 export {
   DEFAULT_INDEXER_POLL_CONFIG as DEFAULT_INDEXER_POLL,
@@ -90,38 +87,4 @@ export interface RpcAccount {
   readonly owner: Address;
   readonly data: Uint8Array;
   readonly lamports: bigint;
-}
-
-export interface Rpc {
-  getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined>;
-  getMultipleAccounts(
-    addresses: readonly Address[],
-    context?: RequestContext,
-  ): Promise<readonly (RpcAccount | undefined)[]>;
-  getBalance(address: Address, context?: RequestContext): Promise<bigint>;
-  getLatestBlockhash(
-    context?: RequestContext,
-  ): Promise<Readonly<{ blockhash: string; lastValidBlockHeight: bigint }>>;
-  sendTransaction(
-    transaction: Transaction,
-    config?: Readonly<{ skipPreflight?: boolean }>,
-    context?: RequestContext,
-  ): Promise<Signature>;
-  getMerkleProofs(
-    treeAccount: Address,
-    leaves: readonly Bytes32[],
-    config?: IndexerRpcConfig,
-    context?: RequestContext,
-  ): Promise<GetMerkleProofsResponse>;
-  getNonInclusionProofs(
-    treeAccount: Address,
-    leaves: readonly Bytes32[],
-    config?: IndexerRpcConfig,
-    context?: RequestContext,
-  ): Promise<GetNonInclusionProofsResponse>;
-  getInputMerkleProofs(
-    inputUtxoCommitments: readonly InputUtxoContext[],
-    config?: IndexerRpcConfig,
-    context?: RequestContext,
-  ): Promise<readonly SpendProof[]>;
 }

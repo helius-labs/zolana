@@ -3,7 +3,7 @@ import { getAddressEncoder, signTransactionWithSigners, type TransactionSigner }
 export type { TransactionSigner } from "@solana/kit";
 
 import { isTransactionSignOnlySigner } from "../client/kit.js";
-import type { Rpc, TransactionSignOnlySigner, ZolanaClient } from "../client/index.js";
+import type { TransactionSignOnlySigner, ZolanaRpc } from "../client/index.js";
 import type { Address, Bytes32, RequestContext, Signature } from "../interface/index.js";
 import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
 import { associatedTokenAddress } from "../interface/pda/index.js";
@@ -33,7 +33,7 @@ const addressEncoder = getAddressEncoder();
 
 export async function createAssociatedTokenAccount(
   input: Readonly<{
-    client: ZolanaClient;
+    client: ZolanaRpc;
     payer: TransactionSigner;
     owner: Address;
     mint: Address;
@@ -187,11 +187,11 @@ export class MergeMaterial {
 }
 
 /**
- * `client` is the single `ZolanaClient`: it both sends the transaction and owns the
+ * `client` is the single `ZolanaRpc`: it both sends the transaction and owns the
  * prover connection, so no prover URL is passed separately here.
  */
 export interface SubmitMergeTransaction {
-  readonly client: ZolanaClient;
+  readonly client: ZolanaRpc;
   readonly owner: Address;
   readonly payer: TransactionSignOnlySigner;
   readonly material: MergeMaterial;
@@ -208,7 +208,7 @@ export interface SubmittedMerge {
 }
 
 export interface MergeActionParams {
-  readonly client: ZolanaClient;
+  readonly client: ZolanaRpc;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
   readonly feePayer: TransactionSignOnlySigner;
@@ -264,9 +264,9 @@ function validateMergeSubmission(
  * proof is paid for.
  */
 function treeCheckedIndexer(
-  indexer: Pick<Rpc, "getInputMerkleProofs">,
+  indexer: Pick<ZolanaRpc, "getInputMerkleProofs">,
   submitTree: Address,
-): Pick<Rpc, "getInputMerkleProofs"> {
+): Pick<ZolanaRpc, "getInputMerkleProofs"> {
   return {
     getInputMerkleProofs: async (commitments, config, context) => {
       const proofs = await indexer.getInputMerkleProofs(commitments, config, context);

@@ -9,6 +9,7 @@ import {
   USER_REGISTRY_PROGRAM_ID,
   Wallet,
   createZolanaClient,
+  type ZolanaRpc,
 } from "../src/index.js";
 import {
   getProtocolConfigAddress,
@@ -24,12 +25,16 @@ const ZONE = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
 describe("public package surface", () => {
   it("creates the one configured client and initializes protocol crypto", async () => {
     const client = await createZolanaClient({
-      rpcUrl: "http://127.0.0.1:8899",
+      solanaRpcUrl: "http://127.0.0.1:8899",
       indexerUrl: "http://127.0.0.1:8784",
       proverUrl: "http://127.0.0.1:3001",
     });
+    const rpc: ZolanaRpc = client;
     expect(client.tree).toBe(DEFAULT_TREE_ADDRESS);
     expect(client.commitment).toBe("confirmed");
+    expect(client.solanaRpc).toBeDefined();
+    expect(rpc.proveTransact).toBeTypeOf("function");
+    expect("rpc" in client).toBe(false);
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {

@@ -1,7 +1,7 @@
 import type { TransactionSigner } from "@solana/kit";
 
 import { buildUnsignedTransaction } from "../client/kit.js";
-import type { ZolanaClient } from "../client/index.js";
+import type { ZolanaRpc } from "../client/index.js";
 import {
   SPL_TOKEN_PROGRAM_ID,
   checkedTransactionSize,
@@ -41,7 +41,7 @@ export interface DepositParams {
 }
 
 export interface DepositActionParams {
-  readonly client: ZolanaClient;
+  readonly client: ZolanaRpc;
   readonly feePayer: TransactionSigner;
   readonly depositor?: TransactionSigner;
   readonly tree?: Address;
@@ -159,7 +159,7 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
  */
 export async function submitDeposit(
   input: Readonly<{
-    client: ZolanaClient;
+    client: ZolanaRpc;
     payer: TransactionSigner;
     tree: Address;
     depositor: TransactionSigner;
@@ -218,7 +218,7 @@ export async function deposit(
 
 export async function buildDepositTransaction(
   input: Readonly<{
-    client: ZolanaClient;
+    client: ZolanaRpc;
     payer: Address;
     tree: Address;
     depositor: Address;

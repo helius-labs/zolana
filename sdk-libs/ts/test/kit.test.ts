@@ -8,7 +8,7 @@ import {
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import { signAndSendInstructions, type TransactionClient } from "../src/client/kit.js";
+import { signAndSendInstructions, type SolanaTransactionClient } from "../src/client/kit.js";
 
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const PROGRAM = address("11111111111111111111111111111111");
@@ -30,10 +30,10 @@ describe("Solana Kit transaction submission", () => {
       },
     }));
     const client = {
-      rpc: { getLatestBlockhash: () => ({ send }) },
-      rpcSubscriptions: {},
+      solanaRpc: { getLatestBlockhash: () => ({ send }) },
+      solanaRpcSubscriptions: {},
       commitment: "confirmed",
-    } as unknown as TransactionClient;
+    } as unknown as SolanaTransactionClient;
     const onReadyToSubmit = vi.fn();
 
     const signature = await signAndSendInstructions(client, {
@@ -59,7 +59,7 @@ describe("Solana Kit transaction submission", () => {
       }),
     };
     const client = {
-      rpc: {
+      solanaRpc: {
         getLatestBlockhash: () => ({
           send: async () => ({
             value: {
@@ -69,9 +69,9 @@ describe("Solana Kit transaction submission", () => {
           }),
         }),
       },
-      rpcSubscriptions: {},
+      solanaRpcSubscriptions: {},
       commitment: "confirmed",
-    } as unknown as TransactionClient;
+    } as unknown as SolanaTransactionClient;
     const onReadyToSubmit = vi.fn();
 
     await expect(

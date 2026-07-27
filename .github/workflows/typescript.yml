@@ -57,7 +57,7 @@ jobs:
           );
           if (!sdk.transfer || !instructions.getDepositInstruction) process.exit(1);
           await sdk.createZolanaClient({
-            rpcUrl: "http://127.0.0.1:8899",
+            solanaRpcUrl: "http://127.0.0.1:8899",
             indexerUrl: "http://127.0.0.1:8784",
             proverUrl: "http://127.0.0.1:3001",
           });

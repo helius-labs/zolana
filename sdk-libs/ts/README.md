@@ -10,6 +10,11 @@ npm install @zolana/sdk @solana/kit
 
 ## Client and wallet flow
 
+`ZolanaClient` implements the single public `ZolanaRpc` surface. It routes
+Solana, indexer, and proving operations to their respective services; `solanaRpc` and
+`solanaRpcSubscriptions` expose the underlying Kit clients only when an
+application needs a standard Solana method directly.
+
 ```ts
 import { airdropFactory, generateKeyPairSigner, lamports } from "@solana/kit";
 import {
@@ -24,7 +29,7 @@ import {
 } from "@zolana/sdk";
 
 const client = await createZolanaClient({
-  rpcUrl: "https://api.devnet.solana.com",
+  solanaRpcUrl: "https://api.devnet.solana.com",
   indexerUrl: "https://indexer.example.com",
   proverUrl: "https://prover.example.com",
 });
@@ -32,8 +37,8 @@ const client = await createZolanaClient({
 const funding = await generateKeyPairSigner();
 const recipient = await generateKeyPairSigner();
 const airdrop = airdropFactory({
-  rpc: client.rpc,
-  rpcSubscriptions: client.rpcSubscriptions,
+  rpc: client.solanaRpc,
+  rpcSubscriptions: client.solanaRpcSubscriptions,
 });
 await Promise.all([
   airdrop({

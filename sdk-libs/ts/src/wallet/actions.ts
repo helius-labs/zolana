@@ -1,4 +1,4 @@
-import type { Rpc } from "../client/index.js";
+import type { ZolanaRpc } from "../client/index.js";
 import {
   SPL_TOKEN_PROGRAM_ID,
   type Address,
@@ -104,7 +104,7 @@ export class UnsignedPrivateTransaction {
 }
 
 export interface TransferParams {
-  readonly rpc?: Rpc;
+  readonly client?: Pick<ZolanaRpc, "getAccount">;
   readonly wallet: Wallet;
   readonly payer: Address;
   readonly recipient: TransferDestination;
@@ -324,11 +324,11 @@ export async function createTransfer(
         },
       });
     }
-    if (params.rpc === undefined) {
+    if (params.client === undefined) {
       throw new WalletError("WALLET_RECIPIENT_CLIENT_REQUIRED");
     }
     const registered = await resolveRegisteredAddress(
-      { rpc: params.rpc, owner: recipient },
+      { rpc: params.client, owner: recipient },
       context,
     );
     if (registered === undefined) {

@@ -24,11 +24,7 @@ const RETRY_DELAY_MS = 2_000n;
 const REQUEST_TIMEOUT_MS = 600_000;
 /// Floor on the status-poll interval so a misconfigured client cannot spin.
 const MIN_POLL_INTERVAL_MS = 1_000;
-const PROVE_MERGE = Symbol("proveMerge");
-const PROVE_MERGE_ZONE = Symbol("proveMergeZone");
-
-export const SERVER_ADDRESS = "http://127.0.0.1:3001";
-export const PROVE_PATH = "/prove";
+const PROVE_PATH = "/prove";
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
 /// returns a job handle instead of a proof, and the client polls
@@ -38,7 +34,7 @@ export interface AsyncPollConfig {
   readonly maxWaitMs: number;
 }
 
-export const DEFAULT_ASYNC_POLL_CONFIG: AsyncPollConfig = Object.freeze({
+const DEFAULT_ASYNC_POLL_CONFIG: AsyncPollConfig = Object.freeze({
   pollIntervalMs: 3_000,
   maxWaitMs: 1_200_000,
 });
@@ -83,24 +79,15 @@ export class ProverClient {
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
   }
 
-  /// Client for the prover at [`SERVER_ADDRESS`]. Rust's counterpart resolves
-  /// `ZOLANA_PROVER_URL` here; this package is browser-compatible and reads no
-  /// environment. Node callers pass any environment-derived URL explicitly.
-  static local(
-    input?: Readonly<{ fetch?: typeof globalThis.fetch; asyncPoll?: AsyncPollConfig }>,
-  ): ProverClient {
-    return new ProverClient({ ...input, url: SERVER_ADDRESS });
-  }
-
   async prove(inputs: ProverInputs | ZoneProverInputs, context?: RequestContext): Promise<Proof> {
     return this.#send(JSON.stringify(proverRequest(inputs)), committed(inputs), context);
   }
 
-  async [PROVE_MERGE](inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
+  async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     return this.#send(JSON.stringify(mergeProverRequest(inputs)), true, context);
   }
 
-  async [PROVE_MERGE_ZONE](inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
+  async proveMergeZone(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     return this.#send(JSON.stringify(mergeProverRequest(inputs, "merge-zone")), true, context);
   }
 
@@ -252,23 +239,7 @@ export class ProverClient {
   }
 }
 
-export function proveMerge(
-  client: ProverClient,
-  inputs: MergeInputs,
-  context?: RequestContext,
-): Promise<Proof> {
-  return client[PROVE_MERGE](inputs, context);
-}
-
-export function proveMergeZone(
-  client: ProverClient,
-  inputs: MergeInputs,
-  context?: RequestContext,
-): Promise<Proof> {
-  return client[PROVE_MERGE_ZONE](inputs, context);
-}
-
-export function mergeProverRequest(
+function mergeProverRequest(
   inputs: MergeInputs,
   circuitType: "merge" | "merge-zone" = "merge",
 ): Readonly<Record<string, unknown>> {
@@ -311,9 +282,7 @@ function committed(inputs: ProverInputs | ZoneProverInputs): inputs is Readonly<
   return inputs.circuit === "transferP256" || inputs.circuit === "transferP256Zone";
 }
 
-export function proverRequest(
-  inputs: ProverInputs | ZoneProverInputs,
-): Readonly<Record<string, unknown>> {
+function proverRequest(inputs: ProverInputs | ZoneProverInputs): Readonly<Record<string, unknown>> {
   const payload = inputs.payload;
   const head = {
     circuitType: CIRCUIT_TYPES[inputs.circuit],

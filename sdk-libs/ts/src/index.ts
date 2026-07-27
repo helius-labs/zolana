@@ -1,11 +1,11 @@
-import { ZolanaClient, type ZolanaClientConfig } from "./client/index.js";
+import { ZolanaClient, type ZolanaClientConfig, type ZolanaRpc } from "./client/index.js";
 import { initializePoseidon } from "./hasher/index.js";
 
 export type { TransactionSigner } from "@solana/kit";
 export { initializePoseidon };
 export { HasherWasmError } from "./hasher/index.js";
 
-export async function createZolanaClient(config: ZolanaClientConfig): Promise<ZolanaClient> {
+export async function createZolanaClient(config: ZolanaClientConfig): Promise<ZolanaRpc> {
   const client = new ZolanaClient(config);
   await initializePoseidon();
   return client;
@@ -19,8 +19,8 @@ export {
   type IndexerPollConfig,
   type SubmittedPrivateTransaction,
   type TransactionSignOnlySigner,
-  type ZolanaClient,
   type ZolanaClientConfig,
+  type ZolanaRpc,
 } from "./client/index.js";
 export {
   DEFAULT_TREE_ADDRESS,

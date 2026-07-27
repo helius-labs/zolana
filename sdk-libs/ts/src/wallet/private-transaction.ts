@@ -5,7 +5,7 @@ import {
   ClientError,
   type SignedPrivateTransaction,
   type TransactionSignOnlySigner,
-  type ZolanaClient,
+  type ZolanaRpc,
 } from "../client/index.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/index.js";
 import type { ShieldedAddress } from "../keypair/index.js";
@@ -188,7 +188,7 @@ export async function buildPrivateTransaction(
     transaction: UnsignedPrivateTransaction;
     wallet: Wallet;
     authority: WalletAuthority;
-    client: ZolanaClient;
+    client: ZolanaRpc;
     feePayer: Address;
   }>,
   context?: RequestContext,
@@ -213,7 +213,7 @@ export async function signPrivateTransaction(
     transaction: UnsignedPrivateTransaction;
     wallet: Wallet;
     authority: WalletAuthority;
-    client: ZolanaClient;
+    client: ZolanaRpc;
     feePayer: TransactionSignOnlySigner;
   }>,
   context?: RequestContext,

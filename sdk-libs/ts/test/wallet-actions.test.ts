@@ -173,7 +173,7 @@ describe("private transaction construction", () => {
     const getAccount = vi.fn(async () => undefined);
     await expect(
       createTransfer({
-        rpc: { getAccount } as never,
+        client: { getAccount },
         wallet: fundedWallet(keypair, [100n]),
         payer: PAYER,
         recipient: RECIPIENT,

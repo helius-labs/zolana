@@ -10,6 +10,7 @@ import {
   encodeOutputData,
 } from "../../transaction/serialization/index.js";
 
+import type { ZolanaRpc } from "../client.js";
 import { ClientError, fromClientCause } from "../error.js";
 import {
   addressBytes,
@@ -23,7 +24,7 @@ import {
   p256Coordinates,
   poseidon,
 } from "../internal.js";
-import type { Rpc, SpendProof } from "../rpc.js";
+import type { SpendProof } from "../rpc.js";
 import {
   createDummyTransferInput,
   createOutput,
@@ -71,7 +72,7 @@ export interface MergeAssembly {
 export async function assembleMerge(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
-  indexer: Pick<Rpc, "getInputMerkleProofs">,
+  indexer: Pick<ZolanaRpc, "getInputMerkleProofs">,
   tree: Address,
   context?: RequestContext,
 ): Promise<MergeAssembly> {
@@ -106,7 +107,7 @@ export function assembleMergeWithProofs(
 export async function assembleMergeZone(
   prepared: PreparedMergeZone,
   material: MergeMaterialInput,
-  indexer: Pick<Rpc, "getInputMerkleProofs">,
+  indexer: Pick<ZolanaRpc, "getInputMerkleProofs">,
   tree: Address,
   context?: RequestContext,
 ): Promise<MergeAssembly> {

@@ -73,7 +73,7 @@ describe("wallet sync", () => {
     const getProgramAccounts = vi.fn(() => ({ send }));
     const client = {
       commitment: "confirmed",
-      rpc: { getProgramAccounts },
+      solanaRpc: { getProgramAccounts },
     } as unknown as ZolanaClient;
 
     await expect(
@@ -132,7 +132,7 @@ describe("wallet sync", () => {
     ]);
     const client = {
       commitment: "confirmed",
-      rpc: { getProgramAccounts: () => ({ send }) },
+      solanaRpc: { getProgramAccounts: () => ({ send }) },
       getShieldedTransactionsByTags: vi.fn(async () => ({
         context: { blockTime: 1n },
         transactions: [],

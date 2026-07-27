@@ -55,9 +55,9 @@ export function isTransactionSignOnlySigner(
   );
 }
 
-export interface TransactionClient {
-  readonly rpc: SolanaRpc;
-  readonly rpcSubscriptions: SolanaRpcSubscriptions;
+export interface SolanaTransactionClient {
+  readonly solanaRpc: SolanaRpc;
+  readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
   readonly commitment: Commitment;
 }
 
@@ -70,18 +70,18 @@ export interface LatestBlockhash {
 
 export function createKitClients(
   input: Readonly<{
-    rpcUrl: string | URL;
-    rpcSubscriptionsUrl?: string | URL;
+    solanaRpcUrl: string | URL;
+    solanaRpcSubscriptionsUrl?: string | URL;
   }>,
-): Readonly<{ rpc: SolanaRpc; rpcSubscriptions: SolanaRpcSubscriptions }> {
-  const rpcUrl = urlString(input.rpcUrl, "rpcUrl", ["http:", "https:"]);
+): Readonly<{ solanaRpc: SolanaRpc; solanaRpcSubscriptions: SolanaRpcSubscriptions }> {
+  const rpcUrl = urlString(input.solanaRpcUrl, "solanaRpcUrl", ["http:", "https:"]);
   const subscriptionsUrl =
-    input.rpcSubscriptionsUrl === undefined
-      ? defaultRpcSubscriptionsUrl(rpcUrl)
-      : urlString(input.rpcSubscriptionsUrl, "rpcSubscriptionsUrl", ["ws:", "wss:"]);
+    input.solanaRpcSubscriptionsUrl === undefined
+      ? defaultSolanaRpcSubscriptionsUrl(rpcUrl)
+      : urlString(input.solanaRpcSubscriptionsUrl, "solanaRpcSubscriptionsUrl", ["ws:", "wss:"]);
   return Object.freeze({
-    rpc: createSolanaRpc(rpcUrl),
-    rpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl),
+    solanaRpc: createSolanaRpc(rpcUrl),
+    solanaRpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl),
   });
 }
 
@@ -124,7 +124,7 @@ export function buildSignableTransactionMessage(
 }
 
 export async function signAndSendInstructions(
-  client: TransactionClient,
+  client: SolanaTransactionClient,
   input: Readonly<{
     feePayer: TransactionSigner;
     instructions: readonly Instruction[];
@@ -135,7 +135,7 @@ export async function signAndSendInstructions(
   context?: RequestContext,
 ): Promise<Signature> {
   const { value: lifetime } = await runKitRpc("getLatestBlockhash", context, (abortSignal) =>
-    client.rpc.getLatestBlockhash({ commitment: client.commitment }).send({ abortSignal }),
+    client.solanaRpc.getLatestBlockhash({ commitment: client.commitment }).send({ abortSignal }),
   );
   const message = buildSignableTransactionMessage({ ...input, lifetime });
   if (isTransactionMessageWithSingleSendingSigner(message)) {
@@ -152,7 +152,7 @@ export async function signAndSendInstructions(
 }
 
 export async function sendAndConfirmTransaction(
-  client: TransactionClient,
+  client: SolanaTransactionClient,
   transaction: Transaction,
   input: Readonly<{ skipPreflight?: boolean }> = {},
   context?: RequestContext,
@@ -166,8 +166,8 @@ export async function sendAndConfirmTransaction(
   }
   await runKitRpc("sendTransaction", context, (abortSignal) =>
     sendAndConfirmTransactionFactory({
-      rpc: client.rpc,
-      rpcSubscriptions: client.rpcSubscriptions,
+      rpc: client.solanaRpc,
+      rpcSubscriptions: client.solanaRpcSubscriptions,
     })(transaction, {
       abortSignal,
       commitment: client.commitment,
@@ -281,12 +281,12 @@ function urlString(value: string | URL, field: string, protocols: readonly strin
   return url.href;
 }
 
-export function defaultRpcSubscriptionsUrl(value: string): string {
+export function defaultSolanaRpcSubscriptionsUrl(value: string): string {
   const url = new URL(value);
   if (url.port !== "") {
     const port = Number(url.port);
     if (!Number.isSafeInteger(port) || port >= 65_535) {
-      throw invalidUrl("rpcUrl");
+      throw invalidUrl("solanaRpcUrl");
     }
     url.port = String(port + 1);
   }

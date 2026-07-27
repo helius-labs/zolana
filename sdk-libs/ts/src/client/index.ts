@@ -6,6 +6,7 @@ export type {
   SignedPrivateTransaction,
   SubmittedPrivateTransaction,
   ZolanaClientConfig,
+  ZolanaRpc,
 } from "./client.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {
@@ -17,7 +18,7 @@ export type {
   HasherErrorCode,
   RetryErrorCause,
 } from "./error.js";
-export type { AsyncPollConfig } from "./prover/index.js";
+export type { AsyncPollConfig } from "./prover/client.js";
 export type { TransactionSignOnlySigner } from "./kit.js";
 export {
   DEFAULT_INDEXER_POLL_CONFIG,
@@ -38,7 +39,6 @@ export type {
   MerkleContext,
   MerkleProof,
   NonInclusionProof,
-  Rpc,
   RpcAccount,
   RpcContext,
   SpendProof,

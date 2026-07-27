@@ -11,7 +11,7 @@ import {
   DEFAULT_INDEXER_POLL_CONFIG,
   type IndexerPollConfig,
   type IndexerRpcConfig,
-  type ZolanaClient,
+  type ZolanaRpc,
 } from "../client/index.js";
 import {
   SHIELDED_POOL_PROGRAM_ID,
@@ -68,13 +68,13 @@ export type {
 
 export async function backfillAssetRegistry(
   wallet: Wallet,
-  registryRpc: ZolanaClient,
+  registryRpc: ZolanaRpc,
   context?: RequestContext,
 ): Promise<number> {
   let accounts;
   try {
     accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
-      registryRpc.rpc
+      registryRpc.solanaRpc
         .getProgramAccounts(SHIELDED_POOL_PROGRAM_ID, {
           commitment: registryRpc.commitment,
           encoding: "base64",
@@ -314,7 +314,7 @@ function compareDeposits(
 }
 
 interface CollectInput {
-  readonly indexer: Pick<ZolanaClient, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags">;
+  readonly indexer: Pick<ZolanaRpc, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags">;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
   readonly rpcConfig: IndexerRpcConfig;
@@ -390,7 +390,7 @@ export async function syncWallet(
   input: Readonly<{
     wallet: Wallet;
     authority: WalletAuthority;
-    client: ZolanaClient;
+    client: ZolanaRpc;
     config?: SyncWalletConfig;
   }>,
   context?: RequestContext,

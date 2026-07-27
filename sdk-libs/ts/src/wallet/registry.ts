@@ -8,7 +8,7 @@ import {
 } from "@solana/kit";
 
 import { buildUnsignedTransaction } from "../client/kit.js";
-import type { Rpc, RpcAccount, ZolanaClient } from "../client/index.js";
+import type { RpcAccount, ZolanaRpc } from "../client/index.js";
 import { checkedTransactionSize } from "../interface/index.js";
 import {
   USER_REGISTRY_PROGRAM_ID,
@@ -29,6 +29,8 @@ import {
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { concat, equalBytes } from "./internal.js";
+
+type AccountReader = Pick<ZolanaRpc, "getAccount">;
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
@@ -121,7 +123,7 @@ export interface MergeSubmissionRecord {
  * and the committed identity are validated against the same snapshot.
  */
 export async function internalMergeSubmissionRecord(
-  input: Readonly<{ rpc: Rpc; owner: Address }>,
+  input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<MergeSubmissionRecord> {
   const pda = await userRecordAddress(input.owner);
@@ -234,7 +236,7 @@ function decodeRecord(
 }
 
 async function fetchDecodedUserRecord(
-  input: Readonly<{ rpc: Rpc; owner: Address }>,
+  input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<DecodedUserRecord | undefined> {
   const pda = await userRecordAddress(input.owner);
@@ -243,7 +245,7 @@ async function fetchDecodedUserRecord(
 
 async function fetchDecodedUserRecordAt(
   input: Readonly<{
-    rpc: Pick<Rpc, "getAccount">;
+    rpc: AccountReader;
     owner: Address;
     pda: Readonly<{ address: Address; bump: number }>;
   }>,
@@ -255,7 +257,7 @@ async function fetchDecodedUserRecordAt(
 }
 
 export async function fetchUserRecord(
-  input: Readonly<{ rpc: Rpc; owner: Address }>,
+  input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<UserRecord | undefined> {
   try {
@@ -276,7 +278,7 @@ export async function fetchUserRecord(
 }
 
 export async function fetchUserRecordChecked(
-  input: Readonly<{ rpc: Rpc; owner: Address }>,
+  input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<UserRecord> {
   const record = await fetchUserRecord(input, context);
@@ -289,7 +291,7 @@ export async function fetchUserRecordChecked(
 }
 
 export async function isWalletRegistered(
-  input: Readonly<{ rpc: Rpc; owner: Address }>,
+  input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<boolean> {
   return (await fetchUserRecord(input, context)) !== undefined;
@@ -321,7 +323,7 @@ export function resolvedAddressFromRecord(owner: Address, record: UserRecord): R
 }
 
 export async function resolveRegisteredAddress(
-  input: Readonly<{ rpc: Rpc; owner: Address }>,
+  input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
 ): Promise<ResolvedAddress | undefined> {
   const record = await fetchUserRecord(input, context);
@@ -335,7 +337,7 @@ export async function resolveRegisteredAddress(
  * difference is an identity conflict rather than stale data.
  */
 export async function validateRegisteredKeypair(
-  input: Readonly<{ rpc: Rpc; owner: Address; keypair: ShieldedKeypair }>,
+  input: Readonly<{ rpc: AccountReader; owner: Address; keypair: ShieldedKeypair }>,
   context?: RequestContext,
 ): Promise<void> {
   const record = await fetchUserRecordChecked({ rpc: input.rpc, owner: input.owner }, context);
@@ -363,7 +365,7 @@ export async function validateRegisteredKeypair(
  * only be paid by a public withdrawal, uses the zero tag.
  */
 export async function recipientConfidentialViewTag(
-  input: Readonly<{ rpc: Rpc; recipient: Address }>,
+  input: Readonly<{ rpc: AccountReader; recipient: Address }>,
   context?: RequestContext,
 ): Promise<Bytes32> {
   const record = await fetchUserRecord({ rpc: input.rpc, owner: input.recipient }, context);
@@ -404,7 +406,7 @@ export type StrictRegistration =
  */
 export async function ensureRegistered(
   input: Readonly<{
-    client: ZolanaClient;
+    client: ZolanaRpc;
     funding: TransactionSigner;
     keypair: ShieldedKeypair;
   }>,
@@ -437,7 +439,7 @@ export async function ensureRegistered(
  */
 export async function registerIfAbsent(
   input: Readonly<{
-    client: ZolanaClient;
+    client: ZolanaRpc;
     funding: TransactionSigner;
     keypair: ShieldedKeypair;
   }>,
@@ -466,7 +468,7 @@ export async function registerIfAbsent(
 }
 
 export async function buildRegistrationTransaction(
-  input: Readonly<{ client: ZolanaClient; owner: Address; address: ShieldedAddress }>,
+  input: Readonly<{ client: ZolanaRpc; owner: Address; address: ShieldedAddress }>,
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {

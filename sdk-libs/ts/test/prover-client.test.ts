@@ -1,8 +1,11 @@
+import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
+import { createOutput } from "../src/client/prover/assembly.js";
 import { ProverClient } from "../src/client/prover/client.js";
-import type { ProverInputs } from "../src/client/prover/types.js";
+import type { MergeInputs, ProverInputs } from "../src/client/prover/types.js";
+import { createProofOutput } from "../src/transaction/index.js";
 
 const INPUTS = {
   circuit: "transfer",
@@ -19,6 +22,38 @@ const INPUTS = {
     publicInputHash: 0n,
   },
 } as unknown as ProverInputs;
+const ZERO_POINT = ["0x0", "0x0"];
+const COMMITTED_PROOF = {
+  ar: ZERO_POINT,
+  bs: [ZERO_POINT, ZERO_POINT],
+  krs: ZERO_POINT,
+  proof_commitment: ZERO_POINT,
+  proof_commitment_pok: ZERO_POINT,
+};
+
+function mergeInputs(): MergeInputs {
+  return {
+    inputs: [],
+    output: createOutput(
+      createProofOutput({
+        asset: address("11111111111111111111111111111111"),
+        amount: 0n,
+        blinding: new Uint8Array(31) as never,
+      }),
+    ),
+    p256PublicKeyX: 0n,
+    p256PublicKeyY: 0n,
+    ownerPublicKeyHash: 0n,
+    userNullifierPublicKey: 0n,
+    userNullifierSecret: 0n,
+    txViewingSecret: 0n,
+    userViewingPublicKey: [],
+    externalDataHash: 0n,
+    privateTxHash: 0n,
+    publicInputHash: 0n,
+    zoneProgramId: 0n,
+  } as unknown as MergeInputs;
+}
 
 describe("queued prover polling", () => {
   beforeEach(() => {
@@ -60,5 +95,23 @@ describe("queued prover polling", () => {
     await assertion;
     expect(rejected).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("prover request routing", () => {
+  it("routes merge variants through their canonical circuit types", async () => {
+    const bodies: unknown[] = [];
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify(COMMITTED_PROOF), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+
+    await prover.proveMerge(mergeInputs());
+    await prover.proveMergeZone(mergeInputs());
+
+    expect(bodies).toMatchObject([{ circuitType: "merge" }, { circuitType: "merge-zone" }]);
   });
 });

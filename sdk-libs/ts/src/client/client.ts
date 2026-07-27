@@ -53,7 +53,7 @@ import {
   type TransactionSignOnlySigner,
 } from "./kit.js";
 import { assemble } from "./prover/assembly.js";
-import { ProverClient, proveMerge, proveMergeZone, type AsyncPollConfig } from "./prover/client.js";
+import { ProverClient, type AsyncPollConfig } from "./prover/client.js";
 import { assembleMerge, assembleMergeZone } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import { DEFAULT_INDEXER_RPC_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
@@ -64,7 +64,6 @@ import {
   type GetNonInclusionProofsResponse,
   type GetShieldedTransactionsByTagsResponse,
   type IndexerRpcConfig,
-  type Rpc,
   type RpcAccount,
   type SpendProof,
 } from "./rpc.js";
@@ -73,8 +72,8 @@ const DEFAULT_TRANSACT_CU_LIMIT = 300_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
-  readonly rpcUrl: string | URL;
-  readonly rpcSubscriptionsUrl?: string | URL;
+  readonly solanaRpcUrl: string | URL;
+  readonly solanaRpcSubscriptionsUrl?: string | URL;
   readonly indexerUrl: string | URL;
   readonly apiKey?: string;
   readonly proverUrl: string | URL;
@@ -113,10 +112,14 @@ export interface ProvedMergeZone extends ProvedMerge {
   readonly zoneProgramId: Address;
 }
 
-export class ZolanaClient implements Rpc {
+export type ZolanaRpc = {
+  readonly [Member in keyof ZolanaClient]: ZolanaClient[Member];
+};
+
+export class ZolanaClient {
   readonly tree: Address;
-  readonly rpc: SolanaRpc;
-  readonly rpcSubscriptions: SolanaRpcSubscriptions;
+  readonly solanaRpc: SolanaRpc;
+  readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
   readonly commitment: Commitment;
   readonly #indexer: ZolanaIndexer;
   readonly #prover: ProverClient;
@@ -141,10 +144,10 @@ export class ZolanaClient implements Rpc {
     }
 
     const kit = createKitClients({
-      rpcUrl: input.rpcUrl,
-      ...(input.rpcSubscriptionsUrl === undefined
+      solanaRpcUrl: input.solanaRpcUrl,
+      ...(input.solanaRpcSubscriptionsUrl === undefined
         ? {}
-        : { rpcSubscriptionsUrl: input.rpcSubscriptionsUrl }),
+        : { solanaRpcSubscriptionsUrl: input.solanaRpcSubscriptionsUrl }),
     });
     const indexerUrl = checkedHttpUrl(input.indexerUrl, "indexerUrl");
     const proverUrl = checkedHttpUrl(input.proverUrl, "proverUrl");
@@ -190,8 +193,8 @@ export class ZolanaClient implements Rpc {
         details: { field: "computeUnitPriceMicroLamports" },
       });
     }
-    this.rpc = kit.rpc;
-    this.rpcSubscriptions = kit.rpcSubscriptions;
+    this.solanaRpc = kit.solanaRpc;
+    this.solanaRpcSubscriptions = kit.solanaRpcSubscriptions;
     this.commitment = commitment;
     this.#indexer = indexer;
     this.#prover = prover;
@@ -211,7 +214,7 @@ export class ZolanaClient implements Rpc {
   async getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined> {
     checkedAddress(address, "address");
     const { value } = await runKitRpc("getAccountInfo", context, (abortSignal) =>
-      this.rpc
+      this.solanaRpc
         .getAccountInfo(address, { commitment: this.commitment, encoding: "base64" })
         .send({ abortSignal }),
     );
@@ -224,7 +227,7 @@ export class ZolanaClient implements Rpc {
   ): Promise<readonly (RpcAccount | undefined)[]> {
     addresses.forEach((address) => checkedAddress(address, "address"));
     const { value } = await runKitRpc("getMultipleAccounts", context, (abortSignal) =>
-      this.rpc
+      this.solanaRpc
         .getMultipleAccounts(addresses, {
           commitment: this.commitment,
           encoding: "base64",
@@ -250,14 +253,14 @@ export class ZolanaClient implements Rpc {
   async getBalance(address: Address, context?: RequestContext): Promise<bigint> {
     checkedAddress(address, "address");
     const { value } = await runKitRpc("getBalance", context, (abortSignal) =>
-      this.rpc.getBalance(address, { commitment: this.commitment }).send({ abortSignal }),
+      this.solanaRpc.getBalance(address, { commitment: this.commitment }).send({ abortSignal }),
     );
     return value;
   }
 
   async getLatestBlockhash(context?: RequestContext): Promise<LatestBlockhash> {
     const { value } = await runKitRpc("getLatestBlockhash", context, (abortSignal) =>
-      this.rpc.getLatestBlockhash({ commitment: this.commitment }).send({ abortSignal }),
+      this.solanaRpc.getLatestBlockhash({ commitment: this.commitment }).send({ abortSignal }),
     );
     return value;
   }
@@ -446,7 +449,7 @@ export class ZolanaClient implements Rpc {
     input: Readonly<{
       prepared: PreparedMerge;
       material: MergeMaterialInput;
-      indexer?: Pick<Rpc, "getInputMerkleProofs">;
+      indexer?: Pick<ZolanaRpc, "getInputMerkleProofs">;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
@@ -462,7 +465,7 @@ export class ZolanaClient implements Rpc {
       context,
     );
     const compressed = compressProof(
-      await proveMerge(this.#prover, assembled.proverInputs, context),
+      await this.#prover.proveMerge(assembled.proverInputs, context),
     );
     const commitment = compressed.commitment;
     if (!commitment) throw new ClientError("CLIENT_MERGE_PROOF_COMMITMENT");
@@ -482,7 +485,7 @@ export class ZolanaClient implements Rpc {
     input: Readonly<{
       prepared: PreparedMergeZone;
       material: MergeMaterialInput;
-      indexer?: Pick<Rpc, "getInputMerkleProofs">;
+      indexer?: Pick<ZolanaRpc, "getInputMerkleProofs">;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMergeZone> {
@@ -498,7 +501,7 @@ export class ZolanaClient implements Rpc {
       context,
     );
     const compressed = compressProof(
-      await proveMergeZone(this.#prover, assembled.proverInputs, context),
+      await this.#prover.proveMergeZone(assembled.proverInputs, context),
     );
     const commitment = compressed.commitment;
     if (!commitment) throw new ClientError("CLIENT_MERGE_PROOF_COMMITMENT");

@@ -49,7 +49,7 @@ async function actor(seedByte: number, rail: "ed25519" | "p256" = "ed25519"): Pr
 }
 
 async function waitForSignature(
-  rpc: Awaited<ReturnType<typeof createZolanaClient>>["rpc"],
+  rpc: Awaited<ReturnType<typeof createZolanaClient>>["solanaRpc"],
   signature: Signature,
 ): Promise<void> {
   const deadline = Date.now() + 30_000;
@@ -80,7 +80,7 @@ describe("live SDK private flow", () => {
     }
 
     const client = await createZolanaClient({
-      rpcUrl,
+      solanaRpcUrl: rpcUrl,
       indexerUrl,
       proverUrl,
       tree: address(configuredTree),
@@ -94,8 +94,10 @@ describe("live SDK private flow", () => {
     const carol = await actor(73, "p256");
 
     for (const owner of [alice.signer.address, bob.signer.address, carol.signer.address]) {
-      const signature = await client.rpc.requestAirdrop(owner, lamports(5_000_000_000n)).send();
-      await waitForSignature(client.rpc, signature);
+      const signature = await client.solanaRpc
+        .requestAirdrop(owner, lamports(5_000_000_000n))
+        .send();
+      await waitForSignature(client.solanaRpc, signature);
     }
 
     await expect(

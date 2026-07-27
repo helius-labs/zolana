@@ -12,7 +12,7 @@ import {
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
 } from "../src/client/index.js";
-import { defaultRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
+import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
 import type { Bytes32 } from "../src/interface/index.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
@@ -24,7 +24,7 @@ function bytes(value: number): Bytes32 {
 
 function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
   return new ZolanaClient({
-    rpcUrl: "http://127.0.0.1:8899",
+    solanaRpcUrl: "http://127.0.0.1:8899",
     indexerUrl: "http://127.0.0.1:8784",
     proverUrl: "http://127.0.0.1:3001",
     tree: TREE,
@@ -38,8 +38,8 @@ function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
 
 describe("ZolanaClient", () => {
   it("uses Solana's adjacent WebSocket port for explicit local RPC ports", () => {
-    expect(defaultRpcSubscriptionsUrl("http://127.0.0.1:8899/")).toBe("ws://127.0.0.1:8900/");
-    expect(defaultRpcSubscriptionsUrl("https://api.devnet.solana.com/")).toBe(
+    expect(defaultSolanaRpcSubscriptionsUrl("http://127.0.0.1:8899/")).toBe("ws://127.0.0.1:8900/");
+    expect(defaultSolanaRpcSubscriptionsUrl("https://api.devnet.solana.com/")).toBe(
       "wss://api.devnet.solana.com/",
     );
   });
@@ -55,7 +55,7 @@ describe("ZolanaClient", () => {
     expect(
       () =>
         new ZolanaClient({
-          rpcUrl: "file:///tmp/rpc",
+          solanaRpcUrl: "file:///tmp/rpc",
           indexerUrl: "http://127.0.0.1:8784",
           proverUrl: "http://127.0.0.1:3001",
         }),
