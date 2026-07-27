@@ -9,7 +9,7 @@ import (
 
 const hashBytesChunkSize = 31
 
-// HashBytes mirrors circuits/gadget.HashBytes for host-side assignments.
+// HashBytes implements the protocol byte hash for host-side assignments.
 func HashBytes(bytes []byte) (*big.Int, error) {
 	if len(bytes) == 0 {
 		return new(big.Int), nil

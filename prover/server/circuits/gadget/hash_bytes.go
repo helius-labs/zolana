@@ -27,10 +27,3 @@ func PackBytesBE(api frontend.API, bytes []frontend.Variable) []frontend.Variabl
 	}
 	return fields
 }
-
-// HashBytes commits a statically sized byte slice using the protocol byte hash:
-// empty maps to zero, the first packed chunk is the accumulator, and each
-// remaining chunk is folded as Poseidon(accumulator, chunk).
-func HashBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {
-	return HashChain(api, PackBytesBE(api, bytes))
-}
