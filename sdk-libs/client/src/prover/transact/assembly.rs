@@ -205,8 +205,8 @@ pub(crate) fn assemble_outputs(
         // the `nullifier_pk`, so the circuit recomputes `owner_hash` and binds the
         // tag. A dummy slot folds `hash_bytes` of the builder's random `view_tag` so
         // its public tag matches the program's `hash_bytes(view_tag)` reconstruction
-        // and is indistinguishable from a real one; the circuit leaves it
-        // unconstrained and `nullifier_pk` is unused (0).
+        // and is indistinguishable from a real one; the circuit requires the
+        // tag to identify a signer or payer, while `nullifier_pk` is unused (0).
         let (owner_pk_field, nullifier_pk) = match &output.owner_address {
             Some(address) => (
                 address.signing_pubkey.owner_proof_input_hash()?,
@@ -254,9 +254,8 @@ pub(crate) struct PublicInputs<'a> {
     pub payer_pubkey_hash: &'a [u8; 32],
     pub allow_dummy_inputs: &'a [u8; 32],
     pub input_owner_pk_hashes: &'a [[u8; 32]],
-    /// Confidential variant only: appended after the anonymous chain as
-    /// `HashChain(output_owner_pk_hashes)`. Mirrors
-    /// `prover/server/prover-test/spp/protocol/public_inputs.go` (PublicInputHash).
+    /// Appended by both confidential rails as
+    /// `HashChain(output_owner_pk_hashes)`.
     pub output_owner_pk_hashes: &'a [[u8; 32]],
 }
 
@@ -278,7 +277,7 @@ impl PublicInputs<'_> {
             *self.payer_pubkey_hash,
             *self.allow_dummy_inputs,
             create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
-            // Confidential appendix (the client always uses the confidential variant).
+            // Confidential output-owner chain.
             create_hash_chain_from_slice(self.output_owner_pk_hashes)?,
         ]);
         Ok(create_hash_chain_from_slice(&elements)?)

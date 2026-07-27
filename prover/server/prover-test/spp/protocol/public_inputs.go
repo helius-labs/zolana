@@ -25,6 +25,7 @@ var publicInputNames = [...]string{
 	"payer_pubkey_hash",
 	"allow_dummy_inputs",
 	"input_owner_pk_hashes",
+	"output_owner_pk_hashes",
 }
 
 // PublicInputNames returns the PublicInputHash preimage order.
@@ -48,7 +49,8 @@ type PublicInputs struct {
 	AllowDummyInputs   *big.Int
 	InputOwnerPkHashes []*big.Int
 
-	// Confidential appends the output owner tag chain to the preimage.
+	// Confidential appends the output owner tag chain to the preimage for both
+	// default-zone and custom-zone confidential transfers.
 	Confidential        bool
 	OutputOwnerPkHashes []*big.Int
 

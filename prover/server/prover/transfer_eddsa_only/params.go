@@ -38,8 +38,9 @@ type InputParams struct {
 	NullifierSecret *big.Int
 }
 
-// OutputParams mirrors txcircuit.Output. OwnerPkHash and NullifierPk are used by
-// the confidential variant; 0 otherwise.
+// OutputParams mirrors txcircuit.Output. OwnerPkHash and NullifierPk bind the
+// public output owner tag on both confidential rails; they are 0 for authority
+// proofs.
 type OutputParams struct {
 	Utxo        UtxoParams
 	IsDummy     *big.Int
@@ -70,9 +71,9 @@ type TransferParameters struct {
 	PayerPubkeyHash  *big.Int
 	AllowDummyInputs *big.Int
 
-	// Variant selects the Solana-only instantiation: confidential (non-zone, binds
-	// output owner tags), anonymous zone, or zone-authority (anonymous, input
-	// owners private, no signature).
+	// Variant selects the Solana-only instantiation: confidential default-zone,
+	// confidential custom-zone, or zone-authority (anonymous, input owners
+	// private, no signature).
 	Variant Variant
 
 	PublicInputHash *big.Int

@@ -33,15 +33,21 @@ func proveTestOwner(t *testing.T) (payerPubkey [32]byte, payerHash, owner, nulli
 }
 
 func solOutput(owner *big.Int, amount, blinding int64) ProofUtxoRequest {
+	var ownerPubkey [32]byte
+	for i := range ownerPubkey {
+		ownerPubkey[i] = byte(i + 1)
+	}
 	return ProofUtxoRequest{
-		Domain:        proofFieldInput(big.NewInt(protocol.UtxoDomain)),
-		Owner:         proofFieldInput(owner),
-		Asset:         proofFieldInput(protocol.SolAsset()),
-		Amount:        proofFieldInput(big.NewInt(amount)),
-		Blinding:      proofFieldInput(big.NewInt(blinding)),
-		DataHash:      proofFieldInput(big.NewInt(0)),
-		ZoneDataHash:  proofFieldInput(big.NewInt(0)),
-		ZoneProgramID: proofFieldInput(big.NewInt(0)),
+		Domain:               proofFieldInput(big.NewInt(protocol.UtxoDomain)),
+		Owner:                proofFieldInput(owner),
+		OwnerSolanaPubkey:    parse.BytesHex(ownerPubkey[:]),
+		OwnerNullifierSecret: proofFieldInput(big.NewInt(12345)),
+		Asset:                proofFieldInput(protocol.SolAsset()),
+		Amount:               proofFieldInput(big.NewInt(amount)),
+		Blinding:             proofFieldInput(big.NewInt(blinding)),
+		DataHash:             proofFieldInput(big.NewInt(0)),
+		ZoneDataHash:         proofFieldInput(big.NewInt(0)),
+		ZoneProgramID:        proofFieldInput(big.NewInt(0)),
 	}
 }
 

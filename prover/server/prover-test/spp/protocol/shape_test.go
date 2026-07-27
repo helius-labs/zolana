@@ -124,6 +124,7 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"payer_pubkey_hash",
 		"allow_dummy_inputs",
 		"input_owner_pk_hashes",
+		"output_owner_pk_hashes",
 	}
 
 	names := PublicInputNames()

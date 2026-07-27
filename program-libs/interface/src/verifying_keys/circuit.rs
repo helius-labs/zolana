@@ -50,7 +50,7 @@ impl CircuitId {
     }
 
     pub const fn is_confidential(self) -> bool {
-        matches!(self, Self::ConfidentialEddsa(..))
+        matches!(self, Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..))
     }
 
     pub const fn is_zone(self) -> bool {
@@ -66,7 +66,7 @@ impl CircuitId {
     }
 
     pub const fn binds_output_owners(self) -> bool {
-        self.is_confidential()
+        matches!(self, Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..))
     }
 
     /// Whether this selector names a verifying key generated into this crate.
@@ -175,9 +175,10 @@ mod tests {
 
         let zone = CircuitId::ZoneEddsa(1, 8, 3);
         assert!(zone.is_zone());
+        assert!(zone.is_confidential());
         assert!(!zone.is_authority());
         assert!(zone.requires_input_signatures());
-        assert!(!zone.binds_output_owners());
+        assert!(zone.binds_output_owners());
 
         let authority = CircuitId::ZoneAuthority(4, 4, 3);
         assert!(authority.is_zone());

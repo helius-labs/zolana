@@ -7,8 +7,6 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
-// privateTxHashGadget mirrors protocol.PrivateTxHash. expiry_unix_ts is bound
-// through external_data_hash, not as a separate input (spec: SPP Proof).
 type privateTxHashGadget struct {
 	InputUtxoHashes   []frontend.Variable
 	OutputUtxoHashes  []frontend.Variable

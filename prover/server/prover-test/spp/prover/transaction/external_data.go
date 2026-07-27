@@ -119,7 +119,7 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 			Messages:                 nil,
 		}),
 		publicSlots: slots,
-		// The anonymous (custom-zone) circuits assert the public zone id is
+		// The custom-zone circuits assert the public zone id is
 		// nonzero: on-chain they are reachable only via zone_transact, whose
 		// zone id comes from the validated ZoneConfig and is never 0. The
 		// harness models bare UTXOs, which stay member-or-free under any id.

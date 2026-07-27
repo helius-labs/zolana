@@ -83,7 +83,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		// builder defaults to a nonzero zone id for the custom-zone circuits).
 		assignment.ZoneProgramID = spptest.Fe(0)
 	}
-	refreshPublicInputHashVariant(t, assignment, confidential, false)
+	refreshPublicInputHashVariant(t, assignment, true, false)
 }
 
 func addressOwnerPkHash(t testing.TB) *big.Int {

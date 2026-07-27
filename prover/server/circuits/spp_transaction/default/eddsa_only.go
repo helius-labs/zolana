@@ -7,7 +7,13 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// DefaultZoneEddsaOnlyPublic is the confidential Solana-only rail.
+// Properties:
+// 1. Confidentiality - Input and output UTXO owner pubkeys are public inputs.
+// 2. Dummy public inputs are indistinguishable from UTXO and address public inputs.
+// 3. Solana program enforces eddsa signatures.
+// 4. Nullifiers of UTXOs, dummies, addresses cannot collide.
+// 5. Balances are preserved.
+
 type DefaultZoneEddsaOnlyPublic struct {
 	Nullifiers          []frontend.Variable
 	OutputHashes        []frontend.Variable
@@ -26,10 +32,8 @@ type DefaultZoneEddsaOnlyPublic struct {
 }
 
 type DefaultZoneEddsaOnlyPrivate struct {
-	Inputs  []shared.Input
-	Outputs []shared.UtxoCircuitFields
-	// OutputNullifierPks are the witnessed nullifier pubkeys that recompute
-	// each output owner from its public tag.
+	Inputs             []shared.Input
+	Outputs            []shared.UtxoCircuitFields
 	OutputNullifierPks []frontend.Variable
 }
 
@@ -100,7 +104,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	// 1. Input utxos pubkeys are part of public inputs.
 	// 2. Output UTXOs pubkeys are part of public input.
 	// 3. All dummy UTXO tags must be a signer.
-	if err := AssertOutputOwnerTags(
+	if err := shared.AssertOutputOwnerTags(
 		api,
 		tx.Outputs,
 		c.Public.OutputOwnerPkHashes,
@@ -113,7 +117,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	// If an output UTXO holds data the input must have signed a transaction.
 	outputPubkeyIsSigner := signers.ContainsEach(api, c.Public.OutputOwnerPkHashes)
 	// Every dummy tag must be the tag of a signer.
-	if err := AssertDummyTags(
+	if err := shared.AssertDummyTags(
 		api,
 		tx.Inputs,
 		tx.Outputs,

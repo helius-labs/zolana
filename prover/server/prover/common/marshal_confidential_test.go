@@ -42,11 +42,11 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 		wantConfidential bool
 		want             CircuitType
 	}{
-		{"transfer_zone_2_3.key", false, false, TransferZoneCircuitType},
+		{"transfer_zone_2_3.key", false, true, TransferZoneCircuitType},
 		{"transfer_confidential_2_3.key", false, true, TransferConfidentialCircuitType},
 		// Legacy P256 key files (the rail is removed) resolve to the Solana-only
 		// variants: the RequiresP256 header flag is ignored.
-		{"transfer_p256_zone_2_3.key", true, false, TransferZoneCircuitType},
+		{"transfer_p256_zone_2_3.key", true, true, TransferZoneCircuitType},
 		{"transfer_p256_confidential_2_3.key", true, true, TransferConfidentialCircuitType},
 	}
 

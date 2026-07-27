@@ -71,11 +71,12 @@ fn then_verifies(world: &mut ZoneTransferWorld) {
 /// real input balances at zero so the witness selects the eddsa (Solana-only) rail.
 fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
     let mut indexer = TestIndexer::new();
-    let mut inputs = build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0)]);
+    let signer = eddsa_keypair();
+    let mut inputs = build_real_inputs(&mut indexer, &[(signer.clone(), 0)]);
     for _ in 1..n_in {
         inputs.push(dummy_input());
     }
-    let outputs = (0..n_out).map(|_| dummy_output()).collect();
+    let outputs = (0..n_out).map(|_| dummy_output(&signer)).collect();
     ZoneTransferProver {
         inputs,
         outputs,
@@ -93,13 +94,19 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
 /// multiple real inputs, a real recipient, and value conservation on the eddsa rail.
 fn eddsa_multi_real() -> ZoneTransferProver {
     let mut indexer = TestIndexer::new();
+    let first_signer = eddsa_keypair();
+    let second_signer = eddsa_keypair();
     let mut inputs = build_real_inputs(
         &mut indexer,
-        &[(eddsa_keypair(), 100), (eddsa_keypair(), 150)],
+        &[(first_signer.clone(), 100), (second_signer, 150)],
     );
     inputs.push(dummy_input());
     let recipient = eddsa_keypair();
-    let outputs = vec![real_output(&recipient, 250), dummy_output(), dummy_output()];
+    let outputs = vec![
+        real_output(&recipient, 250),
+        dummy_output(&first_signer),
+        dummy_output(&first_signer),
+    ];
     ZoneTransferProver {
         inputs,
         outputs,
@@ -187,9 +194,9 @@ fn build_real_inputs(
         .collect()
 }
 
-/// A real zone-owned recipient output: the recipient owns it via its `owner_hash`
-/// (the zone circuit leaves the output owner unconstrained / anonymous), bound to
-/// the shared zone program.
+/// A real zone-owned recipient output: the recipient owns it via its
+/// `owner_hash`, which the confidential zone circuit binds to the public owner
+/// tag, and the shared zone program.
 fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
     SppProofOutputUtxo {
         owner_address: Some(recipient.shielded_address().expect("shielded address")),
@@ -204,10 +211,16 @@ fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
     }
 }
 
-/// A padding output: zero owner hash, random blinding (the circuit leaves it free).
-fn dummy_output() -> SppProofOutputUtxo {
+/// A padding output: zero owner hash and a public tag naming an input signer.
+fn dummy_output(signer: &ShieldedKeypair) -> SppProofOutputUtxo {
     SppProofOutputUtxo {
         blinding: random_blinding(),
+        owner_tag: Some(
+            signer
+                .signing_pubkey()
+                .confidential_view_tag()
+                .expect("dummy owner tag"),
+        ),
         ..Default::default()
     }
 }

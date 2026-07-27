@@ -20,7 +20,7 @@ import (
 //  2. validate the layout                  (Transaction.ValidateLayout plus the
 //     variant's own slices)
 //  3. assert its zone rule                 (zone.go) and its ZoneProgramID value
-//  4. assert its output owner tags         (outputs.go, default zone only)
+//  4. assert its published owner-tag rules (owner_tags.go)
 //  5. resolve who signed into Signers      (signers.go; the P256 rails first
 //     verify their one shared P256 signature)
 //  6. Transaction.Constrain:
@@ -118,7 +118,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			api.Mul(api.Sub(1, t.AllowDummyInputs), in.isDummy(api)),
 			0,
 		)
-		signals := inputSignals{
+		signals := PublicInputUtxoInputs{
 			Nullifier:         t.Nullifiers[i],
 			UtxoTreeRoot:      t.UtxoTreeRoots[i],
 			NullifierTreeRoot: t.NullifierTreeRoots[i],

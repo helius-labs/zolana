@@ -1,19 +1,14 @@
 //! High-level builder for the eddsa-rail zone-transfer proof. This is the
-//! ed25519-only (Solana) rail bound to a zone program: a faithful clone of the
-//! confidential eddsa [`TransferProver`](super::eddsa::TransferProver) that drops
-//! the confidential output-owner appendix and binds the zone program like
-//! [`ZoneAuthorityProver`](crate::prover::zone_authority::ZoneAuthorityProver).
+//! ed25519-only (Solana) confidential rail bound to a zone program. It binds
+//! both input and output owner pk_field chains like
+//! [`TransferProver`](super::eddsa::TransferProver), and binds the zone program
+//! like [`ZoneAuthorityProver`](crate::prover::zone_authority::ZoneAuthorityProver).
 //!
-//! Unlike the zone-authority variant, owners are NOT anonymous here: the input
-//! owner pk_field chain stays in the public-input preimage so SPP can route the
-//! per-input signer check. This matches the Go `Confidential=false,
-//! ZoneAuthority=false` case in
-//! `prover/server/prover-test/spp/protocol/public_inputs.go`: the base chain
-//! followed by `input_owner_pk_hashes`, excluding the output-owner chain.
+//! Unlike the zone-authority variant, owners are not anonymous: both owner-tag
+//! chains stay in the public-input preimage.
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicMovements},
     utxo::program_id_proof_input_hash,
@@ -25,14 +20,15 @@ use crate::{
     prover::{
         field::be,
         resolve_shape,
-        transact::assembly::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
+        transact::assembly::{
+            assemble_inputs, assemble_outputs, OwnerMode, PublicInputs, TransferSpendInput,
+        },
         Shape, TransferInputs,
     },
 };
 
-/// Zone-bound transfer over the ed25519-only rail. Outputs are anonymous
-/// (`SppProofOutputUtxo` with `owner_tag` set and `owner_address: None`); inputs carry
-/// their owner pk_field into the public-input chain like a normal transfer.
+/// Confidential zone-bound transfer over the ed25519-only rail. Input and
+/// output owner pk_fields are included in the public-input hash.
 pub struct ZoneTransferProver {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
@@ -75,28 +71,21 @@ impl ZoneTransferProver {
         // zone field to this public input.
         let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
 
-        // Zone eddsa-rail public-input layout (Confidential=false,
-        // ZoneAuthority=false in public_inputs.go): the base followed by
-        // create_hash_chain_from_slice(input_owner_pk_hashes), with no
-        // confidential appendix (no output-owner chain).
-        let slots = self.public_movements.interleaved();
-        let mut elements = Vec::with_capacity(10 + slots.len());
-        elements.extend([
-            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
-            create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
-            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
-            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
-            private_tx,
-            external_data_hash,
-        ]);
-        elements.extend(slots);
-        elements.extend([
-            zone_program_id,
-            self.payer_pubkey_hash,
-            super::assembly::bool_field(self.allow_dummy_inputs),
-            create_hash_chain_from_slice(&assembled_inputs.input_owner_pk_hashes)?,
-        ]);
-        let public_input = create_hash_chain_from_slice(&elements)?;
+        let public_input = PublicInputs {
+            nullifiers: &assembled_inputs.nullifiers,
+            output_hashes: &assembled_outputs.output_hashes,
+            utxo_roots: &assembled_inputs.utxo_roots,
+            nullifier_tree_roots: &assembled_inputs.nullifier_tree_roots,
+            private_tx: &private_tx,
+            external_data_hash: &external_data_hash,
+            public_movements: &self.public_movements,
+            zone_program_id: &zone_program_id,
+            payer_pubkey_hash: &self.payer_pubkey_hash,
+            allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
+            input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
+            output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
+        }
+        .hash()?;
 
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,

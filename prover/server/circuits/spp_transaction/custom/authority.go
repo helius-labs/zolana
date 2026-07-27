@@ -6,9 +6,14 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// CustomZoneAuthorityPublic is the zone-authority rail's public-input-hash
-// preimage: the zone authority controls its zone-owned UTXOs, so no owner pk
-// hash is published (input owner tags stay private).
+// Properties:
+// 1. Anonymity - public inputs do not reveal owners of UTXOs.
+// 2. Dummy public inputs are indistinguishable from UTXO and address public inputs.
+// 3. Solana program enforce the signature of the zone authority. The zone is free to implement its own signature.
+// 4. All input and output UTXOs must be owned with the zone.
+// 5. Nullifiers of UTXOs, dummies, addresses cannot collide.
+// 6. Balances are preserved.
+
 type CustomZoneAuthorityPublic struct {
 	Nullifiers         []frontend.Variable
 	OutputHashes       []frontend.Variable
@@ -16,22 +21,17 @@ type CustomZoneAuthorityPublic struct {
 	NullifierTreeRoots []frontend.Variable
 	PrivateTxHash      frontend.Variable
 	ExternalDataHash   frontend.Variable
-	// PublicAssets/PublicAmounts are the uniform public movement slots: a
-	// signed net flow per asset (SOL is an ordinary asset id). Idle slots are
-	// pinned to (0, 0) by AssertBalanceConservation.
-	PublicAssets     [shared.NPublicSlots]frontend.Variable
-	PublicAmounts    [shared.NPublicSlots]frontend.Variable
-	ZoneProgramID    frontend.Variable
-	PayerPubkeyHash  frontend.Variable
-	AllowDummyInputs frontend.Variable
+	PublicAssets       [shared.NPublicSlots]frontend.Variable
+	PublicAmounts      [shared.NPublicSlots]frontend.Variable
+	ZoneProgramID      frontend.Variable
+	PayerPubkeyHash    frontend.Variable
+	AllowDummyInputs   frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
 type CustomZoneAuthorityPrivate struct {
-	Inputs []shared.Input
-	// InputOwnerPkHashes stay private on this rail: they still drive the
-	// ownership check but are omitted from the public input hash.
+	Inputs             []shared.Input
 	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
 }
@@ -62,9 +62,6 @@ func NewCustomZoneAuthorityCircuit(shape shared.Shape) (*CustomZoneAuthorityCirc
 	}, nil
 }
 
-// transaction views this rail's witness as the shared transaction. Neither the
-// input nor the output owner tags are published on this rail, so the preimage
-// tail is empty.
 func (c *CustomZoneAuthorityCircuit) transaction() shared.Transaction {
 	return shared.Transaction{
 		Shape:              c.Shape,

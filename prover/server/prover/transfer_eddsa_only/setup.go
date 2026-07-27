@@ -39,7 +39,7 @@ func SetupTransfer(nInputs uint32, nOutputs uint32, variant Variant) (*common.Tr
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     false,
-		Confidential:     variant == ConfidentialVariant,
+		Confidential:     variant != ZoneAuthorityVariant,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,
 		ConstraintSystem: ccs,

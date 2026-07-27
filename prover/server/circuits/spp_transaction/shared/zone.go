@@ -2,14 +2,7 @@ package shared
 
 import "github.com/consensys/gnark/frontend"
 
-// Each variant asserts its own zone rule over every utxo it touches, inputs and
-// outputs alike, before handing the transaction to Transaction.Constrain, which
-// knows nothing about zones. The rules differ in strictness, and each pairs with
-// an assertion on the public ZoneProgramID that the variant makes itself
-// (== 0 for the default zone, != 0 for the zone authority).
-
-// AssertInDefaultZone — default zone: no utxo may be a member of a zone, dummy
-// slots included, so the zone fields are pinned to 0 across the transaction.
+// AssertInDefaultZone — default zone: no utxo may be a member of a zone.
 func AssertInDefaultZone(api frontend.API, inputs []Input, outputs []UtxoCircuitFields) {
 	for _, in := range inputs {
 		in.Utxo.assertInDefaultZone(api)
@@ -20,45 +13,48 @@ func AssertInDefaultZone(api frontend.API, inputs []Input, outputs []UtxoCircuit
 }
 
 // AssertZoneMemberOrFree — custom zone: every real utxo either belongs to the
-// signing zone or to no zone at all, and zone data requires a zone program.
+// signing zone or to the default zone.
+// Zone data requires a zone program.
 func AssertZoneMemberOrFree(api frontend.API, inputs []Input, outputs []UtxoCircuitFields, zoneProgramID frontend.Variable) {
-	forEachRealUtxo(api, inputs, outputs, func(utxo UtxoCircuitFields) frontend.Variable {
-		return checkZoneMemberOrFree(api, utxo, zoneProgramID)
-	})
+	assertZoneMembership(api, inputs, outputs, zoneProgramID, true)
 }
 
 // AssertZoneMember — zone authority: every real utxo belongs to the signing
 // zone, with no exemption, so value cannot leave the zone on this rail.
 func AssertZoneMember(api frontend.API, inputs []Input, outputs []UtxoCircuitFields, zoneProgramID frontend.Variable) {
-	forEachRealUtxo(api, inputs, outputs, func(utxo UtxoCircuitFields) frontend.Variable {
-		return checkZoneMember(api, utxo, zoneProgramID)
-	})
+	assertZoneMembership(api, inputs, outputs, zoneProgramID, false)
 }
 
-func forEachRealUtxo(
+func assertZoneMembership(
 	api frontend.API,
 	inputs []Input,
 	outputs []UtxoCircuitFields,
-	check func(UtxoCircuitFields) frontend.Variable,
+	zoneProgramID frontend.Variable,
+	allowDefaultZone bool,
 ) {
 	for _, in := range inputs {
-		AssertWhen(api, in.isUtxo(api), check(in.Utxo))
+		AssertWhen(api, in.isUtxo(api), checkZoneMembership(api, in.Utxo, zoneProgramID, allowDefaultZone))
 	}
 	for _, utxo := range outputs {
-		AssertWhen(api, utxo.isUtxo(api), check(utxo))
+		AssertWhen(api, utxo.isUtxo(api), checkZoneMembership(api, utxo, zoneProgramID, allowDefaultZone))
 	}
 }
 
-// checkZoneMember returns 1 iff the utxo is owned by the public zone.
-func checkZoneMember(api frontend.API, u UtxoCircuitFields, zoneProgramID frontend.Variable) frontend.Variable {
-	return api.IsZero(api.Sub(u.ZoneProgramID, zoneProgramID))
-}
-
-// checkZoneMemberOrFree returns 1 iff the utxo is owned by the signing zone or
-// is not a member of any zone; zone data always needs a zone program.
-func checkZoneMemberOrFree(api frontend.API, u UtxoCircuitFields, zoneProgramID frontend.Variable) frontend.Variable {
-	inCustomZone := api.Sub(1, api.IsZero(u.ZoneProgramID))
+// checkZoneMembership returns 1 iff the utxo is owned by the signing zone.
+// When allowDefaultZone is set, a default-zone utxo is also accepted, provided
+// it has no zone data.
+func checkZoneMembership(
+	api frontend.API,
+	u UtxoCircuitFields,
+	zoneProgramID frontend.Variable,
+	allowDefaultZone bool,
+) frontend.Variable {
 	isMemberOfSigningZone := api.IsZero(api.Sub(u.ZoneProgramID, zoneProgramID))
+	if !allowDefaultZone {
+		return isMemberOfSigningZone
+	}
+
+	inCustomZone := api.Sub(1, api.IsZero(u.ZoneProgramID))
 	dataSet := api.Sub(1, api.IsZero(u.ZoneDataHash))
 	// If it is in custom zone it must be member of signing zone.
 	ok := api.Select(inCustomZone, isMemberOfSigningZone, frontend.Variable(1))

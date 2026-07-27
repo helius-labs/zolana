@@ -234,7 +234,9 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 	in.Utxo.Asset = spptest.Fe(0)
 	in.Utxo.Amount = spptest.Fe(0)
 	in.UtxoTreeRoot = spptest.Fe(0)
-	in.OwnerPkHash = spptest.Fe(0)
+	// A published dummy tag must identify a transaction participant. Use the
+	// payer so this remains the positive dummy-input baseline.
+	in.OwnerPkHash = assignment.PayerPubkeyHash
 	// A padding dummy derives its nullifier with nullifier_secret = 0, its
 	// blinding being the sole source of unpredictability (spec: SPP Proof).
 	in.NullifierSecret = spptest.Fe(0)
@@ -270,6 +272,16 @@ func TestDummyInputSlotSolves(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
 	assert.SolvingSucceeded(circuit, asCustomZoneEddsaOnly(buildDummyInputShield(t, 125)), test.WithCurves(ecc.BN254))
+}
+
+func TestCustomZoneEddsaOnlyRejectsDummyInputThirdPartyTag(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
+	assignment := buildDummyInputShield(t, 125)
+	assignment.Inputs[0].OwnerPkHash = spptest.Fe(424242)
+	refreshPublicInputHash(t, assignment)
+	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestDummyInputRejectedWhenPolicyDisabled(t *testing.T) {

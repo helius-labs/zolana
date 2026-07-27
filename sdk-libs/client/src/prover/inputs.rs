@@ -66,9 +66,9 @@ pub struct TransferOutput {
     pub utxo: ProofInputUtxo,
     pub is_dummy: BigUint,
     pub hash: BigUint,
-    /// Confidential variant: the public owner tag (`signing_pubkey.hash()`) and
-    /// the witnessed `nullifier_pk`, from which the circuit recomputes `owner_hash`.
-    /// Both 0 for a dummy output (the circuit leaves its owner tag unconstrained).
+    /// Public owner tag (`signing_pubkey.hash()`) and witnessed `nullifier_pk`,
+    /// from which both confidential circuits recompute `owner_hash`. Dummy
+    /// output tags must identify a transaction participant.
     pub owner_pk_hash: BigUint,
     pub nullifier_pk: BigUint,
 }

@@ -180,7 +180,7 @@ impl ProverClient {
         self.send(to_json_merge_zone(inputs))
     }
 
-    /// Prove an eddsa anonymous policy-zone transfer (`transfer-zone`).
+    /// Prove an eddsa confidential policy-zone transfer (`transfer-zone`).
     pub fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.send(to_json_zone(inputs))
     }

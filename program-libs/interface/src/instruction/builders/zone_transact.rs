@@ -11,7 +11,7 @@ use crate::{
     pda, PROGRAM_ID_PUBKEY,
 };
 
-/// Builder for the `zone_transact` instruction, the anonymous policy-zone analog
+/// Builder for the `zone_transact` instruction, the confidential policy-zone analog
 /// of [`super::transact::Transact`]. The account layout mirrors the program
 /// loader (`ZoneTransactAccounts::validate_and_parse`): `payer`, `input_tree`,
 /// `output_tree`, the `ZoneConfig` account (the zone's `zone_auth` PDA), the

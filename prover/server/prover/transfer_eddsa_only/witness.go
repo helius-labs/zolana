@@ -159,33 +159,42 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			},
 		}, nil
 	default:
+		outputOwnerPkHashes := make([]frontend.Variable, len(p.Outputs))
+		outputNullifierPks := make([]frontend.Variable, len(p.Outputs))
+		for i, out := range p.Outputs {
+			outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
+			outputNullifierPks[i] = orZero(out.NullifierPk)
+		}
 		return &customzone.CustomZoneEddsaOnlyCircuit{
 			Shape: shape,
 			Public: customzone.CustomZoneEddsaOnlyPublic{
-				Nullifiers:         core.nullifiers,
-				OutputHashes:       core.outputHashes,
-				UtxoTreeRoots:      core.utxoTreeRoots,
-				NullifierTreeRoots: core.nullifierTreeRoots,
-				PrivateTxHash:      p.PrivateTxHash,
-				ExternalDataHash:   p.ExternalDataHash,
-				PublicAssets:       core.publicAssets,
-				PublicAmounts:      core.publicAmounts,
-				ZoneProgramID:      p.ZoneProgramID,
-				PayerPubkeyHash:    p.PayerPubkeyHash,
-				AllowDummyInputs:   p.AllowDummyInputs,
-				InputOwnerPkHashes: core.inputOwnerPkHashes,
-				PublicInputHash:    p.PublicInputHash,
+				Nullifiers:          core.nullifiers,
+				OutputHashes:        core.outputHashes,
+				UtxoTreeRoots:       core.utxoTreeRoots,
+				NullifierTreeRoots:  core.nullifierTreeRoots,
+				PrivateTxHash:       p.PrivateTxHash,
+				ExternalDataHash:    p.ExternalDataHash,
+				PublicAssets:        core.publicAssets,
+				PublicAmounts:       core.publicAmounts,
+				ZoneProgramID:       p.ZoneProgramID,
+				PayerPubkeyHash:     p.PayerPubkeyHash,
+				AllowDummyInputs:    p.AllowDummyInputs,
+				InputOwnerPkHashes:  core.inputOwnerPkHashes,
+				OutputOwnerPkHashes: outputOwnerPkHashes,
+				PublicInputHash:     p.PublicInputHash,
 			},
 			Private: customzone.CustomZoneEddsaOnlyPrivate{
-				Inputs:  core.inputs,
-				Outputs: core.outputs,
+				Inputs:             core.inputs,
+				Outputs:            core.outputs,
+				OutputNullifierPks: outputNullifierPks,
 			},
 		}, nil
 	}
 }
 
-// orZero returns big.NewInt(0) for a nil pointer so gnark always sees an assigned
-// witness value (the confidential-only fields are absent on anonymous params).
+// orZero returns big.NewInt(0) for a nil pointer so gnark always sees an
+// assigned witness value. Public output-tag fields are absent on anonymous
+// zone-authority params.
 func orZero(x *big.Int) *big.Int {
 	if x == nil {
 		return big.NewInt(0)

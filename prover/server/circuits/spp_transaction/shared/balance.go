@@ -13,6 +13,11 @@ const (
 	signedAmountBits = AmountBits + 1
 )
 
+// Checks:
+// 1. All amounts are in range of u64.
+// 2. Public assets are only set if public amount is non zero.
+// 3. Public assets must be distinct.
+// 4. For every asset sum in + public amount == sum out
 func assertBalanceConservation(
 	api frontend.API,
 	inputs []UtxoCircuitFields,
@@ -28,14 +33,11 @@ func assertBalanceConservation(
 	for i, amount := range publicAmounts {
 		rangeCheckSigned64(api, amount)
 		amountIsZero[i] = api.IsZero(amount)
-		// An asset id is public only while it moves; pin idle slots to 0 so a
-		// pure-private transfer reveals no asset id in the public transcript
-		// (the asset is otherwise a private per-UTXO field).
+		// 2. An asset id is only public when public amount is non zero.
 		abstractor.CallVoid(api, gadget.AssertZeroWhen{Cond: amountIsZero[i], V: publicAssets[i]})
 	}
 
-	// Active slots must name distinct assets. The host aggregates all public
-	// movements for one asset before constructing these fixed proof slots.
+	// 3. Active slots must name distinct assets.
 	for i := 0; i < len(publicAssets); i++ {
 		for j := i + 1; j < len(publicAssets); j++ {
 			bothActive := api.Mul(api.Sub(1, amountIsZero[i]), api.Sub(1, amountIsZero[j]))
@@ -44,7 +46,6 @@ func assertBalanceConservation(
 		}
 	}
 
-	// Check every private asset plus every public slot asset.
 	assets := make([]frontend.Variable, 0, len(inputs)+len(outputs)+len(publicAssets))
 	for _, input := range inputs {
 		rangeCheck64(api, input.Amount)
@@ -54,9 +55,9 @@ func assertBalanceConservation(
 		rangeCheck64(api, output.Amount)
 		assets = append(assets, output.Asset)
 	}
-	// Combine private with public assets.
 	assets = append(assets, publicAssets...)
 
+	// 4. For every asset sum in + public amount == sum out
 	for _, asset := range assets {
 		inSum := frontend.Variable(0)
 		for _, input := range inputs {
@@ -79,7 +80,6 @@ func assertBalanceConservation(
 	}
 }
 
-// RangeCheck64 constrains value to fit in AmountBits (unsigned 64-bit).
 type RangeCheck64 struct {
 	Value frontend.Variable
 }
@@ -93,9 +93,6 @@ func rangeCheck64(api frontend.API, value frontend.Variable) {
 	abstractor.CallVoid(api, RangeCheck64{Value: value})
 }
 
-// RangeCheckSigned64 constrains value to [-2^64, 2^64-1] by shifting it into
-// the unsigned domain before the bit decomposition. Host aggregation uses a
-// direction plus a u64 magnitude, so it never supplies the extra -2^64 value.
 type RangeCheckSigned64 struct {
 	Value frontend.Variable
 }

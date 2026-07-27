@@ -137,23 +137,25 @@ func (a *testAssignment) outputNullifierPks() []frontend.Variable {
 func asCustomZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 	return &customzone.CustomZoneEddsaOnlyCircuit{
 		Public: customzone.CustomZoneEddsaOnlyPublic{
-			Nullifiers:         a.InputNullifiers(),
-			OutputHashes:       a.OutputHashes(),
-			UtxoTreeRoots:      a.InputUtxoRoots(),
-			NullifierTreeRoots: a.InputNullifierTreeRoots(),
-			PrivateTxHash:      a.PrivateTxHash,
-			ExternalDataHash:   a.ExternalDataHash,
-			PublicAssets:       a.PublicAssets,
-			PublicAmounts:      a.PublicAmounts,
-			ZoneProgramID:      a.ZoneProgramID,
-			PayerPubkeyHash:    a.PayerPubkeyHash,
-			AllowDummyInputs:   a.AllowDummyInputs,
-			InputOwnerPkHashes: a.InputOwnerPkHashes(),
-			PublicInputHash:    a.PublicInputHash,
+			Nullifiers:          a.InputNullifiers(),
+			OutputHashes:        a.OutputHashes(),
+			UtxoTreeRoots:       a.InputUtxoRoots(),
+			NullifierTreeRoots:  a.InputNullifierTreeRoots(),
+			PrivateTxHash:       a.PrivateTxHash,
+			ExternalDataHash:    a.ExternalDataHash,
+			PublicAssets:        a.PublicAssets,
+			PublicAmounts:       a.PublicAmounts,
+			ZoneProgramID:       a.ZoneProgramID,
+			PayerPubkeyHash:     a.PayerPubkeyHash,
+			AllowDummyInputs:    a.AllowDummyInputs,
+			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
+			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
+			PublicInputHash:     a.PublicInputHash,
 		},
 		Private: customzone.CustomZoneEddsaOnlyPrivate{
-			Inputs:  a.coreInputs(),
-			Outputs: a.outputUtxos(),
+			Inputs:             a.coreInputs(),
+			Outputs:            a.outputUtxos(),
+			OutputNullifierPks: a.outputNullifierPks(),
 		},
 	}
 }
@@ -318,12 +320,16 @@ func buildCircuitAssignmentExact(
 	outputCircuitUtxos := make([]UtxoCircuitFields, shape.NOutputs)
 	OutputHashes := make([]*big.Int, shape.NOutputs)
 	outputHashVariables := make([]frontend.Variable, shape.NOutputs)
+	outputOwnerPkHashes := make([]*big.Int, shape.NOutputs)
+	outputNullifierPks := make([]*big.Int, shape.NOutputs)
 	for i := 0; i < shape.NOutputs; i++ {
 		utxo := outputUtxos[i]
 		outputCircuitUtxos[i] = fieldsFromUtxo(utxo)
 		outputHash := spptest.MustUtxoHash(t, utxo)
 		OutputHashes[i] = outputHash
 		outputHashVariables[i] = outputHash
+		outputOwnerPkHashes[i] = testSolanaPkField(t)
+		outputNullifierPks[i] = spptest.MustNullifierPk(t, spptest.Fe(99))
 	}
 
 	externalDataHash := spptest.Fe(300)
@@ -345,10 +351,12 @@ func buildCircuitAssignmentExact(
 		PublicAmounts:      signedAmounts,
 		// Nonzero test zone id: the custom-zone circuits assert ZoneProgramID
 		// != 0; the default-zone refresh overrides it back to 0.
-		ZoneProgramID:      spptest.Fe(0x5A),
-		PayerPubkeyHash:    payerPubkeyHash,
-		AllowDummyInputs:   spptest.Fe(1),
-		InputOwnerPkHashes: inputOwnerPkHashes,
+		ZoneProgramID:       spptest.Fe(0x5A),
+		PayerPubkeyHash:     payerPubkeyHash,
+		AllowDummyInputs:    spptest.Fe(1),
+		InputOwnerPkHashes:  inputOwnerPkHashes,
+		Confidential:        true,
+		OutputOwnerPkHashes: outputOwnerPkHashes,
 	}
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
 	publicInputHash := spptest.MustHash(t, publicInputHashValue, err)
@@ -377,8 +385,8 @@ func buildCircuitAssignmentExact(
 		outputs[i] = testOutput{
 			Utxo:        outputCircuitUtxos[i],
 			Hash:        outputHashVariables[i],
-			OwnerPkHash: spptest.Fe(0),
-			NullifierPk: spptest.Fe(0),
+			OwnerPkHash: outputOwnerPkHashes[i],
+			NullifierPk: outputNullifierPks[i],
 		}
 	}
 
@@ -418,7 +426,7 @@ func fillStateProofElements(pathElements []frontend.Variable, proofElements []*b
 }
 
 func refreshPublicInputHash(t testing.TB, assignment *testAssignment) {
-	refreshPublicInputHashVariant(t, assignment, false, false)
+	refreshPublicInputHashVariant(t, assignment, true, false)
 }
 
 func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, confidential, zoneAuthority bool) {

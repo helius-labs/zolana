@@ -1,16 +1,13 @@
-package defaultzone
+package shared
 
 import (
 	"zolana/prover/circuits/gadget"
-	"zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
 )
 
-// Owner-tag bindings are default-zone only: the default zone is the
-// confidential zone, so its rails publish per-slot owner tags and must bind
-// them. The anonymous custom-zone rails publish no output tags and authorize
-// data outputs against private signer owners instead.
+// Owner-tag bindings apply to rails that publish per-slot owner tags. Rails
+// that keep tags private skip the corresponding checks.
 
 // AssertOutputOwnerTags — every real output's owner_hash must recompute from
 // its public owner tag and the witnessed nullifier pubkey, which is what makes
@@ -18,19 +15,19 @@ import (
 // so their tag stays free (see AssertDummyTags for what constrains it).
 func AssertOutputOwnerTags(
 	api frontend.API,
-	outputs []shared.UtxoCircuitFields,
+	outputs []UtxoCircuitFields,
 	ownerPkHashes []frontend.Variable,
 	nullifierPks []frontend.Variable,
 ) error {
-	if err := shared.ValidateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
+	if err := ValidateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
 		return err
 	}
-	if err := shared.ValidateLength("output nullifier pk", len(nullifierPks), len(outputs)); err != nil {
+	if err := ValidateLength("output nullifier pk", len(nullifierPks), len(outputs)); err != nil {
 		return err
 	}
 	for i, utxo := range outputs {
 		ownerHash := gadget.PoseidonHash(api, []frontend.Variable{ownerPkHashes[i], nullifierPks[i]})
-		shared.AssertWhen(api, isUtxo(api, utxo), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
+		AssertWhen(api, utxo.isUtxo(api), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
 	}
 	return nil
 }
@@ -45,29 +42,29 @@ func AssertOutputOwnerTags(
 // costs no privacy. Rails that publish no tags for a side pass nil.
 func AssertDummyTags(
 	api frontend.API,
-	inputs []shared.Input,
-	outputs []shared.UtxoCircuitFields,
+	inputs []Input,
+	outputs []UtxoCircuitFields,
 	inputOwnerPkHashes []frontend.Variable,
 	outputOwnerPkHashes []frontend.Variable,
-	signers shared.Signers,
+	signers Signers,
 	payerPkHash frontend.Variable,
 ) error {
 	if inputOwnerPkHashes != nil {
-		if err := shared.ValidateLength("input owner pk hash", len(inputOwnerPkHashes), len(inputs)); err != nil {
+		if err := ValidateLength("input owner pk hash", len(inputOwnerPkHashes), len(inputs)); err != nil {
 			return err
 		}
 		for i, in := range inputs {
 			participant := containsOrPayer(api, signers, inputOwnerPkHashes[i], payerPkHash)
-			shared.AssertWhen(api, isDummy(api, in.Utxo), participant)
+			AssertWhen(api, in.isDummy(api), participant)
 		}
 	}
 	if outputOwnerPkHashes != nil {
-		if err := shared.ValidateLength("output owner pk hash", len(outputOwnerPkHashes), len(outputs)); err != nil {
+		if err := ValidateLength("output owner pk hash", len(outputOwnerPkHashes), len(outputs)); err != nil {
 			return err
 		}
 		for i, utxo := range outputs {
 			participant := containsOrPayer(api, signers, outputOwnerPkHashes[i], payerPkHash)
-			shared.AssertWhen(api, isDummy(api, utxo), participant)
+			AssertWhen(api, utxo.isDummy(api), participant)
 		}
 	}
 	return nil
@@ -78,7 +75,7 @@ func AssertDummyTags(
 // program-side).
 func containsOrPayer(
 	api frontend.API,
-	signers shared.Signers,
+	signers Signers,
 	identity, payerPkHash frontend.Variable,
 ) frontend.Variable {
 	notParticipant := api.Mul(
@@ -86,12 +83,4 @@ func containsOrPayer(
 		api.Sub(1, api.IsZero(api.Sub(identity, payerPkHash))),
 	)
 	return api.Mul(api.Sub(1, notParticipant), api.Sub(1, api.IsZero(identity)))
-}
-
-func isUtxo(api frontend.API, utxo shared.UtxoCircuitFields) frontend.Variable {
-	return api.IsZero(api.Sub(utxo.Domain, shared.UtxoDomain))
-}
-
-func isDummy(api frontend.API, utxo shared.UtxoCircuitFields) frontend.Variable {
-	return api.IsZero(api.Sub(utxo.Domain, shared.DummyDomain))
 }

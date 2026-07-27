@@ -7,7 +7,7 @@ const (
 
 	TransferConfidentialCircuitType CircuitType = "transfer-confidential"
 
-	// Policy zones are anonymous, so the zone variants have no confidential form.
+	// TransferZoneCircuitType is the confidential policy-zone transfer.
 	TransferZoneCircuitType CircuitType = "transfer-zone"
 
 	// TransferZoneAuthorityCircuitType is the anonymous policy-zone transfer used by

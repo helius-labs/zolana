@@ -239,14 +239,9 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		// Confidentiality mode is not in the key header (kept stable so existing
-		// keys/VKs are untouched), so it is read from the canonical file name
-		// (transfer_confidential_*.key). The RequiresP256 header flag is legacy:
-		// the P256 ownership rail is removed.
-		ps.Confidential = strings.Contains(strings.ToLower(path), "confidential")
-		// Zone keys are named transfer_zone_*.key / transfer_p256_zone_*.key and
-		// are anonymous-only (no confidential zone variant). The two forms per rail
-		// are confidential (non-zone) and zone (anonymous).
+		// The RequiresP256 header flag is legacy: the P256 ownership rail is
+		// removed. Both the default and custom-zone transfer rails bind public
+		// output owner tags; only zone-authority keeps owners anonymous.
 		zone := strings.Contains(strings.ToLower(path), "zone")
 		// Zone-authority keys are named transfer_zone_authority_*.key (Solana-only,
 		// anonymous). Detect it before the plain "zone" case: the name contains both
@@ -260,6 +255,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		default:
 			ps.CircuitType = TransferConfidentialCircuitType
 		}
+		ps.Confidential = !zoneAuthority
 		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "merge") {
 		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name

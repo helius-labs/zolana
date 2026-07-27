@@ -24,14 +24,13 @@ type Input struct {
 }
 
 // Public inputs per input UTXO.
-type inputSignals struct {
+type PublicInputUtxoInputs struct {
 	Nullifier         frontend.Variable
 	UtxoTreeRoot      frontend.Variable
 	NullifierTreeRoot frontend.Variable
 	SignerPk          frontend.Variable
 }
 
-// NewInputs allocates n input slots with tree-height path slices.
 func NewInputs(n int) []Input {
 	inputs := make([]Input, n)
 	for i := range inputs {
@@ -41,8 +40,6 @@ func NewInputs(n int) []Input {
 	return inputs
 }
 
-// validateInputs checks the input count and path heights the circuit relies on
-// to size its witness.
 func validateInputs(nInputs int, inputs []Input) error {
 	if len(inputs) != nInputs {
 		return fmt.Errorf("spp: input count mismatch: got %d want %d", len(inputs), nInputs)
@@ -58,7 +55,6 @@ func validateInputs(nInputs int, inputs []Input) error {
 	return nil
 }
 
-// inputUtxos projects the utxo fields for balance conservation.
 func inputUtxos(inputs []Input) []UtxoCircuitFields {
 	out := make([]UtxoCircuitFields, len(inputs))
 	for i := range inputs {
@@ -77,38 +73,48 @@ func assertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) 
 	}
 }
 
-// constrainInput binds one input slot to its signer. The variant's Signers array
-// already resolved which pk hash signs for this slot, so a slot that carries
-// content only needs its owner hash to recompute from that pk and the witnessed
-// nullifier secret.
-func constrainInput(api frontend.API, in Input, signals inputSignals) (frontend.Variable, frontend.Variable) {
-	nullifierPk := abstractor.Call(api, nullifierPkGadget{
-		NullifierSecret: in.NullifierSecret,
-	})
-	ownerHash := abstractor.Call(api, ownerHashGadget{
-		OwnerKeyHash: signals.SignerPk,
-		NullifierPk:  nullifierPk,
-	})
-	ownerBinds := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
-	AssertWhen(api, in.isUtxoOrAddress(api), ownerBinds)
+func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (frontend.Variable, frontend.Variable) {
 
 	isUtxo := in.isUtxo(api)
 	isAddress := in.isAddress(api)
 	api.AssertIsEqual(api.Add(isUtxo, isAddress, in.isDummy(api)), 1)
 
-	// Asset 0 marks content-less slots (dummies, addresses); a spendable utxo
-	// must name a real asset. This also makes asset-0 public movement slots
-	// unbalanceable, since no spendable utxo can carry asset 0.
-	assertZeroWhen(api, isUtxo, api.IsZero(in.Utxo.Asset))
-
+	// Checks for UTXO, dummy UTXO, adddress:
+	// 1. nullifier must not exist in nullifier tree.
 	utxoHash := UtxoHashCircuit(api, in.Utxo)
 	in.checkNonInclusion(api, utxoHash, signals)
 
-	AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
-	AssertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
-	assertZeroWhen(api, in.isDummy(api), in.NullifierSecret)
+	// Checks UTXO and address:
+	// 1. Check owner hash matches UTXO.
+	{
+		nullifierPk := abstractor.Call(api, nullifierPkGadget{
+			NullifierSecret: in.NullifierSecret,
+		})
+		ownerHash := abstractor.Call(api, ownerHashGadget{
+			OwnerKeyHash: signals.SignerPk,
+			NullifierPk:  nullifierPk,
+		})
+		ownerIsCorrect := api.IsZero(api.Sub(ownerHash, in.Utxo.Owner))
+		AssertWhen(api, in.isUtxoOrAddress(api), ownerIsCorrect)
+	}
+
+	// UTXO checks:
+	// 1. UTXO hash must exist in state Merkle tree.
+	{
+		AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
+	}
+	// Dummy checks:
+	// 1. All UTXO fields and nullifier secret 0, except the blinding.
+	{
+		AssertWhen(api, in.isDummy(api), in.Utxo.checkDummy(api))
+		assertZeroWhen(api, in.isDummy(api), in.NullifierSecret)
+	}
+	// Address checks:
+	// 1. All UTXO fields and nullifier secret 0, except the blinding and owner.
 	AssertWhen(api, isAddress, in.checkAddress(api))
 
+	// Only UTXOs and addresses must be accessible as such
+	// in zk program proofs via private transaction hash.
 	inputHash := api.Select(isUtxo, utxoHash, frontend.Variable(0))
 	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
 	return inputHash, addressHash
@@ -134,10 +140,6 @@ func (in Input) isUtxoOrAddress(api frontend.API) frontend.Variable {
 	return in.Utxo.isUtxoOrAddress(api)
 }
 
-// checkInclusion — spendable utxo: returns 1 iff the utxo is a leaf of the
-// state tree at utxoTreeRoot. Ownership is checked in constrainInput and the
-// zone fields by the variant's zone rule; asset and amount are constrained by
-// balance conservation; blinding and data hash carry no additional checks.
 func (in Input) checkInclusion(api frontend.API, utxoHash, utxoTreeRoot frontend.Variable) frontend.Variable {
 	statePathIndices := api.ToBinary(in.StatePathIndex, StateTreeHeight)
 	stateRoot := abstractor.Call(api, gadgetlib.MerkleRootGadget{
@@ -179,7 +181,7 @@ func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
 //  3. nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 //
 // -> nullifier does not exist yet in indexed Merkle tree.
-func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, signals inputSignals) {
+func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, signals PublicInputUtxoInputs) {
 	nullifier := abstractor.Call(api, NullifierGadget{
 		UtxoHash:        utxoHash,
 		Blinding:        in.Utxo.Blinding,
@@ -202,7 +204,6 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 	assertStrictlyOrdered(api, in.NullifierLowValue, signals.Nullifier, in.NullifierNextValue)
 }
 
-// nullifierPkGadget derives the public nullifier key from the secret (step 3.1).
 type nullifierPkGadget struct {
 	NullifierSecret frontend.Variable
 }
@@ -211,8 +212,6 @@ func (gadget nullifierPkGadget) DefineGadget(api frontend.API) interface{} {
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.NullifierSecret})
 }
 
-// NullifierGadget derives a nullifier from the UTXO hash, its blinding, and the
-// spender's nullifier secret (step 3.4).
 type NullifierGadget struct {
 	UtxoHash        frontend.Variable
 	Blinding        frontend.Variable
@@ -227,10 +226,6 @@ func (gadget NullifierGadget) DefineGadget(api frontend.API) interface{} {
 	})
 }
 
-// AssertStrictlyOrdered constrains lo < mid < hi, comparing full field values
-// (see gadget.IsLessLimbs) — the nullifier tree's indexed-value domain spans
-// the whole field. Backs the non-inclusion check in step 3.6. Callers with
-// dummy slots must remap them to trivially ordered values before calling.
 type AssertStrictlyOrdered struct {
 	Lo  frontend.Variable
 	Mid frontend.Variable

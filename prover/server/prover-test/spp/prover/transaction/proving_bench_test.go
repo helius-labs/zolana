@@ -113,14 +113,16 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 
 	for i := 0; i < shape.NOutputs; i++ {
 		tx.Outputs = append(tx.Outputs, ProofUtxoRequest{
-			Domain:        proofFieldInput(big.NewInt(protocol.UtxoDomain)),
-			Owner:         proofFieldInput(owner),
-			Asset:         proofFieldInput(protocol.SolAsset()),
-			Amount:        proofFieldInput(outputAmount),
-			Blinding:      proofFieldInput(big.NewInt(int64(2000 + i))),
-			DataHash:      proofFieldInput(big.NewInt(0)),
-			ZoneDataHash:  proofFieldInput(big.NewInt(0)),
-			ZoneProgramID: proofFieldInput(big.NewInt(0)),
+			Domain:               proofFieldInput(big.NewInt(protocol.UtxoDomain)),
+			Owner:                proofFieldInput(owner),
+			OwnerSolanaPubkey:    parse.BytesHex(payerPubkey[:]),
+			OwnerNullifierSecret: proofFieldInput(nullifierSecret),
+			Asset:                proofFieldInput(protocol.SolAsset()),
+			Amount:               proofFieldInput(outputAmount),
+			Blinding:             proofFieldInput(big.NewInt(int64(2000 + i))),
+			DataHash:             proofFieldInput(big.NewInt(0)),
+			ZoneDataHash:         proofFieldInput(big.NewInt(0)),
+			ZoneProgramID:        proofFieldInput(big.NewInt(0)),
 		})
 	}
 

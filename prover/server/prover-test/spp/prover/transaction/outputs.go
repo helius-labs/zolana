@@ -10,30 +10,39 @@ import (
 )
 
 type outputWitnesses struct {
-	outputs         []txcircuit.UtxoCircuitFields
-	hashes          []*big.Int
-	privateTxHashes []*big.Int
-	responses       []ProofUtxoResponse
+	outputs             []txcircuit.UtxoCircuitFields
+	hashes              []*big.Int
+	privateTxHashes     []*big.Int
+	outputOwnerPkHashes []*big.Int
+	outputNullifierPks  []*big.Int
+	responses           []ProofUtxoResponse
 }
 
 type parsedUtxo struct {
-	utxo         protocol.Utxo
-	normalized   ProofUtxoRequest
-	ownerKeyHash *big.Int
-	isP256       bool
+	utxo             protocol.Utxo
+	normalized       ProofUtxoRequest
+	ownerKeyHash     *big.Int
+	ownerNullifierPk *big.Int
+	isP256           bool
 }
 
 func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (outputWitnesses, error) {
 	outputs := outputWitnesses{
-		outputs:         make([]txcircuit.UtxoCircuitFields, shape.NOutputs),
-		hashes:          make([]*big.Int, shape.NOutputs),
-		privateTxHashes: make([]*big.Int, shape.NOutputs),
-		responses:       make([]ProofUtxoResponse, 0, len(requests)),
+		outputs:             make([]txcircuit.UtxoCircuitFields, shape.NOutputs),
+		hashes:              make([]*big.Int, shape.NOutputs),
+		privateTxHashes:     make([]*big.Int, shape.NOutputs),
+		outputOwnerPkHashes: make([]*big.Int, shape.NOutputs),
+		outputNullifierPks:  make([]*big.Int, shape.NOutputs),
+		responses:           make([]ProofUtxoResponse, 0, len(requests)),
 	}
 	for i, request := range requests {
 		parsed, err := parseProofUtxo(request, nil)
 		if err != nil {
 			return outputWitnesses{}, fmt.Errorf("output %d: %w", i, err)
+		}
+		if parsed.utxo.Domain.Cmp(big.NewInt(protocol.UtxoDomain)) == 0 &&
+			(parsed.ownerKeyHash == nil || parsed.ownerKeyHash.Sign() == 0) {
+			return outputWitnesses{}, fmt.Errorf("output %d: owner public key and nullifier key are required", i)
 		}
 		outputHash, err := protocol.UtxoHash(parsed.utxo)
 		if err != nil {
@@ -42,6 +51,8 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		outputs.outputs[i] = toProofCircuitFields(parsed.utxo)
 		outputs.hashes[i] = outputHash
 		outputs.privateTxHashes[i] = outputHash
+		outputs.outputOwnerPkHashes[i] = parsed.ownerKeyHash
+		outputs.outputNullifierPks[i] = parsed.ownerNullifierPk
 		outputs.responses = append(outputs.responses, ProofUtxoResponse{
 			Utxo: parsed.normalized,
 			Hash: parse.FieldHex(outputHash),
@@ -61,6 +72,7 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 		outputs.outputs[i] = dummyUtxoFields(blinding)
 		outputs.hashes[i] = hash
 		outputs.privateTxHashes[i] = big.NewInt(0)
+		outputs.outputNullifierPks[i] = big.NewInt(0)
 	}
 	return outputs, nil
 }
@@ -133,9 +145,10 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		ZoneProgramID:     proofFieldInput(zoneProgramID),
 	}
 	return parsedUtxo{
-		utxo:         utxo,
-		normalized:   normalized,
-		ownerKeyHash: own.keyHash,
-		isP256:       own.isP256,
+		utxo:             utxo,
+		normalized:       normalized,
+		ownerKeyHash:     own.keyHash,
+		ownerNullifierPk: own.nullifierPk,
+		isP256:           own.isP256,
 	}, nil
 }

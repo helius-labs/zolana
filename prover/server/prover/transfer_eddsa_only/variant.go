@@ -10,16 +10,16 @@ import (
 )
 
 // Variant selects which Solana-only spp_transaction instantiation to build. The
-// three forms are mutually exclusive; using an enum keeps the invalid
-// confidential+zone-authority combination unrepresentable.
+// three forms are mutually exclusive.
 type Variant int
 
 const (
 	// ConfidentialVariant is the default transact: output owners bind to public
 	// pk_field tags; non-zone.
 	ConfidentialVariant Variant = iota
-	// ZoneVariant is the anonymous policy-zone transfer (zone_transact): owners are
-	// free for a view tag and each non-dummy UTXO binds its zone_program_id.
+	// ZoneVariant is the confidential policy-zone transfer (zone_transact):
+	// input and output owners bind to public tags and each real UTXO binds its
+	// zone_program_id.
 	ZoneVariant
 	// ZoneAuthorityVariant is the anonymous policy-zone transfer for
 	// zone_authority_transact: the zone authority controls its zone-owned UTXOs, so
@@ -41,7 +41,7 @@ func (v Variant) CircuitType() common.CircuitType {
 }
 
 // variantFromCircuitType is the inverse of Variant.CircuitType; unknown types map
-// to the anonymous zone variant.
+// to the confidential zone variant.
 func variantFromCircuitType(ct common.CircuitType) Variant {
 	switch ct {
 	case common.TransferConfidentialCircuitType:

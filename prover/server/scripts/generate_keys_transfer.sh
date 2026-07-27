@@ -27,8 +27,8 @@ shapes=(
 )
 
 # "<setup-transfer --circuit flag> <key-file prefix>". The key-file prefix
-# mirrors the verifying-key module name. Two forms per rail: confidential
-# (non-zone) and zone (anonymous).
+# mirrors the verifying-key module name. Both the default and custom-zone forms
+# are confidential and bind public output owner tags.
 rails=(
     "transfer-confidential transfer_confidential"
     "transfer-zone transfer_zone"

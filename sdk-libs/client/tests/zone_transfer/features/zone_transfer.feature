@@ -2,9 +2,9 @@ Feature: Zone-transfer proving (zone_transact)
 
   A zone transfer is a state transition over zone-owned UTXOs bound to a shared
   zone_program_id on the ed25519 (Solana-only) rail: vanilla Groth16, with the
-  input owner pk_field chain in the public-input preimage. Each scenario builds a
-  zone-owned witness (one real input + dummy padding, zero-value so it balances;
-  zone outputs as dummies) and verifies against the committed
+  input and output owner pk_field chains in the public-input preimage. Each
+  scenario builds a zone-owned witness (one real input + dummy padding,
+  zero-value so it balances; zone outputs as dummies) and verifies against the committed
   transfer_zone_<shape> verifying key. Supported shapes: 1x1, 1x2, 2x2, 2x3,
   3x3, 4x3, 4x4, 5x3, 5x4, 1x8.
 

@@ -136,7 +136,7 @@ pub fn process_transact_ix(
 /// parsing, proof-input layout, settlement limits, or verifying-key selection.
 pub fn validate_circuit(ix: &TransactIxDataRef<'_>, instruction: InstructionTag) -> ProgramResult {
     let family_matches = match instruction {
-        InstructionTag::Transact => ix.circuit.is_confidential(),
+        InstructionTag::Transact => matches!(ix.circuit, CircuitId::ConfidentialEddsa(..)),
         InstructionTag::ZoneTransact => matches!(ix.circuit, CircuitId::ZoneEddsa(..)),
         InstructionTag::ZoneAuthorityTransact => ix.circuit.is_authority(),
         _ => false,

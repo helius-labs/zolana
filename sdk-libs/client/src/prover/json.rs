@@ -414,7 +414,7 @@ pub(crate) fn to_json_zone_authority(inputs: &TransferInputs) -> String {
     transfer_inputs_json(inputs, "transfer-zone-authority")
 }
 
-/// Serialize the eddsa anonymous policy-zone transfer witness.
+/// Serialize the eddsa confidential policy-zone transfer witness.
 pub(crate) fn to_json_zone(inputs: &TransferInputs) -> String {
     transfer_inputs_json(inputs, "transfer-zone")
 }

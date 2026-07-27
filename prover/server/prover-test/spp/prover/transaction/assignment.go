@@ -162,23 +162,25 @@ func customZoneWitness(
 	}
 	return &customzone.CustomZoneEddsaOnlyCircuit{
 		Public: customzone.CustomZoneEddsaOnlyPublic{
-			Nullifiers:         fieldVariables(publicInputs.Nullifiers),
-			OutputHashes:       fieldVariables(publicInputs.OutputUtxoHashes),
-			UtxoTreeRoots:      fieldVariables(publicInputs.UtxoTreeRoots),
-			NullifierTreeRoots: fieldVariables(publicInputs.NullifierTreeRoots),
-			PrivateTxHash:      publicInputs.PrivateTxHash,
-			ExternalDataHash:   publicInputs.ExternalDataHash,
-			PublicAssets:       publicAssets,
-			PublicAmounts:      publicAmounts,
-			ZoneProgramID:      publicInputs.ZoneProgramID,
-			PayerPubkeyHash:    publicInputs.PayerPubkeyHash,
-			AllowDummyInputs:   publicInputs.AllowDummyInputs,
-			InputOwnerPkHashes: fieldVariables(publicInputs.InputOwnerPkHashes),
-			PublicInputHash:    publicInputHash,
+			Nullifiers:          fieldVariables(publicInputs.Nullifiers),
+			OutputHashes:        fieldVariables(publicInputs.OutputUtxoHashes),
+			UtxoTreeRoots:       fieldVariables(publicInputs.UtxoTreeRoots),
+			NullifierTreeRoots:  fieldVariables(publicInputs.NullifierTreeRoots),
+			PrivateTxHash:       publicInputs.PrivateTxHash,
+			ExternalDataHash:    publicInputs.ExternalDataHash,
+			PublicAssets:        publicAssets,
+			PublicAmounts:       publicAmounts,
+			ZoneProgramID:       publicInputs.ZoneProgramID,
+			PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
+			AllowDummyInputs:    publicInputs.AllowDummyInputs,
+			InputOwnerPkHashes:  fieldVariables(publicInputs.InputOwnerPkHashes),
+			OutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
+			PublicInputHash:     publicInputHash,
 		},
 		Private: customzone.CustomZoneEddsaOnlyPrivate{
-			Inputs:  inputs.inputs,
-			Outputs: outputs.outputs,
+			Inputs:             inputs.inputs,
+			Outputs:            outputs.outputs,
+			OutputNullifierPks: fieldVariables(outputs.outputNullifierPks),
 		},
 	}
 }
@@ -263,18 +265,30 @@ func buildPublicInputs(
 	external externalValues,
 	privateTxHash *big.Int,
 ) protocol.PublicInputs {
+	for i, ownerPkHash := range inputs.inputOwnerPkHashes {
+		if ownerPkHash == nil || ownerPkHash.Sign() == 0 {
+			inputs.inputOwnerPkHashes[i] = new(big.Int).Set(payerHash)
+		}
+	}
+	for i, ownerPkHash := range outputs.outputOwnerPkHashes {
+		if ownerPkHash == nil || ownerPkHash.Sign() == 0 {
+			outputs.outputOwnerPkHashes[i] = new(big.Int).Set(payerHash)
+		}
+	}
 	return protocol.PublicInputs{
-		Nullifiers:         inputs.nullifiers,
-		OutputUtxoHashes:   outputs.hashes,
-		UtxoTreeRoots:      inputs.utxoRoots,
-		NullifierTreeRoots: inputs.nullifierTreeRoots,
-		PrivateTxHash:      privateTxHash,
-		ExternalDataHash:   external.hash,
-		PublicAssets:       external.publicSlots.assets,
-		PublicAmounts:      external.publicSlots.amounts,
-		ZoneProgramID:      external.zoneProgramID,
-		PayerPubkeyHash:    new(big.Int).Set(payerHash),
-		AllowDummyInputs:   big.NewInt(1),
-		InputOwnerPkHashes: inputs.inputOwnerPkHashes,
+		Nullifiers:          inputs.nullifiers,
+		OutputUtxoHashes:    outputs.hashes,
+		UtxoTreeRoots:       inputs.utxoRoots,
+		NullifierTreeRoots:  inputs.nullifierTreeRoots,
+		PrivateTxHash:       privateTxHash,
+		ExternalDataHash:    external.hash,
+		PublicAssets:        external.publicSlots.assets,
+		PublicAmounts:       external.publicSlots.amounts,
+		ZoneProgramID:       external.zoneProgramID,
+		PayerPubkeyHash:     new(big.Int).Set(payerHash),
+		AllowDummyInputs:    big.NewInt(1),
+		InputOwnerPkHashes:  inputs.inputOwnerPkHashes,
+		Confidential:        true,
+		OutputOwnerPkHashes: outputs.outputOwnerPkHashes,
 	}
 }
