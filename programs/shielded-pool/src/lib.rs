@@ -8,6 +8,7 @@ use crate::instructions::{
     batch_update_nullifier_tree::{
         process_batch_update_nullifier_tree, process_batch_update_nullifier_tree_many,
     },
+    compose_transact::process_compose_transact_ix,
     create_asset_counter::process_create_asset_counter,
     create_spl_interface::processor::process_create_spl_interface,
     create_tree::process_create_tree,
@@ -18,7 +19,7 @@ use crate::instructions::{
         create::process_create_protocol_config, pause_tree::process_pause_tree,
         update::process_update_protocol_config,
     },
-    transact::process_transact_ix,
+    transact::{process_batch_transact_ix, process_transact_ix},
     zone_config::{
         create::process_create_zone_config, update::process_update_zone_config,
         update_owner::process_update_zone_config_owner,
@@ -56,6 +57,8 @@ pub fn process_instruction(
         InstructionTag::Transact
         | InstructionTag::ZoneTransact
         | InstructionTag::ZoneAuthorityTransact => process_transact_ix(accounts, payload, ix_tag),
+        InstructionTag::BatchTransact => process_batch_transact_ix(accounts, payload),
+        InstructionTag::ComposeTransact => process_compose_transact_ix(accounts, payload),
         InstructionTag::CreateTree => process_create_tree(accounts, payload),
         InstructionTag::BatchUpdateNullifierTree => {
             process_batch_update_nullifier_tree(accounts, payload)

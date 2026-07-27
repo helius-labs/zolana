@@ -35,6 +35,7 @@ tinyvec = { workspace = true }
 zolana-interface = { workspace = true, features = ["borsh"] }
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
+zolana-groth16-batch = { workspace = true }
 
 [dev-dependencies]
 zolana-account-checks = { workspace = true, features = ["test-only"] }

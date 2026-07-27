@@ -1,4 +1,5 @@
 pub mod batch_update_nullifier_tree;
+pub mod compose_transact;
 pub mod create_asset_counter;
 pub mod create_spl_interface;
 pub mod create_tree;

@@ -117,6 +117,10 @@ impl<'a> TransactProof<'a> {
         )
     }
 
+    pub fn public_input_hash_value(&self) -> Result<[u8; 32], ProgramError> {
+        self.public_input_hash()
+    }
+
     fn n_inputs(&self) -> usize {
         usize::from(self.ix.circuit.num_inputs())
     }

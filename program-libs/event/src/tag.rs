@@ -27,6 +27,8 @@ pub const CREATE_ASSET_COUNTER: u8 = 16;
 
 pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 51;
 pub const BATCH_UPDATE_NULLIFIER_TREE_MANY: u8 = 52;
+pub const BATCH_TRANSACT: u8 = 53;
+pub const COMPOSE_TRANSACT: u8 = 54;
 
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +40,8 @@ pub enum InstructionTag {
     CreateTree = CREATE_TREE,
     BatchUpdateNullifierTree = BATCH_UPDATE_NULLIFIER_TREE,
     BatchUpdateNullifierTreeMany = BATCH_UPDATE_NULLIFIER_TREE_MANY,
+    BatchTransact = BATCH_TRANSACT,
+    ComposeTransact = COMPOSE_TRANSACT,
     Deposit = DEPOSIT,
     CreateSplInterface = CREATE_SPL_INTERFACE,
     CreateProtocolConfig = CREATE_PROTOCOL_CONFIG,
@@ -64,6 +68,8 @@ impl TryFrom<u8> for InstructionTag {
             CREATE_TREE => Ok(Self::CreateTree),
             BATCH_UPDATE_NULLIFIER_TREE => Ok(Self::BatchUpdateNullifierTree),
             BATCH_UPDATE_NULLIFIER_TREE_MANY => Ok(Self::BatchUpdateNullifierTreeMany),
+            BATCH_TRANSACT => Ok(Self::BatchTransact),
+            COMPOSE_TRANSACT => Ok(Self::ComposeTransact),
             DEPOSIT => Ok(Self::Deposit),
             CREATE_SPL_INTERFACE => Ok(Self::CreateSplInterface),
             CREATE_PROTOCOL_CONFIG => Ok(Self::CreateProtocolConfig),

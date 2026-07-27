@@ -5922,6 +5922,7 @@ dependencies = [
  "spl-token-2022-interface",
  "tinyvec",
  "zolana-account-checks",
+ "zolana-groth16-batch",
  "zolana-hasher",
  "zolana-interface",
  "zolana-tree",

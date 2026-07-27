@@ -9,7 +9,9 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::EventKind,
     instruction::{
-        instruction_data::transact::{CircuitId, ExternalDataHash, TransactIxDataRef},
+        instruction_data::transact::{
+            CircuitId, ExternalDataHash, TransactIxData, TransactIxDataRef,
+        },
         tag::InstructionTag,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
@@ -19,7 +21,7 @@ use zolana_tree::TreeAccount;
 
 use super::{
     account::{TransactAccounts, ZoneTransactAccounts},
-    event::{build_transact_event, resolve_outputs},
+    event::{build_transact_event, resolve_outputs, TreeWrite},
     interface_transfer::{
         process_interface_transfers, resolve_interface_transfers, settle_interface_transfers,
     },
@@ -30,7 +32,11 @@ use crate::instructions::{
     hash::solana_pk_hash,
     shared::{check_not_expired, collect_forester_fee, tree_error},
     transact::verify::{TransactProof, TransactProofInputs},
+    verifier::{batch_verify_groth16, BatchProofItem},
 };
+
+/// Max pure-shielded entries in one `BatchTransact`.
+pub const MAX_BATCH_TRANSACT: usize = 4;
 
 #[inline(never)]
 #[profile]
@@ -132,6 +138,173 @@ pub fn process_transact_ix(
         &resolved_outputs,
     );
     emit_general_event(EventKind::Transact, event)
+}
+
+/// Wire: `u8` count, then per entry `u16` le len + `TransactIxData` body.
+fn parse_batch_payloads(data: &[u8]) -> Result<Vec<&[u8]>, ProgramError> {
+    let (count, mut rest) = data
+        .split_first()
+        .ok_or(ProgramError::InvalidInstructionData)?;
+    let count = usize::from(*count);
+    if count == 0 || count > MAX_BATCH_TRANSACT {
+        return Err(ShieldedPoolError::InvalidInstructionData.into());
+    }
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        if rest.len() < 2 {
+            return Err(ProgramError::InvalidInstructionData);
+        }
+        let len = u16::from_le_bytes([rest[0], rest[1]]) as usize;
+        rest = &rest[2..];
+        if rest.len() < len {
+            return Err(ProgramError::InvalidInstructionData);
+        }
+        let (body, next) = rest.split_at(len);
+        out.push(body);
+        rest = next;
+    }
+    if !rest.is_empty() {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    Ok(out)
+}
+
+struct Applied {
+    tree_write: TreeWrite,
+    inputs_len: u64,
+    zkp_batch_size: u64,
+}
+
+/// Batch incarnation: N same-vk pure-shielded transcacts, one RLC.
+#[inline(never)]
+#[profile]
+pub fn process_batch_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let payloads = parse_batch_payloads(data)?;
+    let clock = Clock::get()?;
+
+    let mut owned = Vec::with_capacity(payloads.len());
+    for p in &payloads {
+        owned.push(
+            TransactIxData::deserialize(p).map_err(|_| ProgramError::InvalidInstructionData)?,
+        );
+    }
+    let circuit = owned[0].circuit;
+    for e in &owned {
+        if e.circuit != circuit {
+            return Err(ShieldedPoolError::MismatchedCircuitType.into());
+        }
+        if !e.interface_transfers.is_empty() {
+            return Err(ShieldedPoolError::InvalidTransactShape.into());
+        }
+    }
+
+    let mut proof_items = Vec::with_capacity(owned.len());
+    let mut applied = Vec::with_capacity(owned.len());
+
+    for e in &owned {
+        let bytes = e
+            .serialize()
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+        let ix = TransactIxDataRef::from_bytes(&bytes)
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+        validate_circuit_type(&ix, InstructionTag::Transact)?;
+        check_not_expired(ix.expiry_unix_ts, &clock)?;
+
+        let resolved_outputs = resolve_outputs(accounts, &ix)?;
+        let mut proof_inputs = TransactProofInputs::default();
+        if ix.circuit.requires_input_signatures() {
+            proof_inputs.check_input_signers(accounts, &ix)?;
+        }
+        if ix.circuit.binds_output_owners() {
+            proof_inputs.fill_output_owner_pk_hashes(&resolved_outputs)?;
+        }
+        let ta = TransactAccounts::validate_and_parse(accounts, &ix)?;
+        process_interface_transfers(
+            &ix.interface_transfers,
+            &ta.settlements,
+            &mut proof_inputs,
+            usize::from(ix.circuit.num_public_asset_slots()),
+        )?;
+        let resolved_itf = resolve_interface_transfers(&ix, &ta.settlements);
+
+        let (inputs, zkp_batch_size) = {
+            let addr = ta.input_tree.address().to_bytes();
+            let mut tree = TreeAccount::from_account_view_mut(
+                &mut *ta.input_tree,
+                &crate::ID,
+                TREE_ACCOUNT_DISCRIMINATOR,
+            )
+            .map_err(tree_error)?;
+            let inputs = apply_input_tree(&mut tree, &ix, addr, &mut proof_inputs)?;
+            let zkp = tree.nullifer_tree().queue_batches.zkp_batch_size;
+            (inputs, zkp)
+        };
+        let tree_write = {
+            let addr = ta.output_tree.address().to_bytes();
+            let mut tree = TreeAccount::from_account_view_mut(
+                &mut *ta.output_tree,
+                &crate::ID,
+                TREE_ACCOUNT_DISCRIMINATOR,
+            )
+            .map_err(tree_error)?;
+            apply_output_tree(&mut tree, &ix, addr, inputs)?
+        };
+
+        // Bind as solo Transact so existing proofs verify under the batch path.
+        proof_inputs.external_data_hash = ExternalDataHash {
+            spp_instruction_discriminator: InstructionTag::Transact as u8,
+            expiry_unix_ts: ix.expiry_unix_ts,
+            interface_transfers: &resolved_itf,
+            data_hash: ix.data_hash,
+            zone_data_hash: ix.zone_data_hash,
+            tx_viewing_pk: ix.tx_viewing_pk,
+            salt: ix.salt,
+            outputs: &resolved_outputs,
+            messages: &ix.messages,
+        }
+        .hash()
+        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+        proof_inputs.payer_pubkey_hash = Sha256BE::hash(ta.payer.address().as_ref())
+            .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+
+        let pi = TransactProof::new(&ix, &proof_inputs).public_input_hash_value()?;
+        proof_items.push(BatchProofItem {
+            a: ix.proof.a,
+            b: ix.proof.b,
+            c: ix.proof.c,
+            public_input_hash: pi,
+        });
+        applied.push(Applied {
+            tree_write,
+            inputs_len: ix.inputs.len() as u64,
+            zkp_batch_size,
+        });
+    }
+
+    let vk = circuit
+        .verifying_key()
+        .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+    batch_verify_groth16(
+        vk,
+        &proof_items,
+        ShieldedPoolError::InvalidTransactProofEncoding,
+        ShieldedPoolError::TransactProofVerificationFailed,
+    )?;
+
+    for (e, app) in owned.iter().zip(applied) {
+        let bytes = e
+            .serialize()
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+        let ix = TransactIxDataRef::from_bytes(&bytes)
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+        let resolved_outputs = resolve_outputs(accounts, &ix)?;
+        let ta = TransactAccounts::validate_and_parse(accounts, &ix)?;
+        settle_interface_transfers(&ix.interface_transfers, &ta.settlements)?;
+        collect_forester_fee(ta.payer, ta.input_tree, app.inputs_len, app.zkp_batch_size)?;
+        let event = build_transact_event(&ix, &ta.settlements, app.tree_write, &resolved_outputs);
+        emit_general_event(EventKind::Transact, event)?;
+    }
+    Ok(())
 }
 
 /// Validate the untrusted selector before it is allowed to drive account
