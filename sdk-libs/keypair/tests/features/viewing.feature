@@ -13,10 +13,6 @@ Feature: Viewing keys and view tags
     Given a random viewing key "alice"
     Then sender and request view tags for "alice" advance with their counters
 
-  Scenario: Merge view tags advance with their counter
-    Given a random viewing key "alice"
-    Then merge view tags for "alice" advance with their counter
-
   Scenario: Shared view tags match across the pair and differ per index
     Given a random viewing key "sender"
     And a random viewing key "recipient"

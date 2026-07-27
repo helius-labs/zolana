@@ -12,7 +12,7 @@ use crate::{
 /// `output_tree` (writable), `zone_config` (the zone's `zone_auth` PDA), `payer`
 /// (signer), and the program account last for the `emit_event` self-CPI.
 /// Instruction data is the output `zone_data_hash` followed by the
-/// `MergeTransactIxData` body (which carries the single-use `merge_view_tag`).
+/// `MergeTransactIxData` body.
 pub struct MergeZone {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
@@ -83,7 +83,6 @@ mod tests {
             utxo_tree_root_index: vec![0; 8],
             nullifier_tree_root_index: vec![0; 8],
             private_tx_hash: [0u8; 32],
-            merge_view_tag: [7u8; 32],
             eddsa_owner: false,
         }
     }

@@ -6,7 +6,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsByTags,
+        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsByTags,
     },
     RpcMethod,
 };
@@ -15,10 +15,11 @@ pub use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
-    GetShieldedTransactionsByTagsResponse, Hash, Limit, MerkleContext, MerkleProof,
-    NonInclusionProof, NullifierQueueElement, RingsOutputContext, RingsOutputSlot,
-    SerializablePubkey, SerializableSignature, ShieldedTransaction, PAGE_LIMIT,
+    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse, Hash,
+    Limit, MerkleContext, MerkleProof, NonInclusionProof, NullifierQueueElement,
+    RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
+    ShieldedTransaction, PAGE_LIMIT,
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -192,6 +193,20 @@ impl ZolanaApi {
         .await
     }
 
+    pub async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<Hash>,
+        cursor: Option<Base64String>,
+        limit: Option<u64>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
+        self.call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
+            nullifiers,
+            cursor,
+            limit: optional_limit(limit)?,
+        })
+        .await
+    }
+
     pub async fn get_merkle_proofs(
         &self,
         tree_account: SerializablePubkey,
@@ -323,6 +338,19 @@ impl BlockingZolanaApi {
     ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
         self.call::<GetShieldedTransactionsByTags>(GetRingsByTagsRequest {
             tags,
+            cursor,
+            limit: optional_limit(limit)?,
+        })
+    }
+
+    pub fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<Hash>,
+        cursor: Option<Base64String>,
+        limit: Option<u64>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
+        self.call::<GetShieldedTransactionsByNullifiers>(GetRingsByNullifiersRequest {
+            nullifiers,
             cursor,
             limit: optional_limit(limit)?,
         })

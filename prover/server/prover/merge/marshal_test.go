@@ -34,9 +34,6 @@ func TestMergeParametersJSONRoundTrip(t *testing.T) {
 	if len(got.Inputs) != len(p.Inputs) {
 		t.Fatalf("input count mismatch: got %d want %d", len(got.Inputs), len(p.Inputs))
 	}
-	if got.MergeViewTag.Cmp(p.MergeViewTag) != 0 {
-		t.Fatalf("merge view tag mismatch: got %s want %s", got.MergeViewTag, p.MergeViewTag)
-	}
 }
 
 func TestMergeParametersCreateCompleteWitness(t *testing.T) {
@@ -84,7 +81,6 @@ func sampleParams() *MergeParameters {
 		OwnerPkHash:         big.NewInt(0x1212),
 		UserNullifierPk:     big.NewInt(0x3333),
 		UserNullifierSecret: big.NewInt(0x4444),
-		MergeViewTag:        big.NewInt(0x5555),
 		OutputZoneDataHash:  big.NewInt(0),
 		ExternalDataHash:    big.NewInt(0x6666),
 		PrivateTxHash:       big.NewInt(0x7777),

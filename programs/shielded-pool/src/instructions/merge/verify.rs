@@ -76,7 +76,7 @@ impl<'a> MergeProof<'a> {
     /// (`prover/server/circuits/spp_merge/{default,zone}.go`).
     ///
     /// Both variants share the same 7 leading elements (including the
-    /// proof-wide dummy-input policy) and the `merge_view_tag`;
+    /// proof-wide dummy-input policy);
     /// the default merge then folds the owner's signing `pk_field` (bound from
     /// the user registry), while the policy-zone merge omits owner identity (no
     /// registry to bind it against) and appends the output `zone_data_hash` and
@@ -104,17 +104,13 @@ impl<'a> MergeProof<'a> {
                 output_zone_data_hash,
             } => create_hash_chain_from_slice(&[
                 prefix_hash,
-                *self.ix.merge_view_tag,
                 *output_zone_data_hash,
                 *zone_program_id,
             ])
             .map_err(Into::into),
-            MergeOwnerBinding::Registry { signing_pk_field } => create_hash_chain_from_slice(&[
-                prefix_hash,
-                *signing_pk_field,
-                *self.ix.merge_view_tag,
-            ])
-            .map_err(Into::into),
+            MergeOwnerBinding::Registry { signing_pk_field } => {
+                create_hash_chain_from_slice(&[prefix_hash, *signing_pk_field]).map_err(Into::into)
+            }
         }
     }
 }

@@ -36,7 +36,6 @@ type MergeParametersJSON struct {
 	OwnerPkHash         string             `json:"ownerPkHash"`
 	UserNullifierPk     string             `json:"userNullifierPk"`
 	UserNullifierSecret string             `json:"userNullifierSecret"`
-	MergeViewTag        string             `json:"mergeViewTag"`
 	ExternalDataHash    string             `json:"externalDataHash"`
 	PrivateTxHash       string             `json:"privateTxHash"`
 	PublicInputHash     string             `json:"publicInputHash"`
@@ -76,7 +75,6 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		OwnerPkHash:         feHex(p.OwnerPkHash),
 		UserNullifierPk:     feHex(p.UserNullifierPk),
 		UserNullifierSecret: feHex(p.UserNullifierSecret),
-		MergeViewTag:        feHex(p.MergeViewTag),
 		ExternalDataHash:    feHex(p.ExternalDataHash),
 		PrivateTxHash:       feHex(p.PrivateTxHash),
 		PublicInputHash:     feHex(p.PublicInputHash),
@@ -129,9 +127,6 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		return err
 	}
 	if p.UserNullifierSecret, err = feFromHex(params.UserNullifierSecret); err != nil {
-		return err
-	}
-	if p.MergeViewTag, err = feFromHex(params.MergeViewTag); err != nil {
 		return err
 	}
 	if p.ExternalDataHash, err = feFromHex(params.ExternalDataHash); err != nil {

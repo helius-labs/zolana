@@ -8,9 +8,7 @@
 //! hashes remain in the witness and the zone selects the output policy-data hash.
 
 use solana_address::Address;
-use zolana_keypair::{
-    merge::merge_output_blinding, viewing_key::random_blinding, PublicKey, ShieldedKeypairTrait,
-};
+use zolana_keypair::{merge::merge_output_blinding, PublicKey, ShieldedKeypairTrait};
 
 use crate::{
     error::TransactionError,
@@ -30,10 +28,6 @@ pub struct MergeZone {
     output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
-    /// Single-use nonce driving the output-blinding and dummy-nullifier
-    /// derivations; uniqueness is enforced on-chain via nullifier-queue
-    /// insertion.
-    pub merge_view_tag: [u8; 32],
     zone_program_id: Address,
 }
 
@@ -62,7 +56,7 @@ impl MergeZone {
             Ok(())
         })?;
 
-        let merge_view_tag = random_blinding();
+        let first_nullifier = inputs[0].nullifier()?;
         // The merged output preserves zone ownership.
         let output = match output_zone_data_hash {
             Some(zone_data_hash) => {
@@ -74,7 +68,7 @@ impl MergeZone {
         };
 
         let mut output = output;
-        output.blinding = merge_output_blinding(&inputs[0].utxo.blinding, &merge_view_tag)?;
+        output.blinding = merge_output_blinding(&inputs[0].utxo.blinding, &first_nullifier)?;
 
         Ok(Self {
             inputs,
@@ -83,7 +77,6 @@ impl MergeZone {
             // expiry`, so set this explicitly for a relayer deadline.
             expiry_unix_ts: u64::MAX,
             signing_pubkey: keypair.signing_pubkey(),
-            merge_view_tag,
             zone_program_id,
         })
     }
@@ -102,7 +95,6 @@ impl MergeZone {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            merge_view_tag,
             zone_program_id,
         } = self;
         pad_with_dummies(&mut inputs);
@@ -111,7 +103,6 @@ impl MergeZone {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            merge_view_tag,
             zone_program_id,
         }
     }
@@ -127,7 +118,6 @@ pub struct PreparedMergeZone {
     pub output: SppProofOutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
-    pub merge_view_tag: [u8; 32],
     pub zone_program_id: Address,
 }
 

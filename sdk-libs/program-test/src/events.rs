@@ -49,7 +49,6 @@ impl DepositOutput {
                 amount: self.output.amount,
                 asset: Some(self.output.asset),
             }],
-            merge_view_tag: None,
         }
     }
 }

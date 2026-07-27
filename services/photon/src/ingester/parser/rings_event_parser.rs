@@ -16,7 +16,7 @@ use zolana_event::{
 };
 use zolana_interface::pda;
 
-const RINGS_PARSE_VERSION: i16 = 2;
+const RINGS_PARSE_VERSION: i16 = 3;
 
 struct EventSite {
     source_instruction_tag: u8,
@@ -147,7 +147,6 @@ pub fn parse_rings_events(
                 first_output_leaf_index: event.first_output_leaf_index,
                 tx_viewing_pk,
                 salt,
-                merge_view_tag: event.merge_view_tag.map(|tag| tag.to_vec()),
                 proofless,
                 encrypted_utxos: None,
                 raw_event: Some(event_site.payload),

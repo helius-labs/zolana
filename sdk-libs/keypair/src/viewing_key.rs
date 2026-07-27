@@ -17,8 +17,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     constants::{
-        INFO_MERGE_VIEW_TAG_PREFIX, INFO_MERGE_VIEW_TAG_SECRET, INFO_PAIR_DOMAIN_PREFIX,
-        INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
+        INFO_PAIR_DOMAIN_PREFIX, INFO_PAIR_HINT_PREFIX, INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
         INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET,
         INFO_TX_VIEWING, P_CONST_SEC1, SALT_LEN, VIEW_TAG_LEN,
     },
@@ -148,11 +147,6 @@ impl ViewingKey {
         self.derive_secret32(INFO_RECIPIENT_VIEW_TAG_SECRET)
     }
 
-    /// `merge_view_tag_secret` (`info = "TSPP/merge_view_tag"`).
-    pub(crate) fn merge_view_tag_secret(&self) -> Result<[u8; 32], KeypairError> {
-        self.derive_secret32(INFO_MERGE_VIEW_TAG_SECRET)
-    }
-
     /// `tx_viewing_secret`, the seed for transaction viewing keys
     /// (`info = "TSPP/tx_viewing"`).
     pub(crate) fn tx_viewing_secret(&self) -> Result<[u8; 32], KeypairError> {
@@ -181,16 +175,6 @@ impl ViewingKey {
                 INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
                 &request_count.to_be_bytes(),
             ],
-        )
-    }
-
-    /// Merge view tag for the merged output at `merge_count`; derived by the
-    /// owner and its sync delegate, indexed by the owner.
-    pub fn get_merge_view_tag(&self, merge_count: u64) -> Result<ViewTag, KeypairError> {
-        let secret = self.merge_view_tag_secret()?;
-        expand_view_tag(
-            &secret,
-            &[INFO_MERGE_VIEW_TAG_PREFIX, &merge_count.to_be_bytes()],
         )
     }
 

@@ -36,8 +36,8 @@ use crate::{
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, ProveResult, Rpc,
-        ShieldedTransactionStream,
+        GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsByTagsResponse, ProveResult, Rpc, ShieldedTransactionStream,
     },
 };
 
@@ -521,6 +521,23 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
+    async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        self.async_indexer
+            .get_shielded_transactions_by_nullifiers(
+                nullifiers,
+                cursor,
+                limit,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
+            .await
+    }
+
     async fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -750,6 +767,22 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             limit,
             Some(config.unwrap_or(self.indexer_config)),
         )
+    }
+
+    fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        self.blocking_indexer()
+            .get_shielded_transactions_by_nullifiers(
+                nullifiers,
+                cursor,
+                limit,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
     }
 
     fn subscribe_to_shielded_transactions_by_tags(

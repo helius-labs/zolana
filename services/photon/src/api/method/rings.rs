@@ -9,6 +9,7 @@ pub use get_encrypted_utxos_by_tags::get_encrypted_utxos_by_tags;
 pub use get_merkle_proofs::get_merkle_proofs;
 pub use get_non_inclusion_proofs::get_non_inclusion_proofs;
 pub use get_nullifier_queue_elements::get_nullifier_queue_elements;
+pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_nullifiers;
 pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_tags;
 
 #[cfg(test)]
@@ -124,7 +125,6 @@ mod tests {
             tx_signature: SerializableSignature::default(),
             tx_viewing_pk: None,
             salt: None,
-            merge_view_tag: None,
             output_slots: vec![RingsOutputSlot {
                 view_tag: hash(4),
                 output_context: RingsOutputContext {

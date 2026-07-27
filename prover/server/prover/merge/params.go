@@ -64,11 +64,6 @@ type MergeParameters struct {
 	UserNullifierPk     *big.Int
 	UserNullifierSecret *big.Int
 
-	// MergeViewTag is the single-use nonce driving the in-circuit
-	// output-blinding and dummy-nullifier derivations, folded into the
-	// public-input hash.
-	MergeViewTag *big.Int
-
 	// OutputZoneDataHash is the zone-data hash the calling zone program carries
 	// in the merge_zone instruction/event. The zone circuit asserts it against
 	// Output.ZoneDataHash and folds it into the public-input hash. Zero on the

@@ -42,9 +42,6 @@ pub struct MergeZoneProver {
     /// `nullifier_pk` and every input nullifier).
     pub signing_pubkey: PublicKey,
     pub nullifier_key: NullifierKey,
-    /// Single-use nonce driving the output-blinding and dummy-nullifier
-    /// derivations; SPP inserts it into the nullifier queue.
-    pub merge_view_tag: [u8; 32],
     /// Zone program every input and the output are owned by. Its `pk_field`
     /// (`program_id_proof_input_hash(&Some(zone))` == on-chain `solana_pk_hash(zone)`) is the
     /// final public-input element and the value SPP binds from `zone_config`.
@@ -64,7 +61,7 @@ impl MergeZoneProver {
 
         // The output zone-data hash the zone program selected; the merge-zone
         // circuit asserts it against the output's ZoneDataHash and folds it into
-        // the public-input hash after the merge view tag.
+        // the public-input hash.
         let output_zone_data_hash = self.output.zone_data_hash.unwrap_or([0u8; 32]);
 
         // A zone merge is the default merge plus a zone binding: reuse its
@@ -76,22 +73,17 @@ impl MergeZoneProver {
             expiry_unix_ts: self.expiry_unix_ts,
             signing_pubkey: self.signing_pubkey,
             nullifier_key: self.nullifier_key,
-            merge_view_tag: self.merge_view_tag,
         }
         .common(zolana_interface::instruction::tag::ZONE_MERGE_TRANSACT)?;
 
         // The policy-zone merge omits the owner-identity public input (no registry
-        // binds it) and instead commits the merge view tag, the output zone-data
-        // hash, and the zone's pk_field as the final elements.
+        // binds it) and instead commits the output zone-data hash and the zone's
+        // pk_field as the final elements.
         // `zone_program_id_proof_input_hash` equals the on-chain `solana_pk_hash(zone)` the
         // program derives from the calling `zone_config`.
         let zone_program_id_proof_input_hash = program_id_proof_input_hash(&Some(zone_program_id))?;
         let mut elements = merge.head.to_vec();
-        elements.extend([
-            merge.merge_view_tag,
-            output_zone_data_hash,
-            zone_program_id_proof_input_hash,
-        ]);
+        elements.extend([output_zone_data_hash, zone_program_id_proof_input_hash]);
         let public_input = create_hash_chain_from_slice(&elements)?;
 
         Ok(merge.finish(
@@ -126,7 +118,6 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            merge_view_tag,
             zone_program_id,
         } = prepared;
 
@@ -138,7 +129,6 @@ impl TryFrom<MergeZoneWitness> for MergeZoneProver {
             expiry_unix_ts,
             signing_pubkey,
             nullifier_key,
-            merge_view_tag,
             zone_program_id,
         })
     }

@@ -24,8 +24,9 @@ use crate::{
     rpc::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
-        OutputContext, OutputSlot, Rpc, ShieldedTransaction,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
+        MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc,
+        ShieldedTransaction,
     },
 };
 
@@ -276,6 +277,40 @@ impl Rpc for ZolanaIndexer {
         )
     }
 
+    fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        wait_for_indexer(
+            config,
+            |response: &GetShieldedTransactionsByNullifiersResponse| response.context.block_time,
+            || {
+                let response = self
+                    .api
+                    .get_shielded_transactions_by_nullifiers(
+                        nullifiers.iter().copied().map(encode_hash).collect(),
+                        encode_cursor(cursor.clone()),
+                        limit.map(u64::from),
+                    )
+                    .map_err(indexer_error)?;
+
+                Ok(GetShieldedTransactionsByNullifiersResponse {
+                    context: convert_context(response.context),
+                    transactions: response
+                        .transactions
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, item)| convert_shielded_transaction(index, item))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    next_cursor: response.next_cursor.map(Into::into),
+                })
+            },
+        )
+    }
+
     fn get_merkle_proofs(
         &self,
         tree_account: Address,
@@ -432,6 +467,42 @@ impl AsyncRpc for AsyncZolanaIndexer {
         .await
     }
 
+    async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        wait_for_indexer_async(
+            config,
+            |response: &GetShieldedTransactionsByNullifiersResponse| response.context.block_time,
+            || async {
+                let response = self
+                    .api
+                    .get_shielded_transactions_by_nullifiers(
+                        nullifiers.iter().copied().map(encode_hash).collect(),
+                        encode_cursor(cursor.clone()),
+                        limit.map(u64::from),
+                    )
+                    .await
+                    .map_err(indexer_error)?;
+
+                Ok(GetShieldedTransactionsByNullifiersResponse {
+                    context: convert_context(response.context),
+                    transactions: response
+                        .transactions
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, item)| convert_shielded_transaction(index, item))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    next_cursor: response.next_cursor.map(Into::into),
+                })
+            },
+        )
+        .await
+    }
+
     async fn get_merkle_proofs(
         &self,
         tree_account: Address,
@@ -550,7 +621,6 @@ fn convert_shielded_transaction(
             .collect(),
         nullifiers: item.nullifiers.into_iter().map(Into::into).collect(),
         proofless: item.proofless,
-        merge_view_tag: item.merge_view_tag.map(Into::into),
     })
 }
 
@@ -819,9 +889,53 @@ mod tests {
                     nullifiers: vec![nullifier],
                     proofless: true,
                     messages: vec![],
-                    merge_view_tag: None,
                 }],
                 next_cursor: Some(vec![23]),
+            }
+        );
+    }
+
+    #[test]
+    fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
+        let nullifier_a = bytes32(24);
+        let nullifier_b = bytes32(25);
+        let response = rpc_result(json!({
+            "context": { "block_time": 52 },
+            "transactions": [],
+            "next_cursor": null,
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let got = indexer
+            .get_shielded_transactions_by_nullifiers(
+                vec![nullifier_a, nullifier_b],
+                Some(vec![1, 2]),
+                Some(3),
+                None,
+            )
+            .expect("nullifier transaction lookup");
+        let request = server.request();
+
+        assert_eq!(request.path, "/get_shielded_transactions_by_nullifiers");
+        assert_json_rpc_request(&request.body, "get_shielded_transactions_by_nullifiers");
+        assert_eq!(
+            request.body["params"],
+            json!({
+                "nullifiers": [
+                    encode_hash_string(nullifier_a),
+                    encode_hash_string(nullifier_b)
+                ],
+                "cursor": STANDARD.encode([1, 2]),
+                "limit": 3,
+            })
+        );
+        assert_eq!(
+            got,
+            GetShieldedTransactionsByNullifiersResponse {
+                context: Context { block_time: 52 },
+                transactions: vec![],
+                next_cursor: None,
             }
         );
     }

@@ -60,6 +60,9 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	merged, err := mergeprover.R1CSMerge()
 	add("merge_8_1", merged, err)
 
+	mergedZone, err := mergeprover.R1CSMergeZone()
+	add("merge_zone_8_1", mergedZone, err)
+
 	batch, err := nulltree.R1CSBatchAddressAppend(40, 10)
 	add("batch_address-append_40_10", batch, err)
 
@@ -72,7 +75,8 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_3":  {constraints: 54011, public: 2},
 	"transfer_zone_2_3":          {constraints: 54080, public: 2},
-	"merge_8_1":                  {constraints: 180411, public: 2},
+	"merge_8_1":                  {constraints: 179916, public: 2},
+	"merge_zone_8_1":             {constraints: 180158, public: 2},
 	"batch_address-append_40_10": {constraints: 423683, public: 2},
 }
 

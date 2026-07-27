@@ -109,16 +109,15 @@ impl MergeZoneWorld {
         let proof = ProverClient::local()
             .prove_merge_zone(&result.inputs)
             .expect("prove merge-zone");
-        let commitment = proof
-            .commitment
-            .expect("merge-zone proof must carry a BSB22 commitment");
+        assert!(
+            proof.commitment.is_none(),
+            "merge-zone proof must use vanilla Groth16"
+        );
         let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
-        let mut verifier = Groth16Verifier::new_with_commitment(
+        let mut verifier = Groth16Verifier::new(
             &proof.a,
             &proof.b,
             &proof.c,
-            &commitment.commitment,
-            &commitment.commitment_pok,
             &public_inputs,
             &merge_zone_8_1::VERIFYINGKEY,
         )
@@ -128,9 +127,9 @@ impl MergeZoneWorld {
             .expect("merge-zone groth16 proof verifies");
 
         // The owner reconstructs the ciphertext-free merge-zone output from the
-        // first real input and the event's proof-wide merge tag.
+        // first real input and its published nullifier.
         assert_eq!(
-            merge_output_blinding(&first_blinding, &result.merge_view_tag)
+            merge_output_blinding(&first_blinding, &result.nullifiers[0])
                 .expect("derive merge-zone output blinding"),
             expected_output.blinding,
             "owner reconstructs the merged zone output blinding",
@@ -138,7 +137,7 @@ impl MergeZoneWorld {
         assert_eq!(
             expected_output.hash().expect("reconstructed utxo hash"),
             result.output_hash,
-            "owner reconstructs the merged zone output from the merge tag",
+            "owner reconstructs the merged zone output from the first nullifier",
         );
     }
 }

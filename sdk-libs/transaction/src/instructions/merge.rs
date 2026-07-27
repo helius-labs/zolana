@@ -4,9 +4,7 @@
 //! in-circuit from the nullifier secret, so there is no signing step.
 
 use solana_address::Address;
-use zolana_keypair::{
-    merge::merge_output_blinding, viewing_key::random_blinding, PublicKey, ShieldedKeypairTrait,
-};
+use zolana_keypair::{merge::merge_output_blinding, PublicKey, ShieldedKeypairTrait};
 
 use crate::{
     error::TransactionError,
@@ -26,10 +24,6 @@ pub struct Merge {
     output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
-    /// Single-use nonce driving the output-blinding and dummy-nullifier
-    /// derivations. Random (31 bytes right-aligned, so always a valid field
-    /// element); uniqueness is enforced on-chain via nullifier-queue insertion.
-    pub merge_view_tag: [u8; 32],
 }
 
 impl Merge {
@@ -53,11 +47,11 @@ impl Merge {
 
         // The output blinding is derived, not random: slot 0 is always real
         // (validation rejects empty inputs), and the circuit derives the same
-        // value from the first input's blinding and the merge view tag. The
+        // value from the first input's blinding and nullifier. The
         // wallet later reconstructs the output the same way.
-        let merge_view_tag = random_blinding();
+        let first_nullifier = inputs[0].nullifier()?;
         let mut output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
-        output.blinding = merge_output_blinding(&inputs[0].utxo.blinding, &merge_view_tag)?;
+        output.blinding = merge_output_blinding(&inputs[0].utxo.blinding, &first_nullifier)?;
 
         Ok(Self {
             inputs,
@@ -66,7 +60,6 @@ impl Merge {
             // expiry`, so set this explicitly for a relayer deadline.
             expiry_unix_ts: u64::MAX,
             signing_pubkey: keypair.signing_pubkey(),
-            merge_view_tag,
         })
     }
 
@@ -83,7 +76,6 @@ impl Merge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            merge_view_tag,
         } = self;
         pad_with_dummies(&mut inputs);
         PreparedMerge {
@@ -91,7 +83,6 @@ impl Merge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            merge_view_tag,
         }
     }
 }
@@ -182,7 +173,6 @@ pub struct PreparedMerge {
     pub output: SppProofOutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
-    pub merge_view_tag: [u8; 32],
 }
 
 impl PreparedMerge {

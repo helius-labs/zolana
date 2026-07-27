@@ -33,7 +33,6 @@ fn merge_data() -> MergeTransactIxData {
         output_utxo_hash: [0u8; 32],
         eddsa_owner: true,
         private_tx_hash: [0u8; 32],
-        merge_view_tag: [0u8; 32],
         nullifiers: vec![[0u8; 32]; 8],
         utxo_tree_root_index: vec![0; 8],
         nullifier_tree_root_index: vec![0; 8],

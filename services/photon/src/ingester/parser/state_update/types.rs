@@ -72,9 +72,6 @@ pub struct RingsTransactionUpdate {
     pub first_output_leaf_index: u64,
     pub tx_viewing_pk: Option<Vec<u8>>,
     pub salt: Option<Vec<u8>>,
-    /// The single-use merge nonce (merge transactions only); the wallet
-    /// reconstructs the merged output from it and its spent inputs.
-    pub merge_view_tag: Option<Vec<u8>>,
     pub proofless: bool,
     pub encrypted_utxos: Option<Vec<u8>>,
     pub raw_event: Option<Vec<u8>>,

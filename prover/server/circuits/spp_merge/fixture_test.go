@@ -13,9 +13,6 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 )
 
-// mergeViewTag is the fixture's single-use merge nonce.
-var mergeViewTag = big.NewInt(0x7A6)
-
 func buildValidWitness(t *testing.T) *merge.Circuit {
 	t.Helper()
 	return buildWitness(t, false)
@@ -197,10 +194,10 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	}
 
 	// Merged output. The blinding is derived from slot 0's blinding and the
-	// merge view tag, mirroring the in-circuit derivation.
+	// first real nullifier, mirroring the in-circuit derivation.
 	outAmount := new(big.Int).Add(amounts[0], amounts[1])
 	outBlinding, err := poseidon.Hash([]*big.Int{
-		big.NewInt(mergeshared.MergeOutputBlindingDomainV1), blindings[0], mergeViewTag,
+		big.NewInt(mergeshared.MergeOutputBlindingDomainV1), blindings[0], nullifiers[0],
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -245,11 +242,11 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		userSigningPkHash = options.userSigningPkHash
 	}
 
-	// Dummy slots publish deterministic nullifiers derived from the merge view
-	// tag, mirroring the in-circuit derivation.
+	// Dummy slots publish deterministic nullifiers derived from the first real
+	// nullifier, mirroring the in-circuit derivation.
 	dummyNullifier := func(slot int) *big.Int {
 		nf, err := poseidon.Hash([]*big.Int{
-			big.NewInt(mergeshared.MergeDummyNullifierDomain), mergeViewTag, big.NewInt(int64(slot)),
+			big.NewInt(mergeshared.MergeDummyNullifierDomain), nullifiers[0], big.NewInt(int64(slot)),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -289,12 +286,10 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		publicInputPreimage = append(
 			publicInputPreimage,
 			userSigningPkHash,
-			mergeViewTag,
 		)
 	case zoneFixtureRail:
 		publicInputPreimage = append(
 			publicInputPreimage,
-			mergeViewTag,
 			outputZoneData,
 			zoneProgramID,
 		)
@@ -308,7 +303,6 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	public.ExternalDataHash = externalDataHash
 	public.PrivateTxHash = privateTxHash
 	public.OutputHash = outHash
-	public.MergeViewTag = mergeViewTag
 	public.AllowDummyInputs = allowDummyInputs
 
 	for i := 0; i < merge.MergeInputs; i++ {

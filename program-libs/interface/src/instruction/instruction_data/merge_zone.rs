@@ -59,7 +59,6 @@ mod tests {
                 utxo_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
                 nullifier_tree_root_index: (10..10 + MERGE_INPUT_COUNT as u16).collect(),
                 private_tx_hash: [3u8; 32],
-                merge_view_tag: [9u8; 32],
                 eddsa_owner: false,
             },
         }
@@ -73,7 +72,6 @@ mod tests {
 
         let view = MergeZoneIxDataRef::from_bytes(&bytes).unwrap();
         assert_eq!(view.output_zone_data_hash, &owned.output_zone_data_hash);
-        assert_eq!(view.merge.merge_view_tag, &owned.merge.merge_view_tag);
         assert_eq!(view.merge.proof.a, &owned.merge.proof.a);
         assert_eq!(view.merge.nullifiers, owned.merge.nullifiers);
     }

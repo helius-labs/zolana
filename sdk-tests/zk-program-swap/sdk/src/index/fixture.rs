@@ -65,7 +65,6 @@ fn shielded_transaction(proof_inputs: &SppProofInputs) -> ShieldedTransaction {
         messages: external.messages.clone(),
         nullifiers,
         proofless: false,
-        merge_view_tag: None,
     }
 }
 

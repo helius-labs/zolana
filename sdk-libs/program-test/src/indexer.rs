@@ -283,7 +283,6 @@ pub fn shielded_transaction_from_general_event(
         nullifiers,
         proofless,
         messages: event.messages.clone(),
-        merge_view_tag: event.merge_view_tag,
     }
 }
 

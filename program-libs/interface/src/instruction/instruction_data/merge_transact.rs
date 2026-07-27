@@ -2,7 +2,7 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 /// Number of input slots a merge proof spends (8-in/1-out shape). Dummy slots
-/// publish deterministic nullifiers derived from the `merge_view_tag`.
+/// publish deterministic nullifiers derived from `nullifiers[0]`.
 pub const MERGE_INPUT_COUNT: usize = 8;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
@@ -49,11 +49,6 @@ pub struct MergeTransactIxData {
     /// the registry account's ed25519 `owner` instead of its P256 `owner_p256`.
     pub eddsa_owner: bool,
     pub private_tx_hash: [u8; 32],
-    /// Single-use nonce driving the in-circuit output-blinding and
-    /// dummy-nullifier derivations. Folded into the proof's public-input hash
-    /// and inserted into the nullifier queue, so it cannot be reused. The
-    /// wallet reads it from the event to reconstruct the merged output.
-    pub merge_view_tag: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
@@ -90,7 +85,6 @@ pub struct MergeTransactIxDataRef<'a> {
     pub output_utxo_hash: &'a [u8; 32],
     pub eddsa_owner: bool,
     pub private_tx_hash: &'a [u8; 32],
-    pub merge_view_tag: &'a [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
@@ -122,9 +116,9 @@ impl<'a> MergeTransactIxDataRef<'a> {
 /// `external_data_hash` public input for the merge instructions. Domain-separated
 /// by the instruction's discriminator (`merge_transact` or `merge_zone`) so a
 /// preimage cannot be reused across instructions. Computed identically by the
-/// client and the program. The `merge_view_tag` (and, for `merge_zone`, the
-/// output `zone_data_hash`) is bound directly as a public-input-hash element,
-/// so it does not enter this preimage.
+/// client and the program. For `merge_zone`, the output `zone_data_hash` is
+/// bound directly as a public-input-hash element, so it does not enter this
+/// preimage.
 pub struct MergeExternalDataHash<'a> {
     pub spp_instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
@@ -158,7 +152,6 @@ mod tests {
             utxo_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
             nullifier_tree_root_index: (10..10 + MERGE_INPUT_COUNT as u16).collect(),
             private_tx_hash: [3u8; 32],
-            merge_view_tag: [4u8; 32],
             eddsa_owner: false,
         }
     }
@@ -179,7 +172,6 @@ mod tests {
             owned.nullifier_tree_root_index
         );
         assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
-        assert_eq!(view.merge_view_tag, &owned.merge_view_tag);
         assert_eq!(view.eddsa_owner, owned.eddsa_owner);
     }
 
@@ -188,8 +180,8 @@ mod tests {
         let bytes = data().serialize().expect("serialize merge instruction");
 
         // expiry(8) || proof(128) || output_hash(32) || eddsa_owner(1) ||
-        // private_tx_hash(32) || merge_view_tag(32) || 3 vecs with u8 lens.
-        assert_eq!(bytes.len(), 236 + 36 * MERGE_INPUT_COUNT);
+        // private_tx_hash(32) || 3 vecs with u8 lens.
+        assert_eq!(bytes.len(), 204 + 36 * MERGE_INPUT_COUNT);
     }
 
     #[test]

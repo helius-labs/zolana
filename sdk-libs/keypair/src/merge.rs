@@ -29,32 +29,32 @@ fn fe_u32(x: u32) -> [u8; 32] {
 }
 
 /// The merged output's blinding, derived in-circuit from the first (always
-/// real) input's blinding and the single-use `merge_view_tag`. The wallet
+/// real) input's blinding and its single-use nullifier. The wallet
 /// recovers the output by recomputing this value and checking the resulting
 /// UTXO hash against the on-chain output commitment. Field elements are 32-byte
 /// big-endian.
 pub fn merge_output_blinding(
     first_input_blinding: &[u8; 32],
-    merge_view_tag: &[u8; 32],
+    first_nullifier: &[u8; 32],
 ) -> Result<[u8; 32], KeypairError> {
     poseidon(&[
         &fe_u32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
         first_input_blinding,
-        merge_view_tag,
+        first_nullifier,
     ])
 }
 
 /// The published nullifier of a dummy (padding) input slot, derived in-circuit
-/// from the single-use `merge_view_tag` and the slot index. Deterministic
+/// from the first real input's nullifier and the slot index. Deterministic
 /// dummies cannot smuggle a real wallet nullifier into a padding slot.
 pub fn merge_dummy_nullifier(
-    merge_view_tag: &[u8; 32],
+    first_nullifier: &[u8; 32],
     slot_index: u8,
 ) -> Result<[u8; 32], KeypairError> {
     let index = fe_u32(u32::from(slot_index));
     poseidon(&[
         &fe_u32(DOMAIN_MERGE_DUMMY_NULLIFIER),
-        merge_view_tag,
+        first_nullifier,
         &index,
     ])
 }
@@ -119,27 +119,27 @@ mod tests {
     #[test]
     fn recovery_derivations_match_circuit_vectors() {
         let first_blinding = fe_u32(42);
-        let tag = fe_u32(7);
+        let first_nullifier = fe_u32(7);
         assert_eq!(
-            hex::encode(merge_output_blinding(&first_blinding, &tag).unwrap()),
+            hex::encode(merge_output_blinding(&first_blinding, &first_nullifier).unwrap()),
             "2f6bd14769ab9af9cdede9526bb87e83ee9ba49a41f8e2b7158b50433f541897",
         );
         assert_ne!(
-            merge_output_blinding(&first_blinding, &tag).unwrap(),
+            merge_output_blinding(&first_blinding, &first_nullifier).unwrap(),
             merge_output_blinding(&first_blinding, &fe_u32(8)).unwrap()
         );
         assert_eq!(
-            hex::encode(merge_dummy_nullifier(&tag, 3).unwrap()),
+            hex::encode(merge_dummy_nullifier(&first_nullifier, 3).unwrap()),
             "25b36ec4cdd3a53a0a9dc93cc69559307c365c84c595dce88cb257261e05aa80",
         );
-        // Domain separation: the two derivations never collide, and the tag
-        // and slot index both bind.
+        // Domain separation: the two derivations never collide, and the first
+        // nullifier and slot index both bind.
         assert_ne!(
-            merge_dummy_nullifier(&tag, 3).unwrap(),
-            merge_dummy_nullifier(&tag, 4).unwrap()
+            merge_dummy_nullifier(&first_nullifier, 3).unwrap(),
+            merge_dummy_nullifier(&first_nullifier, 4).unwrap()
         );
         assert_ne!(
-            merge_dummy_nullifier(&tag, 3).unwrap(),
+            merge_dummy_nullifier(&first_nullifier, 3).unwrap(),
             merge_dummy_nullifier(&fe_u32(8), 3).unwrap()
         );
     }

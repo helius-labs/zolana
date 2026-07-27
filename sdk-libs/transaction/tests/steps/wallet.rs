@@ -269,7 +269,6 @@ fn recorded_split(world: &mut TransactionWorld, owner: String, parts: u8) {
         messages: Vec::new(),
         nullifiers: vec![first_nullifier],
         proofless: false,
-        merge_view_tag: None,
     };
 
     world.sync_transactions.push(transaction);

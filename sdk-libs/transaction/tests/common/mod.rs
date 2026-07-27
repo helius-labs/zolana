@@ -196,7 +196,6 @@ pub fn build_transfer(
         messages: Vec::new(),
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
-        merge_view_tag: None,
     };
     (tx, recipient_utxo, change)
 }
@@ -320,7 +319,6 @@ pub fn build_unified_transfer(
         messages: Vec::new(),
         nullifiers: vec![spec.first_nullifier],
         proofless: false,
-        merge_view_tag: None,
     };
     (tx, change_utxo, recipient_utxo)
 }

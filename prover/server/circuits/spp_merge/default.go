@@ -76,7 +76,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.UserSigningPkHash, c.OwnerPkHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.UserSigningPkHash, c.MergeViewTag)
+	fields = append(fields, c.UserSigningPkHash)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, fields))
 	return nil
 }

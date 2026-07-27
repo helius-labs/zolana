@@ -7,7 +7,7 @@
 //! merge-authority check.
 //!
 //! The consolidated output carries the owner's signing-pubkey view tag (the
-//! confidential default-zone tag) as its single-use `merge_view_tag`, so the same
+//! confidential default-zone tag) as its output view tag, so the same
 //! tag both indexes the merged output for `Wallet::sync` discovery and is inserted
 //! into the nullifier queue for replay protection. The functional inclusion /
 //! nullifier-presence check runs inside the `merge_zone` action (where the spent
@@ -125,9 +125,12 @@ impl ZoneLifecycleWorld {
         }
 
         // The single consolidated zone-owned output is reconstructed from the
-        // first real input and the proof-wide, single-use merge tag.
-        let merge_view_tag = keypair.get_merge_view_tag(0)?;
-        let output_blinding = merge_output_blinding(&inputs[0].blinding, &merge_view_tag)?;
+        // first real input and its published nullifier.
+        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
+        let first_nullifier = keypair
+            .nullifier_key
+            .nullifier(&first_hash, &inputs[0].blinding)?;
+        let output_blinding = merge_output_blinding(&inputs[0].blinding, &first_nullifier)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
@@ -148,18 +151,12 @@ impl ZoneLifecycleWorld {
             expiry_unix_ts,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
-            merge_view_tag,
             zone_program_id: zone,
         }
         .build()?;
 
         let proof = ProverClient::local().prove_merge_zone(&result.inputs)?;
 
-        // `merge_zone` inserts the single-use `merge_view_tag` into the nullifier
-        // queue for replay protection, so it must be a BN254 field element: the
-        // owner-pubkey confidential tag is a raw pubkey (not reduced) and the queue
-        // rejects it. Use the derived `merge_view_tag` (HKDF, 31 bytes) keyed by the
-        // submitting payer as the merge authority; photon indexes the output under it.
         let data = result.zone_instruction_data(pack_proof(&proof)?, ZERO);
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
@@ -181,7 +178,7 @@ impl ZoneLifecycleWorld {
             &[&payer],
         )?;
 
-        let indexed = wait_for_indexed_transaction(&self.indexer, merge_view_tag, sig);
+        let indexed = wait_for_indexed_transaction(&self.indexer, first_nullifier, sig);
 
         // Functional assert at the action: the tree root advanced (output appended),
         // photon serves a tracking inclusion proof for the consolidated output, and
@@ -200,9 +197,7 @@ impl ZoneLifecycleWorld {
             },
         )?;
 
-        // The merged output is anonymous (tagged by the derived merge_view_tag, which
-        // `Wallet::sync` has no scan for), so discovery is verified on-chain via the
-        // inclusion + nullifier-presence check above rather than a wallet sync.
+        // The merged output is tagged by its first input nullifier.
         self.indexed.push(indexed);
 
         self.last_merge = Some(MergeZoneRecord {
@@ -309,12 +304,15 @@ impl ZoneLifecycleWorld {
             });
         }
 
-        let merge_view_tag = keypair.get_merge_view_tag(0)?;
+        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
+        let first_nullifier = keypair
+            .nullifier_key
+            .nullifier(&first_hash, &inputs[0].blinding)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,
-            blinding: merge_output_blinding(&inputs[0].blinding, &merge_view_tag)?,
+            blinding: merge_output_blinding(&inputs[0].blinding, &first_nullifier)?,
             zone_program_id: None,
             zone_data_hash: None,
             data_hash: None,
@@ -328,14 +326,12 @@ impl ZoneLifecycleWorld {
             expiry_unix_ts: u64::MAX,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
-            merge_view_tag,
             zone_program_id: zone,
         }
         .build()?;
 
-        // Assemble the instruction data exactly as the happy path does (derived
-        // merge_view_tag so the nullifier-queue insert is valid), then zero the
-        // proof so verification is the only thing that fails.
+        // Assemble the instruction data exactly as the happy path does, then
+        // zero the proof so verification is the only thing that fails.
         let data = result.zone_instruction_data(MergeProof::zeroed(), ZERO);
 
         let payer = self.payer.insecure_clone();

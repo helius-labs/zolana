@@ -135,6 +135,13 @@ impl Wallet {
             report,
         };
 
+        let merge_key = viewing_keys
+            .first()
+            .ok_or(TransactionError::MissingCurrentViewingKey)?;
+        for site in &index.merge_sites {
+            ctx.decode_slot(transactions, merge_key, assets, *site)?;
+        }
+
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {
                 viewing_pubkey,

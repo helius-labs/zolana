@@ -218,10 +218,6 @@ pub(crate) struct MergeParametersJson {
     pub user_nullifier_pk: String,
     #[serde(rename = "userNullifierSecret")]
     pub user_nullifier_secret: String,
-    /// Single-use nonce driving the in-circuit output-blinding and
-    /// dummy-nullifier derivations.
-    #[serde(rename = "mergeViewTag")]
-    pub merge_view_tag: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
@@ -285,7 +281,6 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
-        merge_view_tag: big_uint_to_string(&inputs.merge_view_tag),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
@@ -475,7 +470,6 @@ mod merge_tests {
             owner_pk_hash: BigUint::ZERO,
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
-            merge_view_tag: BigUint::from(5u8),
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
             allow_dummy_inputs: BigUint::from(1u8),
@@ -493,7 +487,6 @@ mod merge_tests {
             "ownerPkHash",
             "userNullifierPk",
             "userNullifierSecret",
-            "mergeViewTag",
             "externalDataHash",
             "privateTxHash",
             "allowDummyInputs",

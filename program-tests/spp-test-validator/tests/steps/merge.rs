@@ -174,10 +174,12 @@ impl LifecycleWorld {
         }
 
         // The circuit derives the consolidated output blinding from the first
-        // real input and this single-use merge nonce. The wallet reconstructs it
-        // from the same public nonce after indexing.
-        let merge_view_tag = random_blinding();
-        let output_blinding = merge_output_blinding(&inputs[0].blinding, &merge_view_tag)?;
+        // real input and its published nullifier.
+        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
+        let first_nullifier = keypair
+            .nullifier_key
+            .nullifier(&first_hash, &inputs[0].blinding)?;
+        let output_blinding = merge_output_blinding(&inputs[0].blinding, &first_nullifier)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
@@ -198,7 +200,6 @@ impl LifecycleWorld {
             expiry_unix_ts,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
-            merge_view_tag,
         }
         .build()?;
 

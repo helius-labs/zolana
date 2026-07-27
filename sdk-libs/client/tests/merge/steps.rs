@@ -97,16 +97,15 @@ impl MergeWorld {
         let proof = ProverClient::local()
             .prove_merge(&result.inputs)
             .expect("prove merge");
-        let commitment = proof
-            .commitment
-            .expect("merge proof must carry a BSB22 commitment");
+        assert!(
+            proof.commitment.is_none(),
+            "merge proof must use vanilla Groth16"
+        );
         let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
-        let mut verifier = Groth16Verifier::new_with_commitment(
+        let mut verifier = Groth16Verifier::new(
             &proof.a,
             &proof.b,
             &proof.c,
-            &commitment.commitment,
-            &commitment.commitment_pok,
             &public_inputs,
             &merge_8_1::VERIFYINGKEY,
         )
@@ -114,9 +113,9 @@ impl MergeWorld {
         verifier.verify().expect("merge groth16 proof verifies");
 
         // The owner reconstructs the ciphertext-free merge output from the
-        // first real input and the event's proof-wide merge tag.
+        // first real input and its published nullifier.
         assert_eq!(
-            merge_output_blinding(&first_blinding, &result.merge_view_tag)
+            merge_output_blinding(&first_blinding, &result.nullifiers[0])
                 .expect("derive merge output blinding"),
             expected_output.blinding,
             "owner reconstructs the merged output blinding",
@@ -124,7 +123,7 @@ impl MergeWorld {
         assert_eq!(
             expected_output.hash().expect("reconstructed utxo hash"),
             result.output_hash,
-            "owner reconstructs the merged output from the merge tag",
+            "owner reconstructs the merged output from the first nullifier",
         );
     }
 }

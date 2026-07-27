@@ -29,7 +29,7 @@ use crate::{
 
 /// Merge consolidates up to 8 inputs sharing one owner, asset, and nullifier
 /// secret into one output whose blinding is derived from the first input's
-/// blinding and the single-use `merge_view_tag`, so the owner recovers it by
+/// blinding and first input nullifier, so the owner recovers it by
 /// reconstruction rather than decryption. The owner is either rail: a P256
 /// signing key recomputes its pk_field from the witnessed point, a Solana
 /// (ed25519) signing key feeds its pk_field directly. The input slots reuse
@@ -46,10 +46,6 @@ pub struct MergeProver {
     /// `nullifier_pk` and every input nullifier).
     pub signing_pubkey: PublicKey,
     pub nullifier_key: NullifierKey,
-    /// Single-use nonce driving the output-blinding and dummy-nullifier
-    /// derivations; SPP inserts it into the nullifier queue, so it cannot be
-    /// reused across merges.
-    pub merge_view_tag: [u8; 32],
 }
 
 /// The built merge witness and the instruction-data ingredients, produced by
@@ -74,9 +70,6 @@ pub struct MergeProofResult {
     /// True when the owner is a Solana (ed25519) signer, so `merge_transact` derives
     /// `signing_pk_field` from the registry account owner instead of `owner_p256`.
     pub eddsa_owner: bool,
-    /// The single-use merge nonce; stamped into the instruction data and emitted
-    /// in the event so the wallet can reconstruct the output.
-    pub merge_view_tag: [u8; 32],
 }
 
 impl MergeProofResult {
@@ -93,7 +86,6 @@ impl MergeProofResult {
             utxo_tree_root_index: self.utxo_tree_root_indices.clone(),
             nullifier_tree_root_index: self.nullifier_tree_root_indices.clone(),
             private_tx_hash: self.private_tx_hash,
-            merge_view_tag: self.merge_view_tag,
             eddsa_owner: self.eddsa_owner,
         }
     }
@@ -122,7 +114,7 @@ impl MergeProver {
         // the owner's registry record; the owner recombines it with their
         // nullifier_pk to get user_owner_hash.
         let mut elements = merge.head.to_vec();
-        elements.extend([merge.user_signing_pk_hash, merge.merge_view_tag]);
+        elements.push(merge.user_signing_pk_hash);
         let public_input = create_hash_chain_from_slice(&elements)?;
 
         // Default merge is non-zone; the merge-zone builder sets the zone binding.
@@ -151,7 +143,6 @@ pub(crate) struct CommonMerge {
     external_data_hash: [u8; 32],
     expiry_unix_ts: u64,
     pub user_signing_pk_hash: [u8; 32],
-    pub merge_view_tag: [u8; 32],
     eddsa_owner: bool,
     owner_pk_hash: BigUint,
     user_nullifier_pk: [u8; 32],
@@ -174,12 +165,16 @@ impl MergeProver {
         }
         let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
 
-        // Dummy slots publish deterministic nullifiers derived from the merge
-        // view tag; override the placeholder nullifiers the generic assembly
+        // Dummy slots publish deterministic nullifiers derived from the first
+        // real nullifier; override the placeholder nullifiers the generic assembly
         // computed from the dummies' blindings.
+        let first_nullifier = *assembled_inputs
+            .nullifiers
+            .first()
+            .ok_or(ClientError::NoInputs)?;
         for (i, spend) in self.inputs.iter().enumerate() {
             if spend.proof.is_none() {
-                let dummy = merge_dummy_nullifier(&self.merge_view_tag, i as u8)?;
+                let dummy = merge_dummy_nullifier(&first_nullifier, i as u8)?;
                 assembled_inputs.nullifiers[i] = dummy;
                 assembled_inputs.inputs[i].nullifier = BigUint::from_bytes_be(&dummy);
             }
@@ -253,7 +248,6 @@ impl MergeProver {
             external_data_hash,
             expiry_unix_ts: self.expiry_unix_ts,
             user_signing_pk_hash,
-            merge_view_tag: self.merge_view_tag,
             eddsa_owner,
             owner_pk_hash,
             user_nullifier_pk,
@@ -278,7 +272,6 @@ impl CommonMerge {
             owner_pk_hash: self.owner_pk_hash,
             user_nullifier_pk: be(&self.user_nullifier_pk),
             user_nullifier_secret: be(&self.user_nullifier_secret),
-            merge_view_tag: be(&self.merge_view_tag),
             external_data_hash: be(&self.external_data_hash),
             private_tx_hash: be(&self.private_tx_hash),
             allow_dummy_inputs: BigUint::from(1u8),
@@ -297,7 +290,6 @@ impl CommonMerge {
             external_data_hash: self.external_data_hash,
             expiry_unix_ts: self.expiry_unix_ts,
             eddsa_owner: self.eddsa_owner,
-            merge_view_tag: self.merge_view_tag,
         }
     }
 }
@@ -326,7 +318,6 @@ impl TryFrom<MergeWitness> for MergeProver {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            merge_view_tag,
         } = prepared;
 
         let mut spends = attach_input_proofs(inputs, &proofs, &[])?;
@@ -342,7 +333,6 @@ impl TryFrom<MergeWitness> for MergeProver {
             expiry_unix_ts,
             signing_pubkey,
             nullifier_key,
-            merge_view_tag,
         })
     }
 }

@@ -89,7 +89,15 @@ where
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
+        let nullifiers = wallet_query_nullifiers(wallet);
         fetch_shielded_transactions(indexer, &tags, &mut transactions, config, rpc_config)?;
+        fetch_shielded_transactions_by_nullifiers(
+            indexer,
+            &nullifiers,
+            &mut transactions,
+            config,
+            rpc_config,
+        )?;
         fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config, rpc_config)?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
@@ -165,8 +173,17 @@ where
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
+        let nullifiers = wallet_query_nullifiers(wallet);
         fetch_shielded_transactions_async(indexer, &tags, &mut transactions, config, rpc_config)
             .await?;
+        fetch_shielded_transactions_by_nullifiers_async(
+            indexer,
+            &nullifiers,
+            &mut transactions,
+            config,
+            rpc_config,
+        )
+        .await?;
         fetch_proofless_deposits_async(indexer, &tags, &mut proofless_deposits, config, rpc_config)
             .await?;
 
@@ -349,6 +366,10 @@ fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
     })
 }
 
+fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
+    wallet.utxos.iter().map(|utxo| utxo.nullifier).collect()
+}
+
 fn fetch_shielded_transactions<I: Rpc>(
     indexer: &I,
     tags: &[ViewTag],
@@ -370,10 +391,7 @@ fn fetch_shielded_transactions<I: Rpc>(
                 // endpoint before marking them as proofless. They are discovered
                 // through `get_encrypted_utxos_by_tags` below, not as decryptable
                 // shielded transfers.
-                if tx.proofless
-                    || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
-                        && tx.merge_view_tag.is_none())
-                {
+                if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                     continue;
                 }
                 let key = tx.tx_signature.to_string();
@@ -407,12 +425,69 @@ async fn fetch_shielded_transactions_async<I: AsyncRpc>(
                 )
                 .await?;
             for tx in response.transactions {
-                if tx.proofless
-                    || ((tx.tx_viewing_pk.is_none() || tx.salt.is_none())
-                        && tx.merge_view_tag.is_none())
-                {
+                if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                     continue;
                 }
+                let key = tx.tx_signature.to_string();
+                out.entry(key).or_insert(convert_sync_transaction(tx)?);
+            }
+            cursor = response.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
+    indexer: &I,
+    nullifiers: &[[u8; 32]],
+    out: &mut HashMap<String, ShieldedTransaction>,
+    config: SyncWalletConfig,
+    rpc_config: Option<IndexerRpcConfig>,
+) -> Result<(), ClientError> {
+    for chunk in nullifiers.chunks(config.tag_query_chunk) {
+        let mut cursor = None;
+        loop {
+            let response = indexer.get_shielded_transactions_by_nullifiers(
+                chunk.to_vec(),
+                cursor,
+                Some(config.page_limit),
+                rpc_config,
+            )?;
+            for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
+                let key = tx.tx_signature.to_string();
+                out.entry(key).or_insert(convert_sync_transaction(tx)?);
+            }
+            cursor = response.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
+    indexer: &I,
+    nullifiers: &[[u8; 32]],
+    out: &mut HashMap<String, ShieldedTransaction>,
+    config: SyncWalletConfig,
+    rpc_config: Option<IndexerRpcConfig>,
+) -> Result<(), ClientError> {
+    for chunk in nullifiers.chunks(config.tag_query_chunk) {
+        let mut cursor = None;
+        loop {
+            let response = indexer
+                .get_shielded_transactions_by_nullifiers(
+                    chunk.to_vec(),
+                    cursor,
+                    Some(config.page_limit),
+                    rpc_config,
+                )
+                .await?;
+            for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
                 let key = tx.tx_signature.to_string();
                 out.entry(key).or_insert(convert_sync_transaction(tx)?);
             }
@@ -537,7 +612,6 @@ fn proofless_deposit_from_indexed_match(
         messages: Vec::new(),
         nullifiers: Vec::new(),
         proofless: true,
-        merge_view_tag: None,
     }))
 }
 
@@ -566,7 +640,6 @@ fn convert_sync_transaction(
         messages: tx.messages,
         nullifiers: tx.nullifiers,
         proofless: false,
-        merge_view_tag: tx.merge_view_tag,
     })
 }
 
@@ -599,8 +672,8 @@ mod tests {
 
     use super::*;
     use zolana_client::rpc::{
-        Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse,
-        OutputContext, OutputSlot,
+        Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
 
     #[derive(Default)]
@@ -647,6 +720,25 @@ mod tests {
                 next_cursor: None,
             })
         }
+
+        fn get_shielded_transactions_by_nullifiers(
+            &self,
+            nullifiers: Vec<ViewTag>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+            Ok(GetShieldedTransactionsByNullifiersResponse {
+                context: Context { block_time: 0 },
+                transactions: self
+                    .transactions
+                    .iter()
+                    .filter(|tx| tx.nullifiers.iter().any(|nf| nullifiers.contains(nf)))
+                    .cloned()
+                    .collect(),
+                next_cursor: None,
+            })
+        }
     }
 
     #[async_trait::async_trait]
@@ -676,6 +768,16 @@ mod tests {
             config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Rpc::get_shielded_transactions_by_tags(self, tags, cursor, limit, config)
+        }
+
+        async fn get_shielded_transactions_by_nullifiers(
+            &self,
+            nullifiers: Vec<ViewTag>,
+            cursor: Option<Vec<u8>>,
+            limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+            Rpc::get_shielded_transactions_by_nullifiers(self, nullifiers, cursor, limit, config)
         }
     }
 
@@ -952,7 +1054,6 @@ mod tests {
                 messages: Vec::new(),
                 nullifiers: Vec::new(),
                 proofless: false,
-                merge_view_tag: None,
             }],
             matches: Vec::new(),
             program_accounts: Vec::new(),
@@ -1250,7 +1351,6 @@ mod tests {
             messages,
             nullifiers,
             proofless: false,
-            merge_view_tag: None,
         }
     }
 
@@ -1301,7 +1401,6 @@ mod tests {
                 .map(|commitment| commitment.nullifier)
                 .collect(),
             proofless: false,
-            merge_view_tag: Some(prepared.merge_view_tag),
         }
     }
 

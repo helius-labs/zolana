@@ -30,7 +30,6 @@ func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
-	circuit.MergeViewTag = p.MergeViewTag
 	circuit.AllowDummyInputs = p.AllowDummyInputs
 	circuit.UserSigningPkHash = p.OwnerPkHash
 	circuit.PublicInputHash = p.PublicInputHash
@@ -59,7 +58,6 @@ func (p *MergeParameters) createZoneWitness() *mergecircuit.ZoneCircuit {
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
-	circuit.MergeViewTag = p.MergeViewTag
 	circuit.AllowDummyInputs = p.AllowDummyInputs
 	circuit.OutputZoneDataHash = p.OutputZoneDataHash
 	circuit.ZoneProgramID = p.ZoneProgramID

@@ -15,6 +15,7 @@ pub const MIN_PAGE_LIMIT: u64 = 1;
 pub const PAGE_LIMIT: u64 = 1000;
 pub const GET_ENCRYPTED_UTXOS_BY_TAGS: &str = "get_encrypted_utxos_by_tags";
 pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "get_shielded_transactions_by_tags";
+pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "get_shielded_transactions_by_nullifiers";
 pub const GET_MERKLE_PROOFS: &str = "get_merkle_proofs";
 pub const GET_NON_INCLUSION_PROOFS: &str = "get_non_inclusion_proofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "get_nullifier_queue_elements";
@@ -35,6 +36,7 @@ pub mod method {
 
     pub struct GetEncryptedUtxosByTags;
     pub struct GetShieldedTransactionsByTags;
+    pub struct GetShieldedTransactionsByNullifiers;
     pub struct GetMerkleProofs;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
@@ -43,6 +45,12 @@ pub mod method {
         const NAME: &'static str = GET_ENCRYPTED_UTXOS_BY_TAGS;
         type Request = GetRingsByTagsRequest;
         type Response = GetEncryptedUtxosByTagsResponse;
+    }
+
+    impl RpcMethod for GetShieldedTransactionsByNullifiers {
+        const NAME: &'static str = GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS;
+        type Request = GetRingsByNullifiersRequest;
+        type Response = GetShieldedTransactionsByNullifiersResponse;
     }
 
     impl RpcMethod for GetShieldedTransactionsByTags {
@@ -489,6 +497,17 @@ pub struct GetRingsByTagsRequest {
     pub limit: Option<Limit>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingsByNullifiersRequest {
+    pub nullifiers: Vec<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<Base64String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<Limit>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
@@ -552,11 +571,6 @@ pub struct ShieldedTransaction {
     pub nullifiers: Vec<Hash>,
     /// True when at least one output in this transaction is proofless.
     pub proofless: bool,
-    /// The single-use merge nonce, present on merge transactions only. The
-    /// wallet reconstructs the merged output from it and its spent inputs.
-    /// Absent when the indexer predates this field.
-    #[serde(default)]
-    pub merge_view_tag: Option<Hash>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -566,6 +580,17 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub context: Context,
     /// Transaction-level matches; each returned transaction has at least one requested
     /// output view tag and includes all of its output slots.
+    pub transactions: Vec<ShieldedTransaction>,
+    pub next_cursor: Option<Base64String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetShieldedTransactionsByNullifiersResponse {
+    pub context: Context,
+    /// Transaction-level matches; each returned transaction spends at least one
+    /// requested nullifier and includes all of its output and input slots.
     pub transactions: Vec<ShieldedTransaction>,
     pub next_cursor: Option<Base64String>,
 }
@@ -677,6 +702,10 @@ mod tests {
         assert_eq!(
             method::GetEncryptedUtxosByTags::NAME,
             "get_encrypted_utxos_by_tags"
+        );
+        assert_eq!(
+            method::GetShieldedTransactionsByNullifiers::NAME,
+            "get_shielded_transactions_by_nullifiers"
         );
         assert_eq!(method::GetMerkleProofs::NAME, "get_merkle_proofs");
         assert_eq!(

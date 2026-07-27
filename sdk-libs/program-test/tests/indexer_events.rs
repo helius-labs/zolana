@@ -39,7 +39,6 @@ fn sample_transact_event() -> GeneralEvent {
         first_output_leaf_index: 0,
         output_tree: [0x66; 32],
         movements: Vec::new(),
-        merge_view_tag: None,
     }
 }
 

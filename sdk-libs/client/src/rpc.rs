@@ -66,6 +66,13 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub next_cursor: Option<Vec<u8>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GetShieldedTransactionsByNullifiersResponse {
+    pub context: Context,
+    pub transactions: Vec<ShieldedTransaction>,
+    pub next_cursor: Option<Vec<u8>>,
+}
+
 /// Stream of shielded transactions pushed as they land, one per matching transaction.
 pub type ShieldedTransactionStream =
     Pin<Box<dyn Stream<Item = Result<ShieldedTransaction, ClientError>> + Send>>;
@@ -281,6 +288,16 @@ pub trait Rpc {
         Err(unsupported("get_shielded_transactions_by_tags"))
     }
 
+    fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_nullifiers"))
+    }
+
     fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -477,6 +494,16 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
+    }
+
+    async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_nullifiers"))
     }
 
     async fn subscribe_to_shielded_transactions_by_tags(

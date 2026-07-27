@@ -14,7 +14,7 @@ Feature: Mixed zone lifecycle across owners
     owner syncs.
   - A merge consumes N of the sender's same-asset zone UTXOs into one consolidated
     zone output (discovered on-chain by inclusion proof, not by wallet sync, since
-    the merged output carries the single-use merge_view_tag sync has no scan for).
+    the merged output is discovered from its spent first-input nullifier).
   - A zone authority transfer consumes one of the source's zone UTXOs and re-owns
     it to the recipient, skipping the owner's spend signature.
   - The invalid-proof transfer/merge negatives borrow (do not consume) two of

@@ -8,8 +8,8 @@ import (
 )
 
 // ZoneCircuit is the policy-zone merge rail. Owner identity stays private;
-// the merge view tag, the output zone-data hash, and the zone program are
-// appended to the common merge public-input-hash preimage.
+// the output zone-data hash and zone program are appended to the common merge
+// public-input-hash preimage.
 type ZoneCircuit struct {
 	NumInputs int `gnark:"-"`
 
@@ -66,7 +66,7 @@ func (c *ZoneCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.OutputZoneDataHash, c.Output.ZoneDataHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.MergeViewTag, c.OutputZoneDataHash, c.ZoneProgramID)
+	fields = append(fields, c.OutputZoneDataHash, c.ZoneProgramID)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, fields))
 	return nil
 }

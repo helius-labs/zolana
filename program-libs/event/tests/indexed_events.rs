@@ -30,7 +30,6 @@ fn sample_general_event() -> GeneralEvent {
         first_output_leaf_index: 0,
         output_tree: [0u8; 32],
         movements: Vec::new(),
-        merge_view_tag: None,
     }
 }
 

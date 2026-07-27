@@ -175,7 +175,6 @@ pub(crate) fn build_anonymous_transfer(
         messages: Vec::new(),
         nullifiers: vec![first_nullifier],
         proofless: false,
-        merge_view_tag: None,
     };
 
     BuiltTransfer {

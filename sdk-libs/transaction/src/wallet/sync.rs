@@ -32,22 +32,22 @@ use crate::{
 pub(super) struct TxIndex {
     pub(super) sender_sites: HashMap<ViewTag, Vec<usize>>,
     pub(super) recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
+    pub(super) merge_sites: Vec<(usize, usize)>,
 }
 
 impl TxIndex {
     pub(super) fn build(transactions: &[ShieldedTransaction], report: &mut SyncReport) -> Self {
         let mut sender_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
         let mut recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
+        let mut merge_sites = Vec::new();
         for (t, tx) in transactions.iter().enumerate() {
             let mut classified = false;
-            if tx.merge_view_tag.is_some() {
-                // Merge outputs carry no ciphertext payload: they are indexed by
-                // their view tag and reconstructed in `decode_slot`.
+            if !tx.proofless && tx.tx_viewing_pk.is_none() && tx.salt.is_none() {
+                // Merge outputs carry no ciphertext payload and are discovered
+                // by spent nullifier, independently of their output view tag.
                 for (slot_index, slot) in tx.output_slots.iter().enumerate() {
-                    recipient_sites
-                        .entry(slot.view_tag)
-                        .or_default()
-                        .push((t, slot_index));
+                    let _ = slot;
+                    merge_sites.push((t, slot_index));
                     classified = true;
                 }
                 if !classified {
@@ -95,6 +95,7 @@ impl TxIndex {
         Self {
             sender_sites,
             recipient_sites,
+            merge_sites,
         }
     }
 }
@@ -474,8 +475,8 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
         };
-        if let Some(merge_view_tag) = tx.merge_view_tag {
-            return self.reconstruct_merge(tx, merge_view_tag, site);
+        if !tx.proofless && tx.tx_viewing_pk.is_none() && tx.salt.is_none() {
+            return self.reconstruct_merge(tx, site);
         }
         let Some(output_data) = slot.output_data() else {
             self.report.undecryptable_candidates += 1;
@@ -671,13 +672,12 @@ impl SyncCtx<'_> {
     }
 
     /// Reconstruct a merge output deterministically: the wallet recomputes the
-    /// candidate UTXO from its spent inputs and the published merge view tag,
+    /// candidate UTXO from its spent inputs and the published first nullifier,
     /// and stores it only if the canonical UTXO hash matches the on-chain
     /// output commitment (`store_recipient_utxos` performs the check).
     fn reconstruct_merge(
         &mut self,
         tx: &ShieldedTransaction,
-        merge_view_tag: [u8; 32],
         site: (usize, usize),
     ) -> Result<SlotOutcome, TransactionError> {
         let outcome = SlotOutcome::default();
@@ -687,19 +687,17 @@ impl SyncCtx<'_> {
         };
         let output_context = slot.output_context.clone();
 
-        // Slot 0 must be a real input (the circuit asserts it); a dummy first
-        // nullifier means this is not a merge we can reconstruct.
-        if tx.nullifiers.first() == Some(&merge_dummy_nullifier(&merge_view_tag, 0)?) {
+        let Some(first_nullifier) = tx.nullifiers.first() else {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
-        }
+        };
 
         // Match this wallet's spent inputs in slot order; deterministic dummy
         // nullifiers are skipped. A real nullifier we do not own means the
         // merge is not ours (the proof binds a single owner).
         let mut matched = Vec::new();
         for (i, nullifier) in tx.nullifiers.iter().enumerate() {
-            if *nullifier == merge_dummy_nullifier(&merge_view_tag, i as u8)? {
+            if *nullifier == merge_dummy_nullifier(first_nullifier, i as u8)? {
                 continue;
             }
             let Some(wallet_utxo) = self.utxos.iter().find(|u| &u.nullifier == nullifier) else {
@@ -727,7 +725,7 @@ impl SyncCtx<'_> {
                 .checked_add(m.1)
                 .ok_or(TransactionError::SelectedBalanceOverflow)?;
         }
-        let blinding = merge_output_blinding(&first_blinding, &merge_view_tag)?;
+        let blinding = merge_output_blinding(&first_blinding, first_nullifier)?;
         // A zone merge publishes the output zone-data hash as the slot payload.
         let zone_data_hash: Option<[u8; 32]> = if zone_program_id.is_some() {
             let Ok(hash) = <&[u8; 32]>::try_from(slot.payload.as_slice()) else {
@@ -831,6 +829,13 @@ impl Wallet {
             processed_outbound: HashSet::new(),
             report,
         };
+
+        let merge_key = viewing_keys
+            .first()
+            .ok_or(TransactionError::MissingCurrentViewingKey)?;
+        for site in &index.merge_sites {
+            ctx.decode_slot(transactions, merge_key, assets, *site)?;
+        }
 
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {

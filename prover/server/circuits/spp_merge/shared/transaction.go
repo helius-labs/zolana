@@ -53,12 +53,6 @@ type CommonPublicInputs struct {
 	ExternalDataHash frontend.Variable
 	AllowDummyInputs frontend.Variable
 
-	// MergeViewTag is the single-use nonce driving the output-blinding and
-	// dummy-nullifier derivations. Each rail folds it into its
-	// public-input-hash preimage; SPP inserts it into the nullifier queue, so
-	// it cannot be reused across merges.
-	MergeViewTag frontend.Variable
-
 	UtxoTreeRoots      []frontend.Variable
 	NullifierTreeRoots []frontend.Variable
 }
@@ -185,15 +179,25 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		)
 	}
 
-	// Slot zero must be a real input: the output blinding derives from its
-	// blinding, so a dummy slot zero would make the output blinding publicly
-	// computable from the merge view tag.
+	// Slot zero must be a real input. Constrain it first so its genuine,
+	// single-use nullifier can seed the output blinding and dummy nullifiers.
 	api.AssertIsEqual(t.Inputs[0].Domain, UtxoDomain)
-	outputBlinding := MergeOutputBlinding(api, t.Inputs[0].Blinding, t.Public.MergeViewTag)
 
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
-	for i := range t.Inputs {
+	inputHashes[0], nullifiers[0] = constrainInput(
+		api,
+		t.Inputs[0],
+		userOwnerHash,
+		t.UserNullifierSecret,
+		t.Asset,
+		t.Public.UtxoTreeRoots[0],
+		t.Public.NullifierTreeRoots[0],
+		t.ZoneProgramID,
+		frontend.Variable(0),
+		0,
+	)
+	for i := 1; i < len(t.Inputs); i++ {
 		inputHashes[i], nullifiers[i] = constrainInput(
 			api,
 			t.Inputs[i],
@@ -203,11 +207,12 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 			t.Public.UtxoTreeRoots[i],
 			t.Public.NullifierTreeRoots[i],
 			t.ZoneProgramID,
-			t.Public.MergeViewTag,
+			nullifiers[0],
 			i,
 		)
 	}
 	assertDistinctNullifiers(api, nullifiers)
+	outputBlinding := MergeOutputBlinding(api, t.Inputs[0].Blinding, nullifiers[0])
 
 	sumInputs := frontend.Variable(0)
 	for i := range t.Inputs {

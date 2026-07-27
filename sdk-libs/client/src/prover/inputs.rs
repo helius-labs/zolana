@@ -87,9 +87,6 @@ pub struct MergeInputs {
     pub owner_pk_hash: BigUint,
     pub user_nullifier_pk: BigUint,
     pub user_nullifier_secret: BigUint,
-    /// Single-use nonce driving the in-circuit output-blinding and
-    /// dummy-nullifier derivations; folded into the public-input hash.
-    pub merge_view_tag: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     /// Merges always legitimately pad with dummy slots, so the dummy-input

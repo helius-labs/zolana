@@ -19,15 +19,13 @@ use crate::instructions::{
 
 /// Policy-zone analog of `merge_transact`, invoked via CPI from a zone program.
 /// The zone's `zone_config` account signs (authorization), the merged output is
-/// indexed by the single-use `merge_view_tag`, and SPP does not check
+/// indexed by the first input nullifier, and SPP does not check
 /// `protocol_config.merge_authorities`.
 #[inline(never)]
 pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix =
         MergeZoneIxDataRef::from_bytes(data).map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
     let merge = &ix.merge;
-    let merge_view_tag = *merge.merge_view_tag;
-
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
@@ -53,8 +51,7 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         output_zone_data_hash: *ix.output_zone_data_hash,
     };
 
-    // The merged output is indexed by the single-use `merge_view_tag`, which is
-    // also inserted into the nullifier queue for replay protection. The output
+    // The merged output is indexed by the first input nullifier. The output
     // `zone_data_hash` is published in the event so the wallet can reconstruct
     // the zone output.
     process_merge_core(
@@ -64,8 +61,10 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         merge,
         external_data_hash,
         owner_binding,
-        merge_view_tag,
-        Some(merge_view_tag),
+        *merge
+            .nullifiers
+            .first()
+            .ok_or(ShieldedPoolError::InvalidMergeShape)?,
         ix.output_zone_data_hash.to_vec(),
     )
 }

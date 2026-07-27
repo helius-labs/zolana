@@ -18,18 +18,18 @@ const (
 )
 
 // MergeOutputBlinding derives the merged output's blinding from the first
-// (always real) input's blinding and the single-use merge_view_tag. The wallet
+// (always real) input's blinding and its single-use nullifier. The wallet
 // recovers the output by recomputing this value off-circuit.
-func MergeOutputBlinding(api frontend.API, firstInputBlinding, mergeViewTag frontend.Variable) frontend.Variable {
+func MergeOutputBlinding(api frontend.API, firstInputBlinding, firstNullifier frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
-		MergeOutputBlindingDomainV1, firstInputBlinding, mergeViewTag,
+		MergeOutputBlindingDomainV1, firstInputBlinding, firstNullifier,
 	})
 }
 
 // MergeDummyNullifier derives the published nullifier of a dummy (padding)
-// input slot from the single-use merge_view_tag and the slot index.
-func MergeDummyNullifier(api frontend.API, mergeViewTag frontend.Variable, slotIndex int) frontend.Variable {
+// input slot from the first real input's nullifier and the slot index.
+func MergeDummyNullifier(api frontend.API, firstNullifier frontend.Variable, slotIndex int) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
-		MergeDummyNullifierDomain, mergeViewTag, slotIndex,
+		MergeDummyNullifierDomain, firstNullifier, slotIndex,
 	})
 }

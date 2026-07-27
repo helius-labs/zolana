@@ -226,13 +226,12 @@ func TestMergeCircuitRejectsDummySlotZero(t *testing.T) {
 	}
 }
 
-// A wrong merge view tag changes the derived output blinding and every dummy
-// nullifier, so the public input hash cannot match.
-func TestMergeCircuitRejectsWrongMergeViewTag(t *testing.T) {
+// A wrong first nullifier cannot match the in-circuit derivation.
+func TestMergeCircuitRejectsWrongFirstNullifier(t *testing.T) {
 	a := buildValidWitness(t)
-	a.MergeViewTag = big.NewInt(0xBAD)
+	a.Nullifiers[0] = big.NewInt(0xBAD)
 	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-		t.Fatal("expected merge-view-tag binding to fail, got solved")
+		t.Fatal("expected first-nullifier binding to fail, got solved")
 	}
 }
 

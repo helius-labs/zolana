@@ -82,7 +82,7 @@ fn parses_proofless_shield_event_with_photon_parser() {
         parse_rings_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 2);
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::DEPOSIT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 0);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -102,7 +102,7 @@ fn parses_shielded_transfer_event_with_photon_parser() {
         parse_rings_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 2);
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 1);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -131,7 +131,7 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
     );
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 2);
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 2);
     let tx_viewing_pk = rings_tx
@@ -165,7 +165,7 @@ fn parses_unshield_event_with_photon_parser() {
     let state_update = parse_rings_update(unshield_transaction_info(), UNSHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 2);
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 4);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -1373,7 +1373,6 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
             messages: Vec::new(),
             tx_viewing_pk: [0; 33],
             salt: [0; 16],
-            merge_view_tag: None,
             first_output_leaf_index: 0,
             output_tree: TEST_TREE,
             movements: vec![Movement {
@@ -1419,7 +1418,6 @@ fn shielded_transfer_transaction_info() -> TransactionInfo {
             messages: Vec::new(),
             tx_viewing_pk: [0; 33],
             salt: [0; 16],
-            merge_view_tag: None,
             first_output_leaf_index: 1,
             output_tree: TEST_TREE,
             movements: Vec::new(),
@@ -1442,7 +1440,6 @@ fn unshield_transaction_info() -> TransactionInfo {
             messages: Vec::new(),
             tx_viewing_pk: [0; 33],
             salt: [0; 16],
-            merge_view_tag: None,
             first_output_leaf_index: 4,
             output_tree: TEST_TREE,
             movements: vec![Movement {
@@ -1469,7 +1466,6 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
             messages: Vec::new(),
             tx_viewing_pk: [5; 33],
             salt: [6; 16],
-            merge_view_tag: None,
             first_output_leaf_index: 2,
             output_tree: TEST_TREE,
             movements: Vec::new(),

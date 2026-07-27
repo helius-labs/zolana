@@ -59,8 +59,6 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     .hash()
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    // The `merge_view_tag` is single-use on both rails: inserting it into the
-    // nullifier queue rejects a reused tag.
     process_merge_core(
         merge_accounts.input_tree,
         merge_accounts.output_tree,
@@ -69,14 +67,13 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         external_data_hash,
         MergeOwnerBinding::Registry { signing_pk_field },
         output_view_tag,
-        Some(*ix.merge_view_tag),
         Vec::new(),
     )
 }
 
 /// Shared tail for `merge_transact` and `merge_zone`: read roots, nullify the
-/// inputs, insert the single-use `merge_view_tag`, append the output, verify
-/// the proof, and emit the event. The tree-derived dummy-input policy is
+/// inputs, append the output, verify the proof, and emit the event. The
+/// tree-derived dummy-input policy is
 /// captured before any queue insertion or state append.
 /// `output_data` is the event's output payload: empty for `merge_transact`, the
 /// output `zone_data_hash` for `merge_zone`.
@@ -90,7 +87,6 @@ pub(crate) fn process_merge_core(
     external_data_hash: [u8; 32],
     owner_binding: MergeOwnerBinding,
     output_view_tag: [u8; 32],
-    single_use_tag: Option<[u8; 32]>,
     output_data: Vec<u8>,
 ) -> ProgramResult {
     let (inputs, derived, zkp_batch_size) = {
@@ -102,7 +98,9 @@ pub(crate) fn process_merge_core(
         )
         .map_err(tree_error)?;
         let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
-        // We insert the merge view tag salt into the nullifier tree. It is essentially a dummy input.
+        // Merge proofs are currently built with `allow_dummy_inputs = true`.
+        // Keep the explicit capacity error instead of letting proof verification
+        // fail opaquely when the tree disables dummy inputs.
         if !allow_dummy_inputs {
             return Err(ShieldedPoolError::NullifierTreeTooFullForMerge.into());
         }
@@ -113,7 +111,7 @@ pub(crate) fn process_merge_core(
             allow_dummy_inputs: bool_field(allow_dummy_inputs),
             owner_binding,
         };
-        let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived, single_use_tag)?;
+        let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
         let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
         (inputs, derived, zkp_batch_size)
     };
@@ -133,7 +131,7 @@ pub(crate) fn process_merge_core(
     collect_forester_fee(
         payer,
         input_tree_account,
-        MERGE_INPUT_COUNT as u64 + u64::from(single_use_tag.is_some()),
+        MERGE_INPUT_COUNT as u64,
         zkp_batch_size,
     )?;
     emit_general_event(EventKind::Merge, event)
@@ -145,7 +143,6 @@ fn apply_input_tree(
     ix: &MergeTransactIxDataRef<'_>,
     input_tree: [u8; 32],
     derived: &mut MergeProofInputs,
-    single_use_tag: Option<[u8; 32]>,
 ) -> Result<Vec<Input>, ProgramError> {
     let shape = ShieldedPoolError::InvalidMergeShape;
     let nullifier_seq_base = tree.nullifer_tree().queue_batches.next_index;
@@ -169,14 +166,6 @@ fn apply_input_tree(
             input_queue_seq: nullifier_seq_base + i as u64,
             nullifier: *nullifier,
         });
-    }
-
-    // The `merge_view_tag` is single-use on both rails; insert it into the
-    // nullifier queue so a duplicate tag is rejected (replay protection).
-    if let Some(tag) = single_use_tag {
-        tree.nullifer_tree()
-            .insert_address_into_queue(&tag)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
     }
 
     Ok(inputs)
