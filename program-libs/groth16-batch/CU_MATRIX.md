@@ -69,3 +69,22 @@ Account delta measured here: legacy_tx +33, v0+ALT +2.
 | Swap make-shaped batch | 357 | 8 | 735 | 616 |
 
 Regenerate: `cargo test -p zolana-groth16-batch --test matrix_measure -- --nocapture`
+
+## Fold-only syscall CU (measured layout × agave prices)
+
+Host trapdoor fold verifies; CU from `msm_cost`/`pairing_cost` (LiteSVM registration)
+for Independent same-vk, 1 public input. See `BATCH_CU_RESULTS.md` / `just bench-batch-fold-cu`.
+
+| N | Fold syscall CU |
+| ---: | ---: |
+| 1 | 72603 |
+| 2 | 92395 |
+| 4 | 131784 |
+| 8 | 207730 |
+| 16 | 358107 |
+| Compose k=2 | 127960 |
+
+Full-path app batch CU still needs working SPP transfer proving keys (currently
+`constraint not satisfied` on this branch for all transfer proves). Dual harness:
+`just bench-batch-cu`.
+

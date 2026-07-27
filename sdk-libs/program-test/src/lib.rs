@@ -110,12 +110,25 @@ impl ZolanaProgramTest {
     }
 
     pub fn with_program_path(path: &Path) -> Result<Self, ProgramTestError> {
+        Self::with_program_path_and_batch_syscalls(path, false)
+    }
+
+    /// Like [`with_program_path`], optionally registering agave BN254 batch
+    /// syscalls at agave prices (`zolana_batch_syscalls`). Required for SPP
+    /// `BatchTransact` / `ComposeTransact` and app batch twins.
+    pub fn with_program_path_and_batch_syscalls(
+        path: &Path,
+        batch_syscalls: bool,
+    ) -> Result<Self, ProgramTestError> {
         if !path.exists() {
             return Err(ProgramTestError::MissingProgram(path.to_path_buf()));
         }
 
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         let mut svm = LiteSVM::new();
+        if batch_syscalls {
+            svm = zolana_batch_syscalls::with_batch_syscalls(svm);
+        }
         let program_bytes = std::fs::read(path)?;
         svm.add_program(program_id, &program_bytes)
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;
@@ -132,6 +145,11 @@ impl ZolanaProgramTest {
             indexer: TestIndexer::new(),
             tree_counter: 0,
         })
+    }
+
+    /// Boot with default SPP path and batch syscalls registered.
+    pub fn with_batch_syscalls() -> Result<Self, ProgramTestError> {
+        Self::with_program_path_and_batch_syscalls(&default_program_path(), true)
     }
 
     /// Deterministic signer for a new tree account.

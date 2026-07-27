@@ -19,11 +19,13 @@ ark-ff = { workspace = true }
 ark-std = { workspace = true }
 bincode = "1.3"
 solana-address = { workspace = true }
+solana-bn254-batch-syscall = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-message = { workspace = true, features = ["serde"] }
 solana-pubkey = { workspace = true }
 solana-transaction = { workspace = true, features = ["bincode", "serde"] }
+zolana-batch-syscalls = { path = "../../program-tests/batch-syscalls" }
 zolana-interface = { workspace = true, features = ["solana"] }
 
 [lints.rust.unexpected_cfgs]

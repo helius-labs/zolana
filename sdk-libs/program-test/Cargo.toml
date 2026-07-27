@@ -25,6 +25,7 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 thiserror = { workspace = true }
+zolana-batch-syscalls = { path = "../../program-tests/batch-syscalls" }
 zolana-client = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-event = { workspace = true, features = ["program-test"] }
