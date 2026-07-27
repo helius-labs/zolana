@@ -103,6 +103,8 @@ pub fn process_transact_ix(
         interface_transfers: &resolved_interface_transfers,
         data_hash: ix.data_hash,
         zone_data_hash: ix.zone_data_hash,
+        tx_viewing_pk: ix.tx_viewing_pk,
+        salt: ix.salt,
         outputs: &resolved_outputs,
         messages: &ix.messages,
     }

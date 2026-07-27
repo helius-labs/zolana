@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
@@ -13,8 +14,12 @@ type externalDataPreimage struct {
 	InstructionDiscriminator uint8
 	ExpiryUnixTs             uint64
 	InterfaceTransfers       []resolvedInterfaceTransfer
+	DataHashPresent          bool
 	DataHash                 [32]byte
+	ZoneDataHashPresent      bool
 	ZoneDataHash             [32]byte
+	TxViewingPk              [33]byte
+	Salt                     [16]byte
 	Outputs                  []resolvedOutput
 	Messages                 []resolvedMessage
 }
@@ -104,6 +109,18 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 	if err != nil {
 		return externalValues{}, fmt.Errorf("zone_data_hash: %w", err)
 	}
+	txViewingPkBytes, err := fixedHexBytes(tx.TxViewingPk, 33)
+	if err != nil {
+		return externalValues{}, fmt.Errorf("tx_viewing_pk: %w", err)
+	}
+	var txViewingPk [33]byte
+	copy(txViewingPk[:], txViewingPkBytes)
+	saltBytes, err := fixedHexBytes(tx.Salt, 16)
+	if err != nil {
+		return externalValues{}, fmt.Errorf("salt: %w", err)
+	}
+	var salt [16]byte
+	copy(salt[:], saltBytes)
 	outputs, err := resolveOutputs(outputHashes, senderViewTagBytes, encryptedUtxos)
 	if err != nil {
 		return externalValues{}, err
@@ -113,10 +130,18 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 			InstructionDiscriminator: tx.InstructionDiscriminator,
 			ExpiryUnixTs:             tx.ExpiryUnixTs,
 			InterfaceTransfers:       interfaceTransfers,
-			DataHash:                 dataHashBytes,
-			ZoneDataHash:             zoneDataHashBytes,
-			Outputs:                  outputs,
-			Messages:                 nil,
+			// This harness only accepts bare default-zone transfers, so both
+			// transaction-level optional hashes are canonically None. The
+			// parsed zero values above are their circuit field values, not
+			// present Option values.
+			DataHashPresent:     false,
+			DataHash:            dataHashBytes,
+			ZoneDataHashPresent: false,
+			ZoneDataHash:        zoneDataHashBytes,
+			TxViewingPk:         txViewingPk,
+			Salt:                salt,
+			Outputs:             outputs,
+			Messages:            nil,
 		}),
 		publicSlots: slots,
 		// The custom-zone circuits assert the public zone id is
@@ -127,6 +152,20 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 		dataHash:      dataHash,
 		zoneDataHash:  zoneDataHash,
 	}, nil
+}
+
+func fixedHexBytes(value string, size int) ([]byte, error) {
+	if strings.TrimSpace(value) == "" {
+		return make([]byte, size), nil
+	}
+	decoded, err := parse.HexBytes(value)
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) != size {
+		return nil, fmt.Errorf("expected %d bytes, got %d", size, len(decoded))
+	}
+	return decoded, nil
 }
 
 func resolveOutputs(outputHashes []*big.Int, ownerTag [32]byte, encryptedUtxos []byte) ([]resolvedOutput, error) {
@@ -227,14 +266,26 @@ func externalDataFieldHash(data externalDataPreimage) *big.Int {
 	// expiry_unix_ts is bound ONLY here, not in private_tx_hash: SPP can't
 	// recompute private_tx_hash (it covers private input hashes), so this hash is
 	// what lets SPP confirm the expiry it clock-checks is the one the owner
-	// signed.
+	// signed. The optional-hash presence bytes and encryption context are also
+	// part of the canonical preimage.
 	return protocol.Sha256BEField(
 		[]byte{data.InstructionDiscriminator},
 		expiry[:],
 		legSection,
+		[]byte{byteFromBool(data.DataHashPresent)},
 		data.DataHash[:],
+		[]byte{byteFromBool(data.ZoneDataHashPresent)},
 		data.ZoneDataHash[:],
+		data.TxViewingPk[:],
+		data.Salt[:],
 		outputSection,
 		messageSection,
 	)
+}
+
+func byteFromBool(value bool) byte {
+	if value {
+		return 1
+	}
+	return 0
 }

@@ -240,6 +240,8 @@ pub fn external_data_hash(
         interface_transfers,
         data_hash: None,
         zone_data_hash: None,
+        tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
+        salt: &transact_ix_data.salt,
         outputs: &outputs,
         messages: &transact_ix_data.messages,
     }

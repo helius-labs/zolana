@@ -914,12 +914,18 @@ external_data_hash := Sha256BE(
     u64_be(expiry_unix_ts)                           ||
     u8(resolved_public_legs.len())                    ||
     public_leg(resolved_public_legs[0]) || ...        ||
-    data_hash.unwrap_or([0; 32])                     ||
-    zone_data_hash.unwrap_or([0; 32])                ||
+    option_hash(data_hash)                            ||
+    option_hash(zone_data_hash)                       ||
+    tx_viewing_pk                                     ||
+    salt                                              ||
     u16_be(outputs.len())  || output(outputs[0])   || output(outputs[1])   || ... ||
     u16_be(messages.len()) || message(messages[0])  || message(messages[1])  || ...
 )
 
+option_hash(h) := match h {
+                      None    => u8(0) || [0; 32],
+                      Some(v) => u8(1) || v,
+                  }
 output(o)  := o.utxo_hash || fetch_tag(o.owner_tag) || match o.data {
                   None    => u8(0),
                   Some(d) => u8(1) || u16_be(d.len()) || d,
@@ -949,7 +955,12 @@ Thus different recipients or funding accounts cannot cancel out of
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
 
-`data_hash` and `zone_data_hash` are optional transaction-level external commitments from the [`transact`](#transact) instruction data, `None` (`[0; 32]`) for a default-zone `transact`. A zone or co-proof sets them to a tx-level digest of its inputs. The proof does not interpret them: as with the rest of `external_data_hash` it commits only to the combined hash, which SPP (or the zone program before its CPI) recomputes and checks. They are not standalone public inputs, and are distinct from the per-UTXO `data_hash` / `zone_data_hash` in [`utxo_hash`](#utxo-hash).
+`data_hash` and `zone_data_hash` are optional transaction-level external commitments from the [`transact`](#transact) instruction data, `None` for a default-zone `transact`. A zone or co-proof sets them to a tx-level digest of its inputs. The proof does not interpret them: as with the rest of `external_data_hash` it commits only to the combined hash, which SPP (or the zone program before its CPI) recomputes and checks. They are not standalone public inputs, and are distinct from the per-UTXO `data_hash` / `zone_data_hash` in [`utxo_hash`](#utxo-hash).
+
+The presence byte in `option_hash` makes `None` distinct from
+`Some([0; 32])`. `tx_viewing_pk` and `salt` bind the transaction-level
+decryption context to the encrypted output and message bytes, so an
+intermediary cannot replace either value while reusing the proof.
 
 **Checks**
 
@@ -1360,15 +1371,15 @@ struct TransactIxData {
     /// same name in [`utxo_hash`](#utxo-hash).
     data_hash: Option<[u8; 32]>,
     zone_data_hash: Option<[u8; 32]>,
-    /// Shared `tx_viewing_pk` for every output ciphertext. Copied verbatim into
-    /// the logged `GeneralEvent` so an indexer need not parse the per-output
-    /// `data`. Always present.
+    /// Shared `tx_viewing_pk` for every output ciphertext. Bound into
+    /// `external_data_hash` and copied verbatim into the logged `GeneralEvent`
+    /// so an indexer need not parse the per-output `data`. Always present.
     tx_viewing_pk: P256Pubkey,
     /// Shared AES `salt` for every output ciphertext (see [AES Nonce
     /// derivation](#aes-nonce-derivation)). Stored at the transaction level
-    /// alongside `tx_viewing_pk` and copied verbatim into the logged
-    /// `GeneralEvent`, so a wallet derives the per-slot key/nonce without parsing
-    /// the per-output `data`. Always present.
+    /// alongside `tx_viewing_pk`, bound into `external_data_hash`, and copied
+    /// verbatim into the logged `GeneralEvent`, so a wallet derives the per-slot
+    /// key/nonce without parsing the per-output `data`. Always present.
     salt: [u8; 16],
     /// All `M` outputs in tree-append order (SPL change, SOL change, then
     /// recipients / dummies). Each `utxo_hash` is appended to the UTXO tree and

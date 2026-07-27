@@ -21,6 +21,8 @@ type ProofTransactionRequest struct {
 	InstructionDiscriminator uint8                      `json:"instruction_discriminator"`
 	ExpiryUnixTs             uint64                     `json:"expiry_unix_ts"`
 	SenderViewTag            string                     `json:"sender_view_tag"`
+	TxViewingPk              string                     `json:"tx_viewing_pk"`
+	Salt                     string                     `json:"salt"`
 	InterfaceTransfers       []InterfaceTransferRequest `json:"interface_transfers"`
 	EncryptedUtxos           string                     `json:"encrypted_utxos"`
 	StateEntries             []ProofStateEntry          `json:"state_entries"`
@@ -80,6 +82,8 @@ type ProofTransaction struct {
 	Name                   string                     `json:"name"`
 	ExpiryUnixTs           uint64                     `json:"expiry_unix_ts"`
 	SenderViewTag          string                     `json:"sender_view_tag"`
+	TxViewingPk            string                     `json:"tx_viewing_pk"`
+	Salt                   string                     `json:"salt"`
 	Proof                  *common.Proof              `json:"proof"`
 	Nullifiers             []string                   `json:"nullifiers"`
 	OutputUtxoHashes       []string                   `json:"output_utxo_hashes"`
@@ -236,11 +240,21 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 	if err != nil {
 		return ProofTransaction{}, err
 	}
+	txViewingPk, err := fixedHexBytes(tx.TxViewingPk, 33)
+	if err != nil {
+		return ProofTransaction{}, fmt.Errorf("tx_viewing_pk: %w", err)
+	}
+	salt, err := fixedHexBytes(tx.Salt, 16)
+	if err != nil {
+		return ProofTransaction{}, fmt.Errorf("salt: %w", err)
+	}
 
 	return ProofTransaction{
 		Name:          tx.Name,
 		ExpiryUnixTs:  tx.ExpiryUnixTs,
 		SenderViewTag: parse.HexString(tx.SenderViewTag),
+		TxViewingPk:   parse.BytesHex(txViewingPk),
+		Salt:          parse.BytesHex(salt),
 		Proof:         &common.Proof{Proof: proof},
 		// Real-length public transcript. transcript.{nullifiers,outputHashes} are
 		// padded to the circuit shape (reals first, then dummy slots), but the

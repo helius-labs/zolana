@@ -127,7 +127,9 @@ impl SettlementTransfer {
 /// crate, so the client and the Solana program agree byte-for-byte. Each output
 /// carries its commitment, wire `owner_tag`, and optional ciphertext; the
 /// resolved 32-byte owner tags are paired at construction so [`Self::hash`]
-/// needs no transaction context and cannot drift from the wire tags.
+/// needs no account context and cannot drift from the wire tags. The hash also
+/// binds `tx_viewing_pk` and `salt`, which are required to decrypt those
+/// ciphertexts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
     pub instruction_discriminator: u8,
@@ -249,6 +251,8 @@ impl ExternalData {
             interface_transfers: &interface_transfers,
             data_hash: self.data_hash,
             zone_data_hash: self.zone_data_hash,
+            tx_viewing_pk: &self.tx_viewing_pk,
+            salt: &self.salt,
             outputs: &resolved,
             messages: &self.messages,
         }

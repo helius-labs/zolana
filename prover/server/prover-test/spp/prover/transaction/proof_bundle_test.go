@@ -256,8 +256,9 @@ func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
 
 func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 	// Known-answer vector for the canonical Rust ExternalDataHash layout:
-	// counted direction-tagged transfers, fixed zero zone hashes, counted resolved
-	// outputs with Some/None data, and an empty counted message section.
+	// counted direction-tagged transfers, absent optional zone hashes, the
+	// transaction encryption context, counted resolved outputs with Some/None
+	// data, and an empty counted message section.
 	data := externalDataPreimage{
 		InstructionDiscriminator: 0x0d,
 		ExpiryUnixTs:             0x1122334455667788,
@@ -281,7 +282,7 @@ func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 	}
 
 	got := externalDataFieldHash(data)
-	const want = "00e8d97795374db39cd749ed620000525e333d5178a2988df872f2ce2ace1302"
+	const want = "002dd852de9b27e16b074ab1fe930f1ff5fcd8cf21aef89a3bd430e83d7e902f"
 	if parse.FieldHex(got) != want {
 		t.Fatalf("external data hash = %s, want %s", parse.FieldHex(got), want)
 	}
@@ -351,6 +352,38 @@ func TestExternalDataFieldHashBindsOrderedTaggedInterfaceTransfers(t *testing.T)
 	differentRecipient.InterfaceTransfers[0].userAccount[0] ^= 1
 	if externalDataFieldHash(differentRecipient).Cmp(baseHash) == 0 {
 		t.Fatal("external_data_hash did not bind interface transfer recipient")
+	}
+}
+
+func TestExternalDataFieldHashBindsEncryptionContextAndOptionalHashPresence(t *testing.T) {
+	base := externalDataPreimage{
+		TxViewingPk: [33]byte{1},
+		Salt:        [16]byte{2},
+	}
+	baseHash := externalDataFieldHash(base)
+
+	differentPk := base
+	differentPk.TxViewingPk[0] ^= 1
+	if externalDataFieldHash(differentPk).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind tx_viewing_pk")
+	}
+
+	differentSalt := base
+	differentSalt.Salt[0] ^= 1
+	if externalDataFieldHash(differentSalt).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash did not bind salt")
+	}
+
+	dataHashPresent := base
+	dataHashPresent.DataHashPresent = true
+	if externalDataFieldHash(dataHashPresent).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash collapsed absent data_hash and present zero data_hash")
+	}
+
+	zoneDataHashPresent := base
+	zoneDataHashPresent.ZoneDataHashPresent = true
+	if externalDataFieldHash(zoneDataHashPresent).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash collapsed absent zone_data_hash and present zero zone_data_hash")
 	}
 }
 

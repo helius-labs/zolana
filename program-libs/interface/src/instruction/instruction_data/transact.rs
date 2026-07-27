@@ -126,12 +126,14 @@ pub struct TransactIxData {
     /// rail (folded as `0` into the public-input hash).
     pub p256_signing_pk_x: Option<[u8; 32]>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext in
-    /// this transaction; copied verbatim into the logged `GeneralEvent` so an
-    /// indexer need not parse the per-output `data`.
+    /// this transaction; bound into `external_data_hash` and copied verbatim
+    /// into the logged `GeneralEvent` so an indexer need not parse the
+    /// per-output `data`.
     pub tx_viewing_pk: [u8; 33],
     /// Per-transaction encryption salt shared by every output ciphertext;
-    /// copied into the logged `GeneralEvent` so wallets can derive the AES
-    /// key/nonce without parsing the per-output `data`.
+    /// bound into `external_data_hash` and copied into the logged
+    /// `GeneralEvent` so wallets can derive the AES key/nonce without parsing
+    /// the per-output `data`.
     pub salt: [u8; 16],
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
@@ -345,10 +347,19 @@ pub struct ExternalDataHash<'a, M: OutputDataBytes> {
     pub spp_instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
     pub interface_transfers: &'a [ResolvedInterfaceTransfer],
-    /// Zk programs can commit their data to the external data hash.
+    /// Zk programs can commit their data to the external data hash. The option
+    /// presence is bound separately from the value.
     pub data_hash: Option<[u8; 32]>,
-    /// Zone programs can commit their data to the external data hash.
+    /// Zone programs can commit their data to the external data hash. The
+    /// option presence is bound separately from the value.
     pub zone_data_hash: Option<[u8; 32]>,
+    /// Shared transaction viewing key used to derive every output's encryption
+    /// key. Binding it prevents an intermediary from making otherwise-valid
+    /// ciphertexts undecryptable.
+    pub tx_viewing_pk: &'a [u8; 33],
+    /// Shared per-transaction encryption salt. Binding it prevents an
+    /// intermediary from changing the key/nonce derivation context.
+    pub salt: &'a [u8; 16],
     pub outputs: &'a [ResolvedOutput<'a>],
     pub messages: &'a [M],
 }
@@ -400,8 +411,12 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
                 }
             }
         }
+        preimage.push(u8::from(self.data_hash.is_some()));
         preimage.extend_from_slice(&self.data_hash.unwrap_or([0u8; 32]));
+        preimage.push(u8::from(self.zone_data_hash.is_some()));
         preimage.extend_from_slice(&self.zone_data_hash.unwrap_or([0u8; 32]));
+        preimage.extend_from_slice(self.tx_viewing_pk);
+        preimage.extend_from_slice(self.salt);
         preimage.extend_from_slice(&(self.outputs.len() as u16).to_be_bytes());
         for output in self.outputs {
             preimage.extend_from_slice(output.utxo_hash);
@@ -651,6 +666,8 @@ mod tests {
             interface_transfers: &resolved,
             data_hash: None,
             zone_data_hash: None,
+            tx_viewing_pk: &[0u8; 33],
+            salt: &[0u8; 16],
             outputs: &[],
             messages: &[],
         }
@@ -729,6 +746,8 @@ mod tests {
             interface_transfers: &[],
             data_hash: None,
             zone_data_hash: None,
+            tx_viewing_pk: &[0u8; 33],
+            salt: &[0u8; 16],
             outputs,
             messages,
         }
@@ -743,11 +762,64 @@ mod tests {
             interface_transfers,
             data_hash: None,
             zone_data_hash: None,
+            tx_viewing_pk: &[0u8; 33],
+            salt: &[0u8; 16],
             outputs: &[],
             messages: &[],
         }
         .hash()
         .unwrap()
+    }
+
+    fn hash_with_encryption_context(
+        data_hash: Option<[u8; 32]>,
+        zone_data_hash: Option<[u8; 32]>,
+        tx_viewing_pk: &[u8; 33],
+        salt: &[u8; 16],
+    ) -> [u8; 32] {
+        ExternalDataHash::<MessageData> {
+            spp_instruction_discriminator: 0,
+            expiry_unix_ts: 0,
+            interface_transfers: &[],
+            data_hash,
+            zone_data_hash,
+            tx_viewing_pk,
+            salt,
+            outputs: &[],
+            messages: &[],
+        }
+        .hash()
+        .unwrap()
+    }
+
+    #[test]
+    fn external_data_hash_binds_encryption_context_and_optional_hash_presence() {
+        let tx_viewing_pk = [1u8; 33];
+        let salt = [2u8; 16];
+        let base = hash_with_encryption_context(None, None, &tx_viewing_pk, &salt);
+
+        let mut different_pk = tx_viewing_pk;
+        different_pk[0] ^= 1;
+        assert_ne!(
+            base,
+            hash_with_encryption_context(None, None, &different_pk, &salt)
+        );
+
+        let mut different_salt = salt;
+        different_salt[0] ^= 1;
+        assert_ne!(
+            base,
+            hash_with_encryption_context(None, None, &tx_viewing_pk, &different_salt)
+        );
+
+        assert_ne!(
+            base,
+            hash_with_encryption_context(Some([0u8; 32]), None, &tx_viewing_pk, &salt)
+        );
+        assert_ne!(
+            base,
+            hash_with_encryption_context(None, Some([0u8; 32]), &tx_viewing_pk, &salt)
+        );
     }
 
     #[test]
@@ -830,6 +902,8 @@ mod tests {
             0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0xaa, 0xbb, 0xcc, 0xdd,
             0xee, 0xff,
         ];
+        let tx_viewing_pk = core::array::from_fn(|i| 0x90 + i as u8);
+        let salt = core::array::from_fn(|i| 0xf0 + i as u8);
         let outputs = [
             ResolvedOutput {
                 utxo_hash: &first_hash,
@@ -859,6 +933,8 @@ mod tests {
             interface_transfers: &transfers,
             data_hash: None,
             zone_data_hash: None,
+            tx_viewing_pk: &tx_viewing_pk,
+            salt: &salt,
             outputs: &outputs,
             messages: &[],
         }
@@ -867,8 +943,8 @@ mod tests {
         assert_eq!(
             got,
             [
-                0, 202, 22, 143, 174, 123, 166, 237, 238, 46, 107, 236, 45, 239, 126, 92, 152, 26,
-                250, 176, 203, 236, 146, 118, 54, 179, 246, 220, 43, 46, 50, 248,
+                0, 158, 89, 123, 76, 124, 227, 205, 127, 129, 50, 165, 18, 138, 42, 21, 181, 125,
+                204, 170, 184, 141, 92, 9, 24, 208, 134, 151, 150, 45, 223, 100,
             ]
         );
     }

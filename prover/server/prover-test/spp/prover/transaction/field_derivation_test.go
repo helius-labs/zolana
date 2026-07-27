@@ -21,6 +21,8 @@ type fieldDerivationVector struct {
 type externalDataHashVector struct {
 	InstructionDiscriminator uint8                     `json:"instruction_discriminator"`
 	SenderViewTag            string                    `json:"sender_view_tag"`
+	TxViewingPk              string                    `json:"tx_viewing_pk"`
+	Salt                     string                    `json:"salt"`
 	ExpiryUnixTs             uint64                    `json:"expiry_unix_ts"`
 	InterfaceTransfers       []interfaceTransferVector `json:"interface_transfers"`
 	DataHash                 string                    `json:"data_hash"`
@@ -72,8 +74,12 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 		InstructionDiscriminator: external.InstructionDiscriminator,
 		ExpiryUnixTs:             external.ExpiryUnixTs,
 		InterfaceTransfers:       vectorResolvedInterfaceTransfers(t, external.InterfaceTransfers),
+		DataHashPresent:          false,
 		DataHash:                 mustFieldBytes(t, external.DataHash),
+		ZoneDataHashPresent:      false,
 		ZoneDataHash:             mustFieldBytes(t, external.ZoneDataHash),
+		TxViewingPk:              mustHex33(t, external.TxViewingPk),
+		Salt:                     mustHex16(t, external.Salt),
 		Outputs:                  outputs,
 	})
 	expectField(t, "external_data_hash", gotExternal, external.Hash)
@@ -199,6 +205,28 @@ func mustHexBytes(t *testing.T, value string) []byte {
 	if err != nil {
 		t.Fatalf("parse hex bytes %q: %v", value, err)
 	}
+	return out
+}
+
+func mustHex33(t *testing.T, value string) [33]byte {
+	t.Helper()
+	bytes := mustHexBytes(t, value)
+	if len(bytes) != 33 {
+		t.Fatalf("parse hex33 %q: expected 33 bytes, got %d", value, len(bytes))
+	}
+	var out [33]byte
+	copy(out[:], bytes)
+	return out
+}
+
+func mustHex16(t *testing.T, value string) [16]byte {
+	t.Helper()
+	bytes := mustHexBytes(t, value)
+	if len(bytes) != 16 {
+		t.Fatalf("parse hex16 %q: expected 16 bytes, got %d", value, len(bytes))
+	}
+	var out [16]byte
+	copy(out[:], bytes)
 	return out
 }
 
