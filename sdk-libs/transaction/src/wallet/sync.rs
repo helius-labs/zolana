@@ -704,8 +704,7 @@ impl SyncCtx<'_> {
         // merge is not ours (the proof binds a single owner).
         let mut matched = Vec::new();
         for (i, nullifier) in tx.nullifiers.iter().enumerate() {
-            if *nullifier == merge_dummy_nullifier(self.nullifier_key, first_nullifier, i as u8)?
-            {
+            if *nullifier == merge_dummy_nullifier(self.nullifier_key, first_nullifier, i as u8)? {
                 continue;
             }
             let Some(wallet_utxo) = self.utxos.iter().find(|u| &u.nullifier == nullifier) else {
