@@ -91,14 +91,12 @@ pub fn validate_interface_transfers(
 /// and republished as the event `view_tag`. `Inline` embeds the tag directly
 /// (recipient signing pubkey, zone HKDF tag, dummy tag); `Account` indexes the
 /// raw account list (same convention as [`InputUtxo::eddsa_signer_index`]) so an
-/// address-lookup table can compress self-owned outputs; `P256SigningKey`
-/// resolves to the transaction-level shared P256 signing key.
+/// address-lookup table can compress self-owned outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
 pub enum OwnerTag {
     Inline([u8; 32]),
     Account(u8),
-    P256SigningKey,
 }
 
 /// One output slot in `transact` instruction data (spec: `transact`
@@ -119,12 +117,6 @@ pub struct TransactIxData {
     pub expiry_unix_ts: u64,
     pub private_tx_hash: [u8; 32],
     pub circuit: CircuitId,
-    /// Confidential variant: the raw x-coordinate of the shared P256 signing key
-    /// (`owner_pk_field` before hashing). The program derives the public input by
-    /// hashing it on-chain, so P256-owned inputs route by equality and a
-    /// `P256SigningKey` output tag resolves to this value. `None` on the eddsa
-    /// rail (folded as `0` into the public-input hash).
-    pub p256_signing_pk_x: Option<[u8; 32]>,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext in
     /// this transaction; bound into `external_data_hash` and copied verbatim
     /// into the logged `GeneralEvent` so an indexer need not parse the
@@ -205,7 +197,6 @@ pub struct TransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
     pub private_tx_hash: &'a [u8; 32],
     pub circuit: CircuitId,
-    pub p256_signing_pk_x: Option<[u8; 32]>,
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
     pub proof: TransactProof,
@@ -223,19 +214,16 @@ pub struct TransactIxDataRef<'a> {
 
 impl<'a> TransactIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        wincode::config::deserialize(data, RefConfig::new())
+        wincode::config::deserialize_exact(data, RefConfig::new())
     }
 }
 
-/// Failure resolving an [`OwnerTag`] against the transaction context.
 /// Resolve an [`OwnerTag`] to its concrete 32-byte owner tag. The interface
-/// crate has no account access, so callers pass the transaction's
-/// `p256_signing_pk_x` and an account-address lookup; both the program and the
-/// client resolve through this one function so the OWNER public input, the
-/// event `view_tag`, and `external_data_hash` agree.
+/// crate has no account access, so callers pass an account-address lookup; both
+/// the program and the client resolve through this one function so the OWNER
+/// public input, the event `view_tag`, and `external_data_hash` agree.
 pub fn fetch_tag(
     tag: &OwnerTag,
-    p256_signing_pk_x: Option<&[u8; 32]>,
     account_address: impl Fn(u8) -> Option<[u8; 32]>,
 ) -> Result<[u8; 32], ShieldedPoolError> {
     match tag {
@@ -243,9 +231,6 @@ pub fn fetch_tag(
         OwnerTag::Account(index) => {
             account_address(*index).ok_or(ShieldedPoolError::OwnerTagAccountMissing)
         }
-        OwnerTag::P256SigningKey => p256_signing_pk_x
-            .copied()
-            .ok_or(ShieldedPoolError::MissingP256SigningKey),
     }
 }
 
@@ -262,12 +247,11 @@ impl TransactOutput {
     /// Resolve this output's owner tag against the transaction context.
     pub fn into_resolved(
         &self,
-        p256_signing_pk_x: Option<&[u8; 32]>,
         account_address: impl Fn(u8) -> Option<[u8; 32]>,
     ) -> Result<ResolvedOutput<'_>, ShieldedPoolError> {
         Ok(ResolvedOutput {
             utxo_hash: &self.utxo_hash,
-            owner_tag: fetch_tag(&self.owner_tag, p256_signing_pk_x, account_address)?,
+            owner_tag: fetch_tag(&self.owner_tag, account_address)?,
             data: self.data.as_deref(),
         })
     }
@@ -278,12 +262,11 @@ impl<'a> TransactOutputRef<'a> {
     /// resolved output aliases the same instruction buffer as `self`.
     pub fn into_resolved(
         &self,
-        p256_signing_pk_x: Option<&[u8; 32]>,
         account_address: impl Fn(u8) -> Option<[u8; 32]>,
     ) -> Result<ResolvedOutput<'a>, ShieldedPoolError> {
         Ok(ResolvedOutput {
             utxo_hash: self.utxo_hash,
-            owner_tag: fetch_tag(&self.owner_tag, p256_signing_pk_x, account_address)?,
+            owner_tag: fetch_tag(&self.owner_tag, account_address)?,
             data: self.data,
         })
     }
@@ -504,7 +487,7 @@ mod tests {
             },
             TransactOutput {
                 utxo_hash: [13u8; 32],
-                owner_tag: OwnerTag::P256SigningKey,
+                owner_tag: OwnerTag::Inline([14u8; 32]),
                 data: Some(vec![4, 5, 6, 7]),
             },
         ]
@@ -516,7 +499,6 @@ mod tests {
             expiry_unix_ts: 7,
             private_tx_hash: [9u8; 32],
             circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
-            p256_signing_pk_x: Some([20u8; 32]),
             inputs: vec![InputUtxo {
                 nullifier_hash: [1u8; 32],
                 nullifier_tree_root_index: 2,
@@ -548,7 +530,6 @@ mod tests {
         assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
         assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
         assert_eq!(view.circuit, owned.circuit);
-        assert_eq!(view.p256_signing_pk_x, owned.p256_signing_pk_x);
         assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
         assert_eq!(view.salt, &owned.salt);
         assert_eq!(view.proof, owned.proof);
@@ -587,6 +568,27 @@ mod tests {
         let bytes = owned.serialize().unwrap();
         let view = TransactIxDataRef::from_bytes(&bytes).unwrap();
         assert_ref_matches_owned(&view, &owned);
+    }
+
+    #[test]
+    fn rejects_retired_field_bearing_payload() {
+        let owned = ix_data(proof());
+        let current = owned.serialize().unwrap();
+        // expiry(8) || private_tx_hash(32) || CircuitId tag/shape(5), followed
+        // by the retired Option<[u8; 32]> encoding.
+        let field_offset = 8 + 32 + 5;
+        let mut retired = Vec::with_capacity(current.len() + 33);
+        retired.extend_from_slice(&current[..field_offset]);
+        retired.push(1);
+        retired.extend_from_slice(&[20u8; 32]);
+        retired.extend_from_slice(&current[field_offset..]);
+        assert!(TransactIxData::deserialize(&retired).is_err());
+        assert!(TransactIxDataRef::from_bytes(&retired).is_err());
+    }
+
+    #[test]
+    fn rejects_retired_owner_tag_discriminant() {
+        assert!(wincode::deserialize_exact::<OwnerTag>(&[2]).is_err());
     }
 
     #[test]
@@ -676,7 +678,7 @@ mod tests {
     }
 
     /// Per-`OwnerTag` serialized size of a single `None`-data output:
-    /// utxo_hash(32) || enum tag(1) [+32 Inline / +1 Account / +0 P256] ||
+    /// utxo_hash(32) || enum tag(1) [+32 Inline / +1 Account] ||
     /// Option presence(1).
     #[test]
     fn transact_output_serialized_sizes_per_owner_tag() {
@@ -690,14 +692,8 @@ mod tests {
             owner_tag: OwnerTag::Account(0),
             data: None,
         };
-        let p256 = TransactOutput {
-            utxo_hash: [0u8; 32],
-            owner_tag: OwnerTag::P256SigningKey,
-            data: None,
-        };
         assert_eq!(wincode::serialize(&inline).unwrap().len(), 32 + 34);
         assert_eq!(wincode::serialize(&account).unwrap().len(), 32 + 3);
-        assert_eq!(wincode::serialize(&p256).unwrap().len(), 32 + 2);
 
         // Some(data) adds the enum presence byte's 1 plus u16 length prefix and
         // the payload on top of the None cases above.
@@ -714,28 +710,16 @@ mod tests {
 
     #[test]
     fn fetch_tag_resolves_every_variant() {
-        let x = [21u8; 32];
         let accounts = |i: u8| if i == 2 { Some([22u8; 32]) } else { None };
 
         assert_eq!(
-            fetch_tag(&OwnerTag::Inline([7u8; 32]), None, accounts),
+            fetch_tag(&OwnerTag::Inline([7u8; 32]), accounts),
             Ok([7u8; 32])
         );
+        assert_eq!(fetch_tag(&OwnerTag::Account(2), accounts), Ok([22u8; 32]));
         assert_eq!(
-            fetch_tag(&OwnerTag::Account(2), None, accounts),
-            Ok([22u8; 32])
-        );
-        assert_eq!(
-            fetch_tag(&OwnerTag::P256SigningKey, Some(&x), accounts),
-            Ok(x)
-        );
-        assert_eq!(
-            fetch_tag(&OwnerTag::Account(5), None, accounts),
+            fetch_tag(&OwnerTag::Account(5), accounts),
             Err(ShieldedPoolError::OwnerTagAccountMissing)
-        );
-        assert_eq!(
-            fetch_tag(&OwnerTag::P256SigningKey, None, accounts),
-            Err(ShieldedPoolError::MissingP256SigningKey)
         );
     }
 

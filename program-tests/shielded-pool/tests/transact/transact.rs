@@ -240,9 +240,8 @@ fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
     ];
 
     // Instruction data; `proof` and `private_tx_hash` are filled in once the
-    // external-data hash (which excludes both) is known. The eddsa rail carries no
-    // P256 owner, so `p256_signing_pk_x` is `None`. Each output carries its own
-    // `Inline` owner tag.
+    // external-data hash (which excludes both) is known. Each output carries its
+    // own `Inline` owner tag.
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
@@ -251,13 +250,12 @@ fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
         ],
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
 
     // Output 0 binds to the payer and the dummy outputs reuse the payer's
     // participant tag.
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(
         &mut outputs,
         &owner_pk_hashes,

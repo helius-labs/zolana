@@ -73,8 +73,7 @@ pub enum ShieldedPoolError {
     // longer have rail-specific variants.
     #[error("zone_authority_transact is disabled for this zone")]
     ZoneAuthorityTransactDisabled = 7022,
-    #[error("output owner tag references the p256 signing key but p256_signing_pk_x is absent")]
-    MissingP256SigningKey = 7024,
+    // 7024 retired.
     #[error("output owner tag account index is out of range")]
     OwnerTagAccountMissing = 7025,
     #[error("forester fee calculation overflowed or used an invalid tree configuration")]
@@ -174,7 +173,6 @@ mod tests {
             (InvalidUserRecord as u32, 7018),
             (InvalidMergeShape as u32, 7019),
             (ZoneAuthorityTransactDisabled as u32, 7022),
-            (MissingP256SigningKey as u32, 7024),
             (OwnerTagAccountMissing as u32, 7025),
             (InvalidForesterFee as u32, 7026),
             (InsufficientForesterFeeBalance as u32, 7027),

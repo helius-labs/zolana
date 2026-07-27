@@ -157,11 +157,7 @@ impl ConfidentialSplit {
             },
         )?;
 
-        let mut signed = prepared.finalize(tx_viewing_pk, salt, bundle)?;
-        if keypair.curve()? == SignatureType::P256 {
-            signed.sign_p256(keypair)?;
-        }
-        Ok(signed)
+        prepared.finalize(tx_viewing_pk, salt, bundle)
     }
 }
 
@@ -225,6 +221,9 @@ impl PreparedSplit {
             payer_pubkey_hash,
             ..
         } = self;
+        if owner.signing_pubkey.signature_type()? == SignatureType::P256 {
+            return Err(TransactionError::P256TransactUnsupported);
+        }
         let owner_view_tag = owner.signing_pubkey.confidential_view_tag()?;
 
         let mut transact_outputs = Vec::with_capacity(outputs.len());
@@ -253,7 +252,6 @@ impl PreparedSplit {
             output_utxos: outputs,
             external_data,
             payer_pubkey_hash,
-            p256_signature: None,
         })
     }
 }
@@ -262,7 +260,7 @@ impl PreparedSplit {
 mod tests {
     use borsh::BorshDeserialize;
     use zolana_event::OutputDataEncoding;
-    use zolana_keypair::ShieldedKeypair;
+    use zolana_keypair::{ShieldedKeypair, ViewingKey};
 
     use super::*;
     use crate::{
@@ -279,6 +277,10 @@ mod tests {
             data: Data::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
+    }
+
+    fn ed25519_keypair() -> ShieldedKeypair {
+        ShieldedKeypair::from_ed25519(&[7u8; 32], ViewingKey::new()).expect("Ed25519 keypair")
     }
 
     fn assemble(keypair: &ShieldedKeypair, amount: u64, parts: u8) -> SppProofInputs {
@@ -343,7 +345,7 @@ mod tests {
 
     #[test]
     fn split_assembles_covered_bundle_with_padding() {
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ed25519_keypair();
         let parts = 3u8;
         let per_output = 100u64;
         let amount = per_output * u64::from(parts);
@@ -396,7 +398,7 @@ mod tests {
 
     #[test]
     fn split_bundle_round_trips_to_output_hashes() {
-        let keypair = ShieldedKeypair::new().unwrap();
+        let keypair = ed25519_keypair();
         let parts = 3u8;
         let per_output = 100u64;
         let amount = per_output * u64::from(parts);

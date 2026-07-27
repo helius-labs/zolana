@@ -10,9 +10,7 @@ use zolana_interface::{
     shape::Shape,
     MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{
-    shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair, SignatureType,
-};
+use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair};
 use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
@@ -734,7 +732,6 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             let prepared = tx.prepare()?;
             sign_prepared(
                 prepared,
-                &address,
                 authority,
                 &wallet.registry,
                 transaction.approval_summary,
@@ -749,7 +746,6 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             let prepared = tx.prepare()?;
             sign_prepared(
                 prepared,
-                &address,
                 authority,
                 &wallet.registry,
                 transaction.approval_summary,
@@ -773,7 +769,6 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             let prepared = split.prepare()?;
             sign_prepared_split(
                 prepared,
-                &address,
                 authority,
                 &wallet.registry,
                 transaction.approval_summary,
@@ -799,7 +794,6 @@ pub fn sign_shielded_transaction_sync<A: SyncWalletAuthority + ?Sized>(
 
 async fn sign_prepared<A: WalletAuthority + ?Sized>(
     prepared: PreparedTransfer,
-    address: &ShieldedAddress,
     authority: &A,
     assets: &AssetRegistry,
     approval_summary: String,
@@ -813,15 +807,13 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
             summary: approval_summary,
         })
         .await?;
-    let mut proof_inputs =
+    let proof_inputs =
         prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
-    apply_p256_signature(&mut proof_inputs, address, authority).await?;
     Ok(proof_inputs)
 }
 
 async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
     prepared: PreparedSplit,
-    address: &ShieldedAddress,
     authority: &A,
     assets: &AssetRegistry,
     approval_summary: String,
@@ -837,29 +829,9 @@ async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
             summary: approval_summary,
         })
         .await?;
-    let mut proof_inputs =
+    let proof_inputs =
         prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
-    apply_p256_signature(&mut proof_inputs, address, authority).await?;
     Ok(proof_inputs)
-}
-
-/// P256-rail signing tail shared by [`sign_prepared`] and [`sign_prepared_split`]:
-/// when the owner's rail is P256, sign the proof inputs' message hash and pack the
-/// r/s signature into the fixed 64-byte field. A no-op for the Solana rail.
-async fn apply_p256_signature<A: WalletAuthority + ?Sized>(
-    proof_inputs: &mut SppProofInputs,
-    address: &ShieldedAddress,
-    authority: &A,
-) -> Result<(), ClientError> {
-    if address.signing_pubkey.signature_type()? == SignatureType::P256 {
-        let message_hash = proof_inputs.message_hash()?;
-        let sig = authority.sign_p256(&message_hash).await?;
-        let mut bytes = [0u8; 64];
-        bytes[..32].copy_from_slice(&sig.sig_r);
-        bytes[32..].copy_from_slice(&sig.sig_s);
-        proof_inputs.p256_signature = Some(bytes);
-    }
-    Ok(())
 }
 
 fn withdrawal_target(
@@ -1071,7 +1043,7 @@ fn validate_unsigned_inputs(
 mod tests {
     use borsh::to_vec;
     use solana_account::Account;
-    use zolana_keypair::ShieldedKeypair;
+    use zolana_keypair::{ShieldedKeypair, ViewingKey};
     use zolana_transaction::{
         instructions::transact::SettlementTransfer, Data, DataRecord, Utxo, WalletUtxo,
     };
@@ -1107,6 +1079,10 @@ mod tests {
 
     fn wallet_with_sol(keypair: ShieldedKeypair, amount: u64) -> Wallet {
         wallet_with_asset(keypair, SOL_MINT, amount)
+    }
+
+    fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
+        ShieldedKeypair::from_ed25519(&[seed; 32], ViewingKey::new()).expect("Ed25519 keypair")
     }
 
     fn wallet_with_asset(keypair: ShieldedKeypair, asset: Address, amount: u64) -> Wallet {
@@ -1439,7 +1415,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_supports_full_u64_amount() {
-        let sender = ShieldedKeypair::new().unwrap();
+        let sender = ed25519_keypair(1);
         let authority =
             crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
         let wallet = wallet_with_sol(sender.clone(), u64::MAX);
@@ -1470,7 +1446,7 @@ mod tests {
 
     #[test]
     fn create_withdrawal_preserves_two_sol_recipients() {
-        let sender = ShieldedKeypair::new().unwrap();
+        let sender = ed25519_keypair(2);
         let authority =
             crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
         let wallet = wallet_with_sol(sender.clone(), 10);
@@ -1718,7 +1694,7 @@ mod tests {
 
     #[test]
     fn action_path_preserves_input_commitment_hashes() {
-        let sender = ShieldedKeypair::new().unwrap();
+        let sender = ed25519_keypair(3);
         let authority =
             crate::wallet_authority::LocalWalletAuthority::new(Pubkey::default(), &sender);
         let mut wallet = wallet_with_sol(sender.clone(), 10);

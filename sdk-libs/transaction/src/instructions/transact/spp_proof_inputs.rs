@@ -3,7 +3,7 @@ use solana_address::Address;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_keypair::{
     hash::{sha256, sha256_be},
-    ShieldedKeypairTrait, SignatureType, ViewingKey, ViewingKeyTrait,
+    SignatureType, ViewingKey, ViewingKeyTrait,
 };
 
 use super::{
@@ -108,7 +108,6 @@ pub struct SppProofInputs {
     pub output_utxos: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
     pub payer_pubkey_hash: [u8; 32],
-    pub p256_signature: Option<[u8; 64]>,
 }
 
 impl SppProofInputs {
@@ -123,20 +122,7 @@ impl SppProofInputs {
             output_utxos,
             external_data,
             payer_pubkey_hash: sha256_be(payer.as_array()),
-            p256_signature: None,
         }
-    }
-
-    pub fn sign_p256<K: ShieldedKeypairTrait>(
-        &mut self,
-        keypair: &K,
-    ) -> Result<(), TransactionError> {
-        if keypair.curve()? != SignatureType::P256 {
-            return Err(TransactionError::SignerNotP256);
-        }
-        let message_hash = self.message_hash()?;
-        self.p256_signature = Some(keypair.sign(&message_hash));
-        Ok(())
     }
 
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {

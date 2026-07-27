@@ -14,7 +14,7 @@ use zolana_client::{
 };
 use zolana_event::OutputDataEncoding;
 use zolana_interface::SOL_ASSET_FIELD;
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::{asset_field, signed_to_field},
@@ -57,13 +57,12 @@ fn then_proof_verifies(world: &mut TransferWorld) {
 
 impl TransferWorld {
     /// Build the transfer described by the plan, assert its output UTXOs and
-    /// encrypted slots, prove it, and verify the proof. The rail is inferred from
-    /// input ownership: any P256-owned input takes the P256 rail (signed),
-    /// all-Solana inputs take the eddsa rail (unsigned).
+    /// encrypted slots, prove it, and verify the Ed25519-only transaction proof.
     pub(crate) fn prove_and_verify(&self) {
         let plan = &self.plan;
         let mut rng = rand::thread_rng();
-        let sender = ShieldedKeypair::new().expect("sender keypair");
+        let sender = ShieldedKeypair::from_ed25519(&random_32(&mut rng), ViewingKey::new())
+            .expect("Ed25519 sender keypair");
         let assets = AssetRegistry::new([(SPL_ASSET_ID, spl_mint())]).expect("asset registry");
 
         let inputs: Vec<SppProofInputUtxo> = plan
@@ -101,7 +100,10 @@ impl TransferWorld {
         let recipients: Vec<ShieldedKeypair> = plan
             .sends
             .iter()
-            .map(|_| ShieldedKeypair::new().expect("recipient keypair"))
+            .map(|_| {
+                ShieldedKeypair::from_ed25519(&random_32(&mut rng), ViewingKey::new())
+                    .expect("Ed25519 recipient keypair")
+            })
             .collect();
 
         let mut transfer = ConfidentialTransfer::new(
@@ -139,6 +141,15 @@ impl TransferWorld {
 
         let seed = transfer.blinding_seed;
         let proof_inputs = transfer.sign(&sender, &assets).expect("sign");
+        let dummy_owner_tag = proof_inputs
+            .input_utxos
+            .iter()
+            .find(|input| !input.is_dummy())
+            .expect("at least one real input")
+            .utxo
+            .owner
+            .confidential_view_tag()
+            .expect("input owner tag");
 
         let commitments = proof_inputs.input_utxo_hashes().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;
@@ -167,6 +178,7 @@ impl TransferWorld {
             plan,
             &sender,
             &recipients,
+            dummy_owner_tag,
             &first_nullifier,
             seed,
         );
@@ -185,6 +197,7 @@ fn assert_outputs(
     plan: &TransferPlan,
     sender: &ShieldedKeypair,
     recipients: &[ShieldedKeypair],
+    dummy_owner_tag: [u8; 32],
     first_nullifier: &[u8; 32],
     seed: [u8; 32],
 ) {
@@ -266,7 +279,7 @@ fn assert_outputs(
     } else {
         SppProofOutputUtxo {
             blinding: derive_blinding(&seed, 0),
-            owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
+            owner_tag: Some(dummy_owner_tag),
             ..Default::default()
         }
     });
@@ -281,7 +294,7 @@ fn assert_outputs(
     } else {
         SppProofOutputUtxo {
             blinding: derive_blinding(&seed, 1),
-            owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
+            owner_tag: Some(dummy_owner_tag),
             ..Default::default()
         }
     });
@@ -358,11 +371,16 @@ fn assert_outputs(
             messages: external_data.messages.clone(),
         }
     );
-    // The sender's change slot sits at output 0; its resolved owner tag is the
-    // sender's view tag regardless of how the wire `OwnerTag` encodes it.
+    // A real change slot belongs to the sender. A dummy slot instead uses the
+    // first real input owner, which is already bound to the proof.
+    let first_resolved_tag = if outputs.first().is_some_and(SppProofOutputUtxo::is_dummy) {
+        dummy_owner_tag
+    } else {
+        sender.signing_pubkey().confidential_view_tag().unwrap()
+    };
     assert_eq!(
         external_data.resolved_owner_tags.first().copied(),
-        Some(sender.signing_pubkey().confidential_view_tag().unwrap())
+        Some(first_resolved_tag)
     );
 
     // The encrypted slots decrypt to the same sender change and recipients. A

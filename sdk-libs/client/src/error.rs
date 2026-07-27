@@ -150,11 +150,8 @@ pub enum ClientError {
     #[error("split input utxo {hash:?} is bound to a zone, which is not supported")]
     SplitInputZoneMismatch { hash: [u8; 32] },
 
-    #[error("p256 signature error: {0}")]
-    P256Signature(String),
-
-    #[error("the P256 ownership rail is unimplemented")]
-    P256IsUnimplemented,
+    #[error("P256-owned inputs are unsupported by transact")]
+    P256TransactUnsupported,
 
     #[error("field element exceeds 32 bytes")]
     FieldTooLong,

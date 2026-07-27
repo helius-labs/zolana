@@ -65,10 +65,8 @@ Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
 - The client-side proof-inputs struct is `SppProofInputs`; its UTXO
   collections are qualified as `input_utxos` / `output_utxos`, while
   `inputs` / `outputs` remain the pinned spellings for the processor and
-  instruction layers. Its remaining fields are `public_amounts`,
-  `external_data`, `payer_pubkey_hash`, `p256_signature`, and `shape`.
-  `p256_signature` holds a `[u8; 64]` signature, not an owner — never
-  `p256_owner`. Local bindings are `proof_inputs`, never `signed`.
+  instruction layers. Its remaining fields are `external_data` and
+  `payer_pubkey_hash`. Local bindings are `proof_inputs`, never `signed`.
 - The high-level padded-transfer builder is `Transfer` / `PreparedTransfer`,
   never `TxBuilder`; local bindings are `transfer`, not `tx`. Slot-based flows
   have no operation struct: they encode confidential output slots with

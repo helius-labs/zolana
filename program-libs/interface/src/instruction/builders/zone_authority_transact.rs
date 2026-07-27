@@ -86,7 +86,6 @@ mod tests {
             expiry_unix_ts: u64::MAX,
             private_tx_hash: [0u8; 32],
             circuit: CircuitId::ZoneAuthority(0, 0, 3),
-            p256_signing_pk_x: None,
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             inputs: Vec::new(),

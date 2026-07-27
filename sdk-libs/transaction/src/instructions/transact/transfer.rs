@@ -110,6 +110,9 @@ impl ConfidentialTransfer {
         asset: Address,
         amount: u64,
     ) -> Result<&mut Self, TransactionError> {
+        if recipient.signing_pubkey.signature_type()? == SignatureType::P256 {
+            return Err(TransactionError::P256TransactUnsupported);
+        }
         self.recipients.push(Recipient {
             address: *recipient,
             asset,
@@ -177,11 +180,7 @@ impl ConfidentialTransfer {
         keypair: &K,
         assets: &AssetRegistry,
     ) -> Result<SppProofInputs, TransactionError> {
-        let mut signed = self.assemble(keypair, assets)?;
-        if keypair.curve()? == SignatureType::P256 {
-            signed.sign_p256(keypair)?;
-        }
-        Ok(signed)
+        self.assemble(keypair, assets)
     }
 
     fn assemble<K: ShieldedKeypairTrait + ViewingKeyTrait>(
@@ -417,18 +416,30 @@ impl PreparedTransfer {
 
         // The sender owns every change position; its resolved tag is the owner
         // view tag folded into the proof's owner-tag chain. The wire tag is the
-        // most compact form that resolves to it: `P256SigningKey` on the P256
-        // rail, `Account(0)` when the owner is the fee payer, else `Inline`.
+        // most compact form that resolves to it: `Account(0)` when the
+        // Ed25519 owner is the fee payer, otherwise `Inline`.
         let (sender_tag, sender_resolved) =
             sender_owner_tag(&owner.signing_pubkey, &payer_pubkey_hash)?;
 
-        // Padded slots must name a transaction participant. Reuse the sender's
-        // resolved owner tag so a prover cannot attribute padding to a third party.
+        // Dummy slots must name a participant already bound to real transaction
+        // content. The transaction author is not necessarily an input owner and
+        // may have no real change output, so use the first real input signer.
+        let dummy_owner_tag = inputs
+            .iter()
+            .find(|input| !input.is_dummy())
+            .ok_or(TransactionError::NoInputs)?
+            .utxo
+            .owner
+            .confidential_view_tag()?;
+        for output in outputs.iter_mut().filter(|output| output.is_dummy()) {
+            output.owner_tag = Some(dummy_owner_tag);
+        }
+
         let dummy_recipient_count = shape.n_outputs().saturating_sub(outputs.len());
         for _ in 0..dummy_recipient_count {
             outputs.push(SppProofOutputUtxo {
                 blinding: random_blinding(),
-                owner_tag: Some(sender_resolved),
+                owner_tag: Some(dummy_owner_tag),
                 ..Default::default()
             });
         }
@@ -454,7 +465,13 @@ impl PreparedTransfer {
         for (position, output) in outputs.iter().enumerate() {
             let utxo_hash = output.hash()?;
             let slot = slots.get(position).and_then(|slot| slot.as_ref());
-            let (owner_tag, resolved, data) = if position < SENDER_SLOT_COUNT {
+            let (owner_tag, resolved, data) = if output.is_dummy() {
+                (
+                    OwnerTag::Inline(dummy_owner_tag),
+                    dummy_owner_tag,
+                    random_dummy_ciphertext(dummy_len),
+                )
+            } else if position < SENDER_SLOT_COUNT {
                 let data = match slot {
                     Some(output_data) => output_data.data.clone(),
                     None => random_dummy_ciphertext(dummy_len),
@@ -499,23 +516,22 @@ impl PreparedTransfer {
             output_utxos: outputs,
             external_data,
             payer_pubkey_hash,
-            p256_signature: None,
         })
     }
 }
 
 /// The sender's output owner tag and its resolved 32-byte value. The resolved
-/// value is always `confidential_view_tag()` (the P256 x-coordinate or the full
-/// ed25519 key); the wire tag is the most compact form that resolves to it:
-/// `P256SigningKey` on the P256 rail, `Account(0)` when the ed25519 owner is the
-/// fee payer at account index 0, else `Inline` (relayed transfer).
+/// value is the full Ed25519 key returned by `confidential_view_tag()`; the
+/// wire tag is `Account(0)` when the owner is the fee payer at account index 0,
+/// otherwise `Inline` (relayed transfer). Default transact has no P-256 owner
+/// rail.
 fn sender_owner_tag(
     owner_pubkey: &PublicKey,
     payer_pubkey_hash: &[u8; 32],
 ) -> Result<(OwnerTag, [u8; 32]), TransactionError> {
     let resolved = owner_pubkey.confidential_view_tag()?;
     let tag = match owner_pubkey.signature_type()? {
-        SignatureType::P256 => OwnerTag::P256SigningKey,
+        SignatureType::P256 => return Err(TransactionError::P256TransactUnsupported),
         SignatureType::Ed25519 => {
             if sha256_be(&resolved) == *payer_pubkey_hash {
                 OwnerTag::Account(0)
@@ -591,15 +607,14 @@ mod tests {
         assert_eq!(got_resolved, resolved);
     }
 
-    /// A P256 owner is tagged `P256SigningKey`, resolving to the shared signing
-    /// key's x-coordinate regardless of the fee payer.
+    /// Default transact has no P-256 owner rail.
     #[test]
-    fn sender_tag_is_p256_signing_key_for_p256_owner() {
+    fn sender_tag_rejects_p256_owner() {
         let pk = SigningKey::new().pubkey();
-        let resolved = pk.confidential_view_tag().unwrap();
-        let (tag, got_resolved) = sender_owner_tag(&pk, &[0u8; 32]).unwrap();
-        assert_eq!(tag, OwnerTag::P256SigningKey);
-        assert_eq!(got_resolved, resolved);
+        assert_eq!(
+            sender_owner_tag(&pk, &[0u8; 32]),
+            Err(TransactionError::P256TransactUnsupported)
+        );
     }
 
     #[test]

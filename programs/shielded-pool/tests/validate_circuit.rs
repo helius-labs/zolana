@@ -16,14 +16,12 @@ fn validate(
     instruction: InstructionTag,
     actual_inputs: usize,
     actual_outputs: usize,
-    p256_signing_pk_x: Option<[u8; 32]>,
     signer_index: u8,
 ) -> ProgramResult {
     let ix = TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [0u8; 32],
         circuit,
-        p256_signing_pk_x,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         proof: TransactProof::zeroed(),
@@ -66,14 +64,7 @@ fn selector_family_must_match_instruction() {
         ),
     ] {
         assert_eq!(
-            validate(
-                circuit,
-                instruction,
-                2,
-                circuit.num_outputs() as usize,
-                None,
-                0
-            ),
+            validate(circuit, instruction, 2, circuit.num_outputs() as usize, 0),
             Ok(())
         );
     }
@@ -84,7 +75,6 @@ fn selector_family_must_match_instruction() {
             InstructionTag::Transact,
             2,
             3,
-            None,
             0,
         ),
         Err(ShieldedPoolError::MismatchedCircuitType.into())
@@ -92,12 +82,12 @@ fn selector_family_must_match_instruction() {
 }
 
 #[test]
-fn selector_dimensions_and_removed_p256_inputs_are_fail_closed() {
+fn selector_dimensions_and_signer_indices_are_fail_closed() {
     let valid = CircuitId::ConfidentialEddsa(2, 3, 3);
     let invalid_shape = Err(ShieldedPoolError::InvalidTransactShape.into());
 
     assert_eq!(
-        validate(valid, InstructionTag::Transact, 1, 3, None, 0),
+        validate(valid, InstructionTag::Transact, 1, 3, 0),
         invalid_shape
     );
     assert_eq!(
@@ -106,7 +96,6 @@ fn selector_dimensions_and_removed_p256_inputs_are_fail_closed() {
             InstructionTag::Transact,
             2,
             3,
-            None,
             0,
         ),
         invalid_shape
@@ -117,17 +106,12 @@ fn selector_dimensions_and_removed_p256_inputs_are_fail_closed() {
             InstructionTag::Transact,
             6,
             6,
-            None,
             0,
         ),
         invalid_shape
     );
     assert_eq!(
-        validate(valid, InstructionTag::Transact, 2, 3, Some([1u8; 32]), 0),
-        invalid_shape
-    );
-    assert_eq!(
-        validate(valid, InstructionTag::Transact, 2, 3, None, u8::MAX),
+        validate(valid, InstructionTag::Transact, 2, 3, u8::MAX),
         invalid_shape
     );
 }

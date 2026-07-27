@@ -50,7 +50,6 @@ fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
         circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
-        p256_signing_pk_x: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         inputs: vec![input(fe(101)), input(fe(102))],

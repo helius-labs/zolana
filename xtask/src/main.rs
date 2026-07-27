@@ -406,7 +406,6 @@ fn tx_size(args: Vec<String>) {
     // this descriptor is all a shape needs.
     let build_ix_data = |interface_transfers: Vec<InterfaceTransfer>,
                          n: usize,
-                         p256_signing_pk_x: Option<[u8; 32]>,
                          proof: TransactProof,
                          outputs_spec: &[(OwnerTag, Option<usize>)]|
      -> TransactIxData {
@@ -435,7 +434,6 @@ fn tx_size(args: Vec<String>) {
                 outputs.len() as u8,
                 N_PUBLIC_SLOTS as u8,
             ),
-            p256_signing_pk_x,
             inputs,
             interface_transfers,
             data_hash: None,
@@ -450,9 +448,8 @@ fn tx_size(args: Vec<String>) {
     // Transfer layout: the sender bundle covers the leading SENDER_SLOT_COUNT
     // change positions (position 0 carries the ciphertext under the sender's tag,
     // the rest carry `None`), then R recipient positions each carry their own
-    // Inline-tagged ciphertext. The sender tag varies by ownership rail
-    // (Account(0) when the owner is the payer, P256SigningKey on the P256 rail,
-    // Inline(..) for a relayed ed25519 transfer).
+    // Inline-tagged ciphertext. The sender tag is Account(0) when the owner is
+    // the payer and Inline(..) for a relayed Ed25519 transfer.
     let transfer_layout = |m: usize,
                            sender_tag: OwnerTag,
                            sender_len: usize,
@@ -538,18 +535,16 @@ fn tx_size(args: Vec<String>) {
 
     let make_tx_sizes = |outputs_spec: &[(OwnerTag, Option<usize>)],
                          n: usize,
-                         p256_signing_pk_x: Option<[u8; 32]>,
                          proof: TransactProof,
                          serialized_proof_len: usize|
      -> (usize, usize, usize, usize, usize) {
-        let transfer_data = build_ix_data(Vec::new(), n, p256_signing_pk_x, proof, outputs_spec);
+        let transfer_data = build_ix_data(Vec::new(), n, proof, outputs_spec);
         let shield_data = build_ix_data(
             vec![InterfaceTransfer::SplDeposit {
                 amount: 1000,
                 vault_bump: 0,
             }],
             n,
-            p256_signing_pk_x,
             proof,
             outputs_spec,
         );
@@ -600,7 +595,7 @@ fn tx_size(args: Vec<String>) {
         (ix_len, t_legacy, t_v0, s_legacy, s_v0)
     };
 
-    println!("Current code (AES-GCM, redundant pubkeys in ciphertexts, 192 B proof):");
+    println!("Legacy baseline (AES-GCM, redundant pubkeys in ciphertexts, 192 B proof):");
     println!(
         "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         "Circuit",
@@ -624,7 +619,7 @@ fn tx_size(args: Vec<String>) {
             current_recipient_data_len,
         );
         let (ix, tl, tv, sl, sv) =
-            make_tx_sizes(&spec, n, None, TransactProof::zeroed(), LEGACY_PROOF_LEN);
+            make_tx_sizes(&spec, n, TransactProof::zeroed(), LEGACY_PROOF_LEN);
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -646,8 +641,7 @@ fn tx_size(args: Vec<String>) {
     }
 
     println!();
-    println!("Spec-target EdDSA (AES-256-CTR, no redundant pubkeys, enum proof: 1 B tag + 128 B):");
-    println!("  P256 rail adds 64 B (proof_commitment 32 B + proof_commitment_pok 32 B).");
+    println!("Spec-target (AES-256-CTR, no redundant pubkeys, 128 B vanilla proof):");
     println!(
         "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         "Circuit",
@@ -671,7 +665,7 @@ fn tx_size(args: Vec<String>) {
             OPT_RECIPIENT_DATA_LEN,
         );
         let (ix, tl, tv, sl, sv) =
-            make_tx_sizes(&spec, n, None, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
+            make_tx_sizes(&spec, n, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -692,13 +686,8 @@ fn tx_size(args: Vec<String>) {
         );
     }
 
-    // Sender owner-tag sensitivity. The regrouping lets the sender tag encode as
-    // Account(0) (2 B), P256SigningKey (1 B), or Inline (33 B) per change
-    // position; the old fixed 32-byte view_tag had no such choice. Held equal:
-    // eddsa proof, no shared P256 key -- this isolates the per-position tag cost.
-    // P256SigningKey additionally needs the shared `p256_signing_pk_x` field
-    // (+33 B) and runs on the P256 rail (+64 B proof); Inline is the relayed-
-    // transfer regression case.
+    // Sender owner-tag sensitivity: Account(0) is compact when the owner is the
+    // payer; Inline is the relayed-Ed25519 case.
     println!();
     println!("Sender owner-tag sensitivity (3 in 3 out, eddsa rail, 2 change positions):");
     println!(
@@ -711,13 +700,12 @@ fn tx_size(args: Vec<String>) {
     );
     let sender_tag_kinds = [
         ("Account(0)", OwnerTag::Account(0), 2usize),
-        ("P256SigningKey", OwnerTag::P256SigningKey, 1),
         ("Inline([u8;32])", OwnerTag::Inline([0u8; 32]), 33),
     ];
     for &(label, tag, tag_bytes) in &sender_tag_kinds {
         let spec = transfer_layout(3, tag, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN);
         let (ix, tl, tv, _sl, _sv) =
-            make_tx_sizes(&spec, 3, None, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
+            make_tx_sizes(&spec, 3, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
         println!(
             "| {:<16} | {:>13} | {:>11} | {:>16} | {:>13} |",
             label, tag_bytes, ix, tl, tv,
@@ -744,8 +732,7 @@ fn tx_size(args: Vec<String>) {
     );
     let (n, m) = (1usize, 8usize);
     let spec = split_layout(m, OPT_SENDER_DATA_LEN);
-    let (ix, tl, tv, sl, sv) =
-        make_tx_sizes(&spec, n, None, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
+    let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
     println!(
         "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         format!("{n} in {m} out"),
@@ -759,9 +746,7 @@ fn tx_size(args: Vec<String>) {
     );
 
     println!();
-    println!(
-        "Public-leg and proof-encoding sensitivity (3 in 3 out, repeated same-asset SPL withdrawals):"
-    );
+    println!("Public-leg sensitivity (3 in 3 out, repeated same-asset SPL withdrawals):");
     println!(
         "| {:>11} | {:>17} | {:>16} |",
         "interface transfers", "EdDSA ix data (B)", "EdDSA tx (B)",
@@ -783,7 +768,6 @@ fn tx_size(args: Vec<String>) {
         let eddsa_data = build_ix_data(
             interface_transfers.clone(),
             3,
-            None,
             TransactProof::zeroed(),
             &spec,
         );

@@ -227,9 +227,8 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
             &[change_hash, recipient_hash, transfer_dummy_hash],
             &transfer_view_tags,
         ),
-        None,
     );
-    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.outputs, None)
+    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.outputs)
         .map_err(|err| anyhow!("transfer output owner pk hashes: {err}"))?;
     let mut transfer_outputs = vec![
         transfer_output(&change_output)?,
@@ -373,9 +372,8 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
             amount: TRANSFER_AMOUNT,
         }],
         inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
-        None,
     );
-    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.outputs, None)
+    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.outputs)
         .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
     set_output_owner_tags(
         &mut withdraw_outputs,

@@ -165,7 +165,7 @@ pub fn into_prover_with_dummy_policy(
         return Err(ClientError::DummyInputsNotAllowed);
     }
     if inputs_require_p256(&proof_inputs.input_utxos)? {
-        return Err(ClientError::P256IsUnimplemented);
+        return Err(ClientError::P256TransactUnsupported);
     }
     let shape = proof_inputs.check_shape()?;
     let public_movements = proof_inputs.public_movements()?;
@@ -214,7 +214,7 @@ pub fn assemble_with_dummy_policy(
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
     if inputs_require_p256(&proof_inputs.input_utxos)? {
-        return Err(ClientError::P256IsUnimplemented);
+        return Err(ClientError::P256TransactUnsupported);
     }
 
     // Signer indices for the real inputs only; dummies (zero owner) inherit the
@@ -311,7 +311,6 @@ pub fn assemble_with_dummy_policy(
         expiry_unix_ts,
         private_tx_hash: private_tx,
         circuit: circuit_id,
-        p256_signing_pk_x: None,
         inputs,
         interface_transfers,
         data_hash,
@@ -332,15 +331,17 @@ pub fn assemble_with_dummy_policy(
 #[cfg(test)]
 mod tests {
     use solana_address::Address;
+    use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{
         instructions::{
             transact::{spp_proof_inputs::asset_field, SettlementTransfer, SppProofInputs},
             types::SppProofInputUtxo,
         },
-        ExternalData, SppProofOutputUtxo,
+        Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
     };
 
     use super::{attach_input_proofs, into_prover, ProverVariant};
+    use crate::error::ClientError;
     use crate::rpc::{MerkleContext, NonInclusionProof, NULLIFIER_TREE_HEIGHT};
 
     #[test]
@@ -355,6 +356,33 @@ mod tests {
 
         assert_eq!(spends[0].nullifier_proof.as_ref(), Some(&proofs[0]));
         assert_eq!(spends[1].nullifier_proof.as_ref(), Some(&proofs[1]));
+    }
+
+    #[test]
+    fn default_transact_rejects_p256_owned_inputs() {
+        let keypair = ShieldedKeypair::new().expect("P256 keypair");
+        let input = SppProofInputUtxo::new(
+            Utxo {
+                owner: keypair.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 1,
+                blinding: [1u8; 32],
+                zone_program_id: None,
+                data: Data::default(),
+            },
+            &keypair,
+        );
+        let proof_inputs = SppProofInputs::new(
+            vec![input],
+            vec![SppProofOutputUtxo::default()],
+            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new()),
+            Address::default(),
+        );
+
+        assert!(matches!(
+            into_prover(proof_inputs, &[], &[]),
+            Err(ClientError::P256TransactUnsupported)
+        ));
     }
 
     #[test]

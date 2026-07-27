@@ -10,7 +10,7 @@
 //! zone-authority shape. The zone client assembles its own `TransactIxData`
 //! (mirroring the client's `witness::assemble`); because `CircuitId::ZoneAuthority`
 //! skips per-owner spend signatures on-chain, every input's
-//! `eddsa_signer_index` stays the default 0 and `p256_signing_pk_x` is `None`.
+//! `eddsa_signer_index` stays at its canonical default of 0.
 //!
 //! View-tag discovery: the recipient slot's `view_tag` is the recipient actor's
 //! `signing_pubkey().confidential_view_tag()`, the exact tag the confidential
@@ -332,7 +332,6 @@ impl ZoneLifecycleWorld {
                 external_data.outputs.len() as u8,
                 zolana_interface::N_PUBLIC_SLOTS as u8,
             ),
-            p256_signing_pk_x: None,
             inputs,
             interface_transfers: external_data
                 .interface_transfers

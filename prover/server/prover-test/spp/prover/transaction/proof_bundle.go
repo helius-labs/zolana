@@ -33,9 +33,6 @@ type ProofTransactionRequest struct {
 	NullifierEntries         []string                   `json:"nullifier_entries"`
 	DataHash                 string                     `json:"data_hash"`
 	ZoneDataHash             string                     `json:"zone_data_hash"`
-	P256OwnerPubkey          string                     `json:"p256_owner_pubkey,omitempty"`
-	P256SignatureR           string                     `json:"p256_signature_r,omitempty"`
-	P256SignatureS           string                     `json:"p256_signature_s,omitempty"`
 }
 
 type InterfaceTransferRequest struct {
@@ -92,7 +89,6 @@ type ProofTransaction struct {
 	PrivateTxHash          string                     `json:"private_tx_hash"`
 	InterfaceTransfers     []InterfaceTransferRequest `json:"interface_transfers"`
 	EncryptedUtxos         string                     `json:"encrypted_utxos"`
-	RequiresP256           bool                       `json:"requires_p256"`
 	PublicInputHash        string                     `json:"public_input_hash"`
 	ExternalDataHash       string                     `json:"external_data_hash"`
 
@@ -111,10 +107,8 @@ type ProofSigningPayloadBundle struct {
 }
 
 type ProofSigningPayloadTransaction struct {
-	Name                  string `json:"name"`
-	PrivateTxHash         string `json:"private_tx_hash"`
-	P256MessageHash       string `json:"p256_message_hash"`
-	RequiresP256Signature bool   `json:"requires_p256_signature"`
+	Name          string `json:"name"`
+	PrivateTxHash string `json:"private_tx_hash"`
 }
 
 type ProofUtxoResponse struct {
@@ -270,7 +264,6 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		PrivateTxHash:           parse.FieldHex(publicInputs.PrivateTxHash),
 		InterfaceTransfers:      interfaceTransfers,
 		EncryptedUtxos:          parse.HexString(tx.EncryptedUtxos),
-		RequiresP256:            false,
 		PublicInputHash:         parse.FieldHex(publicInputHash),
 		ExternalDataHash:        parse.FieldHex(publicInputs.ExternalDataHash),
 		SolanaOwnerPubkeys:      transcript.solanaOwnerPubkeys,

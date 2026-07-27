@@ -382,7 +382,6 @@ impl ZoneLifecycleWorld {
                     &result.input_root_indices,
                     Variant::Eddsa,
                     transact_proof(&proof)?,
-                    None,
                 )
             }
             // The P256 rail is removed; kept as a placeholder arm so the
@@ -595,7 +594,6 @@ impl ZoneLifecycleWorld {
             &result.input_root_indices,
             Variant::Eddsa,
             TransactProof::zeroed(),
-            None,
         )?;
 
         let transfer_ix = ZoneTransact {
@@ -637,7 +635,6 @@ fn assemble_ix_data(
     root_indices: &[(u16, u16)],
     rail: Variant,
     proof: TransactProof,
-    p256_signing_pk_x: Option<[u8; 32]>,
 ) -> Result<TransactIxData> {
     let n_inputs = proof_inputs.check_shape()?.n_inputs();
     if nullifiers.len() != n_inputs || root_indices.len() != n_inputs {
@@ -698,7 +695,6 @@ fn assemble_ix_data(
                 zolana_interface::N_PUBLIC_SLOTS as u8,
             ),
         },
-        p256_signing_pk_x,
         inputs,
         interface_transfers: external
             .interface_transfers

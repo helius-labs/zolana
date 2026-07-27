@@ -1,6 +1,6 @@
 //! Unit tests for the `ConfidentialTransfer` builder abstraction that do not need the
 //! prover server: change derivation, blinding positions, the encrypted-slot
-//! round-trip, rail detection, external-data assembly, and the error paths.
+//! round-trip, owner-policy checks, external-data assembly, and the error paths.
 
 // Single source of truth lives in the client crate's tests; included here
 // rather than duplicated.
@@ -25,7 +25,7 @@ use zolana_interface::SOL_ASSET_FIELD;
 use zolana_interface::instruction::instruction_data::transact::{
     OwnerTag, TransactIxData, TransactProof,
 };
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, ViewingKey};
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::signed_to_field, SettlementTransfer, Shape, SENDER_SLOT_COUNT,
@@ -75,7 +75,7 @@ fn registry() -> AssetRegistry {
 struct AsyncTestAuthority {
     keypair: ShieldedKeypair,
     approvals: AtomicUsize,
-    p256_signatures: AtomicUsize,
+    p256_sign_calls: AtomicUsize,
 }
 
 #[async_trait::async_trait]
@@ -152,7 +152,7 @@ impl WalletAuthority for AsyncTestAuthority {
     }
 
     async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
-        self.p256_signatures.fetch_add(1, Ordering::SeqCst);
+        self.p256_sign_calls.fetch_add(1, Ordering::SeqCst);
         SyncWalletAuthority::sign_p256(
             &LocalWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             message_hash,
@@ -508,7 +508,6 @@ fn assemble_carries_ciphertext_and_decrypts() {
         sender_slot.owner_tag,
         OwnerTag::Inline(sender.signing_pubkey().confidential_view_tag().unwrap())
     );
-    assert_eq!(ix.p256_signing_pk_x, None);
     assert!(sender_slot
         .data
         .as_ref()
@@ -670,7 +669,7 @@ fn withdrawal_sets_external_data_and_change() {
 }
 
 #[test]
-fn rail_follows_input_owner_type() {
+fn default_transact_rejects_p256_and_uses_eddsa() {
     let mut rng = rand::thread_rng();
     let sender = ShieldedKeypair::new().unwrap();
 
@@ -680,28 +679,21 @@ fn rail_follows_input_owner_type() {
         Address::default(),
     );
     assert!(p256_transfer.requires_p256_owner().unwrap());
+    assert!(matches!(
+        p256_transfer.sign(&sender, &registry()),
+        Err(TransactionError::P256TransactUnsupported)
+    ));
 
-    let ed_utxo = Utxo {
-        owner: PublicKey::from_ed25519(&[1u8; 32]),
-        asset: SOL_MINT,
-        amount: 10,
-        blinding: blinding(&mut rng),
-        zone_program_id: None,
-        data: Data::default(),
-    };
-    let secret = blinding(&mut rng);
-    let ed_input = SppProofInputUtxo::new(
-        ed_utxo,
-        NullifierKey::from_secret(secret[1..].try_into().expect("31-byte nullifier secret")),
-    );
+    let ed_sender = test_keypair();
+    let ed_input = spend_input(&ed_sender, 10, &mut rng);
     let ed_transfer = ConfidentialTransfer::new(
-        sender.shielded_address().unwrap(),
+        ed_sender.shielded_address().unwrap(),
         vec![ed_input],
         Address::default(),
     );
     assert!(!ed_transfer.requires_p256_owner().unwrap());
 
-    let proof_inputs = ed_transfer.sign(&sender, &registry()).unwrap();
+    let proof_inputs = ed_transfer.sign(&ed_sender, &registry()).unwrap();
     let mut indexer = TestIndexer::new();
     let commitments = proof_inputs.input_utxo_hashes().unwrap();
     for commitment in &commitments {
@@ -753,13 +745,13 @@ fn input_commitments_include_data_and_zone_hashes() {
 }
 
 #[test]
-fn async_authority_invokes_approval_without_p256_signature() {
+fn async_authority_invokes_approval_without_p256_signing() {
     let mut rng = rand::thread_rng();
     let sender = test_keypair();
     let authority = AsyncTestAuthority {
         keypair: sender.clone(),
         approvals: AtomicUsize::new(0),
-        p256_signatures: AtomicUsize::new(0),
+        p256_sign_calls: AtomicUsize::new(0),
     };
     let spend = spend_input(&sender, 100, &mut rng);
     let nullifier_pk = spend.nullifier_key.pubkey().expect("nullifier pubkey");
@@ -805,7 +797,7 @@ fn async_authority_invokes_approval_without_p256_signature() {
             .unwrap();
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
-    assert_eq!(authority.p256_signatures.load(Ordering::SeqCst), 0);
+    assert_eq!(authority.p256_sign_calls.load(Ordering::SeqCst), 0);
     prover_of(signed.transaction).build().unwrap();
 }
 

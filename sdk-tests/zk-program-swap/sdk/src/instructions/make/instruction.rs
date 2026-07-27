@@ -232,7 +232,6 @@ mod tests {
             zolana_keypair::hash::sha256(&expected),
             spp_proof_inputs.message_hash().expect("message hash")
         );
-        assert_eq!(spp_proof_inputs.p256_signature, None);
     }
 
     #[test]

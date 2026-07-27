@@ -194,14 +194,13 @@ fn shield_then_withdraw_sol() {
         ],
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
 
     // All three outputs are dummies; stamp their confidential owner tags from the
     // program's `hash_bytes(resolved_owner_tag)` mapping (nullifier_pk 0 =
     // unconstrained).
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: AMOUNT,
@@ -414,10 +413,9 @@ fn shield_transfer_then_withdraw_sol() {
             &[change_hash, recipient_hash, transfer_dummy_hash],
             &transfer_view_tags,
         ),
-        None,
     );
-    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.outputs, None)
-        .expect("transfer output owner pk hashes");
+    let transfer_owner_pk_hashes =
+        output_owner_pk_hashes(&transfer_ix_data.outputs).expect("transfer output owner pk hashes");
     let mut transfer_outputs = vec![
         transfer_output(&change_output).expect("change transfer output"),
         transfer_output(&recipient_output).expect("recipient transfer output"),
@@ -581,10 +579,9 @@ fn shield_transfer_then_withdraw_sol() {
             amount: TRANSFER_AMOUNT,
         }],
         inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
-        None,
     );
-    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.outputs, None)
-        .expect("withdraw output owner pk hashes");
+    let withdraw_owner_pk_hashes =
+        output_owner_pk_hashes(&withdraw_ix_data.outputs).expect("withdraw output owner pk hashes");
     set_output_owner_tags(
         &mut withdraw_outputs,
         &withdraw_owner_pk_hashes,

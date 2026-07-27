@@ -150,7 +150,6 @@ pub fn validate_circuit(ix: &TransactIxDataRef<'_>, instruction: InstructionTag)
         || usize::from(ix.circuit.num_outputs()) != ix.outputs.len()
         || usize::from(ix.circuit.num_public_asset_slots()) > N_PUBLIC_SLOTS
         || !ix.circuit.is_supported()
-        || ix.p256_signing_pk_x.is_some()
         || ix
             .inputs
             .iter()

@@ -88,8 +88,8 @@ pub enum TransactionError {
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
 
-    #[error("p256 signing requires a p256 keypair")]
-    SignerNotP256,
+    #[error("default transact supports Ed25519 owners only")]
+    P256TransactUnsupported,
 
     #[error("insufficient balance: requested {requested}, available {available}")]
     InsufficientBalance { requested: u64, available: u64 },

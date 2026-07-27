@@ -119,18 +119,14 @@ pub fn spl_public_slots(amount: [u8; 32], mint: &[u8; 32]) -> Result<PublicSlots
 
 /// Per-output owner `pk_field` the program reconstructs as
 /// `hash_bytes(resolved_owner_tag)`, one per output position. Mirrors the
-/// program's `resolve_output_owner_tags`: each output carries its own owner tag,
-/// resolved here against the transaction's `p256_signing_pk_x`. Tests build
-/// `Inline` tags, for which resolution is the identity, and pass `None`.
-pub fn output_owner_pk_hashes(
-    outputs: &[TransactOutput],
-    p256_signing_pk_x: Option<&[u8; 32]>,
-) -> Result<Vec<[u8; 32]>> {
+/// program's `resolve_output_owner_tags`: each output carries its own inline or
+/// account-based owner tag.
+pub fn output_owner_pk_hashes(outputs: &[TransactOutput]) -> Result<Vec<[u8; 32]>> {
     outputs
         .iter()
         .map(|output| {
             let resolved = output
-                .into_resolved(p256_signing_pk_x, |_| None)
+                .into_resolved(|_| None)
                 .map_err(|e| anyhow!("resolve owner tag: {e:?}"))?;
             hash_bytes(&resolved.owner_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
         })
@@ -166,7 +162,7 @@ pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
         .iter()
         .map(|output| {
             output
-                .into_resolved(ix.p256_signing_pk_x.as_ref(), |_| None)
+                .into_resolved(|_| None)
                 .map_err(|e| anyhow!("resolve owner tag: {e:?}"))
         })
         .collect()
@@ -205,7 +201,6 @@ pub fn new_transact_ix_data(
     inputs: Vec<InputUtxo>,
     interface_transfers: Vec<InterfaceTransfer>,
     outputs: Vec<TransactOutput>,
-    p256_signing_pk_x: Option<[u8; 32]>,
 ) -> TransactIxData {
     let circuit = CircuitId::ConfidentialEddsa(
         inputs.len() as u8,
@@ -217,7 +212,6 @@ pub fn new_transact_ix_data(
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
         circuit,
-        p256_signing_pk_x,
         inputs,
         interface_transfers,
         data_hash: None,

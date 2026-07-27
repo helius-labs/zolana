@@ -325,10 +325,9 @@ fn prove_spend(
         ],
         interface_transfers,
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
     let output_owner_pk_hashes =
-        output_owner_pk_hashes(&ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&ix_data.outputs).expect("output owner pk hashes");
     let nullifier_pks: Vec<[u8; 32]> = witness_outputs
         .iter()
         .map(|output| output.nullifier_pk)

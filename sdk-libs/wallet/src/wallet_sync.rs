@@ -656,7 +656,7 @@ mod tests {
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
-    use zolana_keypair::ShieldedKeypair;
+    use zolana_keypair::{ShieldedKeypair, ViewingKey};
     use zolana_transaction::{
         instructions::{
             merge::Merge as MergePlan,
@@ -788,6 +788,10 @@ mod tests {
         LocalWalletAuthority::new(Address::default(), keypair)
     }
 
+    fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
+        ShieldedKeypair::from_ed25519(&[seed; 32], ViewingKey::new()).expect("Ed25519 keypair")
+    }
+
     #[tokio::test]
     async fn async_sync_future_is_send_and_keeps_wallet_keyless() {
         let keypair = ShieldedKeypair::new().expect("keypair");
@@ -812,8 +816,8 @@ mod tests {
     #[test]
     fn sync_wallet_records_confidential_transfer_history_without_duplicates() {
         let assets = AssetRegistry::default();
-        let alice = ShieldedKeypair::new().expect("alice");
-        let bob = ShieldedKeypair::new().expect("bob");
+        let alice = ed25519_keypair(1);
+        let bob = ed25519_keypair(2);
         let funding = confidential_transfer_tx(&bob, &alice, SOL_MINT, 100, 1, &assets);
 
         let mut wallet = Wallet::new(
@@ -876,8 +880,8 @@ mod tests {
             .filter(|shape| shape.n_outputs() >= 3)
             .enumerate()
         {
-            let sender = ShieldedKeypair::new().expect("sender");
-            let recipient = ShieldedKeypair::new().expect("recipient");
+            let sender = ed25519_keypair(3);
+            let recipient = ed25519_keypair(4);
             let recipient_count = shape.n_outputs() - 2;
             let input = SppProofInputUtxo::new(
                 test_utxo(&sender, SOL_MINT, recipient_count as u64, case as u8),
@@ -891,7 +895,7 @@ mod tests {
             .with_shape(shape);
 
             for _ in 1..recipient_count {
-                let decoy = ShieldedKeypair::new().expect("decoy recipient");
+                let decoy = ed25519_keypair(5);
                 transfer
                     .send(
                         &decoy.shielded_address().expect("decoy address"),
@@ -936,7 +940,7 @@ mod tests {
     #[test]
     fn sync_wallet_records_confidential_public_withdrawal_history() {
         let assets = AssetRegistry::default();
-        let alice = ShieldedKeypair::new().expect("alice");
+        let alice = ed25519_keypair(6);
         let input = SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 100, 7), &alice);
         let withdrawal = signed_to_shielded_tx(
             confidential_withdrawal(&alice, vec![input], SOL_MINT, 30, &assets),
@@ -967,8 +971,8 @@ mod tests {
     #[test]
     fn sync_wallet_records_confidential_multi_asset_outbound_rows() {
         let assets = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("assets");
-        let alice = ShieldedKeypair::new().expect("alice");
-        let bob = ShieldedKeypair::new().expect("bob");
+        let alice = ed25519_keypair(7);
+        let bob = ed25519_keypair(8);
         let inputs = vec![
             SppProofInputUtxo::new(test_utxo(&alice, SOL_MINT, 100, 8), &alice),
             SppProofInputUtxo::new(test_utxo(&alice, SPL_MINT, 100, 9), &alice),
@@ -1545,8 +1549,8 @@ mod tests {
         // id, refresh the registry from the on-chain SplAssetRegistry account,
         // and decode the note on the retry.
         let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
-        let sender = ShieldedKeypair::new().expect("sender");
-        let alice = ShieldedKeypair::new().expect("alice");
+        let sender = ed25519_keypair(9);
+        let alice = ed25519_keypair(10);
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
         // Alice's wallet only knows SOL — the SPL id is unknown at first.
@@ -1580,8 +1584,8 @@ mod tests {
         // (e.g. get_program_accounts unavailable / empty). The note stays
         // undecoded and the refresh does not loop.
         let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
-        let sender = ShieldedKeypair::new().expect("sender");
-        let alice = ShieldedKeypair::new().expect("alice");
+        let sender = ed25519_keypair(11);
+        let alice = ed25519_keypair(12);
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
         let mut wallet = Wallet::new(
@@ -1608,8 +1612,8 @@ mod tests {
         // When the wallet already knows every asset, sync decodes on the first
         // pass and never records an unknown id.
         let full = AssetRegistry::new([(SPL_ASSET_ID, SPL_MINT)]).expect("full registry");
-        let sender = ShieldedKeypair::new().expect("sender");
-        let alice = ShieldedKeypair::new().expect("alice");
+        let sender = ed25519_keypair(13);
+        let alice = ed25519_keypair(14);
         let transfer = confidential_transfer_tx(&sender, &alice, SPL_MINT, 100, 1, &full);
 
         let mut wallet = Wallet::new(

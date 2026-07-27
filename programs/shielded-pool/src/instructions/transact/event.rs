@@ -25,9 +25,8 @@ pub(crate) fn resolve_outputs<'a>(
 ) -> Result<ArrayVec<ResolvedOutput<'a>, MAX_OUTPUTS>, ProgramError> {
     let mut outputs = ArrayVec::new(); // TODO: check whether we really need this allocation.
     for output in &ix.outputs {
-        let resolved = output.into_resolved(ix.p256_signing_pk_x.as_ref(), |i| {
-            accounts.get(usize::from(i)).map(|a| a.address().to_bytes())
-        })?;
+        let resolved = output
+            .into_resolved(|i| accounts.get(usize::from(i)).map(|a| a.address().to_bytes()))?;
         outputs
             .try_push(resolved)
             .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;

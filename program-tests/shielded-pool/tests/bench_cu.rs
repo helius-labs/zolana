@@ -405,10 +405,9 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
             .collect(),
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &[]).expect("external data hash");
@@ -548,10 +547,9 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         ],
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: AMOUNT,
@@ -723,10 +721,9 @@ fn bench_withdrawal_spl(
             vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
         }],
         inline_outputs(&output_hashes, &view_tags),
-        None,
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs, None).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let external_data_hash =
         external_data_hash_spl(&transact_ix_data, &user_token.to_bytes(), &vault.to_bytes())
