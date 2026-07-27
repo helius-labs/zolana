@@ -32,6 +32,9 @@ use crate::{
 const MERKLE_PROOF_POLL_TIMEOUT: Duration = Duration::from_secs(60);
 const MERKLE_PROOF_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
+const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
+const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
+
 fn now_unix_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -505,6 +508,11 @@ impl AsyncRpc for AsyncZolanaIndexer {
     }
 }
 
+/// Split indexer failures into the ones worth polling through and the ones that
+/// will never succeed. Photon reports both a transient database failure and a
+/// permanent internal bug as `-32603` with the body scrubbed, so `-32603` is
+/// retried and the caller is handed the last one it saw rather than a bare
+/// timeout.
 fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
@@ -517,10 +525,13 @@ fn indexer_error(error: zolana_api::ApiError) -> ClientError {
             ClientError::IndexerUnavailable(message)
         }
         zolana_api::ApiError::JsonRpc {
-            code: Some(-32601), ..
-        } => ClientError::UnsupportedRpcMethod("remote indexer method"),
+            method,
+            code: Some(JSON_RPC_METHOD_NOT_FOUND),
+            ..
+        } => ClientError::UnsupportedRpcMethod(method),
         zolana_api::ApiError::JsonRpc {
-            code: Some(-32603), ..
+            code: Some(JSON_RPC_INTERNAL_ERROR),
+            ..
         } => ClientError::IndexerUnavailable(message),
         _ => ClientError::Indexer(message),
     }
@@ -557,7 +568,9 @@ fn convert_shielded_transactions_response(
             .transactions
             .into_iter()
             .enumerate()
-            .map(|(index, item)| convert_shielded_transaction(index, item))
+            .map(|(index, item)| {
+                convert_shielded_transaction(&format!("transactions[{index}]"), item)
+            })
             .collect::<Result<Vec<_>, _>>()?,
         next_cursor: response.next_cursor.map(Into::into),
     })
@@ -575,7 +588,10 @@ fn convert_shielded_transactions_by_signature_response(
             .map(|(index, item)| {
                 Ok(IndexedShieldedTransaction {
                     event_index: item.event_index,
-                    transaction: convert_shielded_transaction(index, item.transaction)?,
+                    transaction: convert_shielded_transaction(
+                        &format!("transactions[{index}].transaction"),
+                        item.transaction,
+                    )?,
                 })
             })
             .collect::<Result<Vec<_>, ClientError>>()?,
@@ -583,17 +599,14 @@ fn convert_shielded_transactions_by_signature_response(
 }
 
 fn convert_shielded_transaction(
-    index: usize,
+    path: &str,
     item: zolana_api::ShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
     Ok(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature.0,
-        tx_viewing_pk: decode_optional_p256(
-            item.tx_viewing_pk,
-            &format!("transactions[{index}].tx_viewing_pk"),
-        )?,
-        salt: decode_optional_salt(item.salt, &format!("transactions[{index}].salt"))?,
+        tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.tx_viewing_pk"))?,
+        salt: decode_optional_salt(item.salt, &format!("{path}.salt"))?,
         output_slots: item
             .output_slots
             .into_iter()
@@ -915,9 +928,13 @@ mod tests {
             request.body["params"],
             json!({ "tx_signature": signature.to_string() })
         );
+        let indexed = got
+            .transactions
+            .first()
+            .expect("one indexed Rings event for the signature");
         assert_eq!(got.transactions.len(), 1);
-        assert_eq!(got.transactions[0].event_index, 3);
-        assert_eq!(got.transactions[0].transaction.tx_signature, signature);
+        assert_eq!(indexed.event_index, 3);
+        assert_eq!(indexed.transaction.tx_signature, signature);
     }
 
     #[test]
@@ -1085,7 +1102,7 @@ mod tests {
         });
         assert!(matches!(
             method_not_found,
-            ClientError::UnsupportedRpcMethod("remote indexer method")
+            ClientError::UnsupportedRpcMethod("get_shielded_transactions_by_signature")
         ));
 
         let request_error = reqwest::blocking::Client::new()
@@ -1131,6 +1148,37 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("wrong size"));
         assert!(message.contains("result.transactions[0].output_slots[0].output_context.hash"));
+    }
+
+    #[test]
+    fn by_signature_error_path_includes_transaction_nesting() {
+        let signature = signature(61);
+        let response = rpc_result(json!({
+            "context": { "block_time": 1 },
+            "transactions": [{
+                "event_index": 0,
+                "transaction": {
+                    "slot": 1,
+                    "tx_signature": signature.to_string(),
+                    "tx_viewing_pk": STANDARD.encode([1u8; 16]),
+                    "output_slots": [],
+                    "messages": [],
+                    "nullifiers": [],
+                    "proofless": false,
+                },
+            }],
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let err = indexer
+            .get_shielded_transactions_by_signature(signature, None)
+            .expect_err("short viewing key must fail");
+        let _ = server.request();
+
+        assert!(err
+            .to_string()
+            .contains("transactions[0].transaction.tx_viewing_pk"));
     }
 
     fn assert_json_rpc_request(body: &Value, method: &str) {

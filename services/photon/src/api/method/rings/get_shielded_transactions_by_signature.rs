@@ -1,3 +1,4 @@
+use super::common::bind_u64_as_i64;
 use super::get_shielded_transactions_by_tags::{hydrate_shielded_transactions, MatchedRingsTxRow};
 use crate::api::error::PhotonApiError;
 use crate::common::bind_sql_value;
@@ -9,6 +10,7 @@ use sea_orm::{
 use solana_signature::SIGNATURE_BYTES;
 use zolana_indexer_api::{
     GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
+    PAGE_LIMIT,
 };
 
 pub async fn get_shielded_transactions_by_signature(
@@ -40,6 +42,7 @@ async fn fetch_rings_transactions_by_signature(
         backend,
         Into::<[u8; SIGNATURE_BYTES]>::into(request.tx_signature.0).to_vec(),
     );
+    let limit = bind_u64_as_i64(&mut params, backend, PAGE_LIMIT)?;
     let sql = format!(
         "SELECT
             pt.rings_tx_id AS rings_tx_id,
@@ -51,7 +54,8 @@ async fn fetch_rings_transactions_by_signature(
             pt.proofless AS proofless
          FROM rings_transactions pt
          WHERE pt.signature = {signature}
-         ORDER BY pt.event_index ASC"
+         ORDER BY pt.event_index ASC
+         LIMIT {limit}"
     );
 
     tx.query_all(Statement::from_sql_and_values(backend, sql, params))

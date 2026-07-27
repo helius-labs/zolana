@@ -267,6 +267,10 @@ pub trait Rpc {
         Err(unsupported("transact_output_view_tags_from_signature"))
     }
 
+    /// Whether `error` is transient for the post-submission confirmation poll
+    /// (`wait_for_indexed_transaction`). Indexer data-plane polling
+    /// (`IndexerPollConfig::poll_until`, the merkle-proof retry loop) deliberately
+    /// retries every error and does not consult this.
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }
@@ -462,6 +466,10 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("transact_output_view_tags_from_signature"))
     }
 
+    /// Whether `error` is transient for the post-submission confirmation poll
+    /// (`wait_for_indexed_transaction_async`). Indexer data-plane polling
+    /// (`IndexerPollConfig::poll_until`) deliberately retries every error and does
+    /// not consult this.
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }

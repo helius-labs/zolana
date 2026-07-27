@@ -35,8 +35,7 @@ use crate::{
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, ProveResult, Rpc,
-        ShieldedTransaction, ShieldedTransactionStream,
+        GetShieldedTransactionsByTagsResponse, ProveResult, Rpc, ShieldedTransactionStream,
     },
 };
 
@@ -256,22 +255,14 @@ impl<R: Rpc> ZolanaClient<R> {
         )
     }
 
-    /// Wait until Solana confirms the transaction and Photon has indexed the
-    /// Rings event that matches its `TRANSACT` output view tags.
+    /// Wait until Solana confirms the transaction and Photon has indexed a
+    /// Rings event for it.
     pub fn confirm_private_transaction_sync(
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
-        let tags = self
-            .rpc()
-            .transact_output_view_tags_from_signature(signature)?;
-        wait_for_indexed_transaction(
-            self.blocking_indexer(),
-            &tags,
-            signature,
-            self.indexer_config.poll,
-        )
+        wait_for_indexed_transaction(self.blocking_indexer(), signature, self.indexer_config.poll)
     }
 }
 
@@ -304,24 +295,15 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         )
     }
 
-    /// Wait until Solana confirms the transaction and Photon has indexed the
-    /// Rings event that matches its `TRANSACT` output view tags.
+    /// Wait until Solana confirms the transaction and Photon has indexed a
+    /// Rings event for it.
     pub async fn confirm_private_transaction(
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
-        let tags = self
-            .rpc()
-            .transact_output_view_tags_from_signature(signature)
-            .await?;
-        wait_for_indexed_transaction_async(
-            &self.async_indexer,
-            &tags,
-            signature,
-            self.indexer_config.poll,
-        )
-        .await
+        wait_for_indexed_transaction_async(&self.async_indexer, signature, self.indexer_config.poll)
+            .await
     }
 }
 
@@ -969,86 +951,41 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
     )))
 }
 
-fn transaction_matches_tags(transaction: &ShieldedTransaction, tags: &[[u8; 32]]) -> bool {
-    transaction
-        .output_slots
-        .iter()
-        .any(|output| tags.contains(&output.view_tag))
-        || transaction
-            .messages
-            .iter()
-            .any(|message| tags.contains(&message.view_tag))
-}
-
-pub(crate) fn select_indexed_transaction(
-    events: Vec<IndexedShieldedTransaction>,
-    signature: Signature,
-    expected_tags: &[[u8; 32]],
-) -> Result<Option<ShieldedTransaction>, ClientError> {
-    let mut matching = events
-        .into_iter()
-        .filter(|event| {
-            event.transaction.tx_signature == signature
-                && transaction_matches_tags(&event.transaction, expected_tags)
-        })
-        .collect::<Vec<_>>();
-    if matching.is_empty() {
-        return Ok(None);
-    }
-    if matching.len() == 1 {
-        return Ok(matching.pop().map(|event| event.transaction));
-    }
-
-    Err(ClientError::AmbiguousIndexedEvents {
-        signature: signature.to_string(),
-        event_indices: matching
-            .into_iter()
-            .map(|event| event.event_index)
-            .collect(),
-    })
-}
-
-/// Poll Photon until the indexed Rings event matches the confirmed `TRANSACT`
-/// output view tags. Photon can lag behind Solana, so confirmation is not
-/// enough for immediate reads.
+/// Poll Photon until it has indexed a Rings event for `signature`. Photon lags
+/// the chain, so an on-chain confirmation alone is not enough for a caller that
+/// reads its own outputs back immediately.
+///
+/// Every Rings event of one Solana transaction is persisted in a single
+/// database transaction, so a single visible event proves the whole transaction
+/// is indexed. Matching the event against the transaction's view tags would add
+/// no guarantee and would reject legitimate transactions whose events share a
+/// tag.
 fn wait_for_indexed_transaction(
     indexer: &ZolanaIndexer,
-    tags: &[[u8; 32]],
     signature: Signature,
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
-    if tags.is_empty() {
-        return Err(ClientError::Rpc(
-            "confirmed TRANSACT instruction has no output view tags".into(),
-        ));
-    }
+    let mut last_error = None;
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
             sleep(delay);
         }
-        let matched = match indexer.get_shielded_transactions_by_signature(signature, None) {
-            Ok(response) => select_indexed_transaction(response.transactions, signature, tags)?,
-            Err(error) if indexer.should_retry(&error) => continue,
+        match indexer.get_shielded_transactions_by_signature(signature, None) {
+            Ok(response) if !response.transactions.is_empty() => return Ok(()),
+            Ok(_) => last_error = None,
+            Err(error) if indexer.should_retry(&error) => last_error = Some(error.to_string()),
             Err(error) => return Err(error),
-        };
-        if matched.is_some() {
-            return Ok(());
         }
     }
-    Err(ClientError::IndexerTimeout)
+    Err(indexer_poll_timeout(retry, last_error))
 }
 
 async fn wait_for_indexed_transaction_async(
     indexer: &AsyncZolanaIndexer,
-    tags: &[[u8; 32]],
     signature: Signature,
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
-    if tags.is_empty() {
-        return Err(ClientError::Rpc(
-            "confirmed TRANSACT instruction has no output view tags".into(),
-        ));
-    }
+    let mut last_error = None;
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
@@ -1057,18 +994,29 @@ async fn wait_for_indexed_transaction_async(
             .get_shielded_transactions_by_signature(signature, None)
             .await
         {
-            Ok(response) => {
-                match select_indexed_transaction(response.transactions, signature, tags) {
-                    Ok(Some(_)) => return Ok(()),
-                    Ok(None) => {}
-                    Err(error) => return Err(error),
-                }
-            }
-            Err(error) if indexer.should_retry(&error) => continue,
+            Ok(response) if !response.transactions.is_empty() => return Ok(()),
+            Ok(_) => last_error = None,
+            Err(error) if indexer.should_retry(&error) => last_error = Some(error.to_string()),
             Err(error) => return Err(error),
         }
     }
-    Err(ClientError::IndexerTimeout)
+    Err(indexer_poll_timeout(retry, last_error))
+}
+
+/// Classify an exhausted poll by how the *final* attempt went, since that is
+/// the freshest evidence of what the indexer is doing now: an attempt that
+/// answered without the transaction means the indexer is behind, and one that
+/// failed means it never answered, which is not a lag report the caller should
+/// act on. Earlier failures inside the window are deliberately not reported --
+/// a blip the indexer recovered from should not be blamed for a genuine lag.
+fn indexer_poll_timeout(retry: IndexerPollConfig, last_error: Option<String>) -> ClientError {
+    match last_error {
+        Some(last_error) => ClientError::PollTimedOut {
+            attempts: retry.num_retries.saturating_add(1),
+            last_error: Some(last_error),
+        },
+        None => ClientError::IndexerTimeout,
+    }
 }
 
 #[cfg(test)]
@@ -1089,7 +1037,7 @@ mod tests {
     use super::*;
     use crate::{
         prover::CompressedCommitments,
-        rpc::{MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot},
+        rpc::{MerkleContext, MerkleProof, NonInclusionProof},
     };
     use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
     use zolana_transaction::instructions::{
@@ -1317,17 +1265,12 @@ mod tests {
     }
 
     #[test]
-    fn confirm_private_transaction_async_waits_for_direct_lookup() {
+    fn confirm_private_transaction_async_polls_until_the_event_is_indexed() {
         let signature = Signature::from([10u8; 64]);
-        let mut nonmatching = indexed_transaction_json(signature);
-        nonmatching["output_slots"][0]["view_tag"] = json!(encode_hash([1u8; 32]));
         let server = MockIndexerServer::respond_with(vec![
             rpc_result(json!({
                 "context": { "block_time": 12 },
-                "transactions": [{
-                    "event_index": 0,
-                    "transaction": nonmatching,
-                }],
+                "transactions": [],
             })),
             indexed_transaction_by_signature_response(signature),
         ]);
@@ -1344,7 +1287,7 @@ mod tests {
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
         runtime
             .block_on(client.confirm_private_transaction(signature))
-            .expect("async direct lookup should retry pending results");
+            .expect("async lookup should poll past an empty response");
 
         assert_eq!(
             server.requests(),
@@ -1356,7 +1299,7 @@ mod tests {
     }
 
     #[test]
-    fn confirm_private_transaction_sync_retries_direct_provider_error() {
+    fn confirm_private_transaction_sync_retries_transient_indexer_error() {
         let signature = Signature::from([15u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             rpc_error(-32603, "Internal error"),
@@ -1374,7 +1317,7 @@ mod tests {
 
         client
             .confirm_private_transaction_sync(signature)
-            .expect("retryable direct provider error should be retried");
+            .expect("retryable indexer error should be retried");
 
         assert_eq!(
             server.requests(),
@@ -1385,43 +1328,61 @@ mod tests {
         );
     }
 
+    /// An indexer that fails every attempt has not reported a lag, so reporting
+    /// `IndexerTimeout` would send the caller looking for a transaction that
+    /// was never queried successfully.
     #[test]
-    fn select_indexed_transaction_returns_none_for_one_nonmatching_event() {
-        let signature = Signature::from([16u8; 64]);
-        let events = vec![indexed_event(0, signature, [1u8; 32])];
+    fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
+        let signature = Signature::from([20u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_error(-32603, "Internal error"),
+            rpc_error(-32603, "Internal error"),
+        ]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
 
-        let selected =
-            select_indexed_transaction(events, signature, &[[0u8; 32]]).expect("selection");
+        let error = client
+            .confirm_private_transaction_sync(signature)
+            .expect_err("an indexer that never answers must not look like a lag");
 
-        assert!(selected.is_none());
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_signature",
+                "/get_shielded_transactions_by_signature",
+            ]
+        );
+        let ClientError::PollTimedOut {
+            attempts,
+            last_error,
+        } = error
+        else {
+            panic!("expected PollTimedOut, got {error:?}");
+        };
+        assert_eq!(attempts, 2);
+        assert!(last_error
+            .expect("the last transient error is kept")
+            .contains("Internal error"));
     }
 
+    /// One signature can carry several Rings events, and nothing stops two of
+    /// them from sharing a view tag. Confirmation only proves the transaction
+    /// is indexed, so every event of that signature is an acceptable answer.
     #[test]
-    fn select_indexed_transaction_returns_none_when_no_events_match() {
-        let signature = Signature::from([17u8; 64]);
-        let events = vec![
-            indexed_event(0, signature, [1u8; 32]),
-            indexed_event(1, signature, [2u8; 32]),
-        ];
-
-        let selected =
-            select_indexed_transaction(events, signature, &[[0u8; 32]]).expect("selection");
-
-        assert!(selected.is_none());
-    }
-
-    #[test]
-    fn confirm_private_transaction_sync_selects_matching_event() {
+    fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
         let signature = Signature::from([18u8; 64]);
-        let mut other = indexed_transaction_json(signature);
-        other["output_slots"][0]["view_tag"] = json!(encode_hash([1u8; 32]));
-        let mut expected = indexed_transaction_json(signature);
-        expected["slot"] = json!(12);
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
             "context": { "block_time": 12 },
             "transactions": [
-                { "event_index": 0, "transaction": other },
-                { "event_index": 1, "transaction": expected },
+                { "event_index": 0, "transaction": indexed_transaction_json(signature) },
+                { "event_index": 1, "transaction": indexed_transaction_json(signature) },
             ],
         }))]);
         let client = ZolanaClient::new(
@@ -1436,43 +1397,43 @@ mod tests {
 
         client
             .confirm_private_transaction_sync(signature)
-            .expect("the uniquely matching Rings event should be selected");
+            .expect("events sharing a view tag are not an error");
+
+        assert_eq!(
+            server.requests(),
+            ["/get_shielded_transactions_by_signature"]
+        );
     }
 
+    /// Confirmation no longer reads view tags, so the forwarders are the only
+    /// thing keeping the capability reachable through `ZolanaClient`.
     #[test]
-    fn confirm_private_transaction_sync_rejects_ambiguous_events() {
-        let signature = Signature::from([19u8; 64]);
-        let mut other = indexed_transaction_json(signature);
-        other["output_slots"][0]["view_tag"] = json!(encode_hash([1u8; 32]));
-        let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
-            "context": { "block_time": 12 },
-            "transactions": [
-                { "event_index": 0, "transaction": other },
-                { "event_index": 1, "transaction": indexed_transaction_json(signature) },
-                { "event_index": 2, "transaction": indexed_transaction_json(signature) },
-            ],
-        }))]);
+    fn client_forwards_transact_output_view_tags_to_the_rpc() {
+        let signature = Signature::from([21u8; 64]);
+        let expected = vec![[7u8; 32], [9u8; 32]];
         let client = ZolanaClient::new(
-            MockSubmitRpc::new(signature),
-            ZolanaIndexer::new(server.url()),
+            MockSubmitRpc::new(signature).with_view_tags(expected.clone()),
+            ZolanaIndexer::new("http://unused.invalid"),
             ProverClient::new("http://unused.invalid".to_string()),
-            AsyncZolanaIndexer::new(server.url()),
+            AsyncZolanaIndexer::new("http://unused.invalid"),
             AsyncProverClient::new("http://unused.invalid".to_string()),
             Address::new_from_array([8u8; 32]),
-        )
-        .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
+        );
 
-        let error = client
-            .confirm_private_transaction_sync(signature)
-            .expect_err("multiple matching Rings events must not select event zero");
+        assert_eq!(
+            Rpc::transact_output_view_tags_from_signature(&client, signature).expect("sync tags"),
+            expected
+        );
 
-        assert!(matches!(
-            error,
-            ClientError::AmbiguousIndexedEvents {
-                event_indices,
-                ..
-            } if event_indices == vec![1, 2]
-        ));
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        assert_eq!(
+            runtime
+                .block_on(AsyncRpc::transact_output_view_tags_from_signature(
+                    &client, signature
+                ))
+                .expect("async tags"),
+            expected
+        );
     }
 
     fn state_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {
@@ -1547,9 +1508,14 @@ mod tests {
         fn new(signature: Signature) -> Self {
             Self {
                 signature,
-                view_tags: vec![[0u8; 32]],
+                view_tags: Vec::new(),
                 sent: Arc::new(Mutex::new(Vec::new())),
             }
+        }
+
+        fn with_view_tags(mut self, view_tags: Vec<[u8; 32]>) -> Self {
+            self.view_tags = view_tags;
+            self
         }
     }
 
@@ -1653,34 +1619,6 @@ mod tests {
             "nullifiers": [],
             "proofless": false,
         })
-    }
-
-    fn indexed_event(
-        event_index: u16,
-        signature: Signature,
-        view_tag: [u8; 32],
-    ) -> IndexedShieldedTransaction {
-        IndexedShieldedTransaction {
-            event_index,
-            transaction: ShieldedTransaction {
-                slot: 11,
-                tx_signature: signature,
-                tx_viewing_pk: None,
-                salt: None,
-                output_slots: vec![OutputSlot {
-                    view_tag,
-                    output_context: OutputContext {
-                        hash: [1u8; 32],
-                        tree: Address::new_from_array([8u8; 32]),
-                        leaf_index: 0,
-                    },
-                    payload: Vec::new(),
-                }],
-                messages: Vec::new(),
-                nullifiers: Vec::new(),
-                proofless: false,
-            },
-        }
     }
 
     fn indexed_transaction_by_signature_response(signature: Signature) -> Value {

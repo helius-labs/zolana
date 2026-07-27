@@ -1,5 +1,13 @@
 use std::collections::HashMap;
 
+#[path = "../rings_fixtures/mod.rs"]
+mod rings_fixtures;
+
+use rings_fixtures::{
+    fresh_rings_database, resolve_by_signature, resolve_by_tags, seed_tagged_transaction_history,
+    signature_at, tag_page, LookupCost, PAGE_LIMIT, VIEW_TAG,
+};
+
 use photon_indexer::{
     api::{
         error::PhotonApiError,
@@ -377,6 +385,72 @@ async fn signature_lookup_returns_multiple_events_in_event_order() {
     .await
     .unwrap();
     assert!(missing.transactions.is_empty());
+}
+
+/// A caller that already knows its signature -- the confirmation path, or
+/// anyone resolving a signature seen elsewhere -- can ask for that one
+/// transaction instead of walking the view tag index.
+///
+/// The signature lookup is one equality on the unique `(signature,
+/// event_index)` index, so it costs the same on a tag with 40 or 400
+/// transactions. Reaching the same transaction through the tag index costs one
+/// request per page and hydrates every older transaction it walks past, because
+/// that query filters with `EXISTS` subqueries over `rings_outputs` and orders
+/// by `slot ASC`. This test pins that difference so it cannot regress back into
+/// a tag scan.
+#[tokio::test]
+async fn signature_lookup_cost_is_independent_of_view_tag_history() {
+    const SHORT_HISTORY: u64 = 40;
+    const LONG_HISTORY: u64 = 400;
+
+    let db = fresh_rings_database().await;
+
+    seed_tagged_transaction_history(&db, VIEW_TAG, 0..SHORT_HISTORY).await;
+    let short_signature = signature_at(SHORT_HISTORY - 1);
+    let short_by_signature = resolve_by_signature(&db, short_signature).await;
+    let short_by_tags = resolve_by_tags(&db, VIEW_TAG, short_signature, PAGE_LIMIT).await;
+
+    seed_tagged_transaction_history(&db, VIEW_TAG, SHORT_HISTORY..LONG_HISTORY).await;
+    let long_signature = signature_at(LONG_HISTORY - 1);
+    let long_by_signature = resolve_by_signature(&db, long_signature).await;
+    let long_by_tags = resolve_by_tags(&db, VIEW_TAG, long_signature, PAGE_LIMIT).await;
+
+    // The signature lookup does not notice that the tag grew tenfold.
+    let flat = LookupCost {
+        requests: 1,
+        hydrated_transactions: 1,
+    };
+    assert_eq!(short_by_signature, flat);
+    assert_eq!(long_by_signature, flat);
+
+    // The tag walk pays for the whole history every time.
+    assert_eq!(
+        short_by_tags,
+        LookupCost {
+            requests: 1,
+            hydrated_transactions: usize::try_from(SHORT_HISTORY).unwrap(),
+        }
+    );
+    assert_eq!(
+        long_by_tags,
+        LookupCost {
+            requests: usize::try_from(LONG_HISTORY.div_ceil(PAGE_LIMIT)).unwrap(),
+            hydrated_transactions: usize::try_from(LONG_HISTORY).unwrap(),
+        }
+    );
+
+    // The confirmation path on a single unpaginated page is not just slower on
+    // a long tag, it never sees the transaction at all: the tag query orders by
+    // `slot ASC`, so the newest transaction sits on the last page.
+    let first_page = tag_page(&db, VIEW_TAG, None, PAGE_LIMIT).await;
+    assert_eq!(
+        usize::try_from(PAGE_LIMIT).unwrap(),
+        first_page.transactions.len()
+    );
+    assert!(!first_page
+        .transactions
+        .iter()
+        .any(|item| item.tx_signature.0 == long_signature));
 }
 
 #[tokio::test]
@@ -1278,12 +1352,16 @@ async fn assert_rings_api_exposes_output_hashes(
     )
     .await
     .unwrap();
+    let indexed = direct
+        .transactions
+        .first()
+        .expect("one indexed Rings event for the signature");
     assert_eq!(direct.transactions.len(), 1);
     assert_eq!(
-        direct.transactions[0].event_index,
-        rings_tx.event_index as u16
+        indexed.event_index,
+        u16::try_from(rings_tx.event_index).expect("event index is non-negative")
     );
-    assert_eq!(direct.transactions[0].transaction.tx_signature.0, signature);
+    assert_eq!(indexed.transaction.tx_signature.0, signature);
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
