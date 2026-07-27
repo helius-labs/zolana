@@ -10,15 +10,15 @@ import (
 )
 
 type derivationCircuit struct {
-	FirstBlinding    frontend.Variable
+	Secret           frontend.Variable
 	Tag              frontend.Variable
 	ExpectedBlinding frontend.Variable
 	ExpectedDummy    frontend.Variable
 }
 
 func (c *derivationCircuit) Define(api frontend.API) error {
-	api.AssertIsEqual(c.ExpectedBlinding, MergeOutputBlinding(api, c.FirstBlinding, c.Tag))
-	api.AssertIsEqual(c.ExpectedDummy, MergeDummyNullifier(api, c.FirstBlinding, c.Tag, 3))
+	api.AssertIsEqual(c.ExpectedBlinding, MergeOutputBlinding(api, c.Secret, c.Tag))
+	api.AssertIsEqual(c.ExpectedDummy, MergeDummyNullifier(api, c.Secret, c.Tag, 3))
 	return nil
 }
 
@@ -35,7 +35,7 @@ func TestRecoveryDerivationsMatchRustVectors(t *testing.T) {
 	}
 
 	witness := derivationCircuit{
-		FirstBlinding:    big.NewInt(42),
+		Secret:           big.NewInt(42),
 		Tag:              big.NewInt(7),
 		ExpectedBlinding: mustBig("2f6bd14769ab9af9cdede9526bb87e83ee9ba49a41f8e2b7158b50433f541897"),
 		ExpectedDummy:    mustBig("1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914"),

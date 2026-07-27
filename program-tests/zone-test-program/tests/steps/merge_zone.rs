@@ -130,7 +130,7 @@ impl ZoneLifecycleWorld {
         let first_nullifier = keypair
             .nullifier_key
             .nullifier(&first_hash, &inputs[0].blinding)?;
-        let output_blinding = merge_output_blinding(&inputs[0].blinding, &first_nullifier)?;
+        let output_blinding = merge_output_blinding(&keypair.nullifier_key, &first_nullifier)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
@@ -312,7 +312,7 @@ impl ZoneLifecycleWorld {
             owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,
-            blinding: merge_output_blinding(&inputs[0].blinding, &first_nullifier)?,
+            blinding: merge_output_blinding(&keypair.nullifier_key, &first_nullifier)?,
             zone_program_id: None,
             zone_data_hash: None,
             data_hash: None,

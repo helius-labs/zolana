@@ -8,6 +8,16 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
+// Checks:
+// UTXO or dummy:
+// - nullifier non inclusion
+// 1. UTXO:
+//   - inclusion
+//   - UTXOs with data hash cannot be merged
+//
+// 2. Dummy
+// - all UTXO fields and nullifier secret are zero
+// - nullifier is derived deterministically
 func constrainInput(
 	api frontend.API,
 	in Input,
@@ -17,7 +27,6 @@ func constrainInput(
 	utxoTreeRoot,
 	nullifierTreeRoot,
 	zoneProgramID,
-	firstInputBlinding,
 	firstNullifier frontend.Variable,
 	slotIndex int,
 ) (frontend.Variable, frontend.Variable) {
@@ -25,12 +34,8 @@ func constrainInput(
 	isUtxo := api.IsZero(api.Sub(in.Domain, UtxoDomain))
 	api.AssertIsEqual(api.Add(isUtxo, isDummy), 1)
 	notDummy := isUtxo
-‚
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: in.Amount})
 
-	// Reconstruct the leaf. A real slot binds the shared owner, asset, nullifier
-	// secret, and zone program; a dummy slot zeroes those shared fields.
-	// DataHash is always 0.
 	leafOwner := api.Select(isDummy, frontend.Variable(0), userOwnerHash)
 	leafAsset := api.Select(isDummy, frontend.Variable(0), asset)
 	leafZoneProgramID := api.Select(isDummy, frontend.Variable(0), zoneProgramID)
@@ -45,9 +50,6 @@ func constrainInput(
 		ZoneDataHash:  in.ZoneDataHash,
 		ZoneProgramID: leafZoneProgramID,
 	}
-	// Reuse the canonical transaction dummy rule: every dummy UTXO field except
-	// domain and blinding is zero. In particular, private dummy zone data cannot
-	// carry an otherwise unconstrained value.
 	transaction.AssertWhen(api, isDummy, utxo.CheckDummy(api))
 	utxoHash := transaction.UtxoHashCircuit(api, utxo)
 
@@ -68,7 +70,7 @@ func constrainInput(
 	})
 	nullifier = api.Select(
 		isDummy,
-		MergeDummyNullifier(api, firstInputBlinding, firstNullifier, slotIndex),
+		MergeDummyNullifier(api, userNullifierSecret, firstNullifier, slotIndex),
 		nullifier,
 	)
 
@@ -83,11 +85,7 @@ func constrainInput(
 		Height: transaction.NullifierTreeHeight,
 	})
 
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{
-		Cond: 1,
-		A:    nfRoot,
-		B:    nullifierTreeRoot,
-	})
+	api.AssertIsEqual(nfRoot, nullifierTreeRoot)
 	abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
 		Lo:  in.NullifierLowValue,
 		Mid: nullifier,

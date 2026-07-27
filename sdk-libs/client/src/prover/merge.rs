@@ -29,8 +29,8 @@ use crate::{
 };
 
 /// Merge consolidates up to 8 inputs sharing one owner, asset, and nullifier
-/// secret into one output whose blinding is derived from the first input's
-/// blinding and first input nullifier, so the owner recovers it by
+/// secret into one output whose blinding is derived from the owner's nullifier
+/// secret and the first input's nullifier, so the owner recovers it by
 /// reconstruction rather than decryption. The owner is either rail: a P256
 /// signing key recomputes its pk_field from the witnessed point, a Solana
 /// (ed25519) signing key feeds its pk_field directly. The input slots reuse
@@ -160,24 +160,24 @@ impl MergeProver {
         &self,
         spp_instruction_discriminator: u8,
     ) -> Result<CommonMerge, ClientError> {
-        // Slot zero must be real: the circuit derives the output blinding from
-        // its blinding.
+        // Slot zero must be real: its single-use nullifier seeds the
+        // deterministic output blinding and dummy nullifiers.
         if self.inputs.is_empty() || self.inputs[0].proof.is_none() {
             return Err(ClientError::NoInputs);
         }
         let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
 
-        // Dummy slots publish deterministic nullifiers derived from the first
-        // real input's private blinding and nullifier; override the placeholder
-        // nullifiers the generic assembly computed from the dummies' blindings.
-        let first_blinding = self.inputs[0].utxo.blinding;
+        // Dummy slots publish deterministic nullifiers derived from the
+        // owner's nullifier secret and the first real nullifier; override the
+        // placeholder nullifiers the generic assembly computed from the
+        // dummies' blindings.
         let first_nullifier = *assembled_inputs
             .nullifiers
             .first()
             .ok_or(ClientError::NoInputs)?;
         for (i, spend) in self.inputs.iter().enumerate() {
             if spend.proof.is_none() {
-                let dummy = merge_dummy_nullifier(&first_blinding, &first_nullifier, i as u8)?;
+                let dummy = merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, i as u8)?;
                 assembled_inputs.nullifiers[i] = dummy;
                 assembled_inputs.inputs[i].nullifier = BigUint::from_bytes_be(&dummy);
             }

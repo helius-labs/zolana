@@ -2,8 +2,8 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 /// Number of input slots a merge proof spends (8-in/1-out shape). Dummy slots
-/// publish deterministic nullifiers derived from the first real input's private
-/// blinding and `nullifiers[0]`.
+/// publish deterministic nullifiers derived from the owner's nullifier secret
+/// and `nullifiers[0]`.
 pub const MERGE_INPUT_COUNT: usize = 8;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,

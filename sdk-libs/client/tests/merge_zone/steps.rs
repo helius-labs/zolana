@@ -81,8 +81,6 @@ impl MergeZoneWorld {
             indexer.add_utxo(utxo_hash);
             inputs.push(SppProofInputUtxo::new(utxo, &sender).with_zone_data_hash(zone_data_hash));
         }
-        let first_blinding = inputs[0].utxo.blinding;
-
         // The plan derives the merged zone-owned output and owner identity; preparing
         // it pads to MERGE_INPUTS, and the MergeZoneWitness folds in the owner
         // nullifier key and the proofs. The prover never sees the high-level plan.
@@ -98,7 +96,7 @@ impl MergeZoneWorld {
             .get_input_merkle_proofs(&commitments, None)
             .expect("merkle proofs");
         let dummy_nullifier_proofs = prepared
-            .dummy_nullifiers()
+            .dummy_nullifiers(&sender.nullifier_key)
             .expect("dummy nullifiers")
             .into_iter()
             .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
@@ -136,7 +134,7 @@ impl MergeZoneWorld {
         // The owner reconstructs the ciphertext-free merge-zone output from the
         // first real input and its published nullifier.
         assert_eq!(
-            merge_output_blinding(&first_blinding, &result.nullifiers[0])
+            merge_output_blinding(&sender.nullifier_key, &result.nullifiers[0])
                 .expect("derive merge-zone output blinding"),
             expected_output.blinding,
             "owner reconstructs the merged zone output blinding",

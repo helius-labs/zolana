@@ -2,9 +2,9 @@
 //! circuit proves) plus the Poseidon key schedule behind [`symmetric_apply`],
 //! kept for schemes that encrypt with a pre-shared secret.
 
-use zolana_hasher::primitives::{hash_bytes, pack_be};
+use zolana_hasher::primitives::{hash_bytes, pack_be, right_align};
 
-use crate::{encryption::ctr_apply, error::KeypairError, hash::poseidon};
+use crate::{encryption::ctr_apply, error::KeypairError, hash::poseidon, NullifierKey};
 
 /// Domain separators (32-bit ASCII tags) for the Poseidon key schedule,
 /// mirroring `circuits/verifiable-encryption/poseidon_kdf.go`.
@@ -28,36 +28,38 @@ fn fe_u32(x: u32) -> [u8; 32] {
     fe
 }
 
-/// The merged output's blinding, derived in-circuit from the first (always
-/// real) input's blinding and its single-use nullifier. The wallet
+/// The merged output's blinding, derived in-circuit from the owner's nullifier
+/// secret and the first (always real) input's single-use nullifier. The wallet
 /// recovers the output by recomputing this value and checking the resulting
-/// UTXO hash against the on-chain output commitment. Field elements are 32-byte
-/// big-endian.
+/// UTXO hash against the on-chain output commitment. The nullifier secret is
+/// known to the owner alone -- unlike a UTXO blinding, which the sender of
+/// that UTXO also knows -- so only the owner can run this derivation.
 pub fn merge_output_blinding(
-    first_input_blinding: &[u8; 32],
+    nullifier_key: &NullifierKey,
     first_nullifier: &[u8; 32],
 ) -> Result<[u8; 32], KeypairError> {
     poseidon(&[
         &fe_u32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
-        first_input_blinding,
+        &right_align(nullifier_key.secret()),
         first_nullifier,
     ])
 }
 
 /// The published nullifier of a dummy (padding) input slot, derived in-circuit
-/// from the first real input's private, commitment-bound blinding, its
-/// single-use nullifier, and the slot index. The private seed hides which slots
-/// are padding, while the fixed derivation prevents a prover from smuggling a
-/// real wallet nullifier into one.
+/// from the owner's nullifier secret, the first real input's single-use
+/// nullifier, and the slot index. Seeding with the nullifier secret (owner-only)
+/// rather than an input blinding (also known to that UTXO's sender) hides which
+/// slots are padding, while the fixed derivation prevents a prover from
+/// smuggling a real wallet nullifier into one.
 pub fn merge_dummy_nullifier(
-    first_input_blinding: &[u8; 32],
+    nullifier_key: &NullifierKey,
     first_nullifier: &[u8; 32],
     slot_index: u8,
 ) -> Result<[u8; 32], KeypairError> {
     let index = fe_u32(u32::from(slot_index));
     poseidon(&[
         &fe_u32(DOMAIN_MERGE_DUMMY_NULLIFIER),
-        first_input_blinding,
+        &right_align(nullifier_key.secret()),
         first_nullifier,
         &index,
     ])
@@ -119,36 +121,44 @@ mod tests {
     }
 
     /// Golden vectors, pinned against the Go circuit
-    /// (`spp_merge/shared/derivation_test.go`).
+    /// (`spp_merge/shared/derivation_test.go`). The secret is the 31-byte
+    /// big-endian of 42, so its right-aligned field element is `fe_u32(42)`.
     #[test]
     fn recovery_derivations_match_circuit_vectors() {
-        let first_blinding = fe_u32(42);
+        let mut secret = [0u8; 31];
+        secret[30] = 42;
+        let key = NullifierKey::from_secret(secret);
+        let other_secret = {
+            let mut s = [0u8; 31];
+            s[30] = 43;
+            NullifierKey::from_secret(s)
+        };
         let first_nullifier = fe_u32(7);
         assert_eq!(
-            hex::encode(merge_output_blinding(&first_blinding, &first_nullifier).unwrap()),
+            hex::encode(merge_output_blinding(&key, &first_nullifier).unwrap()),
             "2f6bd14769ab9af9cdede9526bb87e83ee9ba49a41f8e2b7158b50433f541897",
         );
         assert_ne!(
-            merge_output_blinding(&first_blinding, &first_nullifier).unwrap(),
-            merge_output_blinding(&first_blinding, &fe_u32(8)).unwrap()
+            merge_output_blinding(&key, &first_nullifier).unwrap(),
+            merge_output_blinding(&key, &fe_u32(8)).unwrap()
         );
         assert_eq!(
-            hex::encode(merge_dummy_nullifier(&first_blinding, &first_nullifier, 3).unwrap()),
+            hex::encode(merge_dummy_nullifier(&key, &first_nullifier, 3).unwrap()),
             "1498da905bec363e5c1ae40faee4aca4e3ee990a9e030599797bcbda18cff914",
         );
-        // Domain separation: the two derivations never collide, and the first
-        // blinding, nullifier, and slot index all bind.
+        // Domain separation: the two derivations never collide, and the
+        // nullifier secret, nullifier, and slot index all bind.
         assert_ne!(
-            merge_dummy_nullifier(&first_blinding, &first_nullifier, 3).unwrap(),
-            merge_dummy_nullifier(&first_blinding, &first_nullifier, 4).unwrap()
+            merge_dummy_nullifier(&key, &first_nullifier, 3).unwrap(),
+            merge_dummy_nullifier(&key, &first_nullifier, 4).unwrap()
         );
         assert_ne!(
-            merge_dummy_nullifier(&first_blinding, &first_nullifier, 3).unwrap(),
-            merge_dummy_nullifier(&first_blinding, &fe_u32(8), 3).unwrap()
+            merge_dummy_nullifier(&key, &first_nullifier, 3).unwrap(),
+            merge_dummy_nullifier(&key, &fe_u32(8), 3).unwrap()
         );
         assert_ne!(
-            merge_dummy_nullifier(&first_blinding, &first_nullifier, 3).unwrap(),
-            merge_dummy_nullifier(&fe_u32(43), &first_nullifier, 3).unwrap()
+            merge_dummy_nullifier(&key, &first_nullifier, 3).unwrap(),
+            merge_dummy_nullifier(&other_secret, &first_nullifier, 3).unwrap()
         );
     }
 }

@@ -75,8 +75,8 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_3":  {constraints: 54025, public: 2},
 	"transfer_zone_2_3":          {constraints: 54094, public: 2},
-	"merge_8_1":                  {constraints: 180456, public: 2},
-	"merge_zone_8_1":             {constraints: 180698, public: 2},
+	"merge_8_1":                  {constraints: 180470, public: 2},
+	"merge_zone_8_1":             {constraints: 180740, public: 2},
 	"batch_address-append_40_10": {constraints: 423683, public: 2},
 }
 

@@ -68,7 +68,7 @@ impl MergeZone {
         };
 
         let mut output = output;
-        output.blinding = merge_output_blinding(&inputs[0].utxo.blinding, &first_nullifier)?;
+        output.blinding = merge_output_blinding(&keypair.nullifier_key(), &first_nullifier)?;
 
         Ok(Self {
             inputs,
@@ -130,8 +130,11 @@ impl PreparedMergeZone {
 
     /// Deterministic padding nullifiers whose non-inclusion proofs must be
     /// fetched before constructing the merge-zone circuit witness.
-    pub fn dummy_nullifiers(&self) -> Result<Vec<[u8; 32]>, TransactionError> {
-        super::merge::derive_dummy_nullifiers(&self.inputs)
+    pub fn dummy_nullifiers(
+        &self,
+        nullifier_key: &zolana_keypair::NullifierKey,
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        super::merge::derive_dummy_nullifiers(&self.inputs, nullifier_key)
     }
 }
 

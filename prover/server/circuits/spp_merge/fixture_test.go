@@ -197,11 +197,11 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		nfWitnesses[i] = w
 	}
 
-	// Merged output. The blinding is derived from slot 0's blinding and the
-	// first real nullifier, mirroring the in-circuit derivation.
+	// Merged output. The blinding is derived from the owner's nullifier secret
+	// and the first real nullifier, mirroring the in-circuit derivation.
 	outAmount := new(big.Int).Add(amounts[0], amounts[1])
 	outBlinding, err := poseidon.Hash([]*big.Int{
-		big.NewInt(mergeshared.MergeOutputBlindingDomainV1), blindings[0], nullifiers[0],
+		big.NewInt(mergeshared.MergeOutputBlindingDomainV1), nullifierSecret, nullifiers[0],
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -246,12 +246,13 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		userSigningPkHash = options.userSigningPkHash
 	}
 
-	// Dummy slots publish deterministic nullifiers derived from the first real
-	// input's private blinding and nullifier, mirroring the in-circuit derivation.
+	// Dummy slots publish deterministic nullifiers derived from the owner's
+	// nullifier secret and the first real nullifier, mirroring the in-circuit
+	// derivation.
 	dummyNullifier := func(slot int) *big.Int {
 		nf, err := poseidon.Hash([]*big.Int{
 			big.NewInt(mergeshared.MergeDummyNullifierDomain),
-			blindings[0],
+			nullifierSecret,
 			nullifiers[0],
 			big.NewInt(int64(slot)),
 		})
@@ -336,20 +337,20 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			in.NullifierNextValue = nfWitnesses[i].NextValue
 			fillPath(in.NullifierLowPathElements, nfWitnesses[i].PathElements)
 			in.NullifierLowPathIndex = big.NewInt(int64(nfWitnesses[i].LowIndex))
-			} else {
-				in.Domain = big.NewInt(protocol.DummyDomain)
-				in.Amount = big.NewInt(0)
-				in.Blinding = big.NewInt(0)
-				in.ZoneDataHash = big.NewInt(0)
-				zeroPath(in.StatePathElements)
-				in.StatePathIndex = big.NewInt(0)
-				w := dummyNfWitnesses[i]
-				in.NullifierLowValue = w.LowValue
-				in.NullifierNextValue = w.NextValue
-				fillPath(in.NullifierLowPathElements, w.PathElements)
-				in.NullifierLowPathIndex = big.NewInt(int64(w.LowIndex))
-			}
+		} else {
+			in.Domain = big.NewInt(protocol.DummyDomain)
+			in.Amount = big.NewInt(0)
+			in.Blinding = big.NewInt(0)
+			in.ZoneDataHash = big.NewInt(0)
+			zeroPath(in.StatePathElements)
+			in.StatePathIndex = big.NewInt(0)
+			w := dummyNfWitnesses[i]
+			in.NullifierLowValue = w.LowValue
+			in.NullifierNextValue = w.NextValue
+			fillPath(in.NullifierLowPathElements, w.PathElements)
+			in.NullifierLowPathIndex = big.NewInt(int64(w.LowIndex))
 		}
+	}
 	if options.duplicateFirstInput {
 		inputs[1] = inputs[0]
 		inputs[1].Amount = amounts[1]

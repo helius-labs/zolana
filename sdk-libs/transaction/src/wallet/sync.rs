@@ -691,19 +691,20 @@ impl SyncCtx<'_> {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
         };
-        let Some(first_wallet_utxo) = self.utxos.iter().find(|u| &u.nullifier == first_nullifier)
-        else {
+        // The first nullifier must be one of ours: it both confirms the merge
+        // is this wallet's and seeds the deterministic dummy/output
+        // derivations (keyed by the owner's nullifier secret).
+        if !self.utxos.iter().any(|u| &u.nullifier == first_nullifier) {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
-        };
-        let first_input_blinding = first_wallet_utxo.utxo.blinding;
+        }
 
         // Match this wallet's spent inputs in slot order; deterministic dummy
         // nullifiers are skipped. A real nullifier we do not own means the
         // merge is not ours (the proof binds a single owner).
         let mut matched = Vec::new();
         for (i, nullifier) in tx.nullifiers.iter().enumerate() {
-            if *nullifier == merge_dummy_nullifier(&first_input_blinding, first_nullifier, i as u8)?
+            if *nullifier == merge_dummy_nullifier(self.nullifier_key, first_nullifier, i as u8)?
             {
                 continue;
             }
@@ -718,7 +719,7 @@ impl SyncCtx<'_> {
                 wallet_utxo.utxo.zone_program_id,
             ));
         }
-        let Some(&(asset, _, first_blinding, zone_program_id)) = matched.first() else {
+        let Some(&(asset, _, _, zone_program_id)) = matched.first() else {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
         };
@@ -732,7 +733,7 @@ impl SyncCtx<'_> {
                 .checked_add(m.1)
                 .ok_or(TransactionError::SelectedBalanceOverflow)?;
         }
-        let blinding = merge_output_blinding(&first_blinding, first_nullifier)?;
+        let blinding = merge_output_blinding(self.nullifier_key, first_nullifier)?;
         // A zone merge publishes the output zone-data hash as the slot payload.
         let zone_data_hash: Option<[u8; 32]> = if zone_program_id.is_some() {
             let Ok(hash) = <&[u8; 32]>::try_from(slot.payload.as_slice()) else {

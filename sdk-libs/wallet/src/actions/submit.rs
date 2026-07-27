@@ -109,7 +109,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
     let commitments = prepared.input_utxo_hashes()?;
     let proofs = indexer.get_input_merkle_proofs_for_tree(input_tree, &commitments, None)?;
     ensure_proofs_match_input_tree(&proofs, input_tree)?;
-    let dummy_nullifiers = prepared.dummy_nullifiers()?;
+    let dummy_nullifiers = prepared.dummy_nullifiers(&material.nullifier_key)?;
     let dummy_nullifier_proofs = if dummy_nullifiers.is_empty() {
         Vec::new()
     } else {

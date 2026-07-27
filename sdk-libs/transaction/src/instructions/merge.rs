@@ -50,11 +50,11 @@ impl Merge {
 
         // The output blinding is derived, not random: slot 0 is always real
         // (validation rejects empty inputs), and the circuit derives the same
-        // value from the first input's blinding and nullifier. The
+        // value from the owner's nullifier secret and the first nullifier. The
         // wallet later reconstructs the output the same way.
         let first_nullifier = inputs[0].nullifier()?;
         let mut output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
-        output.blinding = merge_output_blinding(&inputs[0].utxo.blinding, &first_nullifier)?;
+        output.blinding = merge_output_blinding(&keypair.nullifier_key(), &first_nullifier)?;
 
         Ok(Self {
             inputs,
@@ -145,6 +145,7 @@ pub(crate) fn pad_with_dummies(inputs: &mut Vec<SppProofInputUtxo>) {
 
 pub(crate) fn derive_dummy_nullifiers(
     inputs: &[SppProofInputUtxo],
+    nullifier_key: &zolana_keypair::NullifierKey,
 ) -> Result<Vec<[u8; 32]>, TransactionError> {
     let first = inputs.first().ok_or(TransactionError::NoInputs)?;
     if first.is_dummy() {
@@ -156,8 +157,7 @@ pub(crate) fn derive_dummy_nullifiers(
         .enumerate()
         .filter(|(_, input)| input.is_dummy())
         .map(|(slot, _)| {
-            merge_dummy_nullifier(&first.utxo.blinding, &first_nullifier, slot as u8)
-                .map_err(Into::into)
+            merge_dummy_nullifier(nullifier_key, &first_nullifier, slot as u8).map_err(Into::into)
         })
         .collect()
 }
@@ -206,8 +206,11 @@ impl PreparedMerge {
 
     /// Deterministic padding nullifiers whose non-inclusion proofs must be
     /// fetched before constructing the merge circuit witness.
-    pub fn dummy_nullifiers(&self) -> Result<Vec<[u8; 32]>, TransactionError> {
-        derive_dummy_nullifiers(&self.inputs)
+    pub fn dummy_nullifiers(
+        &self,
+        nullifier_key: &zolana_keypair::NullifierKey,
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        derive_dummy_nullifiers(&self.inputs, nullifier_key)
     }
 }
 
