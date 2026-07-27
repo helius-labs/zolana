@@ -11190,6 +11190,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-batch-syscalls"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "litesvm",
+ "solana-bn254-batch-syscall",
+ "solana-program-runtime 3.1.14",
+]
+
+[[package]]
 name = "zolana-batched-merkle-tree"
 version = "0.11.0"
 dependencies = [
@@ -11308,6 +11318,19 @@ dependencies = [
  "borsh",
  "solana-pubkey 4.2.0",
  "wincode",
+]
+
+[[package]]
+name = "zolana-groth16-batch"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+ "groth16-solana",
+ "solana-bn254-batch-syscall",
+ "solana-bn254-groth16-batch",
 ]
 
 [[package]]

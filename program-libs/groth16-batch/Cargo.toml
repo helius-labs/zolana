@@ -1,0 +1,23 @@
+[package]
+name = "zolana-groth16-batch"
+description = "On-chain Groth16 batch verify: agave fold over agave batch syscalls"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+solana-bn254-groth16-batch = { workspace = true }
+solana-bn254-batch-syscall = { workspace = true }
+groth16-solana = { workspace = true }
+
+[dev-dependencies]
+ark-bn254 = { workspace = true }
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+ark-std = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = ['cfg(target_os, values("solana"))']

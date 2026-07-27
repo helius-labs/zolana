@@ -5,6 +5,7 @@ members = [
     "program-libs/batched-merkle-tree",
     "program-libs/bloom-filter",
     "program-libs/event",
+    "program-libs/groth16-batch",
     "program-libs/hasher",
     "program-libs/indexed-array",
     "program-libs/interface",
@@ -12,6 +13,7 @@ members = [
     "program-libs/tree",
     "third-party/agave-bn254/bn254-batch-syscall",
     "third-party/agave-bn254/bn254-groth16-batch",
+    "program-tests/batch-syscalls",
     "program-tests/shielded-pool",
     "program-tests/spp-test-validator",
     "program-tests/test-utils",
@@ -91,6 +93,7 @@ zolana-account-checks = { path = "program-libs/account-checks", version = "0.8.0
 zolana-batched-merkle-tree = { path = "program-libs/batched-merkle-tree", version = "0.11.0" }
 solana-bn254-batch-syscall = { path = "third-party/agave-bn254/bn254-batch-syscall", version = "0.1.0", features = ["agave-unstable-api"] }
 solana-bn254-groth16-batch = { path = "third-party/agave-bn254/bn254-groth16-batch", version = "0.1.0", features = ["agave-unstable-api"] }
+zolana-groth16-batch = { path = "program-libs/groth16-batch", version = "0.1.0" }
 zolana-bloom-filter = { path = "program-libs/bloom-filter", version = "0.6.0" }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
 zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }

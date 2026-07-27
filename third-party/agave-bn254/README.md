@@ -12,3 +12,4 @@ cd ../agave && git rev-parse HEAD
 # rebuild shims after agave moves:
 # re-create symlinks if needed
 ```
+Also requires agave trust() on VerifyingKey (local ../agave edit at pin).
