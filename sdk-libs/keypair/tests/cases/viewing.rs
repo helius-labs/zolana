@@ -1,4 +1,7 @@
-use zolana_keypair::{merge::merge_output_blinding, random_blinding, ViewingKey};
+use zolana_keypair::{
+    merge::{merge_dummy_nullifier, merge_output_blinding},
+    random_blinding, NullifierKey, ViewingKey,
+};
 
 use crate::KeypairWorld;
 
@@ -40,21 +43,31 @@ pub(crate) fn tags_advance(world: &mut KeypairWorld, name: String) {
 }
 
 /// The merged output is indexed by the first input nullifier: its blinding is
-/// derived deterministically from the first input's blinding and that
+/// derived deterministically from the owner's nullifier secret and that
 /// nullifier, so the owner recovers the output without a published merge view
 /// tag (removed with `merge_view_tag`).
 pub(crate) fn merge_tags_advance(_world: &mut KeypairWorld, _name: String) {
-    let first_blinding = random_blinding();
+    let nullifier_key = NullifierKey::from_secret(random_blinding()[1..].try_into().unwrap());
     let first_nullifier = random_blinding();
     let other_nullifier = random_blinding();
-    let base = merge_output_blinding(&first_blinding, &first_nullifier).unwrap();
+    let base = merge_output_blinding(&nullifier_key, &first_nullifier).unwrap();
     assert_eq!(
         base,
-        merge_output_blinding(&first_blinding, &first_nullifier).unwrap()
+        merge_output_blinding(&nullifier_key, &first_nullifier).unwrap()
     );
     assert_ne!(
         base,
-        merge_output_blinding(&first_blinding, &other_nullifier).unwrap()
+        merge_output_blinding(&nullifier_key, &other_nullifier).unwrap()
+    );
+    // The dummy slot nullifiers derive from the same secret, per slot index.
+    let dummy_0 = merge_dummy_nullifier(&nullifier_key, &first_nullifier, 0).unwrap();
+    assert_eq!(
+        dummy_0,
+        merge_dummy_nullifier(&nullifier_key, &first_nullifier, 0).unwrap()
+    );
+    assert_ne!(
+        dummy_0,
+        merge_dummy_nullifier(&nullifier_key, &first_nullifier, 1).unwrap()
     );
 }
 

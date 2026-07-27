@@ -16,6 +16,8 @@ use shielded_pool_tests::support::transact::{
     proof_env, tree_progress, tree_roots, write_zone_config_account, Pool,
 };
 
+use num_bigint::BigUint;
+
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use solana_instruction::{error::InstructionError, AccountMeta};
@@ -39,49 +41,95 @@ use zolana_interface::{
     verifying_keys::{transfer_zone_2_3, transfer_zone_authority_2_2},
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::Rejection;
+use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use zolana_merkle_tree::MerkleTree;
+use zolana_program_test::{test_blinding, Rejection};
+use zolana_client::STATE_TREE_HEIGHT;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, pack_proof, prove_and_verify_transfer, public_input_hash,
-    resolve_outputs, set_output_owner_tags, sol_public_slots, TransferProverInputsArgs,
+    resolve_outputs, set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs,
+    TransferProverInputsArgs,
 };
-use zolana_transaction::instructions::transact::PrivateTxHash;
+use zolana_hasher::Poseidon;
+use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
 /// Build a valid (2,3) eddsa-rail `transact` instruction data with a real proof:
-/// two circuit-dummy inputs and three dummy outputs, bound to the on-chain roots
-/// and the payer. Shared by the positive and negative scenarios.
+/// one real zero-value input (a proofless SOL deposit the payer just made --
+/// PR164 requires at least one real input for the dummy-participant gate) plus
+/// one dummy input, and three dummy outputs, bound to the on-chain roots and
+/// the payer. Shared by the positive and negative scenarios.
 fn build_valid_transact_ix_for_owner(
-    env: &Pool,
+    env: &mut Pool,
     input_owner: Pubkey,
     eddsa_signer_index: u8,
 ) -> TransactIxData {
-    let payer = env.rpc.payer.pubkey();
-    let payer_bytes = payer.to_bytes();
+    let payer = env.rpc.payer.insecure_clone();
+    let payer_bytes = payer.pubkey().to_bytes();
     let input_owner_bytes = input_owner.to_bytes();
-    let roots = tree_roots(&env.rpc, &env.tree.pubkey(), 0);
-    let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
 
-    // Values the program reconstructs from accounts[0] (the payer).
-    let owner_hash = hash_bytes(&input_owner_bytes).expect("owner hash");
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    // The real input: a zero-value SOL deposit owned by `input_owner` (fixed
+    // blinding / nullifier secret keep the run deterministic).
+    let blinding = test_blinding(7);
+    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
+    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+    let owner_public_key = PublicKey::from_ed25519(&input_owner_bytes);
+    let owner_pk_hash = owner_public_key
+        .owner_proof_input_hash()
+        .expect("owner pk hash");
+    let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
+    let utxo = Utxo {
+        owner: owner_public_key,
+        asset: SOL_MINT,
+        amount: 0,
+        blinding,
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    env.rpc
+        .deposit_sol(&env.tree.pubkey(), &payer, 0, owner_field, blinding)
+        .expect("proofless zero deposit");
 
-    // Two circuit-dummy inputs with distinct derived nullifiers (PR164
-    // constrains dummies: each derives its nullifier from its blinding with
-    // secret 0 and needs a non-inclusion witness; the program inserts both into
-    // the nullifier tree).
+    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    state_tree.append(&utxo_hash).expect("append state leaf");
+    assert_eq!(state_tree.root(), utxo_root, "state root gate");
+    let state_path: Vec<[u8; 32]> = state_tree
+        .get_proof_of_leaf(0, true)
+        .expect("state proof")
+        .to_vec();
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    let (dummy_input_0, nullifier_0) =
-        dummy_input(&[1u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
-    let (dummy_input_1, nullifier_1) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 1");
-    let nullifiers = [nullifier_0, nullifier_1];
+    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+    let nullifier = nullifier_key
+        .nullifier(&utxo_hash, &blinding)
+        .expect("nullifier");
+    let non_inclusion = nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+        .expect("non-inclusion proof");
 
-    // Three dummy outputs with distinct blindings. Each has a real `utxo_hash` that
-    // the program appends to the tree and the proof commits via the public output
-    // chain; all three contribute `0` to `private_tx_hash`.
+    let roots = (utxo_root, nullifier_root);
+    let (dummy_input_1, dummy_nullifier) =
+        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+    let real_input = spend_input(SpendInputArgs {
+        utxo: &utxo,
+        owner_field: &owner_field,
+        state_path: &state_path,
+        state_path_index: 0,
+        non_inclusion: &non_inclusion,
+        roots,
+        nullifier: &nullifier,
+        owner_pk_hash: &owner_pk_hash,
+        nullifier_key: &nullifier_key,
+    })
+    .expect("real input");
+
+    // Three dummy outputs with distinct blindings. Dummy outputs must name a
+    // transaction participant (AssertDummyTags), so they carry the input
+    // owner's tag (ed25519 owners tag by their pubkey bytes).
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
@@ -89,42 +137,35 @@ fn build_valid_transact_ix_for_owner(
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    // Instruction data; `proof` and `private_tx_hash` are filled in once the
-    // external-data hash (which excludes both) is known. Each output carries its
-    // own `Inline` owner tag.
-    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
     let mut transact_ix_data = new_transact_ix_data(
-        nullifiers
-            .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
-            .collect(),
+        vec![
+            eddsa_input_utxo(nullifier, 1),
+            eddsa_input_utxo(dummy_nullifier, 1),
+        ],
         Vec::new(),
-        inline_outputs(&output_hashes, &view_tags),
+        inline_outputs(&output_hashes, &[input_owner_bytes; 3]),
     );
     for input in &mut transact_ix_data.inputs {
         input.eddsa_signer_index = eddsa_signer_index;
     }
 
-    // Confidential owner tags: the program reconstructs each output's owner
-    // `pk_field` as `hash_bytes(resolved_owner_tag)` per position. All three
-    // outputs are dummies, so their owner is unconstrained (nullifier_pk 0).
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
 
-    // external_data_hash via the shared interface struct: the program computes
-    // the identical value on-chain. No settlement, so no resolved transfers.
     let external_data_hash =
         external_data_hash(&transact_ix_data, &[]).expect("external data hash");
 
-    // Dummy inputs and outputs contribute zero hashes to private_tx_hash.
-    let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
+    // The real input contributes its utxo hash to private_tx_hash; the dummy
+    // input and all outputs contribute zero.
+    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
         .hash()
         .expect("private tx hash");
 
+    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = public_input_hash(
-        &nullifiers,
+        &[nullifier, dummy_nullifier],
         &output_hashes,
         &[utxo_root, utxo_root],
         &[nullifier_root, nullifier_root],
@@ -133,12 +174,12 @@ fn build_valid_transact_ix_for_owner(
         &public_slot_assets,
         &public_slot_amounts,
         &payer_pubkey_hash,
-        &[owner_hash, owner_hash],
+        &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
     );
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![dummy_input_0, dummy_input_1],
+        inputs: vec![real_input, dummy_input_1],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
@@ -154,8 +195,9 @@ fn build_valid_transact_ix_for_owner(
     transact_ix_data
 }
 
-fn build_valid_transact_ix(env: &Pool) -> TransactIxData {
-    build_valid_transact_ix_for_owner(env, env.rpc.payer.pubkey(), 0)
+fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
+    let input_owner = env.rpc.payer.pubkey();
+    build_valid_transact_ix_for_owner(env, input_owner, 0)
 }
 
 /// Write a structurally valid zone config at a signer-controlled test address.
@@ -197,39 +239,93 @@ fn zone_external_data_hash(transact_ix_data: &TransactIxData, discriminator: u8)
     .expect("zone external data hash")
 }
 
-/// Build valid zone-rail instruction data with a real proof bound to
-/// `zone_program`, shared by `zone_transact` (13-element public-input chain:
-/// the 12-element base with the zone fold in slot 10 plus the input-owner
-/// chain) and `zone_authority_transact` (the 12-element base only). All inputs
-/// and outputs are circuit dummies; the zone binding of dummies is
-/// unconstrained in-circuit, so the public `zone_program_id` element is the
-/// only zone-dependent value.
+/// Build valid zone-rail instruction data with a real proof bound to the zone
+/// test program: one real zero-value zone-owned input (a proofless zone
+/// deposit through the fixture zone program -- PR164 requires a real input for
+/// the dummy-participant gate and zone-owns every real input) plus one dummy
+/// input, and `n_outputs` dummy outputs tagged with the payer (the
+/// participant). The public `zone_program_id` element is the only
+/// zone-dependent value, so the same witness feeds the cross-zone negatives.
 fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
-    env: &Pool,
+    env: &mut Pool,
     zone_program: Pubkey,
     n_outputs: usize,
 ) -> TransactIxData {
-    let payer = env.rpc.payer.pubkey();
-    let payer_bytes = payer.to_bytes();
-    let roots = tree_roots(&env.rpc, &env.tree.pubkey(), 0);
-    let (utxo_root, nullifier_root) = roots;
+    // Zone-owned real input: load the fixture zone program and deposit zero
+    // lamports to the payer through it (the deposit's zone_config pins
+    // `zone_program_id` to the fixture program, which is what the proof binds).
+    env.rpc
+        .load_zone_test_program()
+        .expect("load zone test program");
+    let zone_authority = env.authority.insecure_clone();
+    env.rpc
+        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
+        .expect("create zone config");
+
+    let payer = env.rpc.payer.insecure_clone();
+    let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
+    let zone = solana_address::Address::new_from_array(
+        zolana_program_test::ZONE_TEST_PROGRAM_ID,
+    );
 
-    let owner_hash = hash_bytes(&payer_bytes).expect("owner hash");
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
-    // The program folds `hash_bytes` of the SIGNING config's stored program id
-    // into the `zone_program_id` public-input element.
-    let zone_field = hash_bytes(&zone_program.to_bytes()).expect("zone program field");
+    let blinding = test_blinding(7);
+    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
+    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+    let owner_public_key = PublicKey::from_ed25519(&payer_bytes);
+    let owner_pk_hash = owner_public_key
+        .owner_proof_input_hash()
+        .expect("owner pk hash");
+    let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
+    let utxo = Utxo {
+        owner: owner_public_key,
+        asset: SOL_MINT,
+        amount: 0,
+        blinding,
+        zone_program_id: Some(zone),
+        data: Data::default(),
+    };
+    let deposit_data = env.rpc.zone_sol_shield_data(0, owner_field, blinding);
+    env.rpc
+        .zone_deposit(&env.tree.pubkey(), &payer, &deposit_data)
+        .expect("zone zero deposit");
 
-    // Two circuit-dummy inputs with derived nullifiers and non-inclusion
-    // witnesses (PR164 constrains dummies).
+    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    state_tree.append(&utxo_hash).expect("append state leaf");
+    assert_eq!(state_tree.root(), utxo_root, "state root gate");
+    let state_path: Vec<[u8; 32]> = state_tree
+        .get_proof_of_leaf(0, true)
+        .expect("state proof")
+        .to_vec();
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    let (dummy_input_0, nullifier_0) =
-        dummy_input(&[11u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
-    let (dummy_input_1, nullifier_1) =
-        dummy_input(&[12u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 1");
-    let nullifiers = [nullifier_0, nullifier_1];
+    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+    let nullifier = nullifier_key
+        .nullifier(&utxo_hash, &blinding)
+        .expect("nullifier");
+    let non_inclusion = nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+        .expect("non-inclusion proof");
 
+    let roots = (utxo_root, nullifier_root);
+    let (dummy_input_1, dummy_nullifier) =
+        dummy_input(&[12u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+    let real_input = spend_input(SpendInputArgs {
+        utxo: &utxo,
+        owner_field: &owner_field,
+        state_path: &state_path,
+        state_path_index: 0,
+        non_inclusion: &non_inclusion,
+        roots,
+        nullifier: &nullifier,
+        owner_pk_hash: &owner_pk_hash,
+        nullifier_key: &nullifier_key,
+    })
+    .expect("real input");
+
+    // Dummy outputs with distinct blindings, tagged with the payer (the
+    // participant every input binds to).
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .take(n_outputs)
@@ -238,12 +334,12 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    let view_tags: Vec<[u8; 32]> = (1..=n_outputs as u8).map(|byte| [byte; 32]).collect();
+    let view_tags: Vec<[u8; 32]> = (0..n_outputs).map(|_| payer_bytes).collect();
     let mut transact_ix_data = new_transact_ix_data(
-        nullifiers
-            .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
-            .collect(),
+        vec![
+            eddsa_input_utxo(nullifier, 1),
+            eddsa_input_utxo(dummy_nullifier, 1),
+        ],
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -265,17 +361,22 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     };
     let external_data_hash = zone_external_data_hash(&transact_ix_data, discriminator);
     let private_output_hashes = vec![zero; n_outputs];
-    let private_tx = PrivateTxHash::new(&[zero, zero], &private_output_hashes, &external_data_hash)
+    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &private_output_hashes, &external_data_hash)
         .hash()
         .expect("private tx hash");
 
-    // New public-input layout: the 6-element base chain, the interleaved public
+    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    // The program folds `hash_bytes` of the SIGNING config's stored program id
+    // into the `zone_program_id` public-input element.
+    let zone_field = hash_bytes(&zone_program.to_bytes()).expect("zone program field");
+
+    // Public-input layout: the 6-element base chain, the interleaved public
     // movement slots (all idle here), then zone/payer/dummy-policy, then the
     // variant appendix (ZoneEddsa: input-owner chain + output-owner chain;
     // ZoneAuthority: neither).
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let mut chain = vec![
-        create_hash_chain_from_slice(&nullifiers).expect("nullifier chain"),
+        create_hash_chain_from_slice(&[nullifier, dummy_nullifier]).expect("nullifier chain"),
         create_hash_chain_from_slice(&output_hashes).expect("output chain"),
         create_hash_chain_from_slice(&[utxo_root, utxo_root]).expect("utxo root chain"),
         create_hash_chain_from_slice(&[nullifier_root, nullifier_root])
@@ -290,7 +391,8 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     chain.extend_from_slice(&[zone_field, payer_pubkey_hash, fe(1)]);
     if !IS_AUTHORITY {
         chain.push(
-            create_hash_chain_from_slice(&[owner_hash, owner_hash]).expect("input owner chain"),
+            create_hash_chain_from_slice(&[owner_pk_hash, owner_pk_hash])
+                .expect("input owner chain"),
         );
         chain.push(
             create_hash_chain_from_slice(&owner_pk_hashes).expect("output owner chain"),
@@ -299,7 +401,7 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     let public_input_hash = create_hash_chain_from_slice(&chain).expect("zone public input hash");
 
     let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![dummy_input_0, dummy_input_1],
+        inputs: vec![real_input, dummy_input_1],
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
@@ -346,7 +448,7 @@ fn transact_sends_valid_proof() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let transact_ix_data = build_valid_transact_ix(&env);
+    let transact_ix_data = build_valid_transact_ix(&mut env);
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
         .inputs
         .iter()
@@ -391,7 +493,8 @@ fn transact_sends_valid_proof() {
     );
     let mut data = env.rpc.account_data(&tree).expect("tree account");
     let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
-    let utxo_root_after = account.get_utxo_tree_root(3).expect("post-transact root");
+    // The deposit consumed root-history slot 1, so the transact's root is slot 2.
+    let utxo_root_after = account.get_utxo_tree_root(2).expect("post-transact root");
     assert_ne!(utxo_root_after, utxo_root_before, "utxo root advanced");
 
     // Event: one Transact event carrying exactly the instruction's nullifiers
@@ -487,7 +590,7 @@ fn transact_rejects_tampered_output_owner_tag() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let mut transact_ix_data = build_valid_transact_ix(&env);
+    let mut transact_ix_data = build_valid_transact_ix(&mut env);
 
     // Flip a recipient output's owner tag. The proof committed to the original
     // `hash_field(resolved_owner_tag)`, so the program's reconstruction now
@@ -526,7 +629,7 @@ fn transact_rejects_tampered_public_amount() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let mut transact_ix_data = build_valid_transact_ix(&env);
+    let mut transact_ix_data = build_valid_transact_ix(&mut env);
 
     // The proof was built for a pure shielded transfer (no interface
     // transfers). Claim a 1-lamport withdrawal to a fresh recipient after
@@ -572,8 +675,11 @@ fn transact_rejects_tampered_private_transaction_hash() {
     let mut env = proof_env();
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let mut data = build_valid_transact_ix(&env);
-    data.private_tx_hash = [0xA5; 32];
+    let mut data = build_valid_transact_ix(&mut env);
+    // A small valid field element: the recomputed public input hash no longer
+    // matches the proof (an out-of-field value would fail earlier in the
+    // Poseidon domain check, not at verification).
+    data.private_tx_hash = fe(42);
     let ix = Transact {
         payer,
         input_tree: tree,
@@ -600,7 +706,7 @@ fn transact_rejects_tampered_external_data() {
     let mut env = proof_env();
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let mut data = build_valid_transact_ix(&env);
+    let mut data = build_valid_transact_ix(&mut env);
     data.data_hash = Some([0x5A; 32]);
     let ix = Transact {
         payer,
@@ -629,7 +735,7 @@ fn transact_rejects_out_of_field_output_hash() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let mut transact_ix_data = build_valid_transact_ix(&env);
+    let mut transact_ix_data = build_valid_transact_ix(&mut env);
 
     // 0xFF..FF == 2^256 - 1, far above the BN254 modulus (~2^254), so the tree
     // append's Poseidon hash of this leaf cannot succeed.
@@ -655,10 +761,11 @@ fn transact_rejects_out_of_field_output_hash() {
     Rejection::new(InstructionError::ProgramFailedToComplete).assert_litesvm(error);
 
     // A failed transaction commits nothing: the tree counters read the same
-    // before and after; the journaled trace also shows all non-fee-payer
-    // accounts rolled back.
+    // before and after (the builder's zero deposit already advanced the utxo
+    // counter to 1); the journaled trace also shows all non-fee-payer accounts
+    // rolled back.
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 0, "utxo tree must not advance");
+    assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
     assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
@@ -678,7 +785,7 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
     // The builder's base accounts are payer, input_tree, output_tree, and the
     // SPP program. Insert the Ed25519 owner before the program (index 3) and
     // bind both proof inputs to it.
-    let transact_ix_data = build_valid_transact_ix_for_owner(&env, input_owner.pubkey(), 3);
+    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey(), 3);
     let mut ix = Transact {
         payer,
         input_tree: env.tree.pubkey(),
@@ -723,9 +830,10 @@ fn transact_rejects_a_substituted_input_signer() {
         .airdrop(&substitute_owner.pubkey(), 1_000_000)
         .expect("fund substitute owner account");
 
-    // Prove for `bound_owner` at raw account index 3 (after payer, input_tree,
-    // and output_tree), then place the signing substitute there instead.
-    let transact_ix_data = build_valid_transact_ix_for_owner(&env, bound_owner.pubkey(), 3);
+    // Prove for `bound_owner` at raw account index 5 (after payer, input_tree,
+    // output_tree, the system-program placeholder, and the program account),
+    // then place the signing substitute there instead.
+    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, bound_owner.pubkey(), 5);
     let mut ix = Transact {
         payer,
         input_tree: tree,
@@ -734,10 +842,8 @@ fn transact_rejects_a_substituted_input_signer() {
         data: transact_ix_data,
     }
     .instruction();
-    ix.accounts.insert(
-        3,
-        AccountMeta::new_readonly(substitute_owner.pubkey(), true),
-    );
+    ix.accounts
+        .push(AccountMeta::new_readonly(substitute_owner.pubkey(), true));
 
     let error = env
         .rpc
@@ -745,7 +851,7 @@ fn transact_rejects_a_substituted_input_signer() {
         .expect_err("a substituted input signer must fail proof verification");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 0, "utxo tree must not advance");
+    assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
     assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
@@ -775,7 +881,7 @@ fn transact_rejects_a_substituted_payer() {
 
     // The proof binds the default payer's pubkey hash; the substitute signs at
     // index 0 in its place, so the on-chain recompute disagrees.
-    let transact_ix_data = build_valid_transact_ix_for_owner(&env, input_owner.pubkey(), 3);
+    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey(), 5);
     let mut ix = Transact {
         payer: substitute_payer.pubkey(),
         input_tree: tree,
@@ -785,7 +891,7 @@ fn transact_rejects_a_substituted_payer() {
     }
     .instruction();
     ix.accounts
-        .insert(3, AccountMeta::new_readonly(input_owner.pubkey(), true));
+        .push(AccountMeta::new_readonly(input_owner.pubkey(), true));
 
     let error = env
         .rpc
@@ -793,7 +899,7 @@ fn transact_rejects_a_substituted_payer() {
         .expect_err("a substituted payer must fail proof verification");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 0, "utxo tree must not advance");
+    assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
     assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
@@ -813,7 +919,7 @@ fn transact_rejects_replay_under_the_zone_transact_tag() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let mut transact_ix_data = build_valid_transact_ix(&env);
+    let mut transact_ix_data = build_valid_transact_ix(&mut env);
     // Select the zone circuit family so the replay reaches proof verification:
     // the external-data hash the proof committed to uses the `transact`
     // discriminator, so verification must fail.
@@ -840,7 +946,7 @@ fn transact_rejects_replay_under_the_zone_transact_tag() {
         .expect_err("a transact proof replayed as zone_transact must be rejected");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 0, "utxo tree must not advance");
+    assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
     assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
@@ -860,10 +966,12 @@ fn zone_transact_rejects_a_proof_bound_to_a_different_zone() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let zone_a = Pubkey::new_unique();
+    // The fixture zone program is the only real zone the deposit can bind; the
+    // cross-zone negative uses an arbitrary second program id.
+    let zone_a = Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID);
     let zone_b = Pubkey::new_unique();
 
-    let transact_ix_data = build_valid_zone_ix::<false>(&env, zone_a, 3);
+    let transact_ix_data = build_valid_zone_ix::<false>(&mut env, zone_a, 3);
     let mut base_ix = Transact {
         payer,
         input_tree: tree,
@@ -885,7 +993,7 @@ fn zone_transact_rejects_a_proof_bound_to_a_different_zone() {
         .expect_err("a zone proof submitted under a different zone's config must be rejected");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 0, "utxo tree must not advance");
+    assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
     assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
@@ -901,7 +1009,7 @@ fn zone_transact_rejects_a_proof_bound_to_a_different_zone() {
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same zone proof with the bound zone's config succeeds");
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 3, "three outputs appended");
+    assert_eq!(utxo_next, 4, "deposit leaf plus three outputs appended");
     assert_eq!(nullifier_next, 2, "two nullifiers queued");
 }
 
@@ -916,11 +1024,11 @@ fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let zone_a = Pubkey::new_unique();
+    let zone_a = Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID);
     let zone_b = Pubkey::new_unique();
 
     // The zone-authority verifying keys cover only square shapes; use (2,2).
-    let transact_ix_data = build_valid_zone_ix::<true>(&env, zone_a, 2);
+    let transact_ix_data = build_valid_zone_ix::<true>(&mut env, zone_a, 2);
     let mut base_ix = Transact {
         payer,
         input_tree: tree,
@@ -943,7 +1051,7 @@ fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
         .expect_err("a zone-authority proof under a different zone's config must be rejected");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 0, "utxo tree must not advance");
+    assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
     assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
@@ -959,7 +1067,7 @@ fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same zone-authority proof with the bound zone's config succeeds");
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
-    assert_eq!(utxo_next, 2, "two outputs appended");
+    assert_eq!(utxo_next, 3, "deposit leaf plus two outputs appended");
     assert_eq!(nullifier_next, 2, "two nullifiers queued");
 }
 
@@ -968,7 +1076,7 @@ fn transact_rejects_overrunning_eddsa_signer_index() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let mut transact_ix_data = build_valid_transact_ix(&env);
+    let mut transact_ix_data = build_valid_transact_ix(&mut env);
     transact_ix_data
         .inputs
         .get_mut(0)

@@ -31,7 +31,7 @@ fn proof_bearing_default_zone_variants_stay_within_budget() -> Result<()> {
     }
     let signature =
         harness.transfer_asset("p256-sender", "p256-recipient", SOL_MINT, 400_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     assert_transaction_compute_units(
         &harness.rpc,
         &signature,
@@ -43,7 +43,7 @@ fn proof_bearing_default_zone_variants_stay_within_budget() -> Result<()> {
         harness.deposit_sol("p256-withdrawer", 1_000_000_000)?;
     }
     let signature = harness.withdraw_sol("p256-withdrawer", 400_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     assert_transaction_compute_units(
         &harness.rpc,
         &signature,

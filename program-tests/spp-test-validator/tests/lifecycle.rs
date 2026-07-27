@@ -26,7 +26,7 @@ fn p256_transfers_cover_sol_and_spl_assets() -> Result<()> {
         harness.assert_deposited("sender", 1_000_000_000)?;
     }
     harness.transfer_asset("sender", "recipient", SOL_MINT, 400_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.assert_last_event_decodes()?;
     harness.sync("sender")?;
     harness.sync("recipient")?;
@@ -39,7 +39,7 @@ fn p256_transfers_cover_sol_and_spl_assets() -> Result<()> {
         harness.assert_deposited("sender", 1_000_000_000)?;
     }
     harness.transfer_asset("sender", "recipient", spl, 400_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.sync("sender")?;
     harness.sync("recipient")?;
     harness.assert_utxos("sender")?;
@@ -58,7 +58,7 @@ fn p256_transfers_cover_mixed_assets_single_input_and_consolidation() -> Result<
     harness.deposit_sol("sender", 1_000_000_000)?;
     harness.deposit_spl("sender", 1_000_000_000)?;
     harness.transfer_mixed("sender", "recipient", spl, 400_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.sync("sender")?;
     harness.sync("recipient")?;
     harness.assert_utxos("sender")?;
@@ -66,27 +66,27 @@ fn p256_transfers_cover_mixed_assets_single_input_and_consolidation() -> Result<
 
     harness.deposit_sol("sender", 1_000_000_000)?;
     harness.transfer_single("sender", "recipient", SOL_MINT, 600_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.sync("sender")?;
     harness.sync("recipient")?;
     harness.assert_utxos("sender")?;
     harness.assert_utxos("recipient")?;
 
     harness.consolidate("sender", SOL_MINT)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.sync("sender")?;
     harness.assert_utxos("sender")?;
 
     harness.deposit_spl("spl-sender", 1_000_000_000)?;
     harness.transfer_single("spl-sender", "spl-recipient", spl, 600_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.sync("spl-sender")?;
     harness.sync("spl-recipient")?;
     harness.assert_utxos("spl-sender")?;
     harness.assert_utxos("spl-recipient")?;
 
     harness.consolidate("spl-sender", spl)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.sync("spl-sender")?;
     harness.assert_utxos("spl-sender")?;
 
@@ -292,7 +292,7 @@ fn p256_withdrawal_spends_inputs_and_preserves_wallet_consistency() -> Result<()
         harness.deposit_sol("p256-sender", 1_000_000_000)?;
     }
     harness.withdraw_sol("p256-sender", 300_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::P256));
+    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
     harness.sync("p256-sender")?;
     harness.assert_utxos("p256-sender")?;
     Ok(())

@@ -125,13 +125,13 @@ fn zone_merge_rejects_a_proof_bound_to_another_zone() -> Result<()> {
 
 #[test]
 #[serial]
-fn zone_merge_rejects_a_default_merge_proof() -> Result<()> {
+fn zone_merge_rejects_default_shielded_utxos() -> Result<()> {
     let mut harness = ZoneHarness::new()?;
     harness.create_enabled_zone_config()?;
     for _ in 0..2 {
         harness.shield_default_sol("cross-instruction-merge", 1_000_000_000)?;
     }
-    harness.merge_transact_proof_replayed_as_zone_rejected("cross-instruction-merge", SOL_MINT, 2)
+    harness.default_shielded_utxos_zone_merge_unprovable("cross-instruction-merge", SOL_MINT, 2)
 }
 
 #[test]

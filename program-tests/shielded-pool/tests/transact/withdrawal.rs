@@ -143,6 +143,8 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         .into_iter()
         .map(|(output, _)| output)
         .collect();
+    // Dummy outputs must name a transaction participant (AssertDummyTags), so
+    // they carry the payer's tag.
     let mut data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
@@ -152,7 +154,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
             amount: SPL_AMOUNT,
             vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
         }],
-        inline_outputs(&output_hashes, &[[1u8; 32], [2u8; 32], [3u8; 32]]),
+        inline_outputs(&output_hashes, &[payer_bytes; 3]),
     );
     let output_owner_hashes =
         output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
@@ -225,7 +227,10 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         .rpc
         .create_and_send_default_payer_transaction(&[substituted], &[])
         .expect_err("proof bound to another mint must fail");
-    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
+    // The settlement-account validation (leg mint vs canonical vault) fires
+    // before proof verification, so the substitution is an accounts error, not
+    // a proof error.
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
         .expect("mint substitution trace")
@@ -545,7 +550,9 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     let owner_view_tag = owner_public_key
         .confidential_view_tag()
         .expect("owner view tag");
-    let view_tags = [owner_view_tag, [2u8; 32], [3u8; 32]];
+    // Dummy outputs must name a transaction participant (AssertDummyTags), so
+    // they share the real output's owner tag.
+    let view_tags = [owner_view_tag; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifiers[0], 0),
@@ -736,11 +743,10 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let (dummy_a, dummy_hash_a) = dummy_transfer_output(&[1u8; 31]).expect("dummy output");
     let (dummy_b, dummy_hash_b) = dummy_transfer_output(&[2u8; 31]).expect("dummy output");
     let output_hashes = [shielded_hash, dummy_hash_a, dummy_hash_b];
-    let view_tags = [
-        owner.confidential_view_tag().expect("owner view tag"),
-        [2u8; 32],
-        [3u8; 32],
-    ];
+    let owner_view_tag = owner.confidential_view_tag().expect("owner view tag");
+    // Dummy outputs must name a transaction participant (AssertDummyTags), so
+    // they share the real output's owner tag.
+    let view_tags = [owner_view_tag; 3];
     let mut data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifiers[0], 0),
@@ -1056,7 +1062,8 @@ fn shield_transfer_then_withdraw_sol() {
     state_tree
         .append(&transfer_dummy_hash)
         .expect("append dummy leaf");
-    let (transfer_utxo_root, transfer_nullifier_root) = tree_roots(&env.rpc, &tree, 4);
+    // init=0, post-deposit=1, post-transfer=2.
+    let (transfer_utxo_root, transfer_nullifier_root) = tree_roots(&env.rpc, &tree, 2);
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
     assert_eq!(transfer_nullifier_root, nullifier_root);
 

@@ -54,6 +54,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         client,
         tree,
         maker,
+        maker_input: _,
         mut taker,
         spl_mint,
     } = setup()?;

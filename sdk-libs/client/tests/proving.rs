@@ -7,7 +7,7 @@ use zolana_client::{
     SppProofInputUtxo,
 };
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
 use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_transaction::{
     instructions::transact::{
@@ -36,16 +36,28 @@ impl TransferHarness {
     pub(crate) fn prove_and_verify(&self) {
         let plan = &self.plan;
         let mut rng = rand::thread_rng();
-        let sender = ShieldedKeypair::new().expect("sender keypair");
+        // Post-PR164 the confidential rail is eddsa-only: sender and recipients
+        // are ed25519-derived keypairs.
+        let sender = ShieldedKeypair::from_ed25519(&random_blinding(&mut rng), ViewingKey::new())
+            .expect("eddsa sender keypair");
         let assets = AssetRegistry::new([(SPL_ASSET_ID, spl_mint())]).expect("asset registry");
 
+        let mut first_solana_owner_tag: Option<[u8; 32]> = None;
         let inputs: Vec<SppProofInputUtxo> = plan
             .inputs
             .iter()
             .map(|input| {
                 let owner = match input.owner {
                     crate::harness::Owner::P256 => sender.signing_pubkey(),
-                    crate::harness::Owner::Solana => PublicKey::from_ed25519(&random_32(&mut rng)),
+                    crate::harness::Owner::Solana => {
+                        let owner = PublicKey::from_ed25519(&random_32(&mut rng));
+                        if first_solana_owner_tag.is_none() {
+                            first_solana_owner_tag = Some(
+                                owner.confidential_view_tag().expect("first owner tag"),
+                            );
+                        }
+                        owner
+                    }
                 };
                 let utxo = Utxo {
                     owner,
@@ -69,11 +81,32 @@ impl TransferHarness {
             })
             .collect();
 
-        // Fresh recipients are created up front so the expected outputs can name them.
+        // Post-PR164, dummy and zero-value slots are tagged with the first real
+        // input's owner tag (the "dummy owner tag"), not the sender's.
+        let dummy_owner_tag = plan
+            .inputs
+            .first()
+            .map(|input| match input.owner {
+                crate::harness::Owner::P256 => sender
+                    .signing_pubkey()
+                    .confidential_view_tag()
+                    .expect("dummy owner tag"),
+                crate::harness::Owner::Solana => first_solana_owner_tag
+                    .expect("solana owner tag captured"),
+            })
+            .expect("at least one input");
+
+        // Fresh recipients are created up front so the expected outputs can name
+        // them. Post-PR164 the confidential rail is eddsa-only, so recipients are
+        // ed25519-derived keypairs (P256 recipients are rejected by `send`).
         let recipients: Vec<ShieldedKeypair> = plan
             .sends
             .iter()
-            .map(|_| ShieldedKeypair::new().expect("recipient keypair"))
+            .map(|_| {
+                let seed = random_blinding(&mut rng);
+                ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())
+                    .expect("eddsa recipient keypair")
+            })
             .collect();
 
         let mut transfer = ConfidentialTransfer::new(
@@ -134,6 +167,7 @@ impl TransferHarness {
             recipients: &recipients,
             first_nullifier: &first_nullifier,
             seed,
+            dummy_owner_tag,
         };
         // PR164 removed the P256 transact rail; only the eddsa variant remains.
         let ProverVariant::Eddsa(prover) =
@@ -158,6 +192,7 @@ struct OutputAssertions<'a> {
     recipients: &'a [ShieldedKeypair],
     first_nullifier: &'a [u8; 32],
     seed: [u8; 32],
+    dummy_owner_tag: [u8; 32],
 }
 
 impl OutputAssertions<'_> {
@@ -255,7 +290,7 @@ impl OutputAssertions<'_> {
         } else {
             SppProofOutputUtxo {
                 blinding: derive_blinding(&seed, 0),
-                owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
+                owner_tag: Some(self.dummy_owner_tag),
                 ..Default::default()
             }
         });
@@ -270,7 +305,7 @@ impl OutputAssertions<'_> {
         } else {
             SppProofOutputUtxo {
                 blinding: derive_blinding(&seed, 1),
-                owner_tag: Some(sender.signing_pubkey().confidential_view_tag().unwrap()),
+                owner_tag: Some(self.dummy_owner_tag),
                 ..Default::default()
             }
         });
@@ -354,12 +389,26 @@ impl OutputAssertions<'_> {
                 messages: external_data.messages.clone(),
             }
         );
-        // The sender's change slot sits at output 0; its resolved owner tag is the
-        // sender's view tag regardless of how the wire `OwnerTag` encodes it.
-        assert_eq!(
-            external_data.resolved_owner_tags.first().copied(),
-            Some(sender.signing_pubkey().confidential_view_tag().unwrap())
-        );
+        // Post-PR164, zero-value change slots carry the dummy owner tag (the
+        // first real input's owner tag); real change slots carry the sender's.
+        let sender_tag = sender.signing_pubkey().confidential_view_tag().unwrap();
+        for (position, change_amount) in
+            [(0usize, change(Asset::Spl)), (1usize, change(Asset::Sol))]
+        {
+            let want = if change_amount > 0 {
+                sender_tag
+            } else {
+                self.dummy_owner_tag
+            };
+            assert_eq!(
+                external_data
+                    .resolved_owner_tags
+                    .get(position)
+                    .copied(),
+                Some(want),
+                "resolved owner tag at slot {position}"
+            );
+        }
 
         // The encrypted slots decrypt to the same sender change and recipients. A
         // change slot decodes on the sender side only when its change is non-zero;

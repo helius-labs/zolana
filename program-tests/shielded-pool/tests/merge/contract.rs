@@ -120,14 +120,15 @@ fn write_user_record(
         owner_p256,
         nullifier_pubkey: [11u8; NULLIFIER_PUBKEY_LEN],
         viewing_pubkey,
-        sync_delegate: None,
-        entries: Vec::new(),
         merging_enabled,
     };
     let mut data = vec![UserRecord::DISCRIMINATOR];
     record
         .serialize(&mut data)
         .expect("serialize fabricated user record");
+    // The registry requires the exact fixed record size; a `None` p256 key
+    // serializes short, so zero-pad like the program's own writes do.
+    data.resize(UserRecord::SIZE, 0);
     let address = Pubkey::new_unique();
     rpc.svm
         .set_account(

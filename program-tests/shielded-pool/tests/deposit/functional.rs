@@ -3,7 +3,7 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_event::{general_event_from_indexed, Movement};
+use zolana_event::{general_event_from_indexed, SplTransfer};
 use zolana_interface::{
     instruction::{Deposit, UtxoData},
     pda,
@@ -106,13 +106,13 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
     let event = general_event_from_indexed(outcome.events.first().expect("deposit event"))
         .expect("decoded GeneralEvent");
     assert_eq!(
-        event.movements,
-        vec![Movement {
+        event.spl_transfers,
+        vec![SplTransfer {
             is_deposit: true,
             amount: AMOUNT,
             asset: None,
         }],
-        "SOL deposit emits exactly one deposit movement with no asset"
+        "SOL deposit emits exactly one deposit transfer with no asset"
     );
     assert!(event.inputs.is_empty(), "deposit spends no inputs");
     assert_eq!(event.outputs.len(), 1, "deposit appends exactly one output");

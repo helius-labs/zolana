@@ -78,7 +78,12 @@ impl ZoneHarness {
         Ok(())
     }
 
-    pub(crate) fn merge_transact_proof_replayed_as_zone_rejected(
+    /// PR164: default-shielded (non-zone) UTXOs cannot be merged through the
+    /// zone rail — the zone-merge circuit binds each input's zone stamp, so
+    /// proving fails before anything reaches the chain (and a provable
+    //  cross-rail merge would still be rejected on-chain by the caller's
+    //  `expect_proof_rejection` leg).
+    pub(crate) fn default_shielded_utxos_zone_merge_unprovable(
         &mut self,
         name: &str,
         asset: Address,
@@ -97,12 +102,15 @@ impl ZoneHarness {
         assert_replay: bool,
         submit_zone: Option<solana_pubkey::Pubkey>,
         expect_proof_rejection: bool,
-        prove_for_default_merge: bool,
+        expect_proving_rejection: bool,
     ) -> Result<Option<solana_signature::Signature>> {
-        // TODO(pr164-port): PR164 removed `merge_view_tag` and changed the
-        // default-merge prover shape; the `prove_for_default_merge` path is not
-        // ported and the flag is currently ignored (zone-merge rail only).
-        let _ = prove_for_default_merge;
+        // PR164 removed `merge_view_tag` and with it the default-merge rail the
+        // replay test was built on, so there is no merge_transact proof to
+        // replay. The surviving cross-rail property is that default-shielded
+        // (non-zone) UTXOs cannot be zone-merged; the zone-merge circuit binds
+        // each input's zone stamp, so the rejection now happens at proving time
+        // (constraint failure) rather than as an on-chain
+        // `TransactProofVerificationFailed`.
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
@@ -213,7 +221,25 @@ impl ZoneHarness {
         }
         .build()?;
 
-        let proof = ProverClient::local().prove_merge_zone(&result.inputs)?;
+        let proof = match ProverClient::local().prove_merge_zone(&result.inputs) {
+            Ok(proof) => proof,
+            Err(err) if expect_proving_rejection => {
+                // PR164 cross-rail rejection: the zone-merge circuit binds each
+                // input's zone stamp, so default-shielded (non-zone) UTXOs are
+                // unprovable as a zone merge. The prover refuses and nothing is
+                // submitted, so the tree is trivially untouched and the inputs
+                // stay spendable.
+                let message = format!("{err:#}");
+                if !message.contains("proving") && !message.contains("constraint") {
+                    return Err(anyhow!(
+                        "expected a proving-time rejection of the cross-rail merge, got: {message}"
+                    ));
+                }
+                self.actor_mut(name).spendable.extend(inputs);
+                return Ok(None);
+            }
+            Err(err) => return Err(err.into()),
+        };
 
         let data = result.zone_instruction_data(pack_proof(&proof)?, ZERO);
         let output_hash = result.output_hash;

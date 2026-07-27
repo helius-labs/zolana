@@ -8,17 +8,17 @@ use zolana_user_registry_interface::{
 
 /// The custom error codes are the declaration-order discriminants; clients and
 /// tests observe them as `Custom(n)`, so reordering the enum is a wire break.
+/// (The sync-delegate variants were removed in main's #167 cleanup; the pin is
+/// the current 6-variant enum.)
 #[test]
 fn error_codes_are_stable() {
-    let pinned: [(UserRegistryError, u32); 8] = [
+    let pinned: [(UserRegistryError, u32); 6] = [
         (UserRegistryError::InvalidInstructionData, 0),
-        (UserRegistryError::SyncDelegateNotSet, 1),
-        (UserRegistryError::UnauthorizedSigner, 2),
-        (UserRegistryError::InvalidSyncDelegate, 3),
-        (UserRegistryError::InvalidRecordPda, 4),
-        (UserRegistryError::OwnerMismatch, 5),
-        (UserRegistryError::InvalidRecordAccount, 6),
-        (UserRegistryError::InvalidSystemProgram, 7),
+        (UserRegistryError::UnauthorizedSigner, 1),
+        (UserRegistryError::InvalidRecordPda, 2),
+        (UserRegistryError::OwnerMismatch, 3),
+        (UserRegistryError::InvalidRecordAccount, 4),
+        (UserRegistryError::InvalidSystemProgram, 5),
     ];
     for (variant, code) in pinned {
         assert_eq!(variant as u32, code, "{}", variant.name());

@@ -171,7 +171,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     // `owner_pk_field`.
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
-    let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
+    // Dummy outputs must name a transaction participant (AssertDummyTags).
+    let transfer_view_tags = [change_view_tag, recipient_view_tag, change_view_tag];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, payer_state_proof.root_index),
@@ -364,7 +365,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         .map(|(out, _)| out)
         .collect();
 
-    let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    // Dummy outputs must name a transaction participant (AssertDummyTags).
+    let withdraw_view_tags = [recipient_view_tag; 3];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(recipient_nullifier, recipient_state_proof.root_index),
@@ -459,11 +461,21 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[&payer, &recipient_owner],
     )?;
     print_signature("unshield", &withdraw_sig);
-    let indexed_withdraw = wait_for_indexed_transaction(&indexer, [1u8; 32], withdraw_sig)?;
+    // PR164 AssertDummyTags forces every dummy output to name a transaction
+    // participant, so the withdraw's outputs all carry `recipient_view_tag`
+    // (see `withdraw_view_tags` above) instead of per-slot synthetic tags.
+    let indexed_withdraw =
+        wait_for_indexed_transaction(&indexer, recipient_view_tag, withdraw_sig)?;
     assert_eq!(indexed_withdraw.nullifiers.len(), 2);
+    // `recipient_view_tag` matches both the shielded transfer and the withdraw,
+    // so a limit-1 query must paginate across the two transactions.
     let first_page = wait_for("paginated indexed transactions", || {
-        let response =
-            indexer.get_shielded_transactions_by_tags(vec![[3u8; 32]], None, Some(1), None)?;
+        let response = indexer.get_shielded_transactions_by_tags(
+            vec![recipient_view_tag],
+            None,
+            Some(1),
+            None,
+        )?;
         if response.transactions.len() == 1 && response.next_cursor.is_some() {
             Ok(Some(response))
         } else {
@@ -471,7 +483,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         }
     })?;
     let second_page = indexer.get_shielded_transactions_by_tags(
-        vec![[3u8; 32]],
+        vec![recipient_view_tag],
         first_page.next_cursor,
         Some(1),
         None,
