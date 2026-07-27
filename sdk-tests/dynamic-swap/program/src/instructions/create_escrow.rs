@@ -84,8 +84,8 @@ impl EscrowOpenPublicInput<'_> {
 /// no padding): order UTXO, reservation UTXO, maker change UTXO. The program only
 /// reads the first two; the maker change is bound in-circuit and needs no on-chain
 /// handling.
-const ORDER_OUTPUT_INDEX: usize = 0;
-const RESERVATION_OUTPUT_INDEX: usize = 1;
+pub const ORDER_OUTPUT_INDEX: usize = 0;
+pub const RESERVATION_OUTPUT_INDEX: usize = 1;
 
 /// Maximum allowed distance, in slots, between the client-supplied
 /// `created_at` and the real current slot. Slots (not `unix_timestamp`) are

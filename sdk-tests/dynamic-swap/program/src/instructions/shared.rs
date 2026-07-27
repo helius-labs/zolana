@@ -9,7 +9,10 @@ use pinocchio::{
 };
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
-use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{
+    instruction::tag::{COMPOSE_TRANSACT, TRANSACT},
+    SHIELDED_POOL_PROGRAM_ID,
+};
 
 use crate::error::DynamicSwapError;
 
@@ -177,6 +180,117 @@ pub fn derive_authority_pda(seed_label: &'static [u8], pair: &Address) -> (Addre
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
 pub fn derive_authority_pda(_seed_label: &'static [u8], _pair: &Address) -> (Address, u8) {
     unimplemented!("derive_authority_pda requires Solana runtime syscalls")
+}
+
+/// Compose_transact payload (includes tag). Standard Groth16 only.
+pub fn compose_ix_data(
+    foreign_pi: &[u8; 32],
+    a: &[u8; 32],
+    b: &[u8; 64],
+    c: &[u8; 32],
+    transact_bytes: &[u8],
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(1 + 160 + transact_bytes.len());
+    data.push(COMPOSE_TRANSACT);
+    data.extend_from_slice(foreign_pi);
+    data.extend_from_slice(a);
+    data.extend_from_slice(b);
+    data.extend_from_slice(c);
+    data.extend_from_slice(transact_bytes);
+    data
+}
+
+/// CPI into SPP `compose_transact` with multi-PDA signers (same seeds as
+/// [`cpi_spp_transact_signed_multi`]).
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+#[inline(never)]
+#[profile]
+pub fn cpi_spp_compose_signed_multi(
+    spp_accounts: &[AccountView],
+    compose_data: &[u8],
+    pdas: &[(&[u8], Address, Address, u8)],
+) -> ProgramResult {
+    let spp_program_account = spp_accounts
+        .last()
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    if spp_program_account.address() != &spp_id {
+        return Err(DynamicSwapError::InvalidShieldedPoolProgram.into());
+    }
+
+    for (seed_label, _pair_address, pda, _) in pdas {
+        if !spp_accounts.iter().any(|account| account.address() == pda) {
+            return Err(if *seed_label == crate::ESCROW_AUTHORITY_PDA_SEED {
+                DynamicSwapError::MissingEscrowAuthority.into()
+            } else {
+                DynamicSwapError::MissingPoolAuthority.into()
+            });
+        }
+    }
+
+    let metas: Vec<InstructionAccount> = spp_accounts
+        .iter()
+        .map(|account| {
+            let is_signer =
+                account.is_signer() || pdas.iter().any(|(_, _, pda, _)| account.address() == pda);
+            InstructionAccount::new(account.address(), account.is_writable(), is_signer)
+        })
+        .collect();
+
+    let instruction = InstructionView {
+        program_id: &spp_id,
+        accounts: &metas,
+        data: compose_data,
+    };
+
+    let bump_bytes: Vec<[u8; 1]> = pdas.iter().map(|(_, _, _, bump)| [*bump]).collect();
+    let seed_sets: Vec<[Seed; 3]> = pdas
+        .iter()
+        .zip(bump_bytes.iter())
+        .map(|((seed_label, pair_address, _, _), bump)| {
+            [
+                Seed::from(*seed_label),
+                Seed::from(pair_address.as_array().as_slice()),
+                Seed::from(bump.as_ref()),
+            ]
+        })
+        .collect();
+    let signers: Vec<Signer> = seed_sets.iter().map(|seeds| Signer::from(seeds)).collect();
+
+    invoke_signed_with_bounds::<16, _>(&instruction, spp_accounts, &signers)
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+#[inline(never)]
+pub fn cpi_spp_compose_signed_multi(
+    _spp_accounts: &[AccountView],
+    _compose_data: &[u8],
+    _pdas: &[(&[u8], Address, Address, u8)],
+) -> ProgramResult {
+    Ok(())
+}
+
+#[inline(never)]
+pub fn cpi_spp_compose_signed(
+    pair: &Address,
+    seed_label: &'static [u8],
+    spp_accounts: &[AccountView],
+    compose_data: &[u8],
+) -> ProgramResult {
+    #[cfg(any(target_os = "solana", target_arch = "bpf"))]
+    {
+        let (pda, bump) = Address::find_program_address(&[seed_label, pair.as_array()], &crate::ID);
+        cpi_spp_compose_signed_multi(
+            spp_accounts,
+            compose_data,
+            &[(seed_label, *pair, pda, bump)],
+        )
+    }
+    #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+    {
+        let _ = (pair, seed_label, spp_accounts, compose_data);
+        Ok(())
+    }
 }
 
 #[inline(never)]
