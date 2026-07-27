@@ -265,14 +265,32 @@ func buildPublicInputs(
 	external externalValues,
 	privateTxHash *big.Int,
 ) protocol.PublicInputs {
+	// Padding must reuse an owner identity already bound to real transaction
+	// content. PayerPubkeyHash is SHA-256 over the payer address and is not in
+	// the owner-tag hash domain.
+	var participantTag *big.Int
+	for _, ownerPkHash := range inputs.inputOwnerPkHashes {
+		if ownerPkHash != nil && ownerPkHash.Sign() != 0 {
+			participantTag = ownerPkHash
+			break
+		}
+	}
+	if participantTag == nil {
+		for _, ownerPkHash := range outputs.outputOwnerPkHashes {
+			if ownerPkHash != nil && ownerPkHash.Sign() != 0 {
+				participantTag = ownerPkHash
+				break
+			}
+		}
+	}
 	for i, ownerPkHash := range inputs.inputOwnerPkHashes {
-		if ownerPkHash == nil || ownerPkHash.Sign() == 0 {
-			inputs.inputOwnerPkHashes[i] = new(big.Int).Set(payerHash)
+		if participantTag != nil && (ownerPkHash == nil || ownerPkHash.Sign() == 0) {
+			inputs.inputOwnerPkHashes[i] = new(big.Int).Set(participantTag)
 		}
 	}
 	for i, ownerPkHash := range outputs.outputOwnerPkHashes {
-		if ownerPkHash == nil || ownerPkHash.Sign() == 0 {
-			outputs.outputOwnerPkHashes[i] = new(big.Int).Set(payerHash)
+		if participantTag != nil && (ownerPkHash == nil || ownerPkHash.Sign() == 0) {
+			outputs.outputOwnerPkHashes[i] = new(big.Int).Set(participantTag)
 		}
 	}
 	return protocol.PublicInputs{

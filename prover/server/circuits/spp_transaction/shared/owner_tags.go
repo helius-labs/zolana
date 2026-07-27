@@ -33,12 +33,13 @@ func AssertOutputOwnerTags(
 }
 
 // AssertDummyTags constrains every dummy slot's public owner tag to name a
-// transaction participant (a signer or the fee payer). A pad slot must be
+// transaction participant: a real input signer or a real output owner. A pad
+// slot must be
 // indistinguishable from a real one, so its tag stays a free choice — but an
 // unconstrained tag lets the prover attribute the transaction to a third
 // party (a victim's pk_field in a dummy input reads as their spend, in a
 // dummy output as a payment to them). Self-attribution is always available
-// (change outputs and the payer look exactly like this), so the constraint
+// (change and recipient outputs look exactly like this), so the constraint
 // costs no privacy. Rails that publish no tags for a side pass nil.
 func AssertDummyTags(
 	api frontend.API,
@@ -47,40 +48,30 @@ func AssertDummyTags(
 	inputOwnerPkHashes []frontend.Variable,
 	outputOwnerPkHashes []frontend.Variable,
 	signers Signers,
-	payerPkHash frontend.Variable,
 ) error {
-	if inputOwnerPkHashes != nil {
-		if err := ValidateLength("input owner pk hash", len(inputOwnerPkHashes), len(inputs)); err != nil {
-			return err
-		}
-		for i, in := range inputs {
-			participant := containsOrPayer(api, signers, inputOwnerPkHashes[i], payerPkHash)
-			AssertWhen(api, in.isDummy(api), participant)
-		}
-	}
+	participants := append(Signers(nil), signers...)
 	if outputOwnerPkHashes != nil {
 		if err := ValidateLength("output owner pk hash", len(outputOwnerPkHashes), len(outputs)); err != nil {
 			return err
 		}
 		for i, utxo := range outputs {
-			participant := containsOrPayer(api, signers, outputOwnerPkHashes[i], payerPkHash)
-			AssertWhen(api, utxo.isDummy(api), participant)
+			// A dummy output cannot introduce a participant by naming itself.
+			participants = append(participants, api.Mul(utxo.isUtxo(api), outputOwnerPkHashes[i]))
+		}
+	}
+
+	if inputOwnerPkHashes != nil {
+		if err := ValidateLength("input owner pk hash", len(inputOwnerPkHashes), len(inputs)); err != nil {
+			return err
+		}
+		for i, in := range inputs {
+			AssertWhen(api, in.isDummy(api), participants.Contains(api, inputOwnerPkHashes[i]))
+		}
+	}
+	if outputOwnerPkHashes != nil {
+		for i, utxo := range outputs {
+			AssertWhen(api, utxo.isDummy(api), participants.Contains(api, outputOwnerPkHashes[i]))
 		}
 	}
 	return nil
-}
-
-// containsOrPayer returns 1 iff identity is non-zero and names a transaction
-// participant: a signer or the fee payer (who signed the transaction
-// program-side).
-func containsOrPayer(
-	api frontend.API,
-	signers Signers,
-	identity, payerPkHash frontend.Variable,
-) frontend.Variable {
-	notParticipant := api.Mul(
-		api.Sub(1, signers.Contains(api, identity)),
-		api.Sub(1, api.IsZero(api.Sub(identity, payerPkHash))),
-	)
-	return api.Mul(api.Sub(1, notParticipant), api.Sub(1, api.IsZero(identity)))
 }

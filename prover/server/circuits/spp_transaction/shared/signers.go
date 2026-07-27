@@ -24,7 +24,9 @@ func (signers Signers) ContainsEach(api frontend.API, identities []frontend.Vari
 	return signed
 }
 
-// Returns array of pubkeys that signed the Solana transaction.
+// EddsaOnlySigners returns the owner identities of content-bearing inputs whose
+// Solana accounts signed the transaction. A dummy's signer index does not make
+// its unbound public owner tag an owner identity.
 func EddsaOnlySigners(api frontend.API, inputs []Input, ownerPkHashes []frontend.Variable) Signers {
 	signers := make(Signers, len(inputs))
 	for i, in := range inputs {

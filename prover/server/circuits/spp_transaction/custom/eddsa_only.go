@@ -115,7 +115,7 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	// If an output UTXO holds data the input must have signed a transaction.
 	outputPubkeyIsSigner := signers.ContainsEach(api, c.Public.OutputOwnerPkHashes)
 
-	// Every published dummy tag must identify a signer or the fee payer.
+	// Every published dummy tag must identify a real transaction participant.
 	if err := shared.AssertDummyTags(
 		api,
 		tx.Inputs,
@@ -123,7 +123,6 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		c.Public.InputOwnerPkHashes,
 		c.Public.OutputOwnerPkHashes,
 		signers,
-		c.Public.PayerPubkeyHash,
 	); err != nil {
 		return err
 	}

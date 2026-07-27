@@ -79,6 +79,12 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	isAddress := in.isAddress(api)
 	api.AssertIsEqual(api.Add(isUtxo, isAddress, in.isDummy(api)), 1)
 
+	// Asset 0 marks content-less slots (dummies, addresses); a spendable utxo
+	// must name a real asset. This also makes asset-0 public movement slots
+	// unbalanceable, since no spendable utxo can carry asset 0.
+	// Tokenless data utxos use SOL as asset.
+	assertZeroWhen(api, isUtxo, api.IsZero(in.Utxo.Asset))
+
 	// Checks for UTXO, dummy UTXO, adddress:
 	// 1. nullifier must not exist in nullifier tree.
 	utxoHash := UtxoHashCircuit(api, in.Utxo)

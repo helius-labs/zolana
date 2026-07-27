@@ -103,7 +103,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	// Enforce confidentiality:
 	// 1. Input utxos pubkeys are part of public inputs.
 	// 2. Output UTXOs pubkeys are part of public input.
-	// 3. All dummy UTXO tags must be a signer.
+	// 3. All dummy UTXO tags must name a real transaction participant.
 	if err := shared.AssertOutputOwnerTags(
 		api,
 		tx.Outputs,
@@ -116,7 +116,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Public.InputOwnerPkHashes)
 	// If an output UTXO holds data the input must have signed a transaction.
 	outputPubkeyIsSigner := signers.ContainsEach(api, c.Public.OutputOwnerPkHashes)
-	// Every dummy tag must be the tag of a signer.
+	// Every dummy tag must name a real input signer or real output owner.
 	if err := shared.AssertDummyTags(
 		api,
 		tx.Inputs,
@@ -124,7 +124,6 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		c.Public.InputOwnerPkHashes,
 		c.Public.OutputOwnerPkHashes,
 		signers,
-		c.Public.PayerPubkeyHash,
 	); err != nil {
 		return err
 	}

@@ -206,7 +206,8 @@ pub(crate) fn assemble_outputs(
         // tag. A dummy slot folds `hash_bytes` of the builder's random `view_tag` so
         // its public tag matches the program's `hash_bytes(view_tag)` reconstruction
         // and is indistinguishable from a real one; the circuit requires the
-        // tag to identify a signer or payer, while `nullifier_pk` is unused (0).
+        // tag to identify a real input signer or output owner, while
+        // `nullifier_pk` is unused (0).
         let (owner_pk_field, nullifier_pk) = match &output.owner_address {
             Some(address) => (
                 address.signing_pubkey.owner_proof_input_hash()?,
