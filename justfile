@@ -301,6 +301,11 @@ bench-rfq:
         -- --features bpf-entrypoint,profile-program
     cargo test -p rfq-test --test bench_cu -- --ignored --nocapture
 
+# Fill program-libs/groth16-batch/CU_MATRIX.md from measured builder sizes +
+# existing mollusk BENCHMARK.md CU. Does not invent batch full-path CU.
+bench-batch-matrix:
+    cargo test -p zolana-groth16-batch --test matrix_measure -- --nocapture
+
 # Fetch the pinned escrow/withdraw proving keys from the escrow-keys release
 # and verify them against the committed manifest. groth16.Setup is
 # non-deterministic, so the published keys are the only set matching the
