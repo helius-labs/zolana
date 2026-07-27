@@ -11,7 +11,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferInput, TransferOutput, STATE_TREE_HEIGHT};
-use zolana_event::{general_event_from_indexed, Movement};
+use zolana_event::{general_event_from_indexed, SplTransfer};
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
@@ -490,14 +490,14 @@ fn sol_split_case(reorder_recipients: bool) {
     assert_eq!(outcome.events.len(), 1);
     let event = general_event_from_indexed(event).expect("decode transact event");
     assert_eq!(
-        event.movements,
+        event.spl_transfers,
         vec![
-            Movement {
+            SplTransfer {
                 is_deposit: false,
                 amount: user_amount,
                 asset: None,
             },
-            Movement {
+            SplTransfer {
                 is_deposit: false,
                 amount: relayer_amount,
                 asset: None,
@@ -603,14 +603,14 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
     assert_eq!(outcome.events.len(), 1);
     let event = general_event_from_indexed(event).expect("decode transact event");
     assert_eq!(
-        event.movements,
+        event.spl_transfers,
         vec![
-            Movement {
+            SplTransfer {
                 is_deposit: false,
                 amount: first_amount,
                 asset: Some(mint.to_bytes()),
             },
-            Movement {
+            SplTransfer {
                 is_deposit: false,
                 amount: second_amount,
                 asset: Some(mint.to_bytes()),
@@ -777,19 +777,19 @@ fn three_distinct_assets_support_opposite_public_directions() {
     assert_eq!(outcome.events.len(), 1);
     let event = general_event_from_indexed(event).expect("decode transact event");
     assert_eq!(
-        event.movements,
+        event.spl_transfers,
         vec![
-            Movement {
+            SplTransfer {
                 is_deposit: false,
                 amount: SPL_SPLIT_TOTAL,
                 asset: Some(withdraw_mint.to_bytes()),
             },
-            Movement {
+            SplTransfer {
                 is_deposit: true,
                 amount: sol_deposit_amount,
                 asset: None,
             },
-            Movement {
+            SplTransfer {
                 is_deposit: true,
                 amount: spl_deposit_amount,
                 asset: Some(deposit_mint.to_bytes()),

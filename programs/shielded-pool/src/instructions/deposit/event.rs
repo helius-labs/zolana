@@ -1,6 +1,6 @@
 use pinocchio::ProgramResult;
 use zolana_interface::{
-    event::{encode_output_data_ref, EventKind, GeneralEvent, Movement, ProoflessOutputRef},
+    event::{encode_output_data_ref, EventKind, GeneralEvent, ProoflessOutputRef, SplTransfer},
     instruction::{DepositEntryRef, OutputUtxo},
 };
 
@@ -47,7 +47,7 @@ pub(crate) fn proofless_output_utxo<'a>(
 
 pub(crate) struct DepositEvent {
     pub outputs: Vec<OutputUtxo>,
-    pub movements: Vec<Movement>,
+    pub spl_transfers: Vec<SplTransfer>,
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
 }
@@ -61,7 +61,7 @@ pub(crate) fn emit_deposit_event(e: DepositEvent) -> ProgramResult {
         salt: [0u8; 16],
         first_output_leaf_index: e.first_output_leaf_index,
         output_tree: e.output_tree,
-        movements: e.movements,
+        spl_transfers: e.spl_transfers,
     };
     emit_general_event(EventKind::Deposit, event)
 }

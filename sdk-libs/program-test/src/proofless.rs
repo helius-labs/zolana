@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::Movement;
+use zolana_event::SplTransfer;
 use zolana_interface::instruction::{AssetDeposit, Deposit};
 
 use zolana_event::general_event_from_indexed;
@@ -13,10 +13,10 @@ use crate::{
 };
 
 /// Result of a batched deposit: every appended output in slot order, plus the
-/// event's per-asset public movements (one entry per settled asset).
+/// event's per-asset public SPL transfers (one entry per settled asset).
 pub struct DepositBatch {
     pub outputs: Vec<DepositOutput>,
-    pub movements: Vec<Movement>,
+    pub spl_transfers: Vec<SplTransfer>,
 }
 
 impl ZolanaProgramTest {
@@ -66,7 +66,7 @@ impl ZolanaProgramTest {
         })?;
         Ok(DepositBatch {
             outputs: deposit_outputs_from_event(event)?,
-            movements: general_event.movements.clone(),
+            spl_transfers: general_event.spl_transfers.clone(),
         })
     }
 

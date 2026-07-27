@@ -2,7 +2,7 @@ use arrayvec::ArrayVec;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::{GeneralEvent, Input, MessageData, Movement},
+    event::{GeneralEvent, Input, MessageData, SplTransfer},
     instruction::{
         instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
         OutputUtxo,
@@ -62,11 +62,11 @@ pub fn build_transact_event(
         })
         .collect();
 
-    let interface_transfers = ix
+    let spl_transfers = ix
         .interface_transfers
         .iter()
         .zip(settlements.iter())
-        .map(|(transfer, settlement)| Movement {
+        .map(|(transfer, settlement)| SplTransfer {
             is_deposit: transfer.is_deposit(),
             amount: transfer.amount(),
             asset: match settlement {
@@ -85,6 +85,6 @@ pub fn build_transact_event(
         salt: *ix.salt,
         first_output_leaf_index: tree_write.first_output_leaf_index,
         output_tree: tree_write.output_tree,
-        movements: interface_transfers,
+        spl_transfers,
     }
 }

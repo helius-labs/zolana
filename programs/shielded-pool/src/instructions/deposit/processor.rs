@@ -4,7 +4,7 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::Movement,
+    event::SplTransfer,
     instruction::{
         DepositAssetKind, DepositEntryRef, DepositIxDataRef, ZoneDepositIxDataRef,
         MAX_DEPOSIT_ASSETS,
@@ -163,7 +163,7 @@ fn process_deposit_internal<'a, const HAS_ZONE: bool>(
         return Err(ShieldedPoolError::UnreferencedDepositAsset.into());
     }
 
-    let mut movements = Vec::with_capacity(asset_sums.len());
+    let mut spl_transfers = Vec::with_capacity(asset_sums.len());
     for slot in 0..asset_sums.len() {
         let (asset_index, total) = asset_sums
             .get_by_index(slot)
@@ -178,7 +178,7 @@ fn process_deposit_internal<'a, const HAS_ZONE: bool>(
                 if *total > 0 {
                     settle_sol(sol, *total, true)?;
                 }
-                movements.push(Movement {
+                spl_transfers.push(SplTransfer {
                     is_deposit: true,
                     amount: *total,
                     asset: None,
@@ -188,7 +188,7 @@ fn process_deposit_internal<'a, const HAS_ZONE: bool>(
                 if *total > 0 {
                     settle_spl_deposit(spl, *total)?;
                 }
-                movements.push(Movement {
+                spl_transfers.push(SplTransfer {
                     is_deposit: true,
                     amount: *total,
                     asset: Some(group.asset),
@@ -202,7 +202,7 @@ fn process_deposit_internal<'a, const HAS_ZONE: bool>(
 
     emit_deposit_event(DepositEvent {
         outputs,
-        movements,
+        spl_transfers,
         first_output_leaf_index,
         output_tree,
     })

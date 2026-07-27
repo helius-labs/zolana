@@ -47,7 +47,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
     encode_event_instruction, encode_output_data, encode_verifiably_encrypted, EventKind,
-    GeneralEvent, Input, Movement, OutputUtxo, ProoflessOutput,
+    GeneralEvent, Input, OutputUtxo, ProoflessOutput, SplTransfer,
 };
 use zolana_indexer_api::{
     GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest, Hash,
@@ -1375,7 +1375,7 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 0,
             output_tree: TEST_TREE,
-            movements: vec![Movement {
+            spl_transfers: vec![SplTransfer {
                 is_deposit: true,
                 amount: 100,
                 asset: None,
@@ -1420,7 +1420,7 @@ fn shielded_transfer_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 1,
             output_tree: TEST_TREE,
-            movements: Vec::new(),
+            spl_transfers: Vec::new(),
         },
     )
 }
@@ -1442,7 +1442,7 @@ fn unshield_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 4,
             output_tree: TEST_TREE,
-            movements: vec![Movement {
+            spl_transfers: vec![SplTransfer {
                 is_deposit: false,
                 amount: 40,
                 asset: None,
@@ -1468,7 +1468,7 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
             salt: [6; 16],
             first_output_leaf_index: 2,
             output_tree: TEST_TREE,
-            movements: Vec::new(),
+            spl_transfers: Vec::new(),
         },
     )
 }

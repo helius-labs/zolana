@@ -37,6 +37,6 @@ pub fn build_merge_event(
         salt: [0u8; 16],
         first_output_leaf_index: tree_write.output_leaf_index,
         output_tree: tree_write.output_tree,
-        movements: Vec::new(),
+        spl_transfers: Vec::new(),
     }
 }

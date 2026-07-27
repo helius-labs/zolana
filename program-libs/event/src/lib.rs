@@ -33,10 +33,10 @@ pub struct GeneralEvent {
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
-    /// Per-asset public movements: empty for a shielded transfer, one entry per
+    /// Per-asset public SPL transfers: empty for a shielded transfer, one entry per
     /// settled interface transfer. A batched `deposit` carries one entry per deposited
     /// asset.
-    pub movements: Vec<Movement>,
+    pub spl_transfers: Vec<SplTransfer>,
 }
 
 /// One spent input. Inputs may originate from different trees.
@@ -48,7 +48,7 @@ pub struct Input {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct Movement {
+pub struct SplTransfer {
     pub is_deposit: bool,
     pub amount: u64,
     pub asset: Option<[u8; 32]>,

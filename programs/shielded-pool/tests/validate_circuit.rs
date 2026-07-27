@@ -1,5 +1,5 @@
 use pinocchio::ProgramResult;
-use shielded_pool_program::instructions::transact::validate_circuit;
+use shielded_pool_program::instructions::transact::validate_circuit_type;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -47,7 +47,7 @@ fn validate(
     };
     let bytes = ix.serialize().unwrap();
     let borrowed = TransactIxDataRef::from_bytes(&bytes).unwrap();
-    validate_circuit(&borrowed, instruction)
+    validate_circuit_type(&borrowed, instruction)
 }
 
 #[test]
