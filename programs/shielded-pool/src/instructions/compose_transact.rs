@@ -35,6 +35,7 @@ use crate::instructions::{
     verifier::{batch_verify_compose, BatchProofItem},
 };
 
+/// Foreign prefix: public_input || a || b || c (standard rail only).
 const FOREIGN_PREFIX: usize = 32 + 32 + 64 + 32;
 
 #[inline(never)]

@@ -7,6 +7,7 @@ use crate::{
 };
 
 /// Hetero hub: foreign policy proof + pure-shielded transact (tag 54).
+/// Standard Groth16 only.
 pub struct ComposeTransact {
     pub foreign_vk: Pubkey,
     pub payer: Pubkey,
@@ -28,13 +29,13 @@ impl ComposeTransact {
             .transact
             .serialize()
             .expect("transact serialization is infallible");
-        let mut data = Vec::with_capacity(1 + 160 + body.len());
-        data.push(tag::COMPOSE_TRANSACT);
-        data.extend_from_slice(&self.foreign_public_input);
-        data.extend_from_slice(&self.foreign_proof.a);
-        data.extend_from_slice(&self.foreign_proof.b);
-        data.extend_from_slice(&self.foreign_proof.c);
-        data.extend_from_slice(&body);
+        let data = compose_transact_ix_data(
+            &self.foreign_public_input,
+            &self.foreign_proof.a,
+            &self.foreign_proof.b,
+            &self.foreign_proof.c,
+            &body,
+        );
 
         let mut accounts = vec![
             AccountMeta::new_readonly(self.foreign_vk, false),
@@ -55,7 +56,7 @@ impl ComposeTransact {
     }
 }
 
-/// Build `compose_transact` instruction data (with tag).
+/// Build `compose_transact` instruction data (with tag). Standard rail only.
 pub fn compose_transact_ix_data(
     foreign_public_input: &[u8; 32],
     proof_a: &[u8; 32],

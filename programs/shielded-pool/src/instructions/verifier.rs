@@ -1,4 +1,5 @@
 //! Shared Groth16 verification: solo path and batch incarnation (agave fold).
+//! Standard Groth16 only — no BSB22 / Pedersen.
 
 use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
@@ -26,8 +27,7 @@ pub struct BatchProofItem {
     pub public_input_hash: [u8; 32],
 }
 
-/// Decompress the compressed proof points and verify them against `verifying_key`
-/// for the single `public_input_hash`.
+/// Decompress and verify one standard Groth16 proof.
 #[inline(never)]
 #[profile]
 pub fn verify_groth16(
@@ -37,6 +37,9 @@ pub fn verify_groth16(
     encoding_err: ShieldedPoolError,
     verify_err: ShieldedPoolError,
 ) -> ProgramResult {
+    if verifying_key.vk_commitment.is_some() {
+        return Err(verify_err.into());
+    }
     let proof_a = decompress_g1(proof.a).map_err(|_| encoding_err)?;
     let proof_b = decompress_g2(proof.b).map_err(|_| encoding_err)?;
     let proof_c = decompress_g1(proof.c).map_err(|_| encoding_err)?;
@@ -78,6 +81,7 @@ pub fn batch_verify_groth16(
         Ok(true) => Ok(()),
         Ok(false) => Err(verify_err.into()),
         Err(zolana_groth16_batch::WireError::Decompress) => Err(encoding_err.into()),
+        Err(zolana_groth16_batch::WireError::CommittedUnsupported) => Err(verify_err.into()),
         Err(_) => Err(verify_err.into()),
     }
 }
@@ -119,8 +123,7 @@ pub fn batch_verify_compose(
         Ok(true) => Ok(()),
         Ok(false) => Err(verify_err.into()),
         Err(zolana_groth16_batch::WireError::Decompress) => Err(encoding_err.into()),
+        Err(zolana_groth16_batch::WireError::CommittedUnsupported) => Err(verify_err.into()),
         Err(_) => Err(verify_err.into()),
     }
 }
-
-

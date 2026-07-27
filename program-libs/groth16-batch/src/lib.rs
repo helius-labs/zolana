@@ -1,15 +1,15 @@
 //! Boundary over agave `solana-bn254-groth16-batch`.
 //!
-//! Wire proofs store negated `a` (solo path). The agave fold expects non-negated
-//! `a`; [`wire_proof_to_batch`] un-negates after decompress.
+//! Standard Groth16 only (no BSB22 / Pedersen). Wire proofs store negated `a`
+//! (solo path); the agave fold expects non-negated `a`.
 
 #![no_std]
 
 extern crate alloc;
 
 pub use solana_bn254_groth16_batch::{
-    groth16_batch_verify, Groth16BatchError, PedersenKey, Proof, ProofCommitment, RandomizerMode,
-    ValidatedVerifyingKey, VerifyingKey, Version,
+    groth16_batch_verify, Groth16BatchError, Proof, RandomizerMode, ValidatedVerifyingKey,
+    VerifyingKey, Version,
 };
 
 use alloc::vec::Vec;
@@ -19,7 +19,7 @@ use groth16_solana::{
 };
 use solana_bn254_batch_syscall::{PodG1Point, PodG2Point, PodScalar};
 
-/// Compressed wire proof (`a` already negated).
+/// Compressed wire proof (`a` already negated). Standard rail only.
 #[derive(Clone, Copy, Debug)]
 pub struct WireProof {
     pub a: [u8; 32],
@@ -33,10 +33,15 @@ pub enum WireError {
     Empty,
     Vk,
     Batch,
+    /// Committed VKs / proofs are not supported on this branch.
+    CommittedUnsupported,
 }
 
-/// Constant VK → agave key. Uses `trust` (no curve checks) for SBF static keys.
+/// Constant standard VK → agave key. Rejects BSB22-committed keys.
 pub fn vk_from_solana(vk: &Groth16Verifyingkey<'_>) -> Result<ValidatedVerifyingKey, WireError> {
+    if vk.vk_commitment.is_some() {
+        return Err(WireError::CommittedUnsupported);
+    }
     VerifyingKey {
         alpha_g1: PodG1Point(vk.vk_alpha_g1),
         beta_g2: PodG2Point(vk.vk_beta_g2),
@@ -105,7 +110,7 @@ pub fn batch_verify_validated(
         .map_err(|_| WireError::Batch)
 }
 
-/// Mixed-key batch: each item is `(vk_index, wire, public_input_hash)`.
+/// Mixed-key batch from solana VKs.
 pub fn batch_verify_wire_hetero(
     vks: &[&Groth16Verifyingkey<'_>],
     items: &[(u16, WireProof, [u8; 32])],
@@ -120,8 +125,12 @@ pub fn batch_verify_wire_hetero(
     batch_verify_validated(&validated, items)
 }
 
-/// Pack a solana VK for a foreign-vk account (compose hub).
-pub fn pack_solana_vk(vk: &Groth16Verifyingkey<'_>) -> Vec<u8> {
+/// Pack a standard solana VK for a foreign-vk account.
+/// Layout: alpha|beta|gamma|delta|ic_count LE|ICs
+pub fn pack_solana_vk(vk: &Groth16Verifyingkey<'_>) -> Result<Vec<u8>, WireError> {
+    if vk.vk_commitment.is_some() {
+        return Err(WireError::CommittedUnsupported);
+    }
     let mut out = Vec::with_capacity(64 + 128 * 3 + 2 + vk.vk_ic.len() * 64);
     out.extend_from_slice(&vk.vk_alpha_g1);
     out.extend_from_slice(&vk.vk_beta_g2);
@@ -131,10 +140,10 @@ pub fn pack_solana_vk(vk: &Groth16Verifyingkey<'_>) -> Vec<u8> {
     for ic in vk.vk_ic {
         out.extend_from_slice(ic);
     }
-    out
+    Ok(out)
 }
 
-/// Unpack foreign-vk account bytes into a validated key.
+/// Unpack foreign-vk account bytes (standard rail only).
 pub fn unpack_vk(data: &[u8]) -> Result<ValidatedVerifyingKey, WireError> {
     const G1: usize = 64;
     const G2: usize = 128;
