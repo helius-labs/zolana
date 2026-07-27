@@ -1,11 +1,12 @@
 use photon_indexer::openapi::update_docs;
 use utoipa::openapi::{OpenApi, RefOr, Required};
 
-const METHODS: [&str; 5] = [
+const METHODS: [&str; 6] = [
     "get_encrypted_utxos_by_tags",
     "get_merkle_proofs",
     "get_non_inclusion_proofs",
     "get_nullifier_queue_elements",
+    "get_shielded_transactions_by_signature",
     "get_shielded_transactions_by_tags",
 ];
 

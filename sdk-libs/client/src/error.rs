@@ -181,6 +181,11 @@ pub enum ClientError {
     #[error("indexer error: {0}")]
     Indexer(String),
 
+    /// The indexer answered with a rate-limit or internal JSON-RPC error.
+    /// Acted on by `Rpc::should_retry` during the confirmation poll.
+    #[error("indexer temporarily unavailable: {0}")]
+    IndexerUnavailable(String),
+
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
 

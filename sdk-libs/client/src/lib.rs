@@ -44,9 +44,11 @@ pub use prover::{
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse,
-    MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult, Rpc,
-    ShieldedTransaction, ShieldedTransactionStream, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
+    OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
