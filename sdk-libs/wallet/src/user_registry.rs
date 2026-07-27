@@ -797,7 +797,7 @@ mod tests {
             &to_vec(&UserRecord {
                 owner: [1u8; 32].into(),
                 bump: 255,
-                owner_p256: None,
+                owner_p256: Some([4u8; 33]),
                 nullifier_pubkey: [2u8; 32],
                 viewing_pubkey: [3u8; 33],
                 merging_enabled: false,

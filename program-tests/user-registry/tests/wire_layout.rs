@@ -49,10 +49,10 @@ fn from_account_data_round_trips_with_trailing_padding() {
 }
 
 #[test]
-fn from_account_data_rejects_legacy_discriminator() {
+fn from_account_data_rejects_wrong_discriminator() {
     assert!(UserRecord::try_from_account_data(&[]).is_err());
     let record = sample(false);
-    let mut account_data = vec![1u8];
+    let mut account_data = vec![UserRecord::DISCRIMINATOR.wrapping_add(1)];
     account_data.extend_from_slice(&to_vec(&record).unwrap());
     account_data.resize(UserRecord::SIZE, 0);
     assert!(UserRecord::try_from_account_data(&account_data).is_err());
