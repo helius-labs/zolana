@@ -204,7 +204,7 @@ fn bench_cu_deposit() {
     bench_deposit_sol(&mollusk, &program_id, &mut bench);
     bench_deposit_sol_batch(&mollusk, &program_id, &mut bench);
     bench_deposit_spl(&mollusk, &program_id, &token_program_account, &mut bench);
-    let _ = (bench_transfer, bench_withdrawal_sol, bench_withdrawal_spl); // TEMP-SKIP
+    let _ = (bench_transfer_shape, bench_withdrawal_sol, bench_withdrawal_spl); // TEMP-SKIP
 
     bench.generate().expect("write CU_BENCHMARK.md");
 }
@@ -309,7 +309,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBench
 /// Three SOL outputs in one instruction. Compare against `deposit sol` (one
 /// output) for the marginal cost of a batch entry: the batch appends once and
 /// settles once regardless of entry count.
-fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuBenchmark) {
+fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
     let (mut pt, _authority, tree) = bench_setup();
     let depositor = Keypair::new();
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)

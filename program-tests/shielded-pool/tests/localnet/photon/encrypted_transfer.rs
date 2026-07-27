@@ -6,14 +6,9 @@ use super::*;
 /// ciphertext the Photon indexer returns -- no plaintext reconstruction.
 ///
 /// Two real inputs are used so the proof shape is exactly (2, 3), matching the
-/// available `transfer_p256_2_3` key without padding the instruction with dummy
-/// (zero) nullifiers that the program would reject on insertion.
-#[test]
-#[serial]
-fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
-    shield_encrypted_transfer_recovered_by_decryption_for(SpendRail::P256)
-}
-
+/// available `transfer_confidential_2_3` key without padding the instruction
+/// with dummy nullifiers. The P256-rail twin of this test was removed with the
+/// P256 transact rail (PR164).
 #[test]
 #[serial]
 fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {
@@ -43,14 +38,8 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     let zero = [0u8; 32];
 
     let assets = AssetRegistry::default();
-    let sender = match expected_rail {
-        SpendRail::P256 => ShieldedKeypair::new()?,
-        SpendRail::Eddsa => shielded_ed25519_from_solana(&payer)?,
-    };
-    let recipient = match expected_rail {
-        SpendRail::P256 => ShieldedKeypair::new()?,
-        SpendRail::Eddsa => shielded_ed25519_from_solana(&Keypair::new())?,
-    };
+    let sender = shielded_ed25519_from_solana(&payer)?;
+    let recipient = shielded_ed25519_from_solana(&Keypair::new())?;
     let recipient_address = recipient.shielded_address()?;
     let recipient_view_tag = recipient.signing_pubkey().confidential_view_tag()?;
     let sender_nullifier_key = NullifierKey::from_secret(*sender.nullifier_key.secret());
@@ -58,7 +47,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
 
     // ---- shield two sender-owned UTXOs (reconstructable from fixed blindings) ----
     let half = AMOUNT / 2;
-    let deposit_blindings: [[u8; 31]; 2] = [[7u8; 31], [8u8; 31]];
+    let deposit_blindings: [[u8; 32]; 2] = [[7u8; 32], [8u8; 32]];
     let mut spends = Vec::new();
     for blinding in deposit_blindings {
         let utxo = Utxo {
@@ -74,15 +63,10 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
-            spl: None,
-            view_tag: shield_data.view_tag,
-            owner: shield_data.owner,
-            blinding: shield_data.blinding,
-            amount: shield_data.amount,
-            utxo_data: shield_data.utxo_data,
-            memo: shield_data.memo,
+            deposits: vec![shield_data],
         }
-        .instruction();
+        .instruction()
+        .map_err(|err| anyhow!("deposit instruction: {err}"))?;
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
@@ -103,32 +87,18 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         spend_proofs.push(SpendProof { state, nullifier });
     }
 
-    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs)?;
-    let proof = match (&assembled.prover_inputs, expected_rail) {
-        (ProverInputs::P256(inputs), SpendRail::P256) => {
-            ProverClient::local().prove_transfer_p256(inputs)?
-        }
-        (ProverInputs::Eddsa(inputs), SpendRail::Eddsa) => {
-            ProverClient::local().prove_transfer(inputs)?
-        }
-        (ProverInputs::P256(_), SpendRail::Eddsa) => {
-            return Err(anyhow!(
-                "expected EdDSA prover inputs for an Ed25519 sender"
-            ))
-        }
-        (ProverInputs::Eddsa(_), SpendRail::P256) => {
-            return Err(anyhow!(
-                "expected P256 prover inputs for a default P256 sender"
-            ))
-        }
-    };
+    // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
+    let assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &[])?;
+    let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+    let proof = ProverClient::local().prove_transfer(inputs)?;
     let packed = pack_proof(&proof)?;
     let ix_data = assembled.with_proof(packed);
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
-        tree: tree_pubkey,
-        withdrawal: None,
+        input_tree: tree_pubkey,
+        output_tree: tree_pubkey,
+        interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }
     .instruction();

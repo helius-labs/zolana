@@ -12,14 +12,12 @@
 use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::{
-    deposit::{DepositIxData, UtxoData, ZoneDepositIxData},
-    merge_transact::{
-        MergeTransactIxData, MergeTransactIxDataRef, MERGE_ENCRYPTED_UTXO_LEN, MERGE_INPUT_COUNT,
-    },
+    deposit::{DepositEntry, DepositIxData, UtxoData, ZoneDepositEntry, ZoneDepositIxData},
+    merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
     merge_zone::{MergeZoneIxData, MergeZoneIxDataRef},
     transact::{
-        InputUtxo, OwnerTag, P256Proof, TransactIxData, TransactIxDataRef, TransactOutput,
-        TransactProof,
+        CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
+        TransactOutput, TransactProof,
     },
 };
 
@@ -30,56 +28,52 @@ mod strategies {
         prop_oneof![
             any::<[u8; 32]>().prop_map(OwnerTag::Inline),
             any::<u8>().prop_map(OwnerTag::Account),
-            Just(OwnerTag::P256SigningKey),
         ]
     }
 
+    pub fn circuit_id() -> impl Strategy<Value = CircuitId> {
+        (0u8..3, any::<u8>(), any::<u8>(), any::<u8>()).prop_map(
+            |(variant, n_in, n_out, n_slots)| match variant {
+                0 => CircuitId::ConfidentialEddsa(n_in, n_out, n_slots),
+                1 => CircuitId::ZoneEddsa(n_in, n_out, n_slots),
+                _ => CircuitId::ZoneAuthority(n_in, n_out, n_slots),
+            },
+        )
+    }
+
     pub fn transact_proof() -> impl Strategy<Value = TransactProof> {
+        (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>())
+            .prop_map(|(a, b, c)| TransactProof { a, b, c })
+    }
+
+    pub fn interface_transfer() -> impl Strategy<Value = InterfaceTransfer> {
         prop_oneof![
-            (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>())
-                .prop_map(|(a, b, c)| TransactProof::Eddsa { a, b, c }),
-            (
-                any::<[u8; 32]>(),
-                any::<[u8; 64]>(),
-                any::<[u8; 32]>(),
-                any::<[u8; 32]>(),
-                any::<[u8; 32]>(),
-            )
-                .prop_map(|(a, b, c, commitment, commitment_pok)| {
-                    TransactProof::P256(P256Proof {
-                        a,
-                        b,
-                        c,
-                        commitment,
-                        commitment_pok,
-                    })
+            any::<u64>().prop_map(|amount| InterfaceTransfer::SolDeposit { amount }),
+            any::<u64>().prop_map(|amount| InterfaceTransfer::SolWithdrawal { amount }),
+            (any::<u64>(), any::<u8>())
+                .prop_map(|(amount, vault_bump)| InterfaceTransfer::SplDeposit {
+                    amount,
+                    vault_bump,
+                }),
+            (any::<u64>(), any::<u8>())
+                .prop_map(|(amount, vault_bump)| InterfaceTransfer::SplWithdrawal {
+                    amount,
+                    vault_bump,
                 }),
         ]
     }
 
     pub fn input_utxo() -> impl Strategy<Value = InputUtxo> {
-        (
-            any::<[u8; 32]>(),
-            any::<u16>(),
-            any::<u16>(),
-            any::<u8>(),
-            any::<u8>(),
+        (any::<[u8; 32]>(), any::<u16>(), any::<u16>(), any::<u8>()).prop_map(
+            |(nullifier_hash, nullifier_tree_root_index, utxo_tree_root_index, eddsa_signer_index)| {
+                InputUtxo {
+                    nullifier_hash,
+                    nullifier_tree_root_index,
+                    utxo_tree_root_index,
+                    eddsa_signer_index,
+                }
+            },
         )
-            .prop_map(
-                |(
-                    nullifier_hash,
-                    nullifier_tree_root_index,
-                    utxo_tree_root_index,
-                    tree_index,
-                    eddsa_signer_index,
-                )| InputUtxo {
-                    nullifier_hash,
-                    nullifier_tree_root_index,
-                    utxo_tree_root_index,
-                    tree_index,
-                    eddsa_signer_index,
-                },
-            )
     }
 
     pub fn transact_output() -> impl Strategy<Value = TransactOutput> {
@@ -108,17 +102,15 @@ mod strategies {
         (
             (
                 any::<u64>(),
-                any::<u16>(),
                 any::<[u8; 32]>(),
-                prop::option::of(any::<[u8; 32]>()),
+                circuit_id(),
                 any::<[u8; 33]>(),
                 any::<[u8; 16]>(),
                 transact_proof(),
             ),
             (
                 prop::collection::vec(input_utxo(), 0..=5),
-                prop::option::of(any::<i64>()),
-                prop::option::of(any::<i64>()),
+                prop::collection::vec(interface_transfer(), 0..=4),
                 prop::option::of(any::<[u8; 32]>()),
                 prop::option::of(any::<[u8; 32]>()),
                 prop::collection::vec(transact_output(), 0..=8),
@@ -127,35 +119,17 @@ mod strategies {
         )
             .prop_map(
                 |(
-                    (
-                        expiry_unix_ts,
-                        relayer_fee,
-                        private_tx_hash,
-                        p256_signing_pk_x,
-                        tx_viewing_pk,
-                        salt,
-                        proof,
-                    ),
-                    (
-                        inputs,
-                        public_sol_amount,
-                        public_spl_amount,
-                        data_hash,
-                        zone_data_hash,
-                        outputs,
-                        messages,
-                    ),
+                    (expiry_unix_ts, private_tx_hash, circuit, tx_viewing_pk, salt, proof),
+                    (inputs, interface_transfers, data_hash, zone_data_hash, outputs, messages),
                 )| TransactIxData {
                     expiry_unix_ts,
-                    relayer_fee,
                     private_tx_hash,
-                    p256_signing_pk_x,
+                    circuit,
                     tx_viewing_pk,
                     salt,
                     proof,
                     inputs,
-                    public_sol_amount,
-                    public_spl_amount,
+                    interface_transfers,
                     data_hash,
                     zone_data_hash,
                     outputs,
@@ -167,49 +141,34 @@ mod strategies {
     pub fn merge_ix_data() -> impl Strategy<Value = MergeTransactIxData> {
         (
             any::<u64>(),
-            (
-                any::<[u8; 32]>(),
-                any::<[u8; 64]>(),
-                any::<[u8; 32]>(),
-                any::<[u8; 32]>(),
-                any::<[u8; 32]>(),
-            ),
+            (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>()),
             any::<[u8; 32]>(),
             prop::collection::vec(any::<[u8; 32]>(), MERGE_INPUT_COUNT),
             prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
             prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
             any::<[u8; 32]>(),
-            prop::collection::vec(any::<u8>(), MERGE_ENCRYPTED_UTXO_LEN),
             any::<bool>(),
         )
             .prop_map(
                 |(
                     expiry_unix_ts,
-                    (a, b, c, commitment, commitment_pok),
+                    (a, b, c),
                     output_utxo_hash,
                     nullifiers,
                     utxo_tree_root_index,
                     nullifier_tree_root_index,
                     private_tx_hash,
-                    encrypted_utxo,
                     eddsa_owner,
                 )| {
                     MergeTransactIxData {
                         expiry_unix_ts,
-                        proof: P256Proof {
-                            a,
-                            b,
-                            c,
-                            commitment,
-                            commitment_pok,
-                        },
+                        proof: MergeProof { a, b, c },
                         output_utxo_hash,
+                        eddsa_owner,
+                        private_tx_hash,
                         nullifiers,
                         utxo_tree_root_index,
                         nullifier_tree_root_index,
-                        private_tx_hash,
-                        encrypted_utxo,
-                        eddsa_owner,
                     }
                 },
             )
@@ -222,15 +181,13 @@ fn assert_ref_matches_owned(
     owned: &TransactIxData,
 ) -> Result<(), TestCaseError> {
     prop_assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
-    prop_assert_eq!(view.relayer_fee, owned.relayer_fee);
     prop_assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
-    prop_assert_eq!(view.p256_signing_pk_x, owned.p256_signing_pk_x);
+    prop_assert_eq!(view.circuit, owned.circuit);
     prop_assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
     prop_assert_eq!(view.salt, &owned.salt);
     prop_assert_eq!(view.proof, owned.proof);
     prop_assert_eq!(&view.inputs, &owned.inputs);
-    prop_assert_eq!(view.public_sol_amount, owned.public_sol_amount);
-    prop_assert_eq!(view.public_spl_amount, owned.public_spl_amount);
+    prop_assert_eq!(&view.interface_transfers, &owned.interface_transfers);
     prop_assert_eq!(view.data_hash, owned.data_hash);
     prop_assert_eq!(view.zone_data_hash, owned.zone_data_hash);
     prop_assert_eq!(view.outputs.len(), owned.outputs.len());
@@ -321,14 +278,13 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// The merge view decoder accepts exactly the 8-in/1-out shape with a
-    /// 110-byte encrypted output; every other element count is rejected.
+    /// The merge view decoder accepts exactly the 8-in/1-out shape; every
+    /// other nullifier or root-index element count is rejected.
     #[test]
     fn merge_shape_guard_accepts_exactly_the_documented_shape(
         owned in strategies::merge_ix_data(),
         nullifier_count in 0usize..=12,
         root_count in 0usize..=12,
-        blob_len in 0usize..=180,
     ) {
         let bytes = owned.serialize().expect("serialize merge ix");
         prop_assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_ok());
@@ -348,14 +304,6 @@ proptest! {
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
             root_count == MERGE_INPUT_COUNT
         );
-
-        let mut wrong_blob = owned;
-        wrong_blob.encrypted_utxo = vec![9u8; blob_len];
-        let bytes = wrong_blob.serialize().expect("serialize merge ix");
-        prop_assert_eq!(
-            MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            blob_len == MERGE_ENCRYPTED_UTXO_LEN
-        );
     }
 
     /// The `merge_zone` wrapper enforces the embedded merge shape through its
@@ -367,7 +315,7 @@ proptest! {
         drop_last_nullifier in any::<bool>(),
     ) {
         let mut owned = MergeZoneIxData {
-            merge_view_tag: view_tag,
+            output_zone_data_hash: view_tag,
             merge,
         };
         if drop_last_nullifier {
@@ -387,7 +335,7 @@ proptest! {
     fn deposit_length_corruptions_fail_cleanly(
         view_tag in any::<[u8; 32]>(),
         owner in any::<[u8; 32]>(),
-        blinding in any::<[u8; 31]>(),
+        blinding in any::<[u8; 32]>(),
         amount in any::<u64>(),
         utxo_data in prop::option::of((any::<[u8; 32]>(), prop::collection::vec(any::<u8>(), 0..300))),
         memo in prop::option::of(prop::collection::vec(any::<u8>(), 0..300)),
@@ -397,7 +345,8 @@ proptest! {
         trailing in any::<u8>(),
     ) {
         let utxo_data = utxo_data.map(|(data_hash, data)| UtxoData { data_hash, data });
-        let deposit = DepositIxData {
+        let entry = DepositEntry {
+            asset_index: 0,
             view_tag,
             owner,
             blinding,
@@ -405,15 +354,17 @@ proptest! {
             utxo_data: utxo_data.clone(),
             memo: memo.clone(),
         };
+        let deposit = DepositIxData {
+            assets: vec![],
+            deposits: vec![entry.clone()],
+        };
         let zone_deposit = ZoneDepositIxData {
-            view_tag,
-            owner,
-            blinding,
-            amount,
-            zone_data_hash,
-            zone_data,
-            utxo_data,
-            memo,
+            assets: vec![],
+            deposits: vec![ZoneDepositEntry {
+                deposit: entry,
+                zone_data_hash,
+                zone_data,
+            }],
         };
         let deposit_bytes = deposit.serialize().expect("serialize deposit ix");
         let zone_bytes = zone_deposit.serialize().expect("serialize zone deposit ix");

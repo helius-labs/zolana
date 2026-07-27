@@ -9,11 +9,7 @@ use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::merge_transact::{
-            MergeTransactIxData, MERGE_ENCRYPTED_UTXO_LEN, MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
-            MERGE_INPUT_COUNT,
-        },
-        instruction_data::transact::P256Proof,
+        instruction_data::merge_transact::{MergeProof, MergeTransactIxData, MERGE_INPUT_COUNT},
         MergeTransact, MergeZone,
     },
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
@@ -88,30 +84,19 @@ fn merge_requires_opt_in_and_rolls_back_on_rejection() {
 }
 
 /// Wire-valid default-rail merge data with a zeroed proof: eight distinct
-/// nullifiers against root-history slot 0 and a correctly-prefixed encrypted
-/// output blob, so every parse and tree step succeeds and only the checks
-/// under test can fail.
+/// nullifiers against root-history slot 0, so every parse and tree step
+/// succeeds and only the checks under test can fail. The merge output is
+/// ciphertext-free (recovered from the first input and its nullifier).
 fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
-    let mut encrypted_utxo = vec![0u8; MERGE_ENCRYPTED_UTXO_LEN];
-    if let Some(first) = encrypted_utxo.first_mut() {
-        *first = MERGE_ENCRYPTED_UTXO_TYPE_PREFIX;
-    }
     MergeTransactIxData {
         expiry_unix_ts: u64::MAX,
-        proof: P256Proof {
-            a: [0u8; 32],
-            b: [0u8; 64],
-            c: [0u8; 32],
-            commitment: [0u8; 32],
-            commitment_pok: [0u8; 32],
-        },
+        proof: MergeProof::zeroed(),
         output_utxo_hash: fe(41),
+        eddsa_owner,
+        private_tx_hash: [0u8; 32],
         nullifiers: (1..=MERGE_INPUT_COUNT as u64).map(fe).collect(),
         utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
         nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
-        private_tx_hash: [0u8; 32],
-        encrypted_utxo,
-        eddsa_owner,
     }
 }
 
@@ -171,7 +156,8 @@ fn merge_instruction(
     data: MergeTransactIxData,
 ) -> solana_instruction::Instruction {
     MergeTransact {
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         payer: rpc.payer.pubkey(),
         user_record,
         data,
@@ -258,23 +244,6 @@ fn merge_rejects_a_wrong_input_count_shape() {
 }
 
 #[test]
-fn merge_rejects_a_wrong_encrypted_output_scheme() {
-    let (mut rpc, tree) = merge_env();
-    let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
-
-    let mut data = merge_ix_data(true);
-    if let Some(first) = data.encrypted_utxo.first_mut() {
-        *first = MERGE_ENCRYPTED_UTXO_TYPE_PREFIX + 1;
-    }
-    let ix = merge_instruction(&rpc, &tree, record, data);
-    let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("a wrong encrypted-output scheme prefix must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidMergeOutputScheme).assert_litesvm(error);
-}
-
-#[test]
 fn merge_rejects_an_expired_transaction() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
@@ -320,7 +289,13 @@ fn merge_rejects_a_non_writable_tree() {
     let record = write_user_record(&mut rpc, payer, None, true);
 
     let mut ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
-    ix.accounts.first_mut().expect("tree meta").is_writable = false;
+    // input_tree and output_tree are duplicate metas of one account; the
+    // runtime unions their privileges, so both must be downgraded.
+    ix.accounts.first_mut().expect("input tree meta").is_writable = false;
+    ix.accounts
+        .get_mut(1)
+        .expect("output tree meta")
+        .is_writable = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a read-only tree must be rejected");
@@ -340,13 +315,14 @@ fn merge_rejects_an_unsigned_payer() {
     // signs; the payer signer check is the only authorization on merge.
     let outsider = Pubkey::new_unique();
     let mut ix = MergeTransact {
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         payer: outsider,
         user_record: record,
         data: merge_ix_data(true),
     }
     .instruction();
-    ix.accounts.get_mut(1).expect("payer meta").is_signer = false;
+    ix.accounts.get_mut(2).expect("payer meta").is_signer = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("an unsigned payer must be rejected");
@@ -360,17 +336,18 @@ fn merge_rejects_an_unsigned_payer() {
 fn merge_zone_rejects_an_unsigned_zone_config() {
     let (mut rpc, tree) = merge_env();
     let mut ix = zolana_interface::instruction::MergeZone {
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         zone_program_id: Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
-        merge_view_tag: fe(99),
+        output_zone_data_hash: fe(99),
     }
     .cpi_instruction();
     // The `zone_config` signature IS the zone authorization; without the zone
     // program's `invoke_signed` the flag must be rejected before the config is
     // even loaded.
-    ix.accounts.get_mut(1).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(2).expect("zone config meta").is_signer = false;
 
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -436,12 +413,10 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     // fails at G1/G2 decompression -- the 7007 encoding error, distinct from
     // the 7008 pairing failure of a well-formed but non-verifying proof.
     let mut data = merge_ix_data(true);
-    data.proof = P256Proof {
+    data.proof = MergeProof {
         a: [0xFF; 32],
         b: [0xFF; 64],
         c: [0xFF; 32],
-        commitment: [0xFF; 32],
-        commitment_pok: [0xFF; 32],
     };
     let ix = merge_instruction(&rpc, &tree, record, data);
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -464,14 +439,15 @@ fn merge_zone_cpi_instruction(
     rpc: &ZolanaProgramTest,
     tree: &Keypair,
     data: MergeTransactIxData,
-    merge_view_tag: [u8; 32],
+    output_zone_data_hash: [u8; 32],
 ) -> solana_instruction::Instruction {
     MergeZone {
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         zone_program_id: Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data,
-        merge_view_tag,
+        output_zone_data_hash,
     }
     .cpi_instruction()
 }
@@ -497,7 +473,7 @@ fn merge_zone_rejects_a_zone_config_with_a_wrong_owner() {
         .expect("fund impostor");
 
     let mut ix = merge_zone_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(90));
-    ix.accounts.get_mut(1).expect("zone config meta").pubkey = impostor.pubkey();
+    ix.accounts.get_mut(2).expect("zone config meta").pubkey = impostor.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&impostor])
         .expect_err("a zone config with a wrong owner must be rejected");
@@ -512,7 +488,7 @@ fn merge_zone_rejects_a_zone_config_with_a_wrong_discriminator() {
     write_fake_zone_config(&mut rpc, fake.pubkey(), ZONE_CONFIG + 1);
 
     let mut ix = merge_zone_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(91));
-    ix.accounts.get_mut(1).expect("zone config meta").pubkey = fake.pubkey();
+    ix.accounts.get_mut(2).expect("zone config meta").pubkey = fake.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&fake])
         .expect_err("a zone config with a wrong discriminator must be rejected");
@@ -529,15 +505,16 @@ fn merge_zone_rejects_an_unsigned_payer() {
 
     let outsider = Pubkey::new_unique();
     let mut ix = MergeZone {
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         zone_program_id: Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID),
         payer: outsider,
         data: merge_ix_data(true),
-        merge_view_tag: fe(92),
+        output_zone_data_hash: fe(92),
     }
     .cpi_instruction();
-    ix.accounts.get_mut(1).expect("zone config meta").pubkey = zone_config_signer.pubkey();
-    ix.accounts.get_mut(2).expect("payer meta").is_signer = false;
+    ix.accounts.get_mut(2).expect("zone config meta").pubkey = zone_config_signer.pubkey();
+    ix.accounts.get_mut(3).expect("payer meta").is_signer = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&zone_config_signer])
         .expect_err("an unsigned zone merge payer must be rejected");
@@ -555,26 +532,11 @@ fn merge_zone_rejects_a_wrong_input_count_shape_exactly() {
     let mut data = merge_ix_data(true);
     data.nullifiers.pop();
     let mut ix = merge_zone_cpi_instruction(&rpc, &tree, data, fe(93));
-    ix.accounts.get_mut(1).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(2).expect("zone config meta").is_signer = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a 7-input zone merge must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
-}
-
-#[test]
-fn merge_zone_rejects_a_wrong_encrypted_output_scheme_exactly() {
-    let (mut rpc, tree) = merge_env();
-    let mut data = merge_ix_data(true);
-    if let Some(first) = data.encrypted_utxo.first_mut() {
-        *first = MERGE_ENCRYPTED_UTXO_TYPE_PREFIX + 1;
-    }
-    let mut ix = merge_zone_cpi_instruction(&rpc, &tree, data, fe(94));
-    ix.accounts.get_mut(1).expect("zone config meta").is_signer = false;
-    let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("a wrong zone merge encrypted-output scheme prefix must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidMergeOutputScheme).assert_litesvm(error);
 }
 
 #[test]
@@ -593,11 +555,12 @@ fn merge_zone_rejects_a_paused_tree() {
     // Through the zone test program so the real `zone_auth` PDA signs; every
     // wire field is valid and the pause alone must halt the tree mutation.
     let ix = MergeZone {
-        tree: tree.pubkey(),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
         zone_program_id: Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
-        merge_view_tag: fe(95),
+        output_zone_data_hash: fe(95),
     }
     .instruction();
     let error = rpc

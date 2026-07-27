@@ -5,7 +5,7 @@ use solana_pubkey::Pubkey;
 use swap_program::{
     instructions::{
         cancel::{CancelIxData, CancelProof},
-        make::{MakeIxData, MakeProof, MARKER_PLACEHOLDER},
+        make::{MakeIxData, MakeProof},
         take::{TakeIxData, TakeProof},
         take_verifiable_encryption::{
             TakeVerifiableEncryptionIxData, TakeVerifiableEncryptionProof,
@@ -15,9 +15,9 @@ use swap_program::{
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+        CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
     },
-    SHIELDED_POOL_PROGRAM_ID,
+    N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 
 const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../target/deploy");
@@ -70,15 +70,13 @@ pub fn account(lamports: u64) -> Account {
 pub fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
-        relayer_fee: 0,
         private_tx_hash: [1; 32],
-        p256_signing_pk_x: None,
+        circuit: CircuitId::ConfidentialEddsa(1, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [2; 33],
         salt: [3; 16],
-        proof: TransactProof::zeroed_eddsa(),
+        proof: TransactProof::zeroed(),
         inputs: Vec::new(),
-        public_sol_amount: None,
-        public_spl_amount: None,
+        interface_transfers: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         outputs: vec![
@@ -106,7 +104,7 @@ pub fn marker(data: Vec<u8>) -> MessageData {
 
 pub fn wrapper_data(wrapper: Wrapper) -> Vec<u8> {
     let transact = transact(if matches!(wrapper, Wrapper::Make) {
-        vec![marker(MARKER_PLACEHOLDER.to_vec())]
+        vec![marker(Vec::new())]
     } else {
         Vec::new()
     });

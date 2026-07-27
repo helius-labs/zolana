@@ -1,8 +1,5 @@
 use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::{
-    constants::BLINDING_LEN,
-    hash::{owner_hash, poseidon},
-};
+use zolana_keypair::hash::{owner_hash, poseidon};
 use zolana_transaction::{
     data::Data,
     utxo::{ProofInputUtxo, Utxo, UTXO_DOMAIN},

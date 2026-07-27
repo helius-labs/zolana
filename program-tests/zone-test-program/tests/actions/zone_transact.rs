@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ConfidentialTransfer, ProverClient, Rpc, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
+    ConfidentialTransfer, ProverClient, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
     TransferSpendInput, ZoneTransferProver,
 };
 use zolana_interface::instruction::{

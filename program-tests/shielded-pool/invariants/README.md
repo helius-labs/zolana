@@ -35,9 +35,9 @@ from all three rows. The same holds for `Deposit`/`ZoneDeposit`
 | Instruction | File | Accounts | Data | Authz | Success | Rollback | Frame |
 |---|---|---|---|---|---|---|---|
 | EmitEvent (14) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
-| Transact (0) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-XC-24 | INV-TRANSACT-07..12, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20 | INV-TRANSACT-23..28, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
-| ZoneTransact (2) | `transact.md` | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12 | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-03, INV-ZONE-TRANSACT-07, INV-XC-26 | INV-ZONE-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
-| ZoneAuthorityTransact (3) | `transact.md` | INV-ZONE-AUTH-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12 | INV-ZONE-AUTH-01..03, INV-XC-26 | INV-ZONE-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| Transact (0) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20 | INV-TRANSACT-23..28, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
+| ZoneTransact (2) | `transact.md` | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32 | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-03, INV-ZONE-TRANSACT-07, INV-XC-26 | INV-ZONE-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| ZoneAuthorityTransact (3) | `transact.md` | INV-ZONE-AUTH-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32 | INV-ZONE-AUTH-01..03, INV-XC-26 | INV-ZONE-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
 | CreateTree (5) | `tree.md` | INV-CREATE-TREE-03, INV-CREATE-TREE-04 | INV-CREATE-TREE-05, INV-CREATE-TREE-06 | INV-CREATE-TREE-01, INV-CREATE-TREE-02 | INV-CREATE-TREE-07, INV-CREATE-TREE-08 | INV-XC-04 | INV-CREATE-TREE-09 |
 | BatchUpdateNullifierTree (51) | `tree.md` | INV-XC-24, INV-XC-08 | INV-BATCH-NULL-03 | INV-BATCH-NULL-01, INV-BATCH-NULL-02 | INV-BATCH-NULL-05 | INV-BATCH-NULL-04, INV-XC-04 | INV-BATCH-NULL-06 |
 | Deposit (1) | `deposit.md` | INV-DEPOSIT-01..09 | INV-DEPOSIT-10, INV-DEPOSIT-11 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16 | INV-XC-04 | INV-DEPOSIT-17 |
@@ -50,31 +50,32 @@ from all three rows. The same holds for `Deposit`/`ZoneDeposit`
 | CreateZoneConfig (9) | `zone-config.md` | INV-CREATE-ZC-04, INV-CREATE-ZC-05 | INV-CREATE-ZC-06 | INV-CREATE-ZC-01..03 | INV-CREATE-ZC-07, INV-CREATE-ZC-08 | INV-XC-04 | INV-CREATE-ZC-09 |
 | UpdateZoneConfigOwner (10) | `zone-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-OWNER-05 | INV-UPDATE-ZC-OWNER-01, INV-UPDATE-ZC-OWNER-02 | INV-UPDATE-ZC-OWNER-03 | INV-XC-04 | INV-UPDATE-ZC-OWNER-04 |
 | UpdateZoneConfig (11) | `zone-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-06 | INV-UPDATE-ZC-01 | INV-UPDATE-ZC-03, INV-UPDATE-ZC-05 | INV-XC-04 | INV-UPDATE-ZC-04 |
-| MergeTransact (12) | `merge.md` | INV-MERGE-01..03 | INV-MERGE-06, INV-MERGE-07 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
-| ZoneMergeTransact (13) | `merge.md` | INV-ZONE-MERGE-01..03 | INV-ZONE-MERGE-05 | INV-ZONE-MERGE-01, INV-ZONE-MERGE-04, INV-XC-26 | INV-ZONE-MERGE-09..11 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| MergeTransact (12) | `merge.md` | INV-MERGE-01..03 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| ZoneMergeTransact (13) | `merge.md` | INV-ZONE-MERGE-01..03 | INV-ZONE-MERGE-05 | INV-ZONE-MERGE-01, INV-ZONE-MERGE-04, INV-XC-26 | INV-ZONE-MERGE-09..12 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
 
 Cross-cutting rows that apply to every proof-bearing instruction (Transact,
 ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact) and are not
 repeated in each cell above: INV-XC-06/07 (expiry), INV-XC-08 (pause), INV-XC-09
 (stale root), INV-XC-10 (double-spend), INV-XC-11..17 (proof system and
 external_data_hash), INV-XC-19/20 (value binding). Dispatch invariants INV-XC-01..03
-apply to every row.
+apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicable.
 
 ## Summary
 
-- Total invariants: 205
-  - transact.md: 44 (Transact 30, ZoneTransact 7, ZoneAuthorityTransact 7)
+- Total invariants: 209
+  - transact.md: 46 (Transact 32, ZoneTransact 7, ZoneAuthorityTransact 7)
   - deposit.md: 25 (Deposit 17, ZoneDeposit 8)
-  - merge.md: 26 (MergeTransact 15, ZoneMergeTransact 11)
+  - merge.md: 28 (MergeTransact 16, ZoneMergeTransact 12)
   - tree.md: 20 (CreateTree 9, BatchUpdateNullifierTree 6, PauseTree 5)
   - protocol-config.md: 16 (Create 9, Update 7)
   - zone-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
   - spl.md: 20 (CreateAssetCounter 8, CreateSplInterface 12)
   - event.md: 4
   - cross-cutting.md: 30
-- Critical (funds/double-spend/authority takeover): 77
+- Critical (funds/double-spend/authority takeover): 81
 - High: 72
 - Medium: 56
+- Not applicable post-PR164: 11 (P256 rails, both-amounts gate, `cpi_authority` field, merge ciphertext/`merge_view_tag`; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved on 2026-07-23
   by updating `docs/spec.md` to match the code:
   1. Deposit/ZoneDeposit instruction data (single `amount: u64`, `view_tag`, `UtxoData`, `memo`; asset inferred from settlement accounts).
@@ -108,14 +109,17 @@ Every invariant was mapped against the test suite (integration tests in
 Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 `Partial coverage:` line stating what is still missing.
 
-- Covered: 183 / 205
-- Partial: 21 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
-- Not covered: 1
+Post-PR164 sync (2026-07-27):
 
-Per file (covered / partial+untested):
-transact 41/3, deposit 25/0, merge 20/6, tree 17/3,
-protocol-config 16/0, zone-config 18/2, spl 20/0, event 4/0,
-cross-cutting 22/8.
+- Covered: 178 / 209
+- Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Not covered: 1
+- Not applicable post-PR164: 11
+
+Per file (covered / partial+untested / not-applicable):
+transact 38/2/6, deposit 25/0/0, merge 19/5/4, tree 17/3/0,
+protocol-config 16/0/0, zone-config 18/2/0, spl 20/0/0, event 4/0/0,
+cross-cutting 21/8/1.
 
 All added tests pass. Suites run green this pass:
 `shielded-pool-tests --features proofs` (231 passed, 1 skipped),
@@ -160,3 +164,31 @@ the localnet forester), INV-XC-04 (rollback is asserted for most instructions bu
 not a full per-instruction account-equality sweep of all 18), and INV-XC-11
 (golden vectors + tamper tests cover the public-input binding, but not an
 exhaustive per-field bit-flip loop). Each PARTIAL row names precisely what is left.
+
+## Security audit findings (2026-07)
+
+Status of the audit findings against the current (post-PR164) tree:
+
+- F-01 unconstrained padding-input nullifiers -> nullifier-queue brick: FIXED by
+  PR164 (all-slot non-inclusion + circuit-derived nullifiers); regression tests
+  `prover/server/circuits/spp_transaction/shared/nullifier_attack_test.go`
+  (INV-TRANSACT-31, INV-TRANSACT-32).
+- F-02 `merge_view_tag` >= p / zero / tree-resident queue poison: ELIMINATED
+  (field removed; output indexed by first input nullifier -- INV-ZONE-MERGE-12).
+- F-03 merge dummy-slot nullifier burn: FIXED by PR164 (`MergeDummyNullifier`
+  derivation); regression tests
+  `prover/server/circuits/spp_merge/dummy_nullifier_attack_test.go`
+  (INV-MERGE-16).
+- F-04 Photon indexes batch updates from instruction intent not outcome
+  (permissionless indexer halt): OPEN (`services/photon` untouched by PR164).
+- F-05 `tx_viewing_pk`/`salt` unbound (relayer burns recipient outputs): FIXED by
+  PR164 (bound in `ExternalDataHash` -- INV-XC-16).
+- F-06 merge viewing-key canonicality: SUPERSEDED (encryption flow restructured
+  in PR164; merge outputs are ciphertext-free -- re-review pending, see INV-MERGE-09).
+- F-07 `create_protocol_config` front-runnable initializer: OPEN (verify on new tree).
+- F-08 zone-merge viewing-key binding: PARTIALLY addressed (output
+  `zone_data_hash` now proof-bound; owner identity still omitted by design --
+  INV-ZONE-MERGE-08, INV-ZONE-MERGE-12).
+- F-09 `merge_view_tag` not proof-bound: MOOT (field removed).
+- F-10 root-history zero-placeholder burn / F-11 deposit `data_hash` unverified:
+  UNVERIFIED on new tree.

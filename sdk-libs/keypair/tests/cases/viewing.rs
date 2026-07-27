@@ -1,4 +1,4 @@
-use zolana_keypair::ViewingKey;
+use zolana_keypair::{merge::merge_output_blinding, random_blinding, ViewingKey};
 
 use crate::KeypairWorld;
 
@@ -39,14 +39,23 @@ pub(crate) fn tags_advance(world: &mut KeypairWorld, name: String) {
     assert_eq!(vk.get_recipient_request_view_tag(0).unwrap()[0], 0);
 }
 
-// TODO(pr164-port): PR164 removed `ViewingKey::get_merge_view_tag` (merge_view_tag
-// removed from merge_zone); this case needs a behavioral redesign or removal.
-pub(crate) fn merge_tags_advance(world: &mut KeypairWorld, name: String) {
-    let vk = world.vk(&name);
-    let base = vk.get_merge_view_tag(0).unwrap();
-    assert_eq!(base, vk.get_merge_view_tag(0).unwrap());
-    assert_ne!(base, vk.get_merge_view_tag(1).unwrap());
-    assert_eq!(base[0], 0);
+/// The merged output is indexed by the first input nullifier: its blinding is
+/// derived deterministically from the first input's blinding and that
+/// nullifier, so the owner recovers the output without a published merge view
+/// tag (removed with `merge_view_tag`).
+pub(crate) fn merge_tags_advance(_world: &mut KeypairWorld, _name: String) {
+    let first_blinding = random_blinding();
+    let first_nullifier = random_blinding();
+    let other_nullifier = random_blinding();
+    let base = merge_output_blinding(&first_blinding, &first_nullifier).unwrap();
+    assert_eq!(
+        base,
+        merge_output_blinding(&first_blinding, &first_nullifier).unwrap()
+    );
+    assert_ne!(
+        base,
+        merge_output_blinding(&first_blinding, &other_nullifier).unwrap()
+    );
 }
 
 pub(crate) fn shared_tag_symmetric(

@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt, ShieldedKeypair};
+use zolana_keypair::{viewing_key::random_salt, ShieldedKeypair};
 use zolana_transaction::{
     data::{Data, DataRecord},
     serialization::{
@@ -16,7 +16,7 @@ use zolana_transaction::{
 use crate::TransactionWorld;
 
 const SPL_ASSET_ID: u64 = 2;
-const SENDER_BLINDING_SEED: [u8; BLINDING_LEN] = [2u8; BLINDING_LEN];
+const SENDER_BLINDING_SEED: [u8; 32] = [2u8; 32];
 
 pub(crate) struct BuiltTransfer {
     pub transaction: ShieldedTransaction,
@@ -29,7 +29,7 @@ pub(crate) struct BuiltTransfer {
 pub(crate) struct RecipientSpec {
     pub keypair: ShieldedKeypair,
     pub amount: u64,
-    pub blinding: [u8; BLINDING_LEN],
+    pub blinding: [u8; 32],
     pub asset: solana_address::Address,
     pub asset_id: u64,
     pub view_tag: [u8; 32],
@@ -209,7 +209,10 @@ pub(crate) fn build(world: &mut TransactionWorld, recipients: Vec<(String, u64, 
         specs.push(RecipientSpec {
             keypair: world.fresh_keypair(name),
             amount: *amount,
-            blinding: [1u8; BLINDING_LEN],
+            // A BN254 field element: top byte zeroed (32-byte blindings must
+            // stay below the modulus for the Poseidon UTXO hash).
+            blinding: [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1, 1, 1, 1],
             asset: spl_mint,
             asset_id: SPL_ASSET_ID,
             view_tag,

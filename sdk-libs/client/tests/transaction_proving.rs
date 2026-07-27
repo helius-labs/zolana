@@ -7,6 +7,10 @@ mod proving;
 mod test_indexer;
 
 use harness::{Asset, InputSpec, Owner, SendSpec, TransferHarness, TransferPlan, WithdrawSpec};
+
+// NOTE(pr164): the P256-owner and mixed-owner proof matrices were removed:
+// PR164 removed the P256 transact rail (`P256TransactUnsupported`), so no
+// P256-owned input can produce a transfer proof anymore.
 use std::{any::Any, panic::AssertUnwindSafe};
 
 type SingleOwnerCase = (
@@ -120,48 +124,3 @@ fn solana_owner_public_amount_and_output_matrix_proves() {
     run_single_owner_matrix(Owner::Solana);
 }
 
-#[test]
-#[serial_test::serial]
-fn p256_owner_public_amount_and_output_matrix_proves() {
-    run_single_owner_matrix(Owner::P256);
-}
-
-#[test]
-#[serial_test::serial]
-fn mixed_owner_public_amount_and_output_matrix_proves() {
-    use Asset::{Sol, Spl};
-    use Owner::{Solana, P256};
-    let mixed = [
-        (
-            vec![(P256, Sol, 100), (Solana, Sol, 50)],
-            vec![(Sol, 60)],
-            None,
-        ),
-        (vec![(P256, Sol, 100), (Solana, Sol, 50)], vec![], None),
-        (
-            vec![(P256, Sol, 100), (Solana, Sol, 50)],
-            vec![],
-            Some((Sol, 30)),
-        ),
-        (vec![(P256, Spl, 100), (Solana, Spl, 50)], vec![], None),
-        (
-            vec![(P256, Sol, 100), (Solana, Spl, 100)],
-            vec![(Spl, 60)],
-            None,
-        ),
-        (vec![(P256, Sol, 100), (Solana, Spl, 100)], vec![], None),
-        (
-            vec![(P256, Sol, 100), (Solana, Spl, 100)],
-            vec![(Spl, 60)],
-            Some((Sol, 100)),
-        ),
-        (
-            vec![(P256, Sol, 100), (Solana, Spl, 100)],
-            vec![(Sol, 60)],
-            Some((Spl, 100)),
-        ),
-    ];
-    for (case_index, (inputs, sends, withdraw)) in mixed.into_iter().enumerate() {
-        run_with_context(case_index, &inputs, &sends, withdraw, false);
-    }
-}

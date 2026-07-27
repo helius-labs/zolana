@@ -6,7 +6,9 @@ live in `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously described a variable input
 count `N` and a 256-byte proof; `docs/spec.md` now matches the code (fixed 8-in/1-out
-shape, 192-byte BSB22 proof, 110-byte `encrypted_utxo`).
+shape). Post-PR164 the merge output is ciphertext-free (no `encrypted_utxo` field and
+no `merge_view_tag`): the output is recovered from the first real input and its
+nullifier, and padding slots publish derived dummy nullifiers.
 
 ## MergeTransact
 
@@ -62,64 +64,46 @@ shape, 192-byte BSB22 proof, 110-byte `encrypted_utxo`).
 - [x] **INV-MERGE-06: the 8-in/1-out shape is enforced at parse time**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape`
   - Kind: precondition
-  - Statement: every payload whose `nullifiers`, `utxo_tree_root_index`, or `nullifier_tree_root_index` vector length differs from exactly 8, or whose `encrypted_utxo` length differs from exactly 110 bytes, makes `merge_transact` return Err.
+  - Statement: every payload whose `nullifiers`, `utxo_tree_root_index`, or `nullifier_tree_root_index` vector length differs from exactly 8 makes `merge_transact` return Err.
   - Location: `program-libs/interface/src/instruction/instruction_data/merge_transact.rs:85-94` (`fn validate_shape`), `programs/shielded-pool/src/instructions/merge/processor.rs:29-31`
   - Error: `ShieldedPoolError::InvalidMergeShape = 7019`
   - Severity: High
   - Suggested test: negative + fuzz; harness: mollusk unit
 
-- [x] **INV-MERGE-07: the output blob must be verifiably encrypted**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_encrypted_output_scheme`
-  - Kind: precondition
-  - Statement: `merge_transact` returns Err whenever the first byte of `encrypted_utxo` is not exactly `MERGE_ENCRYPTED_UTXO_TYPE_PREFIX` (2, the borsh `VerifiablyEncrypted` discriminant).
-  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:32-34` (`fn process_merge_transact_ix`), `merge_transact.rs:15`
-  - Error: `ShieldedPoolError::InvalidMergeOutputScheme = 7020`
-  - Severity: High
-  - Suggested test: negative; harness: mollusk unit
+- [ ] **INV-MERGE-07: the output blob must be verifiably encrypted**
+  - Not applicable post-PR164 (the merge output is ciphertext-free: the `encrypted_utxo` field and the `MERGE_ENCRYPTED_UTXO_*` constants were removed; the owner recovers the output from the first input and its nullifier). The covering `merge_rejects_a_wrong_encrypted_output_scheme` test was removed with the field.
 
 ### Proof Binding
 
 - [x] **INV-MERGE-08: the proof binds the owner's registered signing key**
   - Covered by: `program-tests/spp-test-validator/tests/lifecycle.rs` `merge_rejects_a_proof_bound_to_a_foreign_user_record` (a proof bound to owner A submitted with owner B's `user_record` fails with 7008; the substitution changes both the signing and viewing bound fields, so this covers INV-MERGE-08 and INV-MERGE-09 together)
   - Kind: postcondition
-  - Statement: the merge public-input hash folds `signing_pk_field` derived exactly from the registry record -- `solana_pk_hash(record.owner)` when `eddsa_owner` is true, `owner_pk_field_compressed(record.owner_p256)` otherwise -- so a proof built for a different owner than the supplied `user_record` fails verification.
+  - Statement: the merge public-input hash folds `signing_pk_field` derived exactly from the registry record, so a proof built for a different owner than the supplied `user_record` fails verification.
   - Location: `programs/shielded-pool/src/instructions/merge/account.rs:64-74` (`fn load_user_record`), `merge/verify.rs:114-129` (`fn public_input_hash`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (owner substitution)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-MERGE-09: the proof binds the owner's registered viewing key**
-  - Covered by: `program-tests/spp-test-validator/tests/lifecycle.rs` `merge_rejects_a_proof_bound_to_a_foreign_user_record` (see INV-MERGE-08: the foreign `user_record` substitutes `viewing_pk_field` as well as `signing_pk_field`, so a proof whose viewing binding differs from the passed record's is rejected with 7008)
-  - Kind: postcondition
-  - Statement: the merge public-input hash folds `viewing_pk_field = pk_field(record.viewing_pubkey)`; a proof that encrypted the output to any other viewing key fails verification.
-  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:50` (`fn process_merge_transact_ix`), `merge/verify.rs:114-129`
-  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
-  - Severity: Critical (output must stay decryptable by the owner)
-  - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
+- [ ] **INV-MERGE-09: the proof binds the owner's registered viewing key**
+  - Not applicable post-PR164 (the merge encryption flow was restructured: the output is ciphertext-free and recovered by the owner from the first input and its nullifier, so no viewing-key public input exists; F-06 re-review pending).
 
 - [ ] **INV-MERGE-10: the ciphertext hash is recomputed on-chain**
-  - Partial coverage: `program-libs/interface/src/merge_utils.rs` `ciphertext_hash_matches_circuit_vector` (the hash helper is pinned to the circuit vector; an on-chain ciphertext bit-flip -> 7008 test is missing)
-  - Kind: postcondition
-  - Statement: the public-input hash folds `ciphertext_hash(encrypted_utxo[39..110])` and `pack33(encrypted_utxo[6..39])` recomputed from the instruction bytes; changing any ciphertext byte after proving makes verification fail.
-  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:85-99` (`fn public_input_hash`), `program-libs/interface/src/merge_utils.rs:74-78`
-  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
-  - Severity: Critical
-  - Suggested test: negative (bit-flip); harness: program-tests integration (`cargo test-sbf`)
+  - Not applicable post-PR164 (no merge ciphertext exists, so there is nothing to recompute on-chain).
 
-- [x] **INV-MERGE-11: the merge proof is always BSB22-committed with the merge_8_1 key**
+- [x] **INV-MERGE-11: the merge proof is vanilla Groth16 with the variant's key**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007)
   - Kind: precondition
-  - Statement: `merge_transact` decodes the fixed 192-byte proof as `a||b||c||commitment||commitment_pok` and verifies it only against `merge_8_1::VERIFYINGKEY`; a proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
-  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:52-75` (`fn verify`)
+  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against `merge_8_1::VERIFYINGKEY` (default rail) or `merge_zone_8_1::VERIFYINGKEY` (zone rail); a proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
+  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:51-73` (`fn verify`)
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` / `TransactProofVerificationFailed = 7008`
   - Severity: Critical
   - Suggested test: negative both errors; harness: mollusk unit
 
-- [ ] **INV-MERGE-12: registry public-input shape is exactly 11 elements**
+- [ ] **INV-MERGE-12: registry public-input shape is the 7-element prefix plus the owner key**
   - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (successful end-to-end verification exercises the chain; no explicit element-count/order assertion)
   - Kind: state
-  - Statement: the `merge_transact` public-input hash chain contains exactly 11 elements in the fixed order nullifier-chain, output hash, utxo-root chain, nullifier-root chain, private_tx_hash, external_data_hash, signing_pk_field, viewing_pk_field, tx_viewing_pk_lo, tx_viewing_pk_hi, ciphertext hash.
-  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:114-129` (`fn public_input_hash`)
+  - Statement: the `merge_transact` public-input hash chains the 7-element prefix (nullifier-chain, output hash, utxo-root chain, nullifier-root chain, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`) and then folds exactly one owner-identity element, `signing_pk_field` from the registry record.
+  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: property (compare against client-side computation in `sdk-libs/keypair`); harness: `cargo test -p`
 
@@ -136,7 +120,7 @@ shape, 192-byte BSB22 proof, 110-byte `encrypted_utxo`).
 - [ ] **INV-MERGE-14: successful merge emits exactly one Merge GeneralEvent tagged by the owner key**
   - Partial coverage: `program-tests/spp-test-validator/tests/lifecycle.rs` `eddsa_merge_covers_every_supported_input_count` (output rediscovered by owner signing-key tag; nullifier sequence numbers, verbatim `data`, and `deposit_withdraw = None` unasserted)
   - Kind: postcondition
-  - Statement: after a successful `merge_transact`, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` carries the 8 nullifiers with assigned queue sequence numbers, exactly one output whose `view_tag` is the owner's signing-key tag from the registry record (the full ed25519 key, or the P256 x-coordinate) and whose `data` is the `encrypted_utxo` bytes verbatim, and `deposit_withdraw = None`.
+  - Statement: after a successful `merge_transact`, exactly one self-CPI `EmitEvent` inner instruction is recorded whose `GeneralEvent` carries the 8 nullifiers with assigned queue sequence numbers and exactly one output whose `view_tag` is the owner's signing-key tag from the registry record and whose `data` is empty (ciphertext-free output), and no public movements.
   - Location: `programs/shielded-pool/src/instructions/merge/event.rs:15-45` (`fn build_merge_event`), `merge/account.rs:64-74`
   - Severity: Medium (owner rediscovery on sync)
   - Suggested test: positive; harness: litesvm
@@ -150,6 +134,17 @@ shape, 192-byte BSB22 proof, 110-byte `encrypted_utxo`).
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:28-84` (`fn process_merge_transact_ix`)
   - Severity: High
   - Suggested test: positive; harness: mollusk unit (account snapshot compare)
+
+### Nullifier Integrity
+
+- [x] **INV-MERGE-16: dummy merge slots publish the derived MergeDummyNullifier**
+  - Covered by: `prover/server/circuits/spp_merge/dummy_nullifier_attack_test.go` `TestMergeRejectsVictimNullifierInDummySlot`, `TestMergeAcceptsDerivedDummyNullifiers`
+  - Kind: precondition
+  - Statement: for every padding input slot in a merge, the published nullifier equals exactly the deterministic `MergeDummyNullifier(first_input_blinding, first_nullifier, slot_index)` derivation, so a merge delegate cannot park a real wallet nullifier in a padding slot (the F-03 fix).
+  - Location: `prover/server/circuits/spp_merge/shared/derivation.go` (`MergeDummyNullifier`, domain `TMDN`), dummy-slot constraints in `prover/server/circuits/spp_merge/`
+  - Error: circuit constraint failure (proof cannot be constructed)
+  - Severity: Critical
+  - Suggested test: negative (victim's real nullifier placed in a dummy slot) + positive (derived dummies verify); harness: Go circuit tests (`go test ./circuits/spp_merge`)
 
 ## ZoneMergeTransact
 
@@ -192,12 +187,12 @@ shape, 192-byte BSB22 proof, 110-byte `encrypted_utxo`).
 
 ### Instruction Data Validation
 
-- [x] **INV-ZONE-MERGE-05: shape and output-scheme checks equal merge_transact's**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_zone_rejects_a_wrong_input_count_shape_exactly` (7019), `merge_zone_rejects_a_wrong_encrypted_output_scheme_exactly` (7020)
+- [x] **INV-ZONE-MERGE-05: shape checks equal merge_transact's**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_zone_rejects_a_wrong_input_count_shape_exactly` (7019)
   - Kind: precondition
-  - Statement: `zone_merge_transact` rejects, exactly as INV-MERGE-06/07, every embedded merge body whose element vectors are not length 8, whose `encrypted_utxo` is not 110 bytes, or whose first blob byte is not 2.
-  - Location: `program-libs/interface/src/instruction/instruction_data/merge_zone.rs:33-39` (`fn from_bytes`), `merge_zone/processor.rs:34-41`
-  - Error: `ShieldedPoolError::InvalidMergeShape = 7019` / `InvalidMergeOutputScheme = 7020`
+  - Statement: `zone_merge_transact` rejects, exactly as INV-MERGE-06, every embedded merge body whose element vectors are not length 8.
+  - Location: `program-libs/interface/src/instruction/instruction_data/merge_zone.rs` (`MergeZoneIxDataRef::from_bytes`), `merge_zone/processor.rs`
+  - Error: `ShieldedPoolError::InvalidMergeShape = 7019`
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
@@ -221,30 +216,24 @@ shape, 192-byte BSB22 proof, 110-byte `encrypted_utxo`).
   - Severity: Critical
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-ZONE-MERGE-08: zone public-input shape is exactly 10 elements with no owner identity**
+- [ ] **INV-ZONE-MERGE-08: zone public-input shape is the 7-element prefix plus zone data and zone id**
   - Partial coverage: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_consolidates_inputs` (successful end-to-end verification exercises the chain; no explicit element-count assertion)
   - Kind: state
-  - Statement: the `zone_merge_transact` public-input hash chain contains exactly 10 elements (the shared 9-element prefix in the order nullifier-chain, output hash, utxo-root chain, nullifier-root chain, private_tx_hash, external_data_hash, tx_viewing_pk_lo, tx_viewing_pk_hi, ciphertext hash, then `zone_program_id`) and folds no signing or viewing key field.
-  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:101-113` (`fn public_input_hash`)
+  - Statement: the `zone_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12) and then folds `output_zone_data_hash` and `zone_program_id`; it folds no signing or viewing key field (owner identity is omitted by design).
+  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`, `Zone` arm)
   - Severity: High
   - Suggested test: property (client-side comparison); harness: `cargo test -p`
 
 ### Success Postconditions
 
-- [x] **INV-ZONE-MERGE-09: merge_view_tag is single-use**
-  - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_view_tag_replay_is_rejected_atomically`
-  - Kind: postcondition
-  - Statement: after a successful `zone_merge_transact`, the `merge_view_tag` has been inserted into the nullifier queue exactly once, so the nullifier queue's `next_index` is exactly its value before plus 9 (8 nullifiers + 1 tag); a second `zone_merge_transact` reusing the same `merge_view_tag` returns Err.
-  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:156-162` (`fn apply_tree`), `merge_zone/processor.rs:70-79`
-  - Error: `ShieldedPoolError::NullifierTreeUpdateFailed = 7002`
-  - Severity: Critical (replay protection)
-  - Suggested test: negative (replay); harness: program-tests integration (`cargo test-sbf`)
+- [ ] **INV-ZONE-MERGE-09: merge_view_tag is single-use**
+  - Not applicable post-PR164 (the `merge_view_tag` field was removed; replay protection comes from the queued proof-bound input nullifiers themselves -- INV-ZONE-MERGE-12).
 
-- [x] **INV-ZONE-MERGE-10: the emitted output is indexed by merge_view_tag**
+- [x] **INV-ZONE-MERGE-10: the emitted output is indexed by the first input nullifier**
   - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_consolidates_inputs`
   - Kind: postcondition
-  - Statement: after a successful `zone_merge_transact`, the emitted `GeneralEvent`'s single output carries `view_tag` exactly equal to the instruction's `merge_view_tag` (not an owner pubkey).
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:72-79` (`fn process_merge_zone_ix`), `merge/event.rs:28-32`
+  - Statement: after a successful `zone_merge_transact`, the emitted `GeneralEvent`'s single output is indexed by the first input's published nullifier (there is no instruction-supplied tag).
+  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:48-60` (`fn process_merge_zone_ix`), `merge/event.rs`
   - Severity: Medium
   - Suggested test: positive; harness: litesvm
 
@@ -256,3 +245,14 @@ shape, 192-byte BSB22 proof, 110-byte `encrypted_utxo`).
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
+
+### Nullifier Integrity
+
+- [x] **INV-ZONE-MERGE-12: merge_zone queues exactly the proof-bound input nullifiers**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` shape tests; compile-level absence of the `merge_view_tag` field in `MergeZoneIxData` (`program-libs/interface/src/instruction/instruction_data/merge_zone.rs`)
+  - Kind: postcondition
+  - Statement: after a successful `zone_merge_transact`, exactly the proof's 8 input nullifiers are queued and nothing else: the single-use `merge_view_tag` field no longer exists, the emitted output is indexed by the first input nullifier, and `output_zone_data_hash` is proof-bound (eliminates the unvalidated-tag queue-poisoning class, F-02/F-09).
+  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:48-60` (`fn process_merge_zone_ix`), `programs/shielded-pool/src/instructions/merge/verify.rs:23-26, 102-110` (`MergeOwnerBinding::Zone`)
+  - Error: `ShieldedPoolError::NullifierTreeUpdateFailed = 7002` (replay), `TransactProofVerificationFailed = 7008` (binding mismatch)
+  - Severity: Critical
+  - Suggested test: negative (replay) + negative (foreign-zone proof); harness: program-tests integration (`cargo test-sbf`)

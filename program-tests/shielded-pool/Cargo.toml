@@ -195,9 +195,12 @@ required-features = ["proofs"]
 name = "interface_transfers"
 path = "tests/transact/interface_transfers.rs"
 
+# Proof-backed (spawns the local prover and proves with the real circuits), so
+# it sits in the proofs tier with the other Groth16-backed binaries.
 [[test]]
 name = "mixed_interface_transfers"
 path = "tests/transact/mixed_interface_transfers.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "transact_settlement"

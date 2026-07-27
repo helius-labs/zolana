@@ -7,6 +7,7 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
@@ -198,6 +199,7 @@ impl ZoneHarness {
             indexed: Vec::new(),
             spls: Vec::new(),
             last_rail: None,
+            last_transact: None,
             last_merge: None,
             protocol_settings: accounts.protocol_settings,
             protocol_vault: accounts.protocol_vault,

@@ -68,15 +68,22 @@ proptest! {
                     }
                 }
                 Action::ZeroDeposit => {
+                    // PR164 dropped the zero-amount gate: while the tree is
+                    // unpaused a zero deposit is accepted, appends an empty
+                    // output, and settles nothing.
                     let data = model_deposit_data(step, 0);
                     let before = SolDepositSnapshot::capture(&pool.rpc, &tree, &depositor.pubkey());
-                    let error = pool
-                        .rpc
-                        .deposit(&tree, &depositor, &data)
-                        .expect_err("zero model deposit must fail");
-                    assert_pool_error(error, ShieldedPoolError::InvalidTransactShape);
+                    let result = pool.rpc.deposit(&tree, &depositor, &data);
                     let after = SolDepositSnapshot::capture(&pool.rpc, &tree, &depositor.pubkey());
-                    before.assert_rejected(&after);
+                    if paused {
+                        let error = result.expect_err("paused model zero deposit must fail");
+                        assert_pool_error(error, ShieldedPoolError::TreePaused);
+                        before.assert_rejected(&after);
+                    } else {
+                        let event = result.expect("zero model deposit is accepted");
+                        before.assert_accepted(&after, 0);
+                        oracle.record_accepted(&data, &event);
+                    }
                 }
             }
             oracle.assert_matches(&pool.rpc, &tree, &depositor.pubkey());
@@ -84,12 +91,12 @@ proptest! {
     }
 }
 
-fn model_deposit_data(step: usize, amount: u64) -> zolana_interface::instruction::DepositIxData {
+fn model_deposit_data(step: usize, amount: u64) -> zolana_interface::instruction::AssetDeposit {
     let mut owner = [0u8; 32];
     owner[24..].copy_from_slice(&(step as u64 + 1).to_be_bytes());
-    let mut blinding = [0u8; 31];
-    blinding[0] = 0x4d;
-    blinding[23..].copy_from_slice(&(step as u64 + 1).to_be_bytes());
+    let mut blinding = [0u8; 32];
+    blinding[1] = 0x4d;
+    blinding[24..].copy_from_slice(&(step as u64 + 1).to_be_bytes());
     let mut data = ZolanaProgramTest::sol_shield_data(amount, owner, blinding);
     data.memo = Some(format!("model-step-{step}").into_bytes());
     data

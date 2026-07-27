@@ -2,7 +2,10 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{instruction::tag, pda};
+use zolana_interface::{
+    instruction::{instruction_data::deposit::{DepositAssetKind, DepositEntry, DepositIxData}, tag},
+    pda,
+};
 use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 
 pub use zolana_test_utils::backend::LiteSvmPoolBackend as Pool;
@@ -17,7 +20,6 @@ pub fn sol_deposit_accounts(
         AccountMeta::new(depositor, true),
         AccountMeta::new_readonly(Pubkey::default(), false),
         AccountMeta::new(pda::sol_interface(), false),
-        AccountMeta::new(depositor, false),
         AccountMeta::new_readonly(rpc.program_id, false),
     ]
 }
@@ -27,12 +29,21 @@ pub fn raw_sol_deposit(
     depositor: &Keypair,
     accounts: Vec<AccountMeta>,
 ) -> Result<(), ProgramTestError> {
+    let deposit = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 32]);
+    let ix_data = DepositIxData {
+        assets: vec![DepositAssetKind::Sol],
+        deposits: vec![DepositEntry {
+            asset_index: 0,
+            view_tag: deposit.view_tag,
+            owner: deposit.owner,
+            blinding: deposit.blinding,
+            amount: deposit.amount,
+            utxo_data: deposit.utxo_data,
+            memo: deposit.memo,
+        }],
+    };
     let mut data = vec![tag::DEPOSIT];
-    data.extend_from_slice(
-        &ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 31])
-            .serialize()
-            .expect("serialize deposit data"),
-    );
+    data.extend_from_slice(&ix_data.serialize().expect("serialize deposit data"));
     let ix = Instruction {
         program_id: rpc.program_id,
         accounts,

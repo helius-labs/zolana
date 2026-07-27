@@ -3,7 +3,11 @@ use pinocchio::{error::ProgramError, Address};
 use shielded_pool_program::{process_instruction, ID};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{tag, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof},
+    instruction::{
+        instruction_data::transact::CircuitId, tag, InputUtxo, OwnerTag, TransactIxData,
+        TransactOutput, TransactProof,
+    },
+    N_PUBLIC_SLOTS,
 };
 
 #[test]
@@ -54,27 +58,25 @@ fn emit_event_is_an_explicit_account_free_noop() {
 }
 
 /// Wire-parseable transact payload (one input, one inline output, zeroed eddsa
-/// proof). The transact-family processors map a parse failure to the same bare
-/// `InvalidInstructionData` as the dispatcher, so distinguishing dispatch from
-/// rejection for those tags needs a payload that parses.
-fn transfer_payload() -> Vec<u8> {
+/// proof) on the given circuit selector. The transact-family processors map a
+/// parse failure to the same bare `InvalidInstructionData` as the dispatcher,
+/// so distinguishing dispatch from rejection for those tags needs a payload
+/// that parses; the selector family must match the dispatched tag (7039).
+fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
     TransactIxData {
-        proof: TransactProof::zeroed_eddsa(),
+        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
-        relayer_fee: 0,
         private_tx_hash: [0u8; 32],
-        p256_signing_pk_x: None,
+        circuit,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
             nullifier_tree_root_index: 0,
             utxo_tree_root_index: 0,
-            tree_index: 0,
             eddsa_signer_index: 0,
         }],
-        public_sol_amount: None,
-        public_spl_amount: None,
+        interface_transfers: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         outputs: vec![TransactOutput {
@@ -113,7 +115,10 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
         tag::CREATE_ASSET_COUNTER,
         tag::BATCH_UPDATE_NULLIFIER_TREE,
     ];
-    let transact_payload = transfer_payload();
+    let transact_payload = transfer_payload(CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8));
+    let zone_transact_payload = transfer_payload(CircuitId::ZoneEddsa(1, 1, N_PUBLIC_SLOTS as u8));
+    let zone_authority_payload =
+        transfer_payload(CircuitId::ZoneAuthority(1, 1, N_PUBLIC_SLOTS as u8));
 
     for byte in 0..=u8::MAX {
         match byte {
@@ -126,7 +131,11 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
             // proves the tag dispatched past parsing.
             tag::TRANSACT | tag::ZONE_TRANSACT | tag::ZONE_AUTHORITY_TRANSACT => {
                 let mut data = vec![byte];
-                data.extend_from_slice(&transact_payload);
+                data.extend_from_slice(match byte {
+                    tag::ZONE_TRANSACT => &zone_transact_payload,
+                    tag::ZONE_AUTHORITY_TRANSACT => &zone_authority_payload,
+                    _ => &transact_payload,
+                });
                 assert_eq!(
                     process_instruction(&ID, &mut [], &data),
                     Err(ProgramError::UnsupportedSysvar),

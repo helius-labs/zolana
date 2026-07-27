@@ -1,7 +1,7 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::DepositIxData;
+use zolana_interface::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -19,7 +19,7 @@ pub struct SplDepositAssertArgs<'a, A: ?Sized> {
     pub vault: &'a Pubkey,
     pub user_token: &'a Pubkey,
     pub event: &'a DepositOutput,
-    pub data: &'a DepositIxData,
+    pub data: &'a AssetDeposit,
     pub expected_amount: u64,
     pub vault_before: u64,
     pub user_token_before: u64,

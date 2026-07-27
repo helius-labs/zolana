@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::{instruction::UpdateProtocolConfigData, pda, state::SplAssetRegistry};
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit, SplDepositAssertArgs,
@@ -149,8 +149,10 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
     let data = ZolanaProgramTest::wallet_spl_shield_data(
         400_000,
         &recipient.identity,
-        &[7u8; BLINDING_LEN],
+        &[7u8; 32],
         0,
+        &mint,
+        &user_token,
     )
     .expect("SPL deposit data");
     let tree = pool.tree.pubkey();
@@ -163,7 +165,7 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
 
     let event = pool
         .rpc
-        .deposit_spl(&tree, &depositor, &user_token, &mint, &data)
+        .deposit(&tree, &depositor, &data)
         .expect("SPL deposit");
     litesvm_assert_spl_deposit(
         &mut pool.rpc,

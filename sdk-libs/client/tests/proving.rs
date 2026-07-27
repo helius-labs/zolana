@@ -3,16 +3,16 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_client::{
-    CircuitType, ConfidentialTransfer, PublicAmounts, Rpc, SppProofInputUtxo, WithdrawalTarget,
+    ConfidentialTransfer, NonInclusionProof, ProverVariant, PublicMovements, Rpc,
+    SppProofInputUtxo,
 };
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{
-    constants::BLINDING_LEN, shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey,
-};
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey};
+use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::{asset_field, signed_to_field},
-        SENDER_SLOT_COUNT,
+        SettlementTarget, SettlementTransfer, SENDER_SLOT_COUNT,
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::derive_blinding,
@@ -24,7 +24,7 @@ use crate::{
         asset_addr, random_32, random_blinding, spl_mint, Asset, TransferHarness, TransferPlan,
         SPL_ASSET_ID,
     },
-    prover::{prove_and_verify_eddsa, prove_and_verify_p256},
+    prover::prove_and_verify_eddsa,
     test_indexer::TestIndexer,
 };
 
@@ -59,7 +59,11 @@ impl TransferHarness {
                     crate::harness::Owner::P256 => SppProofInputUtxo::new(utxo, &sender),
                     crate::harness::Owner::Solana => SppProofInputUtxo::new(
                         utxo,
-                        NullifierKey::from_secret(random_blinding(&mut rng)),
+                        NullifierKey::from_secret({
+                            let mut secret = [0u8; 31];
+                            rand::RngCore::fill_bytes(&mut rng, &mut secret);
+                            secret
+                        }),
                     ),
                 }
             })
@@ -92,10 +96,10 @@ impl TransferHarness {
         }
         if let Some(withdraw) = &plan.withdraw {
             let target = match withdraw.asset {
-                Asset::Sol => WithdrawalTarget::Sol {
+                Asset::Sol => SettlementTarget::Sol {
                     user_sol_account: Address::new_from_array([7u8; 32]),
                 },
-                Asset::Spl => WithdrawalTarget::Spl {
+                Asset::Spl => SettlementTarget::Spl {
                     user_spl_token: Address::new_from_array([8u8; 32]),
                     spl_token_interface: Address::new_from_array([9u8; 32]),
                 },
@@ -118,6 +122,12 @@ impl TransferHarness {
         let input_merkle_proofs = indexer
             .get_input_merkle_proofs(&commitments, None)
             .expect("input merkle proofs");
+        let dummy_proofs: Vec<NonInclusionProof> = proof_inputs
+            .dummy_nullifiers()
+            .expect("dummy nullifiers")
+            .into_iter()
+            .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
+            .collect();
         let output_assertions = OutputAssertions {
             plan,
             sender: &sender,
@@ -125,27 +135,17 @@ impl TransferHarness {
             first_nullifier: &first_nullifier,
             seed,
         };
-        match zolana_client::into_prover(proof_inputs, &input_merkle_proofs)
-            .expect("into prover")
-            .circuit
-        {
-            CircuitType::P256(prover) => {
-                output_assertions.assert_outputs(
-                    &prover.outputs,
-                    &prover.public_amounts,
-                    &prover.external_data,
-                );
-                prove_and_verify_p256(&prover.build().expect("build"));
-            }
-            CircuitType::Eddsa(prover) => {
-                output_assertions.assert_outputs(
-                    &prover.outputs,
-                    &prover.public_amounts,
-                    &prover.external_data,
-                );
-                prove_and_verify_eddsa(&prover.build().expect("build"));
-            }
-        }
+        // PR164 removed the P256 transact rail; only the eddsa variant remains.
+        let ProverVariant::Eddsa(prover) =
+            zolana_client::into_prover(proof_inputs, &input_merkle_proofs, &dummy_proofs)
+                .expect("into prover")
+                .circuit;
+        output_assertions.assert_outputs(
+            &prover.outputs,
+            &prover.public_movements,
+            &prover.external_data,
+        );
+        prove_and_verify_eddsa(&prover.build().expect("build"));
     }
 }
 
@@ -157,14 +157,14 @@ struct OutputAssertions<'a> {
     sender: &'a ShieldedKeypair,
     recipients: &'a [ShieldedKeypair],
     first_nullifier: &'a [u8; 32],
-    seed: [u8; BLINDING_LEN],
+    seed: [u8; 32],
 }
 
 impl OutputAssertions<'_> {
     fn assert_outputs(
         &self,
         outputs: &[SppProofOutputUtxo],
-        public_amounts: &PublicAmounts,
+        public_movements: &PublicMovements,
         external_data: &ExternalData,
     ) {
         let plan = self.plan;
@@ -293,53 +293,58 @@ impl OutputAssertions<'_> {
         let padding = outputs.get(expected.len()..).unwrap_or(&[]);
         assert!(padding.iter().all(|o| o.is_dummy() && o.amount == 0));
 
-        // Public amounts: signed net per asset, with the SPL asset pinned to 0 when
-        // there is no public SPL movement.
+        // Public movements: one `(asset, net amount)` slot per interface transfer,
+        // signed net per asset, idle slots `(0, 0)`. The plan carries at most one
+        // withdrawal leg, so slot 0 is the only occupied one.
+        let mut expected_assets = [[0u8; 32]; N_PUBLIC_SLOTS];
+        let mut expected_amounts = [[0u8; 32]; N_PUBLIC_SLOTS];
+        match &plan.withdraw {
+            Some(w) if w.asset == Asset::Sol => {
+                expected_assets[0] = SOL_ASSET_FIELD;
+                expected_amounts[0] = signed_to_field(
+                    i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64"),
+                );
+            }
+            Some(_) => {
+                expected_assets[0] = asset_field(&spl_mint()).unwrap();
+                expected_amounts[0] = signed_to_field(
+                    i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64"),
+                );
+            }
+            None => {}
+        }
         assert_eq!(
-            public_amounts,
-            &PublicAmounts {
-                sol: signed_to_field(
-                    i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64")
-                ),
-                spl: signed_to_field(
-                    i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64")
-                ),
-                asset: if net_public(Asset::Spl) != 0 {
-                    asset_field(&spl_mint()).unwrap()
-                } else {
-                    [0u8; 32]
-                },
+            public_movements,
+            &PublicMovements {
+                assets: expected_assets,
+                amounts: expected_amounts,
             }
         );
 
-        // External data: transact discriminator, withdrawal magnitudes + accounts,
-        // everything else defaulted; the random ciphertext is passed through.
-        let (user_sol_account, user_spl_token, spl_token_interface) = match &plan.withdraw {
-            Some(w) if w.asset == Asset::Sol => (
-                Address::new_from_array([7u8; 32]),
-                Address::default(),
-                Address::default(),
-            ),
-            Some(_) => (
-                Address::default(),
-                Address::new_from_array([8u8; 32]),
-                Address::new_from_array([9u8; 32]),
-            ),
-            None => (Address::default(), Address::default(), Address::default()),
+        // External data: transact discriminator, one resolved settlement leg per
+        // interface transfer, everything else defaulted; the random ciphertext is
+        // passed through.
+        let interface_transfers = match &plan.withdraw {
+            Some(w) if w.asset == Asset::Sol => vec![SettlementTransfer::Sol {
+                is_deposit: false,
+                amount: w.amount,
+                user_sol_account: Address::new_from_array([7u8; 32]),
+            }],
+            Some(w) => vec![SettlementTransfer::Spl {
+                mint: spl_mint(),
+                is_deposit: false,
+                amount: w.amount,
+                user_spl_token: Address::new_from_array([8u8; 32]),
+                spl_token_interface: Address::new_from_array([9u8; 32]),
+            }],
+            None => Vec::new(),
         };
-        let sol_public = net_public(Asset::Sol);
-        let spl_public = net_public(Asset::Spl);
         assert_eq!(
             external_data,
             &ExternalData {
                 instruction_discriminator: 0,
                 expiry_unix_ts: u64::MAX,
-                relayer_fee: 0,
-                public_sol_amount: (sol_public != 0).then_some(sol_public as i64),
-                public_spl_amount: (spl_public != 0).then_some(spl_public as i64),
-                user_sol_account,
-                user_spl_token,
-                spl_token_interface,
+                interface_transfers,
                 data_hash: None,
                 zone_data_hash: None,
                 tx_viewing_pk: external_data.tx_viewing_pk,

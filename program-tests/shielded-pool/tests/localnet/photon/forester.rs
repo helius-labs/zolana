@@ -224,24 +224,20 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             data: Data::default(),
         };
         let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, blinding);
+        let shield_view_tag = shield_data.view_tag;
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
-            spl: None,
-            view_tag: shield_data.view_tag,
-            owner: shield_data.owner,
-            blinding: shield_data.blinding,
-            amount: shield_data.amount,
-            utxo_data: shield_data.utxo_data,
-            memo: shield_data.memo,
+            deposits: vec![shield_data],
         }
-        .instruction();
+        .instruction()
+        .map_err(|err| anyhow!("deposit instruction: {err}"))?;
         let sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
 
         let spendable_utxo =
             RealSpendUtxo::new(utxo, &payer_nullifier_key, &payer_nullifier_pk, &zero)?;
-        let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_data.view_tag, sig)?;
+        let indexed_deposit = wait_for_indexed_utxo(&indexer, shield_view_tag, sig)?;
         assert_eq!(
             indexed_deposit.output_slot.output_context.hash,
             spendable_utxo.hash
@@ -321,6 +317,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
             second_utxo.nullifier
         );
 
+        // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
         let assembled = zolana_client::assemble(
             proof_inputs,
             &[
@@ -333,21 +330,17 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
                     nullifier: second_nullifier_proof,
                 },
             ],
+            &[],
         )?;
-        let proof = match &assembled.prover_inputs {
-            ProverInputs::Eddsa(inputs) => ProverClient::local().prove_transfer(inputs)?,
-            ProverInputs::P256(_) => {
-                return Err(anyhow!(
-                    "expected EdDSA prover inputs for a non-relayed confidential queue tx"
-                ))
-            }
-        };
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = ProverClient::local().prove_transfer(inputs)?;
         let ix_data = assembled.with_proof(pack_proof(&proof)?);
 
         let tx_ix = Transact {
             payer: payer.pubkey(),
-            tree: tree_pubkey,
-            withdrawal: None,
+            input_tree: tree_pubkey,
+            output_tree: tree_pubkey,
+            interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
         .instruction();

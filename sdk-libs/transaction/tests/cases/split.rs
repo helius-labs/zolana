@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use borsh::BorshDeserialize;
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
+use zolana_keypair::viewing_key::random_salt;
 use zolana_transaction::{
     data::{Data, DataRecord},
     serialization::{
@@ -14,7 +14,7 @@ use zolana_transaction::{
 use crate::TransactionWorld;
 
 const SPLIT_ASSET_ID: u64 = 2;
-const SPLIT_BLINDING_SEED: [u8; BLINDING_LEN] = [3u8; BLINDING_LEN];
+const SPLIT_BLINDING_SEED: [u8; 32] = [3u8; 32];
 
 pub(crate) fn registry() -> AssetRegistry {
     AssetRegistry::new([(SPLIT_ASSET_ID, Address::new_from_array([5u8; 32]))]).unwrap()
@@ -135,7 +135,7 @@ pub(crate) fn split_data_zero_outputs(world: &mut TransactionWorld, owner: Strin
         num_outputs: 0,
         asset_id: 2,
         asset_amount: 0,
-        blinding_seed: [3u8; BLINDING_LEN],
+        blinding_seed: [3u8; 32],
         data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
     };
     assert_eq!(

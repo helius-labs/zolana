@@ -1,7 +1,7 @@
 //! Zone-transfer proof case data.
 
 /// Selects the witness builder for a proof case.
-// TODO(pr164-port): PR164 removed the P256 rail (`ZoneTransferP256Prover` and the
+// NOTE(pr164): PR164 removed the P256 rail (`ZoneTransferP256Prover` and the
 // `transfer_p256_zone_*` verifying keys are gone), so the `P256` / `P256MultiReal`
 // modes from the original suite were dropped.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

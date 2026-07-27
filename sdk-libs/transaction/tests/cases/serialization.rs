@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use zolana_keypair::{
-    constants::{BLINDING_LEN, SALT_LEN},
+    constants::SALT_LEN,
     ViewingKey,
 };
 use zolana_transaction::{
@@ -33,7 +33,7 @@ pub(crate) fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _na
         let pt = ConfidentialOutputPlaintext {
             asset_id: 2,
             amount: 42,
-            blinding: [1u8; BLINDING_LEN],
+            blinding: [1u8; 32],
             zone_program_id: None,
             data,
         };
@@ -49,7 +49,7 @@ pub(crate) fn duplicate_data_records_rejected(_world: &mut TransactionWorld, _na
     let pt = ConfidentialOutputPlaintext {
         asset_id: 2,
         amount: 42,
-        blinding: [1u8; BLINDING_LEN],
+        blinding: [1u8; 32],
         zone_program_id: None,
         data: Data::new(vec![
             DataRecord::ZoneData(vec![1]),
@@ -71,7 +71,7 @@ pub(crate) fn out_of_order_data_records_rejected(_world: &mut TransactionWorld, 
     let pt = ConfidentialOutputPlaintext {
         asset_id: 2,
         amount: 42,
-        blinding: [1u8; BLINDING_LEN],
+        blinding: [1u8; 32],
         zone_program_id: None,
         data: Data::new(vec![
             DataRecord::UtxoData(vec![1]),
@@ -99,7 +99,7 @@ pub(crate) fn sender_plaintext_round_trips(
         spl_asset_id: 2,
         spl_amount: 100,
         sol_amount: 5,
-        blinding_seed: [2u8; BLINDING_LEN],
+        blinding_seed: [2u8; 32],
         recipient_viewing_pks: vec![world.kp(&recipient).viewing_pubkey()],
         spl_data: Data::default(),
         sol_data: Data::default(),
@@ -153,7 +153,7 @@ pub(crate) fn split_bundle_round_trips(world: &mut TransactionWorld, name: Strin
         num_outputs: 8,
         asset_id: 2,
         asset_amount: 1000,
-        blinding_seed: [3u8; BLINDING_LEN],
+        blinding_seed: [3u8; 32],
         data: Data::default(),
     };
     let bytes = bundle.serialize().unwrap();

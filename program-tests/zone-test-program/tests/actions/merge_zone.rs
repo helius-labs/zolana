@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::merge_zone::MergeZoneProver, MergeProver, ProverClient, SpendProof, TransferSpendInput,
+    prover::merge_zone::MergeZoneProver, ProverClient, SpendProof, TransferSpendInput,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -451,7 +451,7 @@ impl ZoneHarness {
         let merge_ix = MergeZone {
             input_tree: self.tree,
             output_tree: self.tree,
-            zone_program_id: submit_zone.unwrap_or(self.zone_program_id),
+            zone_program_id: self.zone_program_id,
             payer: payer.pubkey(),
             data: data.merge.clone(),
             output_zone_data_hash: data.output_zone_data_hash,

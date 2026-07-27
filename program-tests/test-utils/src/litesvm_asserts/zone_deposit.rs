@@ -1,7 +1,7 @@
 //! Post-instruction checks for `zone_deposit` (policy-zone deposits).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::ZoneDepositIxData;
+use zolana_interface::instruction::ZoneAssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
@@ -17,7 +17,7 @@ use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 pub struct ZoneDepositAssertArgs<'a, A: ?Sized> {
     pub tree: &'a Pubkey,
     pub event: &'a DepositOutput,
-    pub data: &'a ZoneDepositIxData,
+    pub data: &'a ZoneAssetDeposit,
     pub expected_amount: u64,
     pub expected_asset: [u8; 32],
     pub expected_zone_program_id: [u8; 32],
@@ -47,7 +47,7 @@ pub fn litesvm_assert_zone_deposit<A: SyncWalletAuthority + ?Sized>(
     assert_eq!(event.output.blinding, data.deposit.blinding, "blinding");
     assert_eq!(event.view_tag, data.deposit.view_tag, "view tag");
     assert_eq!(
-        event.output.memo, data.memo,
+        event.output.memo, data.deposit.memo,
         "event memo mirrors instruction data"
     );
     assert_eq!(

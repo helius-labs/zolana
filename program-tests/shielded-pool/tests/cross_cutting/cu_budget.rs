@@ -102,7 +102,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
     let depositor = Keypair::new();
     test.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("fund depositor");
-    test.deposit_sol(&tree.pubkey(), &depositor, 1_000_000, [1; 32], [2; 31])
+    test.deposit_sol(&tree.pubkey(), &depositor, 1_000_000, [1; 32], [2; 32])
         .expect("deposit SOL");
     assert_last_under(&test, "deposit SOL", DEPOSIT_CU_CEILING);
 
@@ -111,8 +111,8 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         .expect("create token account");
     test.mint_to(&mint, &user_token, 1_000)
         .expect("mint tokens");
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [3; 32], [4; 31]);
-    test.deposit_spl(&tree.pubkey(), &depositor, &user_token, &mint, &data)
+    let data = ZolanaProgramTest::spl_shield_data(1_000, [3; 32], [4; 32], &mint, &user_token);
+    test.deposit(&tree.pubkey(), &depositor, &data)
         .expect("deposit SPL");
     assert_last_under(&test, "deposit SPL", DEPOSIT_CU_CEILING);
 
@@ -128,7 +128,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
     test.update_zone_config(&authority, &zone_config, true)
         .expect("re-enable zone config");
 
-    let zone_data = test.zone_sol_shield_data(1_000_000, [5; 32], [6; 31]);
+    let zone_data = test.zone_sol_shield_data(1_000_000, [5; 32], [6; 32]);
     test.zone_deposit(&tree.pubkey(), &depositor, &zone_data)
         .expect("zone deposit SOL");
     assert_last_under(&test, "zone deposit SOL", DEPOSIT_CU_CEILING);

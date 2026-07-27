@@ -10,7 +10,7 @@ use zolana_interface::{
     instruction::{encode_instruction, tag, CreateZoneConfigData, Deposit, ZoneDeposit},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{
     rpc_state_root, single_deposit_view, DepositOutput, TestIndexer, ZolanaProgramTest,
     ZONE_TEST_PROGRAM_ID,
@@ -57,22 +57,17 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &direct_recipient.identity,
-        &[3u8; BLINDING_LEN],
+        &[3u8; 32],
         0,
     )?;
     let direct_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
     let direct_ix = Deposit {
         tree: tree.pubkey(),
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: direct_data.view_tag,
-        owner: direct_data.owner,
-        blinding: direct_data.blinding,
-        amount: direct_data.amount,
-        utxo_data: direct_data.utxo_data,
-        memo: direct_data.memo,
+        deposits: vec![direct_data],
     }
-    .instruction();
+    .instruction()
+    .expect("deposit instruction");
     let direct_tx = send_indexed(
         &mut rpc,
         &mut indexer,
@@ -137,7 +132,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &zone_recipient.identity,
-        &[5u8; BLINDING_LEN],
+        &[5u8; 32],
         0,
     )?;
     zone_data.zone_data_hash = [5u8; 32];
@@ -145,18 +140,11 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let zone_ix = ZoneDeposit {
         tree: tree.pubkey(),
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: zone_data.view_tag,
-        owner: zone_data.owner,
-        blinding: zone_data.blinding,
-        amount: zone_data.amount,
         zone_program_id,
-        zone_data_hash: zone_data.zone_data_hash,
-        zone_data: zone_data.zone_data.clone(),
-        utxo_data: zone_data.utxo_data,
-        memo: zone_data.memo,
+        deposits: vec![zone_data],
     }
-    .instruction();
+    .instruction()
+    .expect("zone deposit instruction");
     let zone_tx = send_indexed(
         &mut rpc,
         &mut indexer,

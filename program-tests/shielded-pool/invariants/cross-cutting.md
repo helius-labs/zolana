@@ -124,15 +124,8 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Severity: Critical
   - Suggested test: property (per-field bit-flip loop) + golden vectors (exist); harness: `cargo test -p zolana-shielded-pool` + program-tests integration
 
-- [x] **INV-XC-12: proof encoding and rail must match the selected circuit**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_p256_proof_on_the_eddsa_rail`
-  - Kind: precondition
-  - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
-  - Statement: a `TransactProof::P256` proof is accepted only when the selected circuit is BSB22-committed (P256 rail, non-authority), and a `TransactProof::Eddsa` proof only when it is not; every other combination returns Err before pairing.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:94-117` (`fn verify`), `verifier.rs:90-113` (`fn verify_groth16`)
-  - Error: `ShieldedPoolError::MismatchedTransactProofRail = 7021`
-  - Severity: High
-  - Suggested test: negative (each mismatched combination); harness: mollusk unit
+- [ ] **INV-XC-12: proof encoding and rail must match the selected circuit**
+  - Not applicable post-PR164 (the P256 rail and the `TransactProof::P256` encoding were removed; `TransactProof` is a single plain Groth16 struct, so no encoding/rail mismatch class remains). The covering `transact_rejects_a_p256_proof_on_the_eddsa_rail` test was removed with the rail.
 
 - [x] **INV-XC-13: undecompressable proof points are an encoding error, not a verification error**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_proof_points_that_fail_decompression`
@@ -144,14 +137,14 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Severity: Medium (diagnostic stability)
   - Suggested test: negative both classes; harness: mollusk unit
 
-- [x] **INV-XC-14: verifying keys are pairwise distinct per (variant, rail, shape)**
-  - Covered by: `programs/shielded-pool/src/instructions/transact/verify.rs` `select_verifying_key_covers_zone_and_confidential`
+- [x] **INV-XC-14: verifying keys are pairwise distinct per (variant, shape)**
+  - Covered by: `program-libs/interface/tests/vk_fingerprint.rs` `verifying_key_fingerprint_is_pinned`
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
-  - Statement: for every supported shape, the confidential-eddsa, confidential-P256, zone-eddsa, zone-P256 (and for merge: default vs zone) verifying keys are distinct constants, so a proof generated for one variant or rail never verifies under another; the instruction fixes the variant (`IS_ZONE`/`IS_AUTHORITY` are compile-time constants per tag), so no attacker-controlled data selects the key family.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:64-88, 256-337` (key selectors), `merge/verify.rs:69-73`; distinctness pinned by `verify.rs:339-378` (`select_verifying_key_covers_zone_and_confidential`)
+  - Statement: for every supported shape, the confidential, zone, and zone-authority (and for merge: default vs zone) verifying keys are distinct constants, so a proof generated for one variant never verifies under another; the variant is fixed by the dispatched instruction tag, so no attacker-controlled data selects the key family.
+  - Location: `program-libs/interface/src/verifying_keys/circuit.rs` (`CircuitId::verifying_key`), `merge/verify.rs:62-65`; all 26 committed keys pinned by `program-libs/interface/tests/vk_fingerprint.rs`
   - Severity: Critical
-  - Suggested test: property (exists: unit test) + negative cross-variant proof; harness: `cargo test -p` + program-tests integration
+  - Suggested test: property (exists: fingerprint pin) + negative cross-variant proof; harness: `cargo test -p` + program-tests integration
 
 ## External Data Hash
 
@@ -165,12 +158,12 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Severity: High (cross-instruction replay)
   - Suggested test: negative (transact proof replayed as zone_transact); harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-XC-16: the external_data_hash preimage is injective**
+- [x] **INV-XC-16: the external_data_hash preimage is injective and binds the decryption context**
   - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `external_data_hash_is_injective_across_output_message_boundary` (plus the empty-vs-none and owner-tag boundary tests in the same module)
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
-  - Statement: for every pair of distinct (outputs, messages, data presence) combinations, the `ExternalDataHash` preimages differ: counts and per-datum u16 length prefixes plus a strict {0,1} presence byte prevent bytes shifting across an output boundary, a message boundary, the owner-tag/data boundary, or `None`/`Some(&[])` aliasing.
-  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:339-377` (`fn ExternalDataHash::hash`; unit tests at 592-688)
+  - Statement: the `ExternalDataHash` preimage covers exactly: the instruction discriminator, `expiry_unix_ts`, the resolved `interface_transfers` legs (post-PR164, replacing the old `public_sol_amount`/`public_spl_amount`/`relayer_fee` fields), the `data_hash`/`zone_data_hash` option presence and values, `tx_viewing_pk`, `salt`, the resolved outputs, and the messages. Binding `tx_viewing_pk` and `salt` (the F-05 fix) means a relayer can no longer corrupt the only on-chain decryption context; the count prefixes and presence bytes keep the encoding injective across output/message/owner-tag/data boundaries.
+  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348` (`struct ExternalDataHash`), hash at `instruction_data/transact.rs` (`fn ExternalDataHash::hash`)
   - Severity: High
   - Suggested test: property (proptest over adjacent encodings; unit tests exist); harness: `cargo test -p zolana-interface`
 
@@ -190,8 +183,8 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol`
   - Kind: postcondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
-  - Statement: when a public amount `Some(a)` is present, the on-chain transfer moves exactly `|a|` lamports (SOL) or tokens (SPL); the program never adds `relayer_fee` to the transfer -- the prover-side convention already folds the fee into a withdrawal's negative amount (`withdraw sol = -(amount + relayer_fee)`), pinned by the field-derivation vector.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:170-184` (`fn public_amount`, settlement dispatch), convention pinned at `transact/verify.rs:755-759` (`field_derivation_vector_pins_the_shared_encodings`)
+  - Statement: for every interface-transfer leg, the on-chain settlement moves exactly the leg's `amount` lamports (SOL) or tokens (SPL), independently per leg and in leg order; aggregation into public movement slots affects proof inputs only.
+  - Location: `programs/shielded-pool/src/instructions/transact/interface_transfer.rs:79-92` (`fn settle_interface_transfers`), slot aggregation pinned at `transact/verify.rs` (`field_derivation_vector_pins_the_shared_encodings`, `public_slots` entries)
   - Severity: Critical
   - Suggested test: positive (balance deltas); harness: program-tests integration (`cargo test-sbf`)
   - SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously said the program transfers `public_sol_amount + relayer_fee` and typed the amounts as `Option<u64>`; `docs/spec.md` now states signed `Option<i64>` amounts and that exactly the absolute value settles, matching the code.
@@ -293,8 +286,8 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-28: error codes are stable**
   - Kind: state
   - Affects: all instructions
-  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (7000..7025, 26 variants), pinned one-by-one.
-  - Location: `program-libs/interface/src/error.rs:24-77`; pin test `error.rs:110-144` (`fn error_codes_are_stable`)
+  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (7000..7026 and 7029..7045, 43 variants), pinned one-by-one.
+  - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
   - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
   - Covered by: `program-libs/interface/src/error.rs` `error_codes_are_stable`

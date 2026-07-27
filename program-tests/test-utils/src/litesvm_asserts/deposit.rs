@@ -2,7 +2,7 @@
 
 use solana_pubkey::Pubkey;
 use zolana_hasher::Poseidon;
-use zolana_interface::instruction::DepositIxData;
+use zolana_interface::instruction::AssetDeposit;
 use zolana_interface::{pda, state::STATE_HEIGHT};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
@@ -67,7 +67,7 @@ impl SolDepositSnapshot {
 struct ExpectedSolDeposit {
     view_tag: [u8; 32],
     owner: [u8; 32],
-    blinding: [u8; 31],
+    blinding: [u8; 32],
     amount: u64,
     memo: Option<Vec<u8>>,
     utxo_hash: [u8; 32],
@@ -106,17 +106,18 @@ impl SolDepositOracle {
     }
 
     #[track_caller]
-    pub fn record_accepted(&mut self, data: &DepositIxData, event: &DepositOutput) {
+    pub fn record_accepted(&mut self, data: &AssetDeposit, event: &DepositOutput) {
         let expected_leaf = self.initial.indexed_outputs + self.accepted.len();
         let data_hash = data
             .utxo_data
             .as_ref()
             .map_or([0u8; 32], |utxo_data| utxo_data.data_hash);
-        let expected_hash = ProofInputUtxo::new(data.owner, &SOL_MINT, data.amount, &data.blinding)
-            .expect("model deposit fields")
-            .with_data_hash(data_hash)
-            .hash()
-            .expect("model deposit hash");
+        let expected_hash =
+            ProofInputUtxo::new(data.owner, &SOL_MINT, data.amount, &data.blinding)
+                .expect("model deposit fields")
+                .with_data_hash(data_hash)
+                .hash()
+                .expect("model deposit hash");
         assert_eq!(event.leaf_index, expected_leaf as u64, "event leaf order");
         assert_eq!(event.utxo_hash, expected_hash, "event UTXO hash");
         assert_eq!(event.view_tag, data.view_tag, "event view tag");
@@ -227,7 +228,7 @@ fn account_lamports(program_test: &ZolanaProgramTest, key: &Pubkey) -> u64 {
 pub struct DepositAssertArgs<'a, A: ?Sized> {
     pub tree: &'a Pubkey,
     pub event: &'a DepositOutput,
-    pub data: &'a DepositIxData,
+    pub data: &'a AssetDeposit,
     pub expected_amount: u64,
     pub expected_asset: [u8; 32],
     pub root_before: [u8; 32],

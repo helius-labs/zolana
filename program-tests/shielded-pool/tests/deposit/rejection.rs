@@ -7,7 +7,7 @@ use solana_system_interface::error::SystemError;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{tag, ZoneDeposit},
+    instruction::{tag, AssetDeposit, DepositAsset, ZoneAssetDeposit, ZoneDeposit},
     pda, PROGRAM_ID_PUBKEY,
 };
 use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
@@ -21,44 +21,43 @@ use zolana_test_utils::mollusk::{
 };
 
 use shielded_pool_tests::support::{
-    fixtures::{raw_sol_deposit, sol_deposit_accounts, Pool},
+    fixtures::{raw_sol_deposit, register_mint, sol_deposit_accounts, spl_depositor, Pool},
     mollusk::{deposit_fixture, setup_mollusk},
 };
 
 #[test]
-fn sol_deposit_rejects_zero_amount() {
+fn sol_deposit_accepts_zero_amount() {
+    // PR164 dropped the zero-amount deposit gate: a zero-value entry settles
+    // nothing and appends an empty proofless output.
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(1_000_000_000);
     let tree = pool.tree.pubkey();
-    let data = ZolanaProgramTest::sol_shield_data(0, [2u8; 32], [2u8; 31]);
+    let data = ZolanaProgramTest::sol_shield_data(0, [2u8; 32], [2u8; 32]);
 
-    let err = pool
+    let event = pool
         .rpc
         .deposit(&tree, &depositor, &data)
-        .expect_err("invalid amount must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidTransactShape);
+        .expect("zero-amount deposit is accepted");
+    assert_eq!(event.output.amount, 0);
 }
 
 #[test]
-fn spl_deposit_rejects_zero_amount_before_account_loading() {
+fn spl_deposit_accepts_zero_amount() {
+    // PR164 dropped the zero-amount gate; the SPL leg is a zero-value token
+    // transfer, so the token accounts must still exist and match the mint.
     let mut pool = Pool::initialized();
-    let depositor = pool.funded_signer(1_000_000_000);
+    let (mint, _, vault) = register_mint(&mut pool);
+    let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000);
     let tree = pool.tree.pubkey();
-    let zero_spl = ZolanaProgramTest::spl_shield_data(0, [3u8; 32], [3u8; 31]);
-    let bogus_token_account = pool.rpc.payer.pubkey();
-    let bogus_mint = pool.rpc.payer.pubkey();
+    let zero_spl = ZolanaProgramTest::spl_shield_data(0, [3u8; 32], [3u8; 32], &mint, &user_token);
 
-    let err = pool
+    let event = pool
         .rpc
-        .deposit_spl(
-            &tree,
-            &depositor,
-            &bogus_token_account,
-            &bogus_mint,
-            &zero_spl,
-        )
-        .expect_err("zero SPL amount must fail before account loading");
-    assert_pool_error(err, ShieldedPoolError::InvalidTransactShape);
+        .deposit(&tree, &depositor, &zero_spl)
+        .expect("zero-amount SPL deposit is accepted");
+    assert_eq!(event.output.amount, 0);
+    assert_eq!(pool.rpc.token_balance(&user_token), Some(1_000));
+    assert_eq!(pool.rpc.token_balance(&vault), Some(0));
 }
 
 #[test]
@@ -206,7 +205,7 @@ fn paused_tree_rejects_sol_deposit() {
 
     let err = pool
         .rpc
-        .deposit_sol(&tree, &depositor, 1_000_000, [4u8; 32], [4u8; 31])
+        .deposit_sol(&tree, &depositor, 1_000_000, [4u8; 32], [4u8; 32])
         .expect_err("paused tree deposit must fail");
     assert_pool_error(err, ShieldedPoolError::TreePaused);
 }
@@ -228,7 +227,7 @@ fn paused_tree_rejects_zone_deposit() {
         .expect("pause tree");
     let data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [4u8; 32], [4u8; 31]);
+        .zone_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
 
     let err = pool
         .rpc
@@ -244,22 +243,15 @@ fn zone_deposit_rejects_a_signer_that_is_not_the_zone_authority() {
     let tree = pool.tree.pubkey();
     let data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 31]);
+        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
     let mut ix = ZoneDeposit {
         tree,
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-        zone_data_hash: data.zone_data_hash,
-        zone_data: data.zone_data,
-        utxo_data: data.utxo_data,
-        memo: None,
+        deposits: vec![data],
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("zone deposit instruction");
     ix.accounts
         .get_mut(2)
         .expect("zone authority account")
@@ -279,22 +271,15 @@ fn zone_deposit_rejects_an_unsigned_zone_config() {
     let tree = pool.tree.pubkey();
     let data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 31]);
+        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
     let mut ix = ZoneDeposit {
         tree,
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-        zone_data_hash: data.zone_data_hash,
-        zone_data: data.zone_data,
-        utxo_data: data.utxo_data,
-        memo: None,
+        deposits: vec![data],
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("zone deposit instruction");
     // The canonical `zone_auth` PDA address, but without a signature: only the
     // zone program's `invoke_signed` can supply one, and the flag is checked
     // before the account is even loaded.
@@ -317,22 +302,15 @@ fn zone_deposit_rejects_malformed_payload_exactly() {
     let tree = pool.tree.pubkey();
     let data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 31]);
+        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
     let mut ix = ZoneDeposit {
         tree,
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-        zone_data_hash: data.zone_data_hash,
-        zone_data: data.zone_data,
-        utxo_data: data.utxo_data,
-        memo: None,
+        deposits: vec![data],
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("zone deposit instruction");
     // Parsing runs before any account or signer check, so the zone_config
     // signature is irrelevant here (and impossible at transaction level).
     ix.accounts
@@ -369,18 +347,23 @@ fn mollusk_zone_deposit_fixture() -> (
     let ix = ZoneDeposit {
         tree: Pubkey::new_unique(),
         depositor: Pubkey::new_unique(),
-        spl: None,
-        view_tag: [1u8; 32],
-        owner: [2u8; 32],
-        blinding: [3u8; 31],
-        amount: 1_000_000,
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-        zone_data_hash: [0u8; 32],
-        zone_data: Vec::new(),
-        utxo_data: None,
-        memo: None,
+        deposits: vec![ZoneAssetDeposit {
+            deposit: AssetDeposit {
+                asset: DepositAsset::Sol,
+                view_tag: [1u8; 32],
+                owner: [2u8; 32],
+                blinding: [3u8; 32],
+                amount: 1_000_000,
+                utxo_data: None,
+                memo: None,
+            },
+            zone_data_hash: [0u8; 32],
+            zone_data: Vec::new(),
+        }],
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("zone deposit instruction");
     let accounts = snapshot_instruction_accounts(&ix, (&PROGRAM_ID_PUBKEY, program_id), |_| None);
     (mollusk, ix, accounts)
 }
@@ -396,7 +379,7 @@ fn mollusk_zone_deposit_rejects_an_unsigned_depositor_exactly() {
         &mollusk,
         &ix,
         &accounts,
-        ProgramError::MissingRequiredSignature,
+        ProgramError::Custom(u32::from(AccountError::InvalidSigner)),
     );
 }
 
@@ -405,7 +388,15 @@ fn mollusk_zone_deposit_rejects_fewer_than_four_accounts_exactly() {
     let (mollusk, mut ix, accounts) = mollusk_zone_deposit_fixture();
     ix.accounts.truncate(3);
 
-    expect_err_exact(&mollusk, &ix, &accounts, ProgramError::NotEnoughAccountKeys);
+    // The zone_config loader fires before the settlement accounts are needed,
+    // so truncation surfaces as an InvalidZoneConfig rejection, not a bare
+    // account-count error.
+    expect_err_exact(
+        &mollusk,
+        &ix,
+        &accounts,
+        ProgramError::Custom(ShieldedPoolError::InvalidZoneConfig as u32),
+    );
 }
 
 #[test]
@@ -413,11 +404,13 @@ fn mollusk_deposit_rejects_fewer_than_three_accounts_exactly() {
     let (mollusk, mut valid, accounts) = deposit_fixture();
     valid.accounts.truncate(2);
 
+    // The account iterator reports the shortfall as the account-checks
+    // NotEnoughAccountKeys custom error.
     expect_err_exact(
         &mollusk,
         &valid,
         &accounts,
-        ProgramError::NotEnoughAccountKeys,
+        ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
     );
 }
 
@@ -438,20 +431,16 @@ fn mollusk_deposit_rejects_truncated_data_exactly() {
 #[test]
 fn mollusk_deposit_rejects_every_account_privilege_downgrade() {
     let (mollusk, valid, accounts) = deposit_fixture();
-    // Metas: [0] tree, [1] depositor (signer), [2] system-program
-    // placeholder, [3] SOL vault, [4] depositor settlement handle, [5]
-    // shielded-pool program. Positions 1 and 4 are duplicate metas of one
-    // account, and the runtime takes the union of duplicate-meta privileges,
-    // so downgrading the writable flag on either one alone must keep
-    // succeeding. The signer and trailing-account cells have stable errors;
-    // the remaining downgrades shift the account shape, so only
-    // deterministic rejection is pinned.
+    // Metas: [0] tree, [1] depositor (signer), [2] system program, [3] SOL
+    // vault, [4] shielded-pool program. The signer and trailing-account cells
+    // have stable errors; the remaining downgrades shift the account shape, so
+    // only deterministic rejection is pinned.
     let program_index = valid.accounts.len().saturating_sub(1);
     sweep_account_matrix(&mollusk, &valid, &accounts, |mutation| match mutation {
-        AccountMutation::Unsign { index: 1 } => {
-            Expected::Err(ProgramError::MissingRequiredSignature)
-        }
-        AccountMutation::Readonly { index: 1 | 4 } => Expected::Success,
+        AccountMutation::Unsign { index: 1 } => Expected::Err(ProgramError::Custom(
+            u32::from(AccountError::InvalidSigner),
+        )),
+        AccountMutation::Readonly { index: 4 } => Expected::Success,
         AccountMutation::Remove { index } if index == program_index => Expected::Err(
             ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
         ),
@@ -502,7 +491,7 @@ fn mollusk_deposit_rejects_reordered_accounts_exactly() {
         &mollusk,
         &valid,
         &accounts,
-        ProgramError::MissingRequiredSignature,
+        ProgramError::Custom(u32::from(AccountError::InvalidSigner)),
     );
 }
 

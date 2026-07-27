@@ -104,14 +104,13 @@ asset inferred from the settlement accounts).
   - Severity: Medium
   - Suggested test: fuzz + negative; harness: mollusk unit
 
-- [x] **INV-DEPOSIT-11: zero amount is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `sol_deposit_rejects_zero_amount`
-  - Kind: precondition
-  - Statement: `deposit` returns Err whenever `amount` is exactly 0.
-  - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:92-94` (`fn process_deposit_internal`)
-  - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
+- [x] **INV-DEPOSIT-11: zero amount is accepted and settles nothing**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `sol_deposit_accepts_zero_amount`, `spl_deposit_accepts_zero_amount`
+  - Kind: postcondition
+  - Statement: post-PR164, a zero-amount deposit entry is accepted: it appends an empty proofless output and moves no lamports/tokens (the old zero-amount gate was dropped with the batched deposit rewrite).
+  - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs` (`fn process_deposit_internal`)
   - Severity: Medium
-  - Suggested test: negative; harness: mollusk unit
+  - Suggested test: positive (zero entry accepted, no settlement); harness: mollusk unit
 
 ### Success Postconditions
 

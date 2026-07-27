@@ -3,14 +3,12 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_event::{general_event_from_indexed, DepositWithdraw};
+use zolana_event::{general_event_from_indexed, Movement};
 use zolana_interface::{
     instruction::{Deposit, UtxoData},
     pda,
 };
-use zolana_keypair::{
-    constants::BLINDING_LEN, hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair,
-};
+use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_zone_deposit, DepositAssertArgs, SolDepositOracle,
@@ -39,7 +37,7 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
     let mut data = ZolanaProgramTest::wallet_sol_shield_data(
         750_000_000,
         &recipient.identity,
-        &[3u8; BLINDING_LEN],
+        &[3u8; 32],
         0,
     )
     .expect("deposit data");
@@ -87,19 +85,14 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
     let tree = pool.tree.pubkey();
-    let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32], [9u8; 31]);
+    let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32], [9u8; 32]);
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),
-        spl: None,
-        view_tag: data.view_tag,
-        owner: data.owner,
-        blinding: data.blinding,
-        amount: data.amount,
-        utxo_data: data.utxo_data.clone(),
-        memo: data.memo.clone(),
+        deposits: vec![data],
     }
-    .instruction();
+    .instruction()
+    .expect("deposit instruction");
 
     let outcome = pool
         .rpc
@@ -113,13 +106,13 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
     let event = general_event_from_indexed(outcome.events.first().expect("deposit event"))
         .expect("decoded GeneralEvent");
     assert_eq!(
-        event.deposit_withdraw,
-        Some(DepositWithdraw {
+        event.movements,
+        vec![Movement {
             is_deposit: true,
             amount: AMOUNT,
             asset: None,
-        }),
-        "SOL deposit_withdraw carries the amount and no asset"
+        }],
+        "SOL deposit emits exactly one deposit movement with no asset"
     );
     assert!(event.inputs.is_empty(), "deposit spends no inputs");
     assert_eq!(event.outputs.len(), 1, "deposit appends exactly one output");
@@ -184,7 +177,8 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
     const AMOUNT: u64 = 250_000_000;
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let blinding: [u8; BLINDING_LEN] = [7u8; BLINDING_LEN];
+    let blinding: [u8; 32] = [7u8; 32];
+    // 0x07-padded stays below the BN254 modulus, so the Poseidon hash accepts it.
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pk");
     let owner_pk = PublicKey::from_ed25519(&depositor.pubkey().to_bytes());
@@ -256,7 +250,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
     let mut owner_utxo_hashes = Vec::new();
     let mut view_tags = Vec::new();
     for (i, amount) in AMOUNTS.into_iter().enumerate() {
-        let mut seed = [0xA0; BLINDING_LEN];
+        let mut seed = [0xA0; 32];
         *seed.get_mut(30).expect("seed has message byte") = i as u8;
         let data =
             ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity, &seed, i as u8)
@@ -335,7 +329,7 @@ fn zone_sol_deposit_settles_and_indexes_the_exact_output() {
     let mut data = ZolanaProgramTest::wallet_zone_sol_shield_data(
         600_000_000,
         &recipient.identity,
-        &[5u8; BLINDING_LEN],
+        &[5u8; 32],
         0,
     )
     .expect("zone SOL deposit data");
@@ -404,7 +398,7 @@ fn zone_deposit_event_carries_the_zone_data_preimage_verbatim() {
     let depositor = pool.funded_signer(2_000_000_000);
     let mut data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [4u8; 32], [4u8; 31]);
+        .zone_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
     data.zone_data_hash = [6u8; 32];
     data.zone_data = vec![11, 22, 33, 44, 55];
 
@@ -449,8 +443,10 @@ fn zone_spl_deposit_settles_and_indexes_the_exact_output() {
     .expect("recipient wallet");
     let mut data = ZolanaProgramTest::wallet_zone_spl_shield_data(
         350_000,
+        mint,
+        user_token,
         &recipient.identity,
-        &[9u8; BLINDING_LEN],
+        &[9u8; 32],
         0,
     )
     .expect("zone SPL deposit data");
@@ -465,7 +461,7 @@ fn zone_spl_deposit_settles_and_indexes_the_exact_output() {
 
     let event = pool
         .rpc
-        .zone_deposit_spl(&tree, &depositor, &user_token, &mint, &data)
+        .zone_deposit(&tree, &depositor, &data)
         .expect("zone SPL deposit");
     assert_eq!(pool.rpc.token_balance(&vault), Some(vault_before + 350_000));
     assert_eq!(
@@ -488,3 +484,4 @@ fn zone_spl_deposit_settles_and_indexes_the_exact_output() {
     );
     assert_eq!(recipient.utxos.len(), 1);
 }
+

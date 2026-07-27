@@ -1,7 +1,7 @@
 //! Pins a single SHA-256 fingerprint over every committed Groth16 verifying
 //! key the shielded-pool program embeds. The keys are generated artifacts
 //! (`prover/server/scripts/regenerate_all_vkeys.sh`); a regeneration rewrites
-//! 46 opaque constant files that are effectively unreviewable by diff. This
+//! 26 opaque constant files that are effectively unreviewable by diff. This
 //! test turns any VK change into an explicit one-line re-pin: if it fails,
 //! confirm the rotation was intentional (new proving keys uploaded, lockfile
 //! updated in the same commit) and update the pinned fingerprint below.
@@ -38,7 +38,7 @@ fn absorb(preimage: &mut Vec<u8>, name: &str, vk: &Groth16Verifyingkey) {
 
 #[test]
 fn verifying_key_fingerprint_is_pinned() {
-    let keys: [(&str, &Groth16Verifyingkey); 46] = vks![
+    let keys: [(&str, &Groth16Verifyingkey); 26] = vks![
         merge_8_1,
         merge_zone_8_1,
         transfer_confidential_1_1,
@@ -51,26 +51,6 @@ fn verifying_key_fingerprint_is_pinned() {
         transfer_confidential_4_4,
         transfer_confidential_5_3,
         transfer_confidential_5_4,
-        transfer_p256_confidential_1_1,
-        transfer_p256_confidential_1_2,
-        transfer_p256_confidential_1_8,
-        transfer_p256_confidential_2_2,
-        transfer_p256_confidential_2_3,
-        transfer_p256_confidential_3_3,
-        transfer_p256_confidential_4_3,
-        transfer_p256_confidential_4_4,
-        transfer_p256_confidential_5_3,
-        transfer_p256_confidential_5_4,
-        transfer_p256_zone_1_1,
-        transfer_p256_zone_1_2,
-        transfer_p256_zone_1_8,
-        transfer_p256_zone_2_2,
-        transfer_p256_zone_2_3,
-        transfer_p256_zone_3_3,
-        transfer_p256_zone_4_3,
-        transfer_p256_zone_4_4,
-        transfer_p256_zone_5_3,
-        transfer_p256_zone_5_4,
         transfer_zone_1_1,
         transfer_zone_1_2,
         transfer_zone_1_8,
@@ -97,7 +77,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00df7423948438d130503f9d111b9a295098071feb1d4a8e4037c8bda7ac15f7",
+        fingerprint, "0048ab696cf90bdcb014571dab2569db4c8eeebdac3e04cf5ee6e12040a64260",
         "verifying keys changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

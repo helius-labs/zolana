@@ -1,18 +1,18 @@
 //! Settlement-guard negatives for the withdrawal rail. All of them fire in
 //! account validation, before proof verification, so no real proof is needed.
 //!
-//! - C-01 regression: a both-amounts `transact` used to mint an unbacked UTXO,
-//!   because the parser settles one asset (SPL when `public_spl_amount` is set)
-//!   while the proven SOL leg never moved. The fix rejects both-present up
-//!   front with `BothPublicAmountsSet` (7023) and moves no tokens.
-//! - Payer/settlement negatives: an unsigned payer meta (20009), a
-//!   non-canonical `sol_interface` PDA, and a wrong `cpi_authority` on the SPL
-//!   withdrawal leg (both 7009).
+//! - Payer/settlement negatives: an unsigned payer meta (20009) and a
+//!   non-canonical `sol_interface` PDA (7009).
 //! - SPL vault negatives (7009): a non-canonical vault address, a vault/user
 //!   mint mismatch, and a vault whose token owner is not the CPI authority.
 //! - SPL token-account shape negatives (7009): a settlement account not owned
 //!   by the SPL Token program, a wrong `data_len`, and an uninitialized state
 //!   byte.
+//!
+//! Removed with the old public-amount fields: the C-01 both-amounts case
+//! (multiple interface-transfer legs are now legal and settle independently)
+//! and the wrong-`cpi_authority` case (the CPI authority is canonical and no
+//! longer instruction data).
 
 use shielded_pool_tests::support::fixtures::Pool;
 
@@ -25,113 +25,31 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{TransactIxData, TransactProof},
-        Transact, TransactSolWithdrawal, TransactSplWithdrawal, TransactWithdrawal,
+        instruction_data::transact::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
+        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        TransactSplWithdrawalAccounts,
     },
-    pda, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_ACCOUNT_STATE_OFFSET,
+    pda, N_PUBLIC_SLOTS, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN,
+    SPL_TOKEN_ACCOUNT_STATE_OFFSET,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
-
-#[test]
-fn both_public_amounts_are_rejected() {
-    let Pool {
-        mut rpc,
-        authority,
-        tree,
-    } = Pool::initialized();
-
-    let attacker = rpc.payer.insecure_clone();
-
-    // Valid SPL accounts, so the tx reaches the guard, not an earlier account error.
-    let mint = rpc.create_mint().expect("create mint");
-    rpc.ensure_asset_counter(&authority).expect("asset counter");
-    let (_registry, vault) = rpc
-        .create_spl_interface(&authority, &mint)
-        .expect("create spl interface");
-    let attacker_ata = rpc
-        .create_token_account(&mint, &attacker.pubkey())
-        .expect("attacker ata");
-    rpc.mint_to(&mint, &attacker_ata, 1_000).expect("mint dust");
-
-    // Both amounts set: +1 SOL and +1000 SPL.
-    let ix_data = TransactIxData {
-        proof: TransactProof::zeroed_eddsa(),
-        expiry_unix_ts: u64::MAX,
-        relayer_fee: 0,
-        private_tx_hash: [0u8; 32],
-        p256_signing_pk_x: None,
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
-        inputs: vec![eddsa_input_utxo(fe(101), 0), eddsa_input_utxo(fe(102), 0)],
-        public_sol_amount: Some(1_000_000_000),
-        public_spl_amount: Some(1_000),
-        data_hash: None,
-        zone_data_hash: None,
-        outputs: vec![
-            inline_output([1u8; 32], [1u8; 32]),
-            inline_output([2u8; 32], [2u8; 32]),
-            inline_output([3u8; 32], [3u8; 32]),
-        ],
-        messages: Vec::new(),
-    };
-
-    let ix = Transact {
-        payer: attacker.pubkey(),
-        tree: tree.pubkey(),
-        withdrawal: Some(TransactWithdrawal::Spl(TransactSplWithdrawal {
-            cpi_authority: None,
-            spl_token_interface: vault,
-            recipient: attacker.pubkey(),
-            user_token_account: attacker_ata,
-            token_program: ZolanaProgramTest::token_program_id(),
-        })),
-        data: ix_data,
-    }
-    .instruction();
-
-    let ata_before = rpc.token_balance(&attacker_ata).unwrap_or(0);
-    let vault_before = rpc.token_balance(&vault).unwrap_or(0);
-    let sol_vault_before = rpc.svm.get_balance(&pda::sol_interface()).unwrap_or(0);
-
-    let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("both-amounts transact must be rejected");
-    Rejection::pool(ShieldedPoolError::BothPublicAmountsSet).assert_litesvm(error);
-
-    // The guard fires before settlement, so nothing moved.
-    assert_eq!(
-        rpc.token_balance(&attacker_ata).unwrap_or(0),
-        ata_before,
-        "no SPL debited"
-    );
-    assert_eq!(
-        rpc.token_balance(&vault).unwrap_or(0),
-        vault_before,
-        "no SPL credited"
-    );
-    assert_eq!(
-        rpc.svm.get_balance(&pda::sol_interface()).unwrap_or(0),
-        sol_vault_before,
-        "no SOL moved"
-    );
-}
 
 /// SOL-withdrawal-shaped (negative public amount) transact data with a zeroed
 /// proof: the payer/settlement account checks under test fire during account
 /// validation, before proof verification.
 fn sol_withdrawal_ix_data() -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed_eddsa(),
+        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
-        relayer_fee: 0,
         private_tx_hash: [0u8; 32],
-        p256_signing_pk_x: None,
+        circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         inputs: vec![eddsa_input_utxo(fe(201), 0), eddsa_input_utxo(fe(202), 0)],
-        public_sol_amount: Some(-1_000_000_000),
-        public_spl_amount: None,
+        interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
+            amount: 1_000_000_000,
+        }],
         data_hash: None,
         zone_data_hash: None,
         outputs: vec![
@@ -141,6 +59,15 @@ fn sol_withdrawal_ix_data() -> TransactIxData {
         ],
         messages: Vec::new(),
     }
+}
+
+/// Swap the SOL leg for an SPL one of `amount`.
+fn spl_withdrawal_leg(mut ix_data: TransactIxData, amount: u64, mint: &Pubkey) -> TransactIxData {
+    ix_data.interface_transfers = vec![InterfaceTransfer::SplWithdrawal {
+        amount,
+        vault_bump: pda::spl_asset_vault_with_bump(mint).1,
+    }];
+    ix_data
 }
 
 fn withdrawal_env() -> (ZolanaProgramTest, Keypair) {
@@ -165,8 +92,11 @@ fn sol_withdrawal_rejects_an_unsigned_payer_meta() {
     }
     let mut ix = Transact {
         payer: spp_payer,
-        tree: tree.pubkey(),
-        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts { recipient },
+        )],
         data: ix_data,
     }
     .instruction();
@@ -197,13 +127,16 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
 
     let mut ix = Transact {
         payer,
-        tree: tree.pubkey(),
-        withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
+        input_tree: tree.pubkey(),
+        output_tree: tree.pubkey(),
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts { recipient },
+        )],
         data: sol_withdrawal_ix_data(),
     }
     .instruction();
-    // Swap the canonical SOL-custody PDA (index 2) for an attacker account.
-    ix.accounts.get_mut(2).expect("sol_interface meta").pubkey = Pubkey::new_unique();
+    // Swap the canonical SOL-custody PDA (index 3) for an attacker account.
+    ix.accounts.get_mut(3).expect("sol_interface meta").pubkey = Pubkey::new_unique();
 
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -216,67 +149,6 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
         rpc.svm.get_balance(&pda::sol_interface()).unwrap_or(0),
         sol_vault_before,
         "no SOL moved"
-    );
-}
-
-#[test]
-fn spl_withdrawal_rejects_a_wrong_cpi_authority() {
-    let Pool {
-        mut rpc,
-        authority,
-        tree,
-    } = Pool::initialized();
-    let attacker = rpc.payer.insecure_clone();
-
-    // Valid SPL settlement accounts throughout, so the wrong `cpi_authority`
-    // is the only defect the instruction carries.
-    let mint = rpc.create_mint().expect("create mint");
-    rpc.ensure_asset_counter(&authority).expect("asset counter");
-    let (_registry, vault) = rpc
-        .create_spl_interface(&authority, &mint)
-        .expect("create spl interface");
-    let attacker_ata = rpc
-        .create_token_account(&mint, &attacker.pubkey())
-        .expect("attacker ata");
-    rpc.mint_to(&mint, &attacker_ata, 1_000).expect("mint dust");
-
-    let mut ix_data = sol_withdrawal_ix_data();
-    ix_data.public_sol_amount = None;
-    ix_data.public_spl_amount = Some(-1_000);
-
-    let ix = Transact {
-        payer: attacker.pubkey(),
-        tree: tree.pubkey(),
-        withdrawal: Some(TransactWithdrawal::Spl(TransactSplWithdrawal {
-            cpi_authority: Some(Pubkey::new_unique()),
-            spl_token_interface: vault,
-            recipient: attacker.pubkey(),
-            user_token_account: attacker_ata,
-            token_program: ZolanaProgramTest::token_program_id(),
-        })),
-        data: ix_data,
-    }
-    .instruction();
-
-    let ata_before = rpc.token_balance(&attacker_ata).unwrap_or(0);
-    let vault_before = rpc.token_balance(&vault).unwrap_or(0);
-
-    let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("wrong cpi_authority must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(error);
-    rpc.last_transaction_trace()
-        .expect("wrong cpi_authority transaction trace")
-        .assert_rolled_back_except(&[attacker.pubkey()]);
-    assert_eq!(
-        rpc.token_balance(&attacker_ata).unwrap_or(0),
-        ata_before,
-        "no SPL credited"
-    );
-    assert_eq!(
-        rpc.token_balance(&vault).unwrap_or(0),
-        vault_before,
-        "no SPL debited"
     );
 }
 
@@ -320,11 +192,10 @@ impl SplWithdrawalEnv {
     }
 
     /// SPL withdrawal accounts that would pass every settlement check.
-    fn valid_withdrawal(&self) -> TransactSplWithdrawal {
-        TransactSplWithdrawal {
-            cpi_authority: Some(pda::shielded_pool_cpi_authority()),
-            spl_token_interface: self.vault,
-            recipient: self.attacker.pubkey(),
+    fn valid_withdrawal(&self) -> TransactSplWithdrawalAccounts {
+        TransactSplWithdrawalAccounts {
+            mint: self.mint,
+            vault: self.vault,
             user_token_account: self.attacker_ata,
             token_program: ZolanaProgramTest::token_program_id(),
         }
@@ -355,14 +226,15 @@ impl SplWithdrawalEnv {
     /// fire during account validation, before proof verification and any
     /// token movement.
     #[track_caller]
-    fn expect_settlement_rejection(&mut self, spl: TransactSplWithdrawal) {
-        let mut ix_data = sol_withdrawal_ix_data();
-        ix_data.public_sol_amount = None;
-        ix_data.public_spl_amount = Some(-1_000);
+    fn expect_settlement_rejection(&mut self, spl: TransactSplWithdrawalAccounts) {
+        let ix_data = spl_withdrawal_leg(sol_withdrawal_ix_data(), 1_000, &self.mint);
         let ix = Transact {
             payer: self.attacker.pubkey(),
-            tree: self.tree.pubkey(),
-            withdrawal: Some(TransactWithdrawal::Spl(spl)),
+            input_tree: self.tree.pubkey(),
+            output_tree: self.tree.pubkey(),
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+                spl,
+            )],
             data: ix_data,
         }
         .instruction();
@@ -420,7 +292,7 @@ fn spl_withdrawal_rejects_a_non_canonical_vault() {
         .create_token_account(&mint, &pda::shielded_pool_cpi_authority())
         .expect("decoy vault");
     let mut spl = env.valid_withdrawal();
-    spl.spl_token_interface = decoy_vault;
+    spl.vault = decoy_vault;
     env.expect_settlement_rejection(spl);
 }
 

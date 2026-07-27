@@ -216,19 +216,13 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![payer_spend_input, transfer_dummy_input],
         outputs: transfer_outputs,
-        nullifiers: &[payer_nullifier, transfer_dummy_nullifier],
-        output_hashes: &[change_hash, recipient_hash, transfer_dummy_hash],
-        utxo_roots: &[shield_utxo_root, shield_utxo_root],
-        nullifier_tree_roots: &[nullifier_root, nullifier_root],
+        external_data_hash: transfer_external_hash,
         private_tx_hash: transfer_private_tx,
         public_slot_assets: transfer_public_slot_assets,
         public_slot_amounts: transfer_public_slot_amounts,
         payer_pubkey_hash,
-        input_owner_pk_hashes: &[payer_owner_pk_hash, payer_owner_pk_hash],
-        output_owner_pk_hashes: &transfer_owner_pk_hashes,
+        public_input_hash: transfer_public_input_hash,
     });
-    let transfer_public_input_hash = transfer_proof_inputs.public_input_hash;
-    let transfer_prover_inputs = transfer_proof_inputs.prover_inputs;
     transfer_ix_data.proof = prove_and_verify_transfer(
         &transfer_prover_inputs,
         transfer_public_input_hash,
@@ -369,19 +363,13 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![recipient_spend_input, withdraw_dummy_input],
         outputs: withdraw_outputs,
-        nullifiers: &[recipient_nullifier, withdraw_dummy_nullifier],
-        output_hashes: &withdraw_output_hashes,
-        utxo_roots: &[transfer_utxo_root, transfer_utxo_root],
-        nullifier_tree_roots: &[transfer_nullifier_root, transfer_nullifier_root],
+        external_data_hash: withdraw_external_hash,
         private_tx_hash: withdraw_private_tx,
         public_slot_assets,
         public_slot_amounts,
         payer_pubkey_hash: recipient_pubkey_hash,
-        input_owner_pk_hashes: &[recipient_owner_pk_hash, recipient_owner_pk_hash],
-        output_owner_pk_hashes: &withdraw_owner_pk_hashes,
+        public_input_hash: withdraw_public_input_hash,
     });
-    let withdraw_public_input_hash = withdraw_proof_inputs.public_input_hash;
-    let withdraw_prover_inputs = withdraw_proof_inputs.prover_inputs;
     withdraw_ix_data.proof = prove_and_verify_transfer(
         &withdraw_prover_inputs,
         withdraw_public_input_hash,

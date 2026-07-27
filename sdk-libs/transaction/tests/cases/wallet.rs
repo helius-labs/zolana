@@ -1,4 +1,4 @@
-use zolana_keypair::{constants::BLINDING_LEN, viewing_key::random_salt};
+use zolana_keypair::viewing_key::random_salt;
 use zolana_transaction::{
     serialization::{
         anonymous::AnonymousTransferSenderPlaintext,
@@ -67,17 +67,21 @@ fn record_transfer(
         spl_asset_id: 0,
         spl_amount: 0,
         sol_amount: change_amount,
-        blinding_seed: [seq; BLINDING_LEN],
+        blinding_seed: [seq; 32],
         recipient_viewing_pks: vec![recipient_kp.viewing_pubkey()],
         spl_data: Data::default(),
         sol_data: Data::default(),
     };
 
     let sender_view_tag = sender_kp.get_sender_view_tag(tx_count).unwrap();
+    // A BN254 field element: top byte zeroed (32-byte blindings must stay
+    // below the modulus for the Poseidon UTXO hash).
+    let mut blinding = [seq.wrapping_add(100); 32];
+    blinding[0] = 0;
     let specs = vec![RecipientSpec {
         keypair: recipient_kp.clone(),
         amount,
-        blinding: [seq.wrapping_add(100); BLINDING_LEN],
+        blinding,
         asset: SOL_MINT,
         asset_id: SOL_ASSET_ID,
         view_tag,
@@ -189,7 +193,7 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
         num_outputs: parts,
         asset_id: SOL_ASSET_ID,
         asset_amount: input.amount / u64::from(parts),
-        blinding_seed: [seq; BLINDING_LEN],
+        blinding_seed: [seq; 32],
         data: Data::default(),
     };
     let outputs = bundle.clone().into_utxos(&assets, None).unwrap();
@@ -215,7 +219,7 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
             recipient_pubkey: owner_kp.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [seq; BLINDING_LEN],
+            blinding_seed: [seq; 32],
         },
     )
     .unwrap();

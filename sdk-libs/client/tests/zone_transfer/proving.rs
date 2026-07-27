@@ -35,7 +35,7 @@ impl ZoneTransferHarness {
         match mode {
             Mode::Eddsa => prove_and_verify_eddsa(eddsa_prover(n_in, n_out), n_in, n_out),
             Mode::EddsaMultiReal => prove_and_verify_eddsa(eddsa_multi_real(), n_in, n_out),
-            // TODO(pr164-port): PR164 removed the P256 rail (`ZoneTransferP256Prover`,
+            // NOTE(pr164): PR164 removed the P256 rail (`ZoneTransferP256Prover`,
             // `transfer_p256_zone_*` VKs are gone); the P256 modes were dropped here.
         }
     }
@@ -283,6 +283,4 @@ fn eddsa_zone_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'sta
         (1, 8) => &transfer_zone_1_8::VERIFYINGKEY,
         _ => panic!("unsupported zone-transfer shape {n_in}x{n_out}"),
     }
-}
-
 }

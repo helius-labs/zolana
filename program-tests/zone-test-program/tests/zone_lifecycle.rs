@@ -60,7 +60,7 @@ fn eddsa_zone_transfer_updates_recipient_wallet() -> Result<()> {
     Ok(())
 }
 
-// TODO(pr164-port): PR164 removed the P256 zone-transfer rail
+// NOTE(pr164): PR164 removed the P256 zone-transfer rail
 // (`zone_transfer_p256` is gone; `Variant::P256` now errors), so the
 // `p256_zone_transfer_updates_recipient_wallet` case was dropped.
 
@@ -80,7 +80,7 @@ fn zone_transact_succeeds_while_zone_authority_transact_is_disabled() -> Result<
         harness.zone_shield_sol("alice", 1_000_000_000)?;
     }
     harness.zone_transfer("alice", "bob", SOL_MINT, 300_000_000)?;
-    assert_eq!(harness.last_rail, Some(Rail::Eddsa));
+    assert_eq!(harness.last_rail, Some(Variant::Eddsa));
     harness.sync("bob")?;
     harness.assert_utxos("bob")?;
     Ok(())

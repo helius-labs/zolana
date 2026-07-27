@@ -10,7 +10,7 @@ fn error_codes_are_stable() {
         (InvalidShieldedPoolProgram as u32, 8012),
         (MissingOrderAuthority as u32, 8013),
         (InvalidMarkerMessage as u32, 8014),
-        (InvalidMarkerPlaceholder as u32, 8015),
+        (MarkerDataNotEmpty as u32, 8015),
         (HashingFailed as u32, 8016),
     ];
     for (got, want) in table {

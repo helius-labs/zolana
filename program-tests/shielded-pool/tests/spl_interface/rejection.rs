@@ -20,10 +20,11 @@ fn spl_accounts(
     vec![
         AccountMeta::new(tree, false),
         AccountMeta::new(depositor, true),
+        AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
+        AccountMeta::new_readonly(mint, false),
         AccountMeta::new(user_token, false),
         AccountMeta::new(pda::spl_asset_vault(&mint), false),
         AccountMeta::new_readonly(pda::spl_asset_registry(&mint), false),
-        AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
         AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
     ]
 }
@@ -79,6 +80,7 @@ fn spl_interface_creation_rejects_a_wrong_token_program() {
     let mut ix = CreateSplInterface {
         authority: pool.authority.pubkey(),
         mint,
+        token_program: pda::spl_token_program_id(),
     }
     .instruction();
     ix.accounts.get_mut(7).expect("token program meta").pubkey = Pubkey::new_unique();
@@ -87,7 +89,9 @@ fn spl_interface_creation_rejects_a_wrong_token_program() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("wrong token program must fail");
-    assert_instruction_error(err, InstructionError::IncorrectProgramId);
+    // The program validates the token program account itself instead of
+    // relying on the runtime's CPI-target check.
+    assert_pool_error(err, ShieldedPoolError::UnsupportedSplTokenProgram);
 }
 
 #[test]
@@ -100,6 +104,7 @@ fn spl_interface_creation_rejects_a_wrong_system_program() {
     let mut ix = CreateSplInterface {
         authority: pool.authority.pubkey(),
         mint,
+        token_program: pda::spl_token_program_id(),
     }
     .instruction();
     ix.accounts.get_mut(6).expect("system program meta").pubkey = Pubkey::new_unique();
@@ -121,6 +126,7 @@ fn spl_interface_creation_rejects_an_unsigned_authority() {
     let mut ix = CreateSplInterface {
         authority: pool.authority.pubkey(),
         mint,
+        token_program: pda::spl_token_program_id(),
     }
     .instruction();
     ix.accounts.first_mut().expect("authority meta").is_signer = false;
@@ -148,6 +154,7 @@ fn spl_interface_creation_rejects_a_noncanonical_registry_pda() {
     let mut ix = CreateSplInterface {
         authority: pool.authority.pubkey(),
         mint,
+        token_program: pda::spl_token_program_id(),
     }
     .instruction();
     ix.accounts.get_mut(3).expect("registry meta").pubkey = Pubkey::new_unique();
@@ -175,6 +182,7 @@ fn spl_interface_creation_rejects_a_noncanonical_vault_pda() {
     let mut ix = CreateSplInterface {
         authority: pool.authority.pubkey(),
         mint,
+        token_program: pda::spl_token_program_id(),
     }
     .instruction();
     ix.accounts.get_mut(5).expect("vault meta").pubkey = Pubkey::new_unique();
@@ -204,6 +212,7 @@ fn spl_interface_creation_rejects_a_cosplay_counter_account() {
     let mut ix = CreateSplInterface {
         authority: pool.authority.pubkey(),
         mint,
+        token_program: pda::spl_token_program_id(),
     }
     .instruction();
     ix.accounts.get_mut(2).expect("counter meta").pubkey = impostor;
@@ -231,6 +240,7 @@ fn spl_interface_creation_rejects_trailing_instruction_bytes() {
     let mut ix = CreateSplInterface {
         authority: pool.authority.pubkey(),
         mint,
+        token_program: pda::spl_token_program_id(),
     }
     .instruction();
     ix.data.push(0xFF);
@@ -248,12 +258,12 @@ fn spl_deposit_rejects_foreign_source() {
     let (mint_a, _, _) = register_mint(&mut pool);
     let (depositor, _) = spl_depositor(&mut pool, mint_a, 1_000_000);
     let tree = pool.tree.pubkey();
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 31]);
     let other_owner = Keypair::new();
     let foreign_token = pool
         .rpc
         .create_token_account(&mint_a, &other_owner.pubkey())
         .expect("foreign token account");
+    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 32], &mint_a, &foreign_token);
     pool.rpc
         .mint_to(&mint_a, &foreign_token, 1_000_000)
         .expect("fund foreign token account");
@@ -275,13 +285,13 @@ fn spl_deposit_rejects_noncanonical_vault() {
     let (mint_a, _, _) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint_a, 1_000_000);
     let tree = pool.tree.pubkey();
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 31]);
+    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 32], &mint_a, &user_token);
     let decoy_vault = pool
         .rpc
         .create_token_account(&mint_a, &pda::shielded_pool_cpi_authority())
         .expect("decoy vault");
     let mut wrong_vault = spl_accounts(tree, depositor.pubkey(), user_token, mint_a);
-    *wrong_vault.get_mut(3).expect("vault account") = AccountMeta::new(decoy_vault, false);
+    *wrong_vault.get_mut(5).expect("vault account") = AccountMeta::new(decoy_vault, false);
 
     let err = pool
         .rpc
@@ -299,7 +309,6 @@ fn spl_deposit_rejects_mismatched_mint_atomically() {
     let root_before = pool.rpc.state_root(&tree).expect("root");
     let user_before = pool.rpc.token_balance(&user_token).expect("user balance");
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 31]);
     let mint_b = pool.rpc.create_mint().expect("second mint");
     let token_b = pool
         .rpc
@@ -308,6 +317,7 @@ fn spl_deposit_rejects_mismatched_mint_atomically() {
     pool.rpc
         .mint_to(&mint_b, &token_b, 1_000_000)
         .expect("fund mint B token account");
+    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 32], &mint_a, &token_b);
 
     let err = pool
         .rpc
@@ -333,12 +343,10 @@ fn spl_deposit_rejects_insufficient_funds_atomically() {
 
     let err = pool
         .rpc
-        .deposit_spl(
+        .deposit(
             &tree,
             &depositor,
-            &user_token,
-            &mint,
-            &ZolanaProgramTest::spl_shield_data(5_000, [3u8; 32], [3u8; 31]),
+            &ZolanaProgramTest::spl_shield_data(5_000, [3u8; 32], [3u8; 32], &mint, &user_token),
         )
         .expect_err("insufficient token funds must fail");
     assert_custom(err, spl_token::error::TokenError::InsufficientFunds as u32);

@@ -300,7 +300,7 @@ pub fn new_transact_ix_data(
 /// The single hand-maintained `ExternalDataHash` assembly; both settlement
 /// rails feed it with their own bound accounts (mirroring the program's
 /// `settlement_accounts`).
-fn external_data_hash_with(
+pub fn external_data_hash(
     transact_ix_data: &TransactIxData,
     interface_transfers: &[ResolvedInterfaceTransfer],
 ) -> Result<[u8; 32]> {
@@ -391,48 +391,9 @@ pub struct TransferProverInputsArgs {
     pub public_input_hash: [u8; 32],
 }
 
-/// Prepared eddsa/SOL witness data whose public-input hash and prover payload
-/// must be assembled from exactly the same fields.
-pub struct EddsaTransferProofArgs<'a> {
-    pub inputs: Vec<TransferInput>,
-    pub outputs: Vec<TransferOutput>,
-    pub nullifiers: &'a [[u8; 32]],
-    pub output_hashes: &'a [[u8; 32]],
-    pub utxo_roots: &'a [[u8; 32]],
-    pub nullifier_tree_roots: &'a [[u8; 32]],
-    pub private_tx_hash: [u8; 32],
-    pub external_data_hash: [u8; 32],
-    pub public_sol_amount: [u8; 32],
-    pub payer_pubkey_hash: [u8; 32],
-    pub input_owner_pk_hashes: &'a [[u8; 32]],
-    pub output_owner_pk_hashes: &'a [[u8; 32]],
-}
-
-pub struct EddsaTransferProofInputs {
-    pub prover_inputs: TransferInputs,
-    pub public_input_hash: [u8; 32],
-}
-
-/// Bind a prepared eddsa/SOL witness to the public-input hash supplied both to
-/// the circuit and to its verifier.
-pub fn assemble_eddsa_transfer_proof_inputs(
-    args: EddsaTransferProofArgs<'_>,
-) -> EddsaTransferProofInputs {
+pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
-    let public_input_hash = public_input_hash(PublicInputHashArgs {
-        nullifiers: args.nullifiers,
-        output_hashes: args.output_hashes,
-        utxo_roots: args.utxo_roots,
-        nullifier_tree_roots: args.nullifier_tree_roots,
-        private_tx: &args.private_tx_hash,
-        external_data_hash: &args.external_data_hash,
-        public_sol_amount: &args.public_sol_amount,
-        payer_pubkey_hash: &args.payer_pubkey_hash,
-        input_owner_pk_hashes: args.input_owner_pk_hashes,
-        output_owner_pk_hashes: args.output_owner_pk_hashes,
-        p256_signing_pk_field: &zero,
-    });
-    let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+    TransferInputs {
         inputs: args.inputs,
         outputs: args.outputs,
         external_data_hash: be(&args.external_data_hash),
@@ -457,31 +418,6 @@ pub fn build_transfer_prover_inputs_spl(
     args.public_slot_assets = assets;
     args.public_slot_amounts = amounts;
     build_transfer_prover_inputs(args)
-}
-
-pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
-    let amounts = PublicAmountFields {
-        public_sol_amount: args.public_sol_amount,
-        public_spl_amount: [0u8; 32],
-        public_spl_asset_pubkey: [0u8; 32],
-    };
-    build_transfer_prover_inputs_with(args, amounts)
-}
-
-/// [`build_transfer_prover_inputs`] for the SPL rail: the witness carries the
-/// real `public_spl_amount` and `public_spl_asset_pubkey` (the mint) and the
-/// SOL amount stays zero.
-pub fn build_transfer_prover_inputs_spl(
-    args: TransferProverInputsArgs,
-    public_spl_amount: [u8; 32],
-    mint: [u8; 32],
-) -> TransferInputs {
-    let amounts = PublicAmountFields {
-        public_sol_amount: [0u8; 32],
-        public_spl_amount,
-        public_spl_asset_pubkey: hash_field(&mint).expect("spl asset field"),
-    };
-    build_transfer_prover_inputs_with(args, amounts)
 }
 
 /// Prove and locally verify a transfer on the fixed (2 inputs, 3 outputs)

@@ -14,7 +14,7 @@ fn sol_deposit_rejects_insufficient_lamports_without_changing_root() {
 
     let err = pool
         .rpc
-        .deposit_sol(&tree, &poor, 100_000_000_000, [6u8; 32], [6u8; 31])
+        .deposit_sol(&tree, &poor, 100_000_000_000, [6u8; 32], [6u8; 32])
         .expect_err("unaffordable deposit must fail");
     assert_custom(err, SystemError::ResultWithNegativeLamports as u32);
     assert_eq!(pool.rpc.state_root(&tree), Some(root_before));
@@ -25,7 +25,7 @@ fn repeated_sol_deposit_data_creates_distinct_leaves() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(1_000_000_000);
     let tree = pool.tree.pubkey();
-    let data = ZolanaProgramTest::sol_shield_data(1_000_000, [7u8; 32], [7u8; 31]);
+    let data = ZolanaProgramTest::sol_shield_data(1_000_000, [7u8; 32], [7u8; 32]);
     let root0 = pool.rpc.state_root(&tree).expect("root");
     pool.rpc
         .deposit(&tree, &depositor, &data)
@@ -55,6 +55,6 @@ fn unpaused_tree_accepts_sol_deposit_after_pause() {
         .expect("unpause tree");
 
     pool.rpc
-        .deposit_sol(&tree, &depositor, 1_000_000, [5u8; 32], [5u8; 31])
+        .deposit_sol(&tree, &depositor, 1_000_000, [5u8; 32], [5u8; 32])
         .expect("deposit after unpause");
 }

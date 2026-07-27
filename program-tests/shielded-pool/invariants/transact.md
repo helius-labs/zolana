@@ -61,19 +61,13 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical (spend authorization)
   - Suggested test: negative + property; harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-TRANSACT-06: P256-owned inputs fold the shared signing-key field**
-  - Covered by: `program-tests/shielded-pool/tests/transact/p256.rs` `p256_owned_input_withdraws_via_confidential_rail`
-  - Kind: postcondition
-  - Statement: for every input with `eddsa_signer_index == 255` on the confidential rail, the folded input-owner element is exactly `hash_field(p256_signing_pk_x)`; no Solana account signature is required for that input.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:264-271` (`fn check_input_signers`), `processor.rs:97-100` (`fn prepare_proof_inputs`)
-  - Error: (proof mismatch) `ShieldedPoolError::TransactProofVerificationFailed = 7008`
-  - Severity: Critical
-  - Suggested test: positive + negative; harness: program-tests integration (`cargo test-sbf`)
+- [ ] **INV-TRANSACT-06: P256-owned inputs fold the shared signing-key field**
+  - Not applicable post-PR164 (the P256 transact ownership rail and the `p256_signing_pk_x` instruction field were removed; every input owner is ed25519 and is folded via `solana_pk_hash` under INV-TRANSACT-05). The covering `transact/p256.rs` suite was deleted with the rail.
 
 ### Instruction Data Validation
 
 - [x] **INV-TRANSACT-07: malformed wincode payload is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_malformed_wincode_payload` (program-level built-in `ProgramError::InvalidInstructionData` asserted). Note: `transact_tolerates_trailing_payload_bytes_but_fails_at_the_proof` documents that trailing bytes are NOT rejected at parse (the ref decoder is not exact-length), which is consistent with the invariant as stated (truncated / wrong-tag / overlong-prefix).
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_malformed_wincode_payload` (program-level built-in `ProgramError::InvalidInstructionData` asserted). Note: post-PR164 the ref decoder is exact-length, so trailing bytes are also rejected at parse; `transact_rejects_trailing_payload_bytes_at_parse` covers that boundary.
   - Kind: precondition
   - Statement: every payload that `TransactIxDataRef::from_bytes` fails to parse (truncated, wrong enum tag, overlong length prefix) makes `transact` return Err before any account is read.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:38-39` (`fn process_transact_ix`)
@@ -117,14 +111,8 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-TRANSACT-12: both public amounts set is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/transact/settlement.rs` `both_public_amounts_are_rejected`
-  - Kind: precondition
-  - Statement: every instruction with `public_sol_amount` and `public_spl_amount` both `Some` returns Err before any settlement transfer executes.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:126-128` (`fn process_transact_core`)
-  - Error: `ShieldedPoolError::BothPublicAmountsSet = 7023`
-  - Severity: Critical (unbacked note prevention)
-  - Suggested test: negative; harness: mollusk unit
+- [ ] **INV-TRANSACT-12: both public amounts set is rejected**
+  - Not applicable post-PR164 (the `public_sol_amount`/`public_spl_amount` fields were replaced by an ordered `interface_transfers` list; multiple legs -- including SOL and SPL legs in one instruction -- are legal and settle independently per leg, so the both-present guard is unnecessary). The covering `both_public_amounts_are_rejected` test was removed with the fields.
 
 ### Settlement Account Constraints
 
@@ -137,14 +125,8 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical (fund theft)
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-TRANSACT-14: SPL withdrawal requires the canonical CPI authority**
-  - Covered by: `program-tests/shielded-pool/tests/transact/settlement.rs` `spl_withdrawal_rejects_a_wrong_cpi_authority`
-  - Kind: precondition
-  - Statement: when `public_spl_amount` is `Some` and negative (withdraw), the `cpi_authority` account address must equal `SHIELDED_POOL_CPI_AUTHORITY`; any other address returns Err.
-  - Location: `programs/shielded-pool/src/instructions/transact/account.rs:43-47` (`fn from_iter`), `settlement/validate.rs:31-37` (`fn validate_cpi_authority`)
-  - Error: `ShieldedPoolError::InvalidSettlementAccounts = 7009`
-  - Severity: Critical (fund theft)
-  - Suggested test: negative; harness: mollusk unit
+- [ ] **INV-TRANSACT-14: SPL withdrawal requires the canonical CPI authority**
+  - Not applicable post-PR164 (`cpi_authority` is no longer instruction data: the SPL withdrawal account group carries the canonical authority PDA by construction and the vault's token-owner field must equal it -- the binding is now covered by INV-TRANSACT-15's canonical-vault/ownership checks). The covering `spl_withdrawal_rejects_a_wrong_cpi_authority` test was removed with the field.
 
 - [x] **INV-TRANSACT-15: SPL vault must be the canonical per-mint vault PDA**
   - Covered by: `program-tests/shielded-pool/tests/transact/settlement.rs` `spl_withdrawal_rejects_a_non_canonical_vault`, `spl_withdrawal_rejects_a_vault_user_mint_mismatch`, `spl_withdrawal_rejects_a_vault_not_owned_by_the_cpi_authority`
@@ -178,19 +160,14 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-18: confidential verifying key is selected by exact shape and rail**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`
   - Kind: precondition
-  - Statement: `transact` verifies only against a `transfer_confidential_<n>_<m>` (eddsa rail) or `transfer_p256_confidential_<n>_<m>` (P256 rail) key whose `(n, m)` equals exactly `(inputs.len(), outputs.len())`; every unsupported shape returns Err.
+  - Statement: `transact` verifies only against the `transfer_confidential_<n>_<m>` key whose `(n, m)` equals exactly `(inputs.len(), outputs.len())`; every unsupported shape returns Err.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:78-88, 258-286` (`fn verify`, `fn select_confidential_verifying_key`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Critical
   - Suggested test: negative + positive per shape; harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-TRANSACT-19: P256 rail is selected exactly by a 255 signer index**
-  - Covered by: `program-tests/shielded-pool/tests/transact/p256.rs` `p256_owned_input_withdraws_via_confidential_rail`
-  - Kind: state
-  - Statement: the instruction verifies on the P256 rail exactly when some input has `eddsa_signer_index == 255`; otherwise it verifies on the eddsa rail.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:135-140` (`fn is_p256`), `verify.rs:35` (`P256_OWNED_SIGNER`)
-  - Severity: High
-  - Suggested test: positive both rails; harness: program-tests integration (`cargo test-sbf`)
+- [ ] **INV-TRANSACT-19: P256 rail is selected exactly by a 255 signer index**
+  - Not applicable post-PR164 (the P256 rail and the 255 sentinel were removed; every transact verifies on the eddsa rail selected by `CircuitId`).
 
 - [x] **INV-TRANSACT-20: payer address is bound into the public input hash**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_a_substituted_payer`
@@ -213,7 +190,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-22: confidential variant binds output owners and the P256 key**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag`
   - Kind: postcondition
-  - Statement: the `transact` public-input hash chain contains exactly 14 elements: the 12-element base, then `hash_chain(input_owner_pk_hashes)`, then `hash_chain(output_owner_pk_hashes)` and `p256_signing_pk_field`, where each output-owner element is `hash_field(resolved owner tag)`; changing any resolved output owner tag makes verification fail.
+  - Statement: the `transact` public-input hash chain contains the 6-element base (nullifier chain, output chain, utxo-root chain, nullifier-root chain, `private_tx_hash`, `external_data_hash`), the interleaved public movement slots `(asset, amount)`, then `zone_program_id`, `payer_pubkey_hash`, `allow_dummy_inputs`, `hash_chain(input_owner_pk_hashes)`, and `hash_chain(output_owner_pk_hashes)`, where each output-owner element is `hash_bytes(resolved owner tag)`; changing any resolved output owner tag makes verification fail.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:143-201` (`fn public_input_hash`), `processor.rs:288-301` (`fn fill_output_owner_pk_hashes`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (output redirection)
@@ -287,6 +264,26 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: positive; harness: mollusk unit (full account snapshot compare)
 
+### Nullifier Integrity
+
+- [x] **INV-TRANSACT-31: every input slot's nullifier is circuit-derived and proven non-included**
+  - Covered by: `prover/server/circuits/spp_transaction/shared/nullifier_attack_test.go` `TestDummyInputRejectsAttackerChosenNullifier`, `TestDummyInputRejectsZeroNullifier`
+  - Kind: precondition
+  - Statement: for every input slot -- spendable UTXO, address slot, or padding dummy -- the published nullifier is exactly the circuit-derived `Poseidon(utxo_hash, blinding, nullifier_secret)` and is proven non-included against the referenced nullifier-tree root; no slot type can carry a free (attacker-chosen) nullifier. This is the F-01 fix: unconstrained padding nullifiers could brick the nullifier queue.
+  - Location: `prover/server/circuits/spp_transaction/shared/inputs.go` (`fn constrainInput`, `fn Input.checkNonInclusion`)
+  - Error: circuit constraint failure (proof cannot be constructed)
+  - Severity: Critical
+  - Suggested test: negative per slot type (attacker-chosen and zero nullifier on a dummy slot); harness: Go circuit tests (`go test ./circuits/spp_transaction/shared`)
+
+- [x] **INV-TRANSACT-32: nullifiers are pairwise-distinct across all input slots**
+  - Covered by: `prover/server/circuits/spp_transaction/shared/nullifier_attack_test.go` `TestCircuitRejectsSharedNullifierAcrossSlots`
+  - Kind: state
+  - Statement: for every pair of input slots in one transaction, the published nullifiers differ unconditionally, regardless of slot type; two inputs (real or dummy) sharing one nullifier make the witness unsatisfiable.
+  - Location: `prover/server/circuits/spp_transaction/shared/inputs.go` (pairwise `AssertIsDifferent` loop over slot nullifiers)
+  - Error: circuit constraint failure (proof cannot be constructed)
+  - Severity: Critical
+  - Suggested test: negative (two slots, same nullifier); harness: Go circuit tests (`go test ./circuits/spp_transaction/shared`)
+
 ## ZoneTransact
 
 ### Account Constraints
@@ -321,9 +318,9 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative (proof for zone A submitted with zone B's config); harness: program-tests integration (`cargo test-sbf`)
 
 - [ ] **INV-ZONE-TRANSACT-04: zone variant uses the anonymous key family**
-  - Partial coverage: `programs/shielded-pool/src/instructions/transact/verify.rs` `select_verifying_key_covers_zone_and_confidential` (key distinctness is pinned; no test submits a confidential proof on the zone rail and asserts the 7008 rejection)
+  - Partial coverage: `program-libs/interface/tests/vk_fingerprint.rs` `verifying_key_fingerprint_is_pinned` (all 26 committed keys are pinned; no test submits a confidential proof on the zone rail and asserts the 7008 rejection)
   - Kind: precondition
-  - Statement: `zone_transact` verifies only against `transfer_zone_*` / `transfer_p256_zone_*` keys; a proof generated for the confidential (`transfer_confidential_*`) circuit of the same shape and rail does not verify.
+  - Statement: `zone_transact` verifies only against `transfer_zone_*` keys; a proof generated for the confidential (`transfer_confidential_*`) circuit of the same shape does not verify.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:81-85, 290-318` (`fn verify`, `fn select_zone_verifying_key`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical
@@ -332,18 +329,13 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-ZONE-TRANSACT-05: zone variant folds no output-owner public inputs**
   - Covered by: `programs/shielded-pool/src/instructions/transact/verify.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
-  - Statement: the `zone_transact` public-input hash chain contains exactly 13 elements (the 12-element base plus `hash_chain(input_owner_pk_hashes)`) and omits the confidential appendix (output owners, `p256_signing_pk_field`).
+  - Statement: the `zone_transact` public-input hash chain contains the 6-element base, the interleaved public movement slots, then `zone_program_id`, `payer_pubkey_hash`, `allow_dummy_inputs`, `hash_chain(input_owner_pk_hashes)`, and `hash_chain(output_owner_pk_hashes)` (ZoneEddsa binds output owners; ZoneAuthority omits both owner chains).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:193-200` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: golden vector (exists: `circuit_vector_tests`); harness: `cargo test -p zolana-shielded-pool`
 
 - [ ] **INV-ZONE-TRANSACT-06: P256-owned zone inputs fold the zero sentinel**
-  - Partial coverage: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `p256_zone_transfer_updates_recipient_wallet` (P256 zone path succeeds end-to-end; the zero-sentinel fold value itself is not asserted)
-  - Kind: postcondition
-  - Statement: for every input with `eddsa_signer_index == 255` on the zone variant, the folded input-owner element is exactly `[0; 32]` (owner identity stays private in-circuit).
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:266-270` (`fn check_input_signers`)
-  - Severity: High
-  - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
+  - Not applicable post-PR164 (the P256 zone-transfer rail was removed; the covering `p256_zone_transfer_updates_recipient_wallet` test was deleted with it).
 
 - [x] **INV-ZONE-TRANSACT-07: enabled flag is not required for zone_transact**
   - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_transact_succeeds_while_zone_authority_transact_is_disabled`
@@ -394,19 +386,13 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-AUTH-05: zone-authority proofs must use the eddsa (uncommitted) encoding**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `zone_authority_transact_rejects_a_p256_proof_encoding`
-  - Kind: precondition
-  - Statement: `zone_authority_transact` accepts only a `TransactProof::Eddsa` proof encoding; a `TransactProof::P256` (BSB22-committed) proof returns Err regardless of input signer indices.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:78-79, 94-117` (`fn verify`)
-  - Error: `ShieldedPoolError::MismatchedTransactProofRail = 7021`
-  - Severity: High
-  - Suggested test: negative; harness: mollusk unit
+- [ ] **INV-ZONE-AUTH-05: zone-authority proofs must use the eddsa (uncommitted) encoding**
+  - Not applicable post-PR164 (`TransactProof` is a single plain Groth16 struct -- there is no committed/P256 encoding to mismatch, and `MismatchedTransactProofRail` no longer exists). The covering `zone_authority_transact_rejects_a_p256_proof_encoding` test was removed with the rail.
 
 - [x] **INV-ZONE-AUTH-06: authority variant folds no input-owner public inputs**
   - Covered by: `programs/shielded-pool/src/instructions/transact/verify.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
-  - Statement: the `zone_authority_transact` public-input hash chain contains exactly the 12-element base (no input-owner chain, no confidential appendix).
+  - Statement: the `zone_authority_transact` public-input hash chain contains the 6-element base, the interleaved public movement slots, then `zone_program_id`, `payer_pubkey_hash`, and `allow_dummy_inputs` (no input-owner chain, no output-owner chain).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:193-200` (`fn public_input_hash`, `IS_AUTHORITY = true`)
   - Severity: High
   - Suggested test: golden vector (exists: `circuit_vector_tests`); harness: `cargo test -p zolana-shielded-pool`

@@ -18,7 +18,7 @@ use zolana_test_utils::test_validator_asserts::{
     assert_account_unchanged, assert_custom_program_error, fetch_account,
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::{Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo, SOL_MINT};
+use zolana_transaction::{Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo};
 use zolana_user_registry_interface::{
     instruction::{
         p256_key_binding_message, p256_verify_instruction, register, set_merging_enabled,

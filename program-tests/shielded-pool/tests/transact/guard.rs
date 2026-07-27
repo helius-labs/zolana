@@ -5,7 +5,6 @@
 //! - malformed wincode payloads (built-in `InvalidInstructionData`)
 //! - tree account defects: non-writable meta, wrong owner, wrong
 //!   discriminator (20002 / 7001)
-//! - a P256-format proof on the eddsa rail (7021, `MismatchedTransactProofRail`)
 //! - proof points that fail decompression (7007, `InvalidTransactProofEncoding`)
 //! - more inputs or outputs than any circuit supports, and wire-valid but
 //!   unsupported shapes (7006, `InvalidTransactShape`)
@@ -25,10 +24,10 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{P256Proof, TransactIxData, TransactProof},
+        instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
         Transact, ZoneAuthorityTransact, ZoneTransact,
     },
-    pda,
+    pda, N_PUBLIC_SLOTS,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
@@ -39,16 +38,14 @@ use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
 /// zeroed eddsa placeholder; callers overwrite it per case.
 fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed_eddsa(),
+        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
-        relayer_fee: 0,
         private_tx_hash: [0u8; 32],
-        p256_signing_pk_x: None,
+        circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
-        public_sol_amount: None,
-        public_spl_amount: None,
+        interface_transfers: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         outputs: (11..11 + n_out)
@@ -84,8 +81,9 @@ impl GuardEnv {
     fn expect_rejection(&mut self, data: TransactIxData, expected: ShieldedPoolError) {
         let ix = Transact {
             payer: self.rpc.payer.pubkey(),
-            tree: self.tree.pubkey(),
-            withdrawal: None,
+            input_tree: self.tree.pubkey(),
+            output_tree: self.tree.pubkey(),
+            interface_transfer_accounts: Vec::new(),
             data,
         }
         .instruction();
@@ -143,26 +141,42 @@ impl GuardEnv {
         let payer = self.rpc.payer.pubkey();
         let tree = self.tree.pubkey();
         let zone_program_id = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
+        let mut data = data;
+        data.circuit = if authority_variant {
+            CircuitId::ZoneAuthority(
+                data.circuit.num_inputs(),
+                data.circuit.num_outputs(),
+                N_PUBLIC_SLOTS as u8,
+            )
+        } else {
+            CircuitId::ZoneEddsa(
+                data.circuit.num_inputs(),
+                data.circuit.num_outputs(),
+                N_PUBLIC_SLOTS as u8,
+            )
+        };
         let mut ix = if authority_variant {
             ZoneAuthorityTransact {
                 payer,
-                tree,
+                input_tree: tree,
+                output_tree: tree,
                 zone_program_id,
-                withdrawal: None,
+                interface_transfer_accounts: Vec::new(),
                 data,
             }
             .cpi_instruction()
         } else {
             ZoneTransact {
                 payer,
-                tree,
+                input_tree: tree,
+                output_tree: tree,
                 zone_program_id,
-                withdrawal: None,
+                interface_transfer_accounts: Vec::new(),
                 data,
             }
             .cpi_instruction()
         };
-        ix.accounts.get_mut(2).expect("zone config meta").pubkey = zone_config.pubkey();
+        ix.accounts.get_mut(3).expect("zone config meta").pubkey = zone_config.pubkey();
         ix
     }
 }
@@ -204,29 +218,12 @@ fn transact_rejects_a_paused_tree() {
 }
 
 #[test]
-fn transact_rejects_a_p256_proof_on_the_eddsa_rail() {
-    let mut env = GuardEnv::boot();
-    // All inputs are eddsa-owned (signer index 0), so the circuit is the
-    // uncommitted eddsa rail; a BSB22-committed P256 proof blob must not be
-    // accepted by it.
-    let mut data = transfer_ix_data(2, 3);
-    data.proof = TransactProof::P256(P256Proof {
-        a: [0u8; 32],
-        b: [0u8; 64],
-        c: [0u8; 32],
-        commitment: [0u8; 32],
-        commitment_pok: [0u8; 32],
-    });
-    env.expect_rejection(data, ShieldedPoolError::MismatchedTransactProofRail);
-}
-
-#[test]
 fn transact_rejects_proof_points_that_fail_decompression() {
     let mut env = GuardEnv::boot();
     // 0xFF-filled points carry invalid compression flag bits, so the verifier
     // fails at point decompression, before any pairing.
     let mut data = transfer_ix_data(2, 3);
-    data.proof = TransactProof::Eddsa {
+    data.proof = TransactProof {
         a: [0xFF; 32],
         b: [0xFF; 64],
         c: [0xFF; 32],
@@ -256,16 +253,21 @@ fn zone_transact_rejects_an_unsigned_zone_config() {
     let mut env = GuardEnv::boot();
     let mut ix = ZoneTransact {
         payer: env.rpc.payer.pubkey(),
-        tree: env.tree.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-        withdrawal: None,
-        data: transfer_ix_data(2, 3),
+        interface_transfer_accounts: Vec::new(),
+        data: {
+            let mut data = transfer_ix_data(2, 3);
+            data.circuit = CircuitId::ZoneEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+            data
+        },
     }
     .cpi_instruction();
     // The `zone_config` signature IS the zone authorization; without the zone
     // program's `invoke_signed` the flag must be rejected before the config is
     // even loaded (so the account does not need to exist).
-    ix.accounts.get_mut(2).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(3).expect("zone config meta").is_signer = false;
 
     let error = env
         .rpc
@@ -278,15 +280,20 @@ fn zone_transact_rejects_an_unsigned_zone_config() {
 fn transact_rejects_a_non_writable_tree_meta() {
     let mut env = GuardEnv::boot();
     // INV-TRANSACT-02: the tree must be writable; `next_mut` rejects the
-    // read-only meta before the tree is even loaded.
+    // read-only meta before the tree is even loaded. input_tree and
+    // output_tree are duplicate metas of one account, and the runtime unions
+    // their privileges, so both must be downgraded.
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        tree: env.tree.pubkey(),
-        withdrawal: None,
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
+        interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }
     .instruction();
-    ix.accounts.get_mut(1).expect("tree meta").is_writable = false;
+    for meta in ix.accounts.iter_mut().skip(1).take(2) {
+        meta.is_writable = false;
+    }
     env.expect_ix_rejection(
         ix,
         &[],
@@ -305,8 +312,9 @@ fn transact_rejects_a_tree_not_owned_by_the_program() {
         .expect("fund impostor");
     let ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        tree: impostor,
-        withdrawal: None,
+        input_tree: impostor,
+        output_tree: impostor,
+        interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }
     .instruction();
@@ -343,32 +351,12 @@ fn transact_rejects_a_malformed_wincode_payload() {
     let mut env = GuardEnv::boot();
     let template = Transact {
         payer: env.rpc.payer.pubkey(),
-        tree: env.tree.pubkey(),
-        withdrawal: None,
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
+        interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }
     .instruction();
-
-    // The proof enum tag byte is the first position where the two zeroed proof
-    // encodings differ (Eddsa = 0, P256 = 1); found by diffing, not by offset
-    // arithmetic, so the case survives layout changes.
-    let eddsa_bytes = transfer_ix_data(2, 3)
-        .serialize()
-        .expect("serialize eddsa payload");
-    let mut p256_data = transfer_ix_data(2, 3);
-    p256_data.proof = TransactProof::P256(P256Proof {
-        a: [0u8; 32],
-        b: [0u8; 64],
-        c: [0u8; 32],
-        commitment: [0u8; 32],
-        commitment_pok: [0u8; 32],
-    });
-    let p256_bytes = p256_data.serialize().expect("serialize p256 payload");
-    let proof_tag_offset = eddsa_bytes
-        .iter()
-        .zip(p256_bytes.iter())
-        .position(|(a, b)| a != b)
-        .expect("proof enum tag offset");
 
     // INV-TRANSACT-07: every payload `TransactIxDataRef::from_bytes` fails to
     // parse is rejected with the built-in error, never a pool code. The
@@ -390,11 +378,14 @@ fn transact_rejects_a_malformed_wincode_payload() {
                 .to_vec(),
         );
     }
-    // An invalid proof enum tag.
+    // An invalid circuit selector tag (u16, right after expiry + private_tx_hash
+    // inside the payload): 0xFFFF names no variant and must fail decoding.
     let mut bad_tag = template.data.clone();
+    let circuit_tag_offset = 1 + 8 + 32;
+    *bad_tag.get_mut(circuit_tag_offset).expect("circuit tag byte") = 0xFF;
     *bad_tag
-        .get_mut(1 + proof_tag_offset)
-        .expect("proof tag byte") = 7;
+        .get_mut(circuit_tag_offset + 1)
+        .expect("circuit tag byte") = 0xFF;
     malformed.push(bad_tag);
     // An overlong trailing length prefix: the final byte is the empty
     // `messages` vec's u8 count; 255 claims elements past the buffer end.
@@ -414,25 +405,26 @@ fn transact_rejects_a_malformed_wincode_payload() {
 }
 
 #[test]
-fn transact_tolerates_trailing_payload_bytes_but_fails_at_the_proof() {
+fn transact_rejects_trailing_payload_bytes_at_parse() {
     let mut env = GuardEnv::boot();
-    // INV-TRANSACT-07 boundary: `TransactIxDataRef::from_bytes` is not an
-    // exact decoder, so trailing garbage after a well-formed payload still
-    // parses; the transaction must then fail closed at proof verification
-    // instead of aliasing a parse error.
+    // INV-TRANSACT-07 boundary: `TransactIxDataRef::from_bytes` is an exact
+    // decoder, so trailing garbage after a well-formed payload fails the same
+    // bare `InvalidInstructionData` as any other parse error.
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        tree: env.tree.pubkey(),
-        withdrawal: None,
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
+        interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }
     .instruction();
     ix.data.extend_from_slice(&[0xAB; 7]);
-    env.expect_ix_rejection(
-        ix,
-        &[],
-        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed),
-    );
+    let error = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("trailing payload bytes must be rejected");
+    Rejection::new(solana_instruction::error::InstructionError::InvalidInstructionData)
+        .assert_litesvm(error);
 }
 
 #[test]
@@ -534,13 +526,19 @@ fn zone_authority_transact_rejects_an_unsigned_zone_config() {
     // `zone_config` signature is rejected before the config is even loaded.
     let mut ix = ZoneAuthorityTransact {
         payer: env.rpc.payer.pubkey(),
-        tree: env.tree.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-        withdrawal: None,
-        data: transfer_ix_data(2, 3),
+        interface_transfer_accounts: Vec::new(),
+        data: {
+            // Square shape so the zone-config signer check is the branch that fires.
+            let mut data = transfer_ix_data(2, 2);
+            data.circuit = CircuitId::ZoneAuthority(2, 2, N_PUBLIC_SLOTS as u8);
+            data
+        },
     }
     .cpi_instruction();
-    ix.accounts.get_mut(2).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(3).expect("zone config meta").is_signer = false;
 
     let error = env
         .rpc
@@ -581,25 +579,3 @@ fn zone_authority_transact_rejects_a_non_square_shape() {
     );
 }
 
-#[test]
-fn zone_authority_transact_rejects_a_p256_proof_encoding() {
-    let mut env = GuardEnv::boot();
-    // INV-ZONE-AUTH-05: the zone-authority circuit is never BSB22-committed,
-    // so a P256 (committed) proof encoding is rejected regardless of the
-    // input signer indices; the shape (2,2) is square so only the rail fails.
-    let zone_config = env.write_zone_config(pda::shielded_pool_program_id(), ZONE_CONFIG, true);
-    let mut data = transfer_ix_data(2, 2);
-    data.proof = TransactProof::P256(P256Proof {
-        a: [0u8; 32],
-        b: [0u8; 64],
-        c: [0u8; 32],
-        commitment: [0u8; 32],
-        commitment_pok: [0u8; 32],
-    });
-    let ix = env.zone_instruction(true, &zone_config, data);
-    env.expect_ix_rejection(
-        ix,
-        &[&zone_config],
-        Rejection::pool(ShieldedPoolError::MismatchedTransactProofRail),
-    );
-}

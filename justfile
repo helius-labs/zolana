@@ -99,7 +99,10 @@ test-swap-program: build-programs
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
 # not run twice per PR.
 test-program-proofs-programs-only: build-programs build-prover-server build-cli
-    cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_p256 --test transact_settlement --test-threads 1
+    # NOTE: transact_{functional,withdrawal,settlement} and mixed_interface_transfers
+    # are pinned to the proofs tier but still await their PR164 behavioral port
+    # (see TODO(pr164-port) in the files); transact_p256 was removed with the rail.
+    cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_settlement --test mixed_interface_transfers --test-threads 1
 
 # Groth16-backed program and client matrices, separated from fast state tests.
 # The full local gate; CI splits it (see test-program-proofs-programs-only).

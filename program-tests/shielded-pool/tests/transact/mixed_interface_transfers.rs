@@ -1,9 +1,6 @@
 //! Real-proof coverage for transactions with multiple ordered interface transfers.
 
-#[path = "../common/setup.rs"]
-mod common;
-#[path = "../common/transact.rs"]
-mod transact_common;
+use shielded_pool_tests::support::runtime;
 
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -32,7 +29,7 @@ use zolana_transaction::{
 };
 use zolana_tree::TreeAccount;
 
-use crate::transact_common::{
+use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, real_output,
@@ -51,13 +48,13 @@ struct TransactEnv {
 
 impl TransactEnv {
     fn boot() -> Option<Self> {
-        let mut rpc = common::program_test()?;
+        let mut rpc = runtime::program_test();
         start_prover().expect("start prover");
         let authority = Keypair::new();
         rpc.create_protocol_config(&authority)
             .expect("create protocol config");
         let tree = rpc
-            .create_tree(common::tree_account_size(), &authority)
+            .create_tree(runtime::tree_account_size(), &authority)
             .expect("create tree");
         Some(Self {
             rpc,
