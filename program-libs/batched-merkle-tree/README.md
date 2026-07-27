@@ -76,7 +76,7 @@ Output queue account for state trees that temporarily stores compressed account 
   - Source: [`src/merkle_tree.rs`](../src/merkle_tree.rs) - `BatchedMerkleTreeAccount::insert_nullifier_into_queue`
 
 - **[INSERT_ADDRESS_QUEUE.md](INSERT_ADDRESS_QUEUE.md)** - Insert addresses into address queue
-  - Source: [`src/merkle_tree.rs`](../src/merkle_tree.rs) - `BatchedMerkleTreeAccount::insert_address_into_queue`
+  - Source: [`src/merkle_tree.rs`](../src/merkle_tree.rs) - `BatchedMerkleTreeAccount::insert_nullifier_into_queue`
 
 ### Tree Update Operations
 - **[UPDATE_FROM_OUTPUT_QUEUE.md](UPDATE_FROM_OUTPUT_QUEUE.md)** - Batch append with ZKP verification

@@ -8,7 +8,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{prover::field::right_align, Rpc, SolanaRpc};
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
@@ -18,7 +18,7 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
+use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{
     create_tree_instructions, deposit_outputs_from_event, index_events,
     parsed_instruction_from_compiled, rpc_state_root, single_deposit_view, DepositOutput,
@@ -112,7 +112,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &direct_recipient.identity,
-        &[3u8; BLINDING_LEN],
+        &right_align(&[3u8; 31]),
         0,
     )?;
     let direct_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
@@ -185,7 +185,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let mut zone_sol_data = ZolanaProgramTest::wallet_zone_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &zone_sol_recipient.identity,
-        &[5u8; BLINDING_LEN],
+        &right_align(&[5u8; 31]),
         0,
     )?;
     zone_sol_data.zone_data_hash = [5u8; 32];
@@ -199,7 +199,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         mint,
         user_token,
         &zone_spl_recipient.identity,
-        &[7u8; BLINDING_LEN],
+        &right_align(&[7u8; 31]),
         1,
     )?;
     zone_spl_data.zone_data_hash = [7u8; 32];

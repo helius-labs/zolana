@@ -135,7 +135,7 @@ fn bench_nullifier_insert(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> Pr
     let mut nullifier = tree.nullifer_tree();
     for value in values.iter() {
         nullifier
-            .insert_address_into_queue(value)
+            .insert_nullifier_into_queue(value)
             .map_err(|_| ProgramError::InvalidAccountData)?;
     }
     Ok(())

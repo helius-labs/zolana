@@ -39,8 +39,8 @@ pub(crate) struct AssembledInputs {
     pub input_owner_pk_hashes: Vec<[u8; 32]>,
     /// Per-slot `(utxo_tree_root_index, nullifier_tree_root_index)`, length
     /// `n_inputs`. Real slots take the index from their `SpendProof`; padded
-    /// dummy slots mirror the first real input so the on-chain root lookup
-    /// reproduces the witness root.
+    /// dummy slots mirror the first real input's UTXO root index and take their
+    /// nullifier root index from their own non-inclusion proof.
     pub root_indices: Vec<(u16, u16)>,
 }
 
@@ -74,9 +74,9 @@ pub(crate) enum OwnerMode {
 
 /// Convert the already-padded inputs into circuit witness fields. Makes no padding
 /// decisions: each slot with a [`SpendProof`] is a real spend; each slot without one
-/// is a dummy that mirrors the first real input's roots, indices, and owner hash so
-/// the public-input chain and the on-chain root lookup agree. A transaction must
-/// spend at least one real input to supply those roots.
+/// is a dummy that mirrors the first real input's UTXO root, UTXO-root index, and
+/// owner hash while using its own nullifier non-inclusion root and index. A
+/// transaction must spend at least one real input to supply the mirrored values.
 pub(crate) fn assemble_inputs(
     spends: &[TransferSpendInput],
     owner_mode: &OwnerMode,

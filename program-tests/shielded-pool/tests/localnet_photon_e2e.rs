@@ -25,7 +25,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{
-    prover::field::{be, right_align_slice},
+    prover::field::{be, right_align, right_align_slice},
     ConfidentialTransfer, EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
     NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, ProverInputs, Rpc,
     ShieldedTransaction, SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, TransferOutput,
@@ -174,7 +174,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let zero = [0u8; 32];
 
     let payer_bytes = payer.pubkey().to_bytes();
-    let payer_blinding: [u8; 31] = [7u8; 31];
+    let payer_blinding = right_align(&[7u8; 31]);
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey()?;
     let payer_utxo = Utxo {
@@ -294,7 +294,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     // `owner_pk_field`.
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
-    let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
+    let transfer_view_tags = [change_view_tag, recipient_view_tag, change_view_tag];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, payer_state_proof.root_index),
@@ -367,7 +367,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
-        tree: tree_pubkey,
+        input_tree: tree_pubkey,
+        output_tree: tree_pubkey,
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -462,7 +463,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         .map(|(out, _)| out)
         .collect();
 
-    let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let withdraw_view_tags = [recipient_view_tag; 3];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(recipient_nullifier, recipient_state_proof.root_index),
@@ -552,11 +553,16 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         &[&payer, &recipient_owner],
     )?;
     print_signature("unshield", &withdraw_sig);
-    let indexed_withdraw = wait_for_indexed_transaction(&indexer, [1u8; 32], withdraw_sig)?;
+    let indexed_withdraw =
+        wait_for_indexed_transaction(&indexer, recipient_view_tag, withdraw_sig)?;
     assert_eq!(indexed_withdraw.nullifiers.len(), 2);
     let first_page = wait_for("paginated indexed transactions", || {
-        let response =
-            indexer.get_shielded_transactions_by_tags(vec![[3u8; 32]], None, Some(1), None)?;
+        let response = indexer.get_shielded_transactions_by_tags(
+            vec![recipient_view_tag],
+            None,
+            Some(1),
+            None,
+        )?;
         if response.transactions.len() == 1 && response.next_cursor.is_some() {
             Ok(Some(response))
         } else {
@@ -564,7 +570,7 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
         }
     })?;
     let second_page = indexer.get_shielded_transactions_by_tags(
-        vec![[3u8; 32]],
+        vec![recipient_view_tag],
         first_page.next_cursor,
         Some(1),
         None,
@@ -960,17 +966,13 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
         )?;
         let proof = match &assembled.prover_inputs {
             ProverInputs::Eddsa(inputs) => ProverClient::local().prove_transfer(inputs)?,
-            ProverInputs::P256(_) => {
-                return Err(anyhow!(
-                    "expected EdDSA prover inputs for a non-relayed confidential queue tx"
-                ))
-            }
         };
         let ix_data = assembled.with_proof(pack_proof(&proof)?);
 
         let tx_ix = Transact {
             payer: payer.pubkey(),
-            tree: tree_pubkey,
+            input_tree: tree_pubkey,
+            output_tree: tree_pubkey,
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
@@ -1348,10 +1350,10 @@ fn create_tree_instructions_with_nullifier_params(
     ])
 }
 
-fn stress_blinding(index: u64) -> [u8; 31] {
-    let mut blinding = [0u8; 31];
-    blinding[0] = 0x51;
-    blinding[23..].copy_from_slice(&index.to_be_bytes());
+fn stress_blinding(index: u64) -> [u8; 32] {
+    let mut blinding = [0u8; 32];
+    blinding[1] = 0x51;
+    blinding[24..].copy_from_slice(&index.to_be_bytes());
     blinding
 }
 
@@ -1592,7 +1594,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
 
     // ---- shield two sender-owned UTXOs (reconstructable from fixed blindings) ----
     let half = AMOUNT / 2;
-    let deposit_blindings: [[u8; 31]; 2] = [[7u8; 31], [8u8; 31]];
+    let deposit_blindings = [right_align(&[7u8; 31]), right_align(&[8u8; 31])];
     let mut spends = Vec::new();
     for blinding in deposit_blindings {
         let utxo = Utxo {
@@ -1643,15 +1645,14 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     let assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
     let proof = match &assembled.prover_inputs {
         ProverInputs::Eddsa(inputs) => ProverClient::local().prove_transfer(inputs)?,
-        // The P256 rail is removed; the SDK keeps the variant as a placeholder.
-        ProverInputs::P256(_) => return Err(anyhow!("P256 rail removed")),
     };
     let packed = pack_proof(&proof)?;
     let ix_data = assembled.with_proof(packed);
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
-        tree: tree_pubkey,
+        input_tree: tree_pubkey,
+        output_tree: tree_pubkey,
         interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }

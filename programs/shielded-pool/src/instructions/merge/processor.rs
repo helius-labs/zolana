@@ -159,7 +159,7 @@ fn apply_input_tree(
             .get_nullifier_tree_root(nullifier_root_index)
             .map_err(tree_error)?;
         tree.nullifer_tree()
-            .insert_address_into_queue(nullifier)
+            .insert_nullifier_into_queue(nullifier)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
             tree: input_tree,

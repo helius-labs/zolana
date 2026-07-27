@@ -41,7 +41,7 @@
 //!   `p-1` sentinel root ([`constants::NULLIFIER_TREE_INIT_ROOT_40`]).
 //!
 //! ### Queue insertion
-//! - [`merkle_tree::BatchedMerkleTreeAccount::insert_address_into_queue`] inserts
+//! - [`merkle_tree::BatchedMerkleTreeAccount::insert_nullifier_into_queue`] inserts
 //!   a value into the current input-queue batch (bloom filter + hash chain) via
 //!   the [`queue`] module's insertion helper.
 //!

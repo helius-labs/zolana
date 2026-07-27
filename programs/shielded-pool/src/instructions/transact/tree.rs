@@ -30,7 +30,7 @@ pub(crate) fn apply_input_tree(
             .map_err(tree_error)?;
         input_tree
             .nullifer_tree()
-            .insert_address_into_queue(&input.nullifier_hash)
+            .insert_nullifier_into_queue(&input.nullifier_hash)
             .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?;
         inputs.push(Input {
             tree: input_tree_address,

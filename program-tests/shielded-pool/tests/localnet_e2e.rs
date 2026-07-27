@@ -15,7 +15,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::{Rpc, SolanaRpc, TransferOutput, STATE_TREE_HEIGHT};
+use zolana_client::{
+    prover::field::right_align, Rpc, SolanaRpc, TransferOutput, STATE_TREE_HEIGHT,
+};
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
@@ -123,7 +125,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let zero = [0u8; 32];
 
     let payer_bytes = payer.pubkey().to_bytes();
-    let payer_blinding: [u8; 31] = [7u8; 31];
+    let payer_blinding = right_align(&[7u8; 31]);
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey()?;
     let payer_utxo = Utxo {
@@ -216,7 +218,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     // `owner_pk_field`.
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
-    let transfer_view_tags = [change_view_tag, recipient_view_tag, [3u8; 32]];
+    let transfer_view_tags = [change_view_tag, recipient_view_tag, change_view_tag];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(payer_nullifier, 1),
@@ -281,7 +283,8 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
-        tree: tree_pubkey,
+        input_tree: tree_pubkey,
+        output_tree: tree_pubkey,
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -299,7 +302,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     state_tree.append(&change_hash)?;
     state_tree.append(&recipient_hash)?;
     state_tree.append(&transfer_dummy_hash)?;
-    let (transfer_utxo_root, transfer_nullifier_root) = on_chain_roots(&rpc, &tree_pubkey, 4)?;
+    let (transfer_utxo_root, transfer_nullifier_root) = on_chain_roots(&rpc, &tree_pubkey, 2)?;
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
     assert_eq!(transfer_nullifier_root, nullifier_root);
 
@@ -362,11 +365,11 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         .map(|(out, _)| out)
         .collect();
 
-    let withdraw_view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let withdraw_view_tags = [recipient_view_tag; 3];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(recipient_nullifier, 4),
-            eddsa_input_utxo(withdraw_dummy_nullifier, 4),
+            eddsa_input_utxo(recipient_nullifier, 2),
+            eddsa_input_utxo(withdraw_dummy_nullifier, 2),
         ],
         vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,

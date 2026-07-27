@@ -280,7 +280,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         })
     }
 
-    pub fn insert_address_into_queue(
+    pub fn insert_nullifier_into_queue(
         &mut self,
         address: &[u8; 32],
     ) -> Result<(), BatchedMerkleTreeError> {
@@ -1288,7 +1288,7 @@ mod test {
             )
             .unwrap();
             let address = rng.gen();
-            let result = account.insert_address_into_queue(&address);
+            let result = account.insert_nullifier_into_queue(&address);
             assert_eq!(
                 result.unwrap_err(),
                 BatchedMerkleTreeError::BloomFilterNotZeroed
@@ -1318,7 +1318,7 @@ mod test {
         for i in 0..batch_size {
             println!("inserting address: {}", i);
             let address = rng.gen();
-            account.insert_address_into_queue(&address)?;
+            account.insert_nullifier_into_queue(&address)?;
         }
         Ok(account)
     }
@@ -1372,7 +1372,7 @@ mod test {
         );
         // 4. one more value does not fit and must be rejected.
         assert_eq!(
-            account.insert_address_into_queue(&rng.gen()).unwrap_err(),
+            account.insert_nullifier_into_queue(&rng.gen()).unwrap_err(),
             BatchedMerkleTreeError::TreeIsFull
         );
     }
@@ -1404,7 +1404,7 @@ mod test {
         for _ in 0..batch_size {
             let address = rng.gen();
             inserted_elements.push(address);
-            account.insert_address_into_queue(&address).unwrap();
+            account.insert_nullifier_into_queue(&address).unwrap();
         }
         // 1. Non inclusion of inserted elements should fail
         for address in inserted_elements.iter() {
@@ -1424,7 +1424,7 @@ mod test {
         for _ in 0..batch_size {
             let address = rng.gen();
             inserted_elements.push(address);
-            account.insert_address_into_queue(&address).unwrap();
+            account.insert_nullifier_into_queue(&address).unwrap();
         }
         // 3. Non inclusion of inserted elements should fail
         for address in inserted_elements.iter() {

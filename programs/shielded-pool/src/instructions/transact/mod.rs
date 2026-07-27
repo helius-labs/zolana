@@ -5,4 +5,4 @@ pub(crate) mod processor;
 pub(crate) mod tree;
 pub(crate) mod verify;
 
-pub use processor::{process_transact_ix, validate_circuit};
+pub use processor::{process_transact_ix, validate_circuit_type};

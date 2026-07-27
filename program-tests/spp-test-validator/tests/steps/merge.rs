@@ -22,7 +22,10 @@ use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
 use zolana_interface::instruction::{
     instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact,
 };
-use zolana_keypair::{merge::merge_output_blinding, random_blinding, SignatureType};
+use zolana_keypair::{
+    merge::{merge_dummy_nullifier, merge_output_blinding},
+    random_blinding, SignatureType,
+};
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -151,10 +154,21 @@ impl LifecycleWorld {
             });
         }
 
-        // Pad to the 8-input shape with dummies (a dummy mirrors the first real
-        // input's roots, so it carries no proof of its own).
+        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
+        let first_nullifier = keypair
+            .nullifier_key
+            .nullifier(&first_hash, &inputs[0].blinding)?;
+
+        // Pad to the 8-input shape with dummies. A dummy mirrors the first real
+        // input's UTXO root but carries a non-inclusion proof for its own
+        // deterministic nullifier.
         let owner = keypair.signing_pubkey();
         while spend_inputs.len() < MERGE_INPUT_COUNT {
+            let slot = spend_inputs.len();
+            let dummy_nullifier =
+                merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;
+            let dummy_nullifier_proof =
+                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, dummy_nullifier);
             let utxo = Utxo {
                 owner,
                 asset,
@@ -169,16 +183,12 @@ impl LifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof: None,
-                nullifier_proof: None,
+                nullifier_proof: Some(dummy_nullifier_proof),
             });
         }
 
         // The circuit derives the consolidated output blinding from the first
         // real input and its published nullifier.
-        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
-        let first_nullifier = keypair
-            .nullifier_key
-            .nullifier(&first_hash, &inputs[0].blinding)?;
         let output_blinding = merge_output_blinding(&keypair.nullifier_key, &first_nullifier)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),

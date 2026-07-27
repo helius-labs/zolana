@@ -42,7 +42,7 @@ pub fn process_transact_ix(
 ) -> ProgramResult {
     let ix =
         TransactIxDataRef::from_bytes(data).map_err(|_| ProgramError::InvalidInstructionData)?;
-    validate_circuit(&ix, instruction)?;
+    validate_circuit_type(&ix, instruction)?;
 
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
@@ -136,7 +136,10 @@ pub fn process_transact_ix(
 
 /// Validate the untrusted selector before it is allowed to drive account
 /// parsing, proof-input layout, settlement limits, or verifying-key selection.
-pub fn validate_circuit(ix: &TransactIxDataRef<'_>, instruction: InstructionTag) -> ProgramResult {
+pub fn validate_circuit_type(
+    ix: &TransactIxDataRef<'_>,
+    instruction: InstructionTag,
+) -> ProgramResult {
     let family_matches = match instruction {
         InstructionTag::Transact => matches!(ix.circuit, CircuitId::ConfidentialEddsa(..)),
         InstructionTag::ZoneTransact => matches!(ix.circuit, CircuitId::ZoneEddsa(..)),
@@ -154,6 +157,7 @@ pub fn validate_circuit(ix: &TransactIxDataRef<'_>, instruction: InstructionTag)
             .inputs
             .iter()
             .any(|input| input.eddsa_signer_index == u8::MAX)
+    // u8::MAX is a placeholder to mark that the UTXO is signed with by a p256 signature.
     {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
