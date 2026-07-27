@@ -4,11 +4,15 @@ pub mod verifying_keys;
 
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
-use crate::instructions::{process_escrow_ix, process_withdraw_ix};
+use crate::instructions::{
+    process_escrow_batch_ix, process_escrow_ix, process_withdraw_batch_ix, process_withdraw_ix,
+};
 
 pub mod tag {
     pub const ESCROW: u8 = 0;
     pub const WITHDRAW: u8 = 1;
+    pub const ESCROW_BATCH: u8 = 2;
+    pub const WITHDRAW_BATCH: u8 = 3;
 }
 
 pub const ESCROW_AUTHORITY_PDA_SEED: &[u8] = b"escrow_authority";
@@ -36,6 +40,8 @@ pub fn process_instruction(
     match *ix_tag {
         tag::ESCROW => process_escrow_ix(accounts, ix_data),
         tag::WITHDRAW => process_withdraw_ix(accounts, ix_data),
+        tag::ESCROW_BATCH => process_escrow_batch_ix(accounts, ix_data),
+        tag::WITHDRAW_BATCH => process_withdraw_batch_ix(accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
