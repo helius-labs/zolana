@@ -25,10 +25,19 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `protocol_config_rejects_a_signer_that_names_other_authorities`
   - Kind: precondition
   - Statement: `create_protocol_config` returns Err whenever the fee payer's address differs from `data.protocol_authority`.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:23-25` (`fn process_create_protocol_config`)
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:24-26` (`fn process_create_protocol_config`)
   - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
   - Severity: Critical (authority bootstrap)
   - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-CREATE-PC-10: on an upgradeable deployment, only the deploy upgrade authority may initialize**
+  - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_rejects_a_fee_payer_that_is_not_the_upgrade_authority`, `create_accepts_the_upgrade_authority`, `create_skips_the_check_without_an_upgrade_authority`; loader-state parser unit tests in `programs/shielded-pool/src/instructions/protocol_config/create.rs` (`parses_program_data_address`, `parses_upgrade_authority`)
+  - Kind: precondition
+  - Statement: when the program account is owned by the upgradeable BPF loader and its `ProgramData` names an upgrade authority, `create_protocol_config` returns Err for every fee payer other than that authority; a non-upgradeable deployment (localnet `--bpf-program`) or an unset authority (immutable program, LiteSVM harness) skips the check; a forged program/`ProgramData` account or truncated loader state fails closed. (F-07: permissionless self-nomination alone let an attacker front-run deployment and seize the protocol/forester authorities.)
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:69-100` (`fn check_initialization_authority`)
+  - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
+  - Severity: Critical (authority bootstrap)
+  - Suggested test: negative + positive + carve-out; harness: mollusk unit
 
 ### Account Constraints
 
@@ -36,7 +45,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `protocol_config_requires_system_program_exactly`
   - Kind: precondition
   - Statement: `create_protocol_config` returns Err whenever the third account's address is not the system program id.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:20-22` (`fn process_create_protocol_config`)
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:21-23` (`fn process_create_protocol_config`)
   - Error: `ProgramError::IncorrectProgramId`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
@@ -45,7 +54,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `protocol_config_creation_rejects_a_non_canonical_pda`
   - Kind: precondition
   - Statement: `create_protocol_config` returns Err whenever the config account's address differs from the PDA derived via `find_program_address([b"protocol_config"])`; the canonical bump is derived, never taken from instruction data.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:27-31` (`fn process_create_protocol_config`), `shared.rs:76-90` (`fn verify_pda`)
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:29-33` (`fn process_create_protocol_config`), `shared.rs:76-90` (`fn verify_pda`)
   - Error: `ShieldedPoolError::InvalidPda = 7016`
   - Severity: Critical (singleton authority oracle)
   - Suggested test: negative (non-canonical bump address); harness: mollusk unit
@@ -56,7 +65,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `protocol_config_creation_rejects_a_payload_of_the_wrong_size`
   - Kind: precondition
   - Statement: every payload whose length differs from exactly `size_of::<CreateProtocolConfigData>()` (131 bytes) makes the instruction return Err.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:13-14` (`fn process_create_protocol_config`)
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:12-13` (`fn process_create_protocol_config`)
   - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
@@ -75,7 +84,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Covered by: `program-tests/shielded-pool/tests/admin/functional.rs` `protocol_config_creation_initializes_complete_state` (extended with the owner-is-program assertion)
   - Kind: postcondition
   - Statement: after a successful `create_protocol_config`, the config account's `data_len` is exactly `ProtocolConfig::SIZE` (132) and its owner is the shielded-pool program.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:33-42` (`fn process_create_protocol_config`)
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:35-44` (`fn process_create_protocol_config`)
   - Severity: High
   - Suggested test: positive; harness: mollusk unit
 
@@ -94,7 +103,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Covered by: `program-tests/shielded-pool/tests/admin/functional.rs` `protocol_config_creation_changes_only_the_config_and_fee_payer`
   - Kind: frame
   - Statement: after a successful `create_protocol_config`, every account other than the created config account and the fee payer (rent funding) has unchanged data and unchanged lamports.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:12-54` (`fn process_create_protocol_config`)
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:11-56` (`fn process_create_protocol_config`)
   - Severity: Medium
   - Suggested test: positive; harness: mollusk unit
 

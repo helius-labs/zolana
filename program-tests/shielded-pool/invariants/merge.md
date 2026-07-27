@@ -85,7 +85,7 @@ nullifier, and padding slots publish derived dummy nullifiers.
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
 - [ ] **INV-MERGE-09: the proof binds the owner's registered viewing key**
-  - Not applicable post-PR164 (the merge encryption flow was restructured: the output is ciphertext-free and recovered by the owner from the first input and its nullifier, so no viewing-key public input exists; F-06 re-review pending).
+  - Not applicable post-PR164 (the merge encryption flow was restructured: the output is ciphertext-free and recovered by the owner from the first input and its nullifier, so no viewing-key public input exists; F-06 re-reviewed 2026-07-27 and closed as MOOT -- no recipient viewing key enters any circuit KDF anymore).
 
 - [ ] **INV-MERGE-10: the ciphertext hash is recomputed on-chain**
   - Not applicable post-PR164 (no merge ciphertext exists, so there is nothing to recompute on-chain).

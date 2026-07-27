@@ -9,10 +9,13 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree},
+    instruction::{
+        CreateAssetCounter, CreateProtocolConfig, CreateTree, UpdateProtocolConfig,
+        UpdateProtocolConfigData,
+    },
     pda,
     state::{tree_account_size, ProtocolConfig, SplAssetCounter},
-    SHIELDED_POOL_PROGRAM_ID,
+    BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_test_utils::smart_account::{
     create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
@@ -93,6 +96,7 @@ pub struct Options {
     payer: PathBuf,
     protocol_signer: PathBuf,
     tree_keypair: PathBuf,
+    upgrade_authority: Option<PathBuf>,
     yes: bool,
     dry_run: bool,
 }
@@ -104,6 +108,7 @@ impl Options {
         let mut payer = None;
         let mut protocol_signer = None;
         let mut tree_keypair = None;
+        let mut upgrade_authority = None;
         let mut yes = false;
         let mut dry_run = false;
 
@@ -141,6 +146,12 @@ impl Options {
                             usage_and_exit("--tree-keypair missing value")
                         })));
                 }
+                "--upgrade-authority" => {
+                    upgrade_authority =
+                        Some(PathBuf::from(args.next().unwrap_or_else(|| {
+                            usage_and_exit("--upgrade-authority missing value")
+                        })));
+                }
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -163,6 +174,7 @@ impl Options {
             payer,
             protocol_signer,
             tree_keypair,
+            upgrade_authority,
             yes,
             dry_run,
         }
@@ -179,6 +191,7 @@ struct Signers {
     payer: Keypair,
     protocol_signer: Keypair,
     tree_keypair: Keypair,
+    upgrade_authority: Option<Keypair>,
 }
 
 pub(crate) fn load_keypair(path: &PathBuf, label: &str) -> Result<Keypair> {
@@ -190,6 +203,11 @@ fn load_signers(options: &Options) -> Result<Signers> {
     let payer = load_keypair(&options.payer, "payer")?;
     let protocol_signer = load_keypair(&options.protocol_signer, "protocol-signer")?;
     let tree_keypair = load_keypair(&options.tree_keypair, "tree-keypair")?;
+    let upgrade_authority = options
+        .upgrade_authority
+        .as_ref()
+        .map(|path| load_keypair(path, "upgrade-authority"))
+        .transpose()?;
 
     if !authorities::PROTOCOL.contains(&protocol_signer.pubkey()) {
         bail!(
@@ -209,6 +227,7 @@ fn load_signers(options: &Options) -> Result<Signers> {
         payer,
         protocol_signer,
         tree_keypair,
+        upgrade_authority,
     })
 }
 
@@ -453,16 +472,119 @@ fn fund_protocol_vault(
     Ok(())
 }
 
+/// Read the shielded-pool program's deploy upgrade authority from its
+/// loader-v3 `ProgramData` account. `None` means the on-chain initialization
+/// check is inactive (non-upgradeable deployment or immutable program) and
+/// `create_protocol_config` may be sent by the protocol vault directly.
+fn read_deploy_upgrade_authority(rpc: &SolanaRpc) -> Result<Option<Pubkey>> {
+    let program = rpc
+        .get_account(to_address(&shielded_pool_program()))
+        .context("fetching shielded-pool program account")?
+        .ok_or_else(|| anyhow!("shielded-pool program account not found"))?;
+    if program.owner != BPF_LOADER_UPGRADEABLE_PUBKEY {
+        return Ok(None);
+    }
+    // UpgradeableLoaderState::Program { programdata_address }: u32 tag 2 || address.
+    let data = program.data;
+    if data.len() != 36 || data[0..4] != 2u32.to_le_bytes() {
+        bail!("shielded-pool program account is not a loader-v3 Program state");
+    }
+    let program_data_address = Pubkey::new_from_array(data[4..36].try_into().expect("32 bytes"));
+    let program_data = rpc
+        .get_account(to_address(&program_data_address))
+        .context("fetching shielded-pool ProgramData account")?
+        .ok_or_else(|| anyhow!("ProgramData account {program_data_address} not found"))?;
+    if program_data.owner != BPF_LOADER_UPGRADEABLE_PUBKEY {
+        bail!("ProgramData account {program_data_address} is not loader-owned");
+    }
+    // UpgradeableLoaderState::ProgramData: u32 tag 3 || slot u64 || option tag || authority.
+    let data = program_data.data;
+    if data.len() < 48 || data[0..4] != 3u32.to_le_bytes() {
+        bail!("ProgramData account {program_data_address} is not a loader-v3 ProgramData state");
+    }
+    let option_tag: [u8; 4] = data[12..16].try_into().expect("4 bytes");
+    match option_tag {
+        tag if tag == 0u32.to_le_bytes() => Ok(None),
+        tag if tag == 1u32.to_le_bytes() => Ok(Some(Pubkey::new_from_array(
+            data[16..48].try_into().expect("32 bytes"),
+        ))),
+        _ => bail!("ProgramData account {program_data_address} has an unknown authority tag"),
+    }
+}
+
 fn send_protocol_config(
     rpc: &SolanaRpc,
     payer: &Keypair,
     protocol_signer: &Keypair,
+    upgrade_signer: Option<&Keypair>,
     roles: &[RoleAddrs; 5],
 ) -> Result<()> {
     // Merging is now a per-user opt-in set via the user-registry
     // `set_merging_enabled` instruction, not a protocol-config field, so the
     // `merge` role no longer feeds the protocol config here.
     let [protocol, tree, zone, _merge, forester] = roles;
+    if let Some(upgrade_signer) = upgrade_signer {
+        // Upgradeable deployment (devnet/mainnet): initialization is bound to
+        // the deploy upgrade authority (F-07). Create the config naming the
+        // upgrade authority, then rotate the protocol authority to the
+        // protocol vault (the incoming vault co-signs via the smart account).
+        let rent = rpc
+            .get_minimum_balance_for_rent_exemption(ProtocolConfig::SIZE)
+            .context("rent for protocol_config")?;
+        let fund_ix = system_transfer_ix(
+            &payer.pubkey(),
+            &upgrade_signer.pubkey(),
+            rent + VAULT_FUNDING_BUFFER_LAMPORTS,
+        );
+        let create_config_ix = CreateProtocolConfig {
+            authority: upgrade_signer.pubkey(),
+            protocol_authority: upgrade_signer.pubkey().to_bytes().into(),
+            tree_creation_authority: tree.vault.to_bytes().into(),
+            tree_creation_is_permissionless: false,
+            forester_authority: forester.vault.to_bytes().into(),
+            zone_creation_authority: zone.vault.to_bytes().into(),
+            zone_creation_is_permissionless: false,
+            spl_interface_creation_is_permissionless: false,
+        }
+        .instruction();
+        let signature = rpc
+            .create_and_send_transaction(
+                &[fund_ix, create_config_ix],
+                to_address(&payer.pubkey()),
+                &[payer, upgrade_signer],
+            )
+            .map_err(|e| anyhow!("create_protocol_config failed: {e}"))?;
+        println!(
+            "created protocol_config={} sig={signature} (bound to upgrade authority {})",
+            pda::protocol_config(),
+            upgrade_signer.pubkey()
+        );
+
+        let rotate_ix = UpdateProtocolConfig {
+            authority: upgrade_signer.pubkey(),
+            update: UpdateProtocolConfigData::ProtocolAuthority(protocol.vault.to_bytes().into()),
+        }
+        .instruction();
+        let sync = execute_sync_ix(
+            &protocol.settings,
+            0,
+            &[protocol_signer.pubkey()],
+            &[rotate_ix],
+        );
+        let signature = rpc
+            .create_and_send_transaction(
+                &[sync],
+                to_address(&payer.pubkey()),
+                &[payer, upgrade_signer, protocol_signer],
+            )
+            .map_err(|e| anyhow!("protocol authority rotation failed: {e}"))?;
+        println!(
+            "rotated protocol_authority to protocol_vault={} sig={signature}",
+            protocol.vault
+        );
+        return Ok(());
+    }
+
     let create_config_ix = CreateProtocolConfig {
         authority: protocol.vault,
         protocol_authority: protocol.vault.to_bytes().into(),
@@ -599,10 +721,31 @@ pub fn run(options: Options) -> Result<()> {
     let roles = derive_roles(program_config.smart_account_index);
     let protocol_vault = roles[0].vault;
 
+    // F-07: on an upgradeable deployment with a set upgrade authority, only
+    // that authority may initialize the protocol config.
+    let deploy_upgrade_authority = read_deploy_upgrade_authority(&rpc)?;
+    let upgrade_signer = match (deploy_upgrade_authority, &signers.upgrade_authority) {
+        (Some(expected), Some(keypair)) => {
+            if keypair.pubkey() != expected {
+                bail!(
+                    "--upgrade-authority {} does not match the on-chain upgrade authority {expected}",
+                    keypair.pubkey()
+                );
+            }
+            Some(keypair)
+        }
+        (Some(expected), None) => bail!(
+            "the shielded-pool program is upgradeable with upgrade authority {expected}; \
+             pass its keypair via --upgrade-authority"
+        ),
+        (None, _) => None,
+    };
+
     println!("cluster={}", options.cluster.name());
     println!("rpc_url={url}");
     println!("dry_run={}", options.dry_run);
     println!("protocol_already_initialized={initialized}");
+    println!("deploy_upgrade_authority={deploy_upgrade_authority:?}");
     println!("smart_account_index={}", program_config.smart_account_index);
     println!("treasury={}", program_config.treasury);
     println!("payer={}", signers.payer.pubkey());
@@ -639,7 +782,13 @@ pub fn run(options: Options) -> Result<()> {
         funding,
     )?;
 
-    send_protocol_config(&rpc, &signers.payer, &signers.protocol_signer, &created)?;
+    send_protocol_config(
+        &rpc,
+        &signers.payer,
+        &signers.protocol_signer,
+        upgrade_signer,
+        &created,
+    )?;
 
     send_asset_counter(
         &rpc,
@@ -687,6 +836,8 @@ fn print_help() {
     println!("  --payer <KEYPAIR_PATH>                funds + outer fee payer (required)");
     println!("  --protocol-signer <KEYPAIR_PATH>      one of the protocol authorities (required)");
     println!("  --tree-keypair <KEYPAIR_PATH>         the tree account keypair (required)");
+    println!("  --upgrade-authority <KEYPAIR_PATH>    the program's deploy upgrade authority");
+    println!("                                        (required on upgradeable deployments)");
     println!("  --yes                                 confirm irreversible mainnet sends");
     println!("  --dry-run                             derive + print addresses, send nothing");
     println!("  -h | --help                           print this help");

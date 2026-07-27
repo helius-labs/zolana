@@ -44,7 +44,7 @@ from all three rows. The same holds for `Deposit`/`ZoneDeposit`
 | ZoneDeposit (15) | `deposit.md` | INV-ZONE-DEPOSIT-01..04 | INV-ZONE-DEPOSIT-05, INV-DEPOSIT-11 | INV-ZONE-DEPOSIT-01, INV-ZONE-DEPOSIT-03, INV-XC-26 | INV-ZONE-DEPOSIT-06..08 | INV-XC-04 | INV-DEPOSIT-17 |
 | CreateAssetCounter (16) | `spl.md` | INV-CREATE-AC-03, INV-CREATE-AC-04 | INV-CREATE-AC-05 | INV-CREATE-AC-01, INV-CREATE-AC-02 | INV-CREATE-AC-06, INV-CREATE-AC-07 | INV-XC-04 | INV-CREATE-AC-08 |
 | CreateSplInterface (4) | `spl.md` | INV-CREATE-SPL-03..05, INV-CREATE-SPL-08 | INV-CREATE-SPL-06 | INV-CREATE-SPL-01, INV-CREATE-SPL-02 | INV-CREATE-SPL-07, INV-CREATE-SPL-09..11 | INV-XC-04 | INV-CREATE-SPL-12 |
-| CreateProtocolConfig (6) | `protocol-config.md` | INV-CREATE-PC-03, INV-CREATE-PC-04 | INV-CREATE-PC-05 | INV-CREATE-PC-01, INV-CREATE-PC-02 | INV-CREATE-PC-06..08 | INV-XC-04 | INV-CREATE-PC-09 |
+| CreateProtocolConfig (6) | `protocol-config.md` | INV-CREATE-PC-03, INV-CREATE-PC-04 | INV-CREATE-PC-05 | INV-CREATE-PC-01, INV-CREATE-PC-02, INV-CREATE-PC-10 | INV-CREATE-PC-06..08 | INV-XC-04 | INV-CREATE-PC-09 |
 | UpdateProtocolConfig (7) | `protocol-config.md` | INV-UPDATE-PC-03 | INV-UPDATE-PC-04 | INV-UPDATE-PC-01, INV-UPDATE-PC-02 | INV-UPDATE-PC-05, INV-UPDATE-PC-07 | INV-XC-04 | INV-UPDATE-PC-06 |
 | PauseTree (8) | `tree.md` | INV-XC-24 | INV-PAUSE-TREE-02 | INV-PAUSE-TREE-01 | INV-PAUSE-TREE-03, INV-PAUSE-TREE-04 | INV-XC-04 | INV-PAUSE-TREE-05 |
 | CreateZoneConfig (9) | `zone-config.md` | INV-CREATE-ZC-04, INV-CREATE-ZC-05 | INV-CREATE-ZC-06 | INV-CREATE-ZC-01..03 | INV-CREATE-ZC-07, INV-CREATE-ZC-08 | INV-XC-04 | INV-CREATE-ZC-09 |
@@ -62,17 +62,17 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 209
+- Total invariants: 210
   - transact.md: 46 (Transact 32, ZoneTransact 7, ZoneAuthorityTransact 7)
   - deposit.md: 25 (Deposit 17, ZoneDeposit 8)
   - merge.md: 28 (MergeTransact 16, ZoneMergeTransact 12)
   - tree.md: 20 (CreateTree 9, BatchUpdateNullifierTree 6, PauseTree 5)
-  - protocol-config.md: 16 (Create 9, Update 7)
+  - protocol-config.md: 17 (Create 10, Update 7)
   - zone-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
   - spl.md: 20 (CreateAssetCounter 8, CreateSplInterface 12)
   - event.md: 4
   - cross-cutting.md: 30
-- Critical (funds/double-spend/authority takeover): 81
+- Critical (funds/double-spend/authority takeover): 82
 - High: 72
 - Medium: 56
 - Not applicable post-PR164: 11 (P256 rails, both-amounts gate, `cpi_authority` field, merge ciphertext/`merge_view_tag`; IDs retained, never renumbered)
@@ -111,14 +111,14 @@ Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 
 Post-PR164 sync (2026-07-27):
 
-- Covered: 178 / 209
+- Covered: 179 / 210
 - Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Not covered: 1
 - Not applicable post-PR164: 11
 
 Per file (covered / partial+untested / not-applicable):
 transact 38/2/6, deposit 25/0/0, merge 19/5/4, tree 17/3/0,
-protocol-config 16/0/0, zone-config 18/2/0, spl 20/0/0, event 4/0/0,
+protocol-config 17/0/0, zone-config 18/2/0, spl 20/0/0, event 4/0/0,
 cross-cutting 21/8/1.
 
 All added tests pass. Suites run green this pass:
@@ -180,15 +180,59 @@ Status of the audit findings against the current (post-PR164) tree:
   `prover/server/circuits/spp_merge/dummy_nullifier_attack_test.go`
   (INV-MERGE-16).
 - F-04 Photon indexes batch updates from instruction intent not outcome
-  (permissionless indexer halt): OPEN (`services/photon` untouched by PR164).
+  (permissionless indexer halt): FIXED. Photon's
+  `nullifier_tree_batch_update_parser` now sources updates exclusively from the
+  emitted `BatchAddressAppendEvent` (emitted only when an update actually
+  applied), authenticated by stack-height parentage to a shielded-pool
+  `BATCH_UPDATE_NULLIFIER_TREE` instruction -- forged tag-51 CPIs and no-op
+  successes record nothing. Regression tests
+  `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs`
+  `drops_forged_batch_update_cpi_without_event`,
+  `drops_successful_batch_update_without_event`,
+  `drops_event_with_foreign_parent`,
+  `drops_event_under_non_batch_update_parent`,
+  `parses_batch_update_from_emitted_event`,
+  `records_event_root_not_instruction_root` (INV-BATCH-NULL-07).
 - F-05 `tx_viewing_pk`/`salt` unbound (relayer burns recipient outputs): FIXED by
   PR164 (bound in `ExternalDataHash` -- INV-XC-16).
-- F-06 merge viewing-key canonicality: SUPERSEDED (encryption flow restructured
-  in PR164; merge outputs are ciphertext-free -- re-review pending, see INV-MERGE-09).
-- F-07 `create_protocol_config` front-runnable initializer: OPEN (verify on new tree).
+- F-06 merge viewing-key canonicality: MOOT (the vulnerable flow is gone.
+  PR164 merge outputs are ciphertext-free: `prover/server/circuits/spp_merge`
+  contains no encryption or KDF over a recipient key, and the merge output is
+  derived deterministically from the inputs so the owner needs no decryption.
+  The surviving `verifiable-encryption` consumer
+  (`sdk-tests/zk-program-swap/prover/circuits/take_verifiable_encryption/take.go`)
+  derives its AES key from the order-UTXO blinding via Poseidon KDF, never from
+  a recipient P-256 pubkey; `p256.CompressPubkey`/`ECDH` have no callers in the
+  current tree).
+- F-07 `create_protocol_config` front-runnable initializer: FIXED. The program
+  now reads its own loader-v3 `ProgramData` and binds one-time initialization
+  to the deploy upgrade authority
+  (`programs/shielded-pool/src/instructions/protocol_config/create.rs` `check_initialization_authority`,
+  INV-CREATE-PC-10); non-upgradeable deployments and an unset authority
+  (localnet, LiteSVM, immutable programs) skip the check, and forged or
+  truncated loader state fails closed. `xtask init-protocol` gained a
+  two-step flow (create as the upgrade authority via `--upgrade-authority`,
+  then rotate `protocol_authority` to the protocol vault). Regression tests
+  `program-tests/shielded-pool/tests/protocol_config/contract.rs`
+  `create_rejects_a_fee_payer_that_is_not_the_upgrade_authority` (red first:
+  the attacker initialized successfully pre-fix),
+  `create_accepts_the_upgrade_authority`,
+  `create_skips_the_check_without_an_upgrade_authority`.
 - F-08 zone-merge viewing-key binding: PARTIALLY addressed (output
   `zone_data_hash` now proof-bound; owner identity still omitted by design --
   INV-ZONE-MERGE-08, INV-ZONE-MERGE-12).
 - F-09 `merge_view_tag` not proof-bound: MOOT (field removed).
-- F-10 root-history zero-placeholder burn / F-11 deposit `data_hash` unverified:
-  UNVERIFIED on new tree.
+- F-10 root-history zero-placeholder burn: FIXED by PR164. `append_batch`
+  pushes only the batch-final root into the 200-slot history
+  (`program-libs/tree/src/smt.rs:117-123`) and `root_by_index` rejects zero
+  slots; a batch costs one history slot regardless of size. Regression test
+  `program-libs/tree/tests/init.rs` `append_batch_matches_sequential` (pins the
+  single-slot cursor advance and the absence of zero placeholders).
+- F-11 deposit `data_hash` unverified: DESIGN-ACCEPTED. `docs/spec.md` (UTXO
+  Hash) documents `data_hash` as "committed into `utxo_hash` unchecked": the
+  hashing scheme is application-defined, so the program cannot recompute it,
+  and the deposit event publishes both `data_hash` and `data` for consumers to
+  verify. Deposit is authorized by the payer (or the zone config), so a
+  mismatch is self-inflicted; the deposit path
+  (`programs/shielded-pool/src/instructions/deposit/processor.rs:104-124`)
+  still folds the supplied `data_hash` into the UTXO hash as specified.
