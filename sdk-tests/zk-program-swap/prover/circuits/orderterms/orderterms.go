@@ -28,7 +28,7 @@ func (o OrderTerms) Check(api frontend.API) {
 }
 
 func (o OrderTerms) MakerAddressFE(api frontend.API) frontend.Variable {
-	viewingKeyHash := gadget.HashBytes(api, o.MakerViewingPk[:])
+	viewingKeyHash := gadget.HashChain(api, gadget.PackBytesBE(api, o.MakerViewingPk[:]))
 	return gadget.PoseidonHash(api, []frontend.Variable{o.MakerOwnerHash, viewingKeyHash})
 }
 

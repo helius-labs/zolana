@@ -177,14 +177,14 @@ bench-shielded-pool: build-programs
 # published keys are the only set matching the committed Rust verifying keys;
 # regenerating locally (regen-swap-keys) requires publishing a new release and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v3"
+swap-keys-tag := "swap-keys-v4"
 
 # Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
 # (escrow_open/escrow_settle). The release assets are
 # the only key set matching the committed Rust verifying keys; rotating locally
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v3"
+dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
 
 ensure-swap-keys:
     #!/usr/bin/env bash
@@ -307,7 +307,7 @@ bench-rfq:
 # committed Rust verifying keys; regenerating locally (regen-escrow-keys)
 # requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
 # plus the committed verifying keys together.
-escrow-keys-tag := "escrow-keys-v1"
+escrow-keys-tag := "escrow-keys-v2"
 
 ensure-escrow-keys:
     #!/usr/bin/env bash
@@ -434,7 +434,7 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
 # Spawn a localnet (validator + prover + photon) via the `zolana` CLI, bootstrap a
 # pool tree with an authority wallet, then run the tools/cli_smoke.sh coverage
 # script against it: one pass over every CLI operation using the real binary,
-# both asset rails (SOL + SPL) and both wallet rails (ed25519 + P256). The
+# both asset rails (SOL + SPL) on the supported ed25519 wallet rail. The
 # authority wallet doubles as the smoke actor so the SPL `test-mint` rail is
 # permitted. Services and workdir are torn down on exit.
 test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
@@ -443,7 +443,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
     eval "$(cargo run -q -p xtask -- program-ids)"
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
-    bin="target/release/zolana"
+    bin="target/debug/zolana"
     workdir="target/cli-smoke"
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true

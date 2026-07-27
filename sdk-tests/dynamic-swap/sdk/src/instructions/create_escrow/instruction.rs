@@ -5,12 +5,11 @@ use zolana_interface::{
     instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{err, tag, CreateEscrowIxData, EscrowOpenProof};
+use crate::{err, escrow_authority_pda, tag, CreateEscrowIxData, EscrowOpenProof};
 
-/// Both `authority` (the pair's maker, funding the reservation and signing the
-/// spend of its own funding UTXO) and `owner` (the source UTXO's owner,
-/// authorizing the spend) must sign -- SPP authorizes each input by its own
-/// signer.
+/// Both `authority` (the pair's maker, funding the reservation and paying for
+/// the escrow account) and `owner` (authorizing the source UTXO spend) must
+/// sign. The program signs for the escrow-authority-owned funding UTXO.
 pub struct CreateEscrow {
     pub authority: Pubkey,
     pub owner: Pubkey,
@@ -39,14 +38,16 @@ impl CreateEscrow {
         } = self;
 
         // SPP resolves each spent input's owner by position within the forwarded
-        // transact account tail: [authority(payer)=0, tree=1, system_program=2,
-        // owner=3, program=4].
+        // transact account tail: [authority(payer)=0, input_tree=1,
+        // output_tree=2, system_program=3, owner=4,
+        // escrow_authority=5, program=6].
         // create_escrow's two inputs are the source UTXO (owned by `owner`) and
-        // maker_funding (owned by `authority`), so route each to its owner's slot.
-        const PAYER_POSITION: u8 = 0;
-        const OWNER_POSITION: u8 = 3;
+        // maker_funding (owned by the escrow-authority PDA), so route each to
+        // its owner's slot.
+        const OWNER_POSITION: u8 = 4;
+        const ESCROW_AUTHORITY_POSITION: u8 = 5;
         route_input(&mut transact, 0, OWNER_POSITION)?;
-        route_input(&mut transact, 1, PAYER_POSITION)?;
+        route_input(&mut transact, 1, ESCROW_AUTHORITY_POSITION)?;
 
         let ix_data = CreateEscrowIxData {
             proof,
@@ -64,12 +65,14 @@ impl CreateEscrow {
             AccountMeta::new_readonly(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            // Forwarded SPP `transact` CPI tail: payer, tree, System Program for
-            // fee collection, the owner signer, then the shielded-pool program.
+            // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
+            // System Program, the source owner, escrow authority, then SPP.
             AccountMeta::new(authority, true),
+            AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(owner, true),
+            AccountMeta::new_readonly(escrow_authority_pda(&pair), false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
 

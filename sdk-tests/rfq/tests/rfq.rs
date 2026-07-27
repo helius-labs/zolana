@@ -19,8 +19,8 @@ use zolana_transaction::{
 use zolana_wallet::sync_wallet;
 
 // `Transact` appends the System Program and shielded-pool program after the
-// payer/tree pair, so the additional taker signer lands at account index 4.
-const TAKER_SIGNER_INDEX: u8 = 4;
+// payer/tree accounts, so the additional taker signer lands at account index 5.
+const TAKER_SIGNER_INDEX: u8 = 5;
 
 #[test]
 fn cosigned_rfq_settlement() -> Result<()> {

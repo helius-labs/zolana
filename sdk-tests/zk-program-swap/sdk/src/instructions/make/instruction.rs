@@ -8,7 +8,7 @@ use zolana_interface::{
 use zolana_keypair::ShieldedAddress;
 use zolana_transaction::TransactionError;
 
-use crate::{err, tag, MakeIxData, MakeProof, MarkerData};
+use crate::{err, order_authority_pda, tag, MakeIxData, MakeProof, MarkerData};
 
 pub struct OrderMarker {
     pub order_utxo_hash: [u8; 32],
@@ -48,6 +48,11 @@ impl Make {
         if let Some(marker) = spp_proof.messages.first_mut() {
             marker.data = Vec::new();
         }
+        // The padded dummy mirrors the real source input's owner in the proof,
+        // so both slots must resolve to the order-authority PDA on-chain.
+        for input in &mut spp_proof.inputs {
+            input.eddsa_signer_index = 4;
+        }
 
         let serialized_ix = wincode::serialize(&MakeIxData {
             proof: make_proof,
@@ -59,7 +64,9 @@ impl Make {
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
+            AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(order_authority_pda(), false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
         let mut instruction_data = vec![tag::MAKE];

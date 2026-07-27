@@ -23,14 +23,18 @@ use zolana_interface::{
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{ShieldedKeypair, ViewingKey};
+use zolana_keypair::{
+    constants::BLINDING_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey,
+};
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
     smart_account::{self, StandardSigners},
 };
-use zolana_transaction::{AssetRegistry, Wallet, SOL_MINT};
-use zolana_wallet::{sync_wallet, Deposit, DepositParams};
+use zolana_transaction::{
+    instructions::types::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, Wallet, SOL_MINT,
+};
+use zolana_wallet::{Deposit, DepositParams};
 
 pub const SHIELD_AMOUNT: u64 = 500_000_000;
 pub const LOCK_AMOUNT: u64 = 300_000_000;
@@ -52,6 +56,7 @@ pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
     pub creator: TestWallet,
+    pub creator_input: SppProofInputUtxo,
 }
 
 pub struct TestWallet {
@@ -216,28 +221,41 @@ pub fn setup() -> Result<TestEnv> {
     let creator_shielded_keypair = ShieldedKeypair::from_ed25519(&creator_seed, ViewingKey::new())?;
     rpc.airdrop(&creator_solana_keypair.pubkey(), 10_000_000_000)?;
 
-    Deposit::new(DepositParams {
-        recipient: &creator_shielded_keypair.shielded_address()?,
+    let escrow_nullifier_key = NullifierKey::from_secret([0u8; BLINDING_LEN]);
+    let escrow_authority_address = ShieldedAddress {
+        signing_pubkey: PublicKey::from_ed25519(
+            timelock_escrow_sdk::escrow_authority_pda().as_array(),
+        ),
+        nullifier_pubkey: escrow_nullifier_key.pubkey()?,
+        viewing_pubkey: creator_shielded_keypair.viewing_pubkey(),
+    };
+    let creator_deposit = Deposit::new(DepositParams {
+        recipient: &escrow_authority_address,
         asset: SOL_MINT,
         amount: SHIELD_AMOUNT,
         spl_token_account: None,
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
-    })?
-    .send(&rpc, &payer, tree, &payer)?;
+    })?;
+    creator_deposit.send(&rpc, &payer, tree, &payer)?;
+    let creator_input = SppProofInputUtxo::new(
+        Utxo {
+            owner: escrow_authority_address.signing_pubkey,
+            asset: SOL_MINT,
+            amount: SHIELD_AMOUNT,
+            blinding: creator_deposit.deposit.blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        },
+        escrow_nullifier_key,
+    );
 
     let creator_address = creator_shielded_keypair
         .shielded_address()
         .map_err(|e| anyhow!("creator address: {e:?}"))?;
 
-    // The deposit above already confirmed on-chain, and `sync_wallet` waits
-    // for indexer freshness by default (and handles proofless-deposit
-    // discovery internally), so one sync is enough -- no manual poll loop
-    // needed.
-    let mut creator_wallet = Wallet::new(creator_address, assets.clone())
+    let creator_wallet = Wallet::new(creator_address, assets.clone())
         .map_err(|e| anyhow!("creator wallet: {e:?}"))?;
-    sync_wallet(&mut creator_wallet, &creator_shielded_keypair, &indexer)
-        .map_err(|e| anyhow!("sync creator deposit: {e:?}"))?;
 
     let client = ZolanaClient::new(
         rpc,
@@ -255,6 +273,7 @@ pub fn setup() -> Result<TestEnv> {
             wallet: creator_wallet,
             keypair: creator_shielded_keypair,
         },
+        creator_input,
     })
 }
 

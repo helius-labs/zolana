@@ -20,11 +20,12 @@ pub struct Cancel {
 }
 
 /// The order utxo (input 0) is owned by the order-authority PDA appended readonly
-/// after `tree`; the swap program signs for it via `invoke_signed`. The signer
+/// after the input/output tree slots; the swap program signs for it via
+/// `invoke_signed`. The signer
 /// index selects the account whose pubkey the SPP proof's input_owner_pk_hash
 /// must match; it is not itself a proof public input, so overriding it post-proof
 /// is safe.
-const ORDER_AUTHORITY_SIGNER_INDEX: u8 = 3;
+const ORDER_AUTHORITY_SIGNER_INDEX: u8 = 4;
 
 impl Cancel {
     pub fn instruction(self) -> Result<Instruction> {
@@ -53,6 +54,7 @@ impl Cancel {
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(maker, true),
             AccountMeta::new(payer, true),
+            AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(order_authority_pda(), false),
