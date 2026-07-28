@@ -3,7 +3,7 @@ use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::BatchUpdateNullifierTreeData,
-    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, MAX_BATCH_NULLIFIER_UPDATES,
 };
 use zolana_tree::TreeAccount;
 
@@ -54,7 +54,7 @@ pub fn process_batch_update_nullifier_tree_many(
 ) -> ProgramResult {
     let updates = Vec::<BatchUpdateNullifierTreeData>::try_from_slice(data)
         .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-    if updates.is_empty() {
+    if updates.is_empty() || updates.len() > MAX_BATCH_NULLIFIER_UPDATES {
         return Err(ShieldedPoolError::InvalidInstructionData.into());
     }
     let mut iter = AccountIterator::new(accounts);

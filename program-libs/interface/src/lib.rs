@@ -36,6 +36,10 @@ pub const MAX_INTERFACE_TRANSFERS: usize = u8::MAX as usize;
 /// Recommend for CU only after full-path dual ≥10% (`docs/batching/`).
 pub const MAX_BATCH_TRANSACT: usize = 4;
 
+/// Max proofs in one `BatchUpdateNullifierTreeMany` RLC. 4 fit today's 1232-byte
+/// packet; 16 covers larger packets (SIMD-0296 sizing) without an unbounded vec.
+pub const MAX_BATCH_NULLIFIER_UPDATES: usize = 16;
+
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The
 /// prover mirrors this as `SolAsset()` (Go `circuits/spp_transaction/shared`).
