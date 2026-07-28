@@ -3,6 +3,9 @@
 Every CU and byte cell comes from a measured run (mollusk `BENCHMARK.md` or this
 test's builder serialization). **No invented CU.**
 
+Policy: recommend batch paths only if full-path CU savings ≥ **10%**.
+See `docs/batching/`. Mixed-key app `*_BATCH` twins removed (no boost).
+
 Packet limits: **1232** (today) and **4096** (SIMD-0296 size sim).
 
 ## Syscall pin
@@ -13,13 +16,10 @@ Agave `5134c411` — `program-runtime/src/execution_budget.rs` MSM / pairing_che
 
 | Column | Source |
 | --- | --- |
-| CU (legacy app) | Existing `just bench-*` mollusk tables |
-| Bytes (forester / BatchTransact / Compose) | This test: full builder serialize |
-| Bytes (app batch twins) | Legacy BENCHMARK size + measured +foreign_vk account delta |
-| CU (batch full path) | blank until SBF dual benches with batch syscalls |
-| take_ve batch | n/a (standard Groth16 only on batch rail) |
-
-Account delta measured here: legacy_tx +33, v0+ALT +2.
+| CU (legacy app / RFQ) | Existing `just bench-*` mollusk tables |
+| Bytes (forester / BatchTransact) | This test: full builder serialize |
+| CU (same-vk full path) | blank until dual LiteSVM harness |
+| App mixed-key batch | removed — see `BATCH_CU_RESULTS.md` / `docs/batching/no-boost.md` |
 
 ## Table
 
@@ -34,23 +34,14 @@ Account delta measured here: legacy_tx +33, v0+ALT +2.
 | Transact | legacy | 1 | 155148 | 959 | 964 | 1232 |
 | BatchTransact | batch | 2 | | 741 | 715 | 1232 |
 | BatchTransact | batch | 4 | | 1201 | 1175 | 1232 |
-| ComposeTransact | batch | 2 | | 701 | 644 | 1232 |
 | Swap make | legacy | 2 | 258987 | 1124 | 1098 | 1232 |
-| Swap make | batch | 2 | n/a | 1157 | 1100 | 1232 |
 | Swap take | legacy | 2 | 261268 | 1056 | 999 | 1232 |
-| Swap take | batch | 2 | 270878 | 1089 | 1001 | 1232 |
 | Swap cancel | legacy | 2 | 252641 | 871 | 814 | 1232 |
-| Swap cancel | batch | 2 | 262078 | 904 | 816 | 1232 |
 | Swap take_ve | legacy | 2 | 395782 | | | 1232 |
-| Swap take_ve | batch | — | n/a | n/a | n/a | n/a |
 | Create escrow | legacy | 2 | 271556 | 1294 | 1175 | 1232 |
-| Create escrow | batch | 2 | | 1327 | 1177 | 1232 |
 | Settle | legacy | 2 | 269638 | 1221 | 1071 | 1232 |
-| Settle | batch | 2 | | 1254 | 1073 | 1232 |
 | Escrow | legacy | 2 | 257763 | 1026 | 1000 | 1232 |
-| Escrow | batch | 2 | | 1059 | 1002 | 1232 |
 | Withdraw | legacy | 2 | 252567 | 871 | 814 | 1232 |
-| Withdraw | batch | 2 | | 904 | 816 | 1232 |
 
 ### Builder size detail (empty pure-shielded body; relative deltas hold)
 
@@ -59,32 +50,19 @@ Account delta measured here: legacy_tx +33, v0+ALT +2.
 | Transact | 229 | 5 | 508 | 482 |
 | BatchTransact N=2 | 462 | 5 | 741 | 715 |
 | BatchTransact N=4 | 922 | 5 | 1201 | 1175 |
-| ComposeTransact | 389 | 6 | 701 | 644 |
 | NullifierTree ×1 | 195 | 5 | 474 | 448 |
 | NullifierTreeMany N=2 | 393 | 5 | 672 | 646 |
 | NullifierTreeMany N=4 | 781 | 5 | 1060 | 1034 |
 | NullifierTreeMany N=8 | 1557 | 5 | 1836 | 1810 |
 | NullifierTreeMany N=16 | 3109 | 5 | 3388 | 3362 |
-| Swap make-shaped legacy | 357 | 7 | 702 | 614 |
-| Swap make-shaped batch | 357 | 8 | 735 | 616 |
+
+### Mixed-key k=2 full-path CU (twins removed; historical)
+
+| Use case | Legacy CU | Batch CU | Delta |
+| --- | ---: | ---: | ---: |
+| Swap take | 269481 | 270878 | -1397 |
+| Swap cancel | 260690 | 262078 | -1388 |
 
 Regenerate: `cargo test -p zolana-groth16-batch --test matrix_measure -- --nocapture`
 
-## Fold-only syscall CU (measured layout × agave prices)
-
-Host trapdoor fold verifies; CU from `msm_cost`/`pairing_cost` (LiteSVM registration)
-for Independent same-vk, 1 public input. See `BATCH_CU_RESULTS.md` / `just bench-batch-fold-cu`.
-
-| N | Fold syscall CU |
-| ---: | ---: |
-| 1 | 72603 |
-| 2 | 92395 |
-| 4 | 131784 |
-| 8 | 207730 |
-| 16 | 358107 |
-| Compose k=2 | 127960 |
-
-Full-path app batch CU still needs working SPP transfer proving keys (currently
-`constraint not satisfied` on this branch for all transfer proves). Dual harness:
-`just bench-batch-cu`.
-
+Docs: `docs/batching/`

@@ -7,9 +7,7 @@ use groth16_solana::{
 };
 use light_program_profiler::profile;
 use pinocchio::ProgramResult;
-use zolana_groth16_batch::{
-    batch_verify_validated, batch_verify_wire, unpack_vk, vk_from_solana, WireProof,
-};
+use zolana_groth16_batch::{batch_verify_wire, WireProof};
 use zolana_interface::error::ShieldedPoolError;
 
 /// The compressed Groth16 proof points handed to [`verify_groth16`].
@@ -78,48 +76,6 @@ pub fn batch_verify_groth16(
         })
         .collect();
     match batch_verify_wire(verifying_key, &wire) {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(verify_err.into()),
-        Err(zolana_groth16_batch::WireError::Decompress) => Err(encoding_err.into()),
-        Err(zolana_groth16_batch::WireError::CommittedUnsupported) => Err(verify_err.into()),
-        Err(_) => Err(verify_err.into()),
-    }
-}
-
-/// Hetero RLC: packed foreign VK bytes + SPP verifying key.
-#[inline(never)]
-#[profile]
-pub fn batch_verify_compose(
-    foreign_vk_bytes: &[u8],
-    spp_vk: &Groth16Verifyingkey,
-    foreign: &BatchProofItem,
-    spp: &BatchProofItem,
-    encoding_err: ShieldedPoolError,
-    verify_err: ShieldedPoolError,
-) -> ProgramResult {
-    let foreign_vk = unpack_vk(foreign_vk_bytes).map_err(|_| encoding_err)?;
-    let spp_validated = vk_from_solana(spp_vk).map_err(|_| verify_err)?;
-    let items = [
-        (
-            0u16,
-            WireProof {
-                a: foreign.a,
-                b: foreign.b,
-                c: foreign.c,
-            },
-            foreign.public_input_hash,
-        ),
-        (
-            1u16,
-            WireProof {
-                a: spp.a,
-                b: spp.b,
-                c: spp.c,
-            },
-            spp.public_input_hash,
-        ),
-    ];
-    match batch_verify_validated(&[foreign_vk, spp_validated], &items) {
         Ok(true) => Ok(()),
         Ok(false) => Err(verify_err.into()),
         Err(zolana_groth16_batch::WireError::Decompress) => Err(encoding_err.into()),

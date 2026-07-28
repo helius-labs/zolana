@@ -102,18 +102,6 @@ fn fold_syscall_cu_same_vk_n(n: u64) -> u64 {
     cu
 }
 
-fn fold_syscall_cu_compose() -> u64 {
-    // mixed-key k=2, one proof each: n + 3k pairs = 8
-    let mut cu = 0u64;
-    for _ in 0..2 {
-        cu = cu.saturating_add(msm_cost(1)).saturating_add(msm_cost(2));
-    }
-    for _ in 0..2 {
-        cu = cu.saturating_add(3 * msm_cost(1));
-    }
-    cu.saturating_add(pairing_cost(8))
-}
-
 #[test]
 fn host_fold_trapdoor_and_syscall_cu() {
     let mut rng = StdRng::seed_from_u64(0xc0ffee);
@@ -142,16 +130,15 @@ fn host_fold_trapdoor_and_syscall_cu() {
     }
 
     let n2 = fold_syscall_cu_same_vk_n(2);
-    let compose = fold_syscall_cu_compose();
     let solo2 = 2 * (pairing_cost(4) + msm_cost(2) + msm_cost(1));
     report.push_str(&format!(
-        "\n## Compose mixed-key k=2\n\nSyscall CU ≈ {compose}\n\n\
-         ## vs solo ×2 (rough IC+pairing only)\n\n\
+        "\n## vs solo ×2 (rough IC+pairing only)\n\n\
          Solo×2 ≈ {solo2}; batch N=2 = {n2}; delta ≈ {}\n",
         solo2 as i64 - n2 as i64
     ));
 
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/BATCH_CU_RESULTS.md");
+    // Keep dual full-path history in BATCH_CU_RESULTS.md; fold-only is separate.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/FOLD_CU.md");
     fs::write(path, &report).expect("write");
     println!("{report}");
 }

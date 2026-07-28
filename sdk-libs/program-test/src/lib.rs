@@ -115,7 +115,7 @@ impl ZolanaProgramTest {
 
     /// Like [`with_program_path`], optionally registering agave BN254 batch
     /// syscalls at agave prices (`zolana_batch_syscalls`). Required for SPP
-    /// `BatchTransact` / `ComposeTransact` and app batch twins.
+    /// `BatchTransact` and the other same-vk multi-proof paths.
     pub fn with_program_path_and_batch_syscalls(
         path: &Path,
         batch_syscalls: bool,
