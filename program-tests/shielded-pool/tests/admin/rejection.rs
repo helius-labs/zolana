@@ -15,10 +15,8 @@ use zolana_interface::{
     pda,
     state::address_tree_params,
 };
-use zolana_program_test::{system_create_account_ix, Rpc, ZONE_TEST_PROGRAM_ID};
-use zolana_test_utils::litesvm_asserts::{
-    assert_custom, assert_instruction_error_at, assert_pool_error, assert_pool_error_at,
-};
+use zolana_program_test::{system_create_account_ix, Rejection, Rpc, ZONE_TEST_PROGRAM_ID};
+use zolana_test_utils::litesvm_asserts::{assert_custom, assert_instruction_error_at};
 use zolana_test_utils::mollusk::{
     empty_placeholder_account, expect_err_exact, mollusk_pubkey, sweep_account_matrix,
     AccountMutation, Expected,
@@ -66,7 +64,7 @@ fn protocol_config_rejects_a_signer_that_names_other_authorities() {
     let err = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&signer])
         .expect_err("mismatched authority must fail");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
     assert!(rpc.account_data(&pda::protocol_config()).is_none());
 }
 
@@ -79,7 +77,9 @@ fn tree_creation_rejects_unconfigured_authority() {
         .rpc
         .create_tree(tree_account_size(), &impostor)
         .expect_err("impostor tree creation must fail");
-    assert_pool_error_at(err, 1, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller)
+        .at(1)
+        .assert_litesvm(err);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn pause_tree_rejects_unconfigured_authority_atomically() {
         .rpc
         .pause_tree(&impostor, &pool.tree, true)
         .expect_err("impostor pause must fail");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
     pool.rpc
         .last_transaction_trace()
         .expect("rejected transaction trace")
@@ -106,7 +106,9 @@ fn undersized_tree_creation_is_rejected() {
         .rpc
         .create_tree(10_000, &pool.authority)
         .expect_err("undersized tree must fail");
-    assert_pool_error_at(err, 1, ShieldedPoolError::InvalidTreeAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
+        .at(1)
+        .assert_litesvm(err);
 }
 
 #[test]
@@ -117,7 +119,9 @@ fn oversized_tree_creation_is_rejected() {
         .rpc
         .create_tree(tree_account_size() + 8, &pool.authority)
         .expect_err("oversized tree must fail");
-    assert_pool_error_at(err, 1, ShieldedPoolError::InvalidTreeAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
+        .at(1)
+        .assert_litesvm(err);
 }
 
 #[test]
@@ -181,7 +185,9 @@ fn tree_creation_rejects_non_canonical_nullifier_params() {
             .rpc
             .create_and_send_default_payer_transaction(&[alloc, create], &[&tree, &pool.authority])
             .expect_err("non-canonical nullifier params must fail");
-        assert_pool_error_at(err, 1, ShieldedPoolError::InvalidTreeAccounts);
+        Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
+            .at(1)
+            .assert_litesvm(err);
     }
 }
 
@@ -195,7 +201,7 @@ fn pause_requires_a_protocol_config() {
     let err = rpc
         .pause_tree(&signer, &tree, true)
         .expect_err("pause without config must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidProtocolConfig);
+    Rejection::pool(ShieldedPoolError::InvalidProtocolConfig).assert_litesvm(err);
 }
 
 #[test]
@@ -214,7 +220,7 @@ fn protocol_authority_rotation_revokes_old_authority() {
             UpdateProtocolConfigData::TreeCreationPermissionless(true),
         )
         .expect_err("old authority must be revoked");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
 }
 
 #[test]
@@ -241,7 +247,7 @@ fn zone_config_owner_rotation_revokes_old_authority() {
     let err = rpc
         .update_zone_config(&authority, &zone_config, true)
         .expect_err("old zone authority must be revoked");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
 }
 
 #[test]
@@ -263,7 +269,7 @@ fn zone_config_rejects_a_noncanonical_zone_authority_account() {
     let err = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&payer])
         .expect_err("noncanonical zone config must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidZoneConfig);
+    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
 }
 
 #[test]
@@ -513,7 +519,7 @@ fn tree_creation_rejects_double_initialization() {
         .rpc
         .create_and_send_default_payer_transaction(&[create_again], &[&pool.authority])
         .expect_err("re-initializing an existing tree must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidTreeAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts).assert_litesvm(err);
     assert_eq!(
         pool.rpc.account_data(&pool.tree.pubkey()).expect("tree"),
         tree_before,
@@ -548,7 +554,9 @@ fn tree_creation_rejects_trailing_instruction_bytes() {
         .rpc
         .create_and_send_default_payer_transaction(&[alloc, create], &[&tree, &pool.authority])
         .expect_err("trailing instruction bytes must fail");
-    assert_pool_error_at(err, 1, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData)
+        .at(1)
+        .assert_litesvm(err);
 }
 
 #[test]
@@ -572,7 +580,7 @@ fn zone_config_creation_rejects_an_unsigned_zone_config() {
     let err = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&authority])
         .expect_err("unsigned zone config must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidZoneConfig);
+    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
 }
 
 #[test]
@@ -590,7 +598,7 @@ fn zone_config_creation_rejects_an_unconfigured_payer_when_permissioned() {
         .rpc
         .create_zone_config(&impostor, &impostor.pubkey(), true)
         .expect_err("impostor zone creation must fail");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
 }
 
 #[test]
@@ -619,7 +627,7 @@ fn zone_owner_rotation_rejects_a_mismatched_co_signer() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority, &impostor])
         .expect_err("mismatched rotation co-signer must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 }
 
 #[test]
@@ -670,7 +678,7 @@ fn zone_update_rejects_a_cosplay_config_account() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("a non-config account in the config slot must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidZoneConfig);
+    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
 }
 
 #[test]
@@ -690,5 +698,5 @@ fn asset_counter_creation_rejects_a_non_canonical_pda() {
     let err = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&authority])
         .expect_err("non-canonical counter PDA must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidPda);
+    Rejection::pool(ShieldedPoolError::InvalidPda).assert_litesvm(err);
 }

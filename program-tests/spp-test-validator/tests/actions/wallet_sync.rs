@@ -1,9 +1,10 @@
 //! Wallet synchronization and explicit UTXO assertions.
 
 use anyhow::Result;
+use zolana_test_utils::localnet::ZERO;
 use zolana_transaction::{Address, LocalWalletAuthority, Utxo, DEFAULT_TAG_WINDOW};
 
-use crate::{localnet::ZERO, LifecycleHarness};
+use crate::LifecycleHarness;
 
 impl LifecycleHarness {
     /// Sync an actor's wallet from every indexed transfer (decryption), and make

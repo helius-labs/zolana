@@ -18,9 +18,8 @@ use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
         Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplWithdrawalAccounts,
     },
-    pda, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
@@ -31,12 +30,11 @@ use shielded_pool_tests::support::{fixtures::Pool, mollusk, transact::tree_roots
 use zolana_test_utils::{
     prover::spawn_workspace_prover,
     transact::{
-        build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
-        dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe,
-        inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, pack_proof,
-        prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
-        set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs,
-        TransferProverInputsArgs,
+        build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
+        eddsa_input_utxo, external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
+        output_owner_pk_hashes, pack_proof, prove_and_verify_transfer, public_input_hash,
+        public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
+        transfer_output, SpendInputArgs, TransferProverInputsArgs,
     },
 };
 
@@ -204,11 +202,22 @@ fn bench_cu_deposit() {
     bench_deposit_sol(&mollusk, &program_id, &mut bench);
     bench_deposit_sol_batch(&mollusk, &program_id, &mut bench);
     bench_deposit_spl(&mollusk, &program_id, &token_program_account, &mut bench);
-    let _ = (
-        bench_transfer_shape,
-        bench_withdrawal_sol,
-        bench_withdrawal_spl,
-    ); // TEMP-SKIP
+    for (n_inputs, n_outputs) in [
+        (1, 1),
+        (1, 2),
+        (2, 2),
+        (2, 3),
+        (3, 3),
+        (4, 3),
+        (4, 4),
+        (5, 3),
+        (5, 4),
+        (1, 8),
+    ] {
+        bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, &mut bench);
+    }
+    bench_withdrawal_sol(&mollusk, &program_id, &mut bench);
+    bench_withdrawal_spl(&mollusk, &program_id, &token_program_account, &mut bench);
 
     bench.generate().expect("write CU_BENCHMARK.md");
 }
@@ -404,9 +413,12 @@ fn bench_deposit_spl(
     bench.add_from_entries("deposit spl", entries);
 }
 
-// Every confidential EdDSA circuit shape, using dummy inputs/outputs and no
-// settlement so the measurement isolates shape-dependent proof verification,
-// public-input hashing, and tree application.
+// Every confidential EdDSA circuit shape, spending nothing (all-dummy inputs)
+// and settling nothing so the measurement isolates shape-dependent proof
+// verification, public-input hashing, and tree application. PR164 constrains
+// dummies (AssertDummyTags): every dummy tag must name a transaction
+// participant, so output 0 is a real zero-amount output owned by the payer and
+// every dummy slot carries the payer's tag.
 fn bench_transfer_shape(
     mollusk: &Mollusk,
     program_id: &Pubkey,
@@ -425,19 +437,34 @@ fn bench_transfer_shape(
 
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
     let owner_hash = hash_bytes(&payer_bytes).expect("owner hash");
-    let (dummy_input_0, nullifier_0) =
-        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
-    let (dummy_input_1, nullifier_1) =
-        dummy_input(&[32u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 1");
-    let nullifiers = [nullifier_0, nullifier_1];
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
-        .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let mut inputs = Vec::with_capacity(n_inputs);
+    let mut nullifiers = Vec::with_capacity(n_inputs);
+    for index in 0..n_inputs {
+        let (input, nullifier) = dummy_input(&[index as u8 + 31; 31], &nf_tree, roots, &owner_hash)
+            .expect("dummy input");
+        inputs.push(input);
+        nullifiers.push(nullifier);
+    }
 
-    let view_tags: Vec<[u8; 32]> = (0..n_outputs).map(|index| [index as u8 + 1; 32]).collect();
+    let nullifier_key = NullifierKey::from_secret([21u8; 31]);
+    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+    let owner = PublicKey::from_ed25519(&payer_bytes);
+    let real = real_output(owner, nullifier_pk, SOL_MINT, 0, [23u8; 31]);
+    let real_hash = real.hash().expect("real output hash");
+    let mut outputs = vec![transfer_output(&real).expect("real transfer output")];
+    let mut output_hashes = vec![real_hash];
+    for index in 1..n_outputs {
+        let (output, hash) = dummy_transfer_output(&[index as u8; 31]).expect("dummy output");
+        outputs.push(output);
+        output_hashes.push(hash);
+    }
+
+    // The real output's owner tag is its owner's confidential view tag, so the
+    // program's `hash_bytes(resolved_owner_tag)` equals the owner's pk field;
+    // the dummy slots reuse the payer's tag, as the participant gate requires.
+    let owner_view_tag = owner.confidential_view_tag().expect("owner view tag");
+    let mut view_tags = vec![owner_view_tag];
+    view_tags.extend(std::iter::repeat_n(payer_bytes, n_outputs - 1));
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
@@ -448,30 +475,35 @@ fn bench_transfer_shape(
     );
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
+    let mut nullifier_pks = vec![nullifier_pk];
+    nullifier_pks.extend(std::iter::repeat_n(zero, n_outputs - 1));
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &nullifier_pks);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &[]).expect("external data hash");
-    let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
-        .hash()
-        .expect("private tx hash");
+    let mut private_outputs = vec![real_hash];
+    private_outputs.extend(std::iter::repeat_n(zero, n_outputs - 1));
+    let private_tx =
+        PrivateTxHash::new(&vec![zero; n_inputs], &private_outputs, &external_data_hash)
+            .hash()
+            .expect("private tx hash");
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
 
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = public_input_hash(
         &nullifiers,
         &output_hashes,
-        &[utxo_root, utxo_root],
-        &[nullifier_root, nullifier_root],
+        &vec![utxo_root; n_inputs],
+        &vec![nullifier_root; n_inputs],
         &private_tx,
         &external_data_hash,
         &public_slot_assets,
         &public_slot_amounts,
         &payer_pubkey_hash,
-        &[owner_hash, owner_hash],
+        &vec![owner_hash; n_inputs],
         &owner_pk_hashes,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![dummy_input_0, dummy_input_1],
+        inputs,
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
@@ -587,7 +619,9 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    // Dummy outputs must name a transaction participant (AssertDummyTags), so
+    // they carry the payer's tag.
+    let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
@@ -684,158 +718,9 @@ fn bench_withdrawal_spl(
     spawn_workspace_prover();
 
     const AMOUNT: u64 = 1_000;
-    let mint = pt.create_mint().expect("create_mint");
-    pt.ensure_asset_counter(&authority)
-        .expect("create_asset_counter");
-    pt.create_spl_interface(&authority, &mint)
-        .expect("create_spl_interface");
-
-    let payer = pt.payer.insecure_clone();
-    let payer_bytes = payer.pubkey().to_bytes();
-    let zero = [0u8; 32];
-
-    let user_token = pt
-        .create_token_account(&mint, &payer.pubkey())
-        .expect("user token account");
-    pt.mint_to(&mint, &user_token, AMOUNT).expect("mint_to");
-
-    let blinding = test_blinding(7);
-    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
-    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: solana_address::Address::new_from_array(mint.to_bytes()),
-        amount: AMOUNT,
-        blinding,
-        zone_program_id: None,
-        data: Data::default(),
-    };
-    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
-
-    let data =
-        ZolanaProgramTest::spl_shield_data(AMOUNT, owner_field, blinding, &mint, &user_token);
-    let event = pt
-        .deposit(&tree, &payer, &data)
-        .expect("proofless spl deposit");
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    assert_eq!(utxo_hash, event.utxo_hash);
-
-    let (utxo_root, nullifier_root) = tree_roots(&pt, &tree, 1);
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
-    state_tree.append(&utxo_hash).expect("append state leaf");
-    assert_eq!(state_tree.root(), utxo_root, "state root gate");
-    let state_path: Vec<[u8; 32]> = state_tree
-        .get_proof_of_leaf(0, true)
-        .expect("state proof")
-        .to_vec();
-
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
-    let nullifier = nullifier_key
-        .nullifier(&utxo_hash, &blinding)
-        .expect("nullifier");
-    let non_inclusion = nf_tree
-        .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
-        .expect("non inclusion proof");
-
-    let roots = (utxo_root, nullifier_root);
-    let (dummy_spend_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
-    let payer_spend_input = spend_input(SpendInputArgs {
-        utxo: &utxo,
-        owner_field: &owner_field,
-        state_path: &state_path,
-        state_path_index: 0,
-        non_inclusion: &non_inclusion,
-        roots,
-        nullifier: &nullifier,
-        owner_pk_hash: &owner_pk_hash,
-        nullifier_key: &nullifier_key,
-    })
-    .expect("real input");
-
-    let vault = pda::spl_asset_vault(&mint);
-
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
-        .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
-
-    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
-    let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
-        ],
-        vec![InterfaceTransfer::SplWithdrawal {
-            amount: AMOUNT,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
-        }],
-        inline_outputs(&output_hashes, &view_tags),
-    );
-    let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
-    let external_data_hash =
-        external_data_hash_spl(&transact_ix_data, &user_token.to_bytes(), &vault.to_bytes())
-            .expect("external data hash");
-    let private_tx =
-        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-            .hash()
-            .expect("private tx hash");
-    let public_spl_field = public_sol_field(Some(-(AMOUNT as i64)));
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
-
-    let public_input_hash = public_input_hash_spl(
-        &[nullifier, dummy_nullifier],
-        &output_hashes,
-        &[utxo_root, utxo_root],
-        &[nullifier_root, nullifier_root],
-        &private_tx,
-        &external_data_hash,
-        &public_spl_field,
-        &mint.to_bytes(),
-        &payer_pubkey_hash,
-        &[owner_pk_hash, owner_pk_hash],
-        &owner_pk_hashes,
-    );
-    let prover_inputs = build_transfer_prover_inputs_spl(
-        TransferProverInputsArgs {
-            inputs: vec![payer_spend_input, dummy_spend_input],
-            outputs,
-            external_data_hash,
-            private_tx_hash: private_tx,
-            public_slot_assets: [[0u8; 32]; zolana_interface::N_PUBLIC_SLOTS],
-            public_slot_amounts: [[0u8; 32]; zolana_interface::N_PUBLIC_SLOTS],
-            payer_pubkey_hash,
-            public_input_hash,
-        },
-        public_spl_field,
-        mint.to_bytes(),
-    );
-    transact_ix_data.proof =
-        prove_and_verify_transfer(&prover_inputs, public_input_hash, "withdrawal spl")
-            .expect("prove withdrawal spl");
-    transact_ix_data.private_tx_hash = private_tx;
-
-    let ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree,
-        output_tree: tree,
-        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
-            TransactSplWithdrawalAccounts {
-                mint,
-                vault,
-                user_token_account: user_token,
-                token_program: ZolanaProgramTest::token_program_id(),
-            },
-        )],
-        data: transact_ix_data,
-    }
-    .instruction();
+    let withdrawal = build_spl_withdrawal(&mut pt, &authority, &tree, AMOUNT, test_blinding(7))
+        .expect("build SPL withdrawal");
+    let ix = withdrawal.instruction;
 
     let accounts = transact_accounts(&pt, &ix, program_id, Some(token_program_account));
     let mollusk_ix = to_mollusk_instruction(&ix);

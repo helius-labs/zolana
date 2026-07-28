@@ -3,7 +3,7 @@
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{SyncWalletAuthority, Wallet};
 
 /// Verify a settled SPL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -91,34 +91,12 @@ pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
         "indexed record owner"
     );
 
-    let before = recipient.utxos.len();
-    recipient
-        .sync(
-            authority,
-            &[event.to_shielded_transaction(solana_signature::Signature::default())],
-            0,
-            DEFAULT_TAG_WINDOW,
-        )
-        .expect("wallet discovery");
-    assert_eq!(
-        recipient.utxos.len(),
-        before + 1,
-        "recipient wallet must discover the SPL deposit"
-    );
-    let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(
-        utxo.output_context.hash, event.utxo_hash,
-        "wallet UTXO hash"
-    );
-    assert_eq!(
-        utxo.utxo.asset.to_bytes(),
-        mint.to_bytes(),
-        "wallet UTXO asset is the mint"
-    );
-    assert_eq!(utxo.utxo.amount, event.output.amount, "wallet UTXO amount");
-    assert_eq!(
-        utxo.utxo.data.memo().map(<[u8]>::to_vec),
-        data.memo,
-        "wallet UTXO memo mirrors the deposited memo"
+    super::assert_wallet_discovers(
+        recipient,
+        authority,
+        event,
+        &data.memo,
+        Some(mint),
+        "SPL deposit",
     );
 }

@@ -10,9 +10,10 @@ use zolana_interface::{
     pda,
     state::{discriminator::SPL_ASSET_COUNTER, SplAssetCounter},
 };
+use zolana_program_test::Rejection;
 use zolana_test_utils::{
     backend::LiteSvmPoolBackend,
-    litesvm_asserts::{assert_custom, assert_instruction_error, assert_pool_error},
+    litesvm_asserts::{assert_custom, assert_instruction_error},
 };
 
 #[test]
@@ -64,7 +65,7 @@ fn asset_counter_rejects_a_non_protocol_authority() {
         .rpc
         .create_asset_counter(&intruder)
         .expect_err("a signer that is not the protocol authority must be rejected");
-    assert_pool_error(error, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(error);
     assert!(
         backend
             .rpc
@@ -126,7 +127,7 @@ fn asset_counter_creation_rejects_trailing_instruction_bytes() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("non-empty instruction payload must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
     assert!(
         backend
             .rpc

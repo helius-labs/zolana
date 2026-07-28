@@ -7,6 +7,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::indexed_events_from_instruction_groups;
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::{
         AssetDeposit, Deposit, DepositAsset, DepositSplAccounts, ZoneAssetDeposit, ZoneDeposit,
     },
@@ -25,13 +26,9 @@ use zolana_transaction::{Data, LocalWalletAuthority, Utxo, Wallet, SOL_MINT};
 
 use crate::{
     actor::{SplZoneDepositAccounts, ZoneDepositRecord},
-    localnet::send_transaction,
     ZoneHarness,
 };
-
-/// `ShieldedPoolError::InvalidZoneConfig` (the wrong-signer zone config is not the
-/// canonical `zone_auth` PDA the loader requires).
-const INVALID_ZONE_CONFIG: u32 = 7014;
+use zolana_test_utils::localnet::send_transaction;
 
 impl ZoneHarness {
     /// Build the recipient-hidden, wallet-discoverable zone deposit data for `name`:
@@ -122,7 +119,7 @@ impl ZoneHarness {
         };
         let actor = self.actor_mut(name);
         actor.spendable.push(utxo);
-        actor.last_zone_deposit = Some(ZoneDepositRecord {
+        actor.last_deposit = Some(ZoneDepositRecord {
             signature,
             data,
             tree_before,
@@ -171,7 +168,7 @@ impl ZoneHarness {
         .instruction()?;
         let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
 
-        self.actor_mut(name).last_zone_deposit = Some(ZoneDepositRecord {
+        self.actor_mut(name).last_deposit = Some(ZoneDepositRecord {
             signature,
             data,
             tree_before,
@@ -192,7 +189,7 @@ impl ZoneHarness {
     pub(crate) fn assert_zone_deposited(&self, name: &str, amount: u64) -> Result<()> {
         let actor = self.actor(name);
         let record = actor
-            .last_zone_deposit
+            .last_deposit
             .clone()
             .ok_or_else(|| anyhow!("{name} has no recorded zone deposit"))?;
         let keypair = actor.keypair.clone();
@@ -282,7 +279,10 @@ impl ZoneHarness {
         match send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor]) {
             Ok(_) => Err(anyhow!("wrong-signer zone deposit unexpectedly succeeded")),
             Err(error) => {
-                assert_eq!(assert_custom_program_error(&error, INVALID_ZONE_CONFIG), 0);
+                assert_eq!(
+                    assert_custom_program_error(&error, ShieldedPoolError::InvalidZoneConfig),
+                    0
+                );
                 assert_account_unchanged(&self.rpc, &tree, &tree_before)?;
                 Ok(())
             }

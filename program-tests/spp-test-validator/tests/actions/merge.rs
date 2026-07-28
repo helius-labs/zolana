@@ -6,8 +6,9 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
-use zolana_interface::instruction::{
-    instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact,
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
 };
 use zolana_keypair::{
     merge::{merge_dummy_nullifier, merge_output_blinding},
@@ -27,10 +28,9 @@ use zolana_user_registry_interface::{
     user_record_pda,
 };
 
-use crate::{
-    localnet::{pack_proof, send_transaction, ZERO},
-    LifecycleHarness,
-};
+use zolana_test_utils::localnet::{pack_proof, send_transaction, ZERO};
+
+use crate::LifecycleHarness;
 
 /// What the consolidated-output assert needs after a merge: the actor that owns
 /// the appended output and the output's hash (for the inclusion-proof check).
@@ -399,7 +399,10 @@ impl LifecycleHarness {
                 let client_error = error
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
-                assert_eq!(assert_custom_program_error(client_error, MERGE_DISABLED), 1);
+                assert_eq!(
+                    assert_custom_program_error(client_error, ShieldedPoolError::MergeDisabled),
+                    1
+                );
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 assert_eq!(
                     self.actor(name).spendable,
@@ -435,7 +438,10 @@ impl LifecycleHarness {
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 assert_eq!(
-                    assert_custom_program_error(client_error, TRANSACT_PROOF_VERIFICATION_FAILED),
+                    assert_custom_program_error(
+                        client_error,
+                        ShieldedPoolError::TransactProofVerificationFailed
+                    ),
                     1
                 );
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
@@ -449,11 +455,3 @@ impl LifecycleHarness {
         }
     }
 }
-
-/// Custom program error code for an owner that has not enabled merging
-/// (`ShieldedPoolError::MergeDisabled`).
-const MERGE_DISABLED: u32 = 7017;
-
-/// Custom program error code for a merge proof whose recomputed public input
-/// does not match (`ShieldedPoolError::TransactProofVerificationFailed`).
-const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;

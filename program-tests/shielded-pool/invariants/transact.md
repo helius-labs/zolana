@@ -284,6 +284,15 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical
   - Suggested test: negative (two slots, same nullifier); harness: Go circuit tests (`go test ./circuits/spp_transaction/shared`)
 
+- [x] **INV-TRANSACT-33: dummy-slot proofs are locked out once the tree crosses the capacity threshold**
+  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_dummy_inputs_after_capacity_threshold`
+  - Kind: precondition
+  - Statement: when the nullifier tree has strictly fewer free leaves than the state tree (queue reservations count against nullifier capacity), the on-chain `allow_dummy_inputs` public input is false; a proof carrying dummy input slots commits to `allow_dummy_inputs = true`, so the public input hash mismatches and verification fails. Equality of the two remaining capacities still allows dummies.
+  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:20-21` (`fn apply_input_tree`), `program-libs/tree/src/lib.rs:279-290` (`fn allow_dummy_inputs`); the merge rail gates the same flag with the explicit `NullifierTreeTooFullForMerge` (`programs/shielded-pool/src/instructions/merge/processor.rs:100-106`)
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
+  - Severity: High (availability: near-capacity trees must not accept spends they cannot nullify)
+  - Suggested test: negative (queue cursor moved past the threshold, roots unchanged); harness: program-tests integration (`cargo test-sbf`)
+
 ## ZoneTransact
 
 ### Account Constraints

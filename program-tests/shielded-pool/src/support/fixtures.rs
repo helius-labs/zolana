@@ -77,6 +77,26 @@ pub fn spl_group_accounts(mint: Pubkey, user_token: Pubkey) -> Vec<AccountMeta> 
     ]
 }
 
+/// Full SPL `deposit` account metas (tree, depositor, then the SPL asset
+/// group and the program itself) for hand-built deposit instructions.
+pub fn spl_accounts(
+    tree: Pubkey,
+    depositor: Pubkey,
+    user_token: Pubkey,
+    mint: Pubkey,
+) -> Vec<AccountMeta> {
+    vec![
+        AccountMeta::new(tree, false),
+        AccountMeta::new(depositor, true),
+        AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
+        AccountMeta::new_readonly(mint, false),
+        AccountMeta::new(user_token, false),
+        AccountMeta::new(pda::spl_asset_vault(&mint), false),
+        AccountMeta::new_readonly(pda::spl_asset_registry(&mint), false),
+        AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
+    ]
+}
+
 /// Send hand-built batch instruction data against a caller-supplied account
 /// layout, so a test can violate an instruction-data invariant the `Deposit`
 /// builder never produces.

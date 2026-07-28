@@ -13,7 +13,6 @@ use zolana_interface::{
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::litesvm_asserts::assert_pool_error;
 use zolana_test_utils::mollusk::{expect_err_exact, mollusk_with_program};
 
 const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy");
@@ -459,7 +458,7 @@ fn create_and_update_protocol_config() {
             UpdateProtocolConfigData::TreeCreationPermissionless(true),
         )
         .expect_err("pre-rotation authority must be rejected");
-    assert_pool_error(error, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(error);
     assert_eq!(
         read_config(&backend),
         expected,

@@ -13,8 +13,8 @@ use serial_test::serial;
 use shielded_pool_tests::support::{
     forester::{ForesterAuthority, NullifierTestForester},
     localnet::{
-        account_lamports, initialize_pool, on_chain_roots, print_signature, send_transaction,
-        LocalnetPool,
+        account_lamports, build_sol_transfer_witness, dummy_witness_outputs, initialize_pool,
+        on_chain_roots, print_signature, send_transaction, LocalnetPool, SolTransferWitnessArgs,
     },
 };
 use solana_address::Address;
@@ -26,8 +26,7 @@ use zolana_client::{
     prover::field::{be, right_align_slice},
     ConfidentialTransfer, EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
     NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, ProverInputs, Rpc,
-    ShieldedTransaction, SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, TransferOutput,
-    ZolanaIndexer,
+    ShieldedTransaction, SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, ZolanaIndexer,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
@@ -55,7 +54,6 @@ use zolana_test_utils::{
     test_validator_asserts::assert_transaction_compute_units,
 };
 use zolana_transaction::{
-    instructions::transact::PrivateTxHash,
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     AssetRegistry, Data, LocalWalletAuthority, Utxo, Wallet, WalletUtxo, DEFAULT_TAG_WINDOW,
     SOL_MINT,
@@ -63,11 +61,8 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_input, dummy_input_with_proof, dummy_nullifier,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe, inline_outputs,
-    new_transact_ix_data, output_owner_pk_hashes, pack_proof, prove_and_verify_transfer,
-    public_input_hash, public_sol_field, real_output, set_output_owner_tags, sol_public_slots,
-    transfer_output, TransferProverInputsArgs,
+    dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe, pack_proof,
+    public_sol_field, real_output, transfer_output,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";

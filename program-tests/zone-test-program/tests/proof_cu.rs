@@ -5,7 +5,6 @@
 mod actions;
 mod actor;
 mod harness;
-mod localnet;
 mod support;
 
 use anyhow::Result;

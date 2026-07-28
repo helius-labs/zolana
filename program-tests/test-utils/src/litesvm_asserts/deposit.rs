@@ -6,9 +6,7 @@ use zolana_interface::instruction::AssetDeposit;
 use zolana_interface::{pda, state::STATE_HEIGHT};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{
-    ProofInputUtxo, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
-};
+use zolana_transaction::{ProofInputUtxo, SyncWalletAuthority, Wallet, SOL_MINT};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SolDepositSnapshot {
@@ -279,29 +277,5 @@ pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
         "indexed record owner"
     );
 
-    let before = recipient.utxos.len();
-    recipient
-        .sync(
-            authority,
-            &[event.to_shielded_transaction(solana_signature::Signature::default())],
-            0,
-            DEFAULT_TAG_WINDOW,
-        )
-        .expect("wallet discovery");
-    assert_eq!(
-        recipient.utxos.len(),
-        before + 1,
-        "recipient wallet must discover the deposit"
-    );
-    let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(
-        utxo.output_context.hash, event.utxo_hash,
-        "wallet UTXO hash"
-    );
-    assert_eq!(utxo.utxo.amount, event.output.amount, "wallet UTXO amount");
-    assert_eq!(
-        utxo.utxo.data.memo().map(<[u8]>::to_vec),
-        data.memo,
-        "wallet UTXO memo mirrors the deposited memo"
-    );
+    super::assert_wallet_discovers(recipient, authority, event, &data.memo, None, "deposit");
 }

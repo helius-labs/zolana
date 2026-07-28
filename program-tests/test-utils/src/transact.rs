@@ -6,6 +6,10 @@ use anyhow::{anyhow, Context, Result};
 use groth16_solana::groth16::Groth16Verifier;
 use num_bigint::BigUint;
 use solana_address::Address;
+use solana_instruction::Instruction;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 use zolana_client::{
     prover::field::{be, right_align_slice},
     spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient, TransferInput,
@@ -13,7 +17,7 @@ use zolana_client::{
 };
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_hasher::primitives::hash_bytes;
-use zolana_hasher::Poseidon;
+use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -21,18 +25,25 @@ use zolana_interface::{
             ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData, TransactOutput,
             TransactProof,
         },
-        tag,
+        tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
+    pda,
     verifying_keys::transfer_confidential_2_3,
     N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
-use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey};
+use zolana_keypair::{
+    hash::owner_hash, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
+};
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
+use zolana_merkle_tree::MerkleTree;
+use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
+    instructions::transact::PrivateTxHash,
     instructions::types::SppProofInputUtxo,
-    SppProofOutputUtxo, Utxo,
+    Data, SppProofOutputUtxo, Utxo,
 };
+use zolana_tree::TreeAccount;
 
 pub fn start_prover() -> Result<()> {
     static INIT: std::sync::Once = std::sync::Once::new();
@@ -58,31 +69,6 @@ pub fn fe(value: u64) -> [u8; 32] {
 
 pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
-}
-
-/// Pack a Groth16 proof (always BSB22-committed) into the 192-byte layout the
-/// `merge_transact` program path reads.
-pub fn pack_merge_proof(proof: &Proof) -> Result<[u8; 192]> {
-    let compressed = ProofCompressed::try_from(*proof)?;
-    let mut out = [0u8; 192];
-    if let (Some(dst), src) = (out.get_mut(0..32), compressed.a) {
-        dst.copy_from_slice(&src);
-    }
-    if let (Some(dst), src) = (out.get_mut(32..96), compressed.b) {
-        dst.copy_from_slice(&src);
-    }
-    if let (Some(dst), src) = (out.get_mut(96..128), compressed.c) {
-        dst.copy_from_slice(&src);
-    }
-    if let Some(commitment) = compressed.commitment {
-        if let Some(dst) = out.get_mut(128..160) {
-            dst.copy_from_slice(&commitment.commitment);
-        }
-        if let Some(dst) = out.get_mut(160..192) {
-            dst.copy_from_slice(&commitment.commitment_pok);
-        }
-    }
-    Ok(out)
 }
 
 /// Mirror of the confidential `TransactProof::public_input_hash` on the eddsa
@@ -625,4 +611,197 @@ pub fn transfer_output(output: &SppProofOutputUtxo) -> Result<TransferOutput> {
 
 pub fn public_sol_field(amount: Option<i64>) -> [u8; 32] {
     amount.map(signed_to_field).unwrap_or_default()
+}
+
+/// Everything a caller needs to drive and assert an SPL-withdrawal `transact`:
+/// the bound settlement accounts, the spent UTXO's hash and nullifier, the
+/// proven instruction data (cloneable for negative variants), and the
+/// ready-to-send instruction.
+pub struct SplWithdrawal {
+    pub mint: Pubkey,
+    pub vault: Pubkey,
+    pub user_token: Pubkey,
+    pub utxo_hash: [u8; 32],
+    pub nullifier: [u8; 32],
+    pub data: TransactIxData,
+    pub instruction: Instruction,
+}
+
+/// Shared SPL-withdrawal pipeline: shield one real SPL UTXO of `amount` owned
+/// by the payer's Ed25519 key via the proofless SPL deposit, then spend it in a
+/// (2,3) eddsa `transact` (one real input, one dummy input, three dummy
+/// outputs) carrying a real Groth16 proof, withdrawing the full token amount
+/// from the vault back to the payer's token account. The input carries a real
+/// state-inclusion proof against the on-chain UTXO tree root and a real
+/// nullifier non-inclusion proof against the on-chain nullifier tree root, both
+/// built from reference trees and gated against the on-chain roots. Fixed
+/// blinding / nullifier secrets keep the run deterministic.
+pub fn build_spl_withdrawal(
+    pt: &mut ZolanaProgramTest,
+    authority: &Keypair,
+    tree: &Pubkey,
+    amount: u64,
+    blinding: [u8; 32],
+) -> Result<SplWithdrawal> {
+    let mint = pt.create_mint().context("create mint")?;
+    pt.ensure_asset_counter(authority)
+        .context("create asset counter")?;
+    pt.create_spl_interface(authority, &mint)
+        .context("create SPL interface")?;
+
+    let payer = pt.payer.insecure_clone();
+    let payer_bytes = payer.pubkey().to_bytes();
+    let zero = [0u8; 32];
+
+    let user_token = pt
+        .create_token_account(&mint, &payer.pubkey())
+        .context("create user token account")?;
+    pt.mint_to(&mint, &user_token, amount).context("mint SPL")?;
+    let vault = pda::spl_asset_vault(&mint);
+
+    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
+    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+    let utxo = Utxo {
+        owner: PublicKey::from_ed25519(&payer_bytes),
+        asset: Address::new_from_array(mint.to_bytes()),
+        amount,
+        blinding,
+        zone_program_id: None,
+        data: Data::default(),
+    };
+    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner hash");
+    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
+    let shield =
+        ZolanaProgramTest::spl_shield_data(amount, owner_field, blinding, &mint, &user_token);
+    let event = pt.deposit(tree, &payer, &shield).context("SPL deposit")?;
+    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("UTXO hash");
+    assert_eq!(event.utxo_hash, utxo_hash);
+
+    // The UTXO is leaf 0; its inclusion proof is against the root AFTER the
+    // shield append (history index 1).
+    let mut tree_data = pt.account_data(tree).expect("tree account");
+    let tree_account = TreeAccount::from_bytes(&mut tree_data, tree.to_bytes()).expect("load tree");
+    let utxo_root = tree_account.get_utxo_tree_root(1).expect("utxo root");
+    let nullifier_root = tree_account
+        .get_nullifier_tree_root(0)
+        .expect("nullifier root");
+
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    state_tree.append(&utxo_hash).expect("append state leaf");
+    assert_eq!(state_tree.root(), utxo_root);
+    let state_path: Vec<[u8; 32]> = state_tree
+        .get_proof_of_leaf(0, true)
+        .expect("state proof")
+        .to_vec();
+    let nf_tree = nullifier_tree().expect("nullifier tree");
+    assert_eq!(nf_tree.root(), nullifier_root);
+    let nullifier = nullifier_key
+        .nullifier(&utxo_hash, &blinding)
+        .expect("nullifier");
+    let non_inclusion = nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+        .expect("non-inclusion proof");
+    let roots = (utxo_root, nullifier_root);
+    let (withdraw_dummy_input, dummy_nullifier) =
+        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+    let spend = spend_input(SpendInputArgs {
+        utxo: &utxo,
+        owner_field: &owner_field,
+        state_path: &state_path,
+        state_path_index: 0,
+        non_inclusion: &non_inclusion,
+        roots,
+        nullifier: &nullifier,
+        owner_pk_hash: &owner_pk_hash,
+        nullifier_key: &nullifier_key,
+    })
+    .expect("spend input");
+
+    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
+        .iter()
+        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
+        .collect();
+    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
+    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    // Dummy outputs must name a transaction participant (AssertDummyTags), so
+    // they carry the payer's tag.
+    let mut data = new_transact_ix_data(
+        vec![
+            eddsa_input_utxo(nullifier, 1),
+            eddsa_input_utxo(dummy_nullifier, 1),
+        ],
+        vec![InterfaceTransfer::SplWithdrawal {
+            amount,
+            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+        }],
+        inline_outputs(&output_hashes, &[payer_bytes; 3]),
+    );
+    let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
+    set_output_owner_tags(&mut outputs, &output_owner_hashes, &[zero, zero, zero]);
+    let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
+        .expect("external data hash");
+    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_hash)
+        .hash()
+        .expect("private transaction hash");
+    let public_spl_field = public_sol_field(Some(-(amount as i64)));
+    let payer_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let mint_bytes = mint.to_bytes();
+    let input_owner_hashes = [owner_pk_hash, owner_pk_hash];
+    let public_hash = public_input_hash_spl(
+        &[nullifier, dummy_nullifier],
+        &output_hashes,
+        &[utxo_root, utxo_root],
+        &[nullifier_root, nullifier_root],
+        &private_tx,
+        &external_hash,
+        &public_spl_field,
+        &mint_bytes,
+        &payer_hash,
+        &input_owner_hashes,
+        &output_owner_hashes,
+    );
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
+    let prover_inputs = build_transfer_prover_inputs_spl(
+        TransferProverInputsArgs {
+            inputs: vec![spend, withdraw_dummy_input],
+            outputs,
+            external_data_hash: external_hash,
+            private_tx_hash: private_tx,
+            public_slot_assets,
+            public_slot_amounts,
+            payer_pubkey_hash: payer_hash,
+            public_input_hash: public_hash,
+        },
+        public_spl_field,
+        mint_bytes,
+    );
+    data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL withdrawal")
+        .expect("prove SPL withdrawal");
+    data.private_tx_hash = private_tx;
+
+    let instruction = Transact {
+        payer: payer.pubkey(),
+        input_tree: *tree,
+        output_tree: *tree,
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+            TransactSplWithdrawalAccounts {
+                mint,
+                vault,
+                user_token_account: user_token,
+                token_program: ZolanaProgramTest::token_program_id(),
+            },
+        )],
+        data: data.clone(),
+    }
+    .instruction();
+
+    Ok(SplWithdrawal {
+        mint,
+        vault,
+        user_token,
+        utxo_hash,
+        nullifier,
+        data,
+        instruction,
+    })
 }

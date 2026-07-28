@@ -35,9 +35,9 @@ from all three rows. The same holds for `Deposit`/`ZoneDeposit`
 | Instruction | File | Accounts | Data | Authz | Success | Rollback | Frame |
 |---|---|---|---|---|---|---|---|
 | EmitEvent (14) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
-| Transact (0) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20 | INV-TRANSACT-23..28, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
-| ZoneTransact (2) | `transact.md` | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32 | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-03, INV-ZONE-TRANSACT-07, INV-XC-26 | INV-ZONE-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
-| ZoneAuthorityTransact (3) | `transact.md` | INV-ZONE-AUTH-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32 | INV-ZONE-AUTH-01..03, INV-XC-26 | INV-ZONE-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| Transact (0) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32, INV-TRANSACT-33, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20 | INV-TRANSACT-23..28, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
+| ZoneTransact (2) | `transact.md` | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32, INV-TRANSACT-33 | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-03, INV-ZONE-TRANSACT-07, INV-XC-26 | INV-ZONE-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| ZoneAuthorityTransact (3) | `transact.md` | INV-ZONE-AUTH-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32, INV-TRANSACT-33 | INV-ZONE-AUTH-01..03, INV-XC-26 | INV-ZONE-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
 | CreateTree (5) | `tree.md` | INV-CREATE-TREE-03, INV-CREATE-TREE-04 | INV-CREATE-TREE-05, INV-CREATE-TREE-06 | INV-CREATE-TREE-01, INV-CREATE-TREE-02 | INV-CREATE-TREE-07, INV-CREATE-TREE-08 | INV-XC-04 | INV-CREATE-TREE-09 |
 | BatchUpdateNullifierTree (51) | `tree.md` | INV-XC-24, INV-XC-08 | INV-BATCH-NULL-03 | INV-BATCH-NULL-01, INV-BATCH-NULL-02 | INV-BATCH-NULL-05 | INV-BATCH-NULL-04, INV-XC-04 | INV-BATCH-NULL-06 |
 | Deposit (1) | `deposit.md` | INV-DEPOSIT-01..09 | INV-DEPOSIT-10, INV-DEPOSIT-11 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16 | INV-XC-04 | INV-DEPOSIT-17 |
@@ -62,8 +62,8 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 211
-  - transact.md: 46 (Transact 32, ZoneTransact 7, ZoneAuthorityTransact 7)
+- Total invariants: 212
+  - transact.md: 47 (Transact 33, ZoneTransact 7, ZoneAuthorityTransact 7)
   - deposit.md: 25 (Deposit 17, ZoneDeposit 8)
   - merge.md: 28 (MergeTransact 16, ZoneMergeTransact 12)
   - tree.md: 21 (CreateTree 9, BatchUpdateNullifierTree 7, PauseTree 5)
@@ -111,13 +111,13 @@ Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 
 Post-PR164 sync (2026-07-27):
 
-- Covered: 180 / 211
+- Covered: 181 / 212
 - Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Not covered: 1
 - Not applicable post-PR164: 11
 
 Per file (covered / partial+untested / not-applicable):
-transact 38/2/6, deposit 25/0/0, merge 19/5/4, tree 18/3/0,
+transact 39/2/6, deposit 25/0/0, merge 19/5/4, tree 18/3/0,
 protocol-config 17/0/0, zone-config 18/2/0, spl 20/0/0, event 4/0/0,
 cross-cutting 21/8/1.
 

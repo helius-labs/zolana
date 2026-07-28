@@ -23,8 +23,11 @@ use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
     SolanaRpc,
 };
-use zolana_interface::{instruction::AssetDeposit, state::state_root_offset};
+use zolana_interface::{
+    error::ShieldedPoolError, instruction::AssetDeposit, state::state_root_offset,
+};
 use zolana_program_test::DepositOutput;
+use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
 pub use zone_transact::{assert_zone_transact, ZoneTransactAssertArgs};
 
@@ -87,6 +90,48 @@ pub fn assert_indexed_deposit_utxo(
         indexed.output_slot.output_context.leaf_index, event.leaf_index,
         "indexed leaf index"
     );
+}
+
+/// Sync the recipient wallet over a settled deposit event and assert it
+/// discovers exactly one new UTXO mirroring the event. `expected_mint`
+/// additionally pins the UTXO asset for SPL deposits; `label` is the deposit
+/// kind used in the discovery assertion message ("deposit" / "SPL deposit").
+#[track_caller]
+pub(crate) fn assert_wallet_discovers<A: SyncWalletAuthority + ?Sized>(
+    recipient: &mut Wallet,
+    authority: &A,
+    event: &DepositOutput,
+    signature: Signature,
+    expected_mint: Option<&Pubkey>,
+    label: &str,
+) {
+    let before = recipient.utxos.len();
+    recipient
+        .sync(
+            authority,
+            &[event.to_shielded_transaction(signature)],
+            0,
+            DEFAULT_TAG_WINDOW,
+        )
+        .expect("wallet discovery");
+    assert_eq!(
+        recipient.utxos.len(),
+        before + 1,
+        "recipient wallet must discover the {label}"
+    );
+    let utxo = recipient.utxos.last().expect("discovered UTXO");
+    assert_eq!(
+        utxo.output_context.hash, event.utxo_hash,
+        "wallet UTXO hash"
+    );
+    if let Some(mint) = expected_mint {
+        assert_eq!(
+            utxo.utxo.asset.to_bytes(),
+            mint.to_bytes(),
+            "wallet UTXO asset is the mint"
+        );
+    }
+    assert_eq!(utxo.utxo.amount, event.output.amount, "wallet UTXO amount");
 }
 
 #[track_caller]
@@ -152,7 +197,8 @@ pub fn transaction_error(error: &ClientError) -> Option<TransactionError> {
 /// error. The instruction index is returned so callers may additionally assert
 /// which instruction failed when a transaction contains wrappers or budgets.
 #[track_caller]
-pub fn assert_custom_program_error(error: &ClientError, expected_code: u32) -> u8 {
+pub fn assert_custom_program_error(error: &ClientError, expected: ShieldedPoolError) -> u8 {
+    let expected_code = expected as u32;
     let transaction_error = transaction_error(error)
         .unwrap_or_else(|| panic!("expected a typed Solana transaction error, got {error:?}"));
     match transaction_error {
@@ -161,7 +207,7 @@ pub fn assert_custom_program_error(error: &ClientError, expected_code: u32) -> u
             index
         }
         other => {
-            panic!("expected custom program error {expected_code}, got transaction error {other:?}")
+            panic!("expected custom program error {expected} ({expected_code}), got transaction error {other:?}")
         }
     }
 }
@@ -345,6 +391,7 @@ mod tests {
     use solana_instruction_error::InstructionError;
     use solana_transaction_error::TransactionError;
     use zolana_client::ClientError;
+    use zolana_interface::error::ShieldedPoolError;
 
     #[test]
     fn typed_custom_program_error_preserves_code_and_instruction_index() {
@@ -355,6 +402,9 @@ mod tests {
             operation: "test",
             source,
         };
-        assert_eq!(assert_custom_program_error(&error, 7_008), 2);
+        assert_eq!(
+            assert_custom_program_error(&error, ShieldedPoolError::TransactProofVerificationFailed),
+            2
+        );
     }
 }

@@ -1,48 +1,26 @@
 //! Validation coverage for interface transfers. Invalid shapes fail before
 //! proof verification and leave settlement balances unchanged.
 
-use shielded_pool_tests::support::runtime;
+use shielded_pool_tests::support::fixtures::{register_mint, Pool};
 
+use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
-use solana_message::Message;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{
-            CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
-            TransactProof,
-        },
+        instruction_data::transact::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
         Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
     pda, N_PUBLIC_SLOTS,
 };
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{Rejection, ZolanaProgramTest};
+use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
 
-fn fe(value: u64) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[24..].copy_from_slice(&value.to_be_bytes());
-    out
-}
-
-fn input(nullifier_hash: [u8; 32]) -> InputUtxo {
-    InputUtxo {
-        nullifier_hash,
-        nullifier_tree_root_index: 0,
-        utxo_tree_root_index: 0,
-        eddsa_signer_index: 0,
-    }
-}
-
-fn output(view_tag: [u8; 32]) -> TransactOutput {
-    TransactOutput {
-        utxo_hash: view_tag,
-        owner_tag: OwnerTag::Inline(view_tag),
-        data: None,
-    }
-}
-
+/// Two-input/three-output transact data with a zeroed proof carrying the
+/// given interface transfers: the validation failures under test fire before
+/// proof verification, and the valid shapes stop at the dummy-proof check.
 fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
         proof: TransactProof::zeroed(),
@@ -51,88 +29,79 @@ fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: vec![input(fe(101)), input(fe(102))],
+        inputs: vec![eddsa_input_utxo(fe(101), 0), eddsa_input_utxo(fe(102), 0)],
         interface_transfers,
         data_hash: None,
         zone_data_hash: None,
-        outputs: vec![output([1u8; 32]), output([2u8; 32]), output([3u8; 32])],
+        outputs: vec![
+            inline_output([1u8; 32], [1u8; 32]),
+            inline_output([2u8; 32], [2u8; 32]),
+            inline_output([3u8; 32], [3u8; 32]),
+        ],
         messages: Vec::new(),
     }
 }
 
-fn send_raw(
-    rpc: &mut ZolanaProgramTest,
-    ix: solana_instruction::Instruction,
-    payer: &Keypair,
-) -> Result<(), String> {
-    let blockhash = rpc.svm.latest_blockhash();
-    let msg = Message::new(&[ix], Some(&payer.pubkey()));
-    let tx = Transaction::new(&[payer], msg, blockhash);
-    rpc.svm
-        .send_transaction(tx)
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+/// Send the transact with the default payer and assert the exact typed
+/// rejection plus a full rollback (a failed transaction only charges the
+/// payer's fee).
+#[track_caller]
+fn expect_rejection(rpc: &mut ZolanaProgramTest, ix: Instruction, expected: Rejection) {
+    let payer = rpc.payer.pubkey();
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("interface-transfer transact must be rejected");
+    expected.assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transact trace")
+        .assert_rolled_back_except(&[payer]);
 }
 
+/// An invalid SOL-leg shape must be rejected during validation, before proof
+/// verification, without moving lamports out of the SOL interface vault.
+#[track_caller]
 fn assert_rejected_without_sol_movement(
     interface_transfers: Vec<InterfaceTransfer>,
-    expected_error: u32,
+    expected: ShieldedPoolError,
 ) {
-    let mut rpc = runtime::program_test();
-    let authority = Keypair::new();
-    rpc.create_protocol_config(&authority)
-        .expect("create protocol config");
-    let tree = rpc
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
-    let payer = rpc.payer.insecure_clone();
+    let mut pool = Pool::initialized();
+    let payer = pool.rpc.payer.pubkey();
     let interface_transfer_accounts = interface_transfers
         .iter()
         .map(|_| {
-            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                recipient: payer.pubkey(),
-            })
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: payer })
         })
         .collect();
     let ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        payer,
+        input_tree: pool.tree.pubkey(),
+        output_tree: pool.tree.pubkey(),
         interface_transfer_accounts,
         data: ix_data(interface_transfers),
     }
     .instruction();
 
     let sol_vault = pda::sol_interface();
-    let vault_before = rpc.svm.get_balance(&sol_vault).unwrap_or(0);
-    let err = send_raw(&mut rpc, ix, &payer).expect_err("invalid interface transfers must fail");
-    assert!(
-        err.contains(&format!("Custom({expected_error})")),
-        "expected custom error {expected_error}, got: {err}"
+    let vault_before = pool.rpc.svm.get_balance(&sol_vault).unwrap_or(0);
+    expect_rejection(&mut pool.rpc, ix, Rejection::pool(expected));
+    assert_eq!(
+        pool.rpc.svm.get_balance(&sol_vault).unwrap_or(0),
+        vault_before
     );
-    assert_eq!(rpc.svm.get_balance(&sol_vault).unwrap_or(0), vault_before);
 }
 
 #[test]
 fn six_same_asset_interface_transfers_reach_proof_verification() {
-    let mut rpc = runtime::program_test();
-    let authority = Keypair::new();
-    rpc.create_protocol_config(&authority)
-        .expect("create protocol config");
-    let tree = rpc
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
-    let payer = rpc.payer.insecure_clone();
+    let mut pool = Pool::initialized();
+    let payer = pool.rpc.payer.pubkey();
     let interface_transfers = vec![InterfaceTransfer::SolDeposit { amount: 1 }; 6];
     let ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        payer,
+        input_tree: pool.tree.pubkey(),
+        output_tree: pool.tree.pubkey(),
         interface_transfer_accounts: vec![
             TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts {
-                    recipient: payer.pubkey(),
-                }
+                TransactSolTransferAccounts { recipient: payer }
             );
             interface_transfers.len()
         ],
@@ -140,18 +109,21 @@ fn six_same_asset_interface_transfers_reach_proof_verification() {
     }
     .instruction();
     let vault = pda::sol_interface();
-    let before = rpc.svm.get_balance(&vault).unwrap_or(0);
-    let err = send_raw(&mut rpc, ix, &payer).expect_err("dummy proof must fail");
-    assert!(
-        err.contains("Custom(7008)"),
-        "six same-asset legs must pass validation and reach proof verification: {err}"
+    let before = pool.rpc.svm.get_balance(&vault).unwrap_or(0);
+    expect_rejection(
+        &mut pool.rpc,
+        ix,
+        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed),
     );
-    assert_eq!(rpc.svm.get_balance(&vault).unwrap_or(0), before);
+    assert_eq!(pool.rpc.svm.get_balance(&vault).unwrap_or(0), before);
 }
 
 #[test]
 fn zero_interface_transfer_is_rejected() {
-    assert_rejected_without_sol_movement(vec![InterfaceTransfer::SolDeposit { amount: 0 }], 7036);
+    assert_rejected_without_sol_movement(
+        vec![InterfaceTransfer::SolDeposit { amount: 0 }],
+        ShieldedPoolError::ZeroInterfaceTransferAmount,
+    );
 }
 
 #[test]
@@ -161,33 +133,24 @@ fn same_asset_aggregate_overflow_is_rejected() {
             InterfaceTransfer::SolDeposit { amount: u64::MAX },
             InterfaceTransfer::SolDeposit { amount: 1 },
         ],
-        7038,
+        ShieldedPoolError::PublicAssetAmountOverflow,
     );
 }
 
 #[test]
 fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
-    let mut rpc = runtime::program_test();
-    let authority = Keypair::new();
-    rpc.create_protocol_config(&authority)
-        .expect("create protocol config");
-    let tree = rpc
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
-    let payer = rpc.payer.insecure_clone();
-    rpc.ensure_asset_counter(&authority).expect("asset counter");
-    let mint = rpc.create_mint().expect("create mint");
-    let (_, vault) = rpc
-        .create_spl_interface(&authority, &mint)
-        .expect("create SPL interface");
-    let user_token_account = rpc
-        .create_token_account(&mint, &payer.pubkey())
+    let mut pool = Pool::initialized();
+    let payer = pool.rpc.payer.pubkey();
+    let (mint, _, vault) = register_mint(&mut pool);
+    let user_token_account = pool
+        .rpc
+        .create_token_account(&mint, &payer)
         .expect("create payer token account");
     let spl_deposit = || {
         TransactInterfaceTransferAccounts::SplDeposit(TransactSplDepositAccounts {
             mint,
             vault,
-            depositor: payer.pubkey(),
+            depositor: payer,
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
@@ -202,9 +165,9 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
     };
     let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
     let ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        payer,
+        input_tree: pool.tree.pubkey(),
+        output_tree: pool.tree.pubkey(),
         interface_transfer_accounts: vec![spl_deposit(), spl_withdrawal(), spl_withdrawal()],
         data: ix_data(vec![
             InterfaceTransfer::SplDeposit {
@@ -223,43 +186,43 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
     }
     .instruction();
 
-    let before = rpc.token_balance(&vault).expect("vault balance");
-    let err = send_raw(&mut rpc, ix, &payer).expect_err("dummy proof must fail");
-    assert!(
-        err.contains("Custom(7008)"),
-        "full-u64 cancellation and net withdrawal must reach proof verification: {err}"
+    let before = pool.rpc.token_balance(&vault).expect("vault balance");
+    expect_rejection(
+        &mut pool.rpc,
+        ix,
+        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed),
     );
-    assert_eq!(rpc.token_balance(&vault), Some(before));
+    assert_eq!(pool.rpc.token_balance(&vault), Some(before));
 }
 
 #[test]
 fn token_2022_withdrawal_accounts_reach_proof_verification() {
-    let mut rpc = runtime::program_test();
-    let authority = Keypair::new();
-    rpc.create_protocol_config(&authority)
-        .expect("create protocol config");
-    let tree = rpc
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
-    let payer = rpc.payer.insecure_clone();
-    rpc.ensure_asset_counter(&authority).expect("asset counter");
+    let mut pool = Pool::initialized();
+    let payer = pool.rpc.payer.pubkey();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
     let token_program = ZolanaProgramTest::token_2022_program_id();
-    let mint = rpc
+    let mint = pool
+        .rpc
         .create_mint_with_program(token_program)
         .expect("create Token-2022 mint");
-    let (_, vault) = rpc
-        .create_spl_interface_with_program(&authority, &mint, token_program)
+    let (_, vault) = pool
+        .rpc
+        .create_spl_interface_with_program(&pool.authority, &mint, token_program)
         .expect("create Token-2022 interface");
-    let recipient = rpc
-        .create_token_account_with_program(&mint, &payer.pubkey(), token_program)
+    let recipient = pool
+        .rpc
+        .create_token_account_with_program(&mint, &payer, token_program)
         .expect("create Token-2022 recipient");
-    rpc.mint_to_with_program(&mint, &vault, 1, token_program)
+    pool.rpc
+        .mint_to_with_program(&mint, &vault, 1, token_program)
         .expect("fund Token-2022 vault");
 
     let ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        payer,
+        input_tree: pool.tree.pubkey(),
+        output_tree: pool.tree.pubkey(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint,
@@ -275,46 +238,38 @@ fn token_2022_withdrawal_accounts_reach_proof_verification() {
     }
     .instruction();
 
-    let err = send_raw(&mut rpc, ix, &payer).expect_err("dummy proof must fail");
-    assert!(
-        err.contains("Custom(7008)"),
-        "Token-2022 settlement accounts must validate before proof verification: {err}"
+    expect_rejection(
+        &mut pool.rpc,
+        ix,
+        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed),
     );
-    assert_eq!(rpc.token_balance(&vault), Some(1));
-    assert_eq!(rpc.token_balance(&recipient), Some(0));
+    assert_eq!(pool.rpc.token_balance(&vault), Some(1));
+    assert_eq!(pool.rpc.token_balance(&recipient), Some(0));
 }
 
 #[test]
 fn spl_settlement_rejects_noncanonical_vault_bump() {
-    let mut rpc = runtime::program_test();
-    let authority = Keypair::new();
-    rpc.create_protocol_config(&authority)
-        .expect("create protocol config");
-    let tree = rpc
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
-    let payer = rpc.payer.insecure_clone();
-    rpc.ensure_asset_counter(&authority).expect("asset counter");
-    let mint = rpc.create_mint().expect("create mint");
-    let (_, vault) = rpc
-        .create_spl_interface(&authority, &mint)
-        .expect("create SPL interface");
-    let user_token_account = rpc
-        .create_token_account(&mint, &payer.pubkey())
+    let mut pool = Pool::initialized();
+    let payer = pool.rpc.payer.pubkey();
+    let (mint, _, vault) = register_mint(&mut pool);
+    let user_token_account = pool
+        .rpc
+        .create_token_account(&mint, &payer)
         .expect("create payer token account");
-    rpc.mint_to(&mint, &user_token_account, 1)
+    pool.rpc
+        .mint_to(&mint, &user_token_account, 1)
         .expect("mint deposit token");
 
     let canonical_bump = pda::spl_asset_vault_with_bump(&mint).1;
     let ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        payer,
+        input_tree: pool.tree.pubkey(),
+        output_tree: pool.tree.pubkey(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
                 mint,
                 vault,
-                depositor: payer.pubkey(),
+                depositor: payer,
                 user_token_account,
                 token_program: ZolanaProgramTest::token_program_id(),
             },
@@ -326,45 +281,41 @@ fn spl_settlement_rejects_noncanonical_vault_bump() {
     }
     .instruction();
 
-    let vault_before = rpc.token_balance(&vault).expect("vault balance");
-    let user_before = rpc
+    let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
+    let user_before = pool
+        .rpc
         .token_balance(&user_token_account)
         .expect("user token balance");
-    let err = send_raw(&mut rpc, ix, &payer).expect_err("wrong vault bump must fail");
-    assert!(
-        err.contains("Custom(7009)"),
-        "expected InvalidSettlementAccounts (7009), got: {err}"
+    expect_rejection(
+        &mut pool.rpc,
+        ix,
+        Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts),
     );
-    assert_eq!(rpc.token_balance(&vault), Some(vault_before));
-    assert_eq!(rpc.token_balance(&user_token_account), Some(user_before));
+    assert_eq!(pool.rpc.token_balance(&vault), Some(vault_before));
+    assert_eq!(
+        pool.rpc.token_balance(&user_token_account),
+        Some(user_before)
+    );
 }
 
 #[test]
 fn spl_deposit_requires_depositor_signature() {
-    let mut rpc = runtime::program_test();
-    let authority = Keypair::new();
-    rpc.create_protocol_config(&authority)
-        .expect("create protocol config");
-    let tree = rpc
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
-    let payer = rpc.payer.insecure_clone();
-    rpc.ensure_asset_counter(&authority).expect("asset counter");
-    let mint = rpc.create_mint().expect("create mint");
-    let (_, vault) = rpc
-        .create_spl_interface(&authority, &mint)
-        .expect("create SPL interface");
+    let mut pool = Pool::initialized();
+    let payer = pool.rpc.payer.pubkey();
+    let (mint, _, vault) = register_mint(&mut pool);
     let depositor = Keypair::new();
-    let user_token_account = rpc
+    let user_token_account = pool
+        .rpc
         .create_token_account(&mint, &depositor.pubkey())
         .expect("create depositor token account");
-    rpc.mint_to(&mint, &user_token_account, 1)
+    pool.rpc
+        .mint_to(&mint, &user_token_account, 1)
         .expect("mint deposit token");
 
     let mut ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        payer,
+        input_tree: pool.tree.pubkey(),
+        output_tree: pool.tree.pubkey(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
                 mint,
@@ -382,37 +333,32 @@ fn spl_deposit_requires_depositor_signature() {
     .instruction();
     ix.accounts[5].is_signer = false;
 
-    let err = send_raw(&mut rpc, ix, &payer).expect_err("unsigned depositor must fail");
-    assert!(
-        err.contains("Custom(7040)"),
-        "expected SplDepositorMustSign (7040), got: {err}"
+    expect_rejection(
+        &mut pool.rpc,
+        ix,
+        Rejection::pool(ShieldedPoolError::SplDepositorMustSign),
     );
 }
 
+/// Inserting an extra account meta before the vault shifts every settlement
+/// account one slot: the user token account lands in the `token_program`
+/// slot, so validation rejects its address as an unsupported SPL token
+/// program (`UnsupportedSplTokenProgram`) before any CPI runs.
 #[test]
-fn spl_withdrawal_rejects_obsolete_recipient_account() {
-    let mut rpc = runtime::program_test();
-    let authority = Keypair::new();
-    rpc.create_protocol_config(&authority)
-        .expect("create protocol config");
-    let tree = rpc
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
-    let payer = rpc.payer.insecure_clone();
-    rpc.ensure_asset_counter(&authority).expect("asset counter");
-    let mint = rpc.create_mint().expect("create mint");
-    let (_, vault) = rpc
-        .create_spl_interface(&authority, &mint)
-        .expect("create SPL interface");
-    let user_token_account = rpc
-        .create_token_account(&mint, &payer.pubkey())
+fn spl_withdrawal_rejects_a_shifted_token_program_account() {
+    let mut pool = Pool::initialized();
+    let payer = pool.rpc.payer.pubkey();
+    let (mint, _, vault) = register_mint(&mut pool);
+    let user_token_account = pool
+        .rpc
+        .create_token_account(&mint, &payer)
         .expect("create recipient token account");
-    rpc.mint_to(&mint, &vault, 1).expect("fund vault");
+    pool.rpc.mint_to(&mint, &vault, 1).expect("fund vault");
 
     let mut ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        payer,
+        input_tree: pool.tree.pubkey(),
+        output_tree: pool.tree.pubkey(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint,
@@ -427,48 +373,38 @@ fn spl_withdrawal_rejects_obsolete_recipient_account() {
         }]),
     }
     .instruction();
-    ix.accounts.insert(
-        5,
-        solana_instruction::AccountMeta::new_readonly(payer.pubkey(), false),
-    );
+    ix.accounts
+        .insert(5, AccountMeta::new_readonly(payer, false));
 
-    let err = send_raw(&mut rpc, ix, &payer).expect_err("obsolete recipient must fail");
-    assert!(
-        err.contains("Custom(7041)"),
-        "expected UnsupportedSplTokenProgram (7041), got: {err}"
+    expect_rejection(
+        &mut pool.rpc,
+        ix,
+        Rejection::pool(ShieldedPoolError::UnsupportedSplTokenProgram),
     );
 }
 
 #[test]
 fn four_distinct_public_assets_are_rejected() {
-    let mut rpc = runtime::program_test();
-    let authority = Keypair::new();
-    rpc.create_protocol_config(&authority)
-        .expect("create protocol config");
-    let tree = rpc
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
-    let payer = rpc.payer.insecure_clone();
-    rpc.ensure_asset_counter(&authority).expect("asset counter");
+    let mut pool = Pool::initialized();
+    let payer = pool.rpc.payer.pubkey();
 
     let mut interface_transfer_accounts = Vec::new();
     let mut vaults = Vec::new();
     let mut interface_transfers = Vec::new();
     for _ in 0..4 {
-        let mint = rpc.create_mint().expect("create mint");
-        let (_, vault) = rpc
-            .create_spl_interface(&authority, &mint)
-            .expect("create SPL interface");
-        let user_token_account = rpc
-            .create_token_account(&mint, &payer.pubkey())
+        let (mint, _, vault) = register_mint(&mut pool);
+        let user_token_account = pool
+            .rpc
+            .create_token_account(&mint, &payer)
             .expect("create payer token account");
-        rpc.mint_to(&mint, &user_token_account, 1)
+        pool.rpc
+            .mint_to(&mint, &user_token_account, 1)
             .expect("mint deposit token");
         interface_transfer_accounts.push(TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
                 mint,
                 vault,
-                depositor: payer.pubkey(),
+                depositor: payer,
                 user_token_account,
                 token_program: ZolanaProgramTest::token_program_id(),
             },
@@ -481,23 +417,23 @@ fn four_distinct_public_assets_are_rejected() {
     }
     let vault_balances: Vec<u64> = vaults
         .iter()
-        .map(|vault| rpc.token_balance(vault).unwrap_or(0))
+        .map(|vault| pool.rpc.token_balance(vault).unwrap_or(0))
         .collect();
     let ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        payer,
+        input_tree: pool.tree.pubkey(),
+        output_tree: pool.tree.pubkey(),
         interface_transfer_accounts,
         data: ix_data(interface_transfers),
     }
     .instruction();
 
-    let err = send_raw(&mut rpc, ix, &payer).expect_err("four public assets must fail");
-    assert!(
-        err.contains("Custom(7037)"),
-        "expected TooManyPublicAssets (7037), got: {err}"
+    expect_rejection(
+        &mut pool.rpc,
+        ix,
+        Rejection::pool(ShieldedPoolError::TooManyPublicAssets),
     );
     for (vault, before) in vaults.iter().zip(vault_balances) {
-        assert_eq!(rpc.token_balance(vault).unwrap_or(0), before);
+        assert_eq!(pool.rpc.token_balance(vault).unwrap_or(0), before);
     }
 }

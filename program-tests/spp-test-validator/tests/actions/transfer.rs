@@ -18,14 +18,12 @@ use zolana_transaction::{
     SOL_MINT,
 };
 
-use crate::{
-    harness::Rail,
-    localnet::{
-        send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
-        SPL_CHANGE_POSITION, ZERO,
-    },
-    LifecycleHarness,
+use zolana_test_utils::localnet::{
+    send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
+    SPL_CHANGE_POSITION, ZERO,
 };
+
+use crate::{harness::Rail, LifecycleHarness};
 
 impl LifecycleHarness {
     /// Transfer `amount` of `asset` from `from` to `to`, consolidating two of

@@ -9,6 +9,7 @@
 //! that called the helper, not the helper body.
 
 pub mod backend;
+pub mod harness;
 pub mod litesvm_asserts;
 pub mod localnet;
 #[cfg(feature = "mollusk")]

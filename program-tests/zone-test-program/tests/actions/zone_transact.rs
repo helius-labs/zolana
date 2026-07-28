@@ -12,10 +12,13 @@ use zolana_client::{
     ConfidentialTransfer, ProverClient, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
     TransferSpendInput, ZoneTransferProver,
 };
-use zolana_interface::instruction::{
-    instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
-    tag::ZONE_TRANSACT,
-    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, ZoneTransact,
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{
+        instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
+        tag::ZONE_TRANSACT,
+        TransactInterfaceTransferAccounts, TransactSolTransferAccounts, ZoneTransact,
+    },
 };
 use zolana_test_utils::test_validator_asserts::{
     assert_account_unchanged, assert_custom_program_error, assert_zone_transact, fetch_account,
@@ -26,19 +29,11 @@ use zolana_transaction::{
     instructions::transact::SettlementTarget, ShieldedTransaction, Utxo, SOL_MINT,
 };
 
-use crate::{
-    harness::decode_output_blinding,
-    localnet::{
-        send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
-        SPL_CHANGE_POSITION, ZERO,
-    },
-    support::Variant,
-    ZoneHarness,
+use crate::{harness::decode_output_blinding, support::Variant, ZoneHarness};
+use zolana_test_utils::localnet::{
+    send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
+    SPL_CHANGE_POSITION, ZERO,
 };
-
-/// `ShieldedPoolError::TransactProofVerificationFailed`: SPP's shared transact
-/// proof verifier rejects a malformed / zeroed proof.
-const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
 
 /// Default eddsa signer account index for a Solana-owned input (the fee payer).
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
@@ -601,7 +596,10 @@ impl ZoneHarness {
             )),
             Err(error) => {
                 assert_eq!(
-                    assert_custom_program_error(&error, TRANSACT_PROOF_VERIFICATION_FAILED),
+                    assert_custom_program_error(
+                        &error,
+                        ShieldedPoolError::TransactProofVerificationFailed
+                    ),
                     1
                 );
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;

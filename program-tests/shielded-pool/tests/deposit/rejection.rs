@@ -13,10 +13,8 @@ use zolana_interface::{
     },
     pda, PROGRAM_ID_PUBKEY,
 };
-use zolana_program_test::{test_blinding, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
-use zolana_test_utils::litesvm_asserts::{
-    assert_custom, assert_instruction_error, assert_pool_error,
-};
+use zolana_program_test::{test_blinding, Rejection, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
+use zolana_test_utils::litesvm_asserts::{assert_custom, assert_instruction_error};
 
 use zolana_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, snapshot_instruction_accounts, sweep_account_matrix,
@@ -103,7 +101,7 @@ fn deposit_batch_rejects_an_empty_batch() {
         vec![sol_group_accounts()],
     )
     .expect_err("empty batch must fail");
-    assert_pool_error(err, ShieldedPoolError::EmptyDepositBatch);
+    Rejection::pool(ShieldedPoolError::EmptyDepositBatch).assert_litesvm(err);
 }
 
 #[test]
@@ -123,7 +121,7 @@ fn deposit_batch_rejects_an_out_of_range_asset_index() {
         vec![sol_group_accounts()],
     )
     .expect_err("out-of-range asset index must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidDepositAssetIndex);
+    Rejection::pool(ShieldedPoolError::InvalidDepositAssetIndex).assert_litesvm(err);
 }
 
 #[test]
@@ -141,7 +139,7 @@ fn deposit_batch_rejects_summed_amounts_that_overflow() {
         vec![sol_group_accounts()],
     )
     .expect_err("overflowing summed amounts must fail");
-    assert_pool_error(err, ShieldedPoolError::DepositAmountOverflow);
+    Rejection::pool(ShieldedPoolError::DepositAmountOverflow).assert_litesvm(err);
 }
 
 #[test]
@@ -160,7 +158,7 @@ fn deposit_batch_rejects_a_declared_asset_no_entry_funds() {
         vec![sol_group_accounts(), spl_group_accounts(mint, user_token)],
     )
     .expect_err("unfunded declared asset must fail");
-    assert_pool_error(err, ShieldedPoolError::UnreferencedDepositAsset);
+    Rejection::pool(ShieldedPoolError::UnreferencedDepositAsset).assert_litesvm(err);
 }
 
 #[test]
@@ -184,7 +182,7 @@ fn deposit_batch_rejects_declaring_the_same_mint_twice() {
         ],
     )
     .expect_err("duplicate mint must fail");
-    assert_pool_error(err, ShieldedPoolError::DuplicateDepositAsset);
+    Rejection::pool(ShieldedPoolError::DuplicateDepositAsset).assert_litesvm(err);
 }
 
 #[test]
@@ -214,7 +212,7 @@ fn sol_deposit_rejects_wrong_vault() {
 
     let err =
         raw_sol_deposit(&mut pool.rpc, &depositor, wrong_vault).expect_err("wrong vault must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
 #[test]
@@ -227,7 +225,7 @@ fn sol_deposit_rejects_extra_settlement_account() {
 
     let err = raw_sol_deposit(&mut pool.rpc, &depositor, extra)
         .expect_err("extra settlement account must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
 #[test]
@@ -241,7 +239,7 @@ fn sol_deposit_rejects_foreign_source() {
 
     let err = raw_sol_deposit(&mut pool.rpc, &depositor, foreign_source)
         .expect_err("foreign source must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
 #[test]
@@ -255,7 +253,7 @@ fn sol_deposit_rejects_wrong_system_program_account() {
 
     let err = raw_sol_deposit(&mut pool.rpc, &depositor, wrong_system)
         .expect_err("wrong system program account must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
 #[test]
@@ -269,7 +267,7 @@ fn sol_deposit_rejects_readonly_sol_interface() {
 
     let err = raw_sol_deposit(&mut pool.rpc, &depositor, readonly_interface)
         .expect_err("read-only sol_interface must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
 #[test]
@@ -288,7 +286,7 @@ fn sol_deposit_rejects_readonly_user_sol() {
 
     let err = raw_sol_deposit(&mut pool.rpc, &depositor, readonly_user)
         .expect_err("read-only user_sol must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
 #[test]
@@ -309,7 +307,7 @@ fn sol_deposit_rejects_foreign_tree_atomically() {
 
     let err = raw_sol_deposit(&mut pool.rpc, &depositor, foreign_tree)
         .expect_err("foreign tree must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidTreeAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts).assert_litesvm(err);
     assert_eq!(pool.rpc.account_data(&tree), Some(tree_before));
     assert_eq!(
         pool.rpc
@@ -334,7 +332,7 @@ fn paused_tree_rejects_sol_deposit() {
         .rpc
         .deposit_sol(&tree, &depositor, 1_000_000, [4u8; 32], [4u8; 32])
         .expect_err("paused tree deposit must fail");
-    assert_pool_error(err, ShieldedPoolError::TreePaused);
+    Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(err);
 }
 
 #[test]
@@ -360,7 +358,7 @@ fn paused_tree_rejects_zone_deposit() {
         .rpc
         .zone_deposit(&tree, &depositor, &data)
         .expect_err("paused tree zone deposit must fail");
-    assert_pool_error(err, ShieldedPoolError::TreePaused);
+    Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(err);
 }
 
 #[test]
@@ -388,7 +386,7 @@ fn zone_deposit_rejects_a_signer_that_is_not_the_zone_authority() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
         .expect_err("wrong zone signer must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidZoneConfig);
+    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
 }
 
 #[test]
@@ -451,7 +449,7 @@ fn zone_deposit_rejects_malformed_payload_exactly() {
         .rpc
         .create_and_send_default_payer_transaction(&[truncated], &[&depositor])
         .expect_err("truncated zone deposit payload must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 
     let mut trailing = ix;
     trailing.data.push(0);
@@ -459,7 +457,7 @@ fn zone_deposit_rejects_malformed_payload_exactly() {
         .rpc
         .create_and_send_default_payer_transaction(&[trailing], &[&depositor])
         .expect_err("trailing zone deposit payload byte must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 }
 
 /// SPP-shaped zone SOL deposit instruction (as a zone program would CPI it,

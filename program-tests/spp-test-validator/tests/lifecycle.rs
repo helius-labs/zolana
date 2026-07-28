@@ -4,7 +4,6 @@ mod actions;
 mod actor;
 mod deposit_action;
 mod harness;
-mod localnet;
 
 use anyhow::{Context, Result};
 use serial_test::serial;

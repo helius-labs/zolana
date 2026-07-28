@@ -13,10 +13,10 @@ use zolana_interface::{
     pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
-use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use zolana_program_test::{Rejection, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::{
     backend::LiteSvmPoolBackend,
-    litesvm_asserts::{assert_custom, assert_instruction_error, assert_pool_error},
+    litesvm_asserts::{assert_custom, assert_instruction_error},
 };
 
 /// Backend with the zone test program loaded: the `zone_auth` PDA can only
@@ -145,7 +145,7 @@ fn zone_config_creation_rejects_a_truncated_payload() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("truncated payload must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 }
 
 #[test]
@@ -249,7 +249,7 @@ fn zone_owner_rotation_rejects_a_non_authority_signer() {
         .rpc
         .update_zone_config_owner(&intruder, &zone_config, &next)
         .expect_err("a signer that is not the stored authority must fail");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
     assert_eq!(
         read_zone_config(&backend, &zone_config)
             .authority
@@ -315,7 +315,7 @@ fn zone_owner_rotation_rejects_a_truncated_payload() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority, &next])
         .expect_err("truncated payload must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 }
 
 #[test]
@@ -338,7 +338,7 @@ fn zone_config_update_rejects_a_truncated_payload() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("truncated payload must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 }
 
 #[test]
@@ -383,13 +383,13 @@ fn zone_owner_burn_freezes_the_toggle_for_the_old_authority() {
         .rpc
         .update_zone_config(&backend.authority, &zone_config, true)
         .expect_err("old authority toggle must fail after the burn");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
     let next = Keypair::new();
     let err = backend
         .rpc
         .update_zone_config_owner(&backend.authority, &zone_config, &next)
         .expect_err("old authority rotation must fail after the burn");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
     // The enabled flag stays exactly in its last state.
     let config = read_zone_config(&backend, &zone_config);
     assert_eq!(config.zone_authority_transact_is_enabled, 0);

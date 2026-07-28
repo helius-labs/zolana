@@ -8,23 +8,22 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::{
+    error::ShieldedPoolError,
     instruction::{CreateZoneConfig, UpdateZoneConfig, UpdateZoneConfigOwner},
     pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
-use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, assert_custom_program_error, assert_optional_account_unchanged,
-    fetch_account, fetch_optional_account,
+use zolana_test_utils::{
+    localnet::send_transaction,
+    test_validator_asserts::{
+        assert_account_unchanged, assert_custom_program_error, assert_optional_account_unchanged,
+        fetch_account, fetch_optional_account,
+    },
 };
 
-use crate::{localnet::send_transaction, ZoneHarness};
-
-/// `ShieldedPoolError::UnauthorizedCaller`.
-const UNAUTHORIZED_CALLER: u32 = 7003;
-/// `ShieldedPoolError::InvalidZoneConfig`.
-const INVALID_ZONE_CONFIG: u32 = 7014;
+use crate::ZoneHarness;
 
 /// The on-chain `ZoneConfig` state read back for a full-struct assert.
 #[derive(Debug, PartialEq, Eq)]
@@ -158,7 +157,10 @@ impl ZoneHarness {
         match send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer, &stale]) {
             Ok(_) => Err(anyhow!("stale owner update unexpectedly succeeded")),
             Err(error) => {
-                assert_eq!(assert_custom_program_error(&error, UNAUTHORIZED_CALLER), 0);
+                assert_eq!(
+                    assert_custom_program_error(&error, ShieldedPoolError::UnauthorizedCaller),
+                    0
+                );
                 assert_account_unchanged(&self.rpc, &zone_config, &config_before)?;
                 Ok(())
             }
@@ -197,7 +199,10 @@ impl ZoneHarness {
                 "invalid zone authority create unexpectedly succeeded"
             )),
             Err(error) => {
-                assert_eq!(assert_custom_program_error(&error, INVALID_ZONE_CONFIG), 0);
+                assert_eq!(
+                    assert_custom_program_error(&error, ShieldedPoolError::InvalidZoneConfig),
+                    0
+                );
                 assert_optional_account_unchanged(
                     &self.rpc,
                     &canonical_zone_config,

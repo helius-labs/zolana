@@ -1,7 +1,8 @@
 use solana_instruction::{error::InstructionError, Instruction};
 use solana_signer::Signer;
 use zolana_interface::{error::ShieldedPoolError, instruction::tag};
-use zolana_test_utils::litesvm_asserts::{assert_instruction_error, assert_pool_error};
+use zolana_program_test::Rejection;
+use zolana_test_utils::litesvm_asserts::assert_instruction_error;
 
 use shielded_pool_tests::support::{
     fixtures::{sol_deposit_accounts, Pool},
@@ -56,5 +57,5 @@ fn dispatch_rejects_truncated_deposit_data() {
             &[&depositor],
         )
         .expect_err("truncated deposit must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 }

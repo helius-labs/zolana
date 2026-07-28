@@ -9,30 +9,10 @@ use spl_token_2022_interface::{
 };
 use zolana_account_checks::AccountError;
 use zolana_interface::{error::ShieldedPoolError, instruction::CreateSplInterface, pda};
-use zolana_program_test::{system_create_account_ix, test_blinding, ZolanaProgramTest};
-use zolana_test_utils::litesvm_asserts::{
-    assert_custom, assert_instruction_error, assert_pool_error,
-};
+use zolana_program_test::{system_create_account_ix, test_blinding, Rejection, ZolanaProgramTest};
+use zolana_test_utils::litesvm_asserts::{assert_custom, assert_instruction_error};
 
-use shielded_pool_tests::support::fixtures::{register_mint, spl_depositor, Pool};
-
-fn spl_accounts(
-    tree: Pubkey,
-    depositor: Pubkey,
-    user_token: Pubkey,
-    mint: Pubkey,
-) -> Vec<AccountMeta> {
-    vec![
-        AccountMeta::new(tree, false),
-        AccountMeta::new(depositor, true),
-        AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
-        AccountMeta::new_readonly(mint, false),
-        AccountMeta::new(user_token, false),
-        AccountMeta::new(pda::spl_asset_vault(&mint), false),
-        AccountMeta::new_readonly(pda::spl_asset_registry(&mint), false),
-        AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
-    ]
-}
+use shielded_pool_tests::support::fixtures::{register_mint, spl_accounts, spl_depositor, Pool};
 
 #[test]
 fn duplicate_spl_interface_registration_is_rejected_without_consuming_id() {
@@ -47,7 +27,7 @@ fn duplicate_spl_interface_registration_is_rejected_without_consuming_id() {
         .rpc
         .create_spl_interface(&pool.authority, &mint_a)
         .expect_err("duplicate interface must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSplAssetRegistry);
+    Rejection::pool(ShieldedPoolError::InvalidSplAssetRegistry).assert_litesvm(err);
     assert_eq!(
         pool.rpc.account_data(&pda::spl_asset_counter()),
         Some(counter_before),
@@ -68,7 +48,7 @@ fn spl_interface_creation_rejects_unauthorized_caller() {
         .rpc
         .create_spl_interface(&outsider, &mint)
         .expect_err("unauthorized interface creation must fail");
-    assert_pool_error(err, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
     assert!(pool
         .rpc
         .account_data(&pda::spl_asset_registry(&mint))
@@ -96,7 +76,7 @@ fn spl_interface_creation_rejects_a_wrong_token_program() {
         .expect_err("wrong token program must fail");
     // The program validates the token program account itself instead of
     // relying on the runtime's CPI-target check.
-    assert_pool_error(err, ShieldedPoolError::UnsupportedSplTokenProgram);
+    Rejection::pool(ShieldedPoolError::UnsupportedSplTokenProgram).assert_litesvm(err);
 }
 
 #[test]
@@ -168,7 +148,7 @@ fn spl_interface_creation_rejects_a_noncanonical_registry_pda() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("noncanonical registry PDA must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidPda);
+    Rejection::pool(ShieldedPoolError::InvalidPda).assert_litesvm(err);
     assert!(
         pool.rpc
             .account_data(&pda::spl_asset_registry(&mint))
@@ -196,7 +176,7 @@ fn spl_interface_creation_rejects_a_noncanonical_vault_pda() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("noncanonical vault PDA must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidPda);
+    Rejection::pool(ShieldedPoolError::InvalidPda).assert_litesvm(err);
     assert!(
         pool.rpc
             .account_data(&pda::spl_asset_vault(&mint))
@@ -226,7 +206,7 @@ fn spl_interface_creation_rejects_a_cosplay_counter_account() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("a non-counter account in the counter slot must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSplAssetRegistry);
+    Rejection::pool(ShieldedPoolError::InvalidSplAssetRegistry).assert_litesvm(err);
     assert!(
         pool.rpc
             .account_data(&pda::spl_asset_registry(&mint))
@@ -254,7 +234,7 @@ fn spl_interface_creation_rejects_trailing_instruction_bytes() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("non-empty instruction payload must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidInstructionData);
+    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
 }
 
 #[test]
@@ -282,7 +262,7 @@ fn spl_deposit_rejects_foreign_source() {
             &data,
         )
         .expect_err("foreign source must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
 #[test]
@@ -304,7 +284,7 @@ fn spl_deposit_rejects_noncanonical_vault() {
         .rpc
         .deposit_with_accounts(wrong_vault, &depositor, &data)
         .expect_err("noncanonical vault must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
 #[test]
@@ -334,7 +314,7 @@ fn spl_deposit_rejects_mismatched_mint_atomically() {
             &data,
         )
         .expect_err("mismatched mint must fail");
-    assert_pool_error(err, ShieldedPoolError::InvalidSettlementAccounts);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
     assert_eq!(pool.rpc.state_root(&tree), Some(root_before));
     assert_eq!(pool.rpc.token_balance(&user_token), Some(user_before));
     assert_eq!(pool.rpc.token_balance(&vault), Some(vault_before));
@@ -460,7 +440,7 @@ fn transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount
         .rpc
         .deposit(&tree, &depositor, &data)
         .expect_err("396 credited for a nominal 400 deposit must be rejected");
-    assert_pool_error(err, ShieldedPoolError::PublicSettlementFailed);
+    Rejection::pool(ShieldedPoolError::PublicSettlementFailed).assert_litesvm(err);
 
     // The failed instruction rolls back both the fee-bearing transfer and the
     // shielded-state append.

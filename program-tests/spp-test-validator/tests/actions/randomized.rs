@@ -132,8 +132,8 @@ impl LifecycleHarness {
         let mut rng = StdRng::seed_from_u64(seed);
 
         self.ensure_spl_assets(cfg.num_spl)?;
-        self.rpc
-            .airdrop(&self.payer.pubkey(), PAYER_DEPOSIT_FUNDING)?;
+        let payer = self.payer.pubkey();
+        self.rpc.airdrop(&payer, PAYER_DEPOSIT_FUNDING)?;
 
         let actor_names: Vec<String> = (0..cfg.num_actors).map(|i| format!("actor-{i}")).collect();
         for name in &actor_names {

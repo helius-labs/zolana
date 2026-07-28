@@ -4,7 +4,7 @@ use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::instruction::AssetDeposit;
 use zolana_program_test::DepositOutput;
-use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{SyncWalletAuthority, Wallet};
 
 use super::{
     assert_indexed_deposit_utxo, expected_deposit_view, fetch_account, state_root_from, to_address,
@@ -77,29 +77,13 @@ pub fn assert_spl_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
         "photon merkle root tracks the on-chain root"
     );
 
-    let before = recipient.utxos.len();
-    recipient
-        .sync(
-            authority,
-            &[event.to_shielded_transaction(signature)],
-            0,
-            DEFAULT_TAG_WINDOW,
-        )
-        .expect("wallet discovery");
-    assert_eq!(
-        recipient.utxos.len(),
-        before + 1,
-        "recipient wallet must discover the SPL deposit"
-    );
-    let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(
-        utxo.output_context.hash, event.utxo_hash,
-        "wallet UTXO hash"
-    );
-    assert_eq!(
-        utxo.utxo.asset.to_bytes(),
-        mint.to_bytes(),
-        "wallet UTXO asset is the mint"
+    super::assert_wallet_discovers(
+        recipient,
+        authority,
+        event,
+        signature,
+        Some(mint),
+        "SPL deposit",
     );
     Ok(())
 }

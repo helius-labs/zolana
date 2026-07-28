@@ -172,54 +172,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
     // Dummy outputs must name a transaction participant (AssertDummyTags).
-    let transfer_view_tags = [change_view_tag, recipient_view_tag, change_view_tag];
-    let mut transfer_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(payer_nullifier, payer_state_proof.root_index),
-            eddsa_input_utxo(transfer_dummy_nullifier, payer_state_proof.root_index),
-        ],
-        Vec::new(),
-        inline_outputs(
-            &[change_hash, recipient_hash, transfer_dummy_hash],
-            &transfer_view_tags,
-        ),
-    );
-    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.outputs)
-        .map_err(|err| anyhow!("transfer output owner pk hashes: {err}"))?;
-    let mut transfer_outputs = vec![
-        transfer_output(&change_output)?,
-        transfer_output(&recipient_output)?,
-        transfer_dummy_output,
-    ];
-    set_output_owner_tags(
-        &mut transfer_outputs,
-        &transfer_owner_pk_hashes,
-        &[payer_nullifier_pk, recipient_nullifier_pk, zero],
-    );
-    let transfer_external_hash = external_data_hash(&transfer_ix_data, &[])?;
-    let transfer_private_tx = PrivateTxHash::new(
-        &[payer_utxo_hash, zero],
-        &[change_hash, recipient_hash, zero],
-        &transfer_external_hash,
-    )
-    .hash()?;
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
-    let (transfer_public_slot_assets, transfer_public_slot_amounts) = sol_public_slots(zero);
-    let transfer_public_input_hash = public_input_hash(
-        &[payer_nullifier, transfer_dummy_nullifier],
-        &[change_hash, recipient_hash, transfer_dummy_hash],
-        &[transfer_roots.0, transfer_roots.0],
-        &[transfer_roots.1, transfer_roots.1],
-        &transfer_private_tx,
-        &transfer_external_hash,
-        &transfer_public_slot_assets,
-        &transfer_public_slot_amounts,
-        &payer_pubkey_hash,
-        &[payer_owner_pk_hash, payer_owner_pk_hash],
-        &transfer_owner_pk_hashes,
-    );
-    let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
+    let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
+        spend_inputs: vec![
             payer_spend_input,
             dummy_input_with_proof(
                 &[20u8; 31],
@@ -229,20 +183,26 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
             )
             .map_err(|err| anyhow!("transfer dummy input: {err}"))?,
         ],
-        outputs: transfer_outputs,
-        external_data_hash: transfer_external_hash,
-        private_tx_hash: transfer_private_tx,
-        public_slot_assets: transfer_public_slot_assets,
-        public_slot_amounts: transfer_public_slot_amounts,
-        payer_pubkey_hash,
-        public_input_hash: transfer_public_input_hash,
-    });
-    transfer_ix_data.proof = prove_and_verify_transfer(
-        &transfer_prover_inputs,
-        transfer_public_input_hash,
-        "transfer",
-    )?;
-    transfer_ix_data.private_tx_hash = transfer_private_tx;
+        nullifiers: [payer_nullifier, transfer_dummy_nullifier],
+        root_index: payer_state_proof.root_index,
+        roots: transfer_roots,
+        output_hashes: vec![change_hash, recipient_hash, transfer_dummy_hash],
+        view_tags: vec![change_view_tag, recipient_view_tag, change_view_tag],
+        outputs: vec![
+            transfer_output(&change_output)?,
+            transfer_output(&recipient_output)?,
+            transfer_dummy_output,
+        ],
+        output_nullifier_pks: [payer_nullifier_pk, recipient_nullifier_pk, zero],
+        interface_transfers: Vec::new(),
+        resolved_transfers: Vec::new(),
+        private_tx_inputs: [payer_utxo_hash, zero],
+        private_tx_outputs: [change_hash, recipient_hash, zero],
+        public_sol_amount: zero,
+        payer_pubkey_hash: Sha256BE::hash(&payer_bytes)?,
+        input_owner_pk_hash: payer_owner_pk_hash,
+        label: "transfer",
+    })?;
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
@@ -350,72 +310,12 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let withdraw_dummy_nf =
         wait_for_non_inclusion_proof(&indexer, tree_address, withdraw_dummy_nullifier)?;
     let withdraw_roots = (recipient_state_proof.root, recipient_nullifier_proof.root);
-    let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(|blinding| {
-            dummy_transfer_output(blinding).map_err(|err| anyhow!("withdraw dummy output: {err}"))
-        })
-        .collect::<TestResult<_>>()?;
-    let withdraw_output_hashes: Vec<[u8; 32]> = withdraw_dummy_outputs
-        .iter()
-        .map(|(_, hash)| *hash)
-        .collect();
-    let mut withdraw_outputs: Vec<TransferOutput> = withdraw_dummy_outputs
-        .into_iter()
-        .map(|(out, _)| out)
-        .collect();
+    let (withdraw_outputs, withdraw_output_hashes) =
+        dummy_witness_outputs(&[[1u8; 31], [2u8; 31], [3u8; 31]])?;
 
     // Dummy outputs must name a transaction participant (AssertDummyTags).
-    let withdraw_view_tags = [recipient_view_tag; 3];
-    let mut withdraw_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(recipient_nullifier, recipient_state_proof.root_index),
-            eddsa_input_utxo(withdraw_dummy_nullifier, recipient_state_proof.root_index),
-        ],
-        vec![zolana_interface::instruction::instruction_data::transact::InterfaceTransfer::SolWithdrawal {
-            amount: TRANSFER_AMOUNT,
-        }],
-        inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
-    );
-    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.outputs)
-        .map_err(|err| anyhow!("withdraw output owner pk hashes: {err}"))?;
-    set_output_owner_tags(
-        &mut withdraw_outputs,
-        &withdraw_owner_pk_hashes,
-        &[zero, zero, zero],
-    );
-    let withdraw_resolved_transfers = [
-        zolana_interface::instruction::instruction_data::transact::ResolvedInterfaceTransfer::SolWithdrawal {
-            amount: TRANSFER_AMOUNT,
-            recipient: public_recipient.to_bytes(),
-        },
-    ];
-    let withdraw_external_hash =
-        external_data_hash(&withdraw_ix_data, &withdraw_resolved_transfers)?;
-    let withdraw_private_tx = PrivateTxHash::new(
-        &[recipient_hash, zero],
-        &[zero, zero, zero],
-        &withdraw_external_hash,
-    )
-    .hash()?;
-    let public_sol_field = public_sol_field(Some(-(TRANSFER_AMOUNT as i64)));
-    let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes)?;
-    let withdraw_public_input_hash = public_input_hash(
-        &[recipient_nullifier, withdraw_dummy_nullifier],
-        &withdraw_output_hashes,
-        &[withdraw_roots.0, withdraw_roots.0],
-        &[withdraw_roots.1, withdraw_roots.1],
-        &withdraw_private_tx,
-        &withdraw_external_hash,
-        &public_slot_assets,
-        &public_slot_amounts,
-        &recipient_pubkey_hash,
-        &[recipient_owner_pk_hash, recipient_owner_pk_hash],
-        &withdraw_owner_pk_hashes,
-    );
-    let withdraw_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![
+    let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
+        spend_inputs: vec![
             recipient_spend_input,
             dummy_input_with_proof(
                 &[21u8; 31],
@@ -425,32 +325,37 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
             )
             .map_err(|err| anyhow!("withdraw dummy input: {err}"))?,
         ],
+        nullifiers: [recipient_nullifier, withdraw_dummy_nullifier],
+        root_index: recipient_state_proof.root_index,
+        roots: withdraw_roots,
+        output_hashes: withdraw_output_hashes,
+        view_tags: vec![recipient_view_tag; 3],
         outputs: withdraw_outputs,
-        external_data_hash: withdraw_external_hash,
-        private_tx_hash: withdraw_private_tx,
-        public_slot_assets,
-        public_slot_amounts,
-        payer_pubkey_hash: recipient_pubkey_hash,
-        public_input_hash: withdraw_public_input_hash,
-    });
-    withdraw_ix_data.proof = prove_and_verify_transfer(
-        &withdraw_prover_inputs,
-        withdraw_public_input_hash,
-        "withdraw",
-    )?;
-    withdraw_ix_data.private_tx_hash = withdraw_private_tx;
+        output_nullifier_pks: [zero, zero, zero],
+        interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
+            amount: TRANSFER_AMOUNT,
+        }],
+        resolved_transfers: vec![ResolvedInterfaceTransfer::SolWithdrawal {
+            amount: TRANSFER_AMOUNT,
+            recipient: public_recipient.to_bytes(),
+        }],
+        private_tx_inputs: [recipient_hash, zero],
+        private_tx_outputs: [zero, zero, zero],
+        public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
+        payer_pubkey_hash: Sha256BE::hash(&recipient_bytes)?,
+        input_owner_pk_hash: recipient_owner_pk_hash,
+        label: "withdraw",
+    })?;
 
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
         input_tree: tree_pubkey,
         output_tree: tree_pubkey,
-        interface_transfer_accounts: vec![
-            zolana_interface::instruction::TransactInterfaceTransferAccounts::Sol(
-                zolana_interface::instruction::TransactSolTransferAccounts {
-                    recipient: public_recipient,
-                },
-            ),
-        ],
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+            TransactSolTransferAccounts {
+                recipient: public_recipient,
+            },
+        )],
         data: withdraw_ix_data,
     }
     .instruction();
@@ -463,7 +368,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     print_signature("unshield", &withdraw_sig);
     // PR164 AssertDummyTags forces every dummy output to name a transaction
     // participant, so the withdraw's outputs all carry `recipient_view_tag`
-    // (see `withdraw_view_tags` above) instead of per-slot synthetic tags.
+    // (see `view_tags` in the witness args above) instead of per-slot
+    // synthetic tags.
     let indexed_withdraw =
         wait_for_indexed_transaction(&indexer, recipient_view_tag, withdraw_sig)?;
     assert_eq!(indexed_withdraw.nullifiers.len(), 2);

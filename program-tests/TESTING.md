@@ -113,6 +113,11 @@ rollback; the assert catches journal drift and unexpected fee-payer-adjacent
 writes). This removes manual snapshot drift and makes failures replayable from
 the journaled action or transaction history.
 
+LiteSVM pool-error assertions use
+`Rejection::pool(ShieldedPoolError::X).assert_litesvm(err)` (from
+`zolana_program_test::Rejection`), with `.at(index)` when the failing
+instruction index matters.
+
 `cross_cutting_cu_budget` pins all proofless administration variants, tree
 creation/pause, SPL registration, and SOL/SPL deposits to per-family CU
 ceilings chosen strictly below the enforced transaction budget, so a

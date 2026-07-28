@@ -21,12 +21,14 @@ solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-instruction-error = { workspace = true }
 solana-keypair = { workspace = true }
+solana-message = { workspace = true }
 solana-program-error = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
-zolana-client = { workspace = true, features = ["solana-rpc"] }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
@@ -35,6 +37,7 @@ zolana-keypair = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]

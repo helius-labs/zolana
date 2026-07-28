@@ -16,6 +16,9 @@ use zolana_user_registry_interface::{
 
 use common::{funded_keypair, keys, register};
 
+// NOTE: stays local instead of reusing zolana-test-utils' assert_instruction_error because
+// that helper takes zolana_program_test::ProgramTestError, and this crate drives raw LiteSVM
+// results (TestTransactionResult) without depending on zolana-program-test/zolana-test-utils.
 #[track_caller]
 fn assert_error(result: TestTransactionResult, expected: InstructionError) {
     let failure = result.expect_err("instruction must fail");

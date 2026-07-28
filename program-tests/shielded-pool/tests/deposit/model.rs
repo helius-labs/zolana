@@ -1,8 +1,8 @@
 use proptest::prelude::*;
 use solana_signer::Signer;
 use zolana_interface::error::ShieldedPoolError;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_test_utils::litesvm_asserts::{assert_pool_error, SolDepositOracle, SolDepositSnapshot};
+use zolana_program_test::{Rejection, ZolanaProgramTest};
+use zolana_test_utils::litesvm_asserts::{SolDepositOracle, SolDepositSnapshot};
 
 use shielded_pool_tests::support::fixtures::Pool;
 
@@ -59,7 +59,7 @@ proptest! {
 
                     if paused {
                         let error = result.expect_err("paused model deposit must fail");
-                        assert_pool_error(error, ShieldedPoolError::TreePaused);
+                        Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(error);
                         before.assert_rejected(&after);
                     } else {
                         let event = result.expect("enabled model deposit must succeed");
@@ -77,7 +77,7 @@ proptest! {
                     let after = SolDepositSnapshot::capture(&pool.rpc, &tree, &depositor.pubkey());
                     if paused {
                         let error = result.expect_err("paused model zero deposit must fail");
-                        assert_pool_error(error, ShieldedPoolError::TreePaused);
+                        Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(error);
                         before.assert_rejected(&after);
                     } else {
                         let event = result.expect("zero model deposit is accepted");

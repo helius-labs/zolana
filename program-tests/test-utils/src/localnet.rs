@@ -1,11 +1,54 @@
+use anyhow::Result;
+use solana_instruction::Instruction;
+use solana_keypair::Keypair;
+use solana_message::Message;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+use solana_transaction::Transaction;
 use std::{
     collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
+use zolana_client::{ClientError, Proof, ProofCompressed, Rpc, SolanaRpc};
+use zolana_interface::instruction::instruction_data::{
+    merge_transact::MergeProof, transact::TransactProof,
+};
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
+
+pub const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
+pub const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
+pub const ZERO: [u8; 32] = [0u8; 32];
+// Blinding positions in the fixed-position output layout
+// `[spl_change, sol_change, recipients...]`.
+pub const SPL_CHANGE_POSITION: u8 = 0;
+pub const SOL_CHANGE_POSITION: u8 = 1;
+pub const RECIPIENT_POSITION_BASE: u8 = 2;
+
+/// The P256-rail merge proof (always BSB22-committed), via the shared
+/// `ProofCompressed::to_merge_proof` conversion.
+pub fn pack_proof(proof: &Proof) -> Result<MergeProof> {
+    Ok(ProofCompressed::try_from(*proof)?.to_merge_proof()?)
+}
+
+/// Build the compressed proof carried by a `transact` instruction.
+pub fn transact_proof(proof: &Proof) -> Result<TransactProof> {
+    Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
+}
+
+pub fn send_transaction(
+    rpc: &mut SolanaRpc,
+    ixs: &[Instruction],
+    payer: &Pubkey,
+    signers: &[&Keypair],
+) -> std::result::Result<Signature, ClientError> {
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    let message = Message::new(ixs, Some(payer));
+    let transaction = Transaction::new(signers, message, blockhash);
+    rpc.send_transaction(&transaction)
+}
 
 /// Normalized paths to build products and test data rooted at the workspace.
 #[derive(Clone, Debug)]

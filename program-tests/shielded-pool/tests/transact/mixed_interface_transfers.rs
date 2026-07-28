@@ -1,6 +1,6 @@
 //! Real-proof coverage for transactions with multiple ordered interface transfers.
 
-use shielded_pool_tests::support::runtime;
+use shielded_pool_tests::support::transact::{proof_env, tree_roots, Pool};
 
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -23,46 +23,19 @@ use zolana_interface::{
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, ZolanaProgramTest};
-use zolana_transaction::{
-    instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
-    Data, Utxo, SOL_MINT,
-};
-use zolana_tree::TreeAccount;
-
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, real_output,
-    set_output_owner_tags, spend_input, start_prover, transfer_output, SpendInputArgs,
-    TransferProverInputsArgs,
+    set_output_owner_tags, spend_input, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+};
+use zolana_transaction::{
+    instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
+    Data, Utxo, SOL_MINT,
 };
 
 const SOL_SPLIT_TOTAL: u64 = 1_000_000_000;
 const SPL_SPLIT_TOTAL: u64 = 1_000;
-
-struct TransactEnv {
-    rpc: ZolanaProgramTest,
-    authority: Keypair,
-    tree: Keypair,
-}
-
-impl TransactEnv {
-    fn boot() -> Option<Self> {
-        let mut rpc = runtime::program_test();
-        start_prover().expect("start prover");
-        let authority = Keypair::new();
-        rpc.create_protocol_config(&authority)
-            .expect("create protocol config");
-        let tree = rpc
-            .create_tree(runtime::tree_account_size(), &authority)
-            .expect("create tree");
-        Some(Self {
-            rpc,
-            authority,
-            tree,
-        })
-    }
-}
 
 struct SpendNote {
     input: TransferInput,
@@ -83,17 +56,8 @@ struct WitnessOutput {
     view_tag: [u8; 32],
 }
 
-fn on_chain_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
-    let mut data = rpc.account_data(tree).expect("tree account");
-    let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
-    (
-        account.get_utxo_tree_root(utxo_index).expect("utxo root"),
-        account.get_nullifier_tree_root(0).expect("nullifier root"),
-    )
-}
-
 fn build_spend_note(
-    env: &TransactEnv,
+    env: &Pool,
     utxo: Utxo,
     nullifier_key: NullifierKey,
     utxo_hash: [u8; 32],
@@ -101,7 +65,7 @@ fn build_spend_note(
     let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
-    let roots = on_chain_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let roots = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
 
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -146,7 +110,7 @@ fn build_spend_note(
     }
 }
 
-fn deposit_sol_note(env: &mut TransactEnv, amount: u64) -> SpendNote {
+fn deposit_sol_note(env: &mut Pool, amount: u64) -> SpendNote {
     let payer = env.rpc.payer.insecure_clone();
     let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
@@ -170,16 +134,12 @@ fn deposit_sol_note(env: &mut TransactEnv, amount: u64) -> SpendNote {
     build_spend_note(env, utxo, nullifier_key, utxo_hash)
 }
 
-fn deposit_spl_note(
-    env: &mut TransactEnv,
-    mint: Pubkey,
-    amount: u64,
-) -> (SpendNote, Pubkey, Pubkey) {
+fn deposit_spl_note(env: &mut Pool, mint: Pubkey, amount: u64) -> (SpendNote, Pubkey, Pubkey) {
     deposit_spl_note_with_program(env, mint, amount, ZolanaProgramTest::token_program_id())
 }
 
 fn deposit_spl_note_with_program(
-    env: &mut TransactEnv,
+    env: &mut Pool,
     mint: Pubkey,
     amount: u64,
     token_program: Pubkey,
@@ -298,7 +258,7 @@ fn public_slots(
 }
 
 fn prove_spend(
-    env: &TransactEnv,
+    env: &Pool,
     note: SpendNote,
     interface_transfers: Vec<InterfaceTransfer>,
     resolved_transfers: &[ResolvedInterfaceTransfer],
@@ -381,9 +341,7 @@ fn prove_spend(
 }
 
 fn sol_split_case(reorder_recipients: bool) {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = proof_env();
     let payer = env.rpc.payer.insecure_clone();
     let note = deposit_sol_note(&mut env, SOL_SPLIT_TOTAL);
     let user_amount = 700_000_000u64;
@@ -515,9 +473,7 @@ fn reordered_same_asset_account_groups_fail_closed() {
 }
 
 fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = proof_env();
     let payer = env.rpc.payer.insecure_clone();
     let mint = env
         .rpc
@@ -630,9 +586,7 @@ fn token_2022_withdrawals_settle_independently() {
 
 #[test]
 fn three_distinct_assets_support_opposite_public_directions() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = proof_env();
     let payer = env.rpc.payer.insecure_clone();
     let withdraw_mint = env.rpc.create_mint().expect("withdraw mint");
     let (note, withdraw_vault, _) = deposit_spl_note(&mut env, withdraw_mint, SPL_SPLIT_TOTAL);

@@ -17,16 +17,15 @@ use zolana_client::{
 use zolana_interface::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_test_utils::test_validator_asserts::{
-    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+use zolana_test_utils::{
+    localnet::{send_transaction, transact_proof, SOL_CHANGE_POSITION, ZERO},
+    test_validator_asserts::{
+        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    },
 };
 use zolana_transaction::{instructions::transact::SettlementTarget, Utxo, SOL_MINT};
 
-use crate::{
-    harness::Rail,
-    localnet::{send_transaction, transact_proof, SOL_CHANGE_POSITION, ZERO},
-    LifecycleHarness,
-};
+use crate::{harness::Rail, LifecycleHarness};
 
 impl LifecycleHarness {
     /// Withdraw `amount` lamports of SOL from `from` to a fresh external recipient

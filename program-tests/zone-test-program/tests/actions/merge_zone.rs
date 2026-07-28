@@ -25,15 +25,12 @@ use zolana_test_utils::test_validator_asserts::{
 };
 use zolana_transaction::{Data, SppProofOutputUtxo, Utxo};
 
+use zolana_test_utils::localnet::{pack_proof, send_transaction, ZERO};
+
 use crate::{
-    localnet::{pack_proof, send_transaction, SECOND_ZONE_TEST_PROGRAM_ID, ZERO},
-    support::MergeZoneRecord,
+    support::{MergeZoneRecord, SECOND_ZONE_TEST_PROGRAM_ID},
     ZoneHarness,
 };
-
-/// `ShieldedPoolError::TransactProofVerificationFailed` (the shared merge proof
-/// verifier rejects a malformed / zeroed proof).
-const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
 
 impl ZoneHarness {
     /// Build, prove, and submit a `merge_zone` of `count` of `name`'s spendable
@@ -280,7 +277,7 @@ impl ZoneHarness {
                     assert_eq!(
                         assert_custom_program_error(
                             &error,
-                            ShieldedPoolError::TransactProofVerificationFailed as u32,
+                            ShieldedPoolError::TransactProofVerificationFailed,
                         ),
                         1,
                         "the mismatched proof must fail in the SPP instruction"
@@ -337,7 +334,7 @@ impl ZoneHarness {
                     assert_eq!(
                         assert_custom_program_error(
                             &error,
-                            ShieldedPoolError::NullifierTreeUpdateFailed as u32,
+                            ShieldedPoolError::NullifierTreeUpdateFailed,
                         ),
                         1,
                         "zone merge replay must fail in the SPP instruction"
@@ -505,7 +502,10 @@ impl ZoneHarness {
             )),
             Err(error) => {
                 assert_eq!(
-                    assert_custom_program_error(&error, TRANSACT_PROOF_VERIFICATION_FAILED),
+                    assert_custom_program_error(
+                        &error,
+                        ShieldedPoolError::TransactProofVerificationFailed
+                    ),
                     1
                 );
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;

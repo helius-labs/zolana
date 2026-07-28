@@ -1106,3 +1106,75 @@ fn transact_rejects_overrunning_eddsa_signer_index() {
         .expect("out-of-range signer transaction trace")
         .assert_rolled_back_except(&[payer]);
 }
+
+/// Capacity gate (INV-TRANSACT-33): once the nullifier tree has strictly fewer
+/// free leaves than the state tree, the on-chain `allow_dummy_inputs` public
+/// input flips to false, so a proof built with dummy slots (the client-side
+/// `allow_dummy_inputs = true` assumption) fails verification -- dummy-slot
+/// proofs are locked out before the tree runs out of room to nullify them.
+#[test]
+fn transact_rejects_dummy_inputs_after_capacity_threshold() {
+    let mut env = proof_env();
+
+    let payer = env.rpc.payer.pubkey();
+    let tree = env.tree.pubkey();
+    let transact_ix_data = build_valid_transact_ix(&mut env);
+
+    // Move only the nullifier queue cursor so it has one fewer free leaf than
+    // the state tree. The roots are unchanged, so the proof (built with the
+    // normal `allow_dummy_inputs = true`) still reaches the program's
+    // public-input verification -- only the flipped flag breaks it.
+    let mut account = env.rpc.svm.get_account(&tree).expect("tree account");
+    {
+        let mut on_chain =
+            TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
+        assert!(
+            on_chain.allow_dummy_inputs().expect("dummy-input policy"),
+            "fresh tree must allow dummy inputs"
+        );
+        let state_remaining = {
+            let utxo = on_chain.utxo_tree();
+            utxo.capacity() - utxo.next_index()
+        };
+        {
+            let mut nullifier = on_chain.nullifer_tree();
+            let next_leaf = nullifier
+                .capacity
+                .checked_sub(state_remaining)
+                .expect("nullifier capacity exceeds state capacity")
+                + 1;
+            nullifier
+                .queue_batches
+                .get_current_batch_mut()
+                .expect("current nullifier batch")
+                .start_index = next_leaf;
+        }
+        assert!(
+            !on_chain.allow_dummy_inputs().expect("dummy-input policy"),
+            "fixture must cross the dummy-input threshold"
+        );
+    }
+    env.rpc
+        .svm
+        .set_account(tree, account)
+        .expect("write threshold tree account");
+
+    let ix = Transact {
+        payer,
+        input_tree: tree,
+        output_tree: tree,
+        interface_transfer_accounts: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+
+    let error = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("dummy inputs must be rejected after the capacity threshold");
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
+    env.rpc
+        .last_transaction_trace()
+        .expect("capacity-gate transaction trace")
+        .assert_rolled_back_except(&[payer]);
+}

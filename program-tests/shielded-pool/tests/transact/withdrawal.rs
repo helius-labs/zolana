@@ -38,12 +38,12 @@ use zolana_program_test::{test_blinding, Rejection};
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, build_transfer_prover_inputs_spl, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe,
-    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    prove_and_verify_transfer, public_input_hash, public_input_hash_spl, public_sol_field,
-    real_output, set_output_owner_tags, sol_public_slots, spend_input, transfer_output,
-    SpendInputArgs, TransferProverInputsArgs,
+    build_spl_withdrawal, build_transfer_prover_inputs, build_transfer_prover_inputs_spl,
+    dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash,
+    external_data_hash_spl, inline_outputs, new_transact_ix_data, nullifier_tree,
+    output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_input_hash_spl,
+    public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
+    transfer_output, SpendInputArgs, TransferProverInputsArgs,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -54,150 +54,14 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
     let mut env = proof_env();
     let tree = env.tree.pubkey();
     let payer = env.rpc.payer.insecure_clone();
-    let payer_bytes = payer.pubkey().to_bytes();
-    let zero = [0u8; 32];
 
-    let mint = env.rpc.create_mint().expect("create mint");
-    env.rpc
-        .ensure_asset_counter(&env.authority)
-        .expect("create asset counter");
-    env.rpc
-        .create_spl_interface(&env.authority, &mint)
-        .expect("create SPL interface");
-    let user_token = env
-        .rpc
-        .create_token_account(&mint, &payer.pubkey())
-        .expect("create user token account");
-    env.rpc
-        .mint_to(&mint, &user_token, SPL_AMOUNT)
-        .expect("mint SPL");
-    let vault = pda::spl_asset_vault(&mint);
-
-    let blinding = [7u8; 32];
-    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
-    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: solana_address::Address::new_from_array(mint.to_bytes()),
-        amount: SPL_AMOUNT,
-        blinding,
-        zone_program_id: None,
-        data: Data::default(),
-    };
-    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner hash");
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
-    let deposit_data = zolana_program_test::ZolanaProgramTest::spl_shield_data(
-        SPL_AMOUNT,
-        owner_field,
-        blinding,
-        &mint,
-        &user_token,
-    );
-    let deposit_event = env
-        .rpc
-        .deposit(&tree, &payer, &deposit_data)
-        .expect("SPL deposit");
+    let withdrawal =
+        build_spl_withdrawal(&mut env.rpc, &env.authority, &tree, SPL_AMOUNT, [7u8; 32])
+            .expect("build SPL withdrawal");
+    let vault = withdrawal.vault;
+    let user_token = withdrawal.user_token;
     assert_eq!(env.rpc.token_balance(&user_token), Some(0));
     assert_eq!(env.rpc.token_balance(&vault), Some(SPL_AMOUNT));
-
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("UTXO hash");
-    assert_eq!(deposit_event.utxo_hash, utxo_hash);
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 1);
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
-    state_tree.append(&utxo_hash).expect("append state leaf");
-    assert_eq!(state_tree.root(), utxo_root);
-    let state_path = state_tree
-        .get_proof_of_leaf(0, true)
-        .expect("state proof")
-        .to_vec();
-    let nf_tree = nullifier_tree().expect("nullifier tree");
-    assert_eq!(nf_tree.root(), nullifier_root);
-    let nullifier = nullifier_key
-        .nullifier(&utxo_hash, &blinding)
-        .expect("nullifier");
-    let non_inclusion = nf_tree
-        .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
-        .expect("non-inclusion proof");
-    let roots = (utxo_root, nullifier_root);
-    let (withdraw_dummy_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
-    let spend = spend_input(SpendInputArgs {
-        utxo: &utxo,
-        owner_field: &owner_field,
-        state_path: &state_path,
-        state_path_index: 0,
-        non_inclusion: &non_inclusion,
-        roots,
-        nullifier: &nullifier,
-        owner_pk_hash: &owner_pk_hash,
-        nullifier_key: &nullifier_key,
-    })
-    .expect("spend input");
-
-    let dummy_outputs: Vec<_> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
-        .collect();
-    let output_hashes: Vec<_> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let mut outputs: Vec<_> = dummy_outputs
-        .into_iter()
-        .map(|(output, _)| output)
-        .collect();
-    // Dummy outputs must name a transaction participant (AssertDummyTags), so
-    // they carry the payer's tag.
-    let mut data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
-        ],
-        vec![InterfaceTransfer::SplWithdrawal {
-            amount: SPL_AMOUNT,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
-        }],
-        inline_outputs(&output_hashes, &[payer_bytes; 3]),
-    );
-    let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
-    set_output_owner_tags(&mut outputs, &output_owner_hashes, &[zero, zero, zero]);
-    let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
-        .expect("external data hash");
-    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_hash)
-        .hash()
-        .expect("private transaction hash");
-    let public_spl_field = public_sol_field(Some(-(SPL_AMOUNT as i64)));
-    let payer_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
-    let mint_bytes = mint.to_bytes();
-    let input_owner_hashes = [owner_pk_hash, owner_pk_hash];
-    let public_hash = public_input_hash_spl(
-        &[nullifier, dummy_nullifier],
-        &output_hashes,
-        &[utxo_root, utxo_root],
-        &[nullifier_root, nullifier_root],
-        &private_tx,
-        &external_hash,
-        &public_spl_field,
-        &mint_bytes,
-        &payer_hash,
-        &input_owner_hashes,
-        &output_owner_hashes,
-    );
-    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
-    let prover_inputs = build_transfer_prover_inputs_spl(
-        TransferProverInputsArgs {
-            inputs: vec![spend, withdraw_dummy_input],
-            outputs,
-            external_data_hash: external_hash,
-            private_tx_hash: private_tx,
-            public_slot_assets,
-            public_slot_amounts,
-            payer_pubkey_hash: payer_hash,
-            public_input_hash: public_hash,
-        },
-        public_spl_field,
-        mint_bytes,
-    );
-    data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL withdrawal")
-        .expect("prove SPL withdrawal");
-    data.private_tx_hash = private_tx;
 
     let other_mint = env.rpc.create_mint().expect("create substitution mint");
     env.rpc
@@ -219,7 +83,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
                 token_program: zolana_program_test::ZolanaProgramTest::token_program_id(),
             },
         )],
-        data: data.clone(),
+        data: withdrawal.data.clone(),
     }
     .instruction();
     let error = env
@@ -235,23 +99,8 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         .expect("mint substitution trace")
         .assert_rolled_back_except(&[payer.pubkey()]);
 
-    let ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree,
-        output_tree: tree,
-        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
-            TransactSplWithdrawalAccounts {
-                mint,
-                vault,
-                user_token_account: user_token,
-                token_program: zolana_program_test::ZolanaProgramTest::token_program_id(),
-            },
-        )],
-        data,
-    }
-    .instruction();
     env.rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
+        .create_and_send_default_payer_transaction(&[withdrawal.instruction], &[])
         .expect("real-proof SPL withdrawal");
     assert_eq!(env.rpc.token_balance(&user_token), Some(SPL_AMOUNT));
     assert_eq!(env.rpc.token_balance(&vault), Some(0));

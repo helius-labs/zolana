@@ -8,10 +8,15 @@ use solana_signer::Signer;
 use zolana_client::{
     ProverClient, PublicMovements, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
 };
-use zolana_interface::instruction::{
-    instruction_data::transact::{CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof},
-    tag::ZONE_AUTHORITY_TRANSACT,
-    TransactIxData, ZoneAuthorityTransact,
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::{
+        instruction_data::transact::{
+            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof,
+        },
+        tag::ZONE_AUTHORITY_TRANSACT,
+        TransactIxData, ZoneAuthorityTransact,
+    },
 };
 use zolana_keypair::{hash::sha256_be, random_blinding, random_salt, ViewingKey};
 use zolana_test_utils::test_validator_asserts::{
@@ -24,17 +29,9 @@ use zolana_transaction::{
     Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
 };
 
-use crate::{
-    localnet::{send_transaction, transact_proof, ZERO},
-    ZoneHarness,
-};
+use zolana_test_utils::localnet::{send_transaction, transact_proof, ZERO};
 
-/// `ShieldedPoolError::ZoneAuthorityTransactDisabled` (the zone config does not
-/// have `zone_authority_transact_is_enabled` set).
-const ZONE_AUTHORITY_TRANSACT_DISABLED: u32 = 7022;
-/// `ShieldedPoolError::TransactProofVerificationFailed` (the Groth16 proof does
-/// not verify against the zone-authority verifying key).
-const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
+use crate::ZoneHarness;
 
 /// The eddsa signer index for every input on the authority rail. The authority
 /// rail skips the per-owner spend-signature check on-chain
@@ -396,7 +393,10 @@ impl ZoneHarness {
             )),
             Err(error) => {
                 assert_eq!(
-                    assert_custom_program_error(&error, ZONE_AUTHORITY_TRANSACT_DISABLED),
+                    assert_custom_program_error(
+                        &error,
+                        ShieldedPoolError::ZoneAuthorityTransactDisabled
+                    ),
                     1
                 );
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
@@ -449,7 +449,10 @@ impl ZoneHarness {
             )),
             Err(error) => {
                 assert_eq!(
-                    assert_custom_program_error(&error, TRANSACT_PROOF_VERIFICATION_FAILED),
+                    assert_custom_program_error(
+                        &error,
+                        ShieldedPoolError::TransactProofVerificationFailed
+                    ),
                     1
                 );
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
