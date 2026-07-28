@@ -80,14 +80,12 @@ struct ShieldedPayer {
     nullifier_root: [u8; 32],
 }
 
-/// The recipient's transferred UTXO and the tree roots it settles against.
+/// The recipient's transferred UTXO pieces and the tree roots it settles
+/// against (its hash, view tag, owner field, and nullifier pubkey recompute
+/// off these).
 struct TransferredUtxo {
     public_key: PublicKey,
     nullifier_key: NullifierKey,
-    nullifier_pk: [u8; 32],
-    owner_field: [u8; 32],
-    view_tag: [u8; 32],
-    hash: [u8; 32],
     blinding: [u8; 32],
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
@@ -234,7 +232,6 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let recipient_nullifier_key = NullifierKey::from_secret([11u8; 31]);
     let recipient_nullifier_pk = recipient_nullifier_key.pubkey()?;
     let recipient_public_key = PublicKey::from_ed25519(&recipient_bytes);
-    let recipient_owner_field = owner_hash(&recipient_public_key, &recipient_nullifier_pk)?;
 
     let change_output = real_output(
         shielded.utxo.owner,
@@ -253,7 +250,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
     let transfer_roots = (shielded.utxo_root, shielded.nullifier_root);
-    let (transfer_dummy_input, transfer_dummy_nullifier) = dummy_input(
+    let (transfer_dummy_input, _) = dummy_input(
         &[20u8; 31],
         &cycle.nf_tree,
         transfer_roots,
@@ -270,9 +267,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let payer_bytes = cycle.payer.pubkey().to_bytes();
     let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![payer_spend_input, transfer_dummy_input],
-        nullifiers: [payer_nullifier, transfer_dummy_nullifier],
         root_index: 1,
-        roots: transfer_roots,
         output_hashes: vec![change_hash, recipient_hash, transfer_dummy_hash],
         view_tags: vec![change_view_tag, recipient_view_tag, change_view_tag],
         outputs: vec![
@@ -324,10 +319,6 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     Ok(TransferredUtxo {
         public_key: recipient_public_key,
         nullifier_key: recipient_nullifier_key,
-        nullifier_pk: recipient_nullifier_pk,
-        owner_field: recipient_owner_field,
-        view_tag: recipient_view_tag,
-        hash: recipient_hash,
         blinding: recipient_output.blinding,
         utxo_root: transfer_utxo_root,
         nullifier_root: transfer_nullifier_root,
@@ -350,21 +341,21 @@ fn phase_unshield(
         zone_program_id: None,
         data: Data::default(),
     };
-    assert_eq!(
-        transferred.hash,
-        recipient_utxo.hash(&transferred.nullifier_pk, &zero, &zero)?
-    );
+    let recipient_nullifier_pk = transferred.nullifier_key.pubkey()?;
+    let transferred_hash = recipient_utxo.hash(&recipient_nullifier_pk, &zero, &zero)?;
+    let recipient_owner_field = owner_hash(&transferred.public_key, &recipient_nullifier_pk)?;
+    let recipient_view_tag = transferred.public_key.confidential_view_tag()?;
     let recipient_owner_pk_hash = recipient_utxo.owner.owner_proof_input_hash()?;
     let recipient_nullifier = transferred
         .nullifier_key
-        .nullifier(&transferred.hash, &recipient_utxo.blinding)?;
+        .nullifier(&transferred_hash, &recipient_utxo.blinding)?;
     let recipient_non_inclusion = cycle
         .nf_tree
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&recipient_nullifier))?;
     let recipient_state_path: Vec<[u8; 32]> = cycle.state_tree.get_proof_of_leaf(2, true)?.to_vec();
     let recipient_spend_input = spend_input(SpendInputArgs {
         utxo: &recipient_utxo,
-        owner_field: &transferred.owner_field,
+        owner_field: &recipient_owner_field,
         state_path: &recipient_state_path,
         state_path_index: 2,
         non_inclusion: &recipient_non_inclusion,
@@ -382,7 +373,7 @@ fn phase_unshield(
     let public_recipient_before = account_lamports(&cycle.rpc, &public_recipient)?;
     let vault = pda::sol_interface();
     let vault_before = account_lamports(&cycle.rpc, &vault)?;
-    let (withdraw_dummy_input, withdraw_dummy_nullifier) = dummy_input(
+    let (withdraw_dummy_input, _) = dummy_input(
         &[21u8; 31],
         &cycle.nf_tree,
         (transferred.utxo_root, transferred.nullifier_root),
@@ -394,11 +385,9 @@ fn phase_unshield(
     let recipient_bytes = cycle.recipient_owner.pubkey().to_bytes();
     let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![recipient_spend_input, withdraw_dummy_input],
-        nullifiers: [recipient_nullifier, withdraw_dummy_nullifier],
         root_index: 2,
-        roots: (transferred.utxo_root, transferred.nullifier_root),
         output_hashes: withdraw_output_hashes,
-        view_tags: vec![transferred.view_tag; 3],
+        view_tags: vec![recipient_view_tag; 3],
         outputs: withdraw_outputs,
         output_nullifier_pks: [zero, zero, zero],
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
@@ -408,7 +397,7 @@ fn phase_unshield(
             amount: TRANSFER_AMOUNT,
             recipient: public_recipient.to_bytes(),
         }],
-        private_tx_inputs: [transferred.hash, zero],
+        private_tx_inputs: [transferred_hash, zero],
         private_tx_outputs: [zero, zero, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
         payer_pubkey_hash: Sha256BE::hash(&recipient_bytes)?,

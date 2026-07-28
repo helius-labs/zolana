@@ -14,12 +14,12 @@ use zolana_interface::{
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use zolana_program_test::{Rejection, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::{
     localnet::send_transaction,
     test_validator_asserts::{
-        assert_account_unchanged, assert_custom_program_error, assert_optional_account_unchanged,
-        fetch_account, fetch_optional_account,
+        assert_account_unchanged, assert_optional_account_unchanged, fetch_account,
+        fetch_optional_account,
     },
 };
 
@@ -157,10 +157,7 @@ impl ZoneHarness {
         match send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer, &stale]) {
             Ok(_) => Err(anyhow!("stale owner update unexpectedly succeeded")),
             Err(error) => {
-                assert_eq!(
-                    assert_custom_program_error(&error, ShieldedPoolError::UnauthorizedCaller),
-                    0
-                );
+                Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_client(&error);
                 assert_account_unchanged(&self.rpc, &zone_config, &config_before)?;
                 Ok(())
             }
@@ -199,10 +196,7 @@ impl ZoneHarness {
                 "invalid zone authority create unexpectedly succeeded"
             )),
             Err(error) => {
-                assert_eq!(
-                    assert_custom_program_error(&error, ShieldedPoolError::InvalidZoneConfig),
-                    0
-                );
+                Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_client(&error);
                 assert_optional_account_unchanged(
                     &self.rpc,
                     &canonical_zone_config,

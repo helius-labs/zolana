@@ -18,14 +18,15 @@ use zolana_interface::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
 use zolana_test_utils::{
-    localnet::{send_transaction, transact_proof, SOL_CHANGE_POSITION, ZERO},
+    localnet::{send_transaction, SOL_CHANGE_POSITION, ZERO},
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
+    transact::pack_transact_proof,
 };
 use zolana_transaction::{instructions::transact::SettlementTarget, Utxo, SOL_MINT};
 
-use crate::{harness::Rail, LifecycleHarness};
+use crate::LifecycleHarness;
 
 impl LifecycleHarness {
     /// Withdraw `amount` lamports of SOL from `from` to a fresh external recipient
@@ -34,7 +35,7 @@ impl LifecycleHarness {
     /// is emitted back to the sender. Mirrors `execute_transfer`, but the public SOL
     /// leaves the pool to `recipient` and there is no recipient UTXO.
     pub(crate) fn withdraw_sol(&mut self, from: &str, amount: u64) -> Result<Signature> {
-        self.ensure_actor(from)?;
+        self.ensure_fresh_actor(from)?;
 
         // Pick two spendable SOL UTXOs (the (2, 3) shape); their total must exceed
         // `amount` so there is SOL change to track.
@@ -65,14 +66,9 @@ impl LifecycleHarness {
         let recipient_before = self.rpc.client().get_balance(&recipient.pubkey())?;
 
         let from_keypair = self.actor(from).keypair.clone();
-        // An eddsa actor pays and signs its own spend; actors without a native
-        // signer fall back to the global payer.
-        let fee_payer = self
-            .actor(from)
-            .solana_signer
-            .as_ref()
-            .map(|k| k.insecure_clone())
-            .unwrap_or_else(|| self.payer.insecure_clone());
+        // An eddsa actor pays and signs its own spend (the owner sits at signer index
+        // 0 / the fee payer).
+        let fee_payer = self.actor(from).solana_signer.insecure_clone();
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
@@ -114,19 +110,14 @@ impl LifecycleHarness {
             .collect();
 
         let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
-        let (proof, rail) = match &assembled.prover_inputs {
-            ProverInputs::Eddsa(inputs) => {
-                (ProverClient::local().prove_transfer(inputs)?, Rail::Eddsa)
-            }
-        };
-        self.last_rail = Some(rail);
-        let ix_data = assembled.with_proof(transact_proof(&proof)?);
+        let ProverInputs::Eddsa(transfer_inputs) = &assembled.prover_inputs;
+        let proof = ProverClient::local().prove_transfer(transfer_inputs)?;
+        let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
 
         let withdraw_ix = Transact {
             payer: fee_payer.pubkey(),
             input_tree: self.tree,
             output_tree: self.tree,
-            owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
                     recipient: recipient.pubkey(),

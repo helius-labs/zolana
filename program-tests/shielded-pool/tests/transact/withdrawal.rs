@@ -41,12 +41,11 @@ use zolana_transaction::{
 };
 
 use zolana_test_utils::transact::{
-    build_spl_withdrawal, build_transfer_prover_inputs, build_transfer_prover_inputs_spl,
-    dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash,
-    external_data_hash_spl, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, public_input_hash_spl,
-    public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-    transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
+    eddsa_input_utxo, external_data_hash, external_data_hash_spl, inline_outputs,
+    new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
+    public_input_hash, public_sol_field, real_output, set_output_owner_tags, sol_public_slots,
+    spend_input, spl_public_slots, transfer_output, SpendInputArgs, TransferProverInputsArgs,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -76,6 +75,16 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         .rpc
         .create_token_account(&other_mint, &payer.pubkey())
         .expect("create substitution token account");
+    let other_vault_bump = pda::spl_asset_vault_bump(&other_mint.to_bytes());
+    let mut substituted_data = withdrawal.data.clone();
+    // Fully canonical settlement accounts for `other_mint`: the leg must carry
+    // other_mint's own canonical vault bump, otherwise the program's
+    // derive-and-compare rejects the address as `InvalidSettlementAccounts`
+    // (which of the two bumps a random mint pair shares is nondeterministic).
+    substituted_data.interface_transfers[0] = InterfaceTransfer::SplWithdrawal {
+        amount: SPL_AMOUNT,
+        vault_bump: other_vault_bump,
+    };
     let substituted = Transact {
         payer: payer.pubkey(),
         input_tree: tree,
@@ -88,17 +97,17 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
                 token_program: zolana_program_test::ZolanaProgramTest::token_program_id(),
             },
         )],
-        data: withdrawal.data.clone(),
+        data: substituted_data,
     }
     .instruction();
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[substituted], &[])
         .expect_err("proof bound to another mint must fail");
-    // The settlement-account validation (leg mint vs canonical vault) fires
-    // before proof verification, so the substitution is an accounts error, not
-    // a proof error.
-    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(error);
+    // With mint B's canonical settlement accounts, validation passes and the
+    // rejection is the proof binding: the public input carries
+    // `hash_field(mint B)` while the proof was built for mint A (INV-TRANSACT-21).
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
         .expect("mint substitution trace")
@@ -649,34 +658,31 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let public_spl_field = public_sol_field(Some(SPL_AMOUNT as i64));
     let payer_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
     let mint_bytes = mint.to_bytes();
-    let public_hash = public_input_hash_spl(
+    let (public_slot_assets, public_slot_amounts) =
+        spl_public_slots(public_spl_field, &mint_bytes).expect("public SPL slots");
+    let public_hash = public_input_hash(
         &nullifiers,
         &output_hashes,
         &[utxo_root, utxo_root],
         &[nullifier_root, nullifier_root],
         &private_tx,
         &external_hash,
-        &public_spl_field,
-        &mint_bytes,
+        &public_slot_assets,
+        &public_slot_amounts,
         &payer_hash,
         &owner_hashes,
         &output_owner_hashes,
     );
-    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
-    let prover_inputs = build_transfer_prover_inputs_spl(
-        TransferProverInputsArgs {
-            inputs: vec![deposit_dummy_0, deposit_dummy_1],
-            outputs,
-            external_data_hash: external_hash,
-            private_tx_hash: private_tx,
-            public_slot_assets,
-            public_slot_amounts,
-            payer_pubkey_hash: payer_hash,
-            public_input_hash: public_hash,
-        },
-        public_spl_field,
-        mint_bytes,
-    );
+    let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+        inputs: vec![deposit_dummy_0, deposit_dummy_1],
+        outputs,
+        external_data_hash: external_hash,
+        private_tx_hash: private_tx,
+        public_slot_assets,
+        public_slot_amounts,
+        payer_pubkey_hash: payer_hash,
+        public_input_hash: public_hash,
+    });
     data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL deposit")
         .expect("prove SPL deposit");
     data.private_tx_hash = private_tx;

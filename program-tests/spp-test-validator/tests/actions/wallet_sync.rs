@@ -10,7 +10,7 @@ impl LifecycleHarness {
     /// Sync an actor's wallet from every indexed transfer (decryption), and make
     /// newly decrypted, unspent UTXOs spendable. No assertions.
     pub(crate) fn sync(&mut self, name: &str) -> Result<()> {
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
         // Actors may exist before assets are registered, so refresh the wallet's
         // asset registry before decoding SPL UTXOs.
@@ -55,7 +55,7 @@ impl LifecycleHarness {
 
     /// Sync and assert the actor decrypts nothing (view-tag isolation).
     pub(crate) fn assert_no_utxos(&mut self, name: &str) -> Result<()> {
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
         let assets = self.assets.clone();
         let actor = self.actor_mut(name);

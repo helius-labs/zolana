@@ -1,5 +1,5 @@
 use solana_account::Account as MolluskAccount;
-use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
+use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -14,7 +14,6 @@ use zolana_interface::{
     pda, PROGRAM_ID_PUBKEY,
 };
 use zolana_program_test::{test_blinding, Rejection, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
-use zolana_test_utils::litesvm_asserts::{assert_custom, assert_instruction_error};
 
 use zolana_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, snapshot_instruction_accounts, sweep_account_matrix,
@@ -195,10 +194,7 @@ fn sol_deposit_rejects_missing_program_account() {
 
     let err = raw_sol_deposit(&mut pool.rpc, &depositor, missing_program)
         .expect_err("missing program account must fail");
-    assert_instruction_error(
-        err,
-        InstructionError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
-    );
+    Rejection::custom(u32::from(AccountError::NotEnoughAccountKeys)).assert_litesvm(err);
 }
 
 #[test]
@@ -417,7 +413,7 @@ fn zone_deposit_rejects_an_unsigned_zone_config() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
         .expect_err("unsigned zone config must fail");
-    assert_custom(err, u32::from(AccountError::InvalidSigner));
+    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
 }
 
 #[test]

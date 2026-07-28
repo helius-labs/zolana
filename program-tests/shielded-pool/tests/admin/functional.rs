@@ -66,18 +66,6 @@ fn protocol_config_creation_initializes_complete_state() {
 }
 
 #[test]
-fn protocol_config_fixture_executes_successfully_before_mutation() {
-    let (mollusk, instruction, accounts) = protocol_config_fixture();
-    mollusk.process_and_validate_instruction(&instruction, &accounts, &[Check::success()]);
-}
-
-#[test]
-fn pause_tree_fixture_executes_successfully_before_mutation() {
-    let (mollusk, instruction, accounts) = pause_tree_fixture();
-    mollusk.process_and_validate_instruction(&instruction, &accounts, &[Check::success()]);
-}
-
-#[test]
 fn protocol_config_creation_changes_only_the_config_and_fee_payer() {
     let (mollusk, instruction, accounts) = protocol_config_fixture();
     let result =

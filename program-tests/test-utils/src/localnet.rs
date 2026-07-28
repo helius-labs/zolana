@@ -12,9 +12,7 @@ use std::{
     process::Command,
 };
 use zolana_client::{ClientError, Proof, ProofCompressed, Rpc, SolanaRpc};
-use zolana_interface::instruction::instruction_data::{
-    merge_transact::MergeProof, transact::TransactProof,
-};
+use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
 
@@ -27,15 +25,10 @@ pub const SPL_CHANGE_POSITION: u8 = 0;
 pub const SOL_CHANGE_POSITION: u8 = 1;
 pub const RECIPIENT_POSITION_BASE: u8 = 2;
 
-/// The P256-rail merge proof (always BSB22-committed), via the shared
+/// Build the merge proof carried by a `merge` instruction, via the shared
 /// `ProofCompressed::to_merge_proof` conversion.
-pub fn pack_proof(proof: &Proof) -> Result<MergeProof> {
+pub fn pack_merge_proof(proof: &Proof) -> Result<MergeProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_merge_proof()?)
-}
-
-/// Build the compressed proof carried by a `transact` instruction.
-pub fn transact_proof(proof: &Proof) -> Result<TransactProof> {
-    Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
 }
 
 pub fn send_transaction(

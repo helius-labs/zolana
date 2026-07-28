@@ -12,7 +12,6 @@ use zolana_client::Rpc;
 use zolana_transaction::SOL_MINT;
 
 use harness::ZoneHarness;
-use support::Variant;
 
 #[test]
 #[serial]
@@ -48,19 +47,18 @@ fn proofless_zone_deposits_cover_sol_spl_and_wrong_signer() -> Result<()> {
 fn eddsa_zone_transfer_updates_recipient_wallet() -> Result<()> {
     let mut harness = ZoneHarness::new()?;
     harness.create_enabled_zone_config()?;
-    harness.make_eddsa_actor("alice")?;
+    harness.make_payer_actor("alice")?;
     for _ in 0..2 {
         harness.zone_shield_sol("alice", 1_000_000_000)?;
     }
     harness.zone_transfer("alice", "bob", SOL_MINT, 300_000_000)?;
-    assert_eq!(harness.last_rail, Some(Variant::Eddsa));
     harness.sync("bob")?;
-    harness.assert_utxos("bob")?;
+    harness.assert_utxos("bob");
     Ok(())
 }
 
 // NOTE(pr164): PR164 removed the P256 zone-transfer rail
-// (`zone_transfer_p256` is gone; only `Variant::Eddsa` remains), so the
+// (`zone_transfer_p256` is gone; only the eddsa rail remains), so the
 // `p256_zone_transfer_updates_recipient_wallet` case was dropped.
 
 /// INV-ZONE-TRANSACT-07: `zone_transact` does not require the zone's
@@ -74,14 +72,13 @@ fn zone_transact_succeeds_while_zone_authority_transact_is_disabled() -> Result<
     harness.create_enabled_zone_config()?;
     harness.update_zone_config(false)?;
     harness.assert_zone_config(false)?;
-    harness.make_eddsa_actor("alice")?;
+    harness.make_payer_actor("alice")?;
     for _ in 0..2 {
         harness.zone_shield_sol("alice", 1_000_000_000)?;
     }
     harness.zone_transfer("alice", "bob", SOL_MINT, 300_000_000)?;
-    assert_eq!(harness.last_rail, Some(Variant::Eddsa));
     harness.sync("bob")?;
-    harness.assert_utxos("bob")?;
+    harness.assert_utxos("bob");
     Ok(())
 }
 
@@ -140,6 +137,10 @@ fn zone_authority_transfer_reowns_a_utxo() -> Result<()> {
     harness.create_enabled_zone_config()?;
     harness.zone_shield_sol("henry", 1_000_000_000)?;
     harness.zone_authority_transfer("henry", "ivan", SOL_MINT)?;
+    harness.sync("henry")?;
+    harness.sync("ivan")?;
+    harness.assert_utxos("henry");
+    harness.assert_utxos("ivan");
     Ok(())
 }
 
@@ -148,7 +149,7 @@ fn zone_authority_transfer_reowns_a_utxo() -> Result<()> {
 fn zone_withdraw_credits_the_public_recipient() -> Result<()> {
     let mut harness = ZoneHarness::new()?;
     harness.create_enabled_zone_config()?;
-    harness.make_eddsa_actor("alice")?;
+    harness.make_payer_actor("alice")?;
     for _ in 0..2 {
         harness.zone_shield_sol("alice", 1_000_000_000)?;
     }
@@ -166,7 +167,7 @@ fn zone_withdraw_credits_the_public_recipient() -> Result<()> {
 fn invalid_proofs_and_disabled_authority_are_atomic() -> Result<()> {
     let mut harness = ZoneHarness::new()?;
     harness.create_enabled_zone_config()?;
-    harness.make_eddsa_actor("alice")?;
+    harness.make_payer_actor("alice")?;
     for _ in 0..3 {
         harness.zone_shield_sol("alice", 1_000_000_000)?;
     }

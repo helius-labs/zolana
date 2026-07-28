@@ -28,7 +28,7 @@ use zolana_transaction::{
     Utxo, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 
-use crate::support::{MergeZoneRecord, Variant, SECOND_ZONE_TEST_PROGRAM_ID};
+use crate::support::{MergeZoneRecord, SECOND_ZONE_TEST_PROGRAM_ID};
 
 pub struct ZoneHarness {
     pub(crate) base: LocalnetHarness<ZoneAssetDeposit>,
@@ -38,8 +38,6 @@ pub struct ZoneHarness {
     pub(crate) zone_config: Option<Pubkey>,
     pub(crate) zone_authority: Option<Keypair>,
     pub(crate) previous_zone_authority: Option<Keypair>,
-    /// Which rail the last zone transact / merge took.
-    pub(crate) last_rail: Option<Variant>,
     /// The most recent `merge_zone`, kept so the consolidated-output assert can
     /// reconstruct and verify the merged UTXO.
     pub(crate) last_merge: Option<MergeZoneRecord>,
@@ -90,7 +88,6 @@ impl ZoneHarness {
             zone_config: None,
             zone_authority: None,
             previous_zone_authority: None,
-            last_rail: None,
             last_merge: None,
         })
     }
@@ -137,7 +134,7 @@ impl ZoneHarness {
     /// Sync an actor's wallet from every indexed transaction (decryption), and make
     /// newly decrypted, unspent UTXOs spendable. No assertions.
     pub(crate) fn sync(&mut self, name: &str) -> Result<()> {
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
         let actor = self.actor_mut(name);
         let authority = LocalWalletAuthority::new(Address::default(), &actor.keypair);
@@ -163,7 +160,8 @@ impl ZoneHarness {
 
     /// Full-struct assert that the actor's synced wallet holds exactly the UTXOs it
     /// is expected to have decrypted (with `spent` flags). Run `sync` first.
-    pub(crate) fn assert_utxos(&self, name: &str) -> Result<()> {
+    #[track_caller]
+    pub(crate) fn assert_utxos(&self, name: &str) {
         let actor = self.actor(name);
         let mut actual = actor.wallet.utxos.clone();
         let mut expected = actor.expected.clone();
@@ -173,12 +171,14 @@ impl ZoneHarness {
             actual, expected,
             "synced UTXOs for {name} do not match expected"
         );
-        Ok(())
     }
 
     /// Build the `WalletUtxo` an actor should hold for a known
     /// `(owner, asset, amount, blinding)`, locating its on-chain output context in
     /// the indexed transaction so `assert_utxos` cross-checks the synced wallet.
+    /// `zone_program_id` is `Some(zone)` for a zone-owned output (its hash binds
+    /// the zone), `None` for a default-pool output.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn build_expected(
         &self,
         name: &str,
@@ -186,6 +186,7 @@ impl ZoneHarness {
         asset: Address,
         amount: u64,
         blinding: [u8; 32],
+        zone_program_id: Option<Address>,
         tx: &ShieldedTransaction,
     ) -> Result<WalletUtxo> {
         let keypair = &self.actor(name).keypair;
@@ -195,7 +196,7 @@ impl ZoneHarness {
             asset,
             amount,
             blinding,
-            zone_program_id: None,
+            zone_program_id,
             data: Data::default(),
         };
         let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;

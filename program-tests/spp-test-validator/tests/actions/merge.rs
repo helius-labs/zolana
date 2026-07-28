@@ -12,12 +12,13 @@ use zolana_interface::{
 };
 use zolana_keypair::{
     merge::{merge_dummy_nullifier, merge_output_blinding},
-    random_blinding, SignatureType,
+    random_blinding,
 };
+use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, assert_custom_program_error, fetch_account,
-    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    assert_account_unchanged, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
+    wait_for_non_inclusion_proof,
 };
 use zolana_transaction::{Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo};
 use zolana_user_registry_interface::{
@@ -28,7 +29,7 @@ use zolana_user_registry_interface::{
     user_record_pda,
 };
 
-use zolana_test_utils::localnet::{pack_proof, send_transaction, ZERO};
+use zolana_test_utils::localnet::{pack_merge_proof, send_transaction, ZERO};
 
 use crate::LifecycleHarness;
 
@@ -49,32 +50,17 @@ impl LifecycleHarness {
         name: &str,
         enable_merge: bool,
     ) -> Result<Keypair> {
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
 
-        // The owner identity rail follows the actor's signing key. A Solana owner
-        // registers under its own ed25519 signing key (so `record.owner` is the
-        // identity merge derives `signing_pk_field` from) with no `owner_p256`; a
-        // P256 owner registers under a fresh account and stores its `owner_p256`.
-        let (owner, owner_p256) = match keypair.signing_pubkey().signature_type()? {
-            SignatureType::Ed25519 => {
-                let signer = self
-                    .actor(name)
-                    .solana_signer
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("eddsa actor {name} has no backing signer"))?
-                    .insecure_clone();
-                (signer, None)
-            }
-            SignatureType::P256 => (
-                Keypair::new(),
-                Some(*keypair.signing_pubkey().as_p256()?.as_bytes()),
-            ),
-        };
+        // Every actor is eddsa-owned: it registers under its own ed25519 signing
+        // key (so `record.owner` is the identity merge derives `signing_pk_field`
+        // from) with no `owner_p256`.
+        let owner = self.actor(name).solana_signer.insecure_clone();
         self.rpc.airdrop(&owner.pubkey(), 1_000_000_000)?;
 
         let register_data = RegisterData {
-            owner_p256,
+            owner_p256: None,
             nullifier_pubkey: keypair.nullifier_key.pubkey()?,
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
         };
@@ -108,7 +94,7 @@ impl LifecycleHarness {
         asset: Address,
         count: usize,
     ) -> Result<solana_signature::Signature> {
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
 
         let (inputs, input_positions): (Vec<Utxo>, Vec<usize>) = {
@@ -217,7 +203,7 @@ impl LifecycleHarness {
 
         // The client assembles the instruction data (incl. the encrypted_utxo blob)
         // the same way the prover bound `external_data_hash`, so they agree on-chain.
-        let data = result.instruction_data(pack_proof(&proof)?);
+        let data = result.instruction_data(pack_merge_proof(&proof)?);
 
         let user_record = user_record_pda(&owner_solana.pubkey()).0;
         let payer_before = fetch_account(&self.rpc, &self.merge_vault)?;
@@ -399,10 +385,9 @@ impl LifecycleHarness {
                 let client_error = error
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
-                assert_eq!(
-                    assert_custom_program_error(client_error, ShieldedPoolError::MergeDisabled),
-                    1
-                );
+                Rejection::pool(ShieldedPoolError::MergeDisabled)
+                    .at(1)
+                    .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 assert_eq!(
                     self.actor(name).spendable,
@@ -437,13 +422,9 @@ impl LifecycleHarness {
                 let client_error = error
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
-                assert_eq!(
-                    assert_custom_program_error(
-                        client_error,
-                        ShieldedPoolError::TransactProofVerificationFailed
-                    ),
-                    1
-                );
+                Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+                    .at(1)
+                    .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 assert_eq!(
                     self.actor(name).spendable,

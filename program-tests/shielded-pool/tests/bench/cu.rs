@@ -32,7 +32,7 @@ use zolana_test_utils::{
     transact::{
         build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
         eddsa_input_utxo, external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
-        output_owner_pk_hashes, pack_proof, prove_and_verify_transfer, public_input_hash,
+        output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, public_input_hash,
         public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
         transfer_output, SpendInputArgs, TransferProverInputsArgs,
     },
@@ -43,7 +43,6 @@ const PLAIN_PROGRAM_PATH: &str = concat!(
     "/../../target/deploy/shielded_pool_program_plain.so"
 );
 const PROFILING_SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy");
-const TRANSACT_CU_LIMIT: u64 = 400_000;
 // SPL Token program cloned from mainnet via `solana program dump` (see the
 // `bench-shielded-pool` justfile recipe), loaded into mollusk for the SPL
 // deposit's token-transfer CPI.
@@ -178,9 +177,11 @@ fn bench_cu_deposit() {
             "Compute unit profiling for feasible shielded-pool instruction families, replayed \
              under mollusk from litesvm-built account state: protocol creation, tree pause, \
              proof-free SOL/SPL shields, all ten Groth16-proven EdDSA transact shapes (including \
-             the 1x8 split shape), and SOL/SPL withdrawals. Each proof-bearing replay has an \
-             enforced ceiling; the fast cu_budget_contract separately pins every proofless \
-             administration variant."
+             the 1x8 split shape), and SOL/SPL withdrawals. This target is a pure benchmark: no \
+             CI workflow runs the profiling build, so no CU ceilings are enforced here -- a \
+             ceiling that never runs would be unfalsifiable. Regression ceilings live in the \
+             fast cross_cutting_cu_budget suite, which pins every proofless instruction family \
+             per operation."
                 .into(),
         output_path: concat!(env!("CARGO_MANIFEST_DIR"), "/CU_BENCHMARK.md").into(),
         regenerate_command: Some("just bench-shielded-pool".into()),
@@ -515,7 +516,7 @@ fn bench_transfer_shape(
     let proof = ProverClient::local()
         .prove_transfer(&prover_inputs)
         .unwrap_or_else(|error| panic!("prove transfer {n_inputs}x{n_outputs}: {error}"));
-    transact_ix_data.proof = pack_proof(&proof).expect("pack transfer proof");
+    transact_ix_data.proof = pack_transact_proof(&proof).expect("pack transfer proof");
     transact_ix_data.private_tx_hash = private_tx;
 
     let ix = Transact {
@@ -529,13 +530,7 @@ fn bench_transfer_shape(
 
     let accounts = transact_accounts(&pt, &ix, program_id, None);
     let mollusk_ix = to_mollusk_instruction(&ix);
-    let result =
-        mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
-    assert!(
-        result.compute_units_consumed <= TRANSACT_CU_LIMIT,
-        "transfer {n_inputs}x{n_outputs} consumed {} CU (limit {TRANSACT_CU_LIMIT})",
-        result.compute_units_consumed
-    );
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
     let name = format!("transfer eddsa {n_inputs}x{n_outputs}");
@@ -688,13 +683,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
 
     let accounts = transact_accounts(&pt, &ix, program_id, None);
     let mollusk_ix = to_mollusk_instruction(&ix);
-    let result =
-        mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
-    assert!(
-        result.compute_units_consumed <= TRANSACT_CU_LIMIT,
-        "SOL withdrawal consumed {} CU (limit {TRANSACT_CU_LIMIT})",
-        result.compute_units_consumed
-    );
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
     assert!(
@@ -724,13 +713,7 @@ fn bench_withdrawal_spl(
 
     let accounts = transact_accounts(&pt, &ix, program_id, Some(token_program_account));
     let mollusk_ix = to_mollusk_instruction(&ix);
-    let result =
-        mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
-    assert!(
-        result.compute_units_consumed <= TRANSACT_CU_LIMIT,
-        "SPL withdrawal consumed {} CU (limit {TRANSACT_CU_LIMIT})",
-        result.compute_units_consumed
-    );
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
     assert!(

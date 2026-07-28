@@ -648,7 +648,7 @@ test-spp-validator-decode: build-programs build-prover-server build-cli ensure-p
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo nextest run -p spp-test-validator --test lifecycle --no-capture -E 'test(=p256_transfers_cover_sol_and_spl_assets)'
+      cargo nextest run -p spp-test-validator --test lifecycle --no-capture -E 'test(=actor_payer_transfers_cover_sol_and_spl_assets)'
 
 # Run only the merge scenarios from test-spp-validator (the 1-8 consolidation
 # outline plus the disabled-service negative). For debugging the merge flow without

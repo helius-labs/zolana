@@ -18,7 +18,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
-    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface},
+    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
     state::tree_account_size,
     SHIELDED_POOL_PROGRAM_ID,
@@ -26,12 +26,13 @@ use zolana_interface::{
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, WalletUtxo};
+use zolana_tree::InitAddressTreeAccountsInstructionData;
 
 use crate::{
     localnet::{
         send_transaction, start_shielded_pool_localnet, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
     },
-    smart_account::{self, StandardSigners},
+    smart_account::{self, StandardAccounts, StandardSigners},
     spl::{create_mint, create_token_account},
     test_validator_asserts::assert_create_spl_interface,
 };
@@ -84,26 +85,13 @@ pub struct Actor<D> {
     pub spendable: Vec<Utxo>,
     pub expected: Vec<WalletUtxo>,
     pub last_deposit: Option<DepositRecord<D>>,
-    /// The ed25519 keypair that authorizes this actor's eddsa spends. The eddsa rail
-    /// reads the owner at signer index 0 (the fee payer), so an eddsa actor pays and
-    /// signs its own transfers/withdrawals with this key. `None` for P256 actors,
-    /// which prove ownership in the proof and let the global payer fund the spend.
-    pub solana_signer: Option<Keypair>,
+    /// The ed25519 keypair that authorizes this actor's eddsa spends: the eddsa
+    /// rail reads the owner at signer index 0 (the fee payer), so the actor pays
+    /// and signs its own transfers/withdrawals with this key.
+    pub solana_signer: Keypair,
 }
 
 impl<D> Actor<D> {
-    pub fn with_keypair(keypair: ShieldedKeypair) -> Result<Self> {
-        let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
-        Ok(Self {
-            keypair,
-            wallet,
-            spendable: Vec::new(),
-            expected: Vec::new(),
-            last_deposit: None,
-            solana_signer: None,
-        })
-    }
-
     /// An eddsa-rail actor whose shielded identity is derived from `signer`'s ed25519
     /// seed (so its shielded signing pubkey equals `signer`'s pubkey) and which
     /// authorizes its own spends with `signer`.
@@ -112,9 +100,15 @@ impl<D> Actor<D> {
             .try_into()
             .expect("ed25519 seed is the first 32 bytes");
         let keypair = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new())?;
-        let mut actor = Self::with_keypair(keypair)?;
-        actor.solana_signer = Some(signer);
-        Ok(actor)
+        let wallet = Wallet::new(keypair.shielded_address()?, AssetRegistry::default())?;
+        Ok(Self {
+            keypair,
+            wallet,
+            spendable: Vec::new(),
+            expected: Vec::new(),
+            last_deposit: None,
+            solana_signer: signer,
+        })
     }
 }
 
@@ -135,11 +129,18 @@ pub struct BootstrapConfig {
     pub fund_merge_vault: bool,
 }
 
-/// Bootstrap keypairs a suite may need after startup. The forester/tree/zone
-/// keys are only used during bootstrap; the merge key authorizes merge
-/// instructions later, so it is handed back.
-pub struct BootstrapKeys {
+/// The keypairs and smart-account layout minted by
+/// [`LocalnetHarness::setup_protocol_accounts`], handed to the remaining
+/// bootstrap steps (and to suites that drive the steps individually, e.g. to
+/// create a tree with custom nullifier-batch params).
+pub struct ProtocolSetup {
+    pub payer: Keypair,
+    pub authority: Keypair,
+    pub forester_key: Keypair,
     pub merge_key: Keypair,
+    pub tree_key: Keypair,
+    pub zone_key: Keypair,
+    pub accounts: StandardAccounts,
 }
 
 /// The validator/indexer handles, protocol smart-account state, actor map, and
@@ -164,8 +165,38 @@ pub struct LocalnetHarness<D> {
 
 impl<D> LocalnetHarness<D> {
     /// Restart the validator + Photon and the workspace prover, then bring up the
-    /// protocol config, the smart accounts, and a fresh Merkle tree.
-    pub fn bootstrap(config: BootstrapConfig) -> Result<(Self, BootstrapKeys)> {
+    /// protocol config, the smart accounts, and a fresh Merkle tree (the composed
+    /// default over [`start_stack`](Self::start_stack),
+    /// [`setup_protocol_accounts`](Self::setup_protocol_accounts), and
+    /// [`create_tree`](Self::create_tree)). Returns the harness and the merge key
+    /// (the one bootstrap keypair used after startup: it authorizes merge
+    /// instructions).
+    pub fn bootstrap(config: BootstrapConfig) -> Result<(Self, Keypair)> {
+        let (mut rpc, indexer) = Self::start_stack(&config)?;
+        let setup = Self::setup_protocol_accounts(&mut rpc, &config)?;
+        let (tree, tree_address) = Self::create_tree(&mut rpc, &setup, None)?;
+        let harness = Self {
+            rpc,
+            indexer,
+            assets: AssetRegistry::default(),
+            payer: setup.payer,
+            authority: setup.authority,
+            tree,
+            tree_address,
+            actors: BTreeMap::new(),
+            indexed: Vec::new(),
+            spls: Vec::new(),
+            protocol_settings: setup.accounts.protocol_settings,
+            protocol_vault: setup.accounts.protocol_vault,
+            merge_settings: setup.accounts.merge_settings,
+            merge_vault: setup.accounts.merge_vault,
+        };
+        Ok((harness, setup.merge_key))
+    }
+
+    /// Bootstrap step 1: restart the validator + Photon and the workspace
+    /// prover, then connect the RPC and indexer clients.
+    pub fn start_stack(config: &BootstrapConfig) -> Result<(SolanaRpc, ZolanaIndexer)> {
         // The prover is independent of the validator and indexer, so start it
         // concurrently with the validator + Photon restart and join before use.
         let prover = std::thread::spawn(crate::prover::spawn_workspace_prover);
@@ -181,11 +212,19 @@ impl<D> LocalnetHarness<D> {
             std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
         let indexer_url =
             std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| DEFAULT_INDEXER_URL.into());
-        let mut rpc = SolanaRpc::new(rpc_url);
+        let rpc = SolanaRpc::new(rpc_url);
         let indexer = ZolanaIndexer::new(indexer_url);
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         rpc.assert_executable(&program_id)?;
+        Ok((rpc, indexer))
+    }
 
+    /// Bootstrap step 2: fund the bootstrap keypairs, create the standard
+    /// smart accounts, and create the protocol config.
+    pub fn setup_protocol_accounts(
+        rpc: &mut SolanaRpc,
+        config: &BootstrapConfig,
+    ) -> Result<ProtocolSetup> {
         let payer = Keypair::new();
         let authority = Keypair::new();
         let forester_key = Keypair::new();
@@ -210,7 +249,7 @@ impl<D> LocalnetHarness<D> {
                 zone: zone_key.pubkey(),
             },
         ) {
-            send_transaction(&mut rpc, &[ix], &payer.pubkey(), &[&payer])?;
+            send_transaction(rpc, &[ix], &payer.pubkey(), &[&payer])?;
         }
 
         // The shielded pool program requires the fee payer == protocol_authority,
@@ -240,67 +279,73 @@ impl<D> LocalnetHarness<D> {
             &[create_config_ix],
         );
         send_transaction(
-            &mut rpc,
+            rpc,
             &[create_config_sync],
             &payer.pubkey(),
             &[&payer, &authority],
         )?;
 
+        Ok(ProtocolSetup {
+            payer,
+            authority,
+            forester_key,
+            merge_key,
+            tree_key,
+            zone_key,
+            accounts,
+        })
+    }
+
+    /// Bootstrap step 3: allocate a fresh Merkle tree account and create it
+    /// through the tree smart account. `nullifier_params` overrides the
+    /// canonical nullifier-tree layout (e.g. the photon forester suite shrinks
+    /// the ZKP batch size); `None` uses the canonical params.
+    pub fn create_tree(
+        rpc: &mut SolanaRpc,
+        setup: &ProtocolSetup,
+        nullifier_params: Option<InitAddressTreeAccountsInstructionData>,
+    ) -> Result<(Pubkey, Address)> {
         let tree = Keypair::new();
         let rent = rpc
             .get_minimum_balance_for_rent_exemption(tree_account_size())
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         let alloc_ix = zolana_program_test::system_create_account_ix(
-            &payer.pubkey(),
+            &setup.payer.pubkey(),
             &tree.pubkey(),
             rent,
             tree_account_size() as u64,
             &pda::shielded_pool_program_id(),
         );
-        let create_tree_ix = zolana_interface::instruction::CreateTree {
-            authority: accounts.tree_vault,
+        let create = CreateTree {
+            authority: setup.accounts.tree_vault,
             tree: tree.pubkey(),
-        }
-        .instruction();
+        };
+        let create_tree_ix = match nullifier_params {
+            Some(params) => create.instruction_with_nullifier_params(params),
+            None => create.instruction(),
+        };
         let create_tree_sync = execute_sync_ix(
-            &accounts.tree_settings,
+            &setup.accounts.tree_settings,
             0,
-            &[tree_key.pubkey()],
+            &[setup.tree_key.pubkey()],
             &[create_tree_ix],
         );
         send_transaction(
-            &mut rpc,
+            rpc,
             &[alloc_ix, create_tree_sync],
-            &payer.pubkey(),
-            &[&payer, &tree, &tree_key],
+            &setup.payer.pubkey(),
+            &[&setup.payer, &tree, &setup.tree_key],
         )?;
 
-        let tree_address = Address::new_from_array(tree.pubkey().to_bytes());
-        let harness = Self {
-            rpc,
-            indexer,
-            assets: AssetRegistry::default(),
-            payer,
-            authority,
-            tree: tree.pubkey(),
-            tree_address,
-            actors: BTreeMap::new(),
-            indexed: Vec::new(),
-            spls: Vec::new(),
-            protocol_settings: accounts.protocol_settings,
-            protocol_vault: accounts.protocol_vault,
-            merge_settings: accounts.merge_settings,
-            merge_vault: accounts.merge_vault,
-        };
-        Ok((harness, BootstrapKeys { merge_key }))
+        let tree = tree.pubkey();
+        Ok((tree, Address::new_from_array(tree.to_bytes())))
     }
 
-    pub fn ensure_actor(&mut self, name: &str) -> Result<()> {
+    /// Create `name` (idempotently) as an eddsa-rail actor backed by a FRESH
+    /// ed25519 signer, funded to pay the fees of the spends it authorizes (the
+    /// eddsa rail reads the owner at signer index 0 / the fee payer).
+    pub fn ensure_fresh_actor(&mut self, name: &str) -> Result<()> {
         if !self.actors.contains_key(name) {
-            // Eddsa-rail actor (the P256 rail is removed): its shielded identity
-            // derives from a fresh ed25519 signer, funded to pay the fees of the
-            // spends it authorizes (the eddsa rail reads the owner at signer
-            // index 0 / the fee payer).
             let signer = Keypair::new();
             self.rpc.airdrop(&signer.pubkey(), ACTOR_FEE_FUNDING)?;
             let actor = Actor::eddsa(signer)?;
@@ -309,11 +354,11 @@ impl<D> LocalnetHarness<D> {
         Ok(())
     }
 
-    /// Create `name` as an eddsa-rail actor whose owner is the payer's ed25519 key,
+    /// Create `name` as an eddsa-rail actor whose owner is the PAYER's ed25519 key,
     /// so the payer's transaction signature satisfies the owner check (the actor pays
     /// and signs its own spends; the payer is its `solana_signer`). Its UTXOs take the
     /// eddsa rail.
-    pub fn make_eddsa_actor(&mut self, name: &str) -> Result<()> {
+    pub fn make_payer_actor(&mut self, name: &str) -> Result<()> {
         let actor = Actor::eddsa(self.payer.insecure_clone())?;
         self.actors.insert(name.to_string(), actor);
         Ok(())

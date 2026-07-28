@@ -67,7 +67,8 @@ pub fn fe(value: u64) -> [u8; 32] {
     out
 }
 
-pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
+/// Build the compressed proof carried by a `transact` instruction.
+pub fn pack_transact_proof(proof: &Proof) -> Result<TransactProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
 }
 
@@ -116,7 +117,6 @@ pub fn public_input_hash(
 
 pub type PublicSlots = ([[u8; 32]; N_PUBLIC_SLOTS], [[u8; 32]; N_PUBLIC_SLOTS]);
 
-#[allow(dead_code)]
 pub fn sol_public_slots(amount: [u8; 32]) -> PublicSlots {
     let zero = [0u8; 32];
     let mut assets = [zero; N_PUBLIC_SLOTS];
@@ -138,38 +138,6 @@ pub fn spl_public_slots(amount: [u8; 32], mint: &[u8; 32]) -> Result<PublicSlots
         *amounts.first_mut().expect("public slot exists") = amount;
     }
     Ok((assets, amounts))
-}
-
-/// Mirror of [`public_input_hash`] for the SPL rail: the public movement slots
-/// carry the SPL amount and `hash_bytes(mint)` in the first slot.
-#[allow(dead_code, clippy::too_many_arguments)]
-pub fn public_input_hash_spl(
-    nullifiers: &[[u8; 32]],
-    output_hashes: &[[u8; 32]],
-    utxo_roots: &[[u8; 32]],
-    nullifier_tree_roots: &[[u8; 32]],
-    private_tx: &[u8; 32],
-    external_data_hash: &[u8; 32],
-    spl_amount: &[u8; 32],
-    mint: &[u8; 32],
-    payer_pubkey_hash: &[u8; 32],
-    input_owner_pk_hashes: &[[u8; 32]],
-    output_owner_pk_hashes: &[[u8; 32]],
-) -> [u8; 32] {
-    let (assets, amounts) = spl_public_slots(*spl_amount, mint).expect("public SPL slots");
-    public_input_hash(
-        nullifiers,
-        output_hashes,
-        utxo_roots,
-        nullifier_tree_roots,
-        private_tx,
-        external_data_hash,
-        &assets,
-        &amounts,
-        payer_pubkey_hash,
-        input_owner_pk_hashes,
-        output_owner_pk_hashes,
-    )
 }
 
 /// Per-output owner `pk_field` the program reconstructs as
@@ -393,19 +361,6 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
     }
 }
 
-/// Mirror of [`build_transfer_prover_inputs`] for the SPL rail: the public
-/// movement slots carry the SPL amount and the mint's asset field.
-pub fn build_transfer_prover_inputs_spl(
-    mut args: TransferProverInputsArgs,
-    spl_amount: [u8; 32],
-    mint: [u8; 32],
-) -> TransferInputs {
-    let (assets, amounts) = spl_public_slots(spl_amount, &mint).expect("public SPL slots");
-    args.public_slot_assets = assets;
-    args.public_slot_amounts = amounts;
-    build_transfer_prover_inputs(args)
-}
-
 /// Prove and locally verify a transfer on the fixed (2 inputs, 3 outputs)
 /// confidential eddsa shape every current caller uses; the verifying key is
 /// pinned to that shape.
@@ -427,7 +382,7 @@ pub fn prove_and_verify_transfer(
     verifier
         .verify()
         .map_err(|err| anyhow!("verify {label} proof: {err:?}"))?;
-    pack_proof(&proof)
+    pack_transact_proof(&proof)
 }
 
 /// A fixed dummy viewing pubkey for real test outputs: the proof math
@@ -474,7 +429,6 @@ pub fn real_output(
 /// non-inclusion witness for that nullifier from `nf_tree` (the circuit checks
 /// non-inclusion for every slot). Returns the input and its nullifier — SPP
 /// inserts dummy nullifiers exactly like real ones.
-#[allow(dead_code)]
 pub fn dummy_input(
     blinding: &[u8; 31],
     nf_tree: &IndexedMerkleTree<Poseidon, usize>,
@@ -508,7 +462,6 @@ pub fn dummy_input(
 /// The nullifier a dummy input over `blinding` derives (over the dummified utxo
 /// hash with secret 0). Callers fetch this value's non-inclusion proof before
 /// building the input with [`dummy_input_with_proof`].
-#[allow(dead_code)]
 pub fn dummy_nullifier(blinding: &[u8; 31]) -> Result<[u8; 32]> {
     let mut spend = SppProofInputUtxo::new_dummy();
     spend.utxo.blinding = expand_blinding(blinding);
@@ -517,7 +470,6 @@ pub fn dummy_nullifier(blinding: &[u8; 31]) -> Result<[u8; 32]> {
 
 /// [`dummy_input`] over an indexer-fetched non-inclusion proof for the dummy's
 /// own nullifier (see [`dummy_nullifier`]).
-#[allow(dead_code)]
 pub fn dummy_input_with_proof(
     blinding: &[u8; 31],
     non_inclusion: &zolana_client::NonInclusionProof,
@@ -747,34 +699,31 @@ pub fn build_spl_withdrawal(
     let payer_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
     let mint_bytes = mint.to_bytes();
     let input_owner_hashes = [owner_pk_hash, owner_pk_hash];
-    let public_hash = public_input_hash_spl(
+    let (public_slot_assets, public_slot_amounts) =
+        spl_public_slots(public_spl_field, &mint_bytes).expect("public SPL slots");
+    let public_hash = public_input_hash(
         &[nullifier, dummy_nullifier],
         &output_hashes,
         &[utxo_root, utxo_root],
         &[nullifier_root, nullifier_root],
         &private_tx,
         &external_hash,
-        &public_spl_field,
-        &mint_bytes,
+        &public_slot_assets,
+        &public_slot_amounts,
         &payer_hash,
         &input_owner_hashes,
         &output_owner_hashes,
     );
-    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
-    let prover_inputs = build_transfer_prover_inputs_spl(
-        TransferProverInputsArgs {
-            inputs: vec![spend, withdraw_dummy_input],
-            outputs,
-            external_data_hash: external_hash,
-            private_tx_hash: private_tx,
-            public_slot_assets,
-            public_slot_amounts,
-            payer_pubkey_hash: payer_hash,
-            public_input_hash: public_hash,
-        },
-        public_spl_field,
-        mint_bytes,
-    );
+    let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+        inputs: vec![spend, withdraw_dummy_input],
+        outputs,
+        external_data_hash: external_hash,
+        private_tx_hash: private_tx,
+        public_slot_assets,
+        public_slot_amounts,
+        payer_pubkey_hash: payer_hash,
+        public_input_hash: public_hash,
+    });
     data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL withdrawal")
         .expect("prove SPL withdrawal");
     data.private_tx_hash = private_tx;

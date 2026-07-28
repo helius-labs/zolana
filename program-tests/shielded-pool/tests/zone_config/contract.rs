@@ -14,10 +14,7 @@ use zolana_interface::{
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
 };
 use zolana_program_test::{Rejection, ZONE_TEST_PROGRAM_ID};
-use zolana_test_utils::{
-    backend::LiteSvmPoolBackend,
-    litesvm_asserts::{assert_custom, assert_instruction_error},
-};
+use zolana_test_utils::backend::LiteSvmPoolBackend;
 
 /// Backend with the zone test program loaded: the `zone_auth` PDA can only
 /// sign its own creation through the zone program's `invoke_signed`.
@@ -54,19 +51,67 @@ fn zone_config_create_update_and_owner_rotation() {
         .rpc
         .create_zone_config(&backend.authority, &backend.authority.pubkey(), true)
         .expect("create zone config");
+    let config = read_zone_config(&backend, &zone_config);
+    assert_eq!(
+        config.authority.to_bytes(),
+        backend.authority.pubkey().to_bytes(),
+        "create stores the named authority"
+    );
+    assert_eq!(
+        config.program_id.to_bytes(),
+        ZONE_TEST_PROGRAM_ID,
+        "create stores the zone program id"
+    );
+    assert_eq!(
+        config.zone_authority_transact_is_enabled, 1,
+        "create enables zone authority transact"
+    );
+
     backend
         .rpc
         .update_zone_config(&backend.authority, &zone_config, false)
         .expect("disable zone authority execution");
+    let config = read_zone_config(&backend, &zone_config);
+    assert_eq!(
+        config.zone_authority_transact_is_enabled, 0,
+        "update disables zone authority transact"
+    );
+    assert_eq!(
+        config.authority.to_bytes(),
+        backend.authority.pubkey().to_bytes(),
+        "update leaves the authority untouched"
+    );
+
     let next = Keypair::new();
     backend
         .rpc
         .update_zone_config_owner(&backend.authority, &zone_config, &next)
         .expect("rotate zone owner");
+    let config = read_zone_config(&backend, &zone_config);
+    assert_eq!(
+        config.authority.to_bytes(),
+        next.pubkey().to_bytes(),
+        "rotation installs the new authority"
+    );
+    assert_eq!(
+        config.zone_authority_transact_is_enabled, 0,
+        "rotation leaves the enabled flag untouched"
+    );
+
     backend
         .rpc
         .update_zone_config(&next, &zone_config, true)
         .expect("new owner update");
+    let config = read_zone_config(&backend, &zone_config);
+    assert_eq!(
+        config.zone_authority_transact_is_enabled, 1,
+        "new owner re-enables zone authority transact"
+    );
+    assert_eq!(
+        config.authority.to_bytes(),
+        next.pubkey().to_bytes(),
+        "new owner update leaves the authority untouched"
+    );
 }
 
 #[test]
@@ -96,7 +141,7 @@ fn zone_config_creation_rejects_an_unsigned_payer() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("unsigned payer must fail");
-    assert_custom(err, u32::from(AccountError::InvalidSigner));
+    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
     assert!(
         backend.rpc.account_data(&zone_config_address()).is_none(),
         "rejected create must not allocate the config"
@@ -123,7 +168,7 @@ fn zone_config_creation_rejects_a_wrong_system_program() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("wrong system program must fail");
-    assert_instruction_error(err, InstructionError::IncorrectProgramId);
+    Rejection::new(InstructionError::IncorrectProgramId).assert_litesvm(err);
 }
 
 #[test]
@@ -197,7 +242,7 @@ fn zone_config_creation_rejects_double_initialization() {
     // The second create fails inside the system-program CPI (the account
     // already exists and owns data); an inner CPI error propagates as-is, so
     // the observable code is the system program's `AccountAlreadyInUse`.
-    assert_custom(err, SystemError::AccountAlreadyInUse as u32);
+    Rejection::custom(SystemError::AccountAlreadyInUse as u32).assert_litesvm(err);
     assert_eq!(
         backend.rpc.account_data(&zone_config).expect("config data"),
         config_after_create,
@@ -370,7 +415,7 @@ fn zone_owner_burn_freezes_the_toggle_for_the_old_authority() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("rotation to the default address must fail");
-    assert_custom(err, u32::from(AccountError::InvalidSigner));
+    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
 
     // The practical burn: rotate to a signing key whose secret is then
     // discarded. Afterwards the old authority can neither toggle nor rotate.

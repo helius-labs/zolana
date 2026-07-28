@@ -20,20 +20,20 @@ use zolana_interface::{
         TransactInterfaceTransferAccounts, TransactSolTransferAccounts, ZoneTransact,
     },
 };
+use zolana_program_test::Rejection;
 use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, assert_custom_program_error, assert_zone_transact, fetch_account,
-    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
-    ZoneTransactAssertArgs,
+    assert_account_unchanged, assert_zone_transact, fetch_account, wait_for_indexed_transaction,
+    wait_for_merkle_proof, wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
 };
 use zolana_transaction::{
     instructions::transact::SettlementTarget, ShieldedTransaction, Utxo, SOL_MINT,
 };
 
-use crate::{harness::decode_output_blinding, support::Variant, ZoneHarness};
+use crate::{harness::decode_output_blinding, ZoneHarness};
 use zolana_test_utils::localnet::{
-    send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
-    SPL_CHANGE_POSITION, ZERO,
+    send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
 };
+use zolana_test_utils::transact::pack_transact_proof;
 
 /// Default eddsa signer account index for a Solana-owned input (the fee payer).
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
@@ -64,14 +64,13 @@ struct ZoneTransferOperation<'a> {
     send_asset: Address,
     amount: u64,
     withdrawal: Option<Pubkey>,
-    rail: Variant,
 }
 
 impl ZoneHarness {
     /// Zone-transfer `amount` of `asset` from `from` to `to` over the eddsa rail
     /// (the owner authorizes the spend with its ed25519 transaction signature),
     /// consolidating two of `from`'s spendable zone UTXOs of `asset` into the
-    /// (2, 3) shape. Sets `last_rail` to [`Variant::Eddsa`].
+    /// (2, 3) shape.
     pub(crate) fn zone_transfer(
         &mut self,
         from: &str,
@@ -79,7 +78,7 @@ impl ZoneHarness {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.execute_zone_transfer(from, Some(to), asset, amount, None, Variant::Eddsa)
+        self.execute_zone_transfer(from, Some(to), asset, amount, None)
     }
 
     /// Zone-withdraw `amount` of SOL from `from`'s zone UTXOs to a fresh external
@@ -96,17 +95,15 @@ impl ZoneHarness {
             return Err(anyhow!("only SOL zone withdrawals are supported"));
         }
         let recipient = Keypair::new().pubkey();
-        let sig =
-            self.execute_zone_transfer(from, None, asset, amount, Some(recipient), Variant::Eddsa)?;
+        let sig = self.execute_zone_transfer(from, None, asset, amount, Some(recipient))?;
         Ok((sig, recipient))
     }
 
     /// Build, prove (`zone_transact` rail), send, and verify a zone transfer or
     /// withdrawal. `withdrawal` is `Some(recipient)` for a public-amount SOL
-    /// withdrawal; `None` for a pure shielded transfer. Records
-    /// `last_rail`, pushes the indexed transaction, tracks the recipient / change
-    /// UTXOs, and marks consumed inputs spent — mirroring the default-zone
-    /// `transact` flow.
+    /// withdrawal; `None` for a pure shielded transfer. Pushes the indexed
+    /// transaction, tracks the recipient / change UTXOs, and marks consumed
+    /// inputs spent — mirroring the default-zone `transact` flow.
     fn execute_zone_transfer(
         &mut self,
         from: &str,
@@ -114,14 +111,13 @@ impl ZoneHarness {
         send_asset: Address,
         amount: u64,
         withdrawal: Option<Pubkey>,
-        rail: Variant,
     ) -> Result<Signature> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
-        self.ensure_actor(from)?;
+        self.ensure_fresh_actor(from)?;
         if let Some(to) = to {
-            self.ensure_actor(to)?;
+            self.ensure_fresh_actor(to)?;
         }
 
         let inputs = self.take_zone_inputs(from, send_asset)?;
@@ -132,9 +128,7 @@ impl ZoneHarness {
             send_asset,
             amount,
             withdrawal,
-            rail,
         })?;
-        self.last_rail = Some(rail);
 
         let SentZoneTransfer {
             data,
@@ -228,7 +222,6 @@ impl ZoneHarness {
             send_asset,
             amount,
             withdrawal,
-            rail,
         } = operation;
         let from_keypair = self.actor(from).keypair.clone();
         let to_keypair = to.map(|t| self.actor(t).keypair.clone());
@@ -242,15 +235,9 @@ impl ZoneHarness {
             .transpose()?;
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        // The eddsa rail's owner sits at signer index 0 (the fee payer), so an eddsa
-        // actor pays and signs its own spend; a P256 actor falls back to the global
-        // payer (ownership is proven in the proof).
-        let fee_payer = self
-            .actor(from)
-            .solana_signer
-            .as_ref()
-            .map(|k| k.insecure_clone())
-            .unwrap_or_else(|| self.payer.insecure_clone());
+        // The eddsa rail's owner sits at signer index 0 (the fee payer), so the
+        // actor pays and signs its own spend.
+        let fee_payer = self.actor(from).solana_signer.insecure_clone();
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
 
         // The high-level builder produces a decryptable SppProofInputs (outputs,
@@ -290,7 +277,7 @@ impl ZoneHarness {
         proof_inputs.external_data.instruction_discriminator = ZONE_TRANSACT;
 
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
-        let data = self.prove_and_assemble(&proof_inputs, zone, rail)?;
+        let data = self.prove_and_assemble(&proof_inputs, zone)?;
 
         let interface_transfer_accounts = withdrawal
             .map(|recipient| {
@@ -338,35 +325,30 @@ impl ZoneHarness {
         &self,
         proof_inputs: &SppProofInputs,
         zone: Address,
-        rail: Variant,
     ) -> Result<TransactIxData> {
         let spend_inputs = self.zone_spend_inputs(&proof_inputs.input_utxos)?;
         let tx_shape = proof_inputs.check_shape()?;
         let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
 
-        match rail {
-            Variant::Eddsa => {
-                let prover = ZoneTransferProver {
-                    inputs: spend_inputs,
-                    outputs: proof_inputs.output_utxos.clone(),
-                    external_data: proof_inputs.external_data.clone(),
-                    public_movements: proof_inputs.public_movements()?,
-                    payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
-                    allow_dummy_inputs: true,
-                    zone_program_id: Some(zone),
-                    shape: Some(shape),
-                };
-                let result = prover.build()?;
-                let proof = ProverClient::local().prove_transfer_zone(&result.inputs)?;
-                assemble_ix_data(
-                    proof_inputs,
-                    &result.nullifiers,
-                    result.private_tx_hash,
-                    &result.input_root_indices,
-                    transact_proof(&proof)?,
-                )
-            }
-        }
+        let prover = ZoneTransferProver {
+            inputs: spend_inputs,
+            outputs: proof_inputs.output_utxos.clone(),
+            external_data: proof_inputs.external_data.clone(),
+            public_movements: proof_inputs.public_movements()?,
+            payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+            allow_dummy_inputs: true,
+            zone_program_id: Some(zone),
+            shape: Some(shape),
+        };
+        let result = prover.build()?;
+        let proof = ProverClient::local().prove_transfer_zone(&result.inputs)?;
+        assemble_ix_data(
+            proof_inputs,
+            &result.nullifiers,
+            result.private_tx_hash,
+            &result.input_root_indices,
+            pack_transact_proof(&proof)?,
+        )
     }
 
     /// Convert the builder's padded `SppProofInputUtxo` list into the prover's
@@ -439,6 +421,7 @@ impl ZoneHarness {
                     indexed,
                     RECIPIENT_POSITION_BASE as u32,
                 )?,
+                None,
                 indexed,
             )?;
             discovered.recipient = Some(recipient_utxo.output_context.hash);
@@ -489,6 +472,7 @@ impl ZoneHarness {
                     change_asset,
                     change,
                     decode_output_blinding(&from_keypair.viewing_key, indexed, position as u32)?,
+                    None,
                     indexed,
                 )?;
                 discovered.change.push(change_utxo.output_context.hash);
@@ -513,8 +497,8 @@ impl ZoneHarness {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
-        self.ensure_actor(from)?;
-        self.ensure_actor(to)?;
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
 
         let inputs: Vec<Utxo> = {
             let actor = self.actor(from);
@@ -533,12 +517,7 @@ impl ZoneHarness {
 
         let from_keypair = self.actor(from).keypair.clone();
         let to_address = self.actor(to).keypair.shielded_address()?;
-        let fee_payer = self
-            .actor(from)
-            .solana_signer
-            .as_ref()
-            .map(|k| k.insecure_clone())
-            .unwrap_or_else(|| self.payer.insecure_clone());
+        let fee_payer = self.actor(from).solana_signer.insecure_clone();
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
 
         let spends: Vec<SppProofInputUtxo> = inputs
@@ -595,13 +574,9 @@ impl ZoneHarness {
                 "zone transfer with an invalid proof unexpectedly succeeded"
             )),
             Err(error) => {
-                assert_eq!(
-                    assert_custom_program_error(
-                        &error,
-                        ShieldedPoolError::TransactProofVerificationFailed
-                    ),
-                    1
-                );
+                Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+                    .at(1)
+                    .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
             }

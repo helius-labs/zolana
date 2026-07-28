@@ -19,17 +19,18 @@ use zolana_interface::{
     },
 };
 use zolana_keypair::{hash::sha256_be, random_blinding, random_salt, ViewingKey};
+use zolana_program_test::Rejection;
 use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, assert_custom_program_error, assert_zone_transact, fetch_account,
-    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
-    ZoneTransactAssertArgs,
+    assert_account_unchanged, assert_zone_transact, fetch_account, wait_for_indexed_transaction,
+    wait_for_merkle_proof, wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
     Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
 };
 
-use zolana_test_utils::localnet::{send_transaction, transact_proof, ZERO};
+use zolana_test_utils::localnet::{send_transaction, ZERO};
+use zolana_test_utils::transact::pack_transact_proof;
 
 use crate::ZoneHarness;
 
@@ -60,11 +61,11 @@ impl ZoneHarness {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
-        self.ensure_actor(name)?;
-        self.ensure_actor(recipient)?;
+        self.ensure_fresh_actor(name)?;
+        self.ensure_fresh_actor(recipient)?;
         self.sync(name)?;
 
-        let (ix_data, consumed_input, consumed_hash) =
+        let (ix_data, consumed_input, consumed_hash, reowned_utxo) =
             self.build_zone_authority_transfer(name, recipient, asset)?;
 
         let tree = self.tree;
@@ -114,6 +115,19 @@ impl ZoneHarness {
         )?;
 
         let indexed = wait_for_indexed_transaction(&self.indexer, fetch_view_tag, signature);
+        // Track the re-owned zone UTXO in the recipient's expected set (locating its
+        // on-chain output context in the indexed transaction) so `assert_utxos`
+        // cross-checks the synced wallet after the re-own.
+        let expected = self.build_expected(
+            recipient,
+            reowned_utxo.owner,
+            reowned_utxo.asset,
+            reowned_utxo.amount,
+            reowned_utxo.blinding,
+            reowned_utxo.zone_program_id,
+            &indexed,
+        )?;
+        self.actor_mut(recipient).expected.push(expected);
         self.indexed.push(indexed);
         self.sync(recipient)?;
         self.assert_zone_output_discovered(recipient, &ix_data)?;
@@ -151,13 +165,15 @@ impl ZoneHarness {
     /// `name`'s spendable zone UTXOs of `asset` to the tracked actor `recipient`,
     /// without mutating fixture state. The same `ExternalData` (the output hash and
     /// the recipient ciphertext) is fed to the prover and to the instruction, so they
-    /// agree on the `external_data_hash` the program recomputes on-chain.
+    /// agree on the `external_data_hash` the program recomputes on-chain. Also
+    /// returns the consumed input (with its hash) and the re-owned output plaintext,
+    /// so the caller can track both in the fixture's expected sets.
     fn build_zone_authority_transfer(
         &mut self,
         name: &str,
         recipient: &str,
         asset: Address,
-    ) -> Result<(TransactIxData, Utxo, [u8; 32])> {
+    ) -> Result<(TransactIxData, Utxo, [u8; 32], Utxo)> {
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
         let keypair = self.actor(name).keypair.clone();
         let recipient_keypair = self.actor(recipient).keypair.clone();
@@ -299,7 +315,7 @@ impl ZoneHarness {
         }];
 
         let ix_data = TransactIxData {
-            proof: transact_proof(&proof)?,
+            proof: pack_transact_proof(&proof)?,
             expiry_unix_ts: external_data.expiry_unix_ts,
             private_tx_hash: result.private_tx_hash,
             circuit: CircuitId::ZoneAuthority(
@@ -321,7 +337,7 @@ impl ZoneHarness {
             messages: external_data.messages.clone(),
         };
 
-        Ok((ix_data, input_utxo, utxo_hash))
+        Ok((ix_data, input_utxo, utxo_hash, output_plaintext))
     }
 
     fn commit_zone_authority_spend(
@@ -364,12 +380,12 @@ impl ZoneHarness {
             self.create_enabled_zone_config()?;
         }
         self.update_zone_config(false)?;
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         self.sync(name)?;
 
         // The transition is rejected on-chain before any state change, so the
         // recipient is irrelevant; re-own back to the same actor.
-        let (ix_data, _, _) = self.build_zone_authority_transfer(name, name, asset)?;
+        let (ix_data, _, _, _) = self.build_zone_authority_transfer(name, name, asset)?;
         let payer = self.payer.insecure_clone();
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = ZoneAuthorityTransact {
@@ -392,13 +408,9 @@ impl ZoneHarness {
                 "disabled zone-authority transfer unexpectedly succeeded"
             )),
             Err(error) => {
-                assert_eq!(
-                    assert_custom_program_error(
-                        &error,
-                        ShieldedPoolError::ZoneAuthorityTransactDisabled
-                    ),
-                    1
-                );
+                Rejection::pool(ShieldedPoolError::ZoneAuthorityTransactDisabled)
+                    .at(1)
+                    .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
             }
@@ -415,7 +427,7 @@ impl ZoneHarness {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         self.sync(name)?;
 
         // Rejected on-chain before any state change; re-own back to the same actor.
@@ -423,7 +435,7 @@ impl ZoneHarness {
         // deterministically fails with `TransactProofVerificationFailed` -- flipping a
         // single byte can instead yield `InvalidTransactProofEncoding` depending on
         // the random proof bytes.
-        let (mut ix_data, _, _) = self.build_zone_authority_transfer(name, name, asset)?;
+        let (mut ix_data, _, _, _) = self.build_zone_authority_transfer(name, name, asset)?;
         ix_data.proof = TransactProof::zeroed();
 
         let payer = self.payer.insecure_clone();
@@ -448,13 +460,9 @@ impl ZoneHarness {
                 "bad-proof zone-authority transfer unexpectedly succeeded"
             )),
             Err(error) => {
-                assert_eq!(
-                    assert_custom_program_error(
-                        &error,
-                        ShieldedPoolError::TransactProofVerificationFailed
-                    ),
-                    1
-                );
+                Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+                    .at(1)
+                    .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
             }

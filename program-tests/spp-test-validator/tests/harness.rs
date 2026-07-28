@@ -17,23 +17,11 @@ use solana_signature::Signature;
 use zolana_interface::instruction::AssetDeposit;
 use zolana_test_utils::harness::{BootstrapConfig, LocalnetHarness};
 
-/// Which ownership rail the last transfer took. P256 proves ownership inside the
-/// proof; Eddsa proves it with an ed25519 signature on the transaction, checked by
-/// the program against the eddsa signer. The P256 rail is removed; the variant is
-/// kept so rail assertions document what a spend must NOT take.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(crate) enum Rail {
-    P256,
-    Eddsa,
-}
-
 pub struct LifecycleHarness {
     pub(crate) base: LocalnetHarness<AssetDeposit>,
     /// The Solana keypair each actor registered on the user-registry under, kept so
     /// the merge step can derive the `user_record` PDA the program reads.
     pub(crate) merge_owners: BTreeMap<String, Keypair>,
-    pub(crate) last_rail: Option<Rail>,
     /// The most recent `transact` instruction and its transaction signature, kept
     /// so the decode step can re-parse the exact bytes and accounts that were sent.
     pub(crate) last_transact: Option<(Signature, Instruction)>,
@@ -65,7 +53,7 @@ impl DerefMut for LifecycleHarness {
 
 impl LifecycleHarness {
     pub(crate) fn new() -> Result<Self> {
-        let (base, keys) = LocalnetHarness::bootstrap(BootstrapConfig {
+        let (base, merge_key) = LocalnetHarness::bootstrap(BootstrapConfig {
             label: "zolana-spp",
             extra_programs: Vec::new(),
             zone_creation_is_permissionless: false,
@@ -74,10 +62,9 @@ impl LifecycleHarness {
         Ok(Self {
             base,
             merge_owners: BTreeMap::new(),
-            last_rail: None,
             last_transact: None,
             last_merge: None,
-            merge_key: keys.merge_key,
+            merge_key,
         })
     }
 }

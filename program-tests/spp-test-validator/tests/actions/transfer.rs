@@ -19,11 +19,11 @@ use zolana_transaction::{
 };
 
 use zolana_test_utils::localnet::{
-    send_transaction, transact_proof, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
-    SPL_CHANGE_POSITION, ZERO,
+    send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
 };
+use zolana_test_utils::transact::pack_transact_proof;
 
-use crate::{harness::Rail, LifecycleHarness};
+use crate::LifecycleHarness;
 
 impl LifecycleHarness {
     /// Transfer `amount` of `asset` from `from` to `to`, consolidating two of
@@ -36,8 +36,8 @@ impl LifecycleHarness {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.ensure_actor(from)?;
-        self.ensure_actor(to)?;
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
         let inputs: Vec<Utxo> = {
             let actor = self.actor_mut(from);
             let mut taken = Vec::new();
@@ -64,8 +64,8 @@ impl LifecycleHarness {
         spl_mint: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.ensure_actor(from)?;
-        self.ensure_actor(to)?;
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
         let send_asset = spl_mint;
         let inputs: Vec<Utxo> = {
             let actor = self.actor_mut(from);
@@ -96,8 +96,8 @@ impl LifecycleHarness {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.ensure_actor(from)?;
-        self.ensure_actor(to)?;
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
         let inputs: Vec<Utxo> = {
             let actor = self.actor_mut(from);
             let pos = actor
@@ -115,7 +115,7 @@ impl LifecycleHarness {
     /// Consolidate a single UTXO of `asset` with no recipient, so the only output is
     /// the sender's change for the full amount. Exercises the change-only output path.
     pub(crate) fn consolidate(&mut self, from: &str, asset: Address) -> Result<Signature> {
-        self.ensure_actor(from)?;
+        self.ensure_fresh_actor(from)?;
         let input = {
             let actor = self.actor_mut(from);
             let pos = actor
@@ -128,7 +128,7 @@ impl LifecycleHarness {
         self.execute_transfer(from, None, vec![input], asset, 0)
     }
 
-    /// Build, prove (P256), and submit a transfer of `amount` of `send_asset` from
+    /// Build, prove, and submit a transfer of `amount` of `send_asset` from
     /// `from` to `to` (or to no one, for a change-only consolidation) spending
     /// `inputs`. Records the recipient UTXO and the per-asset sender change
     /// (decrypting each output's own ciphertext for the blinding), and marks
@@ -162,14 +162,9 @@ impl LifecycleHarness {
             .as_ref()
             .map(|k| k.signing_pubkey().confidential_view_tag())
             .transpose()?;
-        // Every eddsa actor pays and signs its own spend; actors without a native
-        // signer fall back to the global payer.
-        let fee_payer = self
-            .actor(from)
-            .solana_signer
-            .as_ref()
-            .map(|k| k.insecure_clone())
-            .unwrap_or_else(|| self.payer.insecure_clone());
+        // Every actor pays and signs its own spend (the owner sits at signer index
+        // 0 / the fee payer).
+        let fee_payer = self.actor(from).solana_signer.insecure_clone();
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
@@ -209,19 +204,14 @@ impl LifecycleHarness {
         // All actors are eddsa-owned since the P256 rail was removed: the owner
         // authorizes the spend by signing the transaction.
         let assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
-        let (proof, rail) = match &assembled.prover_inputs {
-            ProverInputs::Eddsa(inputs) => {
-                (ProverClient::local().prove_transfer(inputs)?, Rail::Eddsa)
-            }
-        };
-        self.last_rail = Some(rail);
-        let ix_data = assembled.with_proof(transact_proof(&proof)?);
+        let ProverInputs::Eddsa(transfer_inputs) = &assembled.prover_inputs;
+        let proof = ProverClient::local().prove_transfer(transfer_inputs)?;
+        let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
 
         let transfer_ix = Transact {
             payer: fee_payer.pubkey(),
             input_tree: self.tree,
             output_tree: self.tree,
-            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }

@@ -18,14 +18,14 @@ use zolana_keypair::{
     merge::{merge_dummy_nullifier, merge_output_blinding},
     random_blinding,
 };
+use zolana_program_test::Rejection;
 use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, assert_custom_program_error, assert_merge_zone, fetch_account,
-    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
-    MergeZoneAssertArgs,
+    assert_account_unchanged, assert_merge_zone, fetch_account, wait_for_indexed_transaction,
+    wait_for_merkle_proof, wait_for_non_inclusion_proof, MergeZoneAssertArgs,
 };
 use zolana_transaction::{Data, SppProofOutputUtxo, Utxo};
 
-use zolana_test_utils::localnet::{pack_proof, send_transaction, ZERO};
+use zolana_test_utils::localnet::{pack_merge_proof, send_transaction, ZERO};
 
 use crate::{
     support::{MergeZoneRecord, SECOND_ZONE_TEST_PROGRAM_ID},
@@ -113,7 +113,7 @@ impl ZoneHarness {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
 
@@ -226,7 +226,7 @@ impl ZoneHarness {
             .build()?;
             let proof = ProverClient::local().prove_merge(&result.inputs)?;
             (
-                result.zone_instruction_data(pack_proof(&proof)?, ZERO),
+                result.zone_instruction_data(pack_merge_proof(&proof)?, ZERO),
                 result.output_hash,
                 result.nullifiers,
             )
@@ -242,7 +242,7 @@ impl ZoneHarness {
             .build()?;
             let proof = ProverClient::local().prove_merge_zone(&result.inputs)?;
             (
-                result.zone_instruction_data(pack_proof(&proof)?, ZERO),
+                result.zone_instruction_data(pack_merge_proof(&proof)?, ZERO),
                 result.output_hash,
                 result.nullifiers,
             )
@@ -274,14 +274,11 @@ impl ZoneHarness {
                     ))
                 }
                 Err(error) => {
-                    assert_eq!(
-                        assert_custom_program_error(
-                            &error,
-                            ShieldedPoolError::TransactProofVerificationFailed,
-                        ),
-                        1,
-                        "the mismatched proof must fail in the SPP instruction"
-                    );
+                    // The mismatched proof must fail in the SPP instruction
+                    // (index 1, after the compute-budget instruction).
+                    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+                        .at(1)
+                        .assert_client(&error);
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                     self.actor_mut(name).spendable.extend(inputs);
                     return Ok(None);
@@ -331,14 +328,11 @@ impl ZoneHarness {
             ) {
                 Ok(_) => return Err(anyhow!("replayed zone merge unexpectedly succeeded")),
                 Err(error) => {
-                    assert_eq!(
-                        assert_custom_program_error(
-                            &error,
-                            ShieldedPoolError::NullifierTreeUpdateFailed,
-                        ),
-                        1,
-                        "zone merge replay must fail in the SPP instruction"
-                    );
+                    // The replay must fail in the SPP instruction (index 1,
+                    // after the compute-budget instruction).
+                    Rejection::pool(ShieldedPoolError::NullifierTreeUpdateFailed)
+                        .at(1)
+                        .assert_client(&error);
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_after_success)?;
                 }
             }
@@ -378,7 +372,7 @@ impl ZoneHarness {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
 
@@ -501,13 +495,9 @@ impl ZoneHarness {
                 "zone merge with an invalid proof unexpectedly succeeded"
             )),
             Err(error) => {
-                assert_eq!(
-                    assert_custom_program_error(
-                        &error,
-                        ShieldedPoolError::TransactProofVerificationFailed
-                    ),
-                    1
-                );
+                Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+                    .at(1)
+                    .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
             }

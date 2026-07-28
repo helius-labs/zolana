@@ -17,6 +17,6 @@ pub mod mollusk;
 pub mod prover;
 pub mod smart_account;
 pub mod spl;
-pub mod state_model;
 pub mod test_validator_asserts;
 pub mod transact;
+mod wallet_discovery;

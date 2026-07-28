@@ -10,7 +10,6 @@ use spl_token_2022_interface::{
 use zolana_account_checks::AccountError;
 use zolana_interface::{error::ShieldedPoolError, instruction::CreateSplInterface, pda};
 use zolana_program_test::{system_create_account_ix, test_blinding, Rejection, ZolanaProgramTest};
-use zolana_test_utils::litesvm_asserts::{assert_custom, assert_instruction_error};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_accounts, spl_depositor, Pool};
 
@@ -98,7 +97,7 @@ fn spl_interface_creation_rejects_a_wrong_system_program() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("wrong system program must fail");
-    assert_instruction_error(err, InstructionError::IncorrectProgramId);
+    Rejection::new(InstructionError::IncorrectProgramId).assert_litesvm(err);
 }
 
 #[test]
@@ -120,7 +119,7 @@ fn spl_interface_creation_rejects_an_unsigned_authority() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("unsigned authority must fail");
-    assert_custom(err, u32::from(AccountError::InvalidSigner));
+    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
     assert!(
         pool.rpc
             .account_data(&pda::spl_asset_registry(&mint))
@@ -336,7 +335,7 @@ fn spl_deposit_rejects_insufficient_funds_atomically() {
             &ZolanaProgramTest::spl_shield_data(5_000, [3u8; 32], [3u8; 32], &mint, &user_token),
         )
         .expect_err("insufficient token funds must fail");
-    assert_custom(err, spl_token::error::TokenError::InsufficientFunds as u32);
+    Rejection::custom(spl_token::error::TokenError::InsufficientFunds as u32).assert_litesvm(err);
     assert_eq!(pool.rpc.state_root(&tree), Some(root_before));
     assert_eq!(pool.rpc.token_balance(&user_token), Some(1_000));
     assert_eq!(pool.rpc.token_balance(&vault), Some(0));

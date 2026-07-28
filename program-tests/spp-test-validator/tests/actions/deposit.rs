@@ -25,7 +25,7 @@ impl LifecycleHarness {
     /// Deposit SOL to an actor through the client SDK's `Deposit` action. Records
     /// the returned UTXO as spendable and the deposit details for the assert helper.
     pub(crate) fn deposit_sol(&mut self, name: &str, amount: u64) -> Result<()> {
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let payer = self.payer.insecure_clone();
         let tree = self.tree;
         let recipient_address = self.actor(name).keypair.shielded_address()?;
@@ -66,7 +66,7 @@ impl LifecycleHarness {
         asset_index: usize,
         amount: u64,
     ) -> Result<()> {
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let payer = self.payer.insecure_clone();
         let tree = self.tree;
         let recipient_address = self.actor(name).keypair.shielded_address()?;

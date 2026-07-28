@@ -277,5 +277,13 @@ pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
         "indexed record owner"
     );
 
-    super::assert_wallet_discovers(recipient, authority, event, &data.memo, None, "deposit");
+    crate::wallet_discovery::assert_wallet_discovers(
+        recipient,
+        authority,
+        event,
+        solana_signature::Signature::default(),
+        &data.memo,
+        None,
+        "deposit",
+    );
 }

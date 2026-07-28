@@ -26,19 +26,18 @@ use zolana_client::{
     prover::field::{be, right_align_slice},
     ConfidentialTransfer, EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
     NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, ProverInputs, Rpc,
-    ShieldedTransaction, SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, ZolanaIndexer,
+    SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, ZolanaIndexer,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        CreateProtocolConfig, CreateTree, Deposit, Transact, TransactInterfaceTransferAccounts,
-        TransactSolTransferAccounts,
+        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     pda,
     state::{
-        address_tree_params, tree_account_size, ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
+        address_tree_params, ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
         ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
     },
     SHIELDED_POOL_PROGRAM_ID,
@@ -49,12 +48,16 @@ use zolana_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     NullifierKey, ViewingKey,
 };
-use zolana_program_test::{rpc_state_root, system_create_account_ix, ZolanaProgramTest};
-use zolana_smart_account_client::execute_sync_ix;
-use zolana_test_utils::smart_account::{self, StandardSigners};
+use zolana_program_test::{rpc_state_root, ZolanaProgramTest};
+use zolana_test_utils::smart_account;
 use zolana_test_utils::{
-    localnet::start_shielded_pool_localnet, prover::spawn_workspace_prover,
-    test_validator_asserts::assert_transaction_compute_units,
+    harness::{BootstrapConfig, LocalnetHarness},
+    localnet::start_shielded_pool_localnet,
+    prover::spawn_workspace_prover,
+    test_validator_asserts::{
+        assert_transaction_compute_units, wait_for_indexed_transaction, wait_for_indexed_utxo,
+        wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    },
 };
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
@@ -64,7 +67,7 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 use zolana_test_utils::transact::{
-    dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe, pack_proof,
+    dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe, pack_transact_proof,
     public_sol_field, real_output, transfer_output,
 };
 
@@ -82,19 +85,6 @@ const LOCALNET_NULLIFIERS_PER_QUEUE_TX: u64 = 2;
 const BATCH_NULLIFIER_TREE_CU_LIMIT: u64 = 500_000;
 
 type TestResult<T = ()> = anyhow::Result<T>;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SpendRail {
-    Eddsa,
-}
-
-impl SpendRail {
-    fn label(self) -> &'static str {
-        match self {
-            SpendRail::Eddsa => "eddsa",
-        }
-    }
-}
 
 // `#[path]` is required here: this file is the `localnet_photon_e2e` test-crate
 // root, so an ordinary `mod cycle;` would resolve against `tests/localnet/`
@@ -207,87 +197,11 @@ fn localnet_nullifier_params() -> zolana_tree::InitAddressTreeAccountsInstructio
     params
 }
 
-fn create_tree_instructions_with_nullifier_params(
-    rpc: &SolanaRpc,
-    payer: &Pubkey,
-    authority: &Pubkey,
-    tree: &Pubkey,
-    account_size: u64,
-    nullifier_params: zolana_tree::InitAddressTreeAccountsInstructionData,
-) -> TestResult<Vec<solana_instruction::Instruction>> {
-    let rent = rpc.get_minimum_balance_for_rent_exemption(account_size as usize)?;
-    Ok(vec![
-        system_create_account_ix(
-            payer,
-            tree,
-            rent,
-            account_size,
-            &pda::shielded_pool_program_id(),
-        ),
-        CreateTree {
-            authority: *authority,
-            tree: *tree,
-        }
-        .instruction_with_nullifier_params(nullifier_params),
-    ])
-}
-
 fn stress_blinding(index: u64) -> [u8; 32] {
     let mut blinding = [0u8; 32];
     blinding[1] = 0x51;
     blinding[24..].copy_from_slice(&index.to_be_bytes());
     blinding
-}
-
-fn wait_for_indexed_utxo(
-    indexer: &ZolanaIndexer,
-    tag: [u8; 32],
-    signature: Signature,
-) -> TestResult<EncryptedUtxoMatch> {
-    wait_for("indexed UTXO", || {
-        let response = indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50), None)?;
-        Ok(response
-            .matches
-            .into_iter()
-            .find(|item| item.tx_signature == signature))
-    })
-}
-
-fn wait_for_indexed_transaction(
-    indexer: &ZolanaIndexer,
-    tag: [u8; 32],
-    signature: Signature,
-) -> TestResult<ShieldedTransaction> {
-    wait_for("indexed transaction", || {
-        let response =
-            indexer.get_shielded_transactions_by_tags(vec![tag], None, Some(100), None)?;
-        Ok(response
-            .transactions
-            .into_iter()
-            .find(|item| item.tx_signature == signature))
-    })
-}
-
-fn wait_for_merkle_proof(
-    indexer: &ZolanaIndexer,
-    tree: Address,
-    leaf: [u8; 32],
-) -> TestResult<IndexedMerkleProof> {
-    wait_for("indexed merkle proof", || {
-        let response = indexer.get_merkle_proofs(tree, vec![leaf], None)?;
-        Ok(response.proofs.into_iter().next())
-    })
-}
-
-fn wait_for_non_inclusion_proof(
-    indexer: &ZolanaIndexer,
-    tree: Address,
-    leaf: [u8; 32],
-) -> TestResult<IndexedNonInclusionProof> {
-    wait_for("indexed non-inclusion proof", || {
-        let response = indexer.get_non_inclusion_proofs(tree, vec![leaf], None)?;
-        Ok(response.proofs.into_iter().next())
-    })
 }
 
 fn wait_for<T>(
@@ -322,7 +236,6 @@ fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair>
 /// chain state. The protocol config is a global singleton, so tests cannot share
 /// a validator; combined with `#[serial]` this gives every test an isolated
 /// localnet.
-///
 fn restart_localnet() {
     start_shielded_pool_localnet("zolana-photon", &[]);
 }

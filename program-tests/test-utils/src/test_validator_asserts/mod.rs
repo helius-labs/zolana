@@ -14,20 +14,15 @@ pub use merge_zone::{assert_merge_zone, MergeZoneAssertArgs};
 pub use protocol_config::assert_protocol_config;
 use solana_account::Account;
 use solana_address::Address;
-use solana_instruction_error::InstructionError;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use solana_transaction_error::TransactionError;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
     SolanaRpc,
 };
-use zolana_interface::{
-    error::ShieldedPoolError, instruction::AssetDeposit, state::state_root_offset,
-};
+use zolana_interface::{instruction::AssetDeposit, state::state_root_offset};
 use zolana_program_test::DepositOutput;
-use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
 pub use zone_transact::{assert_zone_transact, ZoneTransactAssertArgs};
 
@@ -92,48 +87,6 @@ pub fn assert_indexed_deposit_utxo(
     );
 }
 
-/// Sync the recipient wallet over a settled deposit event and assert it
-/// discovers exactly one new UTXO mirroring the event. `expected_mint`
-/// additionally pins the UTXO asset for SPL deposits; `label` is the deposit
-/// kind used in the discovery assertion message ("deposit" / "SPL deposit").
-#[track_caller]
-pub(crate) fn assert_wallet_discovers<A: SyncWalletAuthority + ?Sized>(
-    recipient: &mut Wallet,
-    authority: &A,
-    event: &DepositOutput,
-    signature: Signature,
-    expected_mint: Option<&Pubkey>,
-    label: &str,
-) {
-    let before = recipient.utxos.len();
-    recipient
-        .sync(
-            authority,
-            &[event.to_shielded_transaction(signature)],
-            0,
-            DEFAULT_TAG_WINDOW,
-        )
-        .expect("wallet discovery");
-    assert_eq!(
-        recipient.utxos.len(),
-        before + 1,
-        "recipient wallet must discover the {label}"
-    );
-    let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(
-        utxo.output_context.hash, event.utxo_hash,
-        "wallet UTXO hash"
-    );
-    if let Some(mint) = expected_mint {
-        assert_eq!(
-            utxo.utxo.asset.to_bytes(),
-            mint.to_bytes(),
-            "wallet UTXO asset is the mint"
-        );
-    }
-    assert_eq!(utxo.utxo.amount, event.output.amount, "wallet UTXO amount");
-}
-
 #[track_caller]
 pub fn fetch_state<T: bytemuck::Pod, R: Rpc>(rpc: &R, pubkey: &Pubkey) -> Result<T, ClientError> {
     let account = rpc
@@ -183,33 +136,6 @@ pub fn assert_transaction_compute_units(
     );
     println!("{label}: {consumed} CU (limit {limit})");
     Ok(consumed)
-}
-
-/// Extract the transaction failure without depending on validator error text.
-pub fn transaction_error(error: &ClientError) -> Option<TransactionError> {
-    match error {
-        ClientError::SolanaRpcTransaction { source, .. } => source.get_transaction_error(),
-        _ => None,
-    }
-}
-
-/// Assert that a rejected transaction surfaced the expected custom program
-/// error. The instruction index is returned so callers may additionally assert
-/// which instruction failed when a transaction contains wrappers or budgets.
-#[track_caller]
-pub fn assert_custom_program_error(error: &ClientError, expected: ShieldedPoolError) -> u8 {
-    let expected_code = expected as u32;
-    let transaction_error = transaction_error(error)
-        .unwrap_or_else(|| panic!("expected a typed Solana transaction error, got {error:?}"));
-    match transaction_error {
-        TransactionError::InstructionError(index, InstructionError::Custom(code)) => {
-            assert_eq!(code, expected_code, "custom program error code");
-            index
-        }
-        other => {
-            panic!("expected custom program error {expected} ({expected_code}), got transaction error {other:?}")
-        }
-    }
 }
 
 /// Verify rollback after a rejected transaction by comparing the complete
@@ -387,14 +313,14 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
 
 #[cfg(test)]
 mod tests {
-    use super::assert_custom_program_error;
     use solana_instruction_error::InstructionError;
     use solana_transaction_error::TransactionError;
     use zolana_client::ClientError;
     use zolana_interface::error::ShieldedPoolError;
+    use zolana_program_test::Rejection;
 
     #[test]
-    fn typed_custom_program_error_preserves_code_and_instruction_index() {
+    fn rejection_assert_client_matches_code_and_instruction_index() {
         let source = solana_rpc_client_api::client_error::Error::from(
             TransactionError::InstructionError(2, InstructionError::Custom(7_008)),
         );
@@ -402,9 +328,8 @@ mod tests {
             operation: "test",
             source,
         };
-        assert_eq!(
-            assert_custom_program_error(&error, ShieldedPoolError::TransactProofVerificationFailed),
-            2
-        );
+        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+            .at(2)
+            .assert_client(&error);
     }
 }

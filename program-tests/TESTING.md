@@ -28,28 +28,26 @@ end-to-end check.
 | Wallet/indexer consistency | — | — | fixture indexer | ✓ |
 
 Shielded-pool LiteSVM and Mollusk coverage is organized by instruction family.
-The "Model/property binary" column names reference-model and property suites
-that run against the in-process transition oracle, not the SBF program; the
-functional/rejection columns (plus the proof and validator tiers) are the
-behavioral program coverage. `merge_contract`, `nullifier_batch`, and
-`protocol_config_contract` additionally run real-SBF negatives alongside their
-model cases.
+The "Model/property binary" column names behavioral-model and property suites
+that drive the real program (in LiteSVM or Mollusk) against an independent
+expected-state ledger; the functional/rejection columns (plus the proof and
+validator tiers) are the rest of the behavioral program coverage.
 
 | Instruction family | Functional binary | Rejection binary | Model/property binary |
 | --- | --- | --- | --- |
-| protocol config | `protocol_config_contract` | `admin_rejection`, `admin_edge_cases` | `cross_cutting_evolution` |
+| protocol config | `protocol_config_contract` | `admin_rejection`, `admin_edge_cases` | — |
 | tree/pause | `tree_contract` | `admin_rejection` | `deposit_model` |
 | deposit | `deposit_functional` | `deposit_rejection`, `deposit_edge_cases` | `deposit_model`, `deposit_mutation` |
 | dispatch | `dispatch_functional` | `dispatch_rejection` | — |
 | SPL interface | `spl_interface_contract` | `spl_interface_rejection` | — |
-| zone config | `zone_config_contract` | `admin_rejection` | `cross_cutting_authorization` |
-| transact | `transact_functional` | `transact_settlement` | `cross_cutting_protocol_model` |
-| withdrawal | `transact_withdrawal` | `transact_settlement` | `cross_cutting_protocol_model` |
-| P256 ownership | `transact_p256` | `transact_p256` | `cross_cutting_authorization` |
-| expiry and replay | `transact_withdrawal`, proof/validator transact suites | proof/validator nullifier and merge-tag replay | `cross_cutting_temporal` |
-| nullifier batches | `localnet_photon` | `localnet_photon` | `nullifier_batch` |
-| merge | validator/proof matrices | validator rejection matrix | `merge_contract` |
-| authority/registry evolution | `admin_functional`, `transact_withdrawal` | `admin_rejection` | `cross_cutting_evolution` |
+| zone config | `zone_config_contract` | `admin_rejection` | — |
+| transact | `transact_functional` | `transact_settlement` | — |
+| withdrawal | `transact_withdrawal` | `transact_settlement` | — |
+| P256 ownership | `transact_p256` | `transact_p256` | — |
+| expiry and replay | `transact_withdrawal`, proof/validator transact suites | proof/validator nullifier and merge-tag replay | — |
+| nullifier batches | `localnet_photon` | `localnet_photon`, `nullifier_batch` | — |
+| merge | validator/proof matrices | validator rejection matrix, `merge_contract` | — |
+| authority/registry evolution | `admin_functional`, `transact_withdrawal` | `admin_rejection` | — |
 | compute budgets | `cross_cutting_cu_budget`, `bench_cu` | — | `proof_cu`, `localnet_photon` |
 
 Run a single intent-level binary with `just test-shielded-pool-case <binary>`.
@@ -58,23 +56,14 @@ The aggregate `just test-program-fast` continues to run every ungated binary.
 `deposit_model` executes generated deposit/pause lifecycles against an
 independent expected-state ledger. After every action it compares depositor and
 vault balances, tree/indexer roots, leaf order, and every indexed proofless
-payload. `deposit_mutation` separately covers malformed byte/account mutations,
-determinism; mutation testing is not used as a substitute for the
+payload. `deposit_mutation` separately pins each malformed-input class
+(truncations, removed/swapped/readonly accounts, unsigned or unfunded
+depositors, wrong tree owner/data) to its exact typed rejection, keeping
+determinism-only proptests for the byte flips that remain self-consistent
+deposits; mutation testing is not used as a substitute for the
 behavioral model.
 
-`cross_cutting_protocol_model` is the backend-neutral protocol state machine. Its 512-case
-differential property compares UTXO selection, change, custody, and public
-balances with a separately implemented balance ledger. A second 256-case model
-runs 24–179 action mixed data/control-plane histories (deposits, transfers,
-withdrawals, pause, authority and registry rotation, zone/merge policy, and
-clock changes) and checks conservation plus a separately implemented
-control-plane shadow (authorization outcomes and authority/pause/registry/
-zone/merge/clock state) after every action, so the model's own clone-restore
-rollback is not the only oracle.
-
-The focused `cross_cutting_temporal`, `cross_cutting_authorization`,
-`nullifier_batch`, and `cross_cutting_evolution` binaries pin boundary and
-lifecycle behavior without a prover. The proof-backed `transact_withdrawal`
+The proof-backed `transact_withdrawal`
 also submits a real proof one second after its bound expiry, checks automatic
 account rollback, then retries the identical instruction exactly at the expiry
 boundary. Its UTXO was created before a protocol-authority rotation.
@@ -87,7 +76,7 @@ When a `proptest!` case fails, proptest writes the failing seed to a sibling
 before any novel case on the next run. **Commit that file**: it turns a
 one-time discovery into a permanent regression guard for everyone. The
 `proptest-regressions` files are intentionally not gitignored. This applies to
-every property suite (`cross_cutting_protocol_model`, `deposit_model`, `deposit/mutation`, the
+every property suite (`deposit_model`, `deposit/mutation`, the
 interface `parser_props`/`state_props`, `wallet_prop`); only `wallet_prop` has
 persisted a seed so far because the others have not yet failed.
 
@@ -95,10 +84,7 @@ persisted a seed so far because the others have not yet failed.
 
 `zolana_test_utils::backend::LiteSvmPoolBackend` is the common proofless
 workflow backend used by shielded-pool tests. The backend owns protocol/tree
-setup, signer funding, and exposes the transaction journal. New workflow
-backends use the `ShieldedPoolBackend` vocabulary in
-`zolana_test_utils::state_model` so decoded post-state can be compared with the
-same transition oracle.
+setup, signer funding, and exposes the transaction journal.
 
 Every `ZolanaProgramTest` submission, successful or rejected, captures:
 

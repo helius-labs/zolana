@@ -49,7 +49,7 @@ use zolana_program_test::{test_blinding, Rejection};
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, pack_proof, prove_and_verify_transfer, public_input_hash,
+    output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, public_input_hash,
     resolve_outputs, set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs,
     TransferProverInputsArgs,
 };
@@ -438,7 +438,7 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
                 .expect("construct zone verifier");
         verifier.verify().expect("zone proof verifies locally");
     }
-    transact_ix_data.proof = pack_proof(&proof).expect("pack zone proof");
+    transact_ix_data.proof = pack_transact_proof(&proof).expect("pack zone proof");
     transact_ix_data.private_tx_hash = private_tx;
     transact_ix_data
 }

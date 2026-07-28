@@ -128,7 +128,7 @@ nullifier, and padding slots publish derived dummy nullifiers.
 ### Frame Conditions
 
 - [x] **INV-MERGE-15: merge modifies only the tree account**
-  - Covered by: `program-tests/spp-test-validator/tests/lifecycle.rs` `p256_merge_covers_every_supported_input_count` and `eddsa_merge_covers_every_supported_input_count` via the shared merge action, which snapshots and compares the writable merge payer and read-only user record around every successful merge; the remaining instruction accounts are executable/sysvar accounts and cannot be modified by the program.
+  - Covered by: `program-tests/spp-test-validator/tests/lifecycle.rs` `actor_owned_merge_covers_every_supported_input_count` and `eddsa_merge_covers_every_supported_input_count` via the shared merge action, which snapshots and compares the writable merge payer and read-only user record around every successful merge; the remaining instruction accounts are executable/sysvar accounts and cannot be modified by the program.
   - Kind: frame
   - Statement: after a successful `merge_transact`, every account other than the tree account has unchanged data and unchanged lamports (no settlement exists on this instruction); in particular the `user_record` is read-only.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:28-84` (`fn process_merge_transact_ix`)

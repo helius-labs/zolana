@@ -1,4 +1,3 @@
-use mollusk_svm::result::Check;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -67,12 +66,6 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
         },
     );
     assert_eq!(recipient.utxos.len(), 1);
-}
-
-#[test]
-fn deposit_fixture_executes_successfully_before_mutation() {
-    let (mollusk, instruction, accounts) = deposit_fixture();
-    mollusk.process_and_validate_instruction(&instruction, &accounts, &[Check::success()]);
 }
 
 #[test]

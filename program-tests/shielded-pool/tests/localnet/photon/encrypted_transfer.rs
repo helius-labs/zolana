@@ -12,10 +12,10 @@ use super::*;
 #[test]
 #[serial]
 fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {
-    shield_encrypted_transfer_recovered_by_decryption_for(SpendRail::Eddsa)
+    shield_encrypted_transfer_recovered_by_decryption()
 }
 
-fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRail) -> TestResult {
+fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     restart_localnet();
     spawn_workspace_prover();
 
@@ -69,7 +69,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         .map_err(|err| anyhow!("deposit instruction: {err}"))?;
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
-        wait_for_merkle_proof(&indexer, tree_address, utxo_hash)?;
+        wait_for_merkle_proof(&indexer, tree_address, utxo_hash);
         spends.push(SppProofInputUtxo::new(utxo, &sender));
     }
 
@@ -82,8 +82,8 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     let commitments = proof_inputs.input_utxo_hashes()?;
     let mut spend_proofs = Vec::new();
     for commitment in &commitments {
-        let state = wait_for_merkle_proof(&indexer, tree_address, commitment.utxo_hash)?;
-        let nullifier = wait_for_non_inclusion_proof(&indexer, tree_address, commitment.nullifier)?;
+        let state = wait_for_merkle_proof(&indexer, tree_address, commitment.utxo_hash);
+        let nullifier = wait_for_non_inclusion_proof(&indexer, tree_address, commitment.nullifier);
         spend_proofs.push(SpendProof { state, nullifier });
     }
 
@@ -91,7 +91,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     let assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &[])?;
     let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
     let proof = ProverClient::local().prove_transfer(inputs)?;
-    let packed = pack_proof(&proof)?;
+    let packed = pack_transact_proof(&proof)?;
     let ix_data = assembled.with_proof(packed);
 
     let transfer_ix = Transact {
@@ -116,7 +116,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
     )?;
     print_signature("encrypted_transfer", &transfer_sig);
 
-    let indexed = wait_for_indexed_transaction(&indexer, recipient_view_tag, transfer_sig)?;
+    let indexed = wait_for_indexed_transaction(&indexer, recipient_view_tag, transfer_sig);
     assert!(
         indexed.tx_viewing_pk.is_some(),
         "encrypted transfer must carry a tx viewing key"
@@ -221,11 +221,10 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
 
     // The decrypted UTXO is the exact committed on-chain output, so its hash is
     // Merkle-provable (and therefore spendable by the recipient).
-    wait_for_merkle_proof(&indexer, tree_address, recovered.output_context.hash)?;
+    wait_for_merkle_proof(&indexer, tree_address, recovered.output_context.hash);
 
     println!(
-        "encrypted shield-transfer rail={} recovered by decryption via rpc={rpc_url} indexer={indexer_url}",
-        expected_rail.label()
+        "encrypted shield-transfer rail=eddsa recovered by decryption via rpc={rpc_url} indexer={indexer_url}"
     );
     Ok(())
 }

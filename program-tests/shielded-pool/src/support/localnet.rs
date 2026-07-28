@@ -233,20 +233,26 @@ pub fn print_signature(label: &str, signature: &Signature) {
     println!("{label}: {signature}");
 }
 
+/// A 32-byte big-endian field element read back off a witness input.
+fn field_bytes(value: &num_bigint::BigUint) -> [u8; 32] {
+    let bytes = value.to_bytes_be();
+    let mut out = [0u8; 32];
+    out[32 - bytes.len()..].copy_from_slice(&bytes);
+    out
+}
+
 /// Inputs for [`build_sol_transfer_witness`]: the indexer-agnostic half of a
 /// two-input/three-output SOL transfer or withdrawal. Callers fetch the
 /// merkle/non-inclusion proofs and assemble the spend inputs their own way
 /// (local `TestIndexer` mirrors or a Photon indexer); this helper owns
-/// everything from instruction-data assembly through prover submission.
+/// everything from instruction-data assembly through prover submission. The
+/// per-slot nullifiers and (UTXO, nullifier) roots the proof binds are read
+/// back off `spend_inputs`, so callers pass no parallel vectors for them.
 pub struct SolTransferWitnessArgs {
     /// Witness inputs in slot order (real spend input first, then dummies).
     pub spend_inputs: Vec<TransferInput>,
-    /// Per-slot nullifiers matching `spend_inputs`.
-    pub nullifiers: [[u8; 32]; 2],
     /// UTXO-tree root index the eddsa input slots bind to.
     pub root_index: u16,
-    /// (UTXO root, nullifier root) the proof binds.
-    pub roots: ([u8; 32], [u8; 32]),
     /// Output utxo hashes and their owner view tags, per output slot.
     pub output_hashes: Vec<[u8; 32]>,
     pub view_tags: Vec<[u8; 32]>,
@@ -276,8 +282,23 @@ pub struct SolTransferWitnessArgs {
 /// and locally verify the witness. Both localnet SOL cycles (`TestIndexer` and
 /// Photon) share this; they differ only in how `spend_inputs` were fetched.
 pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<TransactIxData> {
+    let nullifiers: Vec<[u8; 32]> = args
+        .spend_inputs
+        .iter()
+        .map(|input| field_bytes(&input.nullifier))
+        .collect();
+    let utxo_roots: Vec<[u8; 32]> = args
+        .spend_inputs
+        .iter()
+        .map(|input| field_bytes(&input.utxo_tree_root))
+        .collect();
+    let nullifier_roots: Vec<[u8; 32]> = args
+        .spend_inputs
+        .iter()
+        .map(|input| field_bytes(&input.nullifier_tree_root))
+        .collect();
     let mut ix_data = new_transact_ix_data(
-        args.nullifiers
+        nullifiers
             .iter()
             .map(|nullifier| eddsa_input_utxo(*nullifier, args.root_index))
             .collect(),
@@ -300,10 +321,10 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
     .hash()?;
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(args.public_sol_amount);
     let public_input = public_input_hash(
-        &args.nullifiers,
+        &nullifiers,
         &args.output_hashes,
-        &[args.roots.0, args.roots.0],
-        &[args.roots.1, args.roots.1],
+        &utxo_roots,
+        &nullifier_roots,
         &private_tx,
         &external_hash,
         &public_slot_assets,

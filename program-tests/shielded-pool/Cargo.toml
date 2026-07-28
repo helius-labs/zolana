@@ -139,27 +139,11 @@ path = "tests/dispatch/rejection.rs"
 name = "transact_guard"
 path = "tests/transact/guard.rs"
 
-# --- Models and cross-cutting contracts (pure model / property / oracle) ---
+# --- Behavioral model and cross-cutting contracts ---
 
 [[test]]
 name = "deposit_model"
 path = "tests/deposit/model.rs"
-
-[[test]]
-name = "cross_cutting_protocol_model"
-path = "tests/cross_cutting/protocol_model.rs"
-
-[[test]]
-name = "cross_cutting_temporal"
-path = "tests/cross_cutting/temporal.rs"
-
-[[test]]
-name = "cross_cutting_authorization"
-path = "tests/cross_cutting/authorization.rs"
-
-[[test]]
-name = "cross_cutting_evolution"
-path = "tests/cross_cutting/evolution.rs"
 
 [[test]]
 name = "cross_cutting_cu_budget"

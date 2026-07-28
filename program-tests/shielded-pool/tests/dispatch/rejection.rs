@@ -2,7 +2,6 @@ use solana_instruction::{error::InstructionError, Instruction};
 use solana_signer::Signer;
 use zolana_interface::{error::ShieldedPoolError, instruction::tag};
 use zolana_program_test::Rejection;
-use zolana_test_utils::litesvm_asserts::assert_instruction_error;
 
 use shielded_pool_tests::support::{
     fixtures::{sol_deposit_accounts, Pool},
@@ -22,7 +21,7 @@ fn dispatch_rejects_empty_instruction_data() {
             &[],
         )
         .expect_err("invalid dispatch data must fail");
-    assert_instruction_error(err, InstructionError::InvalidInstructionData);
+    Rejection::new(InstructionError::InvalidInstructionData).assert_litesvm(err);
 }
 
 #[test]
@@ -38,7 +37,7 @@ fn dispatch_rejects_unknown_instruction_tag() {
             &[],
         )
         .expect_err("invalid dispatch data must fail");
-    assert_instruction_error(err, InstructionError::InvalidInstructionData);
+    Rejection::new(InstructionError::InvalidInstructionData).assert_litesvm(err);
 }
 
 #[test]

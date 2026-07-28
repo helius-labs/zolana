@@ -1,5 +1,4 @@
 use solana_account::Account as MolluskAccount;
-use solana_instruction::error::InstructionError;
 use solana_keypair::Keypair;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -16,7 +15,6 @@ use zolana_interface::{
     state::address_tree_params,
 };
 use zolana_program_test::{system_create_account_ix, Rejection, Rpc, ZONE_TEST_PROGRAM_ID};
-use zolana_test_utils::litesvm_asserts::{assert_custom, assert_instruction_error_at};
 use zolana_test_utils::mollusk::{
     empty_placeholder_account, expect_err_exact, mollusk_pubkey, sweep_account_matrix,
     AccountMutation, Expected,
@@ -39,7 +37,7 @@ fn duplicate_protocol_config_creation_is_rejected() {
     let err = rpc
         .create_protocol_config(&authority)
         .expect_err("duplicate config must fail");
-    assert_custom(err, SystemError::AccountAlreadyInUse as u32);
+    Rejection::custom(SystemError::AccountAlreadyInUse as u32).assert_litesvm(err);
 }
 
 #[test]
@@ -144,7 +142,7 @@ fn tree_creation_rejects_an_unsigned_authority() {
         .rpc
         .create_and_send_default_payer_transaction(&[create], &[])
         .expect_err("unsigned authority must fail");
-    assert_custom(err, u32::from(AccountError::InvalidSigner));
+    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
 }
 
 #[test]
@@ -495,11 +493,9 @@ fn tree_creation_rejects_an_account_not_owned_by_the_pool() {
         .rpc
         .create_and_send_default_payer_transaction(&[alloc, create], &[&tree, &pool.authority])
         .expect_err("tree account with a foreign owner must fail");
-    assert_instruction_error_at(
-        err,
-        1,
-        InstructionError::Custom(u32::from(AccountError::AccountOwnedByWrongProgram)),
-    );
+    Rejection::custom(u32::from(AccountError::AccountOwnedByWrongProgram))
+        .at(1)
+        .assert_litesvm(err);
 }
 
 #[test]
@@ -565,8 +561,11 @@ fn zone_config_creation_rejects_an_unsigned_zone_config() {
     let authority = Keypair::new();
     rpc.create_protocol_config(&authority)
         .expect("create protocol config");
-    // Direct SPP call: without the zone program's `invoke_signed`, the
-    // `zone_auth` PDA meta carries no signature, and that is the first check.
+    // Direct SPP call: the zone config account IS the zone's `zone_auth` PDA,
+    // and its signature (which only the zone program's `invoke_signed` can
+    // supply) is the sole proof the zone program authorized the creation.
+    // With the flag cleared the pool rejects the config itself as
+    // `InvalidZoneConfig` — not a generic missing-signer error.
     let mut ix = CreateZoneConfig {
         payer: authority.pubkey(),
         program_id: ZONE_TEST_PROGRAM_ID.into(),
@@ -657,7 +656,7 @@ fn zone_owner_rotation_rejects_an_unsigned_co_signer() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("unsigned rotation co-signer must fail");
-    assert_custom(err, u32::from(AccountError::InvalidSigner));
+    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
 }
 
 #[test]

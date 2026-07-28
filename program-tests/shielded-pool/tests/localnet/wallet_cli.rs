@@ -66,7 +66,16 @@ fn cli_bin() -> PathBuf {
         })
 }
 
-fn run_cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
+/// One captured `zolana` CLI invocation: exit status plus lossy stdout/stderr.
+struct CliOutput {
+    status: std::process::ExitStatus,
+    stdout: String,
+    stderr: String,
+}
+
+/// Spawn `zolana args` with `env` and capture its output; the wrappers below
+/// judge the exit status.
+fn run_cli(args: &[&str], env: &[(&str, &str)]) -> Result<CliOutput> {
     let mut command = Command::new(cli_bin());
     for (key, value) in env {
         command.env(key, value);
@@ -75,35 +84,33 @@ fn run_cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
         .args(args)
         .output()
         .with_context(|| format!("spawn zolana {}", args.join(" ")))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    Ok(CliOutput {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+
+fn run_cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
+    let output = run_cli(args, env)?;
     if !output.status.success() {
         bail!(
-            "zolana {} failed (status={}):\nstdout:{stdout}\nstderr:{stderr}",
+            "zolana {} failed (status={}):\nstdout:{}\nstderr:{}",
             args.join(" "),
-            output.status
+            output.status,
+            output.stdout,
+            output.stderr
         );
     }
-    Ok(stdout)
+    Ok(output.stdout)
 }
 
 fn run_cli_expect_failure(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
-    let mut command = Command::new(cli_bin());
-    for (key, value) in env {
-        command.env(key, value);
-    }
-    let output = command
-        .args(args)
-        .output()
-        .with_context(|| format!("spawn zolana {}", args.join(" ")))?;
+    let output = run_cli(args, env)?;
     if output.status.success() {
         bail!("zolana {} unexpectedly succeeded", args.join(" "));
     }
-    Ok(format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    ))
+    Ok(format!("{}{}", output.stdout, output.stderr))
 }
 
 fn wallet_new(path: &Path, cli_env: &[(&str, &str)]) -> Result<()> {

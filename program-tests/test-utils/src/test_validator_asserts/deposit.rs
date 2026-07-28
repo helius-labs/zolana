@@ -59,6 +59,8 @@ pub fn assert_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
         "photon merkle root tracks the on-chain root"
     );
 
-    super::assert_wallet_discovers(recipient, authority, event, signature, None, "deposit");
+    crate::wallet_discovery::assert_wallet_discovers(
+        recipient, authority, event, signature, &data.memo, None, "deposit",
+    );
     Ok(())
 }

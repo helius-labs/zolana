@@ -1,7 +1,6 @@
 use solana_signer::Signer;
 use solana_system_interface::error::SystemError;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_test_utils::litesvm_asserts::assert_custom;
+use zolana_program_test::{Rejection, ZolanaProgramTest};
 
 use shielded_pool_tests::support::fixtures::Pool;
 
@@ -16,7 +15,7 @@ fn sol_deposit_rejects_insufficient_lamports_without_changing_root() {
         .rpc
         .deposit_sol(&tree, &poor, 100_000_000_000, [6u8; 32], [6u8; 32])
         .expect_err("unaffordable deposit must fail");
-    assert_custom(err, SystemError::ResultWithNegativeLamports as u32);
+    Rejection::custom(SystemError::ResultWithNegativeLamports as u32).assert_litesvm(err);
     assert_eq!(pool.rpc.state_root(&tree), Some(root_before));
 }
 

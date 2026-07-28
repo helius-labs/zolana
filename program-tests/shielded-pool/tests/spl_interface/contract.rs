@@ -11,10 +11,7 @@ use zolana_interface::{
     state::{discriminator::SPL_ASSET_COUNTER, SplAssetCounter},
 };
 use zolana_program_test::Rejection;
-use zolana_test_utils::{
-    backend::LiteSvmPoolBackend,
-    litesvm_asserts::{assert_custom, assert_instruction_error},
-};
+use zolana_test_utils::backend::LiteSvmPoolBackend;
 
 #[test]
 fn asset_counter_assigns_distinct_canonical_interfaces() {
@@ -88,7 +85,7 @@ fn asset_counter_creation_rejects_an_unsigned_authority() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("unsigned authority must fail");
-    assert_custom(err, u32::from(AccountError::InvalidSigner));
+    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
     assert!(
         backend
             .rpc
@@ -111,7 +108,7 @@ fn asset_counter_creation_rejects_a_wrong_system_program() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("wrong system program must fail");
-    assert_instruction_error(err, InstructionError::IncorrectProgramId);
+    Rejection::new(InstructionError::IncorrectProgramId).assert_litesvm(err);
 }
 
 #[test]
@@ -239,7 +236,7 @@ fn asset_counter_rejects_double_initialization() {
     // The second create fails inside the system-program CPI; an inner CPI
     // error propagates as-is, so the observable code is the system program's
     // `AccountAlreadyInUse`, not a pool error.
-    assert_custom(error, SystemError::AccountAlreadyInUse as u32);
+    Rejection::custom(SystemError::AccountAlreadyInUse as u32).assert_litesvm(error);
     assert_eq!(
         backend
             .rpc

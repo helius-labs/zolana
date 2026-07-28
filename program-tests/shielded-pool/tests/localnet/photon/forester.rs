@@ -125,116 +125,32 @@ struct ForesterEnv {
 }
 
 /// Restart the localnet, then stand up the smart-account vaults, the protocol
-/// config, and a pool tree with a small localnet nullifier batch.
+/// config, and a pool tree with a small localnet nullifier batch: the shared
+/// harness bootstrap steps, with the suite's shrunken nullifier ZKP batch.
 fn phase_bootstrap() -> TestResult<ForesterEnv> {
-    restart_localnet();
-    spawn_workspace_prover();
-
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
     let indexer_url =
         std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
 
-    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let mut rpc = SolanaRpc::new(rpc_url.clone());
-    let indexer = ZolanaIndexer::new(indexer_url.clone());
-    rpc.assert_executable(&program_id)?;
-
-    let payer = Keypair::new();
-    let authority = Keypair::new();
-    let forester_key = Keypair::new();
-    let merge_key = Keypair::new();
-    let tree_key = Keypair::new();
-    let zone_key = Keypair::new();
-    print_signature(
-        "airdrop forester-test payer",
-        &rpc.airdrop(&payer.pubkey(), 20_000_000_000)?,
-    );
-    print_signature(
-        "airdrop forester-test authority",
-        &rpc.airdrop(&authority.pubkey(), 1_000_000_000)?,
-    );
-    print_signature(
-        "airdrop forester-test forester",
-        &rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?,
-    );
-
-    let accounts = smart_account::standard_accounts();
-    for ix in accounts.create_ixs(
-        &payer.pubkey(),
-        StandardSigners {
-            protocol: authority.pubkey(),
-            forester: forester_key.pubkey(),
-            merge: merge_key.pubkey(),
-            tree: tree_key.pubkey(),
-            zone: zone_key.pubkey(),
-        },
-    ) {
-        send_transaction(&mut rpc, &[ix], &payer.pubkey(), &[&payer])?;
-    }
-    print_signature(
-        "airdrop forester-test protocol-vault",
-        &rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?,
-    );
-
-    let create_config = CreateProtocolConfig {
-        authority: accounts.protocol_vault,
-        protocol_authority: accounts.protocol_vault.to_bytes().into(),
-        tree_creation_authority: accounts.tree_vault.to_bytes().into(),
-        tree_creation_is_permissionless: false,
-        forester_authority: accounts.forester_vault.to_bytes().into(),
-        zone_creation_authority: accounts.zone_vault.to_bytes().into(),
+    let config = BootstrapConfig {
+        label: "zolana-photon",
+        extra_programs: Vec::new(),
         zone_creation_is_permissionless: false,
-        spl_interface_creation_is_permissionless: false,
-    }
-    .instruction();
-    let create_config = execute_sync_ix(
-        &accounts.protocol_settings,
-        0,
-        &[authority.pubkey()],
-        &[create_config],
-    );
-    let create_config_sig = send_transaction(
-        &mut rpc,
-        &[create_config],
-        &payer.pubkey(),
-        &[&payer, &authority],
-    )?;
-    print_signature("create_protocol_config", &create_config_sig);
-
-    let tree = Keypair::new();
-    let mut create_tree = create_tree_instructions_with_nullifier_params(
-        &rpc,
-        &payer.pubkey(),
-        &accounts.tree_vault,
-        &tree.pubkey(),
-        tree_account_size() as u64,
-        localnet_nullifier_params(),
-    )?;
-    let alloc_tree = create_tree.remove(0);
-    let create_tree = execute_sync_ix(
-        &accounts.tree_settings,
-        0,
-        &[tree_key.pubkey()],
-        &create_tree,
-    );
-    let create_tree_sig = send_transaction(
-        &mut rpc,
-        &[alloc_tree, create_tree],
-        &payer.pubkey(),
-        &[&payer, &tree, &tree_key],
-    )?;
-    print_signature("create_tree_small_nullifier_batch", &create_tree_sig);
-    let tree_pubkey = tree.pubkey();
-    let tree_address = Address::new_from_array(tree_pubkey.to_bytes());
+        fund_merge_vault: false,
+    };
+    let (mut rpc, indexer) = LocalnetHarness::<()>::start_stack(&config)?;
+    let setup = LocalnetHarness::<()>::setup_protocol_accounts(&mut rpc, &config)?;
+    let (tree_pubkey, tree_address) =
+        LocalnetHarness::<()>::create_tree(&mut rpc, &setup, Some(localnet_nullifier_params()))?;
 
     Ok(ForesterEnv {
         rpc_url,
         indexer_url,
         rpc,
         indexer,
-        payer,
-        forester_key,
-        accounts,
+        payer: setup.payer,
+        forester_key: setup.forester_key,
+        accounts: setup.accounts,
         tree_pubkey,
         tree_address,
     })
@@ -319,7 +235,7 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
             &ctx.payer_nullifier_pk,
             &zero,
         )?;
-        let indexed_deposit = wait_for_indexed_utxo(&env.indexer, shield_view_tag, sig)?;
+        let indexed_deposit = wait_for_indexed_utxo(&env.indexer, shield_view_tag, sig);
         assert_eq!(
             indexed_deposit.output_slot.output_context.hash,
             spendable_utxo.hash
@@ -355,13 +271,13 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     ctx.queued_nullifiers.push(first_utxo.nullifier);
     ctx.queued_nullifiers.push(second_utxo.nullifier);
 
-    let first_state_proof = wait_for_merkle_proof(&env.indexer, env.tree_address, first_utxo.hash)?;
+    let first_state_proof = wait_for_merkle_proof(&env.indexer, env.tree_address, first_utxo.hash);
     let second_state_proof =
-        wait_for_merkle_proof(&env.indexer, env.tree_address, second_utxo.hash)?;
+        wait_for_merkle_proof(&env.indexer, env.tree_address, second_utxo.hash);
     let first_nullifier_proof =
-        wait_for_non_inclusion_proof(&env.indexer, env.tree_address, first_utxo.nullifier)?;
+        wait_for_non_inclusion_proof(&env.indexer, env.tree_address, first_utxo.nullifier);
     let second_nullifier_proof =
-        wait_for_non_inclusion_proof(&env.indexer, env.tree_address, second_utxo.nullifier)?;
+        wait_for_non_inclusion_proof(&env.indexer, env.tree_address, second_utxo.nullifier);
     assert_eq!(
         first_state_proof.root, roots.utxo_root,
         "Photon state root must match on-chain before queue tx {i}"
@@ -429,7 +345,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     )?;
     let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
     let proof = ProverClient::local().prove_transfer(inputs)?;
-    let ix_data = assembled.with_proof(pack_proof(&proof)?);
+    let ix_data = assembled.with_proof(pack_transact_proof(&proof)?);
 
     let tx_ix = Transact {
         payer: env.payer.pubkey(),
@@ -442,7 +358,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     let sig = send_transaction(&mut env.rpc, &[tx_ix], &env.payer.pubkey(), &[&env.payer])?;
     print_signature(&format!("queue_nullifiers_{i}"), &sig);
 
-    let indexed = wait_for_indexed_transaction(&env.indexer, wait_tag, sig)?;
+    let indexed = wait_for_indexed_transaction(&env.indexer, wait_tag, sig);
     assert_eq!(
         indexed.nullifiers,
         vec![first_utxo.nullifier, second_utxo.nullifier]

@@ -14,12 +14,14 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::random_blinding;
-use zolana_program_test::{deposit_output_from_event, test_blinding, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{
+    deposit_output_from_event, test_blinding, Rejection, ZONE_TEST_PROGRAM_ID,
+};
 use zolana_test_utils::{
     spl::mint_to,
     test_validator_asserts::{
-        assert_account_unchanged, assert_custom_program_error, assert_zone_deposit, fetch_account,
-        token_amount, ZoneDepositAssertArgs,
+        assert_account_unchanged, assert_zone_deposit, fetch_account, token_amount,
+        ZoneDepositAssertArgs,
     },
 };
 use zolana_transaction::{Data, LocalWalletAuthority, Utxo, Wallet, SOL_MINT};
@@ -57,7 +59,7 @@ impl ZoneHarness {
     }
 
     pub(crate) fn shield_default_sol(&mut self, name: &str, amount: u64) -> Result<()> {
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let depositor = Keypair::new();
         self.rpc.airdrop(&depositor.pubkey(), 5_000_000_000)?;
         let data = self.zone_deposit_data(name, amount, DepositAsset::Sol)?;
@@ -87,7 +89,7 @@ impl ZoneHarness {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let tree = self.tree;
         let depositor = Keypair::new();
         self.rpc.airdrop(&depositor.pubkey(), 5_000_000_000)?;
@@ -137,7 +139,7 @@ impl ZoneHarness {
             self.create_enabled_zone_config()?;
         }
         self.ensure_spl_asset()?;
-        self.ensure_actor(name)?;
+        self.ensure_fresh_actor(name)?;
         let payer = self.payer.insecure_clone();
         let tree = self.tree;
         let spl = *self.spl_asset()?;
@@ -279,10 +281,7 @@ impl ZoneHarness {
         match send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor]) {
             Ok(_) => Err(anyhow!("wrong-signer zone deposit unexpectedly succeeded")),
             Err(error) => {
-                assert_eq!(
-                    assert_custom_program_error(&error, ShieldedPoolError::InvalidZoneConfig),
-                    0
-                );
+                Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_client(&error);
                 assert_account_unchanged(&self.rpc, &tree, &tree_before)?;
                 Ok(())
             }

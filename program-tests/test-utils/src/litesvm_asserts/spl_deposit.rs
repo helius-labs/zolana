@@ -91,10 +91,11 @@ pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
         "indexed record owner"
     );
 
-    super::assert_wallet_discovers(
+    crate::wallet_discovery::assert_wallet_discovers(
         recipient,
         authority,
         event,
+        solana_signature::Signature::default(),
         &data.memo,
         Some(mint),
         "SPL deposit",
