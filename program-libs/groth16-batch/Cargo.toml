@@ -19,6 +19,7 @@ ark-ff = { workspace = true }
 ark-std = { workspace = true }
 bincode = "1.3"
 solana-address = { workspace = true }
+solana-bn254 = { workspace = true }
 solana-bn254-batch-syscall = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
