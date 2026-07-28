@@ -18,7 +18,7 @@ use zolana_interface::{
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::MerkleTree;
+use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_program_test::{rpc_state_root, single_deposit_view, TestIndexer, ZolanaProgramTest};
 use zolana_transaction::{Data, Utxo, SOL_MINT};
 
@@ -42,6 +42,67 @@ type TestResult<T = ()> = anyhow::Result<T>;
 
 #[test]
 fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
+    let mut cycle = phase_setup()?;
+    let shielded = phase_shield(&mut cycle)?;
+    let transferred = phase_transfer(&mut cycle, &shielded)?;
+    let unshielded = phase_unshield(&mut cycle, &transferred)?;
+    phase_verify_output(&cycle, &unshielded)?;
+
+    println!(
+        "localnet shield-transfer-unshield SOL test passed via {}",
+        cycle.rpc_url
+    );
+    Ok(())
+}
+
+/// RPC/indexer handles and local tree mirrors threaded through the phases.
+struct SolCycle {
+    rpc_url: String,
+    program_id: Pubkey,
+    rpc: SolanaRpc,
+    indexer: TestIndexer,
+    payer: Keypair,
+    recipient_owner: Keypair,
+    tree_pubkey: Pubkey,
+    state_tree: MerkleTree<Poseidon>,
+    nf_tree: IndexedMerkleTree<Poseidon, usize>,
+}
+
+/// The payer's shielded UTXO and everything later phases need to spend it.
+struct ShieldedPayer {
+    utxo: Utxo,
+    utxo_hash: [u8; 32],
+    nullifier_key: NullifierKey,
+    nullifier_pk: [u8; 32],
+    owner_pk_hash: [u8; 32],
+    owner_field: [u8; 32],
+    utxo_root: [u8; 32],
+    nullifier_root: [u8; 32],
+}
+
+/// The recipient's transferred UTXO and the tree roots it settles against.
+struct TransferredUtxo {
+    public_key: PublicKey,
+    nullifier_key: NullifierKey,
+    nullifier_pk: [u8; 32],
+    owner_field: [u8; 32],
+    view_tag: [u8; 32],
+    hash: [u8; 32],
+    blinding: [u8; 32],
+    utxo_root: [u8; 32],
+    nullifier_root: [u8; 32],
+}
+
+/// Lamport balances captured before the unshield, checked after it lands.
+struct UnshieldOutcome {
+    public_recipient: Pubkey,
+    public_recipient_before: u64,
+    vault_before: u64,
+}
+
+/// Boot the prover, connect to the local validator, create the pool, and fund
+/// the recipient owner.
+fn phase_setup() -> TestResult<SolCycle> {
     zolana_test_utils::prover::spawn_workspace_prover();
 
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
@@ -63,9 +124,27 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     );
 
     let tree_pubkey = tree.pubkey();
+    let state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    let nf_tree = nullifier_tree()?;
+    Ok(SolCycle {
+        rpc_url,
+        program_id,
+        rpc,
+        indexer,
+        payer,
+        recipient_owner,
+        tree_pubkey,
+        state_tree,
+        nf_tree,
+    })
+}
+
+/// Shield `AMOUNT` public SOL into the payer's private UTXO and gate on the
+/// resulting state/nullifier roots.
+fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     let zero = [0u8; 32];
 
-    let payer_bytes = payer.pubkey().to_bytes();
+    let payer_bytes = cycle.payer.pubkey().to_bytes();
     let payer_blinding = right_align(&[7u8; 31]);
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey()?;
@@ -82,18 +161,18 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
 
     let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
     let shield_ix = Deposit {
-        tree: tree_pubkey,
-        depositor: payer.pubkey(),
+        tree: cycle.tree_pubkey,
+        depositor: cycle.payer.pubkey(),
         deposits: vec![shield_data],
     }
     .instruction()?;
     let shield_tx = send_indexed(
-        &mut rpc,
-        &mut indexer,
-        program_id,
+        &mut cycle.rpc,
+        &mut cycle.indexer,
+        cycle.program_id,
         &[shield_ix],
-        &payer.pubkey(),
-        &[&payer],
+        &cycle.payer.pubkey(),
+        &[&cycle.payer],
     )?;
     print_signature("deposit", &shield_tx.signature);
 
@@ -101,40 +180,65 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     assert_eq!(payer_utxo_hash, shield_view.utxo_hash);
 
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
-    state_tree.append(&payer_utxo_hash)?;
-    let (shield_utxo_root, nullifier_root) = on_chain_roots(&rpc, &tree_pubkey, 1)?;
-    assert_eq!(state_tree.root(), shield_utxo_root, "shield root gate");
-    assert_eq!(rpc_state_root(&rpc, &tree_pubkey)?, indexer.root());
+    cycle.state_tree.append(&payer_utxo_hash)?;
+    let (shield_utxo_root, nullifier_root) = on_chain_roots(&cycle.rpc, &cycle.tree_pubkey, 1)?;
+    assert_eq!(
+        cycle.state_tree.root(),
+        shield_utxo_root,
+        "shield root gate"
+    );
+    assert_eq!(
+        rpc_state_root(&cycle.rpc, &cycle.tree_pubkey)?,
+        cycle.indexer.root()
+    );
 
-    let nf_tree = nullifier_tree()?;
-    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+    assert_eq!(cycle.nf_tree.root(), nullifier_root, "nullifier root gate");
 
-    let payer_nullifier = payer_nullifier_key.nullifier(&payer_utxo_hash, &payer_blinding)?;
-    let payer_non_inclusion =
-        nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&payer_nullifier))?;
-    let payer_state_path: Vec<[u8; 32]> = state_tree.get_proof_of_leaf(0, true)?.to_vec();
+    Ok(ShieldedPayer {
+        utxo: payer_utxo,
+        utxo_hash: payer_utxo_hash,
+        nullifier_key: payer_nullifier_key,
+        nullifier_pk: payer_nullifier_pk,
+        owner_pk_hash: payer_owner_pk_hash,
+        owner_field: payer_owner_field,
+        utxo_root: shield_utxo_root,
+        nullifier_root,
+    })
+}
+
+/// Spend the shielded UTXO into a change output back to the payer and a
+/// `TRANSFER_AMOUNT` output to the recipient, then gate on the new roots.
+fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<TransferredUtxo> {
+    let zero = [0u8; 32];
+
+    let payer_nullifier = shielded
+        .nullifier_key
+        .nullifier(&shielded.utxo_hash, &shielded.utxo.blinding)?;
+    let payer_non_inclusion = cycle
+        .nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&payer_nullifier))?;
+    let payer_state_path: Vec<[u8; 32]> = cycle.state_tree.get_proof_of_leaf(0, true)?.to_vec();
     let payer_spend_input = spend_input(SpendInputArgs {
-        utxo: &payer_utxo,
-        owner_field: &payer_owner_field,
+        utxo: &shielded.utxo,
+        owner_field: &shielded.owner_field,
         state_path: &payer_state_path,
         state_path_index: 0,
         non_inclusion: &payer_non_inclusion,
-        roots: (shield_utxo_root, nullifier_root),
+        roots: (shielded.utxo_root, shielded.nullifier_root),
         nullifier: &payer_nullifier,
-        owner_pk_hash: &payer_owner_pk_hash,
-        nullifier_key: &payer_nullifier_key,
+        owner_pk_hash: &shielded.owner_pk_hash,
+        nullifier_key: &shielded.nullifier_key,
     })?;
 
-    let recipient_bytes = recipient_owner.pubkey().to_bytes();
+    let recipient_bytes = cycle.recipient_owner.pubkey().to_bytes();
     let recipient_nullifier_key = NullifierKey::from_secret([11u8; 31]);
     let recipient_nullifier_pk = recipient_nullifier_key.pubkey()?;
     let recipient_public_key = PublicKey::from_ed25519(&recipient_bytes);
     let recipient_owner_field = owner_hash(&recipient_public_key, &recipient_nullifier_pk)?;
 
     let change_output = real_output(
-        payer_utxo.owner,
-        payer_nullifier_pk,
+        shielded.utxo.owner,
+        shielded.nullifier_pk,
         SOL_MINT,
         CHANGE_AMOUNT,
         [13u8; 31],
@@ -148,17 +252,22 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     );
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
-    let transfer_roots = (shield_utxo_root, nullifier_root);
-    let (transfer_dummy_input, transfer_dummy_nullifier) =
-        dummy_input(&[20u8; 31], &nf_tree, transfer_roots, &payer_owner_pk_hash)?;
+    let transfer_roots = (shielded.utxo_root, shielded.nullifier_root);
+    let (transfer_dummy_input, transfer_dummy_nullifier) = dummy_input(
+        &[20u8; 31],
+        &cycle.nf_tree,
+        transfer_roots,
+        &shielded.owner_pk_hash,
+    )?;
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
     // Each real output's owner tag is its owner's `confidential_view_tag` so the
     // program's `hash_bytes(resolved_owner_tag)` matches that owner's
     // `owner_pk_field`.
-    let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
+    let change_view_tag = shielded.utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
+    let payer_bytes = cycle.payer.pubkey().to_bytes();
     let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![payer_spend_input, transfer_dummy_input],
         nullifiers: [payer_nullifier, transfer_dummy_nullifier],
@@ -171,96 +280,125 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
             transfer_output(&recipient_output)?,
             transfer_dummy_output,
         ],
-        output_nullifier_pks: [payer_nullifier_pk, recipient_nullifier_pk, zero],
+        output_nullifier_pks: [shielded.nullifier_pk, recipient_nullifier_pk, zero],
         interface_transfers: Vec::new(),
         resolved_transfers: Vec::new(),
-        private_tx_inputs: [payer_utxo_hash, zero],
+        private_tx_inputs: [shielded.utxo_hash, zero],
         private_tx_outputs: [change_hash, recipient_hash, zero],
         public_sol_amount: zero,
         payer_pubkey_hash: Sha256BE::hash(&payer_bytes)?,
-        input_owner_pk_hash: payer_owner_pk_hash,
+        input_owner_pk_hash: shielded.owner_pk_hash,
         label: "transfer",
     })?;
 
     let transfer_ix = Transact {
-        payer: payer.pubkey(),
-        input_tree: tree_pubkey,
-        output_tree: tree_pubkey,
+        payer: cycle.payer.pubkey(),
+        input_tree: cycle.tree_pubkey,
+        output_tree: cycle.tree_pubkey,
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
     .instruction();
     let transfer_tx = send_indexed(
-        &mut rpc,
-        &mut indexer,
-        program_id,
+        &mut cycle.rpc,
+        &mut cycle.indexer,
+        cycle.program_id,
         &[transfer_ix],
-        &payer.pubkey(),
-        &[&payer],
+        &cycle.payer.pubkey(),
+        &[&cycle.payer],
     )?;
     print_signature("shielded_transfer", &transfer_tx.signature);
 
-    state_tree.append(&change_hash)?;
-    state_tree.append(&recipient_hash)?;
-    state_tree.append(&transfer_dummy_hash)?;
-    let (transfer_utxo_root, transfer_nullifier_root) = on_chain_roots(&rpc, &tree_pubkey, 2)?;
-    assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
-    assert_eq!(transfer_nullifier_root, nullifier_root);
+    cycle.state_tree.append(&change_hash)?;
+    cycle.state_tree.append(&recipient_hash)?;
+    cycle.state_tree.append(&transfer_dummy_hash)?;
+    let (transfer_utxo_root, transfer_nullifier_root) =
+        on_chain_roots(&cycle.rpc, &cycle.tree_pubkey, 2)?;
+    assert_eq!(
+        cycle.state_tree.root(),
+        transfer_utxo_root,
+        "transfer root gate"
+    );
+    assert_eq!(transfer_nullifier_root, shielded.nullifier_root);
+
+    Ok(TransferredUtxo {
+        public_key: recipient_public_key,
+        nullifier_key: recipient_nullifier_key,
+        nullifier_pk: recipient_nullifier_pk,
+        owner_field: recipient_owner_field,
+        view_tag: recipient_view_tag,
+        hash: recipient_hash,
+        blinding: recipient_output.blinding,
+        utxo_root: transfer_utxo_root,
+        nullifier_root: transfer_nullifier_root,
+    })
+}
+
+/// Unshield the transferred UTXO: spend it through a withdrawal that pays
+/// `TRANSFER_AMOUNT` public SOL out of the vault to a fresh public recipient.
+fn phase_unshield(
+    cycle: &mut SolCycle,
+    transferred: &TransferredUtxo,
+) -> TestResult<UnshieldOutcome> {
+    let zero = [0u8; 32];
 
     let recipient_utxo = Utxo {
-        owner: recipient_public_key,
+        owner: transferred.public_key,
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
-        blinding: recipient_output.blinding,
+        blinding: transferred.blinding,
         zone_program_id: None,
         data: Data::default(),
     };
     assert_eq!(
-        recipient_hash,
-        recipient_utxo.hash(&recipient_nullifier_pk, &zero, &zero)?
+        transferred.hash,
+        recipient_utxo.hash(&transferred.nullifier_pk, &zero, &zero)?
     );
     let recipient_owner_pk_hash = recipient_utxo.owner.owner_proof_input_hash()?;
-    let recipient_nullifier =
-        recipient_nullifier_key.nullifier(&recipient_hash, &recipient_utxo.blinding)?;
-    let recipient_non_inclusion =
-        nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&recipient_nullifier))?;
-    let recipient_state_path: Vec<[u8; 32]> = state_tree.get_proof_of_leaf(2, true)?.to_vec();
+    let recipient_nullifier = transferred
+        .nullifier_key
+        .nullifier(&transferred.hash, &recipient_utxo.blinding)?;
+    let recipient_non_inclusion = cycle
+        .nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&recipient_nullifier))?;
+    let recipient_state_path: Vec<[u8; 32]> = cycle.state_tree.get_proof_of_leaf(2, true)?.to_vec();
     let recipient_spend_input = spend_input(SpendInputArgs {
         utxo: &recipient_utxo,
-        owner_field: &recipient_owner_field,
+        owner_field: &transferred.owner_field,
         state_path: &recipient_state_path,
         state_path_index: 2,
         non_inclusion: &recipient_non_inclusion,
-        roots: (transfer_utxo_root, transfer_nullifier_root),
+        roots: (transferred.utxo_root, transferred.nullifier_root),
         nullifier: &recipient_nullifier,
         owner_pk_hash: &recipient_owner_pk_hash,
-        nullifier_key: &recipient_nullifier_key,
+        nullifier_key: &transferred.nullifier_key,
     })?;
 
     let public_recipient = Keypair::new().pubkey();
     print_signature(
         "airdrop public recipient",
-        &rpc.airdrop(&public_recipient, 1_000_000)?,
+        &cycle.rpc.airdrop(&public_recipient, 1_000_000)?,
     );
-    let public_recipient_before = account_lamports(&rpc, &public_recipient)?;
+    let public_recipient_before = account_lamports(&cycle.rpc, &public_recipient)?;
     let vault = pda::sol_interface();
-    let vault_before = account_lamports(&rpc, &vault)?;
+    let vault_before = account_lamports(&cycle.rpc, &vault)?;
     let (withdraw_dummy_input, withdraw_dummy_nullifier) = dummy_input(
         &[21u8; 31],
-        &nf_tree,
-        (transfer_utxo_root, transfer_nullifier_root),
+        &cycle.nf_tree,
+        (transferred.utxo_root, transferred.nullifier_root),
         &recipient_owner_pk_hash,
     )?;
     let (withdraw_outputs, withdraw_output_hashes) =
         dummy_witness_outputs(&[[1u8; 31], [2u8; 31], [3u8; 31]])?;
 
+    let recipient_bytes = cycle.recipient_owner.pubkey().to_bytes();
     let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![recipient_spend_input, withdraw_dummy_input],
         nullifiers: [recipient_nullifier, withdraw_dummy_nullifier],
         root_index: 2,
-        roots: (transfer_utxo_root, transfer_nullifier_root),
+        roots: (transferred.utxo_root, transferred.nullifier_root),
         output_hashes: withdraw_output_hashes,
-        view_tags: vec![recipient_view_tag; 3],
+        view_tags: vec![transferred.view_tag; 3],
         outputs: withdraw_outputs,
         output_nullifier_pks: [zero, zero, zero],
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
@@ -270,7 +408,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
             amount: TRANSFER_AMOUNT,
             recipient: public_recipient.to_bytes(),
         }],
-        private_tx_inputs: [recipient_hash, zero],
+        private_tx_inputs: [transferred.hash, zero],
         private_tx_outputs: [zero, zero, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
         payer_pubkey_hash: Sha256BE::hash(&recipient_bytes)?,
@@ -279,9 +417,9 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     })?;
 
     let withdraw_ix = Transact {
-        payer: recipient_owner.pubkey(),
-        input_tree: tree_pubkey,
-        output_tree: tree_pubkey,
+        payer: cycle.recipient_owner.pubkey(),
+        input_tree: cycle.tree_pubkey,
+        output_tree: cycle.tree_pubkey,
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: public_recipient,
@@ -291,28 +429,36 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     }
     .instruction();
     let withdraw_tx = send_indexed(
-        &mut rpc,
-        &mut indexer,
-        program_id,
+        &mut cycle.rpc,
+        &mut cycle.indexer,
+        cycle.program_id,
         &[withdraw_ix],
-        &payer.pubkey(),
-        &[&payer, &recipient_owner],
+        &cycle.payer.pubkey(),
+        &[&cycle.payer, &cycle.recipient_owner],
     )?;
     print_signature("unshield", &withdraw_tx.signature);
 
-    let public_recipient_after = account_lamports(&rpc, &public_recipient)?;
-    let vault_after = account_lamports(&rpc, &vault)?;
+    Ok(UnshieldOutcome {
+        public_recipient,
+        public_recipient_before,
+        vault_before,
+    })
+}
+
+/// Check the unshield moved exactly `TRANSFER_AMOUNT` lamports from the vault
+/// to the public recipient.
+fn phase_verify_output(cycle: &SolCycle, outcome: &UnshieldOutcome) -> TestResult {
+    let public_recipient_after = account_lamports(&cycle.rpc, &outcome.public_recipient)?;
+    let vault_after = account_lamports(&cycle.rpc, &pda::sol_interface())?;
     assert_eq!(
         public_recipient_after,
-        public_recipient_before + TRANSFER_AMOUNT,
+        outcome.public_recipient_before + TRANSFER_AMOUNT,
         "public recipient credited"
     );
     assert_eq!(
         vault_after,
-        vault_before - TRANSFER_AMOUNT,
+        outcome.vault_before - TRANSFER_AMOUNT,
         "vault debited by transferred amount"
     );
-
-    println!("localnet shield-transfer-unshield SOL test passed via {rpc_url}");
     Ok(())
 }

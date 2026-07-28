@@ -44,7 +44,10 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{
-    hash::owner_hash, pubkey::PublicKey, shielded::ShieldedKeypair, NullifierKey, ViewingKey,
+    hash::owner_hash,
+    pubkey::PublicKey,
+    shielded::{ShieldedAddress, ShieldedKeypair},
+    NullifierKey, ViewingKey,
 };
 use zolana_program_test::{rpc_state_root, system_create_account_ix, ZolanaProgramTest};
 use zolana_smart_account_client::execute_sync_ix;

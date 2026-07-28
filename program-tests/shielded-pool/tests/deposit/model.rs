@@ -50,38 +50,33 @@ proptest! {
                         .expect("model pause transition");
                     paused = next;
                 }
-                Action::Deposit(raw_amount) => {
-                    let amount = u64::from(raw_amount);
+                deposit @ (Action::Deposit(_) | Action::ZeroDeposit) => {
+                    // PR164 dropped the zero-amount gate: while the tree is
+                    // unpaused a zero deposit is accepted, appends an empty
+                    // output, and settles nothing.
+                    let (amount, noun) = match deposit {
+                        Action::Deposit(raw) => (u64::from(raw), "deposit"),
+                        Action::ZeroDeposit => (0, "zero deposit"),
+                        Action::SetPaused(_) => unreachable!("covered by the outer arm"),
+                    };
                     let data = model_deposit_data(step, amount);
                     let before = SolDepositSnapshot::capture(&pool.rpc, &tree, &depositor.pubkey());
                     let result = pool.rpc.deposit(&tree, &depositor, &data);
                     let after = SolDepositSnapshot::capture(&pool.rpc, &tree, &depositor.pubkey());
 
                     if paused {
-                        let error = result.expect_err("paused model deposit must fail");
+                        let error = match result {
+                            Err(error) => error,
+                            Ok(meta) => panic!("paused model {noun} must fail: {meta:?}"),
+                        };
                         Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(error);
                         before.assert_rejected(&after);
                     } else {
-                        let event = result.expect("enabled model deposit must succeed");
+                        let event = match result {
+                            Ok(event) => event,
+                            Err(err) => panic!("enabled model {noun} must succeed: {err:?}"),
+                        };
                         before.assert_accepted(&after, amount);
-                        oracle.record_accepted(&data, &event);
-                    }
-                }
-                Action::ZeroDeposit => {
-                    // PR164 dropped the zero-amount gate: while the tree is
-                    // unpaused a zero deposit is accepted, appends an empty
-                    // output, and settles nothing.
-                    let data = model_deposit_data(step, 0);
-                    let before = SolDepositSnapshot::capture(&pool.rpc, &tree, &depositor.pubkey());
-                    let result = pool.rpc.deposit(&tree, &depositor, &data);
-                    let after = SolDepositSnapshot::capture(&pool.rpc, &tree, &depositor.pubkey());
-                    if paused {
-                        let error = result.expect_err("paused model zero deposit must fail");
-                        Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(error);
-                        before.assert_rejected(&after);
-                    } else {
-                        let event = result.expect("zero model deposit is accepted");
-                        before.assert_accepted(&after, 0);
                         oracle.record_accepted(&data, &event);
                     }
                 }

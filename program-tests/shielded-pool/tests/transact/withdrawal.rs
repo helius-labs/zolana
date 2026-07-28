@@ -13,14 +13,15 @@
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced the
 //! `.so` binary.
 
-use shielded_pool_tests::support::transact::{proof_env, tree_roots};
+use shielded_pool_tests::support::transact::{proof_env, tree_roots, Pool};
 
 use borsh::BorshSerialize;
 use num_bigint::BigUint;
 use solana_clock::Clock;
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
+use zolana_client::{TransferInput, TransferOutput, STATE_TREE_HEIGHT};
 use zolana_event::{OutputDataEncoding, ProoflessOutput};
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
@@ -33,9 +34,11 @@ use zolana_interface::{
     pda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::MerkleTree;
+use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_program_test::{test_blinding, Rejection};
-use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
+use zolana_transaction::{
+    instructions::transact::PrivateTxHash, Data, SppProofOutputUtxo, Utxo, SOL_MINT,
+};
 
 use zolana_test_utils::transact::{
     build_spl_withdrawal, build_transfer_prover_inputs, build_transfer_prover_inputs_spl,
@@ -47,6 +50,8 @@ use zolana_test_utils::transact::{
 };
 
 const AMOUNT: u64 = 1_000_000_000;
+const TRANSFER_AMOUNT: u64 = 400_000_000;
+const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
 
 #[test]
 fn shield_then_withdraw_spl_with_a_real_proof() {
@@ -698,23 +703,76 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     assert_eq!(env.rpc.token_balance(&vault), Some(SPL_AMOUNT));
 }
 
+/// End-to-end story told in named phases: the payer shields SOL
+/// (`phase_shield_sol`), sends a pure shielded transfer to a recipient
+/// (`phase_transfer_to_recipient`), the recipient withdraws the transferred
+/// UTXO to a public SOL account (`phase_withdraw_recipient_utxo`), and the
+/// exact settlement deltas are checked (`phase_verify_settlement`). Each
+/// assertion lives in the phase that produces the state it checks.
 #[test]
 fn shield_transfer_then_withdraw_sol() {
     let mut env = proof_env();
 
-    const TRANSFER_AMOUNT: u64 = 400_000_000;
-    const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
-
     let tree = env.tree.pubkey();
     let payer = env.rpc.payer.insecure_clone();
-    let payer_bytes = payer.pubkey().to_bytes();
     let recipient_owner = Keypair::new();
     env.rpc
         .airdrop(&recipient_owner.pubkey(), 1_000_000)
         .expect("airdrop recipient owner");
+
+    let shield = phase_shield_sol(&mut env, tree, &payer);
+    let transfer = phase_transfer_to_recipient(&mut env, tree, &payer, &recipient_owner, shield);
+    let settlement = phase_withdraw_recipient_utxo(&mut env, tree, &recipient_owner, transfer);
+    phase_verify_settlement(&env, settlement);
+}
+
+/// State handed from the shield phase to the transfer phase: the payer's
+/// freshly-shielded UTXO, its spend witness, and the reference trees gated
+/// against the on-chain roots.
+struct ShieldedPayer {
+    utxo: Utxo,
+    nullifier_pk: [u8; 32],
+    utxo_hash: [u8; 32],
+    owner_pk_hash: [u8; 32],
+    nullifier: [u8; 32],
+    spend_input: TransferInput,
+    state_tree: MerkleTree<Poseidon>,
+    nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    utxo_root: [u8; 32],
+    nullifier_root: [u8; 32],
+}
+
+/// State handed from the transfer phase to the withdrawal phase: the
+/// recipient's transferred output plus the post-transfer tree state.
+struct TransferredRecipient {
+    output: SppProofOutputUtxo,
+    public_key: PublicKey,
+    nullifier_key: NullifierKey,
+    nullifier_pk: [u8; 32],
+    owner_field: [u8; 32],
+    output_hash: [u8; 32],
+    state_tree: MerkleTree<Poseidon>,
+    nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    utxo_root: [u8; 32],
+    nullifier_root: [u8; 32],
+}
+
+/// Balances captured before the withdrawal lands, asserted on in the verify
+/// phase.
+struct WithdrawalSettlement {
+    public_recipient: Pubkey,
+    public_recipient_before: u64,
+    vault: Pubkey,
+    vault_before: u64,
+}
+
+/// Phase 1 — shield: deposit AMOUNT into a Solana-owned UTXO controlled by the
+/// payer, gate the in-test reference trees against the on-chain roots, and
+/// assemble the payer's real spend input for the transfer phase.
+fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPayer {
+    let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    // 1. Shield into a Solana-owned UTXO controlled by the payer.
     let payer_blinding = test_blinding(7);
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey().expect("payer nullifier pk");
@@ -735,7 +793,7 @@ fn shield_transfer_then_withdraw_sol() {
 
     let event = env
         .rpc
-        .deposit_sol(&tree, &payer, AMOUNT, payer_owner_field, payer_blinding)
+        .deposit_sol(&tree, payer, AMOUNT, payer_owner_field, payer_blinding)
         .expect("deposit");
     let payer_utxo_hash = payer_utxo
         .hash(&payer_nullifier_pk, &zero, &zero)
@@ -775,7 +833,45 @@ fn shield_transfer_then_withdraw_sol() {
     })
     .expect("payer real input");
 
-    // 2. Pure shielded transfer: payer keeps change, recipient gets one UTXO.
+    ShieldedPayer {
+        utxo: payer_utxo,
+        nullifier_pk: payer_nullifier_pk,
+        utxo_hash: payer_utxo_hash,
+        owner_pk_hash: payer_owner_pk_hash,
+        nullifier: payer_nullifier,
+        spend_input: payer_spend_input,
+        state_tree,
+        nf_tree,
+        utxo_root: shield_utxo_root,
+        nullifier_root,
+    }
+}
+
+/// Phase 2 — transfer: a pure shielded transfer spends the payer's shielded
+/// UTXO; the payer keeps the change and the recipient gets one UTXO carrying
+/// TRANSFER_AMOUNT.
+fn phase_transfer_to_recipient(
+    env: &mut Pool,
+    tree: Pubkey,
+    payer: &Keypair,
+    recipient_owner: &Keypair,
+    shield: ShieldedPayer,
+) -> TransferredRecipient {
+    let ShieldedPayer {
+        utxo: payer_utxo,
+        nullifier_pk: payer_nullifier_pk,
+        utxo_hash: payer_utxo_hash,
+        owner_pk_hash: payer_owner_pk_hash,
+        nullifier: payer_nullifier,
+        spend_input: payer_spend_input,
+        mut state_tree,
+        nf_tree,
+        utxo_root: shield_utxo_root,
+        nullifier_root,
+    } = shield;
+    let payer_bytes = payer.pubkey().to_bytes();
+    let zero = [0u8; 32];
+
     let recipient_bytes = recipient_owner.pubkey().to_bytes();
     let recipient_nullifier_key = NullifierKey::from_secret([11u8; 31]);
     let recipient_nullifier_pk = recipient_nullifier_key
@@ -914,7 +1010,43 @@ fn shield_transfer_then_withdraw_sol() {
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
     assert_eq!(transfer_nullifier_root, nullifier_root);
 
-    // 3. Withdraw the transferred recipient UTXO to a public SOL account.
+    TransferredRecipient {
+        output: recipient_output,
+        public_key: recipient_public_key,
+        nullifier_key: recipient_nullifier_key,
+        nullifier_pk: recipient_nullifier_pk,
+        owner_field: recipient_owner_field,
+        output_hash: recipient_hash,
+        state_tree,
+        nf_tree,
+        utxo_root: transfer_utxo_root,
+        nullifier_root: transfer_nullifier_root,
+    }
+}
+
+/// Phase 3 — withdraw: spend the transferred recipient UTXO, draining
+/// TRANSFER_AMOUNT from the `sol_interface` vault to a public SOL account.
+fn phase_withdraw_recipient_utxo(
+    env: &mut Pool,
+    tree: Pubkey,
+    recipient_owner: &Keypair,
+    transfer: TransferredRecipient,
+) -> WithdrawalSettlement {
+    let TransferredRecipient {
+        output: recipient_output,
+        public_key: recipient_public_key,
+        nullifier_key: recipient_nullifier_key,
+        nullifier_pk: recipient_nullifier_pk,
+        owner_field: recipient_owner_field,
+        output_hash: recipient_hash,
+        state_tree,
+        nf_tree,
+        utxo_root: transfer_utxo_root,
+        nullifier_root: transfer_nullifier_root,
+    } = transfer;
+    let recipient_bytes = recipient_owner.pubkey().to_bytes();
+    let zero = [0u8; 32];
+
     let recipient_utxo = Utxo {
         owner: recipient_public_key,
         asset: SOL_MINT,
@@ -1069,8 +1201,26 @@ fn shield_transfer_then_withdraw_sol() {
     .instruction();
     let result = env
         .rpc
-        .create_and_send_default_payer_transaction(&[withdraw_ix], &[&recipient_owner]);
+        .create_and_send_default_payer_transaction(&[withdraw_ix], &[recipient_owner]);
     assert!(result.is_ok(), "withdraw after transfer failed: {result:?}");
+
+    WithdrawalSettlement {
+        public_recipient,
+        public_recipient_before,
+        vault,
+        vault_before,
+    }
+}
+
+/// Phase 4 — verify: the public recipient is credited and the `sol_interface`
+/// vault debited by exactly the transferred amount.
+fn phase_verify_settlement(env: &Pool, settlement: WithdrawalSettlement) {
+    let WithdrawalSettlement {
+        public_recipient,
+        public_recipient_before,
+        vault,
+        vault_before,
+    } = settlement;
 
     let public_recipient_after = env.rpc.svm.get_balance(&public_recipient).unwrap_or(0);
     let vault_after = env.rpc.svm.get_balance(&vault).unwrap_or(0);

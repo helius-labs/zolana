@@ -334,9 +334,38 @@ impl TransferOutput {
     }
 }
 
-#[test]
-#[serial]
-fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
+/// Shared state for the `wallet_cli_sol_and_spl_cycle` story: the CLI endpoints,
+/// the wallet/tree keypair paths, and the config file every `zolana` invocation
+/// reads.
+struct CycleEnv {
+    rpc_url: String,
+    indexer_url: String,
+    prover_url: String,
+    alice_keypair: PathBuf,
+    bob_keypair: PathBuf,
+    tree_keypair: PathBuf,
+    config_path: String,
+}
+
+impl CycleEnv {
+    fn cli_env(&self) -> [(&str, &str); 1] {
+        [("ZOLANA_CONFIG", self.config_path.as_str())]
+    }
+}
+
+/// The pool state `phase_create_tree_and_spl_mint` publishes for the later phases.
+struct PoolState {
+    spl_mint: String,
+    alice_owner: Pubkey,
+    bob_funding: String,
+    bob_ata: Pubkey,
+    public_recipient: Keypair,
+    public_ata: Pubkey,
+}
+
+/// Phase 1: boot the localnet + prover, create both wallets, and persist the CLI
+/// config (endpoints + selected keypair).
+fn phase_setup_environment() -> Result<CycleEnv> {
     restart_localnet();
     spawn_workspace_prover();
 
@@ -347,21 +376,20 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         std::env::var(PROVER_URL_ENV).unwrap_or_else(|_| DEFAULT_PROVER_URL.to_owned());
 
     let root = temp_wallet_dir()?;
-    let alice = root.join("alice.pid.json");
-    let bob = root.join("bob.pid.json");
+    let alice_keypair = root.join("alice.pid.json");
+    let bob_keypair = root.join("bob.pid.json");
     let tree_keypair = root.join("tree.json");
-    let config_path = root.join("config.json");
-    let config_path_str = config_path.to_string_lossy().into_owned();
-    let cli_env = [("ZOLANA_CONFIG", config_path_str.as_str())];
+    let config_path = root.join("config.json").to_string_lossy().into_owned();
+    let cli_env = [("ZOLANA_CONFIG", config_path.as_str())];
 
-    wallet_new(&alice, &cli_env)?;
-    wallet_new(&bob, &cli_env)?;
+    wallet_new(&alice_keypair, &cli_env)?;
+    wallet_new(&bob_keypair, &cli_env)?;
     run_cli_with_env(
         &[
             "config",
             "set",
             "--keypair",
-            &alice.display().to_string(),
+            &alice_keypair.display().to_string(),
             "--rpc-url",
             &rpc_url,
             "--indexer-url",
@@ -371,25 +399,40 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         ],
         &cli_env,
     )?;
-    let alice_address = wallet_address(&alice, &cli_env)?;
+    let alice_address = wallet_address(&alice_keypair, &cli_env)?;
     let selected_address = run_cli_with_env(&["wallet", "address"], &cli_env)?;
     assert_eq!(selected_address.trim(), alice_address.as_str());
     let config_out = run_cli_with_env(&["config", "get"], &cli_env)?;
     assert!(
-        config_out.contains(&alice.display().to_string())
+        config_out.contains(&alice_keypair.display().to_string())
             && config_out.contains(&rpc_url)
             && config_out.contains(&indexer_url)
             && config_out.contains(&prover_url),
         "persisted config is incomplete: {config_out}"
     );
 
+    Ok(CycleEnv {
+        rpc_url,
+        indexer_url,
+        prover_url,
+        alice_keypair,
+        bob_keypair,
+        tree_keypair,
+        config_path,
+    })
+}
+
+/// Phase 2: create the Merkle tree and a test SPL mint, and prove the recipient
+/// ATAs do not exist yet.
+fn phase_create_tree_and_spl_mint(env: &CycleEnv, rpc: &mut SolanaRpc) -> Result<PoolState> {
+    let cli_env = env.cli_env();
     let create_tree_out = run_cli_with_env(
         &[
             "dev",
             "pool",
             "create-tree",
             "--tree-keypair",
-            &tree_keypair.display().to_string(),
+            &env.tree_keypair.display().to_string(),
             "--airdrop-lamports",
             "20000000000",
         ],
@@ -417,18 +460,17 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
     let spl_mint = parse_field(&test_mint_out, "mint")?;
     let alice_token_account = parse_field(&test_mint_out, "token_account")?.parse::<Pubkey>()?;
     let spl_mint_pubkey = spl_mint.parse::<Pubkey>()?;
-    let alice_owner = funding_pubkey(&alice, &cli_env)?.parse::<Pubkey>()?;
+    let alice_owner = funding_pubkey(&env.alice_keypair, &cli_env)?.parse::<Pubkey>()?;
     assert_eq!(
         alice_token_account,
         pda::associated_token_address(&alice_owner, &spl_mint_pubkey),
         "test-mint must fund the selected owner's associated token account"
     );
     let public_recipient = Keypair::new();
-    let bob_funding = funding_pubkey(&bob, &cli_env)?;
+    let bob_funding = funding_pubkey(&env.bob_keypair, &cli_env)?;
     let bob_owner = bob_funding.parse::<Pubkey>()?;
     let bob_ata = pda::associated_token_address(&bob_owner, &spl_mint_pubkey);
     let public_ata = pda::associated_token_address(&public_recipient.pubkey(), &spl_mint_pubkey);
-    let mut rpc = SolanaRpc::new(&rpc_url);
     rpc.airdrop(&bob_owner, 2_000_000_000)?;
     assert!(
         rpc.get_account(Address::new_from_array(bob_ata.to_bytes()))?
@@ -447,6 +489,19 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         "asset registry missing SPL mint: {asset_registry_out}"
     );
 
+    Ok(PoolState {
+        spl_mint,
+        alice_owner,
+        bob_funding,
+        bob_ata,
+        public_recipient,
+        public_ata,
+    })
+}
+
+/// Phase 3: publish both wallets' shielded keys to the user registry.
+fn phase_register_wallets(env: &CycleEnv) -> Result<()> {
+    let cli_env = env.cli_env();
     // #108 pays by registered Solana pubkey: a recipient must publish its
     // shielded keys before it can receive a shielded deposit or transfer. Register
     // both wallets up front so the deposits and bob->alice transfers below resolve
@@ -458,9 +513,9 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "wallet",
             "register",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
         ],
         &cli_env,
     )?;
@@ -473,9 +528,9 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "wallet",
             "register",
             "--keypair",
-            &alice.display().to_string(),
+            &env.alice_keypair.display().to_string(),
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
         ],
         &cli_env,
     )?;
@@ -488,9 +543,9 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "wallet",
             "register",
             "--keypair",
-            &alice.display().to_string(),
+            &env.alice_keypair.display().to_string(),
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
         ],
         &cli_env,
     )?;
@@ -498,24 +553,29 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         RegisterOutput::parse(&register_alice_again)?.record,
         RecordStatus::Current
     );
+    Ok(())
+}
 
+/// Phase 4: shield two SOL deposits from alice to bob, sync bob, and check the total.
+fn phase_shield_sol_deposits(env: &CycleEnv, pool: &PoolState) -> Result<()> {
+    let cli_env = env.cli_env();
     let deposit_amount = "500000000";
     for _ in 0..2 {
         run_cli_with_env(
             &[
                 "deposit",
                 "--keypair",
-                &alice.display().to_string(),
+                &env.alice_keypair.display().to_string(),
                 "--to",
-                &bob_funding,
+                &pool.bob_funding,
                 "--amount",
                 deposit_amount,
                 "--mint",
                 "SOL",
                 "--rpc-url",
-                &rpc_url,
+                &env.rpc_url,
                 "--indexer-url",
-                &indexer_url,
+                &env.indexer_url,
                 "--airdrop-lamports",
                 "2000000000",
             ],
@@ -527,11 +587,11 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "sync",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
         ],
         &cli_env,
     )?;
@@ -541,20 +601,25 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "balance",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
         ],
         &cli_env,
     )?;
     assert_eq!(BalanceOutput::parse(&balance_out)?.amount, 1_000_000_000);
+    Ok(())
+}
 
+/// Phase 5: bob's note housekeeping — merge opt-in, split into parts, re-merge.
+fn phase_merge_split_notes(env: &CycleEnv) -> Result<()> {
+    let cli_env = env.cli_env();
     // Bob is registered but has not opted into merging yet, so the merge is
     // rejected client-side before any proof: merging is a deliberate opt-in.
     let merge_before_opt_in = run_cli_expect_failure(
-        &["merge", "--keypair", &bob.display().to_string()],
+        &["merge", "--keypair", &env.bob_keypair.display().to_string()],
         &cli_env,
     )?;
     assert!(
@@ -567,14 +632,14 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "set-merging",
             "--enable",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
         ],
         &cli_env,
     )?;
     assert!(SetMergingOutput::parse(&set_merging_out)?.enabled);
 
     let merge_out = run_cli_with_env(
-        &["merge", "--keypair", &bob.display().to_string()],
+        &["merge", "--keypair", &env.bob_keypair.display().to_string()],
         &cli_env,
     )?;
     assert_eq!(MergeOutput::parse(&merge_out)?.inputs, 2);
@@ -585,43 +650,53 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--parts",
             "4",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
         ],
         &cli_env,
     )?;
     assert_eq!(SplitOutput::parse(&split_out)?.parts, 4);
     let split_utxos = run_cli_with_env(
-        &["utxos", "--keypair", &bob.display().to_string()],
+        &["utxos", "--keypair", &env.bob_keypair.display().to_string()],
         &cli_env,
     )?;
     assert_eq!(UtxosOutput::parse(&split_utxos)?.count, 4);
 
     let merge_split_out = run_cli_with_env(
-        &["merge", "--keypair", &bob.display().to_string()],
+        &["merge", "--keypair", &env.bob_keypair.display().to_string()],
         &cli_env,
     )?;
     assert_eq!(MergeOutput::parse(&merge_split_out)?.inputs, 4);
     let merged_utxos = run_cli_with_env(
-        &["utxos", "--keypair", &bob.display().to_string()],
+        &["utxos", "--keypair", &env.bob_keypair.display().to_string()],
         &cli_env,
     )?;
     assert_eq!(UtxosOutput::parse(&merged_utxos)?.count, 1);
+    Ok(())
+}
 
+/// Phase 6: shield an SPL deposit, then exercise shielded transfers — including
+/// the unregistered-recipient public fallback and pay-by-registered-pubkey.
+fn phase_spl_deposit_and_transfers(
+    env: &CycleEnv,
+    pool: &PoolState,
+    rpc: &mut SolanaRpc,
+) -> Result<()> {
+    let cli_env = env.cli_env();
     run_cli_with_env(
         &[
             "deposit",
             "--keypair",
-            &alice.display().to_string(),
+            &env.alice_keypair.display().to_string(),
             "--to",
-            &bob_funding,
+            &pool.bob_funding,
             "--amount",
             "600000",
             "--mint",
-            &spl_mint,
+            &pool.spl_mint,
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--airdrop-lamports",
             "2000000000",
         ],
@@ -632,13 +707,13 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "balance",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--mint",
-            &spl_mint,
+            &pool.spl_mint,
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
         ],
         &cli_env,
     )?;
@@ -648,19 +723,19 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "transfer",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--to",
-            &alice_owner.to_string(),
+            &pool.alice_owner.to_string(),
             "--amount",
             "600000000",
             "--mint",
             "SOL",
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--prover-url",
-            &prover_url,
+            &env.prover_url,
         ],
         &cli_env,
     )?;
@@ -671,13 +746,13 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "utxos",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--mint",
-            &spl_mint,
+            &pool.spl_mint,
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
         ],
         &cli_env,
     )?;
@@ -687,19 +762,19 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "transfer",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--to",
-            &alice_owner.to_string(),
+            &pool.alice_owner.to_string(),
             "--amount",
             "250000",
             "--mint",
-            &spl_mint,
+            &pool.spl_mint,
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--prover-url",
-            &prover_url,
+            &env.prover_url,
         ],
         &cli_env,
     )?;
@@ -717,7 +792,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "transfer",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--to",
             &fallback_recipient.to_string(),
             "--amount",
@@ -725,11 +800,11 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "--mint",
             "SOL",
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--prover-url",
-            &prover_url,
+            &env.prover_url,
         ],
         &cli_env,
     )?;
@@ -754,19 +829,19 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "transfer",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--to",
-            &alice_owner.to_string(),
+            &pool.alice_owner.to_string(),
             "--amount",
             "3000000",
             "--mint",
             "SOL",
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--prover-url",
-            &prover_url,
+            &env.prover_url,
         ],
         &cli_env,
     )?;
@@ -778,13 +853,13 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "balance",
             "--keypair",
-            &alice.display().to_string(),
+            &env.alice_keypair.display().to_string(),
             "--mint",
             "SOL",
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
         ],
         &cli_env,
     )?;
@@ -792,7 +867,13 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         BalanceOutput::parse(&alice_balance_out)?.amount,
         603_000_000
     );
+    Ok(())
+}
 
+/// Phase 7: withdraw SOL and SPL to public recipients, and re-check the
+/// registered-pubkey transfer path in the alice->bob direction.
+fn phase_withdraw_to_public(env: &CycleEnv, pool: &PoolState, rpc: &mut SolanaRpc) -> Result<()> {
+    let cli_env = env.cli_env();
     // Explicit `withdraw` to a public SPL recipient; the CLI creates the
     // recipient's associated token account itself.
     let public_withdraw_amount = 50_000u64;
@@ -800,24 +881,24 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "withdraw",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--to",
-            &public_recipient.pubkey().to_string(),
+            &pool.public_recipient.pubkey().to_string(),
             "--amount",
             &public_withdraw_amount.to_string(),
             "--mint",
-            &spl_mint,
+            &pool.spl_mint,
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--prover-url",
-            &prover_url,
+            &env.prover_url,
         ],
         &cli_env,
     )?;
     assert_eq!(
-        spl_token_account_amount(&rpc, &public_ata)?,
+        spl_token_account_amount(rpc, &pool.public_ata)?,
         public_withdraw_amount,
         "explicit withdrawal should fund the public recipient ATA"
     );
@@ -826,19 +907,19 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "withdraw",
             "--keypair",
-            &alice.display().to_string(),
+            &env.alice_keypair.display().to_string(),
             "--to",
-            &bob_funding,
+            &pool.bob_funding,
             "--amount",
             "200000000",
             "--mint",
             "SOL",
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--prover-url",
-            &prover_url,
+            &env.prover_url,
             "--airdrop-lamports",
             "2000000000",
         ],
@@ -849,13 +930,13 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "balance",
             "--keypair",
-            &alice.display().to_string(),
+            &env.alice_keypair.display().to_string(),
             "--mint",
-            &spl_mint,
+            &pool.spl_mint,
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
         ],
         &cli_env,
     )?;
@@ -866,7 +947,7 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
 
     let spl_withdraw_amount = 100_000u64;
     assert!(
-        rpc.get_account(Address::new_from_array(bob_ata.to_bytes()))?
+        rpc.get_account(Address::new_from_array(pool.bob_ata.to_bytes()))?
             .is_none(),
         "bob ATA should still be absent before withdrawal"
     );
@@ -874,26 +955,26 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "withdraw",
             "--keypair",
-            &alice.display().to_string(),
+            &env.alice_keypair.display().to_string(),
             "--to",
-            &bob_funding,
+            &pool.bob_funding,
             "--amount",
             &spl_withdraw_amount.to_string(),
             "--mint",
-            &spl_mint,
+            &pool.spl_mint,
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--prover-url",
-            &prover_url,
+            &env.prover_url,
             "--airdrop-lamports",
             "2000000000",
         ],
         &cli_env,
     )?;
     assert_eq!(
-        spl_token_account_amount(&rpc, &bob_ata)?,
+        spl_token_account_amount(rpc, &pool.bob_ata)?,
         spl_withdraw_amount,
         "SPL withdraw should settle to recipient ATA"
     );
@@ -907,9 +988,9 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
             "wallet",
             "register",
             "--keypair",
-            &bob.display().to_string(),
+            &env.bob_keypair.display().to_string(),
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
         ],
         &cli_env,
     )?;
@@ -917,19 +998,19 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         &[
             "transfer",
             "--keypair",
-            &alice.display().to_string(),
+            &env.alice_keypair.display().to_string(),
             "--to",
-            &bob_funding,
+            &pool.bob_funding,
             "--amount",
             "1000000",
             "--mint",
             "SOL",
             "--rpc-url",
-            &rpc_url,
+            &env.rpc_url,
             "--indexer-url",
-            &indexer_url,
+            &env.indexer_url,
             "--prover-url",
-            &prover_url,
+            &env.prover_url,
         ],
         &cli_env,
     )?;
@@ -938,6 +1019,19 @@ fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
         TransferMode::Shielded,
         "transfer to a registered Solana pubkey must resolve via the registry and stay shielded: {registered_transfer_out}"
     );
+    Ok(())
+}
 
+#[test]
+#[serial]
+fn wallet_cli_sol_and_spl_cycle() -> Result<()> {
+    let env = phase_setup_environment()?;
+    let mut rpc = SolanaRpc::new(&env.rpc_url);
+    let pool = phase_create_tree_and_spl_mint(&env, &mut rpc)?;
+    phase_register_wallets(&env)?;
+    phase_shield_sol_deposits(&env, &pool)?;
+    phase_merge_split_notes(&env)?;
+    phase_spl_deposit_and_transfers(&env, &pool, &mut rpc)?;
+    phase_withdraw_to_public(&env, &pool, &mut rpc)?;
     Ok(())
 }
