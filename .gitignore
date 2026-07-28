@@ -16,7 +16,9 @@ test-ledger
 .DS_Store
 /.idea
 .claude
-docs
+# untracked docs stay local; batching policy docs are versioned
+docs/*
+!docs/batching/
 experiments
 docs/api/
 docs/docs.md
