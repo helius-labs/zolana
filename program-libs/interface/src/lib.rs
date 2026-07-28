@@ -32,6 +32,10 @@ pub const N_PUBLIC_SLOTS: usize = 3;
 /// transaction-shape limit; Solana's transaction size is normally tighter.
 pub const MAX_INTERFACE_TRANSFERS: usize = u8::MAX as usize;
 
+/// Max pure-shielded entries in one `BatchTransact` (same-vk RLC).
+/// Recommend for CU only after full-path dual ≥10% (`docs/batching/`).
+pub const MAX_BATCH_TRANSACT: usize = 4;
+
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The
 /// prover mirrors this as `SolAsset()` (Go `circuits/spp_transaction/shared`).

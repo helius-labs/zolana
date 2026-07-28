@@ -9,13 +9,11 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::EventKind,
     instruction::{
-        instruction_data::transact::{
-            CircuitId, ExternalDataHash, TransactIxData, TransactIxDataRef,
-        },
+        instruction_data::transact::{CircuitId, ExternalDataHash, TransactIxDataRef},
         tag::InstructionTag,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    N_PUBLIC_SLOTS,
+    MAX_BATCH_TRANSACT, N_PUBLIC_SLOTS,
 };
 use zolana_tree::TreeAccount;
 
@@ -34,9 +32,6 @@ use crate::instructions::{
     transact::verify::{TransactProof, TransactProofInputs},
     verifier::{batch_verify_groth16, BatchProofItem},
 };
-
-/// Max pure-shielded entries in one `BatchTransact`.
-pub const MAX_BATCH_TRANSACT: usize = 4;
 
 #[inline(never)]
 #[profile]
@@ -175,57 +170,53 @@ struct Applied {
     zkp_batch_size: u64,
 }
 
-/// Batch incarnation: N same-vk pure-shielded transcacts, one RLC.
+/// Batch incarnation: N same-vk pure-shielded transacts, one RLC.
 #[inline(never)]
 #[profile]
 pub fn process_batch_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let payloads = parse_batch_payloads(data)?;
     let clock = Clock::get()?;
 
-    let mut owned = Vec::with_capacity(payloads.len());
+    // `from_bytes` is exact-length, so each framed payload parses zero-copy.
+    let mut parsed = Vec::with_capacity(payloads.len());
     for p in &payloads {
-        owned.push(
-            TransactIxData::deserialize(p).map_err(|_| ProgramError::InvalidInstructionData)?,
+        parsed.push(
+            TransactIxDataRef::from_bytes(p).map_err(|_| ProgramError::InvalidInstructionData)?,
         );
     }
-    let circuit = owned[0].circuit;
-    for e in &owned {
-        if e.circuit != circuit {
+    let circuit = parsed[0].circuit;
+    for ix in &parsed {
+        if ix.circuit != circuit {
             return Err(ShieldedPoolError::MismatchedCircuitType.into());
         }
-        if !e.interface_transfers.is_empty() {
+        if !ix.interface_transfers.is_empty() {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
     }
 
-    let mut proof_items = Vec::with_capacity(owned.len());
-    let mut applied = Vec::with_capacity(owned.len());
+    let mut proof_items = Vec::with_capacity(parsed.len());
+    let mut applied = Vec::with_capacity(parsed.len());
 
-    for e in &owned {
-        let bytes = e
-            .serialize()
-            .map_err(|_| ProgramError::InvalidInstructionData)?;
-        let ix = TransactIxDataRef::from_bytes(&bytes)
-            .map_err(|_| ProgramError::InvalidInstructionData)?;
-        validate_circuit_type(&ix, InstructionTag::Transact)?;
+    for ix in &parsed {
+        validate_circuit_type(ix, InstructionTag::Transact)?;
         check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-        let resolved_outputs = resolve_outputs(accounts, &ix)?;
+        let resolved_outputs = resolve_outputs(accounts, ix)?;
         let mut proof_inputs = TransactProofInputs::default();
         if ix.circuit.requires_input_signatures() {
-            proof_inputs.check_input_signers(accounts, &ix)?;
+            proof_inputs.check_input_signers(accounts, ix)?;
         }
         if ix.circuit.binds_output_owners() {
             proof_inputs.fill_output_owner_pk_hashes(&resolved_outputs)?;
         }
-        let ta = TransactAccounts::validate_and_parse(accounts, &ix)?;
+        let ta = TransactAccounts::validate_and_parse(accounts, ix)?;
         process_interface_transfers(
             &ix.interface_transfers,
             &ta.settlements,
             &mut proof_inputs,
             usize::from(ix.circuit.num_public_asset_slots()),
         )?;
-        let resolved_itf = resolve_interface_transfers(&ix, &ta.settlements);
+        let resolved_itf = resolve_interface_transfers(ix, &ta.settlements);
 
         let (inputs, zkp_batch_size) = {
             let addr = ta.input_tree.address().to_bytes();
@@ -235,7 +226,7 @@ pub fn process_batch_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
                 TREE_ACCOUNT_DISCRIMINATOR,
             )
             .map_err(tree_error)?;
-            let inputs = apply_input_tree(&mut tree, &ix, addr, &mut proof_inputs)?;
+            let inputs = apply_input_tree(&mut tree, ix, addr, &mut proof_inputs)?;
             let zkp = tree.nullifer_tree().queue_batches.zkp_batch_size;
             (inputs, zkp)
         };
@@ -247,7 +238,7 @@ pub fn process_batch_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
                 TREE_ACCOUNT_DISCRIMINATOR,
             )
             .map_err(tree_error)?;
-            apply_output_tree(&mut tree, &ix, addr, inputs)?
+            apply_output_tree(&mut tree, ix, addr, inputs)?
         };
 
         // Bind as solo Transact so existing proofs verify under the batch path.
@@ -267,7 +258,7 @@ pub fn process_batch_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         proof_inputs.payer_pubkey_hash = Sha256BE::hash(ta.payer.address().as_ref())
             .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-        let pi = TransactProof::new(&ix, &proof_inputs).public_input_hash_value()?;
+        let pi = TransactProof::new(ix, &proof_inputs).public_input_hash_value()?;
         proof_items.push(BatchProofItem {
             a: ix.proof.a,
             b: ix.proof.b,
@@ -291,17 +282,12 @@ pub fn process_batch_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         ShieldedPoolError::TransactProofVerificationFailed,
     )?;
 
-    for (e, app) in owned.iter().zip(applied) {
-        let bytes = e
-            .serialize()
-            .map_err(|_| ProgramError::InvalidInstructionData)?;
-        let ix = TransactIxDataRef::from_bytes(&bytes)
-            .map_err(|_| ProgramError::InvalidInstructionData)?;
-        let resolved_outputs = resolve_outputs(accounts, &ix)?;
-        let ta = TransactAccounts::validate_and_parse(accounts, &ix)?;
+    for (ix, app) in parsed.iter().zip(applied) {
+        let resolved_outputs = resolve_outputs(accounts, ix)?;
+        let ta = TransactAccounts::validate_and_parse(accounts, ix)?;
         settle_interface_transfers(&ix.interface_transfers, &ta.settlements)?;
         collect_forester_fee(ta.payer, ta.input_tree, app.inputs_len, app.zkp_batch_size)?;
-        let event = build_transact_event(&ix, &ta.settlements, app.tree_write, &resolved_outputs);
+        let event = build_transact_event(ix, &ta.settlements, app.tree_write, &resolved_outputs);
         emit_general_event(EventKind::Transact, event)?;
     }
     Ok(())

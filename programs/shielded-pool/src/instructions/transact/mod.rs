@@ -5,6 +5,4 @@ pub(crate) mod processor;
 pub(crate) mod tree;
 pub(crate) mod verify;
 
-pub use processor::{
-    process_batch_transact_ix, process_transact_ix, validate_circuit_type, MAX_BATCH_TRANSACT,
-};
+pub use processor::{process_batch_transact_ix, process_transact_ix, validate_circuit_type};

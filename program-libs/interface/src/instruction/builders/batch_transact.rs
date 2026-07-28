@@ -3,7 +3,7 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{tag, TransactIxData},
-    PROGRAM_ID_PUBKEY,
+    MAX_BATCH_TRANSACT, PROGRAM_ID_PUBKEY,
 };
 
 /// Batch incarnation of pure-shielded multi-transact (tag 53).
@@ -18,8 +18,8 @@ pub struct BatchTransact {
 impl BatchTransact {
     pub fn instruction(&self) -> Instruction {
         assert!(
-            (1..=4).contains(&self.entries.len()),
-            "batch_transact supports 1..=4 entries"
+            (1..=MAX_BATCH_TRANSACT).contains(&self.entries.len()),
+            "batch_transact supports 1..=MAX_BATCH_TRANSACT entries"
         );
         let mut data = vec![tag::BATCH_TRANSACT, self.entries.len() as u8];
         for entry in &self.entries {
