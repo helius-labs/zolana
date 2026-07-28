@@ -88,6 +88,4 @@ harness = false
 name = "transfer_dummy"
 
 [[test]]
-
-[[test]]
 name = "solana_rpc"
