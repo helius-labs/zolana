@@ -16,6 +16,7 @@ use zolana_interface::{
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::fe;
+use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::{
     state::{UserRecord, NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN},
     USER_REGISTRY_PROGRAM_ID,
@@ -298,6 +299,63 @@ fn merge_zone_rejects_an_unsigned_zone_config() {
         zolana_account_checks::AccountError::InvalidSigner,
     ))
     .assert_litesvm(error);
+}
+
+#[test]
+fn merge_rejects_dummy_inputs_after_capacity_threshold() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+
+    // INV-TRANSACT-33, merge side: move only the nullifier queue cursor so the
+    // tree has strictly fewer free nullifier leaves than state leaves, flipping
+    // `allow_dummy_inputs` to false. The roots are unchanged, so every parse
+    // and tree step still succeeds; the explicit 7044 capacity gate in
+    // `merge/processor.rs` fires before proof verification -- the same zeroed
+    // proof that reaches verification (7008) on a fresh tree must not get
+    // there here.
+    let mut account = rpc.svm.get_account(&tree.pubkey()).expect("tree account");
+    {
+        let mut on_chain = TreeAccount::from_bytes(&mut account.data, tree.pubkey().to_bytes())
+            .expect("load tree");
+        assert!(
+            on_chain.allow_dummy_inputs().expect("dummy-input policy"),
+            "fresh tree must allow dummy inputs"
+        );
+        let state_remaining = {
+            let utxo = on_chain.utxo_tree();
+            utxo.capacity() - utxo.next_index()
+        };
+        {
+            let mut nullifier = on_chain.nullifer_tree();
+            let next_leaf = nullifier
+                .capacity
+                .checked_sub(state_remaining)
+                .expect("nullifier capacity exceeds state capacity")
+                + 1;
+            nullifier
+                .queue_batches
+                .get_current_batch_mut()
+                .expect("current nullifier batch")
+                .start_index = next_leaf;
+        }
+        assert!(
+            !on_chain.allow_dummy_inputs().expect("dummy-input policy"),
+            "fixture must cross the dummy-input threshold"
+        );
+    }
+    rpc.svm
+        .set_account(tree.pubkey(), account)
+        .expect("write threshold tree account");
+
+    let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("a merge past the capacity threshold must be rejected");
+    Rejection::pool(ShieldedPoolError::NullifierTreeTooFullForMerge).assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("capacity-gate transaction trace")
+        .assert_rolled_back_except(&[payer]);
 }
 
 #[test]

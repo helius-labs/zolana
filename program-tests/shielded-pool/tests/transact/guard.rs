@@ -233,6 +233,34 @@ fn transact_rejects_an_unsupported_proof_shape() {
 }
 
 #[test]
+fn transact_rejects_a_wrong_trailing_system_program_account() {
+    let mut env = Pool::initialized();
+    // INV-TRANSACT: after the (here empty) settlement groups, the loader reads
+    // one trailing system-program account for the forester-fee Transfer CPI; a
+    // wrong key in that slot must be rejected at account parsing, before any
+    // tree write or proof check.
+    let impostor = Pubkey::new_unique();
+    env.rpc
+        .airdrop(&impostor, 1_000_000)
+        .expect("fund impostor");
+    let mut ix = Transact {
+        payer: env.rpc.payer.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
+        interface_transfer_accounts: Vec::new(),
+        data: transfer_ix_data(2, 3),
+    }
+    .instruction();
+    ix.accounts.get_mut(3).expect("system program meta").pubkey = impostor;
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[],
+        Rejection::pool(ShieldedPoolError::InvalidSystemProgram),
+    );
+}
+
+#[test]
 fn zone_transact_rejects_an_unsigned_zone_config() {
     let mut env = Pool::initialized();
     let mut ix = ZoneTransact {

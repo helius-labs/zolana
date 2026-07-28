@@ -161,6 +161,47 @@ fn deposit_batch_rejects_a_declared_asset_no_entry_funds() {
 }
 
 #[test]
+fn deposit_batch_rejects_more_assets_than_any_layout_supports() {
+    // Six declared asset groups overflow MAX_DEPOSIT_ASSETS (5); the count gate
+    // fires at account parsing, before any settlement account is read.
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let tree = pool.tree.pubkey();
+
+    let err = raw_deposit_batch(
+        &mut pool.rpc,
+        tree,
+        &depositor,
+        vec![DepositAssetKind::Sol; 6],
+        vec![raw_entry(1_000)],
+        vec![sol_group_accounts(); 6],
+    )
+    .expect_err("six declared assets must fail");
+    Rejection::pool(ShieldedPoolError::TooManyDepositAssets).assert_litesvm(err);
+}
+
+#[test]
+fn deposit_batch_rejects_an_empty_assets_list() {
+    // Zero declared asset groups is rejected at account parsing, before any
+    // settlement account is read. The batch itself is non-empty, so the
+    // empty-batch gate (7029) is not the branch that fires.
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let tree = pool.tree.pubkey();
+
+    let err = raw_deposit_batch(
+        &mut pool.rpc,
+        tree,
+        &depositor,
+        Vec::new(),
+        vec![raw_entry(1_000)],
+        Vec::new(),
+    )
+    .expect_err("an empty assets list must fail");
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
+}
+
+#[test]
 fn deposit_batch_rejects_declaring_the_same_mint_twice() {
     let mut pool = Pool::initialized();
     let (mint, _, _) = register_mint(&mut pool);
@@ -225,16 +266,22 @@ fn sol_deposit_rejects_extra_settlement_account() {
 }
 
 #[test]
-fn sol_deposit_rejects_foreign_source() {
+fn sol_deposit_rejects_a_readonly_depositor() {
+    // INV-DEPOSIT-03/04, current form: the SOL rail has no separate source
+    // account -- the depositor signer IS the transfer source by construction
+    // (`deposit/account.rs` builds `SettlementAccountsSol { recipient: depositor }`),
+    // so a foreign funding source is unforgeable and there is nothing to swap.
+    // What remains of the property is the writability requirement:
+    // `validate_sol_settlement` rejects a read-only depositor.
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
     let tree = pool.tree.pubkey();
-    let mut foreign_source = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
-    *foreign_source.get_mut(4).expect("source account") =
-        AccountMeta::new(pool.rpc.payer.pubkey(), false);
+    let mut readonly_depositor = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
+    *readonly_depositor.get_mut(1).expect("depositor account") =
+        AccountMeta::new_readonly(depositor.pubkey(), true);
 
-    let err = raw_sol_deposit(&mut pool.rpc, &depositor, foreign_source)
-        .expect_err("foreign source must fail");
+    let err = raw_sol_deposit(&mut pool.rpc, &depositor, readonly_depositor)
+        .expect_err("read-only depositor must fail");
     Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 
@@ -263,25 +310,6 @@ fn sol_deposit_rejects_readonly_sol_interface() {
 
     let err = raw_sol_deposit(&mut pool.rpc, &depositor, readonly_interface)
         .expect_err("read-only sol_interface must fail");
-    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
-}
-
-#[test]
-fn sol_deposit_rejects_readonly_user_sol() {
-    let mut pool = Pool::initialized();
-    let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
-    // Positions 1 and 4 are duplicate metas of the depositor and the runtime
-    // takes the union of duplicate-meta privileges, so both must be downgraded
-    // for the account to actually be read-only.
-    let mut readonly_user = sol_deposit_accounts(&pool.rpc, tree, depositor.pubkey());
-    *readonly_user.get_mut(1).expect("depositor account") =
-        AccountMeta::new_readonly(depositor.pubkey(), true);
-    *readonly_user.get_mut(4).expect("source account") =
-        AccountMeta::new_readonly(depositor.pubkey(), false);
-
-    let err = raw_sol_deposit(&mut pool.rpc, &depositor, readonly_user)
-        .expect_err("read-only user_sol must fail");
     Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(err);
 }
 

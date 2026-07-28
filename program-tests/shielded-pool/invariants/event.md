@@ -1,7 +1,7 @@
 # Event Invariants
 
 Covers `EmitEvent` (tag 14). The event-emission postconditions of the
-state-changing instructions live in their own files and in INV-XC-23.
+state-changing instructions live in their own files and in INV-XC-27.
 
 ## EmitEvent
 
@@ -11,7 +11,7 @@ state-changing instructions live in their own files and in INV-XC-23.
   - Covered by: `program-tests/shielded-pool/tests/dispatch/functional.rs` `direct_emit_event_leaves_attached_writable_accounts_untouched`
   - Kind: frame
   - Statement: an `EmitEvent` instruction invoked by any caller returns Ok and leaves every account's data and lamports unchanged (the dispatch returns immediately without reading accounts).
-  - Location: `programs/shielded-pool/src/lib.rs:51` (`fn process_instruction`, `InstructionTag::EmitEvent` arm)
+  - Location: `programs/shielded-pool/src/lib.rs:53` (`fn process_instruction`, `InstructionTag::EmitEvent` arm)
   - Severity: High (a state change here would be an arbitrary-write primitive)
   - Suggested test: positive (invoke with arbitrary writable accounts and assert no change); harness: mollusk unit
 
@@ -19,7 +19,7 @@ state-changing instructions live in their own files and in INV-XC-23.
   - Covered by: `program-tests/shielded-pool/tests/dispatch/functional.rs` `direct_emit_event_accepts_every_payload_shape`
   - Kind: postcondition
   - Statement: `EmitEvent` returns Ok for every payload byte string after the tag byte, including an empty payload (the payload is never parsed on-chain; it exists to be read from the inner-instruction log).
-  - Location: `programs/shielded-pool/src/lib.rs:51` (`fn process_instruction`)
+  - Location: `programs/shielded-pool/src/lib.rs:53` (`fn process_instruction`)
   - Severity: Medium
   - Suggested test: positive + fuzz; harness: mollusk unit
 
@@ -27,7 +27,7 @@ state-changing instructions live in their own files and in INV-XC-23.
   - Covered by: `program-tests/shielded-pool/tests/dispatch/functional.rs` `direct_emit_event_is_a_noop_and_is_not_indexed`
   - Kind: precondition
   - Statement: `EmitEvent` succeeds with an empty account list (the program's own self-CPI passes zero accounts).
-  - Location: `programs/shielded-pool/src/lib.rs:51`, `programs/shielded-pool/src/instructions/event.rs:11-19` (`fn emit_encoded_event`)
+  - Location: `programs/shielded-pool/src/lib.rs:53`, `programs/shielded-pool/src/instructions/event.rs:11-19` (`fn emit_encoded_event`)
   - Severity: Medium
   - Suggested test: positive; harness: mollusk unit
 

@@ -157,6 +157,13 @@ path = "tests/nullifier/batch.rs"
 name = "merge_contract"
 path = "tests/merge/contract.rs"
 
+# Proof-backed (spawns the local prover and proves the real 8-in/1-out merge
+# circuit), so it sits in the proofs tier with the other Groth16-backed binaries.
+[[test]]
+name = "merge_functional"
+path = "tests/merge/functional.rs"
+required-features = ["proofs"]
+
 # --- Mollusk mutation coverage ---
 
 [[test]]

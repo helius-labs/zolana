@@ -38,59 +38,62 @@ from all three rows. The same holds for `Deposit`/`ZoneDeposit`
 | Instruction | File | Accounts | Data | Authz | Success | Rollback | Frame |
 |---|---|---|---|---|---|---|---|
 | EmitEvent (14) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
-| Transact (0) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32, INV-TRANSACT-33, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20 | INV-TRANSACT-23..28, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
-| ZoneTransact (2) | `transact.md` | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32, INV-TRANSACT-33 | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-03, INV-ZONE-TRANSACT-07, INV-XC-26 | INV-ZONE-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
-| ZoneAuthorityTransact (3) | `transact.md` | INV-ZONE-AUTH-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31, INV-TRANSACT-32, INV-TRANSACT-33 | INV-ZONE-AUTH-01..03, INV-XC-26 | INV-ZONE-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| Transact (0) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-TRANSACT-40, INV-TRANSACT-41, INV-TRANSACT-43, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31..38, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20, INV-TRANSACT-39 | INV-TRANSACT-23..28, INV-TRANSACT-42, INV-TRANSACT-44, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
+| ZoneTransact (2) | `transact.md` | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-03, INV-ZONE-TRANSACT-07, INV-XC-26 | INV-ZONE-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| ZoneAuthorityTransact (3) | `transact.md` | INV-ZONE-AUTH-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-ZONE-AUTH-01..03, INV-XC-26 | INV-ZONE-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
 | CreateTree (5) | `tree.md` | INV-CREATE-TREE-03, INV-CREATE-TREE-04 | INV-CREATE-TREE-05, INV-CREATE-TREE-06 | INV-CREATE-TREE-01, INV-CREATE-TREE-02 | INV-CREATE-TREE-07, INV-CREATE-TREE-08 | INV-XC-04 | INV-CREATE-TREE-09 |
-| BatchUpdateNullifierTree (51) | `tree.md` | INV-XC-24, INV-XC-08 | INV-BATCH-NULL-03 | INV-BATCH-NULL-01, INV-BATCH-NULL-02 | INV-BATCH-NULL-05 | INV-BATCH-NULL-04, INV-XC-04 | INV-BATCH-NULL-06 |
-| Deposit (1) | `deposit.md` | INV-DEPOSIT-01..09 | INV-DEPOSIT-10, INV-DEPOSIT-11 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16 | INV-XC-04 | INV-DEPOSIT-17 |
-| ZoneDeposit (15) | `deposit.md` | INV-ZONE-DEPOSIT-01..04 | INV-ZONE-DEPOSIT-05, INV-DEPOSIT-11 | INV-ZONE-DEPOSIT-01, INV-ZONE-DEPOSIT-03, INV-XC-26 | INV-ZONE-DEPOSIT-06..08 | INV-XC-04 | INV-DEPOSIT-17 |
+| BatchUpdateNullifierTree (51) | `tree.md` | INV-XC-24, INV-XC-08 | INV-BATCH-NULL-03 | INV-BATCH-NULL-01, INV-BATCH-NULL-02 | INV-BATCH-NULL-05, INV-BATCH-NULL-08 | INV-BATCH-NULL-04, INV-XC-04 | INV-BATCH-NULL-06, INV-BATCH-NULL-09 |
+| Deposit (1) | `deposit.md` | INV-DEPOSIT-01..09, INV-DEPOSIT-20, INV-DEPOSIT-23, INV-DEPOSIT-24 | INV-DEPOSIT-10, INV-DEPOSIT-11, INV-DEPOSIT-18, INV-DEPOSIT-19, INV-DEPOSIT-21, INV-DEPOSIT-22 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16, INV-DEPOSIT-25 | INV-XC-04 | INV-DEPOSIT-17 |
+| ZoneDeposit (15) | `deposit.md` | INV-ZONE-DEPOSIT-01..04 | INV-ZONE-DEPOSIT-05, INV-DEPOSIT-11, INV-DEPOSIT-18..25 | INV-ZONE-DEPOSIT-01, INV-ZONE-DEPOSIT-03, INV-XC-26 | INV-ZONE-DEPOSIT-06..09 | INV-XC-04 | INV-DEPOSIT-17 |
 | CreateAssetCounter (16) | `spl.md` | INV-CREATE-AC-03, INV-CREATE-AC-04 | INV-CREATE-AC-05 | INV-CREATE-AC-01, INV-CREATE-AC-02 | INV-CREATE-AC-06, INV-CREATE-AC-07 | INV-XC-04 | INV-CREATE-AC-08 |
-| CreateSplInterface (4) | `spl.md` | INV-CREATE-SPL-03..05, INV-CREATE-SPL-08 | INV-CREATE-SPL-06 | INV-CREATE-SPL-01, INV-CREATE-SPL-02 | INV-CREATE-SPL-07, INV-CREATE-SPL-09..11 | INV-XC-04 | INV-CREATE-SPL-12 |
+| CreateSplInterface (4) | `spl.md` | INV-CREATE-SPL-03..05, INV-CREATE-SPL-08, INV-CREATE-SPL-13, INV-CREATE-SPL-14 | INV-CREATE-SPL-06 | INV-CREATE-SPL-01, INV-CREATE-SPL-02 | INV-CREATE-SPL-07, INV-CREATE-SPL-09..11 | INV-XC-04 | INV-CREATE-SPL-12 |
 | CreateProtocolConfig (6) | `protocol-config.md` | INV-CREATE-PC-03, INV-CREATE-PC-04 | INV-CREATE-PC-05 | INV-CREATE-PC-01, INV-CREATE-PC-02, INV-CREATE-PC-10 | INV-CREATE-PC-06..08 | INV-XC-04 | INV-CREATE-PC-09 |
 | UpdateProtocolConfig (7) | `protocol-config.md` | INV-UPDATE-PC-03 | INV-UPDATE-PC-04 | INV-UPDATE-PC-01, INV-UPDATE-PC-02 | INV-UPDATE-PC-05, INV-UPDATE-PC-07 | INV-XC-04 | INV-UPDATE-PC-06 |
 | PauseTree (8) | `tree.md` | INV-XC-24 | INV-PAUSE-TREE-02 | INV-PAUSE-TREE-01 | INV-PAUSE-TREE-03, INV-PAUSE-TREE-04 | INV-XC-04 | INV-PAUSE-TREE-05 |
 | CreateZoneConfig (9) | `zone-config.md` | INV-CREATE-ZC-04, INV-CREATE-ZC-05 | INV-CREATE-ZC-06 | INV-CREATE-ZC-01..03 | INV-CREATE-ZC-07, INV-CREATE-ZC-08 | INV-XC-04 | INV-CREATE-ZC-09 |
 | UpdateZoneConfigOwner (10) | `zone-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-OWNER-05 | INV-UPDATE-ZC-OWNER-01, INV-UPDATE-ZC-OWNER-02 | INV-UPDATE-ZC-OWNER-03 | INV-XC-04 | INV-UPDATE-ZC-OWNER-04 |
 | UpdateZoneConfig (11) | `zone-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-06 | INV-UPDATE-ZC-01 | INV-UPDATE-ZC-03, INV-UPDATE-ZC-05 | INV-XC-04 | INV-UPDATE-ZC-04 |
-| MergeTransact (12) | `merge.md` | INV-MERGE-01..03 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
-| ZoneMergeTransact (13) | `merge.md` | INV-ZONE-MERGE-01..03 | INV-ZONE-MERGE-05 | INV-ZONE-MERGE-01, INV-ZONE-MERGE-04, INV-XC-26 | INV-ZONE-MERGE-09..12 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| MergeTransact (12) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| ZoneMergeTransact (13) | `merge.md` | INV-ZONE-MERGE-01..03, INV-MERGE-18 | INV-ZONE-MERGE-05 | INV-ZONE-MERGE-01, INV-ZONE-MERGE-04, INV-XC-26 | INV-ZONE-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
 
 Cross-cutting rows that apply to every proof-bearing instruction (Transact,
 ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact) and are not
 repeated in each cell above: INV-XC-06/07 (expiry), INV-XC-08 (pause), INV-XC-09
 (stale root), INV-XC-10 (double-spend), INV-XC-11..17 (proof system and
-external_data_hash), INV-XC-19/20 (value binding). Dispatch invariants INV-XC-01..03
+external_data_hash), INV-XC-19/20 (value binding), INV-XC-31 (TreeError
+conversion), INV-XC-32 (retired wire formats fail closed). Dispatch invariants
+INV-XC-01..03
 apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicable.
 
 ## Summary
 
-- Total invariants: 212
-  - transact.md: 47 (Transact 33, ZoneTransact 7, ZoneAuthorityTransact 7)
-  - deposit.md: 25 (Deposit 17, ZoneDeposit 8)
-  - merge.md: 28 (MergeTransact 16, ZoneMergeTransact 12)
-  - tree.md: 21 (CreateTree 9, BatchUpdateNullifierTree 7, PauseTree 5)
+- Total invariants: 242
+  - transact.md: 58 (Transact 44, ZoneTransact 7, ZoneAuthorityTransact 7)
+  - deposit.md: 34 (Deposit 25, ZoneDeposit 9)
+  - merge.md: 32 (MergeTransact 19, ZoneMergeTransact 13)
+  - tree.md: 23 (CreateTree 9, BatchUpdateNullifierTree 9, PauseTree 5)
   - protocol-config.md: 17 (Create 10, Update 7)
   - zone-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
-  - spl.md: 20 (CreateAssetCounter 8, CreateSplInterface 12)
+  - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
-  - cross-cutting.md: 30
-- Critical (funds/double-spend/authority takeover): 82
-- High: 72
-- Medium: 56
-- Not applicable post-PR164: 11 (P256 rails, both-amounts gate, `cpi_authority` field, merge ciphertext/`merge_view_tag`; IDs retained, never renumbered)
-- SPEC_DIVERGENCE items: all 8 originally flagged items were resolved on 2026-07-23
-  by updating `docs/spec.md` to match the code:
-  1. Deposit/ZoneDeposit instruction data (single `amount: u64`, `view_tag`, `UtxoData`, `memo`; asset inferred from settlement accounts).
+  - cross-cutting.md: 32
+- Critical (funds/double-spend/authority takeover): 86
+- High: 81
+- Medium: 66
+- Not applicable post-PR164: 12 (P256 rails and the `P256SigningKey` owner tag, both-amounts gate, `cpi_authority` field, merge ciphertext/`merge_view_tag`; IDs retained, never renumbered)
+- SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
+  `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
+  after an audit found the first resolution had not actually landed):
+  1. Deposit/ZoneDeposit instruction data is a batch: `assets: Vec<DepositAssetKind>` declared in the instruction data plus `deposits: Vec<DepositEntry>`; each entry carries `amount`, `view_tag`, `UtxoData`, `memo`.
   2. Transact public amounts signed `Option<i64>`; exactly the absolute value settles (fee folded prover-side) (INV-XC-18).
-  3. Merge fixed 8-in/1-out shape and 192-byte BSB22 proof.
+  3. Merge fixed 8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
   4. UTXO tree height 32.
   5. Duplicate `zone_deposit` "Tag 1" row removed from the instruction table.
   6. `create_asset_counter` (tag 16) and `batch_update_nullifier_tree` (tag 51) added to the instruction table.
   7. UpdateProtocolConfig: one field per call plus new-authority co-signature.
   8. GeneralEvent `tx_viewing_pk`/`salt` non-optional (all-zero on proofless deposits); `OutputUtxo.view_tag` naming; `OutputDataEncoding` wrapper; `ProoflessOutput.owner` + `memo`.
 - INSUFFICIENT_INFO items:
-  1. `StateAppendFailed = 7004` and `PublicSettlementFailed = 7010` are declared and pinned but returned by no program path; no condition->error invariant can be written (INV-XC-30).
+  1. RESOLVED (2026-07-28): `StateAppendFailed = 7004` fires when a UTXO-tree append hits a full tree (`tree_error` maps `TreeError::TreeIsFull` -- INV-XC-31, covered by `tree/contract.rs` `deposit_rejects_an_append_to_a_full_utxo_tree`), and `PublicSettlementFailed = 7010` fires when an SPL deposit CPI does not credit the vault exactly the leg amount (INV-TRANSACT-44). Both are reachable and now carry condition->error invariants (INV-XC-30).
   2. The shielded balance-conservation formula (sum of inputs = sum of outputs + public amount, per asset) is enforced in the Go circuits, not in the analyzed Rust source; on the Rust side only the public-input binding is testable (INV-XC-19).
 
 ## Test Coverage (last updated 2026-07-23, hardening pass)
@@ -112,24 +115,22 @@ Every invariant was mapped against the test suite (integration tests in
 Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 `Partial coverage:` line stating what is still missing.
 
-Post-PR164 sync (2026-07-27):
+Post-PR171 sync (2026-07-28):
 
-- Covered: 181 / 212
-- Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
-- Not covered: 1
-- Not applicable post-PR164: 11
+- Covered: 200 / 242
+- Partial: 30 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Not covered: 0
+- Not applicable post-PR164: 12
 
 Per file (covered / partial+untested / not-applicable):
-transact 39/2/6, deposit 25/0/0, merge 19/5/4, tree 18/3/0,
-protocol-config 17/0/0, zone-config 18/2/0, spl 20/0/0, event 4/0/0,
-cross-cutting 21/8/1.
+transact 47/4/7, deposit 31/3/0, merge 22/6/4, tree 19/4/0,
+protocol-config 17/0/0, zone-config 18/2/0, spl 20/2/0, event 4/0/0,
+cross-cutting 22/9/1.
 
 All added tests pass. Suites run green this pass:
-`shielded-pool-tests --features proofs` (231 passed, 1 skipped),
-`zolana-interface --features solana` (42), `shielded-pool-program --lib --tests`
-(11), `zolana-tree` (5), the localnet `zone-test-program --test zone_lifecycle`
-(10, validator-backed), and the localnet `spp-test-validator --test lifecycle`
-merge owner-substitution test. Clippy is clean on the changed packages.
+`shielded-pool-tests` (216 hermetic) and `--features proofs` (incl. the new
+`merge_functional` binary with a real on-chain merge proof), plus the
+documented gates (fmt, clippy, workspace check, photon, xtask, Go prover).
 
 ### Remaining gaps
 
@@ -146,11 +147,9 @@ postconditions, rather than duplicate the localnet flows:
 - keep the remaining infrastructure-dependent items explicitly marked as
   `Localnet` or `Blocked` below.
 
-One invariant remains untested because it is unreachable by design:
-
-- INV-XC-30 -- `StateAppendFailed = 7004` and `PublicSettlementFailed = 7010` are
-  declared and pinned but reachable from no program path; untestable by design
-  (flagged for the team to remove or wire up).
+No invariant remains untested by design: INV-XC-30's formerly-"unreachable"
+codes were shown reachable (7004 full-tree append, 7010 post-CPI settlement
+delta) and are pinned by INV-XC-31 / INV-TRANSACT-44 with on-chain tests.
 
 INV-MERGE-08 / INV-MERGE-09 (merge owner- and viewing-key substitution) were
 closed this pass by `spp-test-validator/tests/lifecycle.rs`
@@ -158,7 +157,7 @@ closed this pass by `spp-test-validator/tests/lifecycle.rs`
 submitted with owner B's `user_record` fails with 7008, leaving the tree and the
 fixture's spendable set unchanged.
 
-21 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
+30 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
 count/delta assertion or the full-batch/localnet leg is missing. The notable ones:
 INV-MERGE-12/13/14 (real localnet merges pass but do not assert the exact +8/+1
 tree deltas or the event field-by-field), INV-BATCH-NULL-04/05/06 (the

@@ -10,7 +10,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: all 18 instructions
   - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA`.
-  - Location: `programs/shielded-pool/src/lib.rs:40-42` (`fn process_instruction`)
+  - Location: `programs/shielded-pool/src/lib.rs:38-40` (`fn process_instruction`)
   - Error: `ProgramError::IncorrectProgramId`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
@@ -20,7 +20,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: all 18 instructions
   - Statement: `process_instruction` returns Err for the zero-length instruction data (no tag byte).
-  - Location: `programs/shielded-pool/src/lib.rs:43-45` (`fn process_instruction`)
+  - Location: `programs/shielded-pool/src/lib.rs:41-43` (`fn process_instruction`)
   - Error: `ProgramError::InvalidInstructionData`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
@@ -30,7 +30,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: all 18 instructions
   - Statement: for every first byte outside the set {0..16, 51}, `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
-  - Location: `programs/shielded-pool/src/lib.rs:47-75` (`fn process_instruction`), `program-libs/event/src/tag.rs:47-73` (`impl TryFrom<u8> for InstructionTag`)
+  - Location: `programs/shielded-pool/src/lib.rs:45-75` (`fn process_instruction`), `program-libs/event/src/tag.rs:54-79` (`impl TryFrom<u8> for InstructionTag`)
   - Error: `ProgramError::InvalidInstructionData`
   - Severity: Medium
   - Suggested test: property (all 256 first bytes); harness: mollusk unit
@@ -42,7 +42,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: rollback
   - Affects: all 18 instructions
   - Statement: when any shielded-pool instruction returns Err, every account's data and lamports after the transaction equal their values before it (SVM transaction rollback; the program never communicates partial state outside the transaction).
-  - Location: `programs/shielded-pool/src/lib.rs:35-76` (`fn process_instruction`); runtime guarantee relied on because tree writes precede proof verification (see INV-XC-05)
+  - Location: `programs/shielded-pool/src/lib.rs:33-76` (`fn process_instruction`); runtime guarantee relied on because tree writes precede proof verification (see INV-XC-05)
   - Severity: Critical
   - Suggested test: negative per instruction (assert full account equality after Err); harness: mollusk unit / litesvm
   - Note: this is the per-instruction "rollback" cell of the coverage matrix; each instruction needs at least one failing-path test asserting account equality.
@@ -52,7 +52,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: rollback
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: these instructions insert nullifiers and append outputs before verifying the proof; when verification fails, the transaction aborts and the UTXO tree `next_index`, nullifier queue `next_index`, and all roots after the transaction are exactly their values before it.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:130-168` (tree write at 130-141, verify at 168), `merge/processor.rs:100-119`
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:77-117` (tree writes at 77-98, verify at 117), `merge/processor.rs:92-137` (tree writes at 114-127, verify at 130)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (a persisted write with a failed proof would mint unbacked notes)
   - Suggested test: negative (garbage proof, then assert tree state); harness: program-tests integration (`cargo test-sbf`)
@@ -64,7 +64,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: each of these instructions returns Err whenever `Clock.unix_timestamp` as u64 is strictly greater than `expiry_unix_ts`; execution at `unix_timestamp == expiry_unix_ts` is still accepted.
-  - Location: `programs/shielded-pool/src/instructions/shared.rs:12-17` (`fn check_not_expired`); call sites `transact/processor.rs:42`, `zone_transact/processor.rs:29`, `zone_authority_transact/processor.rs:33`, `merge/processor.rs:37`, `merge_zone/processor.rs:44`
+  - Location: `programs/shielded-pool/src/instructions/shared.rs:148-153` (`fn check_not_expired`); call sites `transact/processor.rs:48`, `merge/processor.rs:35`, `merge_zone/processor.rs:30`
   - Error: `ShieldedPoolError::ExpiredTransaction = 7005`
   - Severity: High
   - Suggested test: negative + boundary (ts == expiry); harness: litesvm (warped clock)
@@ -74,7 +74,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: each of these instructions returns Err whenever `Clock.unix_timestamp` is strictly less than 0, for every `expiry_unix_ts`.
-  - Location: `programs/shielded-pool/src/instructions/shared.rs:13` (`fn check_not_expired`)
+  - Location: `programs/shielded-pool/src/instructions/shared.rs:149` (`fn check_not_expired`)
   - Error: `ShieldedPoolError::ExpiredTransaction = 7005`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit (fabricated clock sysvar)
@@ -84,7 +84,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, Deposit, ZoneDeposit, MergeTransact, ZoneMergeTransact, BatchUpdateNullifierTree
   - Statement: while the tree's state byte is exactly `PAUSED` (2), each of these instructions returns Err and no tree byte changes; only `pause_tree` (which loads with `from_account_view_mut_allow_paused`) can operate on a paused tree.
-  - Location: `program-libs/tree/src/lib.rs:175-195` (`fn from_account_view_mut`); mappings `transact/processor.rs:240-246` and `merge/processor.rs:174-180` (`fn tree_error`), `deposit/processor.rs:131-133`, `batch_update_nullifier_tree.rs:31-32` (via `From<TreeError>`)
+  - Location: `program-libs/tree/src/lib.rs:192-202` (`fn from_account_view_mut`); mapping `programs/shielded-pool/src/instructions/shared.rs:22-29` (`fn tree_error`), `deposit/processor.rs:92-94`, `batch_update_nullifier_tree.rs:35-36` (via `From<TreeError>`)
   - Error: `ShieldedPoolError::TreePaused = 7013`
   - Severity: Critical (freeze semantics)
   - Suggested test: negative per instruction; harness: program-tests integration (`cargo test-sbf`)
@@ -96,7 +96,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: each of these instructions returns Err whenever any input's `utxo_tree_root_index` or `nullifier_tree_root_index` is out of range of the root history, or the referenced nullifier-root slot holds the zeroed (stale) root.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:212-218` and `merge/processor.rs:140-145` (root reads), `program-libs/tree/src/lib.rs:234-250` (`fn get_nullifier_tree_root`), error mapping `transact/processor.rs:243` (`TreeError::InvalidRootIndex`)
+  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:25-30` and `merge/processor.rs:155-160` (root reads), `program-libs/tree/src/lib.rs:296-308` (`fn get_nullifier_tree_root`), error mapping `programs/shielded-pool/src/instructions/shared.rs:25` (`tree_error`, `TreeError::InvalidRootIndex`)
   - Error: `ShieldedPoolError::StaleNullifierRoot = 7015`
   - Severity: Critical (spending against a pre-nullification root)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
@@ -106,7 +106,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: for every 32-byte nullifier value, at most one queue insertion ever succeeds across all instructions and all transactions (including two inputs with the same nullifier inside one instruction); every later insertion attempt makes its instruction return Err.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:219-221` and `merge/processor.rs:146-148` (`insert_address_into_queue`), `program-libs/batched-merkle-tree/src/merkle_tree.rs:311-344`
+  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:31-34` and `merge/processor.rs:161-163` (`insert_nullifier_into_queue`), `program-libs/batched-merkle-tree/src/merkle_tree.rs:311-344`
   - Error: `ShieldedPoolError::NullifierTreeUpdateFailed = 7002`
   - Severity: Critical (double-spend)
   - Suggested test: negative (same nullifier twice across transactions, and twice within one instruction); harness: program-tests integration (`cargo test-sbf`)
@@ -119,7 +119,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: postcondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: every element of the recomputed public-input hash chain (nullifiers, output hashes, roots, `private_tx_hash`, `external_data_hash`, public amounts, mint, zone program id, payer hash, owner fields) enters the chain exactly once, and changing any single element after proving makes verification return Err; the on-chain assembly is pinned to the Go circuit ordering by golden vectors.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:143-201` (`fn public_input_hash`), `merge/verify.rs:85-131`; vectors `transact/verify.rs:394-765` (`mod circuit_vector_tests`)
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:133-204` (`fn public_input_hash`), `merge/verify.rs:84-115`; vectors `transact/verify.rs:238-621` (`mod circuit_vector_tests`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical
   - Suggested test: property (per-field bit-flip loop) + golden vectors (exist); harness: `cargo test -p zolana-shielded-pool` + program-tests integration
@@ -131,8 +131,8 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_proof_points_that_fail_decompression`
   - Kind: precondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
-  - Statement: every proof whose `a`, `b`, `c`, commitment, or commitment-PoK point fails G1/G2 decompression makes the instruction return the encoding error (7007), and every well-formed proof that fails the pairing returns the verification error (7008); the two failure classes never alias.
-  - Location: `programs/shielded-pool/src/instructions/verifier.rs:78-115` (`fn verify_groth16`), `merge/verify.rs:58-67`
+  - Statement: every proof is a plain 128-byte `a||b||c` (no commitments); every proof whose `a`, `b`, or `c` point fails G1/G2 decompression makes the instruction return the encoding error (7007), and every well-formed proof that fails the pairing returns the verification error (7008); the two failure classes never alias.
+  - Location: `programs/shielded-pool/src/instructions/verifier.rs:24-40` (`fn verify_groth16`), `merge/verify.rs:51-73`
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` vs `TransactProofVerificationFailed = 7008`
   - Severity: Medium (diagnostic stability)
   - Suggested test: negative both classes; harness: mollusk unit
@@ -153,7 +153,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: postcondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: the recomputed `external_data_hash` preimage begins with exactly the invoking instruction's tag byte (0, 2, 3, 12, or 13), so an otherwise identical payload proven for one instruction fails verification under any other.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:145-146` (`spp_instruction_discriminator: discriminator`), `merge/processor.rs:57-58`, `merge_zone/processor.rs:48-49`; preimages `program-libs/interface/src/instruction/instruction_data/transact.rs:339-377`, `merge_transact.rs:124-134`
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:100-112` (`spp_instruction_discriminator: instruction as u8`), `merge/processor.rs:54-60`, `merge_zone/processor.rs:34-40`; preimages `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348, 351` (`struct ExternalDataHash`, `fn hash`), `merge_transact.rs:123-137`
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)
   - Suggested test: negative (transact proof replayed as zone_transact); harness: program-tests integration (`cargo test-sbf`)
@@ -163,7 +163,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
   - Statement: the `ExternalDataHash` preimage covers exactly: the instruction discriminator, `expiry_unix_ts`, the resolved `interface_transfers` legs (post-PR164, replacing the old `public_sol_amount`/`public_spl_amount`/`relayer_fee` fields), the `data_hash`/`zone_data_hash` option presence and values, `tx_viewing_pk`, `salt`, the resolved outputs, and the messages. Binding `tx_viewing_pk` and `salt` (the F-05 fix) means a relayer can no longer corrupt the only on-chain decryption context; the count prefixes and presence bytes keep the encoding injective across output/message/owner-tag/data boundaries.
-  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348` (`struct ExternalDataHash`), hash at `instruction_data/transact.rs` (`fn ExternalDataHash::hash`)
+  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348` (`struct ExternalDataHash`), hash at `instruction_data/transact.rs:351` (`fn ExternalDataHash::hash`)
   - Severity: High
   - Suggested test: property (proptest over adjacent encodings; unit tests exist); harness: `cargo test -p zolana-interface`
 
@@ -172,7 +172,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: postcondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
   - Statement: `external_data_hash` covers each output's resolved 32-byte owner tag (after `fetch_tag`), so two encodings resolving to the same tag (e.g. `Inline(addr)` vs `Account(i)` pointing at `addr`) produce the same hash, and re-ordering the account list to change an `Account(i)` resolution changes the hash and fails verification.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:59-73` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs:252-259` (`struct ResolvedOutput`)
+  - Location: `programs/shielded-pool/src/instructions/transact/event.rs:22-35` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs:240-244` (`struct ResolvedOutput`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (account-list tampering)
   - Suggested test: negative + positive (encoding equivalence); harness: program-tests integration (`cargo test-sbf`)
@@ -194,7 +194,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: the program performs no on-chain amount arithmetic over UTXO values; the conservation relation (sum of input amounts = sum of output amounts + public amount, per asset) holds only because the public amounts, mint, and commitment chains are bound into the verified public-input hash.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:179-200` (`amount_field` elements 8-10 of the chain)
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:188-191` (public-slot asset/amount elements of the chain), `transact/verify.rs:207-221` (`fn amount_field`)
   - Severity: Critical
   - Suggested test: negative (proof for amount A submitted with amount B in instruction data)
   - INSUFFICIENT_INFO: the exact conservation formula lives in the Go circuits (`prover/server/circuits/spp_transaction`, `spp_merge`), outside the analyzed Rust source; on the Rust side only the binding (INV-XC-11) is testable.
@@ -203,8 +203,8 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `programs/shielded-pool/src/instructions/transact/verify.rs` `field_derivation_vector_pins_the_shared_encodings`
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
-  - Statement: the public-amount public inputs are exactly `Fr::from(amount)` big-endian (negative amounts reduce modulo the BN254 scalar field), with `None` encoding exactly as 0; the encoding is pinned by the committed field-derivation vector including negative values.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:228-236` (`fn amount_field`), vector test at 699-764
+  - Statement: the public-amount public inputs are exactly `Fr::from(amount)` big-endian (negative amounts reduce modulo the BN254 scalar field); slots are aggregated `i128` per asset with unused slots exactly zero; the encoding is pinned by the committed field-derivation vector including negative values.
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:207-221` (`fn amount_field`), vector test at 526-620
   - Severity: High
   - Suggested test: golden vector (exists); harness: `cargo test -p zolana-shielded-pool`
 
@@ -215,7 +215,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: state
   - Affects: all 18 instructions
   - Statement: for every successful instruction, the sum of lamports over all transaction accounts after execution is exactly the sum before, minus nothing (creation instructions move rent from the fee payer to the new account; settlement moves lamports between depositor/recipient and the sol_interface; no path burns or mints lamports inside the program).
-  - Location: `programs/shielded-pool/src/instructions/shared.rs:25-72` (`CreatePdaAccount`), `settlement/sol.rs:13-40`
+  - Location: `programs/shielded-pool/src/instructions/shared.rs:161-208` (`CreatePdaAccount`), `settlement/sol.rs:13-40`
   - Severity: High
   - Suggested test: property (sum lamports before/after per instruction); harness: mollusk unit
 
@@ -224,7 +224,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: reachability
   - Affects: CreateProtocolConfig, CreateAssetCounter, CreateSplInterface, CreateZoneConfig
   - Statement: for every creation instruction, an attacker donating lamports to the target PDA address before creation does not make the creation fail (the pinocchio minimum-balance helper handles the cold path: allocate + assign + top-up instead of CreateAccount).
-  - Location: `programs/shielded-pool/src/instructions/shared.rs:19-72` (`struct CreatePdaAccount`), `zone_config/create.rs:54-61` (`create_account_with_minimum_balance`)
+  - Location: `programs/shielded-pool/src/instructions/shared.rs:161-208` (`struct CreatePdaAccount`), `zone_config/create.rs:53-60` (`create_account_with_minimum_balance`)
   - Severity: High (DoS on singleton PDAs would be permanent)
   - Suggested test: positive (donate first, then create); harness: program-tests integration (`cargo test-sbf`)
 
@@ -233,7 +233,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: CreateProtocolConfig, CreateAssetCounter, CreateSplInterface, CreateZoneConfig
   - Statement: every PDA-creating instruction derives the bump via `find_program_address` on-chain and rejects any account address that is not the canonical PDA; no instruction accepts a bump from instruction data for account creation.
-  - Location: `programs/shielded-pool/src/instructions/shared.rs:76-90` (`fn verify_pda`), `zone_config/create.rs:33-38, 75-78` (`fn derive_zone_auth`)
+  - Location: `programs/shielded-pool/src/instructions/shared.rs:213-226` (`fn verify_pda`), `zone_config/create.rs:32-37, 71-79` (`fn derive_zone_auth`)
   - Error: `ShieldedPoolError::InvalidPda = 7016` (zone config: `InvalidZoneConfig = 7014`)
   - Severity: Critical
   - Suggested test: negative (non-canonical address per instruction); harness: mollusk unit
@@ -245,7 +245,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, Deposit, ZoneDeposit, MergeTransact, ZoneMergeTransact, CreateTree, BatchUpdateNullifierTree, PauseTree, CreateAssetCounter, CreateSplInterface, UpdateProtocolConfig, UpdateZoneConfig, UpdateZoneConfigOwner
   - Statement: every read or write of a `ProtocolConfig`, `ZoneConfig`, `SplAssetCounter`, `SplAssetRegistry`, tree, token, or user-record account goes through a `load_*`/`from_account_view_*`/`read_*` function that checks program ownership and exact `data_len` (and the discriminator for initialized reads); no instruction deserializes the same account twice.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/loader.rs:14-51`, `zone_config/loader.rs:13-48`, `create_asset_counter.rs:64-77`, `settlement/validate.rs:77-103`, `merge/account.rs:50-62`, `program-libs/tree/src/lib.rs:197-216`
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/loader.rs:14-51`, `zone_config/loader.rs:14-48`, `create_asset_counter.rs:63-70`, `settlement/validate.rs:60-149`, `merge/account.rs:58-89`, `program-libs/tree/src/lib.rs:214-238`
   - Severity: High
   - Suggested test: negative per loader (wrong owner / wrong size / wrong discriminator); harness: mollusk unit
 
@@ -265,7 +265,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: precondition
   - Affects: ZoneTransact, ZoneAuthorityTransact, ZoneDeposit, ZoneMergeTransact
   - Statement: each zone instruction requires the `zone_config` account to be a signer and validates it only by owner + size + discriminator (the `zone_auth` derivation is checked exactly once, at `create_zone_config`); consequently a valid, signed config of zone A can never authorize an operation attributed to zone B, because the bound `program_id` is read from the signing account itself.
-  - Location: `programs/shielded-pool/src/instructions/zone_transact/account.rs:28-38`, `deposit/account.rs:49-55`, `merge_zone/account.rs:19-29`, `zone_config/loader.rs:13-28`
+  - Location: `programs/shielded-pool/src/instructions/transact/account.rs:140-163` (`ZoneTransactAccounts::validate_and_parse`), `deposit/account.rs:77-78`, `merge_zone/account.rs:22-39`, `zone_config/loader.rs:14-20`
   - Error: `ShieldedPoolError::InvalidZoneConfig = 7014` / signer errors
   - Severity: Critical
   - Suggested test: negative (unsigned config; config faked with correct bytes but wrong owner); harness: mollusk unit
@@ -277,7 +277,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: postcondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, Deposit, ZoneDeposit, MergeTransact, ZoneMergeTransact, BatchUpdateNullifierTree (conditional)
   - Statement: after each of these instructions succeeds, the transaction contains exactly one inner instruction to the shielded-pool program itself with first byte `EMIT_EVENT` (14) and zero accounts, carrying the encoded event (for `batch_update_nullifier_tree`: exactly when the update produced an event).
-  - Location: `programs/shielded-pool/src/instructions/event.rs:11-35` (`fn emit_encoded_event`)
+  - Location: `programs/shielded-pool/src/instructions/event.rs:11-19` (`fn emit_encoded_event`)
   - Severity: Medium (indexer completeness)
   - Suggested test: positive per instruction; harness: litesvm (inner-instruction inspection)
 
@@ -286,7 +286,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-28: error codes are stable**
   - Kind: state
   - Affects: all instructions
-  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (7000..7026 and 7029..7045, 43 variants), pinned one-by-one.
+  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7045 — 42 variants; 7020/7021/7023/7024 retired), pinned one-by-one.
   - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
   - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
@@ -296,15 +296,34 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Partial coverage: `program-tests/shielded-pool/tests/admin/rejection.rs` `pause_tree_rejects_wrong_config_owner_exactly` (the 7012/7013/7001 mappings are exercised through instruction paths; no dedicated conversion-table test)
   - Kind: state
   - Affects: all instructions using loaders or trees
-  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, AlreadyInitialized -> 7026; `TreeError` converts exactly as Paused -> 7013 and every other variant -> 7001.
-  - Location: `program-libs/interface/src/error.rs:85-104` (`impl From<InterfaceError>`, `impl From<TreeError>`)
+  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012, AlreadyInitialized -> 7045; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001.
+  - Location: `program-libs/interface/src/error.rs:128-151` (`impl From<InterfaceError>`, `impl From<TreeError>`)
   - Severity: Medium
   - Suggested test: positive (table test); harness: `cargo test -p zolana-interface`
 
-- [ ] **INV-XC-30: unreachable error variants**
+- [ ] **INV-XC-30: formerly-"unreachable" error variants are both reachable**
   - Kind: state
-  - Affects: none (documentation of dead codes)
-  - Statement: INSUFFICIENT_INFO -- `StateAppendFailed = 7004` and `PublicSettlementFailed = 7010` are declared and pinned but no program path returns either; no condition->error invariant can be written for them from the provided source. If they are reserved for future use, document that; otherwise they are dead codes.
-  - Location: `program-libs/interface/src/error.rs:33-34, 45-46`
+  - Affects: none (documentation of previously dead codes)
+  - Statement: resolved post-PR171 — `StateAppendFailed = 7004` fires when a UTXO-tree append hits a full tree (`tree_error` maps `TreeError::TreeIsFull`; pinned by INV-XC-31), and `PublicSettlementFailed = 7010` fires when an SPL deposit CPI does not credit the vault exactly the leg amount (pinned by INV-TRANSACT-44). Both are reachable; the earlier INSUFFICIENT_INFO "no program path returns either" claim was falsified.
+  - Location: `program-libs/interface/src/error.rs:38-39, 50-51`
   - Severity: Medium (error-surface hygiene)
-  - Suggested test: none possible (flag for the team)
+  - Suggested test: none (pointer entry; the firing conditions carry their own invariants)
+
+- [ ] **INV-XC-31: tree_error maps TreeError to exactly four pool errors**
+  - Partial coverage: pause/stale-root legs exercised everywhere (7013, 7015); the 7004 full-tree append leg has no test
+  - Kind: state
+  - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, Deposit, ZoneDeposit, MergeTransact, ZoneMergeTransact (via `tree_error`); BatchUpdateNullifierTree (via `From<TreeError>`)
+  - Statement: `tree_error` maps `Paused -> 7013`, `InvalidRootIndex -> 7015`, `TreeIsFull -> 7004` (a full UTXO tree on append), every other variant -> 7001. The `From<TreeError>` impl agrees on `Paused`/`TreeIsFull` but maps `InvalidRootIndex -> 7001` (the batch-update path has no stale-root reads, so the 7015 leg exists only in `tree_error`).
+  - Location: `programs/shielded-pool/src/instructions/shared.rs:22-29` (`fn tree_error`), `program-libs/interface/src/error.rs:142-151` (`impl From<TreeError>`)
+  - Severity: Medium
+  - Suggested test: positive (table test incl. the 7004 leg); harness: mollusk unit
+
+- [x] **INV-XC-32: retired wire formats fail closed at decode**
+  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` units `rejects_retired_field_bearing_payload`, `rejects_retired_owner_tag_discriminant`
+  - Kind: precondition
+  - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
+  - Statement: payloads carrying the retired `p256_signing_pk_x` field encoding or the retired `OwnerTag::P256SigningKey` discriminant fail deserialization (both owned and ref decoders); the removed P256 surface cannot be reintroduced by old clients.
+  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:574, 590` (decoder tests)
+  - Error: decode error (`ProgramError::InvalidInstructionData` at dispatch)
+  - Severity: Medium
+  - Suggested test: negative (exists); harness: `cargo test -p zolana-interface`

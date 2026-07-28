@@ -79,6 +79,33 @@ fn spl_interface_creation_rejects_a_wrong_token_program() {
 }
 
 #[test]
+fn spl_interface_creation_rejects_a_mint_not_owned_by_the_token_program() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
+    // A funded system-owned account standing in for the mint: the mint
+    // validation fires before the counter or the PDAs are touched, so the
+    // ownership check is the branch that fails (7042, not 7041/7043).
+    let fake_mint = Pubkey::new_unique();
+    pool.rpc
+        .airdrop(&fake_mint, 1_000_000)
+        .expect("fund fake mint");
+
+    let err = pool
+        .rpc
+        .create_spl_interface(&pool.authority, &fake_mint)
+        .expect_err("a mint not owned by the token program must fail");
+    Rejection::pool(ShieldedPoolError::InvalidSplTokenMint).assert_litesvm(err);
+    assert!(
+        pool.rpc
+            .account_data(&pda::spl_asset_registry(&fake_mint))
+            .is_none(),
+        "rejected creation must not allocate the registry"
+    );
+}
+
+#[test]
 fn spl_interface_creation_rejects_a_wrong_system_program() {
     let mut pool = Pool::initialized();
     pool.rpc
