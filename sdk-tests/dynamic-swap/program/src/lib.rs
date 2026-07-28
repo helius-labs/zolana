@@ -6,8 +6,7 @@ pub mod verifying_keys;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
-    process_create_escrow_batch_ix, process_create_escrow_ix, process_create_pair_ix,
-    process_settle_batch_ix, process_settle_ix, process_update_price_ix,
+    process_create_escrow_ix, process_create_pair_ix, process_settle_ix, process_update_price_ix,
 };
 
 pub mod tag {
@@ -22,8 +21,8 @@ pub mod tag {
     // Settles an escrow (settle / price-refund) in one indistinguishable
     // instruction. Reuses the former PAYOUT tag.
     pub const SETTLE: u8 = 8;
-    pub const CREATE_ESCROW_BATCH: u8 = 9;
-    pub const SETTLE_BATCH: u8 = 10;
+    // 9–10 retired (CREATE_ESCROW_BATCH / SETTLE_BATCH): hetero k=2 RLC
+    // measured no CU boost. See docs/batching/no-boost.md.
 }
 
 /// Seeds `[ESCROW_AUTHORITY_PDA_SEED, pair]`: owns every order and
@@ -55,8 +54,6 @@ pub fn process_instruction(
         tag::UPDATE_PRICE => process_update_price_ix(accounts, ix_data),
         tag::CREATE_ESCROW => process_create_escrow_ix(accounts, ix_data),
         tag::SETTLE => process_settle_ix(accounts, ix_data),
-        tag::CREATE_ESCROW_BATCH => process_create_escrow_batch_ix(accounts, ix_data),
-        tag::SETTLE_BATCH => process_settle_batch_ix(accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

@@ -310,19 +310,10 @@ bench-batch-matrix:
 bench-batch-fold-cu:
     cargo test -p zolana-groth16-batch --test fold_cu_litesvm -- --nocapture
 
-# Dual CU: legacy vs batch swap twins under LiteSVM with agave batch syscalls.
-# Builds plain SBF (not profile-program) into target/swap-batch-bench.
-# Requires working SPP transfer proving keys.
-bench-batch-cu: ensure-swap-keys
-    cargo build-sbf --tools-version {{sbf-tools-version}} \
-        --sbf-out-dir target/swap-batch-bench \
-        --manifest-path programs/shielded-pool/Cargo.toml \
-        -- --features bpf-entrypoint
-    cargo build-sbf --tools-version {{sbf-tools-version}} \
-        --sbf-out-dir target/swap-batch-bench \
-        --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml \
-        -- --features bpf-entrypoint
-    cargo test -p swap-test-validator --test bench_batch_cu -- --ignored --nocapture
+# Mixed-key k=2 app batch twins (take/cancel) measured no CU boost and were
+# removed. Numbers: docs/batching/no-boost.md and
+# program-libs/groth16-batch/BATCH_CU_RESULTS.md. Same-vk duals:
+# just bench-batch-fold-cu + full-path harness when added.
 
 # Fetch the pinned escrow/withdraw proving keys from the escrow-keys release
 # and verify them against the committed manifest. groth16.Setup is

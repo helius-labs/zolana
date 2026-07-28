@@ -1,17 +1,11 @@
 pub mod cancel;
-pub mod cancel_batch;
 pub mod make;
-pub mod make_batch;
 pub mod shared;
 pub mod take;
-pub mod take_batch;
 pub mod take_verifiable_encryption;
 pub mod verifier;
 
 pub use cancel::process_cancel_ix;
-pub use cancel_batch::process_cancel_batch_ix;
 pub use make::process_make_ix;
-pub use make_batch::process_make_batch_ix;
 pub use take::process_take_ix;
-pub use take_batch::process_take_batch_ix;
 pub use take_verifiable_encryption::process_take_verifiable_encryption_ix;
