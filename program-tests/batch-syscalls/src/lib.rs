@@ -83,6 +83,10 @@ fn translate<'a>(
     Ok(unsafe { std::slice::from_raw_parts(host_addr as *const u8, len as usize) })
 }
 
+// The returned slice aliases VM guest memory behind the mapping's host
+// pointer, not the `MemoryMapping` struct itself, so `&mut` from `&` is sound
+// here (mirrors agave's syscall translate helpers).
+#[allow(clippy::mut_from_ref)]
 fn translate_mut<'a>(
     memory_mapping: &'a MemoryMapping,
     vm_addr: u64,

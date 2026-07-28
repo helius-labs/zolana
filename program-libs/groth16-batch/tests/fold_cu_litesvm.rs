@@ -120,9 +120,13 @@ fn host_fold_trapdoor_and_syscall_cu() {
             let x = Fr::rand(&mut rng);
             proofs.push(make_proof(&mut rng, &key, 0, &[x]));
         }
-        let ok =
-            groth16_batch_verify(Version::V0, &[vk.clone()], &proofs, RandomizerMode::Independent)
-                .expect("fold");
+        let ok = groth16_batch_verify(
+            Version::V0,
+            std::slice::from_ref(&vk),
+            &proofs,
+            RandomizerMode::Independent,
+        )
+        .expect("fold");
         assert!(ok, "N={n}");
         let cu = fold_syscall_cu_same_vk_n(n);
         report.push_str(&format!("| {n} | ok | {cu} |\n"));
