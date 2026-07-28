@@ -328,4 +328,3 @@ fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair>
 fn restart_localnet() {
     start_shielded_pool_localnet("zolana-photon", &[]);
 }
-

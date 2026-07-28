@@ -27,8 +27,9 @@ use zolana_interface::{
         instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
         Transact, ZoneAuthorityTransact, ZoneTransact,
     },
-    pda, N_PUBLIC_SLOTS,
+    pda,
     state::{discriminator::ZONE_CONFIG, ZoneConfig},
+    N_PUBLIC_SLOTS,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
@@ -382,7 +383,9 @@ fn transact_rejects_a_malformed_wincode_payload() {
     // inside the payload): 0xFFFF names no variant and must fail decoding.
     let mut bad_tag = template.data.clone();
     let circuit_tag_offset = 1 + 8 + 32;
-    *bad_tag.get_mut(circuit_tag_offset).expect("circuit tag byte") = 0xFF;
+    *bad_tag
+        .get_mut(circuit_tag_offset)
+        .expect("circuit tag byte") = 0xFF;
     *bad_tag
         .get_mut(circuit_tag_offset + 1)
         .expect("circuit tag byte") = 0xFF;
@@ -578,4 +581,3 @@ fn zone_authority_transact_rejects_a_non_square_shape() {
         Rejection::pool(ShieldedPoolError::InvalidTransactShape),
     );
 }
-

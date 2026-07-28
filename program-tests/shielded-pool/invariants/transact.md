@@ -119,7 +119,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-13: SOL settlement requires the canonical sol_interface PDA**
   - Covered by: `program-tests/shielded-pool/tests/transact/settlement.rs` `sol_withdrawal_rejects_a_non_canonical_sol_interface`
   - Kind: precondition
-  - Statement: when `public_sol_amount` is `Some`, the `sol_interface` account address must equal the PDA derived from `[b"sol_interface", [0]]` under the program id; any other address returns Err.
+  - Statement: when the `interface_transfers` list carries a SOL leg (`SolDeposit` / `SolWithdrawal`), the `sol_interface` account address must equal the PDA derived from `[b"sol_interface", [0]]` under the program id; any other address returns Err.
   - Location: `programs/shielded-pool/src/instructions/settlement/validate.rs:15-28` (`fn validate_sol_interface`)
   - Error: `ShieldedPoolError::InvalidSettlementAccounts = 7009`
   - Severity: Critical (fund theft)
@@ -131,7 +131,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-15: SPL vault must be the canonical per-mint vault PDA**
   - Covered by: `program-tests/shielded-pool/tests/transact/settlement.rs` `spl_withdrawal_rejects_a_non_canonical_vault`, `spl_withdrawal_rejects_a_vault_user_mint_mismatch`, `spl_withdrawal_rejects_a_vault_not_owned_by_the_cpi_authority`
   - Kind: precondition
-  - Statement: when `public_spl_amount` is `Some`, the vault address must equal the PDA derived from `[b"spl_asset_vault", mint]`, the vault and user token accounts must share one mint, and the vault's owner must be `SHIELDED_POOL_CPI_AUTHORITY`; any violation returns Err.
+  - Statement: when the `interface_transfers` list carries an SPL leg (`SplDeposit` / `SplWithdrawal`), the vault address must equal the PDA derived from `[b"spl_asset_vault", mint]`, the vault and user token accounts must share one mint, and the vault's owner must be `SHIELDED_POOL_CPI_AUTHORITY`; any violation returns Err.
   - Location: `programs/shielded-pool/src/instructions/settlement/validate.rs:39-70` (`fn validate_spl_settlement`)
   - Error: `ShieldedPoolError::InvalidSettlementAccounts = 7009`
   - Severity: Critical (fund theft / liquidity split)
@@ -225,7 +225,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-26: SOL deposit moves exactly the public amount from recipient to sol_interface**
   - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `transact_sol_deposit_settles_exact_lamport_deltas`
   - Kind: postcondition
-  - Statement: after a successful SOL deposit (`public_sol_amount = Some(a)`, `a > 0`), the `sol_interface` lamports are exactly the before-value plus `a` and the recipient's lamports are exactly the before-value minus `a`.
+  - Statement: after a successful SOL deposit (an `InterfaceTransfer::SolDeposit { amount: a }` leg), the `sol_interface` lamports are exactly the before-value plus `a` and the recipient's lamports are exactly the before-value minus `a`.
   - Location: `programs/shielded-pool/src/instructions/settlement/sol.rs:13-40` (`fn settle_sol`), `transact/processor.rs:170-176`
   - Severity: Critical
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
@@ -233,15 +233,15 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-27: SOL withdrawal moves exactly the public amount from sol_interface to recipient**
   - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol`
   - Kind: postcondition
-  - Statement: after a successful SOL withdrawal (`public_sol_amount = Some(a)`, `a < 0`), the recipient's lamports are exactly the before-value plus `|a|` and the `sol_interface` lamports are exactly the before-value minus `|a|`, transferred under the `[b"sol_interface", [0], bump]` PDA signature.
+  - Statement: after a successful SOL withdrawal (an `InterfaceTransfer::SolWithdrawal { amount: a }` leg), the recipient's lamports are exactly the before-value plus `a` and the `sol_interface` lamports are exactly the before-value minus `a`, transferred under the `[b"sol_interface", [0], bump]` PDA signature.
   - Location: `programs/shielded-pool/src/instructions/settlement/sol.rs:25-39` (`fn settle_sol`)
   - Severity: Critical
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-TRANSACT-28: SPL settlement direction follows the amount sign**
+- [x] **INV-TRANSACT-28: SPL settlement direction follows the leg variant**
   - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `transact_spl_deposit_settles_exact_token_deltas` and `shield_then_withdraw_spl_with_a_real_proof` (positive user-to-vault and negative vault-to-user transfers assert exact token deltas with real proofs).
   - Kind: postcondition
-  - Statement: after a successful SPL settlement of amount `a`, a deposit (`a > 0`) transfers exactly `a` tokens from the user token account to the vault with the recipient as authority, and a withdrawal (`a < 0`) transfers exactly `|a|` tokens from the vault to the user token account signed by the `[b"cpi_authority", 254]` PDA.
+  - Statement: after a successful SPL settlement of amount `a`, a deposit leg (`InterfaceTransfer::SplDeposit`) transfers exactly `a` tokens from the user token account to the vault with the recipient as authority, and a withdrawal leg (`InterfaceTransfer::SplWithdrawal`) transfers exactly `a` tokens from the vault to the user token account signed by the `[b"cpi_authority", 254]` PDA.
   - Location: `programs/shielded-pool/src/instructions/settlement/spl.rs:48-75` (`fn settle_spl`)
   - Severity: Critical
   - Suggested test: positive both directions; harness: program-tests integration (`cargo test-sbf`)
@@ -251,7 +251,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-29: pure shielded transfer moves no lamports and no tokens**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (frame assertions: every lamport balance unchanged except the payer's signature fee)
   - Kind: frame
-  - Statement: after a successful `transact` with both public amounts `None`, every account's lamports and every token-account balance are unchanged (only the tree account's data changes, minus transaction fees paid outside the program).
+  - Statement: after a successful `transact` with an empty `interface_transfers` list, every account's lamports and every token-account balance are unchanged (only the tree account's data changes, minus transaction fees paid outside the program).
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:170-176` (`fn process_transact_core`, `None` arm)
   - Severity: High
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
@@ -259,7 +259,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-30: transact modifies no account other than tree and settlement accounts**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (journaled snapshot compare: the tree is the only account whose data changed)
   - Kind: frame
-  - Statement: after a successful `transact`, every account other than the tree account and (when a public amount is present) the two settlement balance accounts has unchanged data and unchanged lamports.
+  - Statement: after a successful `transact`, every account other than the tree account and (when `interface_transfers` legs are present) the two settlement balance accounts has unchanged data and unchanged lamports.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:116-178` (`fn process_transact_core`)
   - Severity: High
   - Suggested test: positive; harness: mollusk unit (full account snapshot compare)

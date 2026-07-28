@@ -50,22 +50,23 @@ mod strategies {
         prop_oneof![
             any::<u64>().prop_map(|amount| InterfaceTransfer::SolDeposit { amount }),
             any::<u64>().prop_map(|amount| InterfaceTransfer::SolWithdrawal { amount }),
-            (any::<u64>(), any::<u8>())
-                .prop_map(|(amount, vault_bump)| InterfaceTransfer::SplDeposit {
-                    amount,
-                    vault_bump,
-                }),
-            (any::<u64>(), any::<u8>())
-                .prop_map(|(amount, vault_bump)| InterfaceTransfer::SplWithdrawal {
-                    amount,
-                    vault_bump,
-                }),
+            (any::<u64>(), any::<u8>()).prop_map(|(amount, vault_bump)| {
+                InterfaceTransfer::SplDeposit { amount, vault_bump }
+            }),
+            (any::<u64>(), any::<u8>()).prop_map(|(amount, vault_bump)| {
+                InterfaceTransfer::SplWithdrawal { amount, vault_bump }
+            }),
         ]
     }
 
     pub fn input_utxo() -> impl Strategy<Value = InputUtxo> {
         (any::<[u8; 32]>(), any::<u16>(), any::<u16>(), any::<u8>()).prop_map(
-            |(nullifier_hash, nullifier_tree_root_index, utxo_tree_root_index, eddsa_signer_index)| {
+            |(
+                nullifier_hash,
+                nullifier_tree_root_index,
+                utxo_tree_root_index,
+                eddsa_signer_index,
+            )| {
                 InputUtxo {
                     nullifier_hash,
                     nullifier_tree_root_index,

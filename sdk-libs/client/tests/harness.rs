@@ -8,12 +8,6 @@ use zolana_transaction::SOL_MINT;
 pub(crate) const SPL_ASSET_ID: u64 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Owner {
-    P256,
-    Solana,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Asset {
     Sol,
     Spl,
@@ -21,7 +15,6 @@ pub(crate) enum Asset {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct InputSpec {
-    pub owner: Owner,
     pub asset: Asset,
     pub amount: u64,
 }

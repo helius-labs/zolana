@@ -7,10 +7,13 @@ use solana_system_interface::error::SystemError;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{tag, AssetDeposit, DepositAsset, ZoneAssetDeposit, ZoneDeposit},
+    instruction::{
+        tag, AssetDeposit, DepositAsset, DepositAssetKind, DepositEntry, ZoneAssetDeposit,
+        ZoneDeposit,
+    },
     pda, PROGRAM_ID_PUBKEY,
 };
-use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{test_blinding, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
     assert_custom, assert_instruction_error, assert_pool_error,
 };
@@ -21,7 +24,10 @@ use zolana_test_utils::mollusk::{
 };
 
 use shielded_pool_tests::support::{
-    fixtures::{raw_sol_deposit, register_mint, sol_deposit_accounts, spl_depositor, Pool},
+    fixtures::{
+        raw_deposit_batch, raw_sol_deposit, register_mint, sol_deposit_accounts,
+        sol_group_accounts, spl_depositor, spl_group_accounts, Pool,
+    },
     mollusk::{deposit_fixture, setup_mollusk},
 };
 
@@ -58,6 +64,127 @@ fn spl_deposit_accepts_zero_amount() {
     assert_eq!(event.output.amount, 0);
     assert_eq!(pool.rpc.token_balance(&user_token), Some(1_000));
     assert_eq!(pool.rpc.token_balance(&vault), Some(0));
+}
+
+/// Raw batch entry with placeholder output fields, for tests that violate an
+/// instruction-data invariant the `Deposit` builder never produces.
+fn raw_entry(amount: u64) -> DepositEntry {
+    DepositEntry {
+        asset_index: 0,
+        view_tag: [9u8; 32],
+        owner: [9u8; 32],
+        blinding: test_blinding(9),
+        amount,
+        utxo_data: None,
+        memo: None,
+    }
+}
+
+fn spl_asset_kind(mint: &Pubkey) -> DepositAssetKind {
+    DepositAssetKind::Spl {
+        vault_bump: pda::spl_asset_vault_with_bump(mint).1,
+    }
+}
+
+#[test]
+fn deposit_batch_rejects_an_empty_batch() {
+    // The builder refuses empty batches (`DepositBuildError::EmptyBatch`), so
+    // only raw instruction data can reach this on-chain check.
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let tree = pool.tree.pubkey();
+
+    let err = raw_deposit_batch(
+        &mut pool.rpc,
+        tree,
+        &depositor,
+        vec![DepositAssetKind::Sol],
+        Vec::new(),
+        vec![sol_group_accounts()],
+    )
+    .expect_err("empty batch must fail");
+    assert_pool_error(err, ShieldedPoolError::EmptyDepositBatch);
+}
+
+#[test]
+fn deposit_batch_rejects_an_out_of_range_asset_index() {
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let tree = pool.tree.pubkey();
+    let mut entry = raw_entry(1_000);
+    entry.asset_index = 1;
+
+    let err = raw_deposit_batch(
+        &mut pool.rpc,
+        tree,
+        &depositor,
+        vec![DepositAssetKind::Sol],
+        vec![entry],
+        vec![sol_group_accounts()],
+    )
+    .expect_err("out-of-range asset index must fail");
+    assert_pool_error(err, ShieldedPoolError::InvalidDepositAssetIndex);
+}
+
+#[test]
+fn deposit_batch_rejects_summed_amounts_that_overflow() {
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let tree = pool.tree.pubkey();
+
+    let err = raw_deposit_batch(
+        &mut pool.rpc,
+        tree,
+        &depositor,
+        vec![DepositAssetKind::Sol],
+        vec![raw_entry(u64::MAX), raw_entry(1)],
+        vec![sol_group_accounts()],
+    )
+    .expect_err("overflowing summed amounts must fail");
+    assert_pool_error(err, ShieldedPoolError::DepositAmountOverflow);
+}
+
+#[test]
+fn deposit_batch_rejects_a_declared_asset_no_entry_funds() {
+    let mut pool = Pool::initialized();
+    let (mint, _, _) = register_mint(&mut pool);
+    let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
+    let tree = pool.tree.pubkey();
+
+    let err = raw_deposit_batch(
+        &mut pool.rpc,
+        tree,
+        &depositor,
+        vec![DepositAssetKind::Sol, spl_asset_kind(&mint)],
+        vec![raw_entry(1_000)],
+        vec![sol_group_accounts(), spl_group_accounts(mint, user_token)],
+    )
+    .expect_err("unfunded declared asset must fail");
+    assert_pool_error(err, ShieldedPoolError::UnreferencedDepositAsset);
+}
+
+#[test]
+fn deposit_batch_rejects_declaring_the_same_mint_twice() {
+    let mut pool = Pool::initialized();
+    let (mint, _, _) = register_mint(&mut pool);
+    let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
+    let tree = pool.tree.pubkey();
+    let mut second = raw_entry(1_000);
+    second.asset_index = 1;
+
+    let err = raw_deposit_batch(
+        &mut pool.rpc,
+        tree,
+        &depositor,
+        vec![spl_asset_kind(&mint), spl_asset_kind(&mint)],
+        vec![raw_entry(1_000), second],
+        vec![
+            spl_group_accounts(mint, user_token),
+            spl_group_accounts(mint, user_token),
+        ],
+    )
+    .expect_err("duplicate mint must fail");
+    assert_pool_error(err, ShieldedPoolError::DuplicateDepositAsset);
 }
 
 #[test]
@@ -437,9 +564,9 @@ fn mollusk_deposit_rejects_every_account_privilege_downgrade() {
     // only deterministic rejection is pinned.
     let program_index = valid.accounts.len().saturating_sub(1);
     sweep_account_matrix(&mollusk, &valid, &accounts, |mutation| match mutation {
-        AccountMutation::Unsign { index: 1 } => Expected::Err(ProgramError::Custom(
-            u32::from(AccountError::InvalidSigner),
-        )),
+        AccountMutation::Unsign { index: 1 } => {
+            Expected::Err(ProgramError::Custom(u32::from(AccountError::InvalidSigner)))
+        }
         AccountMutation::Readonly { index: 4 } => Expected::Success,
         AccountMutation::Remove { index } if index == program_index => Expected::Err(
             ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),

@@ -156,8 +156,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         }],
         inline_outputs(&output_hashes, &[payer_bytes; 3]),
     );
-    let output_owner_hashes =
-        output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
+    let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
     set_output_owner_tags(&mut outputs, &output_owner_hashes, &[zero, zero, zero]);
     let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
         .expect("external data hash");
@@ -528,10 +527,10 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         .owner_proof_input_hash()
         .expect("payer owner pk hash");
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    let (deposit_dummy_0, nullifier_0) = dummy_input(&[31u8; 31], &nf_tree, roots, &owner_pk_hash)
-        .expect("dummy input 0");
-    let (deposit_dummy_1, nullifier_1) = dummy_input(&[32u8; 31], &nf_tree, roots, &owner_pk_hash)
-        .expect("dummy input 1");
+    let (deposit_dummy_0, nullifier_0) =
+        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 0");
+    let (deposit_dummy_1, nullifier_1) =
+        dummy_input(&[32u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 1");
     let nullifiers = [nullifier_0, nullifier_1];
 
     // The deposited value materializes as one real output owned by the payer's
@@ -602,8 +601,8 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         amount: AMOUNT,
         recipient: depositor.pubkey().to_bytes(),
     }];
-    let external_data_hash = external_data_hash(&transact_ix_data, &resolved_transfers)
-        .expect("external data hash");
+    let external_data_hash =
+        external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx = PrivateTxHash::new(
         &[zero, zero],
         &[shielded_hash, zero, zero],
@@ -731,10 +730,10 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     // Two circuit-dummy inputs with derived nullifiers and non-inclusion
     // witnesses (PR164 constrains dummies), bound to the payer's owner hash.
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    let (deposit_dummy_0, nullifier_0) = dummy_input(&[41u8; 31], &nf_tree, roots, &owner_pk_hash)
-        .expect("dummy input 0");
-    let (deposit_dummy_1, nullifier_1) = dummy_input(&[42u8; 31], &nf_tree, roots, &owner_pk_hash)
-        .expect("dummy input 1");
+    let (deposit_dummy_0, nullifier_0) =
+        dummy_input(&[41u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 0");
+    let (deposit_dummy_1, nullifier_1) =
+        dummy_input(&[42u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 1");
     let nullifiers = [nullifier_0, nullifier_1];
 
     let asset = solana_address::Address::new_from_array(mint.to_bytes());
@@ -776,8 +775,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         .expect("serialize output");
     data.outputs[0].data =
         Some(borsh::to_vec(&OutputDataEncoding::Plaintext(plaintext)).expect("encode output data"));
-    let output_owner_hashes =
-        output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
+    let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
     let mut outputs = vec![
         transfer_output(&shielded_output).expect("real output"),
         dummy_a,

@@ -5,7 +5,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
 use user_registry_tests::{
-    build_register_ix, build_set_merging_enabled_ix, test_p256_pubkey, user_registry_program_id,
+    build_register_ix, build_set_merging_enabled_ix, user_registry_program_id,
     TestTransactionResult, UserRegistryTestRig,
 };
 use zolana_user_registry::error::UserRegistryError;

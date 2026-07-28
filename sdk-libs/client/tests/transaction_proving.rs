@@ -2,11 +2,10 @@
 
 mod harness;
 mod prover;
-mod prover_bootstrap;
 mod proving;
 mod test_indexer;
 
-use harness::{Asset, InputSpec, Owner, SendSpec, TransferHarness, TransferPlan, WithdrawSpec};
+use harness::{Asset, InputSpec, SendSpec, TransferHarness, TransferPlan, WithdrawSpec};
 
 // NOTE(pr164): the P256-owner and mixed-owner proof matrices were removed:
 // PR164 removed the P256 transact rail (`P256TransactUnsupported`), so no
@@ -21,7 +20,7 @@ type SingleOwnerCase = (
 );
 
 fn run(
-    inputs: &[(Owner, Asset, u64)],
+    inputs: &[(Asset, u64)],
     sends: &[(Asset, u64)],
     withdraw: Option<(Asset, u64)>,
     declared_shape: bool,
@@ -30,11 +29,7 @@ fn run(
         plan: TransferPlan {
             inputs: inputs
                 .iter()
-                .map(|&(owner, asset, amount)| InputSpec {
-                    owner,
-                    asset,
-                    amount,
-                })
+                .map(|&(asset, amount)| InputSpec { asset, amount })
                 .collect(),
             sends: sends
                 .iter()
@@ -57,7 +52,7 @@ fn panic_message(payload: &(dyn Any + Send)) -> &str {
 
 fn run_with_context(
     case_index: usize,
-    inputs: &[(Owner, Asset, u64)],
+    inputs: &[(Asset, u64)],
     sends: &[(Asset, u64)],
     withdraw: Option<(Asset, u64)>,
     declared_shape: bool,
@@ -74,7 +69,7 @@ fn run_with_context(
     }
 }
 
-fn run_single_owner_matrix(owner: Owner) {
+fn run_single_owner_matrix() {
     use Asset::{Sol, Spl};
     let cases: Vec<SingleOwnerCase> = vec![
         (vec![(Sol, 100)], vec![(Sol, 60)], None, false),
@@ -110,10 +105,6 @@ fn run_single_owner_matrix(owner: Owner) {
         (vec![(Sol, 100)], vec![(Sol, 60)], None, true),
     ];
     for (case_index, (inputs, sends, withdraw, declared)) in cases.into_iter().enumerate() {
-        let inputs: Vec<_> = inputs
-            .into_iter()
-            .map(|(asset, amount)| (owner, asset, amount))
-            .collect();
         run_with_context(case_index, &inputs, &sends, withdraw, declared);
     }
 }
@@ -121,6 +112,5 @@ fn run_single_owner_matrix(owner: Owner) {
 #[test]
 #[serial_test::serial]
 fn solana_owner_public_amount_and_output_matrix_proves() {
-    run_single_owner_matrix(Owner::Solana);
+    run_single_owner_matrix();
 }
-

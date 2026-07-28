@@ -115,7 +115,8 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
         tag::CREATE_ASSET_COUNTER,
         tag::BATCH_UPDATE_NULLIFIER_TREE,
     ];
-    let transact_payload = transfer_payload(CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8));
+    let transact_payload =
+        transfer_payload(CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8));
     let zone_transact_payload = transfer_payload(CircuitId::ZoneEddsa(1, 1, N_PUBLIC_SLOTS as u8));
     let zone_authority_payload =
         transfer_payload(CircuitId::ZoneAuthority(1, 1, N_PUBLIC_SLOTS as u8));

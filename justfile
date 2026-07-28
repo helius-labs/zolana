@@ -99,9 +99,6 @@ test-swap-program: build-programs
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
 # not run twice per PR.
 test-program-proofs-programs-only: build-programs build-prover-server build-cli
-    # NOTE: transact_{functional,withdrawal,settlement} and mixed_interface_transfers
-    # are pinned to the proofs tier but still await their PR164 behavioral port
-    # (see TODO(pr164-port) in the files); transact_p256 was removed with the rail.
     cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_settlement --test mixed_interface_transfers --test-threads 1
 
 # Groth16-backed program and client matrices, separated from fast state tests.
@@ -180,13 +177,14 @@ test-programs: build-programs build-prover-server build-cli
     cargo nextest run -p shielded-pool-tests --features proofs --test-threads 1
 
 # Proving-key-independent interface, program, and LiteSVM proofless tests.
-# The BDD target covers pool administration, direct deposit batches, and zone
-# deposits (including the fixture program's signed CPI into SPP), but none of
-# the transact targets that spawn the prover.
+# The explicit shielded-pool suites cover pool administration, deposit batches,
+# and zone config (including the fixture program's signed CPI into SPP); the
+# proof-backed binaries are gated behind the `proofs` feature, so the plain
+# package run is hermetic by construction.
 test-proofless-programs: build-programs
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
-    cargo test -p shielded-pool-tests --test bdd
+    cargo nextest run -p shielded-pool-tests
 
 # Aggregate of all CI-runnable Rust tests.
 test-all: test test-programs test-user-registry-litesvm test-swap-program

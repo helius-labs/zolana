@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::merge_zone::MergeZoneProver, ProverClient, SpendProof, TransferSpendInput,
+    prover::merge_zone::MergeZoneProver, MergeProver, ProverClient, SpendProof, TransferSpendInput,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -53,8 +53,8 @@ impl ZoneHarness {
 
     /// Execute a valid zone merge and then replay its exact SPP instruction.
     /// The second transaction uses a distinct compute-budget instruction so it
-    /// has a fresh signature while reusing the same nullifiers and
-    /// `merge_view_tag`.
+    /// has a fresh signature while reusing the same (now queued) proof-bound
+    /// input nullifiers.
     pub(crate) fn merge_zone_replay_rejected(
         &mut self,
         name: &str,
@@ -78,12 +78,13 @@ impl ZoneHarness {
         Ok(())
     }
 
-    /// PR164: default-shielded (non-zone) UTXOs cannot be merged through the
-    /// zone rail — the zone-merge circuit binds each input's zone stamp, so
-    /// proving fails before anything reaches the chain (and a provable
-    //  cross-rail merge would still be rejected on-chain by the caller's
-    //  `expect_proof_rejection` leg).
-    pub(crate) fn default_shielded_utxos_zone_merge_unprovable(
+    /// INV-ZONE-MERGE-11: build a real default-rail merge proof
+    /// (`merge_transact`, instruction tag 12) from default-shielded (non-zone)
+    /// UTXOs and submit it unchanged through `merge_zone` (tag 13). SPP
+    /// recomputes `external_data_hash` with the zone-merge tag, so the proof
+    /// no longer matches and the instruction fails on-chain with
+    /// `TransactProofVerificationFailed` (7008), leaving the tree untouched.
+    pub(crate) fn merge_transact_proof_replayed_as_zone_rejected(
         &mut self,
         name: &str,
         asset: Address,
@@ -102,15 +103,16 @@ impl ZoneHarness {
         assert_replay: bool,
         submit_zone: Option<solana_pubkey::Pubkey>,
         expect_proof_rejection: bool,
-        expect_proving_rejection: bool,
+        prove_for_default_merge: bool,
     ) -> Result<Option<solana_signature::Signature>> {
-        // PR164 removed `merge_view_tag` and with it the default-merge rail the
-        // replay test was built on, so there is no merge_transact proof to
-        // replay. The surviving cross-rail property is that default-shielded
-        // (non-zone) UTXOs cannot be zone-merged; the zone-merge circuit binds
-        // each input's zone stamp, so the rejection now happens at proving time
-        // (constraint failure) rather than as an on-chain
-        // `TransactProofVerificationFailed`.
+        // The default-merge rail exists alongside the zone rail:
+        // `merge_transact` (instruction tag 12) and `zone_merge_transact`
+        // (tag 13) share the on-chain merge verifier, and each binds its own
+        // tag into the proof's `external_data_hash`. With
+        // `prove_for_default_merge` set, the proof is built and proven on the
+        // default rail (tag 12) and then replayed unchanged through
+        // `merge_zone` (tag 13), where the recomputed external hash no longer
+        // matches and verification fails on-chain.
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
@@ -211,39 +213,43 @@ impl ZoneHarness {
 
         let expiry_unix_ts = u64::MAX;
 
-        let result = MergeZoneProver {
-            inputs: spend_inputs,
-            output: output.clone(),
-            expiry_unix_ts,
-            signing_pubkey: owner,
-            nullifier_key: keypair.nullifier_key.clone(),
-            zone_program_id: zone,
-        }
-        .build()?;
-
-        let proof = match ProverClient::local().prove_merge_zone(&result.inputs) {
-            Ok(proof) => proof,
-            Err(err) if expect_proving_rejection => {
-                // PR164 cross-rail rejection: the zone-merge circuit binds each
-                // input's zone stamp, so default-shielded (non-zone) UTXOs are
-                // unprovable as a zone merge. The prover refuses and nothing is
-                // submitted, so the tree is trivially untouched and the inputs
-                // stay spendable.
-                let message = format!("{err:#}");
-                if !message.contains("proving") && !message.contains("constraint") {
-                    return Err(anyhow!(
-                        "expected a proving-time rejection of the cross-rail merge, got: {message}"
-                    ));
-                }
-                self.actor_mut(name).spendable.extend(inputs);
-                return Ok(None);
+        // Both rails share the 8-in/1-out merge witness; they differ only in
+        // the instruction tag bound into `external_data_hash` and the zone
+        // binding in the public inputs. For the cross-rail replay the proof is
+        // built by the default `MergeProver` (tag 12), then wrapped in the
+        // `merge_zone` instruction data (tag 13) unchanged.
+        let (data, output_hash, input_nullifiers) = if prove_for_default_merge {
+            let result = MergeProver {
+                inputs: spend_inputs,
+                output,
+                expiry_unix_ts,
+                signing_pubkey: owner,
+                nullifier_key: keypair.nullifier_key.clone(),
             }
-            Err(err) => return Err(err.into()),
+            .build()?;
+            let proof = ProverClient::local().prove_merge(&result.inputs)?;
+            (
+                result.zone_instruction_data(pack_proof(&proof)?, ZERO),
+                result.output_hash,
+                result.nullifiers,
+            )
+        } else {
+            let result = MergeZoneProver {
+                inputs: spend_inputs,
+                output,
+                expiry_unix_ts,
+                signing_pubkey: owner,
+                nullifier_key: keypair.nullifier_key.clone(),
+                zone_program_id: zone,
+            }
+            .build()?;
+            let proof = ProverClient::local().prove_merge_zone(&result.inputs)?;
+            (
+                result.zone_instruction_data(pack_proof(&proof)?, ZERO),
+                result.output_hash,
+                result.nullifiers,
+            )
         };
-
-        let data = result.zone_instruction_data(pack_proof(&proof)?, ZERO);
-        let output_hash = result.output_hash;
-        let input_nullifiers = result.nullifiers.clone();
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let payer = self.payer.insecure_clone();
@@ -265,7 +271,11 @@ impl ZoneHarness {
         );
         if expect_proof_rejection {
             match send_result {
-                Ok(_) => return Err(anyhow!("foreign-zone merge unexpectedly succeeded")),
+                Ok(_) => {
+                    return Err(anyhow!(
+                        "merge submitted with a mismatched proof unexpectedly succeeded"
+                    ))
+                }
                 Err(error) => {
                     assert_eq!(
                         assert_custom_program_error(
@@ -273,7 +283,7 @@ impl ZoneHarness {
                             ShieldedPoolError::TransactProofVerificationFailed as u32,
                         ),
                         1,
-                        "foreign-zone proof must fail in the SPP instruction"
+                        "the mismatched proof must fail in the SPP instruction"
                     );
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                     self.actor_mut(name).spendable.extend(inputs);

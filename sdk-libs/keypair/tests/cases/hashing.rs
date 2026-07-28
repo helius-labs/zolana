@@ -22,7 +22,11 @@ pub(crate) fn sha256_full_matches(_world: &mut KeypairWorld, input: String) {
 }
 
 pub(crate) fn pubkey_field_golden(world: &mut KeypairWorld, name: String, expected: String) {
-    let pf = world.sig_key(&name).pubkey().owner_proof_input_hash().unwrap();
+    let pf = world
+        .sig_key(&name)
+        .pubkey()
+        .owner_proof_input_hash()
+        .unwrap();
     assert_eq!(hex::encode(pf), expected);
 }
 

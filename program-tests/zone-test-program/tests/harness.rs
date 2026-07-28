@@ -7,7 +7,6 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
@@ -63,9 +62,6 @@ pub struct ZoneHarness {
     pub(crate) spls: Vec<SplAsset>,
     /// Which rail the last zone transact / merge took.
     pub(crate) last_rail: Option<Variant>,
-    /// The most recent `zone_transact` instruction and its transaction signature,
-    /// kept so the event test can re-parse the exact bytes and accounts that were sent.
-    pub(crate) last_transact: Option<(Signature, Instruction)>,
     /// The most recent `merge_zone`, kept so the consolidated-output assert can
     /// reconstruct and verify the merged UTXO.
     pub(crate) last_merge: Option<MergeZoneRecord>,
@@ -199,7 +195,6 @@ impl ZoneHarness {
             indexed: Vec::new(),
             spls: Vec::new(),
             last_rail: None,
-            last_transact: None,
             last_merge: None,
             protocol_settings: accounts.protocol_settings,
             protocol_vault: accounts.protocol_vault,

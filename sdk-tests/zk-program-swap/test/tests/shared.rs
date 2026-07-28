@@ -51,6 +51,10 @@ pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
     pub maker: TestWallet,
+    // Read by the cancel and plain-take flows; the verifiable-encryption take
+    // builds its own maker-wallet input instead, so per-binary dead-code
+    // analysis flags this field in that binary.
+    #[allow(dead_code)]
     pub maker_input: SppProofInputUtxo,
     pub taker: TestWallet,
     pub spl_mint: Address,

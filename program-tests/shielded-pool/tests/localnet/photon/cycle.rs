@@ -158,8 +158,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     );
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
-    let transfer_dummy_nullifier = dummy_nullifier(&[20u8; 31])
-        .map_err(|err| anyhow!("transfer dummy nullifier: {err}"))?;
+    let transfer_dummy_nullifier =
+        dummy_nullifier(&[20u8; 31]).map_err(|err| anyhow!("transfer dummy nullifier: {err}"))?;
     let transfer_dummy_nf =
         wait_for_non_inclusion_proof(&indexer, tree_address, transfer_dummy_nullifier)?;
     let transfer_roots = (payer_state_proof.root, payer_nullifier_proof.root);
@@ -345,8 +345,8 @@ fn shield_transfer_unshield_sol_with_photon_indexer() -> TestResult {
     let public_recipient_before = account_lamports(&rpc, &public_recipient)?;
     let vault = pda::sol_interface();
     let vault_before = account_lamports(&rpc, &vault)?;
-    let withdraw_dummy_nullifier = dummy_nullifier(&[21u8; 31])
-        .map_err(|err| anyhow!("withdraw dummy nullifier: {err}"))?;
+    let withdraw_dummy_nullifier =
+        dummy_nullifier(&[21u8; 31]).map_err(|err| anyhow!("withdraw dummy nullifier: {err}"))?;
     let withdraw_dummy_nf =
         wait_for_non_inclusion_proof(&indexer, tree_address, withdraw_dummy_nullifier)?;
     let withdraw_roots = (recipient_state_proof.root, recipient_nullifier_proof.root);

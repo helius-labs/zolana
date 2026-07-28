@@ -62,11 +62,11 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 210
+- Total invariants: 211
   - transact.md: 46 (Transact 32, ZoneTransact 7, ZoneAuthorityTransact 7)
   - deposit.md: 25 (Deposit 17, ZoneDeposit 8)
   - merge.md: 28 (MergeTransact 16, ZoneMergeTransact 12)
-  - tree.md: 20 (CreateTree 9, BatchUpdateNullifierTree 6, PauseTree 5)
+  - tree.md: 21 (CreateTree 9, BatchUpdateNullifierTree 7, PauseTree 5)
   - protocol-config.md: 17 (Create 10, Update 7)
   - zone-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
   - spl.md: 20 (CreateAssetCounter 8, CreateSplInterface 12)
@@ -111,13 +111,13 @@ Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 
 Post-PR164 sync (2026-07-27):
 
-- Covered: 179 / 210
+- Covered: 180 / 211
 - Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Not covered: 1
 - Not applicable post-PR164: 11
 
 Per file (covered / partial+untested / not-applicable):
-transact 38/2/6, deposit 25/0/0, merge 19/5/4, tree 17/3/0,
+transact 38/2/6, deposit 25/0/0, merge 19/5/4, tree 18/3/0,
 protocol-config 17/0/0, zone-config 18/2/0, spl 20/0/0, event 4/0/0,
 cross-cutting 21/8/1.
 

@@ -8,9 +8,9 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{CreateProtocolConfig, UpdateProtocolConfig, UpdateProtocolConfigData},
-    pda, BPF_LOADER_UPGRADEABLE_PUBKEY,
+    pda,
     state::{discriminator, ProtocolConfig},
-    SHIELDED_POOL_PROGRAM_ID,
+    BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::litesvm_asserts::assert_pool_error;
@@ -191,7 +191,6 @@ fn create_skips_the_check_with_a_zeroed_upgrade_authority() {
         result.program_result
     );
 }
-
 
 /// Run `update_protocol_config` against a fabricated account in the config
 /// slot and require the exact `InvalidProtocolConfig` rejection.

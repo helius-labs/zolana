@@ -4,7 +4,7 @@ use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::{instruction::UpdateProtocolConfigData, pda, state::SplAssetRegistry};
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::ZolanaProgramTest;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit, SplDepositAssertArgs,
 };
@@ -185,4 +185,45 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
         },
     );
     assert_eq!(recipient.utxos.len(), 1);
+}
+
+#[test]
+fn token_2022_interface_and_proofless_deposit_settle() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
+    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let mint = pool
+        .rpc
+        .create_mint_with_program(token_program)
+        .expect("create Token-2022 mint");
+    let (_, vault) = pool
+        .rpc
+        .create_spl_interface_with_program(&pool.authority, &mint, token_program)
+        .expect("create Token-2022 interface");
+    let depositor = pool.funded_signer(1_000_000_000);
+    let source = pool
+        .rpc
+        .create_token_account_with_program(&mint, &depositor.pubkey(), token_program)
+        .expect("create Token-2022 source");
+    pool.rpc
+        .mint_to_with_program(&mint, &source, 1_000, token_program)
+        .expect("mint Token-2022 balance");
+
+    let data = ZolanaProgramTest::spl_shield_data_with_program(
+        400,
+        [1u8; 32],
+        test_blinding(7),
+        &mint,
+        &source,
+        token_program,
+    );
+    pool.rpc
+        .deposit(&pool.tree.pubkey(), &depositor, &data)
+        .expect("settle Token-2022 deposit");
+    assert_eq!(pool.rpc.token_balance(&source), Some(600));
+    assert_eq!(pool.rpc.token_balance(&vault), Some(400));
+    let vault_account = pool.rpc.svm.get_account(&vault).expect("vault account");
+    assert_eq!(vault_account.owner, token_program);
 }

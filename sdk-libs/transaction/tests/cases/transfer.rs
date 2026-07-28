@@ -211,8 +211,10 @@ pub(crate) fn build(world: &mut TransactionWorld, recipients: Vec<(String, u64, 
             amount: *amount,
             // A BN254 field element: top byte zeroed (32-byte blindings must
             // stay below the modulus for the Poseidon UTXO hash).
-            blinding: [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1],
+            blinding: [
+                0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                1, 1, 1, 1,
+            ],
             asset: spl_mint,
             asset_id: SPL_ASSET_ID,
             view_tag,

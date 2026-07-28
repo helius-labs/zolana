@@ -61,7 +61,7 @@ fn eddsa_zone_transfer_updates_recipient_wallet() -> Result<()> {
 }
 
 // NOTE(pr164): PR164 removed the P256 zone-transfer rail
-// (`zone_transfer_p256` is gone; `Variant::P256` now errors), so the
+// (`zone_transfer_p256` is gone; only `Variant::Eddsa` remains), so the
 // `p256_zone_transfer_updates_recipient_wallet` case was dropped.
 
 /// INV-ZONE-TRANSACT-07: `zone_transact` does not require the zone's
@@ -101,7 +101,7 @@ fn zone_merge_consolidates_inputs() -> Result<()> {
 
 #[test]
 #[serial]
-fn zone_merge_view_tag_replay_is_rejected_atomically() -> Result<()> {
+fn zone_merge_nullifier_replay_is_rejected_atomically() -> Result<()> {
     let mut harness = ZoneHarness::new()?;
     harness.create_enabled_zone_config()?;
     for _ in 0..2 {
@@ -125,13 +125,13 @@ fn zone_merge_rejects_a_proof_bound_to_another_zone() -> Result<()> {
 
 #[test]
 #[serial]
-fn zone_merge_rejects_default_shielded_utxos() -> Result<()> {
+fn zone_merge_rejects_a_default_merge_proof() -> Result<()> {
     let mut harness = ZoneHarness::new()?;
     harness.create_enabled_zone_config()?;
     for _ in 0..2 {
         harness.shield_default_sol("cross-instruction-merge", 1_000_000_000)?;
     }
-    harness.default_shielded_utxos_zone_merge_unprovable("cross-instruction-merge", SOL_MINT, 2)
+    harness.merge_transact_proof_replayed_as_zone_rejected("cross-instruction-merge", SOL_MINT, 2)
 }
 
 #[test]

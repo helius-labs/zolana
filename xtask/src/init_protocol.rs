@@ -497,17 +497,25 @@ fn read_deploy_upgrade_authority(rpc: &SolanaRpc) -> Result<Option<Pubkey>> {
     if program_data.owner != BPF_LOADER_UPGRADEABLE_PUBKEY {
         bail!("ProgramData account {program_data_address} is not loader-owned");
     }
-    // UpgradeableLoaderState::ProgramData: u32 tag 3 || slot u64 || option tag || authority.
-    let data = program_data.data;
-    if data.len() < 48 || data[0..4] != 3u32.to_le_bytes() {
+    parse_program_data_upgrade_authority(&program_data_address, &program_data.data)
+}
+
+/// Parse the upgrade authority from a loader-v3 `ProgramData` account's data.
+/// Layout: u32 tag 3 || slot u64 le || u8 option tag || 32-byte authority,
+/// followed by the program binary at offset 45.
+fn parse_program_data_upgrade_authority(
+    program_data_address: &Pubkey,
+    data: &[u8],
+) -> Result<Option<Pubkey>> {
+    if data.len() < 13 || data[0..4] != 3u32.to_le_bytes() {
         bail!("ProgramData account {program_data_address} is not a loader-v3 ProgramData state");
     }
-    let option_tag: [u8; 4] = data[12..16].try_into().expect("4 bytes");
-    match option_tag {
-        tag if tag == 0u32.to_le_bytes() => Ok(None),
-        tag if tag == 1u32.to_le_bytes() => Ok(Some(Pubkey::new_from_array(
-            data[16..48].try_into().expect("32 bytes"),
+    match data[12] {
+        0 => Ok(None),
+        1 if data.len() >= 45 => Ok(Some(Pubkey::new_from_array(
+            data[13..45].try_into().expect("32 bytes"),
         ))),
+        1 => bail!("ProgramData account {program_data_address} is truncated"),
         _ => bail!("ProgramData account {program_data_address} has an unknown authority tag"),
     }
 }
@@ -841,4 +849,41 @@ fn print_help() {
     println!("  --yes                                 confirm irreversible mainnet sends");
     println!("  --dry-run                             derive + print addresses, send nothing");
     println!("  -h | --help                           print this help");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Real bincode layout of a loader-v3 `ProgramData` header:
+    /// u32 tag 3 || slot u64 le || u8 option tag || 32-byte authority,
+    /// followed by the program binary (ELF magic 0x7f 'E' 'L' 'F').
+    fn program_data_fixture(option_tag: u8, authority: &[u8; 32]) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&0x0102_0304_0506_0708u64.to_le_bytes());
+        data.push(option_tag);
+        if option_tag == 1 {
+            data.extend_from_slice(authority);
+        }
+        data.extend_from_slice(&[0x7f, b'E', b'L', b'F']);
+        data
+    }
+
+    #[test]
+    fn parses_program_data_upgrade_authority() {
+        let authority = Pubkey::new_from_array([0xAB; 32]);
+        let data = program_data_fixture(1, &authority.to_bytes());
+        let parsed = parse_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
+            .expect("valid ProgramData");
+        assert_eq!(parsed, Some(authority));
+    }
+
+    #[test]
+    fn parses_program_data_without_upgrade_authority() {
+        let data = program_data_fixture(0, &[0u8; 32]);
+        let parsed = parse_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
+            .expect("valid ProgramData");
+        assert_eq!(parsed, None);
+    }
 }

@@ -2,12 +2,11 @@
 
 use solana_pubkey::Pubkey;
 
-/// Which ownership rail the last zone transact / merge took. P256 proves
-/// ownership inside the proof; Eddsa proves it with an ed25519 signature on the
+/// Which ownership rail the last zone transact / merge took. Post-PR164 only
+/// the eddsa rail remains: ownership is proven with an ed25519 signature on the
 /// transaction, checked by the program against the eddsa signer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Variant {
-    P256,
     Eddsa,
 }
 

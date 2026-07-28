@@ -25,7 +25,9 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
+use zolana_client::STATE_TREE_HEIGHT;
 use zolana_client::{prover::field::be, ProverClient, TransferOutput};
+use zolana_hasher::Poseidon;
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice, primitives::hash_bytes, sha256::Sha256BE, Hasher,
 };
@@ -44,7 +46,6 @@ use zolana_interface::{
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, Rejection};
-use zolana_client::STATE_TREE_HEIGHT;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
@@ -52,7 +53,6 @@ use zolana_test_utils::transact::{
     resolve_outputs, set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs,
     TransferProverInputsArgs,
 };
-use zolana_hasher::Poseidon;
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
@@ -158,9 +158,10 @@ fn build_valid_transact_ix_for_owner(
 
     // The real input contributes its utxo hash to private_tx_hash; the dummy
     // input and all outputs contribute zero.
-    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-        .hash()
-        .expect("private tx hash");
+    let private_tx =
+        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
+            .hash()
+            .expect("private tx hash");
 
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
@@ -265,9 +266,7 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
-    let zone = solana_address::Address::new_from_array(
-        zolana_program_test::ZONE_TEST_PROGRAM_ID,
-    );
+    let zone = solana_address::Address::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID);
 
     let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
@@ -361,9 +360,13 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     };
     let external_data_hash = zone_external_data_hash(&transact_ix_data, discriminator);
     let private_output_hashes = vec![zero; n_outputs];
-    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &private_output_hashes, &external_data_hash)
-        .hash()
-        .expect("private tx hash");
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &private_output_hashes,
+        &external_data_hash,
+    )
+    .hash()
+    .expect("private tx hash");
 
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
     // The program folds `hash_bytes` of the SIGNING config's stored program id
@@ -394,9 +397,7 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
             create_hash_chain_from_slice(&[owner_pk_hash, owner_pk_hash])
                 .expect("input owner chain"),
         );
-        chain.push(
-            create_hash_chain_from_slice(&owner_pk_hashes).expect("output owner chain"),
-        );
+        chain.push(create_hash_chain_from_slice(&owner_pk_hashes).expect("output owner chain"));
     }
     let public_input_hash = create_hash_chain_from_slice(&chain).expect("zone public input hash");
 

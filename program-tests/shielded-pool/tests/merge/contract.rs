@@ -292,7 +292,10 @@ fn merge_rejects_a_non_writable_tree() {
     let mut ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
     // input_tree and output_tree are duplicate metas of one account; the
     // runtime unions their privileges, so both must be downgraded.
-    ix.accounts.first_mut().expect("input tree meta").is_writable = false;
+    ix.accounts
+        .first_mut()
+        .expect("input tree meta")
+        .is_writable = false;
     ix.accounts
         .get_mut(1)
         .expect("output tree meta")

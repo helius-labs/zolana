@@ -5,11 +5,11 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_event::{general_event_from_indexed, SplTransfer};
 use zolana_interface::{
-    instruction::{Deposit, UtxoData},
+    instruction::{AssetDeposit, Deposit, UtxoData},
     pda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
-use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{test_blinding, DepositOutput, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_zone_deposit, DepositAssertArgs, SolDepositOracle,
     ZoneDepositAssertArgs,
@@ -34,13 +34,9 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
         AssetRegistry::default(),
     )
     .expect("recipient wallet");
-    let mut data = ZolanaProgramTest::wallet_sol_shield_data(
-        750_000_000,
-        &recipient.identity,
-        &[3u8; 32],
-        0,
-    )
-    .expect("deposit data");
+    let mut data =
+        ZolanaProgramTest::wallet_sol_shield_data(750_000_000, &recipient.identity, &[3u8; 32], 0)
+            .expect("deposit data");
     data.memo = Some(b"manual program test".to_vec());
 
     let tree = pool.tree.pubkey();
@@ -485,3 +481,141 @@ fn zone_spl_deposit_settles_and_indexes_the_exact_output() {
     assert_eq!(recipient.utxos.len(), 1);
 }
 
+/// The batch append writes one root for the whole batch; the indexer replays
+/// the same leaves one at a time into its reference tree. Equal roots prove
+/// the batch append and the leaf-by-leaf append agree.
+#[track_caller]
+fn assert_batch_root_matches_reference(rpc: &ZolanaProgramTest, tree: &Pubkey) {
+    let onchain = rpc.state_root(tree).expect("state root");
+    assert_eq!(
+        rpc.indexer().root(),
+        onchain,
+        "batch append root must match the leaf-by-leaf reference tree"
+    );
+}
+
+/// Every batch entry must append its own leaf at its own index, and the leaf
+/// hashes must be distinct.
+#[track_caller]
+fn assert_distinct_leaves(outputs: &[DepositOutput], count: usize) {
+    assert_eq!(outputs.len(), count);
+    let mut leaf_indices: Vec<u64> = outputs.iter().map(|output| output.leaf_index).collect();
+    leaf_indices.sort_unstable();
+    leaf_indices.dedup();
+    assert_eq!(
+        leaf_indices.len(),
+        count,
+        "each batch entry must append its own leaf"
+    );
+    let mut hashes: Vec<[u8; 32]> = outputs.iter().map(|output| output.utxo_hash).collect();
+    hashes.sort_unstable();
+    hashes.dedup();
+    assert_eq!(hashes.len(), count, "batch leaves must be distinct");
+}
+
+fn sol_interface_lamports(rpc: &ZolanaProgramTest) -> u64 {
+    rpc.svm
+        .get_account(&pda::sol_interface())
+        .map_or(0, |account| account.lamports)
+}
+
+#[test]
+fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
+    const AMOUNT: u64 = 1_000_000;
+    const COUNT: u64 = 3;
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let tree = pool.tree.pubkey();
+    let interface_before = sol_interface_lamports(&pool.rpc);
+    let deposits: Vec<AssetDeposit> = (1..=COUNT)
+        .map(|seed| {
+            let seed = u8::try_from(seed).expect("small batch");
+            ZolanaProgramTest::sol_shield_data(AMOUNT, [seed; 32], test_blinding(seed))
+        })
+        .collect();
+
+    let batch = pool
+        .rpc
+        .deposit_batch(&tree, &depositor, deposits)
+        .expect("batch deposit");
+    let outputs = batch.outputs;
+
+    assert_distinct_leaves(&outputs, COUNT as usize);
+    assert_eq!(
+        batch.spl_transfers,
+        vec![SplTransfer {
+            is_deposit: true,
+            amount: AMOUNT * COUNT,
+            asset: None,
+        }],
+        "one settlement record carrying the summed SOL amount"
+    );
+    for output in &outputs {
+        assert_eq!(output.output.amount, AMOUNT, "per-entry amount");
+        assert_eq!(output.output.asset, [0u8; 32], "SOL asset");
+    }
+    assert_eq!(
+        sol_interface_lamports(&pool.rpc) - interface_before,
+        AMOUNT * COUNT,
+        "the batch must settle the summed amount"
+    );
+    assert_batch_root_matches_reference(&pool.rpc, &tree);
+}
+
+#[test]
+fn multi_asset_deposit_batch_settles_each_asset_once_and_appends_three_distinct_leaves() {
+    const LAMPORTS: u64 = 1_000_000;
+    const TOKENS: u64 = 1_000;
+    let mut pool = Pool::initialized();
+    let (mint, _, vault) = register_mint(&mut pool);
+    let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
+    let tree = pool.tree.pubkey();
+    let interface_before = sol_interface_lamports(&pool.rpc);
+    let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
+
+    let deposits = vec![
+        ZolanaProgramTest::sol_shield_data(LAMPORTS, [1u8; 32], test_blinding(1)),
+        ZolanaProgramTest::spl_shield_data(TOKENS, [2u8; 32], test_blinding(2), &mint, &user_token),
+        ZolanaProgramTest::sol_shield_data(LAMPORTS, [3u8; 32], test_blinding(3)),
+    ];
+    let batch = pool
+        .rpc
+        .deposit_batch(&tree, &depositor, deposits)
+        .expect("batch deposit");
+    let outputs = batch.outputs;
+
+    assert_distinct_leaves(&outputs, 3);
+    assert_eq!(
+        batch.spl_transfers,
+        vec![
+            SplTransfer {
+                is_deposit: true,
+                amount: LAMPORTS * 2,
+                asset: None,
+            },
+            SplTransfer {
+                is_deposit: true,
+                amount: TOKENS,
+                asset: Some(mint.to_bytes()),
+            },
+        ],
+        "one settlement record per asset, each carrying that asset's total"
+    );
+    let assets: Vec<[u8; 32]> = outputs.iter().map(|output| output.output.asset).collect();
+    assert_eq!(
+        assets,
+        vec![[0u8; 32], mint.to_bytes(), [0u8; 32]],
+        "each output records its own asset"
+    );
+    assert_eq!(
+        sol_interface_lamports(&pool.rpc) - interface_before,
+        LAMPORTS * 2,
+        "both SOL entries settle in one transfer"
+    );
+    assert_eq!(
+        pool.rpc.token_balance(&vault).expect("vault balance") - vault_before,
+        TOKENS,
+        "the SPL entry settles into the vault"
+    );
+    assert_batch_root_matches_reference(&pool.rpc, &tree);
+}

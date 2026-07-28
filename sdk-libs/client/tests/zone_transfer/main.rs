@@ -42,14 +42,12 @@ fn run_shape_matrix(mode: Mode) {
 #[test]
 #[serial_test::serial]
 fn zone_transfer_proofs_cover_real_multi_input_consolidation() {
-    for mode in [Mode::EddsaMultiReal] {
-        ZoneTransferHarness {
-            plan: Plan {
-                n_inputs: 3,
-                n_outputs: 3,
-                mode,
-            },
-        }
-        .prove_and_verify();
+    ZoneTransferHarness {
+        plan: Plan {
+            n_inputs: 3,
+            n_outputs: 3,
+            mode: Mode::EddsaMultiReal,
+        },
     }
+    .prove_and_verify();
 }

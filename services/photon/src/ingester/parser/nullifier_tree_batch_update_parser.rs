@@ -45,6 +45,11 @@ pub fn parse_nullifier_tree_batch_update(
                 continue;
             };
             if !is_batch_update_source(parent) {
+                log::debug!(
+                    "Dropping BatchAddressAppend event with foreign parent {} in {}",
+                    parent.program_id,
+                    tx.signature
+                );
                 continue;
             }
 
@@ -94,6 +99,7 @@ fn event_parent(
         ))
     })?;
     let Some(event_height) = event_instruction.stack_height else {
+        log::debug!("Dropping batch event instruction with no stack_height");
         return Ok(None);
     };
     let Some(parent_height) = event_height.checked_sub(1) else {
@@ -171,7 +177,11 @@ mod tests {
         }
     }
 
-    fn batch_update_instruction(tree: Pubkey, new_root: [u8; 32], stack_height: u32) -> Instruction {
+    fn batch_update_instruction(
+        tree: Pubkey,
+        new_root: [u8; 32],
+        stack_height: u32,
+    ) -> Instruction {
         Instruction {
             program_id: pda::shielded_pool_program_id(),
             accounts: vec![
@@ -208,7 +218,10 @@ mod tests {
         }
     }
 
-    fn batch_append_event_instruction(event: &BatchAddressAppendEvent, stack_height: u32) -> Instruction {
+    fn batch_append_event_instruction(
+        event: &BatchAddressAppendEvent,
+        stack_height: u32,
+    ) -> Instruction {
         Instruction {
             program_id: pda::shielded_pool_program_id(),
             accounts: vec![],
@@ -352,7 +365,11 @@ mod tests {
     #[test]
     fn drops_successful_batch_update_without_event() {
         let tx = tx_with_group(InstructionGroup {
-            outer_instruction: batch_update_instruction(Pubkey::new_from_array([7; 32]), [9; 32], 1),
+            outer_instruction: batch_update_instruction(
+                Pubkey::new_from_array([7; 32]),
+                [9; 32],
+                1,
+            ),
             inner_instructions: vec![],
         });
 

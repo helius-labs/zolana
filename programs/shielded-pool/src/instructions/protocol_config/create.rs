@@ -61,10 +61,15 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
 /// itself gates the check -- an attacker cannot influence the owner or
 /// contents of the program's own account, so:
 ///
-/// - non-upgradeable deployments skip the check;
+/// - non-upgradeable deployments skip the check (the gate applies to loader-v3
+///   upgradeable deployments only; loader-v4/native deploys skip it);
 /// - an unset or zeroed upgrade authority (immutable program, LiteSVM harness,
 ///   localnet `--bpf-program` on solana-test-validator 4.x, which loads via
 ///   the upgradeable loader with a zeroed authority) skips it.
+///
+/// Operational note: renouncing the upgrade authority BEFORE init reopens
+/// permissionless init (the gate no longer names an authority), so deploys
+/// must init the config before `--final`.
 ///
 /// Anything malformed or forged (wrong program account, wrong `ProgramData`
 /// address/owner, truncated state) fails closed.
@@ -82,8 +87,8 @@ fn check_initialization_authority(
     let program_state = program
         .try_borrow()
         .map_err(|_| ProgramError::AccountBorrowFailed)?;
-    let program_data_address = parse_program_data_address(&program_state)
-        .ok_or(ShieldedPoolError::UnauthorizedCaller)?;
+    let program_data_address =
+        parse_program_data_address(&program_state).ok_or(ShieldedPoolError::UnauthorizedCaller)?;
     if program_data.address().as_array() != &program_data_address
         || program_data.owner().as_array() != &BPF_LOADER_UPGRADEABLE_ID
     {
@@ -95,7 +100,9 @@ fn check_initialization_authority(
     match parse_upgrade_authority(&program_data_state)
         .ok_or(ShieldedPoolError::UnauthorizedCaller)?
     {
-        Some(authority) if authority != [0u8; 32] && authority != *fee_payer.address().as_array() => {
+        Some(authority)
+            if authority != [0u8; 32] && authority != *fee_payer.address().as_array() =>
+        {
             Err(ShieldedPoolError::UnauthorizedCaller.into())
         }
         // No authority set, or a zeroed authority (immutable; the shape
@@ -160,7 +167,10 @@ mod tests {
     #[test]
     fn parses_program_data_address() {
         let address = [0xAB; 32];
-        assert_eq!(parse_program_data_address(&program_state(address)), Some(address));
+        assert_eq!(
+            parse_program_data_address(&program_state(address)),
+            Some(address)
+        );
         assert_eq!(parse_program_data_address(&[]), None);
         assert_eq!(parse_program_data_address(&3u32.to_le_bytes()), None);
         // Wrong variant tag (ProgramData, not Program).
@@ -174,7 +184,10 @@ mod tests {
             parse_upgrade_authority(&program_data_state(Some(authority))),
             Some(Some(authority))
         );
-        assert_eq!(parse_upgrade_authority(&program_data_state(None)), Some(None));
+        assert_eq!(
+            parse_upgrade_authority(&program_data_state(None)),
+            Some(None)
+        );
         // The solana-test-validator `--bpf-program` shape: authority set to
         // the zeroed address, ELF bytecode trailing the header.
         assert_eq!(

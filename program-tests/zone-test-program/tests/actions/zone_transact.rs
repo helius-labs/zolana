@@ -17,7 +17,6 @@ use zolana_interface::instruction::{
     tag::ZONE_TRANSACT,
     TransactInterfaceTransferAccounts, TransactSolTransferAccounts, ZoneTransact,
 };
-use zolana_keypair::SignatureType;
 use zolana_test_utils::test_validator_asserts::{
     assert_account_unchanged, assert_custom_program_error, assert_zone_transact, fetch_account,
     wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -40,11 +39,6 @@ use crate::{
 /// `ShieldedPoolError::TransactProofVerificationFailed`: SPP's shared transact
 /// proof verifier rejects a malformed / zeroed proof.
 const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
-
-/// Sentinel `eddsa_signer_index` marking a P256-owned input; SPP uses it to select
-/// the P256 verifying key and skip the per-input eddsa signer check. Mirrors
-/// `P256_OWNED_SIGNER` in the shielded-pool program and `witness.rs`.
-const P256_OWNED_SIGNER: u8 = 255;
 
 /// Default eddsa signer account index for a Solana-owned input (the fee payer).
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
@@ -374,13 +368,9 @@ impl ZoneHarness {
                     &result.nullifiers,
                     result.private_tx_hash,
                     &result.input_root_indices,
-                    Variant::Eddsa,
                     transact_proof(&proof)?,
                 )
             }
-            // The P256 rail is removed; kept as a placeholder arm so the
-            // instruction-data variant mapping stays exhaustive.
-            Variant::P256 => Err(anyhow!("P256 rail removed")),
         }
     }
 
@@ -586,7 +576,6 @@ impl ZoneHarness {
             &result.nullifiers,
             result.private_tx_hash,
             &result.input_root_indices,
-            Variant::Eddsa,
             TransactProof::zeroed(),
         )?;
 
@@ -632,7 +621,6 @@ fn assemble_ix_data(
     nullifiers: &[[u8; 32]],
     private_tx_hash: [u8; 32],
     root_indices: &[(u16, u16)],
-    rail: Variant,
     proof: TransactProof,
 ) -> Result<TransactIxData> {
     let n_inputs = proof_inputs.check_shape()?.n_inputs();
@@ -644,21 +632,17 @@ fn assemble_ix_data(
         ));
     }
 
-    // Per-input signer index: a real P256 input uses the P256 sentinel, a real
-    // eddsa input uses signer index 0 (the fee payer); dummies inherit the first
-    // real input's signer.
-    let mut real_signer_indices = Vec::new();
-    for spend in proof_inputs
-        .input_utxos
-        .iter()
-        .filter(|spend| !spend.is_dummy())
-    {
-        let signer = match (rail, spend.utxo.owner.signature_type()?) {
-            (Variant::P256, SignatureType::P256) => P256_OWNED_SIGNER,
-            _ => DEFAULT_EDDSA_SIGNER_INDEX,
-        };
-        real_signer_indices.push(signer);
-    }
+    // Per-input signer index: every real input is eddsa-owned and authorizes
+    // with signer index 0 (the fee payer); dummies inherit the first real
+    // input's signer.
+    let real_signer_indices = vec![
+        DEFAULT_EDDSA_SIGNER_INDEX;
+        proof_inputs
+            .input_utxos
+            .iter()
+            .filter(|spend| !spend.is_dummy())
+            .count()
+    ];
     let dummy_signer = real_signer_indices
         .first()
         .copied()
@@ -686,14 +670,11 @@ fn assemble_ix_data(
         proof,
         expiry_unix_ts: external.expiry_unix_ts,
         private_tx_hash,
-        circuit: match rail {
-            Variant::P256 => return Err(anyhow!("the P256 transact rail was removed")),
-            Variant::Eddsa => CircuitId::ZoneEddsa(
-                n_inputs as u8,
-                external.outputs.len() as u8,
-                zolana_interface::N_PUBLIC_SLOTS as u8,
-            ),
-        },
+        circuit: CircuitId::ZoneEddsa(
+            n_inputs as u8,
+            external.outputs.len() as u8,
+            zolana_interface::N_PUBLIC_SLOTS as u8,
+        ),
         inputs,
         interface_transfers: external
             .interface_transfers

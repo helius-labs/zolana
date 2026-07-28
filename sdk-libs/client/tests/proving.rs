@@ -3,12 +3,11 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_client::{
-    ConfidentialTransfer, NonInclusionProof, ProverVariant, PublicMovements, Rpc,
-    SppProofInputUtxo,
+    ConfidentialTransfer, NonInclusionProof, ProverVariant, PublicMovements, Rpc, SppProofInputUtxo,
 };
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
 use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
+use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, ViewingKey};
 use zolana_transaction::{
     instructions::transact::{
         spp_proof_inputs::{asset_field, signed_to_field},
@@ -47,17 +46,13 @@ impl TransferHarness {
             .inputs
             .iter()
             .map(|input| {
-                let owner = match input.owner {
-                    crate::harness::Owner::P256 => sender.signing_pubkey(),
-                    crate::harness::Owner::Solana => {
-                        let owner = PublicKey::from_ed25519(&random_32(&mut rng));
-                        if first_solana_owner_tag.is_none() {
-                            first_solana_owner_tag = Some(
-                                owner.confidential_view_tag().expect("first owner tag"),
-                            );
-                        }
-                        owner
+                let owner = {
+                    let owner = PublicKey::from_ed25519(&random_32(&mut rng));
+                    if first_solana_owner_tag.is_none() {
+                        first_solana_owner_tag =
+                            Some(owner.confidential_view_tag().expect("first owner tag"));
                     }
+                    owner
                 };
                 let utxo = Utxo {
                     owner,
@@ -67,34 +62,20 @@ impl TransferHarness {
                     zone_program_id: None,
                     data: Data::default(),
                 };
-                match input.owner {
-                    crate::harness::Owner::P256 => SppProofInputUtxo::new(utxo, &sender),
-                    crate::harness::Owner::Solana => SppProofInputUtxo::new(
-                        utxo,
-                        NullifierKey::from_secret({
-                            let mut secret = [0u8; 31];
-                            rand::RngCore::fill_bytes(&mut rng, &mut secret);
-                            secret
-                        }),
-                    ),
-                }
+                SppProofInputUtxo::new(
+                    utxo,
+                    NullifierKey::from_secret({
+                        let mut secret = [0u8; 31];
+                        rand::RngCore::fill_bytes(&mut rng, &mut secret);
+                        secret
+                    }),
+                )
             })
             .collect();
 
         // Post-PR164, dummy and zero-value slots are tagged with the first real
         // input's owner tag (the "dummy owner tag"), not the sender's.
-        let dummy_owner_tag = plan
-            .inputs
-            .first()
-            .map(|input| match input.owner {
-                crate::harness::Owner::P256 => sender
-                    .signing_pubkey()
-                    .confidential_view_tag()
-                    .expect("dummy owner tag"),
-                crate::harness::Owner::Solana => first_solana_owner_tag
-                    .expect("solana owner tag captured"),
-            })
-            .expect("at least one input");
+        let dummy_owner_tag = first_solana_owner_tag.expect("solana owner tag captured");
 
         // Fresh recipients are created up front so the expected outputs can name
         // them. Post-PR164 the confidential rail is eddsa-only, so recipients are
@@ -401,10 +382,7 @@ impl OutputAssertions<'_> {
                 self.dummy_owner_tag
             };
             assert_eq!(
-                external_data
-                    .resolved_owner_tags
-                    .get(position)
-                    .copied(),
+                external_data.resolved_owner_tags.get(position).copied(),
                 Some(want),
                 "resolved owner tag at slot {position}"
             );

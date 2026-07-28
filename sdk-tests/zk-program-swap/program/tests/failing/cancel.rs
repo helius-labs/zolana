@@ -54,4 +54,3 @@ fn truncated_instruction_data_is_rejected_exactly() {
         ProgramError::Custom(SwapError::InvalidInstructionData as u32),
     );
 }
-

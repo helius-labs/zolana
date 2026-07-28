@@ -112,12 +112,11 @@ impl SolDepositOracle {
             .utxo_data
             .as_ref()
             .map_or([0u8; 32], |utxo_data| utxo_data.data_hash);
-        let expected_hash =
-            ProofInputUtxo::new(data.owner, &SOL_MINT, data.amount, &data.blinding)
-                .expect("model deposit fields")
-                .with_data_hash(data_hash)
-                .hash()
-                .expect("model deposit hash");
+        let expected_hash = ProofInputUtxo::new(data.owner, &SOL_MINT, data.amount, &data.blinding)
+            .expect("model deposit fields")
+            .with_data_hash(data_hash)
+            .hash()
+            .expect("model deposit hash");
         assert_eq!(event.leaf_index, expected_leaf as u64, "event leaf order");
         assert_eq!(event.utxo_hash, expected_hash, "event UTXO hash");
         assert_eq!(event.view_tag, data.view_tag, "event view tag");
