@@ -4,6 +4,9 @@ Test-coverage checklist derived from the program source. Detailed invariants
 live in the per-instruction files; `docs/spec.md` remains the protocol source
 of truth.
 
+Legend: PR164 = the circuit/protocol update, merged via PR171 (#171);
+"post-PR164" below refers to that update.
+
 | File | Covers |
 |---|---|
 | `transact.md` | Transact, ZoneTransact, ZoneAuthorityTransact |

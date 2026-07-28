@@ -303,8 +303,9 @@ jobs:
 
   # Line/region coverage over the host-instrumentable kernels + SDK. Informational
   # (prints the summary in the log); code executed inside the SVM is not measured
-  # here (see the `coverage` just recipe). No gate/upload yet — add a
-  # `--fail-under-lines` threshold or an lcov upload when the team picks a target.
+  # here (see the `coverage` just recipe). The lcov report is uploaded as a build
+  # artifact; there is no `--fail-under-lines` gate yet — add one when the team
+  # picks a target.
   coverage:
     name: coverage (llvm-cov)
     runs-on: ubuntu-latest

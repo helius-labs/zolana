@@ -2,6 +2,7 @@ use crate::ingester::error::IngesterError;
 use crate::ingester::parser::state_update::{NullifierTreeBatchUpdate, StateUpdate};
 use crate::ingester::typedefs::block_info::{Instruction, InstructionGroup, TransactionInfo};
 use borsh::BorshDeserialize;
+use cadence_macros::statsd_count;
 use solana_pubkey::Pubkey;
 use zolana_batched_merkle_tree::events::BatchAddressAppendEvent;
 use zolana_event::{tag as event_tag, EventKind};
@@ -62,6 +63,7 @@ pub fn parse_nullifier_tree_batch_update(
             }
 
             let event = BatchAddressAppendEvent::try_from_slice(event_bytes).map_err(|err| {
+                statsd_count!("batch_event_decode_failures", 1);
                 IngesterError::ParserError(format!(
                     "Failed to decode BatchAddressAppendEvent for {}: {}",
                     tx.signature, err
@@ -106,10 +108,15 @@ fn event_parent(
         return Ok(None);
     };
 
-    Ok(group
-        .inner_instructions
-        .get(..event_index)
-        .unwrap_or_default()
+    let previous_instructions = group.inner_instructions.get(..event_index).ok_or_else(|| {
+        IngesterError::ParserError(format!(
+            "Batch event parent search index {} is out of bounds for {} inner instructions",
+            event_index,
+            group.inner_instructions.len()
+        ))
+    })?;
+
+    Ok(previous_instructions
         .iter()
         .rev()
         .find(|instruction| instruction.stack_height == Some(parent_height))
@@ -371,6 +378,97 @@ mod tests {
                 1,
             ),
             inner_instructions: vec![],
+        });
+
+        assert!(parse_nullifier_tree_batch_update(&tx).unwrap().is_none());
+    }
+
+    /// Forester-via-zone-program wrapper shape: the tag-51 batch update runs
+    /// as a CPI inside an outer zone-program instruction, so its event sits at
+    /// height 3. Parent reconstruction must walk to the height-2 tag-51
+    /// instruction and record the update.
+    #[test]
+    fn parses_zone_rail_event_nested_at_height_three() {
+        let zone_program = Pubkey::new_from_array([6; 32]);
+        let tree = Pubkey::new_from_array([7; 32]);
+        let new_root = [9; 32];
+        let event = batch_append_event(tree, new_root);
+        let tx = tx_with_group(InstructionGroup {
+            outer_instruction: Instruction {
+                program_id: zone_program,
+                accounts: vec![],
+                data: vec![0],
+                stack_height: Some(1),
+            },
+            inner_instructions: vec![
+                batch_update_instruction(tree, new_root, 2),
+                batch_append_event_instruction(&event, 3),
+            ],
+        });
+
+        let state_update = parse_nullifier_tree_batch_update(&tx).unwrap().unwrap();
+
+        assert_eq!(state_update.nullifier_tree_batch_updates.len(), 1);
+        assert_eq!(state_update.nullifier_tree_batch_updates[0].tree, tree);
+        assert_eq!(
+            state_update.nullifier_tree_batch_updates[0].new_root,
+            new_root
+        );
+        assert!(has_nullifier_tree_batch_update(&tx));
+    }
+
+    /// Two authenticated batch-append events (different trees and roots) under
+    /// valid tag-51 parents in one transaction: both recorded, in order.
+    #[test]
+    fn records_multiple_events_in_order() {
+        let tree_a = Pubkey::new_from_array([7; 32]);
+        let tree_b = Pubkey::new_from_array([5; 32]);
+        let root_a = [9; 32];
+        let root_b = [4; 32];
+        let event_a = batch_append_event(tree_a, root_a);
+        let event_b = batch_append_event(tree_b, root_b);
+        let tx = TransactionInfo {
+            instruction_groups: vec![
+                InstructionGroup {
+                    outer_instruction: batch_update_instruction(tree_a, root_a, 1),
+                    inner_instructions: vec![batch_append_event_instruction(&event_a, 2)],
+                },
+                InstructionGroup {
+                    outer_instruction: batch_update_instruction(tree_b, root_b, 1),
+                    inner_instructions: vec![batch_append_event_instruction(&event_b, 2)],
+                },
+            ],
+            signature: Signature::from([8; 64]),
+            error: None,
+        };
+
+        let state_update = parse_nullifier_tree_batch_update(&tx).unwrap().unwrap();
+
+        assert_eq!(state_update.nullifier_tree_batch_updates.len(), 2);
+        assert_eq!(state_update.nullifier_tree_batch_updates[0].tree, tree_a);
+        assert_eq!(
+            state_update.nullifier_tree_batch_updates[0].new_root,
+            root_a
+        );
+        assert_eq!(state_update.nullifier_tree_batch_updates[1].tree, tree_b);
+        assert_eq!(
+            state_update.nullifier_tree_batch_updates[1].new_root,
+            root_b
+        );
+    }
+
+    /// An event instruction without a stack height cannot be authenticated
+    /// (no parent can be reconstructed) and must be dropped.
+    #[test]
+    fn drops_event_without_stack_height() {
+        let tree = Pubkey::new_from_array([7; 32]);
+        let new_root = [9; 32];
+        let event = batch_append_event(tree, new_root);
+        let mut event_instruction = batch_append_event_instruction(&event, 2);
+        event_instruction.stack_height = None;
+        let tx = tx_with_group(InstructionGroup {
+            outer_instruction: batch_update_instruction(tree, new_root, 1),
+            inner_instructions: vec![event_instruction],
         });
 
         assert!(parse_nullifier_tree_batch_update(&tx).unwrap().is_none());

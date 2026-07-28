@@ -43,7 +43,6 @@ validator tiers) are the rest of the behavioral program coverage.
 | zone config | `zone_config_contract` | `admin_rejection` | — |
 | transact | `transact_functional` | `transact_settlement` | — |
 | withdrawal | `transact_withdrawal` | `transact_settlement` | — |
-| P256 ownership | `transact_p256` | `transact_p256` | — |
 | expiry and replay | `transact_withdrawal`, proof/validator transact suites | proof/validator nullifier and merge-tag replay | — |
 | nullifier batches | `localnet_photon` | `localnet_photon`, `nullifier_batch` | — |
 | merge | validator/proof matrices | validator rejection matrix, `merge_contract` | — |
@@ -77,8 +76,9 @@ before any novel case on the next run. **Commit that file**: it turns a
 one-time discovery into a permanent regression guard for everyone. The
 `proptest-regressions` files are intentionally not gitignored. This applies to
 every property suite (`deposit_model`, `deposit/mutation`, the
-interface `parser_props`/`state_props`, `wallet_prop`); only `wallet_prop` has
-persisted a seed so far because the others have not yet failed.
+interface `parser_props`/`state_props`, `wallet_prop`); `wallet_prop` and
+`deposit/mutation` have persisted seeds so far because the others have not yet
+failed.
 
 ## Shared backend, oracle, and transaction journal
 

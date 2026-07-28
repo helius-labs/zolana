@@ -116,9 +116,10 @@ done < <(find "$sp_dir/tests" -name '*.rs')
 
 # (d) Generated ledger/log runtime artifacts must never be tracked under a
 #     source test package (they are gitignored; this catches an accidental add).
+#     `*.proptest-regressions` corpora are NOT artifacts: TESTING.md documents
+#     them as deliberately committed regression guards.
 tracked_artifacts=$(git ls-files -- \
-  'program-tests/**/test-ledger/**' 'program-tests/**/*.log' \
-  'program-tests/**/*.proptest-regressions' 2>/dev/null || true)
+  'program-tests/**/test-ledger/**' 'program-tests/**/*.log' 2>/dev/null || true)
 if [ -n "$tracked_artifacts" ]; then
   echo "generated runtime artifacts must not be committed under source test packages:" >&2
   printf '%s\n' "$tracked_artifacts" >&2
