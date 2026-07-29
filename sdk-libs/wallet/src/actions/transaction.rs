@@ -190,10 +190,10 @@ pub struct BatchTransferParams<'a, R> {
 
 /// N independent pure-shielded transfers destined for one `BatchTransact`
 /// submission. Every recipient must resolve to a registered shielded address
-/// (public withdrawals carry settlement legs and cannot ride the batch rail),
-/// all entries must spend from one tree, and no UTXO may be selected twice —
-/// selection is not batch-aware, so the wallet needs a disjoint spendable UTXO
-/// set per entry (split first when one UTXO covers everything).
+/// (public withdrawals carry settlement legs and cannot ride the batch rail)
+/// and all entries must spend from one tree. Selection is batch-aware: each
+/// entry selects from the UTXOs the earlier entries left, so one UTXO never
+/// backs two entries. Split first when one UTXO must fund several entries.
 pub fn create_batch_transfer_sync<R: Rpc>(
     request: BatchTransferParams<'_, R>,
 ) -> Result<Vec<UnsignedPrivateTransaction>, ClientError> {
@@ -201,14 +201,20 @@ pub fn create_batch_transfer_sync<R: Rpc>(
     let mut spent = BTreeSet::new();
     let mut tree = None;
     for (index, leg) in request.recipients.iter().enumerate() {
-        let created = create_transfer_sync(TransferParams {
-            rpc: request.rpc,
-            wallet: request.wallet,
-            payer: request.payer,
-            recipient: leg.recipient,
-            asset: leg.asset,
-            amount: leg.amount,
-        })?;
+        // Selection skips UTXOs committed to earlier entries, so entries stay
+        // disjoint. An entry that cannot cover its amount from the remaining
+        // set fails with InsufficientBalance.
+        let created = create_transfer_sync_excluding(
+            TransferParams {
+                rpc: request.rpc,
+                wallet: request.wallet,
+                payer: request.payer,
+                recipient: leg.recipient,
+                asset: leg.asset,
+                amount: leg.amount,
+            },
+            &spent,
+        )?;
         if created.recipient.is_public_withdrawal() {
             return Err(ClientError::BatchNotPureShielded { index });
         }
@@ -237,9 +243,8 @@ pub struct BatchSubmission {
 
 /// Sign and prove N pure-shielded entries, then wrap them per the size plan:
 /// one `BatchTransact` transaction when it fits a packet, else one solo
-/// `Transact` transaction per entry. User approval runs per entry in this
-/// version; a single batch-level approval summary needs a wallet-authority
-/// extension.
+/// `Transact` transaction per entry. The authority approves the batch once
+/// through `request_batch_approval` before any entry signs.
 pub fn build_batch_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     entries: Vec<UnsignedPrivateTransaction>,
     wallet: &Wallet,
@@ -252,6 +257,17 @@ pub fn build_batch_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: 
     }
     let input_tree = entries[0].tree;
     let expected_payer_hash = sha256_be(&fee_payer.to_bytes());
+
+    // One approval covers the batch. Entries then sign preapproved.
+    let requests = entries
+        .iter()
+        .map(|entry| ApprovalRequest {
+            solana_pubkey: authority.solana_pubkey(),
+            summary: entry.approval_summary.clone(),
+        })
+        .collect();
+    authority.request_batch_approval(requests)?;
+
     let mut proved = Vec::with_capacity(entries.len());
     for (index, entry) in entries.into_iter().enumerate() {
         if !entry.settlement_transfers.is_empty() {
@@ -260,7 +276,9 @@ pub fn build_batch_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: 
         if entry.tree != input_tree {
             return Err(ClientError::BatchMixedTrees { index });
         }
-        let signed = sign_shielded_transaction_sync(entry, wallet, authority)?;
+        let signed = futures::executor::block_on(sign_shielded_transaction_inner(
+            entry, wallet, authority, false,
+        ))?;
         if signed.transaction.payer_pubkey_hash != expected_payer_hash {
             return Err(ClientError::FeePayerMismatch);
         }
@@ -284,7 +302,7 @@ pub async fn create_transfer<R: AsyncRpc>(
     } else {
         None
     };
-    create_transfer_with_recipient(request, recipient, spl_token_program)
+    create_transfer_with_recipient(request, recipient, spl_token_program, &BTreeSet::new())
 }
 
 pub fn create_transfer_sync<R: Rpc>(
@@ -296,13 +314,29 @@ pub fn create_transfer_sync<R: Rpc>(
     } else {
         None
     };
-    create_transfer_with_recipient(request, recipient, spl_token_program)
+    create_transfer_with_recipient(request, recipient, spl_token_program, &BTreeSet::new())
+}
+
+/// `create_transfer_sync` with UTXOs already committed to earlier batch
+/// entries removed from selection.
+fn create_transfer_sync_excluding<R: Rpc>(
+    request: TransferParams<'_, R>,
+    excluded: &BTreeSet<[u8; 32]>,
+) -> Result<CreatedTransfer, ClientError> {
+    let recipient = try_resolve_registered_address(request.rpc, request.recipient)?;
+    let spl_token_program = if recipient.is_none() {
+        resolve_asset_token_program(request.rpc, request.asset)?
+    } else {
+        None
+    };
+    create_transfer_with_recipient(request, recipient, spl_token_program, excluded)
 }
 
 fn create_transfer_with_recipient<R>(
     request: TransferParams<'_, R>,
     recipient: Option<ResolvedAddress>,
     spl_token_program: Option<Pubkey>,
+    excluded: &BTreeSet<[u8; 32]>,
 ) -> Result<CreatedTransfer, ClientError> {
     let tree = resolve_spend_tree(request.wallet, request.asset, |_| true)?;
     let Some(recipient) = recipient else {
@@ -324,7 +358,13 @@ fn create_transfer_with_recipient<R>(
             },
         });
     };
-    let inputs = select_inputs(request.wallet, tree, request.asset, request.amount)?;
+    let inputs = select_inputs(
+        request.wallet,
+        tree,
+        request.asset,
+        request.amount,
+        excluded,
+    )?;
     Ok(CreatedTransfer {
         transaction: UnsignedPrivateTransaction {
             payer: request.payer,
@@ -810,6 +850,17 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     wallet: &Wallet,
     authority: &A,
 ) -> Result<SignedPrivateTransaction, ClientError> {
+    sign_shielded_transaction_inner(transaction, wallet, authority, true).await
+}
+
+/// `request_approval = false` skips the per-entry prompt. The batch path
+/// approves all entries first through `request_batch_approval`.
+async fn sign_shielded_transaction_inner<A: WalletAuthority + ?Sized>(
+    transaction: UnsignedPrivateTransaction,
+    wallet: &Wallet,
+    authority: &A,
+    request_approval: bool,
+) -> Result<SignedPrivateTransaction, ClientError> {
     validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
     let address = authority.shielded_address().await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
@@ -836,7 +887,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
                 prepared,
                 authority,
                 &wallet.registry,
-                transaction.approval_summary,
+                request_approval.then(|| transaction.approval_summary.clone()),
             )
             .await?
         }
@@ -850,7 +901,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
                 prepared,
                 authority,
                 &wallet.registry,
-                transaction.approval_summary,
+                request_approval.then(|| transaction.approval_summary.clone()),
             )
             .await?
         }
@@ -873,7 +924,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
                 prepared,
                 authority,
                 &wallet.registry,
-                transaction.approval_summary,
+                request_approval.then(|| transaction.approval_summary.clone()),
             )
             .await?
         }
@@ -898,17 +949,19 @@ async fn sign_prepared<A: WalletAuthority + ?Sized>(
     prepared: PreparedTransfer,
     authority: &A,
     assets: &AssetRegistry,
-    approval_summary: String,
+    approval_summary: Option<String>,
 ) -> Result<SppProofInputs, ClientError> {
     let encrypted = authority
         .encrypt_confidential_transfer(&prepared.first_nullifier, &prepared.outputs, assets)
         .await?;
-    authority
-        .request_user_approval(ApprovalRequest {
-            solana_pubkey: authority.solana_pubkey(),
-            summary: approval_summary,
-        })
-        .await?;
+    if let Some(summary) = approval_summary {
+        authority
+            .request_user_approval(ApprovalRequest {
+                solana_pubkey: authority.solana_pubkey(),
+                summary,
+            })
+            .await?;
+    }
     let proof_inputs =
         prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
     Ok(proof_inputs)
@@ -918,19 +971,21 @@ async fn sign_prepared_split<A: WalletAuthority + ?Sized>(
     prepared: PreparedSplit,
     authority: &A,
     assets: &AssetRegistry,
-    approval_summary: String,
+    approval_summary: Option<String>,
 ) -> Result<SppProofInputs, ClientError> {
     let bundle = prepared.bundle_plaintext(assets)?;
     let view_tag = prepared.owner_view_tag()?;
     let encrypted = authority
         .encrypt_split(&prepared.first_nullifier, view_tag, &bundle)
         .await?;
-    authority
-        .request_user_approval(ApprovalRequest {
-            solana_pubkey: authority.solana_pubkey(),
-            summary: approval_summary,
-        })
-        .await?;
+    if let Some(summary) = approval_summary {
+        authority
+            .request_user_approval(ApprovalRequest {
+                solana_pubkey: authority.solana_pubkey(),
+                summary,
+            })
+            .await?;
+    }
     let proof_inputs =
         prepared.finalize(encrypted.tx_viewing_pk, encrypted.salt, encrypted.payload)?;
     Ok(proof_inputs)
@@ -1037,7 +1092,7 @@ fn select_withdrawal_inputs(
                 spend_tree: tree,
             });
         }
-        inputs.extend(select_inputs(wallet, tree, *asset, *amount)?);
+        inputs.extend(select_inputs(wallet, tree, *asset, *amount, &BTreeSet::new())?);
     }
 
     Ok((tree, inputs))
@@ -1092,11 +1147,15 @@ fn select_inputs(
     tree: Address,
     asset: Address,
     amount: u64,
+    excluded: &BTreeSet<[u8; 32]>,
 ) -> Result<Vec<UnsignedSpendInput>, ClientError> {
     let mut selected = Vec::new();
     let mut available = 0u64;
     for entry in wallet.utxos.iter().filter(|entry| {
-        !entry.spent && entry.utxo.asset == asset && entry.output_context.tree == tree
+        !entry.spent
+            && entry.utxo.asset == asset
+            && entry.output_context.tree == tree
+            && !excluded.contains(&entry.output_context.hash)
     }) {
         selected.push(UnsignedSpendInput {
             utxo: entry.utxo.clone(),
@@ -1228,6 +1287,76 @@ mod tests {
             spent: false,
         });
         wallet
+    }
+
+    /// Add one more spendable SOL UTXO with a distinct blinding.
+    fn push_sol_utxo(wallet: &mut Wallet, keypair: &ShieldedKeypair, amount: u64, salt: u8) {
+        let mut blinding = [salt; 32];
+        blinding[0] = 0;
+        let utxo = Utxo {
+            owner: keypair.signing_pubkey(),
+            asset: SOL_MINT,
+            amount,
+            blinding,
+            zone_program_id: None,
+            data: Data::default(),
+        };
+        let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
+        let hash = utxo
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .expect("utxo hash");
+        let nullifier = utxo
+            .nullifier(&hash, &keypair.nullifier_key)
+            .expect("nullifier");
+        wallet.utxos.push(WalletUtxo {
+            utxo,
+            output_context: zolana_transaction::instructions::transact::types::OutputContext {
+                hash,
+                tree: Address::default(),
+                leaf_index: 1,
+            },
+            nullifier,
+            data_hash: None,
+            zone_data_hash: None,
+            spent: false,
+        });
+    }
+
+    #[test]
+    fn selection_skips_excluded_utxos() {
+        let keypair = ed25519_keypair(9);
+        let wallet = wallet_with_sol(keypair, 500);
+        let tree = wallet.utxos[0].output_context.tree;
+        let first_hash = wallet.utxos[0].output_context.hash;
+
+        let free = select_inputs(&wallet, tree, SOL_MINT, 500, &BTreeSet::new())
+            .expect("free selection");
+        assert_eq!(free.len(), 1);
+
+        let excluded = BTreeSet::from([first_hash]);
+        let Err(err) = select_inputs(&wallet, tree, SOL_MINT, 500, &excluded) else {
+            panic!("excluded utxo must not fund the entry");
+        };
+        assert!(matches!(
+            err,
+            ClientError::InsufficientBalance { available: 0, .. }
+        ));
+    }
+
+    #[test]
+    fn selection_uses_the_remaining_utxo() {
+        let keypair = ed25519_keypair(9);
+        let mut wallet = wallet_with_sol(keypair, 500);
+        let keypair = ed25519_keypair(9);
+        push_sol_utxo(&mut wallet, &keypair, 700, 11);
+        let tree = wallet.utxos[0].output_context.tree;
+        let first_hash = wallet.utxos[0].output_context.hash;
+
+        let excluded = BTreeSet::from([first_hash]);
+        let selected =
+            select_inputs(&wallet, tree, SOL_MINT, 600, &excluded).expect("second utxo");
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].utxo.amount, 700);
     }
 
     fn withdrawal_error(result: Result<CreatedWithdrawal, ClientError>) -> ClientError {

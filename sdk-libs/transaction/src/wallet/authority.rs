@@ -123,6 +123,18 @@ pub trait WalletAuthority: Send + Sync {
         Ok(())
     }
 
+    /// Approve the entries of one batch as a unit. The default asks entry by
+    /// entry, so an authority without a batch prompt keeps its behavior.
+    async fn request_batch_approval(
+        &self,
+        requests: Vec<ApprovalRequest>,
+    ) -> Result<(), TransactionError> {
+        for request in requests {
+            self.request_user_approval(request).await?;
+        }
+        Ok(())
+    }
+
     async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError>;
 
     async fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError>;
@@ -170,6 +182,15 @@ pub trait SyncWalletAuthority: Send + Sync {
     ) -> Result<EncryptedSplit, TransactionError>;
 
     fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
+        Ok(())
+    }
+
+    /// Approve the entries of one batch as a unit. The default asks entry by
+    /// entry, so an authority without a batch prompt keeps its behavior.
+    fn request_batch_approval(&self, requests: Vec<ApprovalRequest>) -> Result<(), TransactionError> {
+        for request in requests {
+            self.request_user_approval(request)?;
+        }
         Ok(())
     }
 
@@ -238,6 +259,13 @@ where
         request: ApprovalRequest,
     ) -> Result<(), TransactionError> {
         SyncWalletAuthority::request_user_approval(self, request)
+    }
+
+    async fn request_batch_approval(
+        &self,
+        requests: Vec<ApprovalRequest>,
+    ) -> Result<(), TransactionError> {
+        SyncWalletAuthority::request_batch_approval(self, requests)
     }
 
     async fn sign_p256(&self, message_hash: &[u8; 32]) -> Result<P256Signature, TransactionError> {
