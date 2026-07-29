@@ -1,7 +1,7 @@
 //! Register agave BN254 batch syscalls into LiteSVM at agave prices.
 //!
 //! The arithmetic runs the `solana-bn254-batch-syscall` host path. Costs match
-//! agave `program-runtime/src/execution_budget.rs` at pin 5134c411.
+//! agave `program-runtime/src/execution_budget.rs` at pin 7090028bb.
 
 use litesvm::LiteSVM;
 use solana_bn254_batch_syscall::{
@@ -16,7 +16,7 @@ use solana_program_runtime::{
     },
 };
 
-// agave 5134c411 program-runtime/src/execution_budget.rs
+// agave 7090028bb program-runtime/src/execution_budget.rs
 const MSM_BASE_COST: u64 = 100;
 const MSM_PER_POINT_COST: u64 = 3_322;
 const PAIRING_BASE_COST: u64 = 17_246;

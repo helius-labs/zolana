@@ -1,54 +1,64 @@
-# Same-vk multi-proof batching (the winning pattern)
+# Same-vk multi-proof batching
 
-Fold **N ≥ 2 proofs under one verifying key** in a single instruction. This is where RLC amortization shows up: measured full-path savings at N=2 are **13.6%** (BatchTransact) and **22.5%** (NullifierTreeMany) — both **recommended** under the ≥10% gate.
+Fold two or more proofs under one verifying key in a single instruction. The
+measured full-path savings at N=2 are 13.6% for BatchTransact and 22.5% for
+NullifierTreeMany (2026-07-29, `just bench-batch-dual`). Both paths clear the
+10% gate and are recommended.
 
 ## 1. `BatchTransact` (SPP)
 
-**What:** N pure-shielded transfers, same circuit type, no public settlement legs, one RLC.
+N pure-shielded transfers with the same circuit, no public settlement legs,
+one RLC.
 
-**Where:** `programs/shielded-pool` → `process_batch_transact_ix`  
-**Tag:** `BatchTransact` (see `zolana_interface` / event tags)  
-**Cap:** `MAX_BATCH_TRANSACT = 4`  
+**Program:** `programs/shielded-pool`, `process_batch_transact_ix`, tag 53  
+**Cap:** `MAX_BATCH_TRANSACT` = 4  
 **Builder:** `zolana_interface::instruction::BatchTransact`  
-**SDK:** `zolana_client::plan_batch_transact` (size-gated, solo fallback), `zolana_wallet::create_batch_transfer_sync`
+**SDK:** `zolana_client::plan_batch_transact` (size gate with solo fallback) and `zolana_wallet::create_batch_transfer_sync`
 
-### Wire
+### Instruction data
 
 ```text
 data = u8 count
-     | repeated count times:
+     | count times:
          u16 le body_len
-         TransactIxData body   // same circuit; empty interface_transfers
+         TransactIxData body   // same circuit, empty interface_transfers
 ```
 
-Accounts match a normal multi-entry pure-shielded path (shared tree, fee payer, etc. — see builder). All entries must share `circuit`; mismatched circuit → `MismatchedCircuitType`. Any public interface transfer → `InvalidTransactShape`.
+The accounts match the pure-shielded transact layout. All entries must share
+one `circuit`. A mismatch fails with `MismatchedCircuitType`. A public
+interface transfer fails with `InvalidTransactShape`.
 
-### Size (measured builders)
+### Size (measured builders, empty bodies)
 
 | N | Bytes legacy | Bytes v0+ALT | Limit |
 | ---: | ---: | ---: | --- |
 | 2 | 741 | 715 | 1232 |
 | 4 | 1201 | 1175 | 1232 |
 
+Complete bodies are larger. A wallet (2,3) entry with ciphertexts measures 773
+bytes, so the N=2 batch does not fit the 1232-byte packet and the plan API
+falls back to solo. Compact (1,1) entries without inline ciphertexts fit at
+N=2. See [examples.md](./examples.md).
+
 ### CU (measured full path)
 
-N=2 dual (`just bench-batch-dual`, (1,1) entries): 307 296 legacy vs 265 553 batch — **13.6% saved, recommended**. Practical N today is 2: with complete bodies, N=4 exceeds the 1232-byte packet even for (1,1). Fold-only (same-vk Independent, 1 public input):
+The N=2 dual with (1,1) entries measures 307296 CU legacy against 265553 CU
+batch, a 13.6% saving. Fold-only CU (same-vk Independent, one public input):
 
 | N | Fold syscall CU |
 | ---: | ---: |
-| 1 | 72 603 |
-| 2 | 92 395 |
-| 4 | 131 784 |
-
-See [measured.md](./measured.md).
+| 1 | 72603 |
+| 2 | 92395 |
+| 4 | 131784 |
+| 8 | 207730 |
+| 16 | 358107 |
 
 ## 2. `BatchUpdateNullifierTreeMany` (forester)
 
-**What:** N same-vk address-append (nullifier tree batch update) proofs in one RLC.
+N same-vk address-append proofs in one RLC, tag 52.
 
-**Where:** forester / interface builders (`BatchUpdateNullifierTree` many variant)  
-**Typical N @1232:** 2, 4  
-**N @4096-sim (size only unless cluster supports larger packets):** 8, 16
+**Cap:** `MAX_BATCH_NULLIFIER_UPDATES` = 16  
+**Builder:** `zolana_interface::instruction::BatchUpdateNullifierTreeMany`
 
 ### Size (measured builders)
 
@@ -56,24 +66,25 @@ See [measured.md](./measured.md).
 | ---: | ---: | ---: | --- |
 | 2 | 672 | 646 | 1232 |
 | 4 | 1060 | 1034 | 1232 |
-| 8 | 1836 | 1810 | 4096-sim |
-| 16 | 3388 | 3362 | 4096-sim |
+| 8 | 1836 | 1810 | 4096 size simulation |
+| 16 | 3388 | 3362 | 4096 size simulation |
 
 ### CU (measured full path)
 
-N=2 dual (zkp batch 10): 198 110 legacy vs 153 484 batch — **22.5% saved, recommended**.
+The N=2 dual with zkp batch 10 measures 198110 CU legacy against 153484 CU
+batch, a 22.5% saving.
 
-## Rules of thumb
+## Rules
 
-1. **Same VK** — different circuits or rails do not share a cheap Independent fold the way same-vk does.
-2. **N ≥ 2** — N=1 is solo verify; do not pay fold overhead.
-3. **Size before CU** — @1232, BatchTransact N=4 is already near the packet limit; more entries need ALTs or future larger packets, not heroics in the ix body.
-4. **Do not mix in a foreign app VK** for CU — that is [no-boost](./no-boost.md) mixed-key k=2.
+1. Same verifying key. Different circuits do not share the cheap Independent fold.
+2. Two or more proofs. One proof is a solo verify and the fold overhead is waste.
+3. Check the size before the CU. The plan API does this for you.
+4. Do not mix in a foreign app key for CU. That shape is [no-boost](./no-boost.md).
 
-## Regenerating numbers
+## Regenerate the numbers
 
 ```bash
-just bench-batch-matrix    # sizes → CU_MATRIX.md
-just bench-batch-fold-cu   # fold-only syscall CU
-just bench-batch-dual      # full-path same-vk dual → BATCH_CU_RESULTS.md
+just bench-batch-matrix    # sizes, writes CU_MATRIX.md
+just bench-batch-fold-cu   # fold-only syscall CU, writes FOLD_CU.md
+just bench-batch-dual      # full-path duals, writes BATCH_CU_RESULTS.md
 ```

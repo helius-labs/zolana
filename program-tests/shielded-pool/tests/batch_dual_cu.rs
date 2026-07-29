@@ -627,7 +627,7 @@ fn write_results(transact_legacy: u64, transact_batch: u64, null_legacy: u64, nu
         "# Batch dual CU (LiteSVM + agave batch syscalls)\n\n\
          Policy: ship / recommend only if full-path savings ≥ **10%**. See `docs/batching/`.\n\n\
          Fold-only syscall numbers: [`FOLD_CU.md`](./FOLD_CU.md) (`just bench-batch-fold-cu`).\n\n\
-         ## Same-vk multi — full path (measured)\n\n\
+         ## Same-vk multi, full path (measured)\n\n\
          One transaction per leg: N solo instructions vs one batch instruction, CU\n\
          read from the VM. Transact entries use the (1,1) confidential eddsa shape\n\
          (N=2 with complete bodies fits 1232; (2,3) does not). Nullifier updates use\n\
@@ -647,7 +647,7 @@ fn write_results(transact_legacy: u64, transact_batch: u64, null_legacy: u64, nu
     ));
     md.push_str(
         "\nRegenerate: `just bench-batch-dual`.\n\n\
-         ## Mixed-key k=2 app + SPP — no boost (twins removed)\n\n\
+         ## Mixed-key k=2 app plus SPP, no boost (twins removed)\n\n\
          Measured under the experimental `*_BATCH` twins (since deleted). Kept so nobody\n\
          re-implements the same shape for CU.\n\n\
          | Use case | Legacy CU | Batch CU | Delta |\n\

@@ -1,63 +1,66 @@
 # Measured batch CU snapshot
 
-Source of truth for regeneration:
+Sources and regeneration:
 
-- `program-libs/groth16-batch/CU_MATRIX.md` — sizes + table
-- `program-libs/groth16-batch/BATCH_CU_RESULTS.md` — dual full-path + summary
-- `program-libs/groth16-batch/FOLD_CU.md` — fold-only syscall CU
+- `program-libs/groth16-batch/CU_MATRIX.md`: sizes and the main table (`just bench-batch-matrix`)
+- `program-libs/groth16-batch/BATCH_CU_RESULTS.md`: full-path duals (`just bench-batch-dual`)
+- `program-libs/groth16-batch/FOLD_CU.md`: fold-only syscall CU (`just bench-batch-fold-cu`)
 
-Commands: `just bench-batch-matrix`, `just bench-batch-fold-cu`.
+Measured on 2026-07-27 to 2026-07-29 at agave pin 7090028bb.
 
 ## Policy gate
 
-Recommend a path only if **full-path** savings ≥ **10%** vs legacy (same semantics). Fold-only numbers are strong evidence on the verify leg; they are not a full-path claim by themselves.
+Recommend a path only when the full-path saving is 10% or more against the
+legacy path with the same semantics. Fold-only numbers show the verify leg and
+are not a full-path claim.
 
 ## Full-path duals
 
-### Mixed-key k=2 (app + SPP) — **no boost** (twins removed)
+### Same-vk multi (`just bench-batch-dual`)
 
-| Use case | Legacy CU | Batch CU | Δ | Status |
-| --- | ---: | ---: | ---: | --- |
-| Swap take | 269 481 | 270 878 | −1 397 | **no boost** — do not implement |
-| Swap cancel | 260 690 | 262 078 | −1 388 | **no boost** — do not implement |
-| Swap make | — | — | — | blocked (circuit); would be same shape |
+One transaction per leg: N solo instructions against one batch instruction, CU
+read from the VM on the SBF program with proofs.
 
-### Same-vk multi — full path (measured, `just bench-batch-dual`)
-
-One transaction per leg: N solo instructions vs one batch instruction, CU read
-from the VM on the SBF program with proofs.
-
-| Use case | Legacy CU | Batch CU | Δ | Saved | Status |
+| Use case | Legacy CU | Batch CU | Delta | Saved | Status |
 | --- | ---: | ---: | ---: | ---: | --- |
-| BatchTransact N=2 vs 2× Transact (1,1) | 307 296 | 265 553 | 41 743 | **13.6%** | **recommended** |
-| NullifierTreeMany N=2 vs 2× single (zkp=10) | 198 110 | 153 484 | 44 626 | **22.5%** | **recommended** |
+| BatchTransact N=2 against 2 solo Transact, (1,1) entries | 307296 | 265553 | 41743 | 13.6% | recommended |
+| NullifierTreeMany N=2 against 2 solo updates, zkp batch 10 | 198110 | 153484 | 44626 | 22.5% | recommended |
 
-Both clear the ≥10% gate. Shape notes: transact entries use (1,1) — with
-bodies a (2,3) N=2 batch already exceeds the 1232-byte packet; nullifier
-updates use zkp batch 10 (`batch_address-append_40_10.key`). Larger N saves
-more on the verify leg (see fold-only) but needs larger packets for size.
+Shape notes: the transact entries use (1,1) because a (2,3) N=2 batch exceeds
+the 1232-byte packet. The nullifier updates use zkp batch 10
+(`batch_address-append_40_10.key`).
 
-## Fold-only (syscall layout × agave prices)
+### Mixed-key k=2, app plus SPP: no boost
 
-Independent same-vk, 1 public input (`just bench-batch-fold-cu`):
+| Use case | Legacy CU | Batch CU | Delta | Status |
+| --- | ---: | ---: | ---: | --- |
+| Swap take | 269481 | 270878 | -1397 | do not implement |
+| Swap cancel | 260690 | 262078 | -1388 | do not implement |
+| Swap make | n/a | n/a | blocked by the circuit, same shape |
 
-| N | Fold CU | vs N×(N=1) |
+## Fold-only (syscall layout at agave prices)
+
+Same-vk Independent, one public input (`just bench-batch-fold-cu`):
+
+| N | Fold CU | Against N solo verifies |
 | ---: | ---: | ---: |
-| 1 | 72 603 | — |
-| 2 | 92 395 | ~36% lower than 2×1 |
-| 4 | 131 784 | ~55% |
-| 8 | 207 730 | ~64% |
-| 16 | 358 107 | ~69% |
+| 1 | 72603 | baseline |
+| 2 | 92395 | about 36% lower |
+| 4 | 131784 | about 55% lower |
+| 8 | 207730 | about 64% lower |
+| 16 | 358107 | about 69% lower |
 
-Solo×2 rough IC+pairing ≈ 124 674; batch N=2 = 92 395; **delta ≈ 32 279** (~26% on verify-only). Apply still scales with N, so full-path % is lower than fold-only.
+The apply side still scales with N, so the full-path saving is smaller than
+the fold-only saving.
 
-## Packet sizes (builders)
-
-See `CU_MATRIX.md` for full table. Highlights:
+## Packet sizes (builders, empty bodies)
 
 | Builder | Legacy tx | v0+ALT | Limit |
 | --- | ---: | ---: | --- |
 | BatchTransact N=2 | 741 | 715 | 1232 |
 | BatchTransact N=4 | 1201 | 1175 | 1232 |
 | NullifierTreeMany N=4 | 1060 | 1034 | 1232 |
-| NullifierTreeMany N=8 | 1836 | 1810 | 4096-sim |
+| NullifierTreeMany N=8 | 1836 | 1810 | 4096 size simulation |
+
+A wallet (2,3) entry with ciphertexts measures 773 bytes and the N=2
+batch probe 1831 bytes, so wallet batching waits for larger packets.

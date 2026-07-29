@@ -1,4 +1,4 @@
-# BN254 batch verify — measured CU only
+# BN254 batch verify, measured CU only
 
 Every CU and byte cell comes from a measured run (mollusk `BENCHMARK.md` or this
 test's builder serialization). **No invented CU.**
@@ -10,7 +10,7 @@ Packet limits: **1232** (today) and **4096** (SIMD-0296 size sim).
 
 ## Syscall pin
 
-Agave `5134c411` — `program-runtime/src/execution_budget.rs` MSM / pairing_check costs.
+Agave pin `7090028bb` (branch helius/bn254-b1-zolana-pin). The MSM and pairing costs come from `program-runtime/src/execution_budget.rs`.
 
 ## How cells were filled
 
@@ -19,7 +19,7 @@ Agave `5134c411` — `program-runtime/src/execution_budget.rs` MSM / pairing_che
 | CU (legacy app / RFQ) | Existing `just bench-*` mollusk tables |
 | Bytes (forester / BatchTransact) | This test: full builder serialize |
 | CU (same-vk full path) | `BATCH_CU_RESULTS.md` (`just bench-batch-dual`) |
-| App mixed-key batch | removed — see `BATCH_CU_RESULTS.md` / `docs/batching/no-boost.md` |
+| App mixed-key batch | removed, see `docs/batching/no-boost.md` |
 
 ## Table
 
