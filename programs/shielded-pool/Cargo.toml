@@ -21,10 +21,12 @@ profile-program = ["light-program-profiler/profile-program"]
 arrayvec = { workspace = true }
 ark-bn254 = { version = "0.5", default-features = false }
 ark-ff = { version = "0.5", default-features = false }
+bincode = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
 light-array-map = { workspace = true }
+solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 light-program-profiler = { workspace = true }
@@ -37,6 +39,7 @@ zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 zolana-account-checks = { workspace = true, features = ["test-only"] }
 
 [lints.rust.unexpected_cfgs]

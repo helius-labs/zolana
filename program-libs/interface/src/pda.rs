@@ -19,6 +19,16 @@ pub fn protocol_config() -> Pubkey {
     Pubkey::find_program_address(&[SPP_PROTOCOL_CONFIG_PDA_SEED], &shielded_pool_program_id()).0
 }
 
+/// The shielded-pool program's `ProgramData` account under the upgradeable BPF
+/// loader; `create_protocol_config` reads the deploy upgrade authority from it.
+pub fn program_data() -> Pubkey {
+    Pubkey::find_program_address(
+        &[shielded_pool_program_id().as_ref()],
+        &crate::BPF_LOADER_UPGRADEABLE_PUBKEY,
+    )
+    .0
+}
+
 pub fn sol_interface() -> Pubkey {
     sol_interface_with_bump().0
 }

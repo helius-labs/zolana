@@ -1242,7 +1242,7 @@ Usage by instruction:
 | zone_authority_transact | Tag 3; checks zone pda is signer, checks state transition only includes zone program owned UTXOs. UTXO owners don't sign zone has full control subject to its policy.  |
 | create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_tree | Tag 5; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
-| create_protocol_config | Tag 6; the transaction signer must equal the `protocol_authority` it writes |
+| create_protocol_config | Tag 6; the transaction signer must equal the `protocol_authority` it writes; on an upgradeable loader-v3 deployment the signer must also be the program's deploy upgrade authority (read from the loader-v3 `ProgramData` account), so initialization cannot be front-run. The instruction takes the program account and its `ProgramData` account as trailing read-only inputs; non-upgradeable deployments and an unset or zeroed upgrade authority skip the binding. |
 | update_protocol_config | Tag 7; gated by `protocol_config.protocol_authority`; rewrites every authority and flag |
 | pause_tree | Tag 8; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
 | create_zone_config | Tag 9; creates the zone's `zone_config` (the `zone_auth` PDA), which must sign its own creation; the payer must equal `protocol_config.zone_creation_authority` unless `zone_creation_is_permissionless`. See [Zone Accounts](#zone-accounts). |

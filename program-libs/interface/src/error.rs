@@ -16,6 +16,7 @@ pub enum InterfaceError {
     /// mapping reports `InvalidProtocolConfig` (7012) rather than the
     /// SPL-registry code.
     InvalidProtocolConfigData,
+    AlreadyInitialized,
 }
 
 /// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
@@ -114,6 +115,8 @@ pub enum ShieldedPoolError {
     UnsupportedToken2022Extension = 7043,
     #[error("nullifier tree is too full to process a merge")]
     NullifierTreeTooFullForMerge = 7044,
+    #[error("SPL asset counter is already initialized")]
+    SplAssetCounterAlreadyInitialized = 7045,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -129,6 +132,9 @@ impl From<InterfaceError> for ShieldedPoolError {
             InterfaceError::Unauthorized => ShieldedPoolError::UnauthorizedCaller,
             InterfaceError::InvalidAccountData => ShieldedPoolError::InvalidSplAssetRegistry,
             InterfaceError::InvalidProtocolConfigData => ShieldedPoolError::InvalidProtocolConfig,
+            InterfaceError::AlreadyInitialized => {
+                ShieldedPoolError::SplAssetCounterAlreadyInitialized
+            }
         }
     }
 }
@@ -193,6 +199,7 @@ mod tests {
             (InvalidSplTokenMint as u32, 7042),
             (UnsupportedToken2022Extension as u32, 7043),
             (NullifierTreeTooFullForMerge as u32, 7044),
+            (SplAssetCounterAlreadyInitialized as u32, 7045),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

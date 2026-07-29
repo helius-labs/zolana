@@ -11,7 +11,10 @@ use crate::{
 
 /// Initialize the canonical protocol-config PDA. The program creates the PDA via
 /// CPI, so the authority is the rent payer (writable signer) and the system
-/// program must be present.
+/// program must be present. The program account and its loader `ProgramData`
+/// account trail as read-only inputs: on an upgradeable deployment with a set
+/// upgrade authority, only that authority may initialize (front-run protection);
+/// test/localnet deployments skip the check.
 pub struct CreateProtocolConfig {
     pub authority: Pubkey,
     pub protocol_authority: Address,
@@ -42,6 +45,10 @@ impl CreateProtocolConfig {
                 AccountMeta::new(self.authority, true),
                 AccountMeta::new(pda::protocol_config(), false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
+                // The program reads its own loader state to bind initialization
+                // to the deploy upgrade authority (INV-CREATE-PC-10).
+                AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+                AccountMeta::new_readonly(pda::program_data(), false),
             ],
             data: encode_instruction(tag::CREATE_PROTOCOL_CONFIG, &data),
         }
