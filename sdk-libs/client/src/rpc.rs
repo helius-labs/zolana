@@ -66,6 +66,25 @@ pub struct GetShieldedTransactionsByTagsResponse {
     pub next_cursor: Option<Vec<u8>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexedShieldedTransaction {
+    pub event_index: u16,
+    pub transaction: ShieldedTransaction,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GetShieldedTransactionsBySignatureResponse {
+    pub context: Context,
+    pub transactions: Vec<IndexedShieldedTransaction>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GetShieldedTransactionsByNullifiersResponse {
+    pub context: Context,
+    pub transactions: Vec<ShieldedTransaction>,
+    pub next_cursor: Option<Vec<u8>>,
+}
+
 /// Stream of shielded transactions pushed as they land, one per matching transaction.
 pub type ShieldedTransactionStream =
     Pin<Box<dyn Stream<Item = Result<ShieldedTransaction, ClientError>> + Send>>;
@@ -255,6 +274,10 @@ pub trait Rpc {
         Err(unsupported("transact_output_view_tags_from_signature"))
     }
 
+    /// Whether `error` is transient for the post-submission confirmation poll
+    /// (`wait_for_indexed_transaction`). Indexer data-plane polling
+    /// (`IndexerPollConfig::poll_until`, the merkle-proof retry loop) deliberately
+    /// retries every error and does not consult this.
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }
@@ -279,6 +302,24 @@ pub trait Rpc {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
+    }
+
+    fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_signature"))
+    }
+
+    fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_nullifiers"))
     }
 
     fn subscribe_to_shielded_transactions_by_tags(
@@ -316,6 +357,19 @@ pub trait Rpc {
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         Err(unsupported("get_input_merkle_proofs"))
+    }
+
+    /// Resolve input proofs against an explicitly selected tree. Implementations
+    /// that resolve the tree from their own indexed commitment context may use
+    /// the default; tree-configured clients override this for cross-tree spends.
+    fn get_input_merkle_proofs_for_tree(
+        &self,
+        input_tree: Address,
+        input_utxo_commitments: &[InputUtxoContext],
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<Vec<SpendProof>, ClientError> {
+        let _ = input_tree;
+        self.get_input_merkle_proofs(input_utxo_commitments, config)
     }
 
     // ===== Proving =====
@@ -442,6 +496,10 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("transact_output_view_tags_from_signature"))
     }
 
+    /// Whether `error` is transient for the post-submission confirmation poll
+    /// (`wait_for_indexed_transaction_async`). Indexer data-plane polling
+    /// (`IndexerPollConfig::poll_until`) deliberately retries every error and does
+    /// not consult this.
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }
@@ -464,6 +522,24 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
+    }
+
+    async fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_signature"))
+    }
+
+    async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        Err(unsupported("get_shielded_transactions_by_nullifiers"))
     }
 
     async fn subscribe_to_shielded_transactions_by_tags(
@@ -497,6 +573,17 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         Err(unsupported("get_input_merkle_proofs"))
+    }
+
+    async fn get_input_merkle_proofs_for_tree(
+        &self,
+        input_tree: Address,
+        input_utxo_commitments: &[InputUtxoContext],
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<Vec<SpendProof>, ClientError> {
+        let _ = input_tree;
+        self.get_input_merkle_proofs(input_utxo_commitments, config)
+            .await
     }
 
     async fn prove(&self, proof_inputs: SppProofInputs) -> Result<ProveResult, ClientError> {

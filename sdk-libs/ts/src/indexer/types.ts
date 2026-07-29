@@ -62,6 +62,20 @@ export interface GetShieldedTransactionsByTagsResponse {
   readonly nextCursor?: Base64String;
 }
 
+export interface GetShieldedTransactionsBySignatureRequest {
+  readonly txSignature: Signature;
+}
+
+export interface SignatureIndexedShieldedTransaction {
+  readonly eventIndex: number;
+  readonly transaction: IndexedShieldedTransaction;
+}
+
+export interface GetShieldedTransactionsBySignatureResponse {
+  readonly context: IndexerContext;
+  readonly transactions: readonly SignatureIndexedShieldedTransaction[];
+}
+
 export interface GetMerkleProofsRequest {
   readonly treeAccount: Address;
   readonly leaves: readonly Hash[];

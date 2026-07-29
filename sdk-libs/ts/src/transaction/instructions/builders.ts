@@ -1,12 +1,13 @@
-import type { Address, Bytes16, Bytes31, Bytes32 } from "../../interface/types.js";
-import { randomSalt } from "../../keypair/bytes.js";
+import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
+import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import type { NullifierKey } from "../../keypair/nullifier-key.js";
+import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 
 import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
-import { checked, decodeAddress, equal, random31, sha256Be } from "../internal.js";
+import { checked, decodeAddress, equal, sha256Be } from "../internal.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
@@ -36,8 +37,6 @@ export class PreparedMerge {
   readonly output: ProofOutputUtxo;
   readonly expiryUnixTs: bigint;
   readonly signingPublicKey: ShieldedPublicKey;
-  readonly userViewingPublicKey: P256PublicKey;
-  readonly #txViewingSecret: Bytes32;
 
   constructor(
     input: Readonly<{
@@ -45,8 +44,6 @@ export class PreparedMerge {
       output: ProofOutputUtxo;
       expiryUnixTs: bigint;
       signingPublicKey: ShieldedPublicKey;
-      userViewingPublicKey: P256PublicKey;
-      txViewingSecret: Bytes32;
     }>,
   ) {
     if (input.inputs.length !== MERGE_INPUTS) {
@@ -67,20 +64,19 @@ export class PreparedMerge {
     this.output = input.output;
     this.expiryUnixTs = checkedU64(input.expiryUnixTs, "expiryUnixTs");
     this.signingPublicKey = input.signingPublicKey;
-    this.userViewingPublicKey = input.userViewingPublicKey;
-    this.#txViewingSecret = checked<Bytes32>(
-      input.txViewingSecret,
-      32,
-      "transaction viewing secret",
-    );
-  }
-
-  get txViewingSecret(): Bytes32 {
-    return checked<Bytes32>(this.#txViewingSecret, 32, "transaction viewing secret");
   }
 
   inputUtxoHashes(): readonly InputUtxoContext[] {
     return realInputContexts(this.inputs, hasData);
+  }
+
+  dummyNullifiers(nullifierKey: NullifierKey): readonly Bytes32[] {
+    const first = this.inputs.find((input) => !input.isDummy());
+    if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
+    const firstNullifier = first.nullifier();
+    return this.inputs.flatMap((input, index) =>
+      input.isDummy() ? [mergeDummyNullifier(nullifierKey, firstNullifier, index)] : [],
+    );
   }
 }
 
@@ -137,6 +133,7 @@ export class Merge {
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const asset = firstInput.utxo.asset;
     const nullifierPublicKey = nullifierKey.publicKey();
+    const firstNullifier = firstInput.nullifier();
     let amount = 0n;
     inputs.forEach((input, index) => {
       if (input.utxo.owner.signatureType() !== owner.signatureType()) {
@@ -151,7 +148,7 @@ export class Merge {
       if (input.utxo.asset !== asset) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
       }
-      if (input.utxo.zoneProgramId) {
+      if (input.utxo.zoneProgramId !== undefined) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_ZONE_MISMATCH", { index });
       }
       if (!input.utxo.data.isEmpty() || input.dataHash || input.zoneDataHash) {
@@ -164,19 +161,16 @@ export class Merge {
     });
     const padded = [...inputs];
     while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy());
-    const secret = new Uint8Array(32);
-    secret.set(random31(), 1);
     this.#prepared = new PreparedMerge({
       inputs: padded,
       output: createProofOutput({
         ownerAddress: address,
         asset,
         amount,
+        blinding: mergeOutputBlinding(nullifierKey, firstNullifier),
       }),
       expiryUnixTs: 0xffff_ffff_ffff_ffffn,
       signingPublicKey: owner,
-      userViewingPublicKey: address.viewingPublicKey,
-      txViewingSecret: secret as Bytes32,
     });
   }
 
@@ -190,8 +184,6 @@ export class Merge {
       output: this.#prepared.output,
       expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
       signingPublicKey: this.#prepared.signingPublicKey,
-      userViewingPublicKey: this.#prepared.userViewingPublicKey,
-      txViewingSecret: this.#prepared.txViewingSecret,
     });
     return this;
   }
@@ -204,7 +196,7 @@ export class ConfidentialSplit {
   readonly #numOutputs: number;
   readonly #perOutputAmount: bigint;
   readonly #payerHash: Bytes32;
-  readonly #seed = random31();
+  readonly #seed = randomBlinding();
 
   constructor(
     input: Readonly<{
@@ -221,10 +213,10 @@ export class ConfidentialSplit {
         numOutputs: input.numOutputs,
       });
     }
-    if (
-      input.owner.signingPublicKey.signatureType() === "ed25519" &&
-      input.owner.solanaAddress() !== input.payer
-    ) {
+    if (input.owner.signingPublicKey.signatureType() === "p256") {
+      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
+    }
+    if (input.owner.solanaAddress() !== input.payer) {
       throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
         owner: input.owner.solanaAddress(),
         payer: input.payer,
@@ -301,7 +293,7 @@ export class ConfidentialSplit {
     const prepared = this.prepare();
     const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
     const salt = randomSalt();
-    const signed = prepared.finalize({
+    return prepared.finalize({
       txViewingPublicKey: tx.publicKey(),
       salt,
       payload: {
@@ -315,10 +307,6 @@ export class ConfidentialSplit {
         ),
       },
     });
-    if (keypair.signingPublicKey().signatureType() === "p256") {
-      signed.applyP256Signature(keypair.signP256(signed.messageHash()));
-    }
-    return signed;
   }
 }
 
@@ -330,7 +318,7 @@ export class PreparedSplit {
   readonly firstNullifier: Bytes32;
   readonly numOutputs: number;
   readonly perOutputAmount: bigint;
-  readonly blindingSeed: Bytes31;
+  readonly blindingSeed: Bytes32;
   readonly payerPublicKeyHash: Bytes32;
 
   constructor(
@@ -340,7 +328,7 @@ export class PreparedSplit {
       outputs: readonly ProofOutputUtxo[];
       numOutputs: number;
       perOutputAmount: bigint;
-      blindingSeed: Bytes31;
+      blindingSeed: Bytes32;
       payerPublicKeyHash: Bytes32;
     }>,
   ) {
@@ -356,7 +344,7 @@ export class PreparedSplit {
       });
     }
     const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
-    const blindingSeed = checked<Bytes31>(input.blindingSeed, 31, "blinding seed");
+    const blindingSeed = checked<Bytes32>(input.blindingSeed, 32, "blinding seed");
     input.outputs.forEach((output, index) => {
       const expectedAmount = index < input.numOutputs ? perOutputAmount : 0n;
       if (

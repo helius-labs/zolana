@@ -10,7 +10,6 @@ export {
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
-  type P256Signature,
   type SyncWalletAuthority,
   type WalletAuthority,
   type WalletSyncMaterial,
@@ -23,7 +22,6 @@ export {
   submitDeposit,
   type DepositActionParams,
   type DepositParams,
-  type DepositSplAccounts,
   type SubmittedDeposit,
 } from "./deposit.js";
 export {
@@ -87,11 +85,9 @@ export {
   recipientConfidentialViewTag,
   resolveRegisteredAddress,
   resolvedAddressFromRecord,
-  senderViewingPublicKey,
   setMergingEnabled,
   validateRegisteredKeypair,
   type ResolvedAddress,
   type StrictRegistration,
-  type SyncDelegateEntry,
   type UserRecord,
 } from "./registry.js";

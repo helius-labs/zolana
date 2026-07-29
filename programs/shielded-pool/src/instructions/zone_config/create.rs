@@ -2,11 +2,10 @@ use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::CreateZoneConfigData,
-    state::{discriminator::ZONE_CONFIG, ZoneConfig},
+    error::ShieldedPoolError, instruction::CreateZoneConfigData, state::ZoneConfig,
 };
 
+use super::init::ZoneConfigInitParams;
 use crate::instructions::protocol_config::loader::load_protocol_config;
 
 pub fn process_create_zone_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -60,16 +59,13 @@ pub fn process_create_zone_config(accounts: &mut [AccountView], data: &[u8]) -> 
     )
     .map_err(|_| ShieldedPoolError::InvalidZoneConfig)?;
 
-    let mut bytes = zone_config
-        .try_borrow_mut()
-        .map_err(|_| ProgramError::AccountBorrowFailed)?;
-    let cfg: &mut ZoneConfig = bytemuck::from_bytes_mut(&mut bytes[..]);
-    cfg.discriminator = ZONE_CONFIG;
-    cfg.authority = data.authority;
-    cfg.program_id = data.program_id;
-    cfg.zone_authority_transact_is_enabled = u8::from(data.zone_authority_transact_is_enabled);
-    cfg.bump = zone_auth_bump;
-    Ok(())
+    ZoneConfigInitParams {
+        authority: data.authority,
+        program_id: data.program_id,
+        zone_authority_transact_is_enabled: data.zone_authority_transact_is_enabled,
+        bump: zone_auth_bump,
+    }
+    .init(zone_config)
 }
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]

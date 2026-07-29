@@ -4,8 +4,7 @@ import type {
   TransactInstructionData,
   TransactProof,
 } from "../../interface/types.js";
-import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
-import { TransactionError } from "../../transaction/error.js";
+import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { SppProofInputs } from "../../transaction/instructions/transact.js";
 import { ProofInputUtxo, type ProofOutputUtxo } from "../../transaction/utxo.js";
 import { SOL_MINT } from "../../transaction/wallet/asset.js";
@@ -20,11 +19,9 @@ import {
   field,
   hashChain,
   hashField,
-  p256Coordinates,
   poseidon,
-  sha256Bytes,
 } from "../internal.js";
-import type { SpendProof } from "../rpc.js";
+import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import type {
   AssembledTransfer,
   Field,
@@ -32,13 +29,11 @@ import type {
   TransferInput,
   TransferInputs,
   TransferOutput,
-  TransferP256Inputs,
 } from "./types.js";
 
 const STATE_TREE_HEIGHT = 32;
 const NULLIFIER_TREE_HEIGHT = 40;
 const ZERO_PROOF = Object.freeze({
-  rail: "eddsa" as const,
   a: new Uint8Array(32),
   b: new Uint8Array(64),
   c: new Uint8Array(32),
@@ -66,16 +61,18 @@ export function circuitUtxo(value: object): CircuitUtxo {
 export function intoProver(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
+  dummyNullifierProofs: readonly NonInclusionProof[] = [],
 ): ProverInputs {
-  return assemble(proofInputs, spendProofs).proverInputs;
+  return assemble(proofInputs, spendProofs, dummyNullifierProofs).proverInputs;
 }
 
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
+  dummyNullifierProofs: readonly NonInclusionProof[] = [],
 ): AssembledTransfer {
   try {
-    return assembleUnchecked(proofInputs, spendProofs);
+    return assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -84,6 +81,7 @@ export function assemble(
 function assembleUnchecked(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
+  dummyNullifierProofs: readonly NonInclusionProof[],
 ): AssembledTransfer {
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -91,21 +89,6 @@ function assembleUnchecked(
   proofInputs.checkShape();
   const realInputs = proofInputs.inputUtxos.filter((input) => !input.isDummy());
   if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
-
-  const requiresP256 = realInputs.some((input) => input.utxo.owner.signatureType() === "p256");
-  const signature = proofInputs.p256Signature();
-  if (requiresP256 && signature === undefined) {
-    throw new ClientError("CLIENT_MISSING_P256_SIGNATURE");
-  }
-  if (!requiresP256 && signature !== undefined) {
-    throw new ClientError("CLIENT_PROOF_RAIL_MISMATCH");
-  }
-  const p256SigningOwner =
-    signature === undefined ? undefined : checkedP256Owner(realInputs, signature.publicKey);
-  const p256SigningField =
-    p256SigningOwner === undefined
-      ? 0n
-      : bytesField(p256SigningOwner.ownerPublicKeyField(), "p256 signing public key");
 
   const {
     transferInputs,
@@ -115,10 +98,8 @@ function assembleUnchecked(
     nullifierRoots,
     inputOwnerFields,
     rootIndexes,
-  } = assembleSlots(proofInputs, spendProofs, (input) =>
-    input.utxo.owner.signatureType() === "p256"
-      ? p256SigningField
-      : bytesField(input.utxo.owner.ownerPublicKeyField(), "owner public key"),
+  } = assembleSlots(proofInputs, spendProofs, dummyNullifierProofs, (input) =>
+    bytesField(input.utxo.owner.ownerPublicKeyField(), "owner public key"),
   );
 
   const transferOutputs = proofInputs.outputs.map(createOutput);
@@ -134,78 +115,55 @@ function assembleUnchecked(
     hashChain(Array.from({ length: inputHashes.length }, () => 0n)),
     externalDataHash,
   ]);
-  const p256MessageHash =
-    signature === undefined ? 0n : bytesToBigInt(sha256Bytes(bigintToBytes(privateTxHash)));
-  const amounts = proofInputs.publicAmounts();
-  const publicSolAmount = signedField(amounts.sol ?? 0n, "public SOL amount");
-  const publicSplAmount = signedField(amounts.spl ?? 0n, "public SPL amount");
-  const publicSplAssetPublicKey =
-    amounts.spl === undefined || amounts.spl === 0n
-      ? 0n
-      : hashField(addressBytes(findPublicSplAsset(proofInputs)));
+  const movements = publicMovements(proofInputs);
+  const publicSlots = movements.assets.flatMap((asset, index) => [
+    asset,
+    movements.amounts[index] ?? 0n,
+  ]);
   const payerPublicKeyHash = bytesField(proofInputs.payerPublicKeyHash, "payer public key hash");
+  const allowDummyInputs = 1n;
   const publicInputHash = hashChain([
     hashChain(nullifiers.map(bytesToBigInt)),
     hashChain(outputHashes),
     hashChain(utxoRoots),
     hashChain(nullifierRoots),
     privateTxHash,
-    hashField(bigintToBytes(p256MessageHash)),
     externalDataHash,
-    publicSolAmount,
-    publicSplAmount,
-    publicSplAssetPublicKey,
+    ...publicSlots,
     0n,
     payerPublicKeyHash,
+    allowDummyInputs,
     hashChain(inputOwnerFields),
     hashChain(outputOwnerFields),
-    p256SigningField,
   ]);
   const common: TransferInputs = Object.freeze({
     inputs: Object.freeze(transferInputs),
     outputs: Object.freeze(transferOutputs),
     externalDataHash: asField(externalDataHash),
     privateTxHash: asField(privateTxHash),
-    publicSolAmount: asField(publicSolAmount),
-    publicSplAmount: asField(publicSplAmount),
-    publicSplAssetPublicKey: asField(publicSplAssetPublicKey),
+    publicAssets: Object.freeze(movements.assets.map(asField)),
+    publicAmounts: Object.freeze(movements.amounts.map(asField)),
     zoneProgramId: asField(0n),
     payerPublicKeyHash: asField(payerPublicKeyHash),
+    allowDummyInputs: asField(allowDummyInputs),
     publicInputHash: asField(publicInputHash),
   });
-  const [p256PublicKeyX, p256PublicKeyY] =
-    p256SigningOwner === undefined ? [0n, 0n] : p256Coordinates(p256SigningOwner.p256().toBytes());
-  const proverInputs: ProverInputs =
-    signature === undefined || p256SigningOwner === undefined
-      ? Object.freeze({ circuit: "transfer", payload: common })
-      : Object.freeze({
-          circuit: "transferP256",
-          payload: Object.freeze({
-            ...common,
-            p256PublicKeyX: asInteger(p256PublicKeyX),
-            p256PublicKeyY: asInteger(p256PublicKeyY),
-            p256SignatureR: asInteger(bytesToBigInt(signature.r)),
-            p256SignatureS: asInteger(bytesToBigInt(signature.s)),
-            p256MessageHashLow: asField(p256MessageHash & ((1n << 128n) - 1n)),
-            p256MessageHashHigh: asField(p256MessageHash >> 128n),
-            p256SigningPublicKeyField: asField(p256SigningField),
-          } satisfies TransferP256Inputs),
-        });
+  const proverInputs: ProverInputs = Object.freeze({ circuit: "transfer", payload: common });
 
-  const firstSigner = realInputs[0]?.utxo.owner.signatureType() === "p256" ? 255 : 0;
-  let realSignerIndex = 0;
   const instructionData: TransactInstructionData = Object.freeze({
-    proof: ZERO_PROOF,
     expiryUnixTs: proofInputs.externalData.expiryUnixTs,
-    relayerFee: proofInputs.externalData.relayerFee,
     privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
-    ...(p256SigningOwner === undefined
-      ? {}
-      : { p256SigningPkX: p256SigningOwner.confidentialViewTag() }),
+    circuit: Object.freeze({
+      kind: "confidentialEddsa",
+      inputs: proofInputs.inputUtxos.length,
+      outputs: proofInputs.outputs.length,
+      publicAssetSlots: 3,
+    }),
     txViewingPk: proofInputs.externalData.txViewingPublicKey.toBytes(),
     salt: new Uint8Array(proofInputs.externalData.salt) as never,
+    proof: ZERO_PROOF,
     inputs: Object.freeze(
-      proofInputs.inputUtxos.map((input, index) => {
+      proofInputs.inputUtxos.map((_input, index) => {
         const roots = rootIndexes[index];
         const nullifier = nullifiers[index];
         if (!roots || !nullifier) {
@@ -216,26 +174,28 @@ function assembleUnchecked(
             },
           });
         }
-        const signer = input.isDummy()
-          ? firstSigner
-          : realInputs[realSignerIndex++]?.utxo.owner.signatureType() === "p256"
-            ? 255
-            : 0;
         return Object.freeze({
           nullifierHash: nullifier,
           nullifierTreeRootIndex: roots[1],
           utxoTreeRootIndex: roots[0],
-          treeIndex: 0,
-          eddsaSignerIndex: signer,
+          eddsaSignerIndex: 0,
         });
       }),
     ),
-    ...(proofInputs.externalData.publicSolAmount === undefined
-      ? {}
-      : { publicSolAmount: proofInputs.externalData.publicSolAmount }),
-    ...(proofInputs.externalData.publicSplAmount === undefined
-      ? {}
-      : { publicSplAmount: proofInputs.externalData.publicSplAmount }),
+    interfaceTransfers: Object.freeze(
+      proofInputs.externalData.interfaceTransfers.map((transfer) =>
+        transfer.kind === "sol"
+          ? Object.freeze({
+              kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
+              amount: transfer.amount,
+            })
+          : Object.freeze({
+              kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
+              amount: transfer.amount,
+              vaultBump: transfer.vaultBump,
+            }),
+      ),
+    ),
     ...(proofInputs.externalData.dataHash === undefined
       ? {}
       : { dataHash: new Uint8Array(proofInputs.externalData.dataHash) as Bytes32 }),
@@ -293,6 +253,7 @@ export interface AssembledSlots {
 export function assembleSlots(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
+  dummyNullifierProofs: readonly NonInclusionProof[],
   ownerField: (input: ProofInputUtxo, index: number) => bigint,
 ): AssembledSlots {
   const transferInputs: TransferInput[] = [];
@@ -303,6 +264,7 @@ export function assembleSlots(
   const inputOwnerFields: bigint[] = [];
   const rootIndexes: Array<readonly [number, number]> = [];
   let proofIndex = 0;
+  let dummyProofIndex = 0;
   for (let index = 0; index < proofInputs.inputUtxos.length; index++) {
     const input = proofInputs.inputUtxos[index];
     if (!input) {
@@ -314,10 +276,17 @@ export function assembleSlots(
       const first = transferInputs[0];
       const roots = rootIndexes[0];
       if (!first || !roots) throw new ClientError("CLIENT_NO_INPUTS");
+      const proof = dummyNullifierProofs[dummyProofIndex++];
+      if (!proof) {
+        throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
+          details: { index },
+        });
+      }
+      validateDummyNullifierProof(input, proof, index);
       const converted = createDummyTransferInput(
         input,
         first.utxoTreeRoot,
-        first.nullifierTreeRoot,
+        proof,
         first.ownerPublicKeyHash,
       );
       transferInputs.push(converted);
@@ -326,7 +295,7 @@ export function assembleSlots(
       utxoRoots.push(converted.utxoTreeRoot);
       nullifierRoots.push(converted.nullifierTreeRoot);
       inputOwnerFields.push(converted.ownerPublicKeyHash);
-      rootIndexes.push(roots);
+      rootIndexes.push([roots[0], proof.rootIndex]);
       continue;
     }
     const proof = spendProofs[proofIndex++];
@@ -388,23 +357,24 @@ export function createRealInput(
 export function createDummyTransferInput(
   input: ProofInputUtxo,
   utxoRoot: bigint,
-  nullifierRoot: bigint,
+  proof: NonInclusionProof,
   owner: bigint,
+  nullifier = input.nullifier(),
 ): TransferInput {
   const value = Object.freeze({
     utxo: input,
     isDummy: asField(1n),
     statePathElements: Object.freeze(Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n))),
     statePathIndex: asField(0n),
-    nullifierLowValue: asField(0n),
-    nullifierNextValue: asField(0n),
+    nullifierLowValue: asField(bytesField(proof.lowElement, "dummy low element")),
+    nullifierNextValue: asField(bytesField(proof.highElement, "dummy high element")),
     nullifierLowPathElements: Object.freeze(
-      Array.from({ length: NULLIFIER_TREE_HEIGHT }, () => asField(0n)),
+      proof.path.map((item) => asField(bytesField(item, "dummy nullifier path element"))),
     ),
-    nullifierLowPathIndex: asField(0n),
+    nullifierLowPathIndex: asField(proof.lowElementIndex),
     utxoTreeRoot: asField(utxoRoot),
-    nullifierTreeRoot: asField(nullifierRoot),
-    nullifier: asField(bytesField(input.nullifier(), "dummy nullifier")),
+    nullifierTreeRoot: asField(bytesField(proof.root, "dummy nullifier root")),
+    nullifier: asField(bytesField(nullifier, "dummy nullifier")),
     ownerPublicKeyHash: asField(owner),
     nullifierSecret: asField(0n),
   });
@@ -442,34 +412,45 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
         bytesField(input.nullifierKey.publicKey(), "nullifier public key"),
       ]);
   return Object.freeze({
-    domain: asField(1n),
+    domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),
     owner: asField(owner),
-    asset: asField(hashField(addressBytes(input.utxo.asset))),
-    amount: asField(input.utxo.amount),
+    asset: asField(dummy ? 0n : hashField(addressBytes(input.utxo.asset))),
+    amount: asField(dummy ? 0n : input.utxo.amount),
     blinding: asField(bytesToBigInt(input.utxo.blinding)),
-    dataHash: asField(input.dataHash ? bytesField(input.dataHash, "data hash") : 0n),
+    dataHash: asField(dummy ? 0n : input.dataHash ? bytesField(input.dataHash, "data hash") : 0n),
     zoneDataHash: asField(
-      input.zoneDataHash ? bytesField(input.zoneDataHash, "zone data hash") : 0n,
+      dummy ? 0n : input.zoneDataHash ? bytesField(input.zoneDataHash, "zone data hash") : 0n,
     ),
     zoneProgramId: asField(
-      input.utxo.zoneProgramId ? hashField(addressBytes(input.utxo.zoneProgramId)) : 0n,
+      dummy
+        ? 0n
+        : input.utxo.zoneProgramId
+          ? hashField(addressBytes(input.utxo.zoneProgramId))
+          : 0n,
     ),
   });
 }
 
 function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
+  const dummy = output.isDummy();
   return Object.freeze({
-    domain: asField(1n),
-    owner: asField(bytesField(output.ownerHash(), "output owner")),
-    asset: asField(hashField(addressBytes(output.asset))),
-    amount: asField(output.amount),
+    domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),
+    owner: asField(dummy ? 0n : bytesField(output.ownerHash(), "output owner")),
+    asset: asField(dummy ? 0n : hashField(addressBytes(output.asset))),
+    amount: asField(dummy ? 0n : output.amount),
     blinding: asField(bytesToBigInt(output.blinding)),
-    dataHash: asField(output.dataHash ? bytesField(output.dataHash, "output data hash") : 0n),
+    dataHash: asField(
+      dummy ? 0n : output.dataHash ? bytesField(output.dataHash, "output data hash") : 0n,
+    ),
     zoneDataHash: asField(
-      output.zoneDataHash ? bytesField(output.zoneDataHash, "output zone data hash") : 0n,
+      dummy
+        ? 0n
+        : output.zoneDataHash
+          ? bytesField(output.zoneDataHash, "output zone data hash")
+          : 0n,
     ),
     zoneProgramId: asField(
-      output.zoneProgramId ? hashField(addressBytes(output.zoneProgramId)) : 0n,
+      dummy ? 0n : output.zoneProgramId ? hashField(addressBytes(output.zoneProgramId)) : 0n,
     ),
   });
 }
@@ -503,41 +484,44 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
   }
 }
 
-/// The shared P256 signing key is the owner of the first real P256-owned input,
-/// not the key the caller signed with: the circuit routes ownership by comparing
-/// each P256 input's owner tag against this one value. A signature made with any
-/// other key can only produce a proof that fails to verify, so reject it here.
-export function checkedP256Owner(
-  realInputs: readonly ProofInputUtxo[],
-  signingKey: P256PublicKey,
-): ShieldedPublicKey {
-  const owner = realInputs.find((input) => input.utxo.owner.signatureType() === "p256")?.utxo.owner;
-  if (!owner) throw new ClientError("CLIENT_MISSING_P256_SIGNATURE");
-  if (!equal(owner.p256().toBytes(), signingKey.toBytes())) {
-    throw new ClientError("CLIENT_P256_SIGNATURE", {
-      details: { reason: "signature key is not the P256 input owner" },
+function validateDummyNullifierProof(
+  input: ProofInputUtxo,
+  proof: NonInclusionProof,
+  index: number,
+): void {
+  if (!equal(input.nullifier(), proof.leaf)) {
+    throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", { details: { index } });
+  }
+  if (proof.path.length !== NULLIFIER_TREE_HEIGHT) {
+    throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
+      details: {
+        index,
+        kind: "nullifier",
+        expected: NULLIFIER_TREE_HEIGHT,
+        got: proof.path.length,
+      },
     });
   }
-  return owner;
 }
 
-export function findPublicSplAsset(proofInputs: SppProofInputs): Address {
-  let found: Address | undefined;
-  const assets = [
-    ...proofInputs.inputUtxos.map((input) => input.utxo.asset),
-    ...proofInputs.outputs.map((output) => output.asset),
-  ];
-  for (const asset of assets) {
-    if (asset === SOL_MINT) continue;
-    if (found !== undefined && found !== asset) {
-      throw fromClientCause(new TransactionError("TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS"));
-    }
-    found = asset;
+function publicMovements(proofInputs: SppProofInputs): Readonly<{
+  assets: readonly bigint[];
+  amounts: readonly bigint[];
+}> {
+  const aggregated = new Map<Address, bigint>();
+  for (const transfer of proofInputs.externalData.interfaceTransfers) {
+    const asset = transfer.kind === "sol" ? SOL_MINT : transfer.mint;
+    const signed = transfer.isDeposit ? transfer.amount : -transfer.amount;
+    aggregated.set(asset, (aggregated.get(asset) ?? 0n) + signed);
   }
-  if (found === undefined) {
-    throw fromClientCause(new TransactionError("TRANSACTION_MISSING_PUBLIC_SPL_ASSET"));
+  if (aggregated.size > 3) {
+    throw new ClientError("CLIENT_PROVER_INPUT");
   }
-  return found;
+  const assets = [...aggregated.keys()].map((asset) => hashField(addressBytes(asset)));
+  const amounts = [...aggregated.values()].map((amount) => signedField(amount, "public amount"));
+  while (assets.length < 3) assets.push(0n);
+  while (amounts.length < 3) amounts.push(0n);
+  return Object.freeze({ assets: Object.freeze(assets), amounts: Object.freeze(amounts) });
 }
 
 export function signedField(value: bigint, name: string): bigint {
@@ -563,19 +547,9 @@ function equal(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 function copyProof(proof: TransactProof): TransactProof {
-  return proof.rail === "eddsa"
-    ? Object.freeze({
-        rail: "eddsa",
-        a: new Uint8Array(proof.a) as never,
-        b: new Uint8Array(proof.b) as never,
-        c: new Uint8Array(proof.c) as never,
-      })
-    : Object.freeze({
-        rail: "p256",
-        a: new Uint8Array(proof.a) as never,
-        b: new Uint8Array(proof.b) as never,
-        c: new Uint8Array(proof.c) as never,
-        commitment: new Uint8Array(proof.commitment) as never,
-        commitmentPok: new Uint8Array(proof.commitmentPok) as never,
-      });
+  return Object.freeze({
+    a: new Uint8Array(proof.a) as never,
+    b: new Uint8Array(proof.b) as never,
+    c: new Uint8Array(proof.c) as never,
+  });
 }

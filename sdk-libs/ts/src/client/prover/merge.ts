@@ -6,30 +6,21 @@ import type {
 } from "../../interface/types.js";
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
-import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
-import { encryptVerifiable, mergePublicContribution } from "../../keypair/merge/index.js";
+import { ShieldedPublicKey } from "../../keypair/public-key.js";
 import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
-import {
-  EncryptedScheme,
-  encodeMerge,
-  encodeOutputData,
-} from "../../transaction/serialization/codecs.js";
 
 import type { ZolanaClient } from "../client.js";
 import { ClientError, fromClientCause } from "../error.js";
 import {
-  addressBytes,
   bigintToBytes,
   bytesField,
   bytesToBigInt,
   checkedBytes,
   field,
   hashChain,
-  hashField,
-  p256Coordinates,
   poseidon,
 } from "../internal.js";
-import type { SpendProof } from "../rpc.js";
+import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import {
   createDummyTransferInput,
   createOutput,
@@ -39,12 +30,9 @@ import {
 import type { Field, MergeInputs, TransferInput } from "./types.js";
 
 const MERGE_INSTRUCTION_TAG = 12;
-const P256_GENERATOR_X = 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296n;
-const P256_GENERATOR_Y = 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5n;
 
 export interface MergeMaterialInput {
   readonly signingPublicKey: ShieldedPublicKey;
-  readonly viewingPublicKey: P256PublicKey;
   readonly nullifierKey: NullifierKey;
 }
 
@@ -60,11 +48,6 @@ export interface MergeAssembly {
   /// Recomputed on-chain from the instruction; surfaced so the caller need not
   /// re-derive it.
   readonly externalDataHash: Bytes32;
-  readonly encryptedUtxo: Uint8Array;
-  /// The published merge ciphertext and the ephemeral key the owner decrypts it
-  /// with, back to the merged output's amount, asset, and blinding.
-  readonly ciphertext: Uint8Array;
-  readonly txViewingPublicKey: P256PublicKey;
   readonly eddsaOwner: boolean;
   instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData;
 }
@@ -72,18 +55,20 @@ export interface MergeAssembly {
 export async function assembleMerge(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
-  indexer: Pick<ZolanaClient, "getInputMerkleProofs">,
+  indexer: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">,
   tree: Address,
   context?: RequestContext,
 ): Promise<MergeAssembly> {
   try {
     validateMergeMaterial(prepared, material);
-    const proofs = await indexer.getInputMerkleProofs(
-      prepared.inputUtxoHashes(),
-      undefined,
-      context,
-    );
-    return assembleMergeUnchecked(prepared, material, proofs, tree);
+    const dummyNullifiers = prepared.dummyNullifiers(material.nullifierKey);
+    const [proofs, dummyResponse] = await Promise.all([
+      indexer.getInputMerkleProofs(prepared.inputUtxoHashes(), undefined, context),
+      dummyNullifiers.length === 0
+        ? Promise.resolve(undefined)
+        : indexer.getNonInclusionProofs(tree, dummyNullifiers, undefined, context),
+    ]);
+    return assembleMergeUnchecked(prepared, material, proofs, dummyResponse?.proofs ?? [], tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -94,9 +79,10 @@ export function assembleMergeWithProofs(
   material: MergeMaterialInput,
   proofs: readonly SpendProof[],
   tree: Address,
+  dummyNullifierProofs: readonly NonInclusionProof[] = [],
 ): MergeAssembly {
   try {
-    return assembleMergeUnchecked(prepared, material, proofs, tree);
+    return assembleMergeUnchecked(prepared, material, proofs, dummyNullifierProofs, tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -106,6 +92,7 @@ function assembleMergeUnchecked(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
   proofs: readonly SpendProof[],
+  dummyNullifierProofs: readonly NonInclusionProof[],
   tree: Address,
 ): MergeAssembly {
   validateMergeMaterial(prepared, material);
@@ -116,6 +103,16 @@ function assembleMergeUnchecked(
     });
   }
   if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
+  const dummyNullifiers = prepared.dummyNullifiers(material.nullifierKey);
+  if (dummyNullifierProofs.length !== dummyNullifiers.length) {
+    throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
+      details: {
+        expected: dummyNullifiers.length,
+        state: 0,
+        nullifier: dummyNullifierProofs.length,
+      },
+    });
+  }
 
   const inputs: TransferInput[] = [];
   const inputHashes: bigint[] = [];
@@ -124,23 +121,42 @@ function assembleMergeUnchecked(
   const nullifierRoots: bigint[] = [];
   const rootIndexes: Array<readonly [number, number]> = [];
   let proofIndex = 0;
+  let dummyIndex = 0;
   for (const input of prepared.inputs) {
     if (input.isDummy()) {
       const first = inputs[0];
       const firstIndexes = rootIndexes[0];
       if (!first || !firstIndexes) throw new ClientError("CLIENT_NO_INPUTS");
+      const nullifier = dummyNullifiers[dummyIndex];
+      const proof = dummyNullifierProofs[dummyIndex++];
+      if (!nullifier || !proof) {
+        throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
+          details: { index: dummyIndex - 1 },
+        });
+      }
+      if (!equal(proof.leaf, nullifier)) {
+        throw new ClientError("CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH", {
+          details: { index: dummyIndex - 1 },
+        });
+      }
+      if (proof.merkleContext.tree !== tree) {
+        throw new ClientError("CLIENT_MERGE_TREE_MISMATCH", {
+          details: { proofTree: proof.merkleContext.tree, submitTree: tree },
+        });
+      }
       const converted = createDummyTransferInput(
         input,
         first.utxoTreeRoot,
-        first.nullifierTreeRoot,
+        proof,
         first.ownerPublicKeyHash,
+        nullifier,
       );
       inputs.push(converted);
       inputHashes.push(0n);
-      nullifiers.push(bigintToBytes(converted.nullifier) as Bytes32);
+      nullifiers.push(new Uint8Array(nullifier) as Bytes32);
       utxoRoots.push(converted.utxoTreeRoot);
       nullifierRoots.push(converted.nullifierTreeRoot);
-      rootIndexes.push(firstIndexes);
+      rootIndexes.push([firstIndexes[0], proof.rootIndex]);
       continue;
     }
     const proof = proofs[proofIndex];
@@ -185,32 +201,10 @@ function assembleMergeUnchecked(
   const output = createOutput(prepared.output);
   if (prepared.output.isDummy()) throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
   const outputHash = checkedBytes(prepared.output.hash(), 32, "merge output hash");
-  const plaintext = encodeMerge({
-    amount: prepared.output.amount,
-    assetField: bigintToBytes(hashField(addressBytes(prepared.output.asset))) as Bytes32,
-    blinding: prepared.output.blinding,
-  });
-  const encrypted = encryptVerifiable(
-    prepared.txViewingSecret,
-    prepared.userViewingPublicKey,
-    plaintext,
-  );
-  const contribution = mergePublicContribution(encrypted.txViewingPublicKey, encrypted.ciphertext);
-  const encryptedUtxo = encodeOutputData(
-    EncryptedScheme.merge,
-    concat(encrypted.txViewingPublicKey.toBytes(), encrypted.ciphertext),
-    "verifiable",
-  );
-  if (encryptedUtxo.length !== 110) {
-    throw new ClientError("CLIENT_INVALID_MERGE_CIPHERTEXT", {
-      details: { expected: 110, actual: encryptedUtxo.length },
-    });
-  }
   const externalDataHash = mergeExternalDataHash({
     instructionTag: MERGE_INSTRUCTION_TAG,
     expiryUnixTs: prepared.expiryUnixTs,
     outputUtxoHash: outputHash,
-    encryptedUtxo,
   });
   const privateTxHash = bigintToBytes(
     poseidon([
@@ -221,18 +215,10 @@ function assembleMergeUnchecked(
     ]),
   ) as Bytes32;
   const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
-  const [p256PublicKeyX, p256PublicKeyY] = eddsaOwner
-    ? [P256_GENERATOR_X, P256_GENERATOR_Y]
-    : p256Coordinates(prepared.signingPublicKey.p256().toBytes());
-  const [viewingX, viewingY] = p256Coordinates(prepared.userViewingPublicKey.toBytes());
-  const userViewingPublicKey = Uint8Array.from([
-    4,
-    ...bigintToBytes(viewingX),
-    ...bigintToBytes(viewingY),
-  ]);
-  const ownerPublicKeyHash = eddsaOwner
-    ? bytesField(prepared.signingPublicKey.ownerPublicKeyField(), "merge owner public key")
-    : 0n;
+  const ownerPublicKeyHash = bytesField(
+    prepared.signingPublicKey.ownerPublicKeyField(),
+    "merge owner public key",
+  );
   const commonPublicInputs = [
     hashChain(nullifiers.map(bytesToBigInt)),
     bytesToBigInt(outputHash),
@@ -240,22 +226,14 @@ function assembleMergeUnchecked(
     hashChain(nullifierRoots),
     bytesToBigInt(privateTxHash),
     bytesToBigInt(externalDataHash),
+    1n,
   ];
   const publicInputHash = bigintToBytes(
-    hashChain([
-      ...commonPublicInputs,
-      bytesToBigInt(prepared.signingPublicKey.ownerPublicKeyField()),
-      bytesToBigInt(ShieldedPublicKey.fromP256(prepared.userViewingPublicKey).hash()),
-      bytesToBigInt(contribution.txViewingPublicKeyLow),
-      bytesToBigInt(contribution.txViewingPublicKeyHigh),
-      bytesToBigInt(contribution.ciphertextHash),
-    ]),
+    hashChain([...commonPublicInputs, ownerPublicKeyHash]),
   ) as Bytes32;
   const proverInputs: MergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
     output,
-    p256PublicKeyX: asInteger(p256PublicKeyX),
-    p256PublicKeyY: asInteger(p256PublicKeyY),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
     userNullifierPublicKey: asField(
       bytesField(material.nullifierKey.publicKey(), "merge nullifier public key"),
@@ -263,13 +241,11 @@ function assembleMergeUnchecked(
     userNullifierSecret: asField(
       bytesField(material.nullifierKey.secretBytes(), "merge nullifier secret"),
     ),
-    txViewingSecret: asField(bytesField(prepared.txViewingSecret, "transaction viewing secret")),
-    userViewingPublicKey: Object.freeze(
-      Array.from(userViewingPublicKey, (byte) => asField(BigInt(byte))),
-    ),
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
+    allowDummyInputs: asField(1n),
     publicInputHash: asField(bytesToBigInt(publicInputHash)),
+    outputZoneDataHash: asField(0n),
     zoneProgramId: asField(0n),
   });
   const utxoTreeRootIndexes = Object.freeze(rootIndexes.map(([state]) => state));
@@ -281,14 +257,13 @@ function assembleMergeUnchecked(
       expiryUnixTs: prepared.expiryUnixTs,
       proof: copyMergeProof(proof),
       outputUtxoHash: new Uint8Array(outputHash) as Bytes32,
+      eddsaOwner,
+      privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
       nullifiers: Object.freeze(
         nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
       ),
       utxoTreeRootIndexes,
       nullifierTreeRootIndexes,
-      privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
-      encryptedUtxo: new Uint8Array(encryptedUtxo),
-      eddsaOwner,
     });
   return Object.freeze({
     proverInputs,
@@ -305,9 +280,6 @@ function assembleMergeUnchecked(
     privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
     publicInputHash,
     externalDataHash,
-    encryptedUtxo: new Uint8Array(encryptedUtxo),
-    ciphertext: new Uint8Array(encrypted.ciphertext),
-    txViewingPublicKey: encrypted.txViewingPublicKey,
     eddsaOwner,
     instructionData,
   });
@@ -317,7 +289,6 @@ function validateMergeMaterial(prepared: PreparedMerge, material: MergeMaterialI
   if (!(prepared instanceof PreparedMerge)) throw new ClientError("CLIENT_INVALID_MERGE");
   if (
     !(material.signingPublicKey instanceof ShieldedPublicKey) ||
-    !(material.viewingPublicKey instanceof P256PublicKey) ||
     !(material.nullifierKey instanceof NullifierKey)
   ) {
     throw new ClientError("CLIENT_INVALID_MERGE_MATERIAL");
@@ -329,9 +300,6 @@ function validateMergeMaterial(prepared: PreparedMerge, material: MergeMaterialI
   }
   if (!equal(prepared.signingPublicKey.toBytes(), material.signingPublicKey.toBytes())) {
     throw new ClientError("CLIENT_MERGE_SIGNING_KEY_MISMATCH");
-  }
-  if (!equal(prepared.userViewingPublicKey.toBytes(), material.viewingPublicKey.toBytes())) {
-    throw new ClientError("CLIENT_MERGE_MATERIAL_VIEWING_KEY_MISMATCH");
   }
   const expectedNullifierPublicKey = material.nullifierKey.publicKey();
   prepared.inputs.forEach((input) => {
@@ -348,27 +316,11 @@ function copyMergeProof(
     a: checkedBytes(proof.a, 32, "merge proof a"),
     b: checkedBytes(proof.b, 64, "merge proof b"),
     c: checkedBytes(proof.c, 32, "merge proof c"),
-    commitment: checkedBytes(proof.commitment, 32, "merge proof commitment"),
-    commitmentPok: checkedBytes(proof.commitmentPok, 32, "merge proof commitment proof"),
   });
 }
 
 function asField(value: bigint): Field {
   return field(value, "merge field") as Field;
-}
-
-function asInteger(value: bigint): Field {
-  return value as Field;
-}
-
-function concat(...values: readonly Uint8Array[]): Uint8Array {
-  const result = new Uint8Array(values.reduce((length, value) => length + value.length, 0));
-  let offset = 0;
-  for (const value of values) {
-    result.set(value, offset);
-    offset += value.length;
-  }
-  return result;
 }
 
 function equal(left: Uint8Array, right: Uint8Array): boolean {

@@ -1,5 +1,6 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
+use zolana_hasher::HasherError;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]
@@ -61,5 +62,11 @@ pub enum DynamicSwapError {
 impl From<DynamicSwapError> for ProgramError {
     fn from(error: DynamicSwapError) -> Self {
         ProgramError::Custom(error as u32)
+    }
+}
+
+impl From<HasherError> for DynamicSwapError {
+    fn from(_: HasherError) -> Self {
+        Self::HashingFailed
     }
 }

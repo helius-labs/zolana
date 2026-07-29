@@ -27,10 +27,8 @@ Established parties: `user`, `payer`, `owner`, `sender`, `recipient`,
 
 Three operations produce `[u8; 32]`; the name must say which one:
 
-- Poseidon-compressed encodings use `hash_field` / `*_field`:
-  `owner_pk_field` (`sdk-libs/keypair/src/pubkey.rs`), `asset_field`,
-  `signed_to_field`, `p256_signing_pk_field`. Go mirrors with `OwnerPkField`,
-  `SolanaPkField`. These exported names are pinned.
+- Fixed raw-byte commitments use `hash_bytes` / `*_proof_input_hash`.
+  Structured Poseidon hashes keep semantic names such as `owner_hash`.
 - SHA-256 digests use `sha256` / `sha256_be` / `*_hash`.
 - Plain zero-padding uses `right_align` / `fe_right_align`.
 
@@ -67,10 +65,8 @@ Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
 - The client-side proof-inputs struct is `SppProofInputs`; its UTXO
   collections are qualified as `input_utxos` / `output_utxos`, while
   `inputs` / `outputs` remain the pinned spellings for the processor and
-  instruction layers. Its remaining fields are `public_amounts`,
-  `external_data`, `payer_pubkey_hash`, `p256_signature`, and `shape`.
-  `p256_signature` holds a `[u8; 64]` signature, not an owner — never
-  `p256_owner`. Local bindings are `proof_inputs`, never `signed`.
+  instruction layers. Its remaining fields are `external_data` and
+  `payer_pubkey_hash`. Local bindings are `proof_inputs`, never `signed`.
 - The high-level padded-transfer builder is `Transfer` / `PreparedTransfer`,
   never `TxBuilder`; local bindings are `transfer`, not `tx`. Slot-based flows
   have no operation struct: they encode confidential output slots with
@@ -109,7 +105,7 @@ Reuse these exact spellings:
 `payer_pubkey_hash`, `data_hash`, `zone_data_hash`, `utxo_hash`,
 `owner_hash`, `owner_utxo_hash`, `nullifier_hash`, `hash_chain`
 (accumulator local `acc`). Hash primitives are named by algorithm:
-`poseidon`, `poseidon2`, `sha256`, `sha256_be`, `hash_field`.
+`poseidon`, `poseidon2`, `sha256`, `sha256_be`, `hash_bytes`.
 
 ## Instruction data and processors
 
@@ -146,7 +142,7 @@ Reuse these exact spellings:
 
 - Exported circuit fields are `PascalCase` one-to-one mirrors of the Rust
   names: `Owner`, `Asset`, `Amount`, `Blinding`, `DataHash`,
-  `ZoneDataHash`, `OwnerPkField`, `OwnerPkHash`, `P256SigningPkField`.
+  `ZoneDataHash`, `OwnerPkField`, `OwnerPkHash`.
   Circuit-local mirrors are `camelCase` (`p256PkField`, `ownerKeyHash`).
 - Renaming a circuit struct field renames its witness JSON key; the Go
   bindings, the Rust witness writers, and any fixtures move in one commit.

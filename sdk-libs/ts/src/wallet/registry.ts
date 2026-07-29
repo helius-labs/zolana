@@ -31,7 +31,7 @@ type AccountReader = Pick<ZolanaClient, "getAccount">;
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
-const SET_MERGING_ENABLED = 4;
+const SET_MERGING_ENABLED = 1;
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
 
@@ -41,35 +41,16 @@ export interface ResolvedAddress {
   readonly viewTag: Bytes32;
 }
 
-export interface SyncDelegateEntry {
-  readonly delegate: Bytes32;
-  readonly syncPublicKey: Bytes33;
-  readonly viewingPublicKey: Bytes33;
-  readonly createdAt: bigint;
-}
-
 export interface UserRecord {
   readonly owner: Address;
   readonly ownerP256?: Bytes33;
   readonly nullifierPublicKey: Bytes32;
   readonly viewingPublicKey: Bytes33;
-  readonly syncDelegate?: Bytes32;
-  readonly entries: readonly SyncDelegateEntry[];
   readonly mergingEnabled: boolean;
   readonly bump: number;
 }
 
 type DecodedUserRecord = UserRecord;
-
-/**
- * The viewing key a sender must encrypt to. While a sync delegate is active the
- * delegate's latest epoch key replaces the record's own key. Revoking the
- * delegate restores the owner key.
- */
-export function senderViewingPublicKey(record: UserRecord): Bytes33 {
-  if (record.syncDelegate === undefined) return record.viewingPublicKey;
-  return record.entries.at(-1)?.viewingPublicKey ?? record.viewingPublicKey;
-}
 
 async function userRecordAddress(owner: Address): Promise<
   Readonly<{
@@ -153,22 +134,6 @@ class Reader {
     return this.bytes(1)[0] ?? 0;
   }
 
-  u32(): number {
-    const bytes = this.bytes(4);
-    return (
-      ((bytes[0] ?? 0) |
-        ((bytes[1] ?? 0) << 8) |
-        ((bytes[2] ?? 0) << 16) |
-        ((bytes[3] ?? 0) << 24)) >>>
-      0
-    );
-  }
-
-  i64(): bigint {
-    const bytes = this.bytes(8);
-    return new DataView(bytes.buffer, bytes.byteOffset, 8).getBigInt64(0, true);
-  }
-
   option(length: number): Uint8Array | undefined {
     const variant = this.u8();
     if (variant === 0) return undefined;
@@ -185,19 +150,6 @@ function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
   const ownerP256 = reader.option(33) as Bytes33 | undefined;
   const nullifierPublicKey = reader.bytes(32) as Bytes32;
   const viewingPublicKey = reader.bytes(33) as Bytes33;
-  const syncDelegate = reader.option(32) as Bytes32 | undefined;
-  const entryCount = reader.u32();
-  const entries: SyncDelegateEntry[] = [];
-  for (let index = 0; index < entryCount; index++) {
-    entries.push(
-      Object.freeze({
-        delegate: reader.bytes(32) as Bytes32,
-        syncPublicKey: reader.bytes(33) as Bytes33,
-        viewingPublicKey: reader.bytes(33) as Bytes33,
-        createdAt: reader.i64(),
-      }),
-    );
-  }
   const mergingEnabled = reader.u8();
   if (mergingEnabled > 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
   return Object.freeze({
@@ -205,8 +157,6 @@ function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
     ...(ownerP256 === undefined ? {} : { ownerP256 }),
     nullifierPublicKey,
     viewingPublicKey,
-    ...(syncDelegate === undefined ? {} : { syncDelegate }),
-    entries: Object.freeze(entries),
     bump,
     mergingEnabled: mergingEnabled === 1,
   });
@@ -265,8 +215,6 @@ export async function fetchUserRecord(
       ...(record.ownerP256 === undefined ? {} : { ownerP256: record.ownerP256 }),
       nullifierPublicKey: record.nullifierPublicKey,
       viewingPublicKey: record.viewingPublicKey,
-      ...(record.syncDelegate === undefined ? {} : { syncDelegate: record.syncDelegate }),
-      entries: record.entries,
       mergingEnabled: record.mergingEnabled,
       bump: record.bump,
     });
@@ -303,7 +251,7 @@ function signingPublicKeyFromRecord(owner: Address, record: UserRecord): Shielde
 
 export function resolvedAddressFromRecord(owner: Address, record: UserRecord): ResolvedAddress {
   const signingPublicKey = signingPublicKeyFromRecord(owner, record);
-  const viewingPublicKey = P256PublicKey.fromBytes(senderViewingPublicKey(record));
+  const viewingPublicKey = P256PublicKey.fromBytes(record.viewingPublicKey);
   const address = ShieldedAddress.fromPublicKeys(
     signingPublicKey,
     record.nullifierPublicKey,
@@ -550,7 +498,7 @@ function registrationInstruction(
         : []),
     ],
     data: concat(
-      Uint8Array.of(existing === undefined ? 0 : 5, ownerP256 === undefined ? 0 : 1),
+      Uint8Array.of(existing === undefined ? 0 : 2, ownerP256 === undefined ? 0 : 1),
       ...(ownerP256 === undefined ? [] : [ownerP256]),
       shieldedAddress.nullifierPublicKey,
       shieldedAddress.viewingPublicKey.toBytes(),

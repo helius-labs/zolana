@@ -13,7 +13,7 @@ import type {
   TransactProof,
   ZoneConfigAccount,
 } from "../types.js";
-import { MERGE_ENCRYPTED_UTXO_LENGTH, MERGE_INPUT_COUNT } from "../constants.js";
+import { MERGE_INPUT_COUNT } from "../constants.js";
 import type { AddressTreeParams } from "../program.js";
 import { StateDiscriminator } from "../state.js";
 import {
@@ -45,18 +45,30 @@ function byteVector(writer: Writer, value: Uint8Array, name: string): void {
 }
 
 function writeDepositData(writer: Writer, value: DepositInstructionData): void {
-  writer
-    .bytes(value.viewTag, 32, "viewTag")
-    .bytes(value.owner, 32, "owner")
-    .bytes(value.blinding, 31, "blinding")
-    .u64(value.amount, "amount")
-    .option(value.utxoData, (output, data) => {
-      output.bytes(data.dataHash, 32, "utxoData.dataHash");
-      byteVector(output, data.data, "utxoData.data");
-    })
-    .option(value.memo, (output, memo) => {
-      byteVector(output, memo, "memo");
-    });
+  writer.u8(value.assets.length, "assets.length");
+  for (const asset of value.assets) {
+    if (asset.kind === "sol") {
+      writer.u8(0, "asset.kind");
+    } else {
+      writer.u8(1, "asset.kind").u8(asset.vaultBump, "asset.vaultBump");
+    }
+  }
+  writer.u8(value.deposits.length, "deposits.length");
+  for (const deposit of value.deposits) {
+    writer
+      .u8(deposit.assetIndex, "deposit.assetIndex")
+      .bytes(deposit.viewTag, 32, "deposit.viewTag")
+      .bytes(deposit.owner, 32, "deposit.owner")
+      .bytes(deposit.blinding, 32, "deposit.blinding")
+      .u64(deposit.amount, "deposit.amount")
+      .option(deposit.utxoData, (output, data) => {
+        output.bytes(data.dataHash, 32, "deposit.utxoData.dataHash");
+        byteVector(output, data.data, "deposit.utxoData.data");
+      })
+      .option(deposit.memo, (output, memo) => {
+        byteVector(output, memo, "deposit.memo");
+      });
+  }
 }
 
 export function encodeDepositInstructionData(value: DepositInstructionData): Uint8Array {
@@ -78,21 +90,7 @@ export function encodeAddressTreeParams(value: AddressTreeParams): Uint8Array {
 }
 
 function writeProof(writer: Writer, proof: TransactProof): void {
-  if (proof.rail === "eddsa") {
-    writer
-      .u8(0, "proof.rail")
-      .bytes(proof.a, 32, "proof.a")
-      .bytes(proof.b, 64, "proof.b")
-      .bytes(proof.c, 32, "proof.c");
-    return;
-  }
-  writer
-    .u8(1, "proof.rail")
-    .bytes(proof.a, 32, "proof.a")
-    .bytes(proof.b, 64, "proof.b")
-    .bytes(proof.c, 32, "proof.c")
-    .bytes(proof.commitment, 32, "proof.commitment")
-    .bytes(proof.commitmentPok, 32, "proof.commitmentPok");
+  writer.bytes(proof.a, 32, "proof.a").bytes(proof.b, 64, "proof.b").bytes(proof.c, 32, "proof.c");
 }
 
 function writeInput(writer: Writer, value: InputUtxo): void {
@@ -100,7 +98,6 @@ function writeInput(writer: Writer, value: InputUtxo): void {
     .bytes(value.nullifierHash, 32, "input.nullifierHash")
     .u16(value.nullifierTreeRootIndex, "input.nullifierTreeRootIndex")
     .u16(value.utxoTreeRootIndex, "input.utxoTreeRootIndex")
-    .u8(value.treeIndex, "input.treeIndex")
     .u8(value.eddsaSignerIndex, "input.eddsaSignerIndex");
 }
 
@@ -112,11 +109,35 @@ function writeOwnerTag(writer: Writer, value: OwnerTag): void {
     case "account":
       writer.u8(1, "ownerTag.kind").u8(value.index, "ownerTag.index");
       return;
-    case "p256SigningKey":
-      writer.u8(2, "ownerTag.kind");
-      return;
     default:
       fail("INTERFACE_CODEC", { name: "ownerTag.kind" });
+  }
+}
+
+function writeCircuit(writer: Writer, value: TransactInstructionData["circuit"]): void {
+  const tag = value.kind === "confidentialEddsa" ? 0 : value.kind === "zoneEddsa" ? 1 : 2;
+  writer
+    .u16(tag, "circuit.kind")
+    .u8(value.inputs, "circuit.inputs")
+    .u8(value.outputs, "circuit.outputs")
+    .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
+}
+
+function writeInterfaceTransfer(
+  writer: Writer,
+  value: TransactInstructionData["interfaceTransfers"][number],
+): void {
+  const tag =
+    value.kind === "solDeposit"
+      ? 0
+      : value.kind === "solWithdrawal"
+        ? 1
+        : value.kind === "splDeposit"
+          ? 2
+          : 3;
+  writer.u8(tag, "interfaceTransfer.kind").u64(value.amount, "interfaceTransfer.amount");
+  if (value.kind === "splDeposit" || value.kind === "splWithdrawal") {
+    writer.u8(value.vaultBump, "interfaceTransfer.vaultBump");
   }
 }
 
@@ -129,19 +150,15 @@ function writeOutput(writer: Writer, value: TransactOutput): void {
 }
 
 function writeTransactData(writer: Writer, value: TransactInstructionData): void {
-  writer
-    .u64(value.expiryUnixTs, "expiryUnixTs")
-    .u16(value.relayerFee, "relayerFee")
-    .bytes(value.privateTxHash, 32, "privateTxHash")
-    .option(value.p256SigningPkX, (output, key) => output.bytes(key, 32, "p256SigningPkX"))
-    .bytes(value.txViewingPk, 33, "txViewingPk")
-    .bytes(value.salt, 16, "salt");
+  writer.u64(value.expiryUnixTs, "expiryUnixTs").bytes(value.privateTxHash, 32, "privateTxHash");
+  writeCircuit(writer, value.circuit);
+  writer.bytes(value.txViewingPk, 33, "txViewingPk").bytes(value.salt, 16, "salt");
   writeProof(writer, value.proof);
   writer.u8(value.inputs.length, "inputs.length");
   for (const input of value.inputs) writeInput(writer, input);
+  writer.u8(value.interfaceTransfers.length, "interfaceTransfers.length");
+  for (const transfer of value.interfaceTransfers) writeInterfaceTransfer(writer, transfer);
   writer
-    .option(value.publicSolAmount, (output, amount) => output.i64(amount, "publicSolAmount"))
-    .option(value.publicSplAmount, (output, amount) => output.i64(amount, "publicSplAmount"))
     .option(value.dataHash, (output, hash) => output.bytes(hash, 32, "dataHash"))
     .option(value.zoneDataHash, (output, hash) => output.bytes(hash, 32, "zoneDataHash"))
     .u8(value.outputs.length, "outputs.length");
@@ -157,20 +174,16 @@ export function encodeTransactInstructionData(value: TransactInstructionData): U
   return encoded(value, writeTransactData);
 }
 
-// The merge encoder deliberately does not check the encrypted UTXO type prefix,
-// matching Rust. The shielded-pool program rejects a non-canonical value.
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
   if (
     value.nullifiers.length !== MERGE_INPUT_COUNT ||
     value.utxoTreeRootIndexes.length !== MERGE_INPUT_COUNT ||
-    value.nullifierTreeRootIndexes.length !== MERGE_INPUT_COUNT ||
-    value.encryptedUtxo.length !== MERGE_ENCRYPTED_UTXO_LENGTH
+    value.nullifierTreeRootIndexes.length !== MERGE_INPUT_COUNT
   ) {
     fail("INTERFACE_INVALID_LENGTH", {
       nullifiers: value.nullifiers.length,
       utxoTreeRootIndexes: value.utxoTreeRootIndexes.length,
       nullifierTreeRootIndexes: value.nullifierTreeRootIndexes.length,
-      encryptedUtxo: value.encryptedUtxo.length,
     });
   }
   writer
@@ -178,9 +191,9 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .bytes(value.proof.a, 32, "proof.a")
     .bytes(value.proof.b, 64, "proof.b")
     .bytes(value.proof.c, 32, "proof.c")
-    .bytes(value.proof.commitment, 32, "proof.commitment")
-    .bytes(value.proof.commitmentPok, 32, "proof.commitmentPok")
     .bytes(value.outputUtxoHash, 32, "outputUtxoHash")
+    .bool(value.eddsaOwner, "eddsaOwner")
+    .bytes(value.privateTxHash, 32, "privateTxHash")
     .u8(value.nullifiers.length, "nullifiers.length");
   for (const nullifier of value.nullifiers) writer.bytes(nullifier, 32, "nullifier");
   writer.u8(value.utxoTreeRootIndexes.length, "utxoTreeRootIndexes.length");
@@ -189,17 +202,12 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
   for (const index of value.nullifierTreeRootIndexes) {
     writer.u16(index, "nullifierTreeRootIndex");
   }
-  writer
-    .bytes(value.privateTxHash, 32, "privateTxHash")
-    .u16(value.encryptedUtxo.length, "encryptedUtxo.length")
-    .bytes(value.encryptedUtxo)
-    .bool(value.eddsaOwner, "eddsaOwner");
 }
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, 668);
+  return encoded(value, writeMergeData, 492);
 }
 
 export function mergeExternalDataHash(
@@ -207,7 +215,6 @@ export function mergeExternalDataHash(
     instructionTag: number;
     expiryUnixTs: bigint;
     outputUtxoHash: Bytes32;
-    encryptedUtxo: Uint8Array;
   }>,
 ): Bytes32 {
   const expiry = unsignedBigint(input.expiryUnixTs, (1n << 64n) - 1n, "expiryUnixTs");
@@ -219,11 +226,6 @@ export function mergeExternalDataHash(
       ),
     )
     .bytes(input.outputUtxoHash, 32, "outputUtxoHash");
-  const length = input.encryptedUtxo.length;
-  if (length > 0xffff) {
-    fail("INTERFACE_INVALID_LENGTH", { name: "encryptedUtxo", maximum: 0xffff, actual: length });
-  }
-  writer.bytes(Uint8Array.of(length >>> 8, length & 255)).bytes(copyBytes(input.encryptedUtxo));
   const digest = sha256(writer.finish());
   digest[0] = 0;
   return digest as Bytes32;

@@ -90,8 +90,10 @@ export function randomBytes(length: number): Uint8Array {
   return bytes;
 }
 
-export function randomBlinding(): Bytes31 {
-  return randomBytes(31) as Bytes31;
+export function randomBlinding(): Bytes32 {
+  const blinding = new Uint8Array(32);
+  blinding.set(randomBytes(31), 1);
+  return blinding as Bytes32;
 }
 
 export function randomSalt(): Bytes16 {

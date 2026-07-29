@@ -43,15 +43,6 @@ fn tags_advance(world: &mut KeypairWorld, name: String) {
     assert_eq!(vk.get_recipient_request_view_tag(0).unwrap()[0], 0);
 }
 
-#[then(expr = "merge view tags for {string} advance with their counter")]
-fn merge_tags_advance(world: &mut KeypairWorld, name: String) {
-    let vk = world.vk(&name);
-    let base = vk.get_merge_view_tag(0).unwrap();
-    assert_eq!(base, vk.get_merge_view_tag(0).unwrap());
-    assert_ne!(base, vk.get_merge_view_tag(1).unwrap());
-    assert_eq!(base[0], 0);
-}
-
 #[then(expr = "{string} and {string} derive the same shared view tag at index {int}")]
 fn shared_tag_symmetric(world: &mut KeypairWorld, sender: String, recipient: String, i: u64) {
     let send = world

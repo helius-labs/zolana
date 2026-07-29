@@ -36,10 +36,10 @@ function hex(bytes: Uint8Array): string {
 
 // Pinned from `SppProofInputUtxo::new_dummy` with a `[7u8; 31]` blinding; the
 // same two digests are asserted in `sdk-libs/transaction/src/instructions/types.rs`.
-const DUMMY_ORACLE_HASH = "0497a9bf5848d01c8b5fc1f75603964e63c0e268a206f182e204152de2b7403c";
-const DUMMY_ORACLE_NULLIFIER = "1afecf4cfcfd1c73219605b615e66d7236c98ec083f9e555ce904900204d0f29";
+const DUMMY_ORACLE_HASH = "21bad49e7dfee8758b2bd68372ce628c95826624661c03cd7657cee52738d930";
+const DUMMY_ORACLE_NULLIFIER = "14b3997656396c9e75335686e9a673fcc06da33bd7e3b4191ed8d1372719a976";
 
-const DUMMY_BLINDING = new Uint8Array(31).fill(7) as Bytes31;
+const DUMMY_BLINDING = new Uint8Array(32).fill(7) as Bytes32;
 const ZERO_NULLIFIER_KEY = (): NullifierKey =>
   NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
 
@@ -175,7 +175,7 @@ describe("transaction core", () => {
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
       amount: 42n,
-      blinding: new Uint8Array(31).fill(3) as Bytes31,
+      blinding: new Uint8Array(32).fill(3) as Bytes32,
       zoneProgramId: "SysvarRent111111111111111111111111111111111" as Address,
     });
     const dataHash = scalar(4);
@@ -201,7 +201,7 @@ describe("transaction core", () => {
             owner: ShieldedPublicKey.zeroed(),
             asset: "SysvarRent111111111111111111111111111111111" as Address,
             amount: 0n,
-            blinding: new Uint8Array(31) as Bytes31,
+            blinding: new Uint8Array(32) as Bytes32,
           }),
           nullifierKey: NullifierKey.fromSecret(new Uint8Array(31) as Bytes31),
         }),
@@ -214,7 +214,7 @@ describe("transaction core", () => {
   });
 
   it("accepts and hashes a canonical dummy exactly as Rust does", () => {
-    const dummy = ProofInputUtxo.dummy(new Uint8Array(31).fill(7) as Bytes31);
+    const dummy = ProofInputUtxo.dummy(new Uint8Array(32).fill(7) as Bytes32);
 
     expect(dummy.isDummy()).toBe(true);
     expect(hex(dummy.hash())).toBe(DUMMY_ORACLE_HASH);
@@ -275,7 +275,7 @@ describe("transaction core", () => {
   // anyone extends normalization to the address.
   it("normalizes an explicit zero at the zone data hash and not at the zone address", () => {
     const { keypair, nullifier } = keyMaterial();
-    const blinding = new Uint8Array(31).fill(3) as Bytes31;
+    const blinding = new Uint8Array(32).fill(3) as Bytes32;
     const utxo = new Utxo({
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
@@ -337,7 +337,7 @@ describe("transaction core", () => {
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
       amount: 42n,
-      blinding: new Uint8Array(31).fill(3) as Bytes31,
+      blinding: new Uint8Array(32).fill(3) as Bytes32,
       zoneProgramId: ZONE,
     });
 
@@ -359,13 +359,13 @@ describe("transaction core", () => {
       }).hash(),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_POSEIDON" }));
 
-    expect(() => ownerUtxoHash(aboveModulus, new Uint8Array(31).fill(3) as Bytes31)).toThrow(
+    expect(() => ownerUtxoHash(aboveModulus, new Uint8Array(32).fill(3) as Bytes32)).toThrow(
       expect.objectContaining({ code: "TRANSACTION_POSEIDON" }),
     );
   });
 
   it("derives position-specific blindings and validates their range", () => {
-    const seed = new Uint8Array(31).fill(9) as Bytes31;
+    const seed = new Uint8Array(32).fill(9) as Bytes32;
     expect(deriveBlinding(seed, 0)).not.toEqual(deriveBlinding(seed, 1));
     expect(deriveBlinding(seed, 0)).toEqual(deriveBlinding(seed, 0));
     expect(() => deriveBlinding(seed, 256)).toThrow(
@@ -423,7 +423,7 @@ describe("transaction core", () => {
           owner: keypair.signingPublicKey(),
           asset: SOL_MINT,
           amount: -1n,
-          blinding: new Uint8Array(31) as Bytes31,
+          blinding: new Uint8Array(32) as Bytes32,
         }),
     ).toThrow(TransactionError);
   });

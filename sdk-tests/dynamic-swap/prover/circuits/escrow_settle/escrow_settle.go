@@ -5,7 +5,7 @@ import (
 	"github.com/consensys/gnark/std/math/cmp"
 
 	"zolana/prover/circuits/gadget"
-	spp "zolana/prover/circuits/spp_transaction"
+	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
 // Per-output-slot domains folded into DeriveOutputBlinding so the three settle

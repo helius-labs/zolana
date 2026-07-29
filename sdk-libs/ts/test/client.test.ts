@@ -170,43 +170,38 @@ describe("ZolanaClient", () => {
 
   it("polls Photon only until the submitted signature is visible", async () => {
     const instance = client();
-    const getByTags = vi
-      .spyOn(instance, "getShieldedTransactionsByTags")
+    const getBySignature = vi
+      .spyOn(instance, "getShieldedTransactionsBySignature")
       .mockResolvedValueOnce({
         context: { blockTime: 1n },
         transactions: [],
       })
       .mockResolvedValueOnce({
         context: { blockTime: 2n },
-        transactions: [{ txSignature: SIGNATURE }] as never,
+        transactions: [{ eventIndex: 0, transaction: { txSignature: SIGNATURE } }] as never,
       });
 
-    await instance.confirmPrivateTransaction(SIGNATURE, [bytes(9)]);
-    expect(getByTags).toHaveBeenCalledTimes(2);
+    await instance.confirmPrivateTransaction(SIGNATURE);
+    expect(getBySignature).toHaveBeenCalledTimes(2);
   });
 
-  it("follows every Photon page while confirming a reused output tag", async () => {
+  it("accepts any indexed event carried by the signature", async () => {
     const instance = client();
-    const cursor = Uint8Array.of(7);
-    const getByTags = vi
-      .spyOn(instance, "getShieldedTransactionsByTags")
-      .mockResolvedValueOnce({
+    const getBySignature = vi
+      .spyOn(instance, "getShieldedTransactionsBySignature")
+      .mockResolvedValue({
         context: { blockTime: 1n },
-        transactions: Array.from({ length: 100 }, () => ({
-          txSignature: "2".repeat(64) as Signature,
-        })) as never,
-        nextCursor: cursor,
-      })
-      .mockResolvedValueOnce({
-        context: { blockTime: 2n },
-        transactions: [{ txSignature: SIGNATURE }] as never,
+        transactions: [
+          { eventIndex: 0, transaction: { txSignature: SIGNATURE } },
+          { eventIndex: 1, transaction: { txSignature: SIGNATURE } },
+        ] as never,
       });
 
-    await instance.confirmPrivateTransaction(SIGNATURE, [bytes(9)]);
+    await instance.confirmPrivateTransaction(SIGNATURE);
 
-    expect(getByTags).toHaveBeenCalledTimes(2);
-    expect(getByTags).toHaveBeenLastCalledWith(
-      { tags: [bytes(9)], limit: 100, cursor },
+    expect(getBySignature).toHaveBeenCalledOnce();
+    expect(getBySignature).toHaveBeenCalledWith(
+      SIGNATURE,
       {
         waitForIndexer: false,
         poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },

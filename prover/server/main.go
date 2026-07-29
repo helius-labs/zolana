@@ -15,7 +15,6 @@ import (
 	"zolana/prover/prover/extractor"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
-	"zolana/prover/prover/transfer"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 	"zolana/prover/server"
 
@@ -99,9 +98,6 @@ func runCli() {
 					var ps *common.TransferProofSystem
 					var err error
 					switch circuit {
-					case common.TransferP256ConfidentialCircuitType,
-						common.TransferP256ZoneCircuitType:
-						ps, err = transfer.SetupTransferCircuit(circuit, nInputs, nOutputs)
 					case common.TransferConfidentialCircuitType,
 						common.TransferZoneCircuitType,
 						common.TransferZoneAuthorityCircuitType:

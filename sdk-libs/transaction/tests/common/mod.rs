@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 
 use zolana_event::OutputDataEncoding;
-use zolana_keypair::{
-    constants::BLINDING_LEN, viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey,
-};
+use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     serialization::{
         anonymous::{
@@ -36,11 +34,11 @@ pub fn wallet_for(keypair: &ShieldedKeypair, registry: AssetRegistry) -> Wallet 
     Wallet::new(keypair.shielded_address().unwrap(), registry).unwrap()
 }
 
-pub fn unique31(counter: &mut u64, prefix: u8) -> [u8; BLINDING_LEN] {
+pub fn unique31(counter: &mut u64, prefix: u8) -> [u8; 32] {
     *counter += 1;
-    let mut out = [0u8; BLINDING_LEN];
-    out[0] = prefix;
-    out[1..9].copy_from_slice(&counter.to_be_bytes());
+    let mut out = [0u8; 32];
+    out[1] = prefix;
+    out[2..10].copy_from_slice(&counter.to_be_bytes());
     out
 }
 
@@ -60,8 +58,8 @@ pub struct TransferSpec<'a> {
     pub sender_view_tag: ViewTag,
     pub first_nullifier: [u8; 32],
     pub change_amount: u64,
-    pub blinding: [u8; BLINDING_LEN],
-    pub blinding_seed: [u8; BLINDING_LEN],
+    pub blinding: [u8; 32],
+    pub blinding_seed: [u8; 32],
 }
 
 fn encrypted_payload(scheme: EncryptedScheme, ciphertext: Vec<u8>) -> Vec<u8> {
@@ -208,8 +206,8 @@ pub struct UnifiedTransferSpec<'a> {
     pub amount: u64,
     pub change_amount: u64,
     pub first_nullifier: [u8; 32],
-    pub blinding: [u8; BLINDING_LEN],
-    pub change_blinding: [u8; BLINDING_LEN],
+    pub blinding: [u8; 32],
+    pub change_blinding: [u8; 32],
 }
 
 pub fn build_unified_transfer(

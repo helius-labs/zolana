@@ -136,7 +136,7 @@ SPP fields, already committed in `utxo_hash`. The order UTXO's owner is the swap
 (seeds `[b"order_authority"]`) and its nullifier secret is hardcoded to 0, so:
 
 ```text
-order_utxo_owner_hash = Poseidon(hash_field(order_authority_pda), Poseidon(0))   // a program-wide constant
+order_utxo_owner_hash = Poseidon(hash_bytes(order_authority_pda), Poseidon(0))   // a program-wide constant
 nullifier             = Poseidon(utxo_hash, blinding, 0)                          // recomputed from the preimage
 ```
 
@@ -166,7 +166,7 @@ there, cancel returns the source output there. Either way the maker recovers the
 the order UTXO blinding it already holds: `take_verifiable_encryption` proves a ciphertext keyed from
 it, and `take` fixes the destination blinding to `Poseidon(order_utxo_blinding, DOMAIN)`.
 Cancel requires the maker: it signs the cancel transaction, and the cancel
-proof checks `hash_field` of the signer's pubkey against the order's
+proof checks `hash_bytes` of the signer's pubkey against the order's
 `maker_owner_hash`. The refund can only land at `maker_address`.
 
 `expiry` is a unix-seconds value the proof reveals as a public input and the swap program checks
@@ -331,7 +331,7 @@ After expiry, the order UTXO is reclaimed to the committed `maker_address`. The 
 the [cancel proof](#cancel-circuit), then CPIs SPP [`transact`](../../docs/spec.md#transact). The
 transact is 1-in/1-out: the order UTXO in, a `source_amount` `source_asset_id` UTXO to
 `maker_address` out. The maker signs as a dedicated readonly signer; the program includes
-`hash_field` of its pubkey in the proof's public input and the circuit checks it against the
+`hash_bytes` of its pubkey in the proof's public input and the circuit checks it against the
 committed
 `maker_owner_hash`, so only the maker can cancel, and the maker knows the refund blinding it chose.
 The swap program supplies the order-authority PDA signer
@@ -345,7 +345,7 @@ public input.
 1. `caller` — fee payer; signer, writable. Consumed by the program. `now` is read from
    the Clock sysvar via syscall.
 2. `maker` — the maker's Solana signer; read-only, signer. Consumed by the program, which includes
-   `hash_field(maker)` in the cancel proof's public input; everything after it is forwarded
+   `hash_bytes(maker)` in the cancel proof's public input; everything after it is forwarded
    verbatim to the SPP `transact` CPI.
 3. `payer` — the SPP fee payer; signer, writable.
 4. `tree_accounts` — SPP trees the transact touches; writable.
@@ -469,7 +469,7 @@ transact (order UTXO in; source-to-maker out). The program enforces `now > expir
 circuit only reveals `expiry` and checks it equals the committed term.
 
 - **Public inputs:** `Poseidon(private_tx_hash, expiry, maker_owner_pk_field)`, where
-  `maker_owner_pk_field` is `hash_field` of the maker signer's pubkey, fed by the program.
+  `maker_owner_pk_field` is `hash_bytes` of the maker signer's pubkey, fed by the program.
 - **Private inputs:** the order UTXO hash preimage (incl. `utxo_data` = order terms,
   `source_amount`, `order_utxo_blinding`), the `source_output` hash preimage, and the maker's
   `(maker_owner_pk_field,

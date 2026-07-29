@@ -30,7 +30,7 @@ use zolana_transaction::{
         ExternalData, SppProofInputs, SppProofOutputUtxo,
     },
     instructions::types::SppProofInputUtxo,
-    Filter, Wallet, SOL_MINT,
+    Data, Filter, Utxo, Wallet, SOL_MINT,
 };
 use zolana_wallet::{resolve_registered_address, sync_wallet, Deposit, DepositParams};
 
@@ -133,8 +133,9 @@ fn create_pair_escrow_and_settle() -> Result<()> {
 
             let split_ix = Transact {
                 payer: user_solana.pubkey(),
-                tree: env.tree,
-                withdrawal: None,
+                input_tree: env.tree,
+                output_tree: env.tree,
+                interface_transfer_accounts: Vec::new(),
                 data: split_transact,
             }
             .instruction();
@@ -156,19 +157,25 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .ok_or_else(|| anyhow!("no exact-{ORDER_AMOUNT} utxo after split"))?
         };
 
-        // The maker funds this escrow's reservation on demand from its own wallet: a
-        // fresh deposit of exactly `reserved` of the destination asset (SOL), spent
-        // by `escrow_open` as `maker_funding`.
+        let escrow_owner = SharedShieldedAddress::from_key_exchange(
+            &env.authority.keypair.viewing_key,
+            &env.user.keypair.viewing_pubkey(),
+            escrow_authority_pda(&pair),
+        )?;
+
+        // The maker funds this escrow's reservation on demand: a fresh deposit
+        // owned by the escrow-authority PDA and spent by `escrow_open`.
         let reserved = ORDER_AMOUNT
             .checked_mul(PRICE)
             .ok_or_else(|| anyhow!("order_amount * max_price overflows"))?;
         let maker_funding = {
-            let authority_address = env.authority.address()?;
+            let escrow_address = escrow_owner.shielded_address()?;
             let deposit = Deposit::new(DepositParams {
-                recipient: &authority_address,
+                recipient: &escrow_address,
                 asset: SOL_MINT,
                 amount: reserved,
                 spl_token_account: None,
+                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
                 memo: None,
             })
             .map_err(|e| anyhow!("maker funding deposit: {e:?}"))?;
@@ -180,23 +187,14 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                     &authority_solana,
                 )
                 .map_err(|e| anyhow!("send maker funding deposit: {e:?}"))?;
-            // Discover the freshly deposited reservation-funding note from Photon
-            // instead of reconstructing it from the deposit blinding.
-            let mut maker_wallet = Wallet::new(authority_address, env.assets.clone())
-                .map_err(|e| anyhow!("maker wallet: {e:?}"))?;
-            sync_wallet(
-                &mut maker_wallet,
-                &env.authority.keypair,
-                env.client.indexer(),
-            )
-            .map_err(|e| anyhow!("sync maker wallet: {e:?}"))?;
-            maker_wallet
-                .balance(SOL_MINT, None)
-                .map_err(|e| anyhow!("maker balance: {e:?}"))?
-                .utxos
-                .into_iter()
-                .find(|utxo| utxo.amount == reserved)
-                .ok_or_else(|| anyhow!("no reservation-funding utxo of {reserved} SOL"))?
+            Utxo {
+                owner: escrow_address.signing_pubkey,
+                asset: SOL_MINT,
+                amount: reserved,
+                blinding: deposit.deposit.blinding,
+                zone_program_id: None,
+                data: Data::default(),
+            }
         };
 
         // create_escrow: build the order and reservation output UTXOs, prove
@@ -216,16 +214,11 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             // derive the same shared viewing key from their registered viewing
             // pubkeys, so either can encrypt the order note and decrypt it on settle.
             // The reservation blinding is part of that note, chosen up front.
-            let escrow_owner = SharedShieldedAddress::from_key_exchange(
-                &env.authority.keypair.viewing_key,
-                &env.user.keypair.viewing_pubkey(),
-                escrow_authority_pda(&pair),
-            )?;
             let reservation_blinding = random_blinding();
 
             let source_in = SppProofInputUtxo::new(source_utxo.clone(), &env.user.keypair);
             let maker_funding_in =
-                SppProofInputUtxo::new(maker_funding.clone(), &env.authority.keypair);
+                SppProofInputUtxo::new(maker_funding.clone(), escrow_owner.nullifier_key());
 
             let escrow_terms = EscrowTerms {
                 recipient_owner_hash,
@@ -261,10 +254,12 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .amount
                 .checked_sub(reserved)
                 .ok_or_else(|| anyhow!("reservation exceeds the maker funding amount"))?;
-            let authority_address = env.authority.address()?;
-            let maker_change =
-                SppProofOutputUtxo::new(SOL_MINT, maker_change_amount, authority_address)
-                    .map_err(|e| anyhow!("maker_change: {e:?}"))?;
+            let maker_change = SppProofOutputUtxo::new(
+                SOL_MINT,
+                maker_change_amount,
+                escrow_owner.shielded_address()?,
+            )
+            .map_err(|e| anyhow!("maker_change: {e:?}"))?;
 
             // Output order (order, reservation, maker_change) matches the program's
             // own output indices and the circuit.

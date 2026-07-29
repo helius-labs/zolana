@@ -5,7 +5,7 @@ import {
   getBase64Encoder,
 } from "@solana/kit";
 
-import type { Address, Bytes31, Bytes32, Bytes33, Signature } from "../../interface/types.js";
+import type { Address, Bytes32, Bytes33, Signature } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import { ShieldedAddress } from "../../keypair/shielded.js";
@@ -287,7 +287,7 @@ function deserializeUtxo(value: unknown, index: number): WalletUtxo {
       owner: ShieldedPublicKey.fromBytes(bytes(entry["owner"], 34, `${path}.owner`) as Bytes34),
       asset: address(entry["asset"], `${path}.asset`),
       amount: unsigned(entry["amount"], `${path}.amount`),
-      blinding: bytes(entry["blinding"], 31, `${path}.blinding`) as Bytes31,
+      blinding: bytes(entry["blinding"], 32, `${path}.blinding`) as Bytes32,
       data: new Data(records),
       ...(entry["zoneProgramId"] === undefined
         ? {}

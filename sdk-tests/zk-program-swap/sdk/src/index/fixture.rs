@@ -3,7 +3,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use swap_prover::TAKE_MODE_DERIVED;
-use zolana_keypair::{constants::BLINDING_LEN, P256Pubkey, ShieldedAddress, ShieldedKeypair};
+use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{
     instructions::{
         transact::{
@@ -18,7 +18,7 @@ use zolana_transaction::{
 
 use crate::{
     instructions::make::OrderMarker,
-    shared::input_sum,
+    shared::{input_sum, test_blinding},
     state::{OrderTerms, OrderUtxo},
 };
 
@@ -91,7 +91,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
     };
     let order_utxo = OrderUtxo {
         terms,
-        blinding: [11u8; BLINDING_LEN],
+        blinding: test_blinding(11),
         source_mint,
         source_amount: 400_000,
         destination_asset_id: SOL_ASSET_ID,
@@ -110,7 +110,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
         owner: maker_keypair.signing_pubkey(),
         asset: source_mint,
         amount: 1_000_000,
-        blinding: [5u8; BLINDING_LEN],
+        blinding: test_blinding(5),
         zone_program_id: None,
         data: Data::default(),
     };

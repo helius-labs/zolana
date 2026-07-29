@@ -40,6 +40,14 @@ export interface GetShieldedTransactionsByTagsResponse {
   readonly nextCursor?: Uint8Array;
 }
 
+export interface GetShieldedTransactionsBySignatureResponse {
+  readonly context: RpcContext;
+  readonly transactions: readonly Readonly<{
+    eventIndex: number;
+    transaction: IndexedShieldedTransaction;
+  }>[];
+}
+
 export interface MerkleContext {
   readonly treeType: number;
   readonly tree: Address;

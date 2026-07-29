@@ -8,6 +8,11 @@ mkdir -p "$keys_dir"
 
 go build -o light-prover .
 
+# P256 ownership circuits were removed. Drop their generated artifacts before
+# rebuilding so vkey generation and the proving-key lockfile cannot retain the
+# retired rails.
+find "$keys_dir" -maxdepth 1 -type f -name 'transfer_p256_*.key' -delete
+
 shapes=(
     "1 1"
     "1 2"
@@ -22,13 +27,11 @@ shapes=(
 )
 
 # "<setup-transfer --circuit flag> <key-file prefix>". The key-file prefix
-# mirrors the verifying-key module name. Two forms per rail: confidential
-# (non-zone) and zone (anonymous).
+# mirrors the verifying-key module name. Both the default and custom-zone forms
+# are confidential and bind public output owner tags.
 rails=(
     "transfer-confidential transfer_confidential"
-    "transfer-p256-confidential transfer_p256_confidential"
     "transfer-zone transfer_zone"
-    "transfer-p256-zone transfer_p256_zone"
 )
 
 for entry in "${rails[@]}"; do

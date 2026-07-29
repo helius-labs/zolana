@@ -105,16 +105,12 @@ fn transact_view_tags(
         .map_err(|err| ClientError::Rpc(format!("decode transact instruction data: {err}")))?;
     let mut tags = BTreeSet::new();
     for output in &transact_data.outputs {
-        let tag = fetch_tag(
-            &output.owner_tag,
-            transact_data.p256_signing_pk_x.as_ref(),
-            |i| {
-                instruction
-                    .accounts
-                    .get(usize::from(i))
-                    .map(|pk| pk.to_bytes())
-            },
-        )
+        let tag = fetch_tag(&output.owner_tag, |i| {
+            instruction
+                .accounts
+                .get(usize::from(i))
+                .map(|pk| pk.to_bytes())
+        })
         .map_err(|err| ClientError::Rpc(format!("resolve output owner tag: {err}")))?;
         tags.insert(tag);
     }

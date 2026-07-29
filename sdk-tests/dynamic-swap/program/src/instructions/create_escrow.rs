@@ -13,7 +13,7 @@ use crate::{
     error::DynamicSwapError,
     instructions::{
         shared::{
-            cpi_spp_transact, escrow_authority_owner_hash, u64_right_align, verify_pda,
+            cpi_spp_transact_signed, escrow_authority_owner_hash, u64_right_align, verify_pda,
             CreatePdaAccount,
         },
         verifier::{verify_groth16, CompressedGroth16Proof},
@@ -225,9 +225,14 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     let transact_bytes = transact
         .serialize()
         .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
-    // Both inputs are user-owned (taker's source, maker's funding), each
-    // authorized by that party's own outer-transaction signature, so no PDA
-    // signer is needed -- the signatures propagate into the SPP CPI.
+    // The source input is authorized by the taker's outer signature. The
+    // reservation-funding input is owned by the per-pair escrow-authority PDA,
+    // which also authorizes the data-bearing order and reservation outputs.
     let spp_accounts = iter.remaining()?;
-    cpi_spp_transact(spp_accounts, &transact_bytes)
+    cpi_spp_transact_signed(
+        &pair_address,
+        crate::ESCROW_AUTHORITY_PDA_SEED,
+        spp_accounts,
+        &transact_bytes,
+    )
 }

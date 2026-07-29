@@ -8,10 +8,9 @@
 //! re-owns one of an actor's zone-owned UTXOs to a TRACKED recipient actor,
 //! producing a new zone-owned output. Shape 1x1 is the minimal supported
 //! zone-authority shape. The zone client assembles its own `TransactIxData`
-//! (mirroring the client's `witness::assemble`); because the authority rail skips
-//! the per-owner spend signature on-chain (`prepare_proof_inputs::<_, true>`),
-//! every input's `eddsa_signer_index` stays the default 0 and
-//! `p256_signing_pk_x` is `None`.
+//! (mirroring the client's `witness::assemble`); because `CircuitId::ZoneAuthority`
+//! skips per-owner spend signatures on-chain, every input's
+//! `eddsa_signer_index` stays at its canonical default of 0.
 //!
 //! View-tag discovery: the recipient slot's `view_tag` is the recipient actor's
 //! `signing_pubkey().confidential_view_tag()`, the exact tag the confidential
@@ -27,10 +26,10 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, PublicAmounts, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
+    ProverClient, PublicMovements, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
 };
 use zolana_interface::instruction::{
-    instruction_data::transact::{InputUtxo, OwnerTag, TransactOutput, TransactProof},
+    instruction_data::transact::{CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof},
     tag::ZONE_AUTHORITY_TRANSACT,
     TransactIxData, ZoneAuthorityTransact,
 };
@@ -61,9 +60,6 @@ const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
 /// (`prepare_proof_inputs::<_, true>` does not run `check_input_signers`), so this
 /// index is never read; it stays at the default 0.
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
-/// Output-tree slot every input is placed at (`tree_index` 0).
-const DEFAULT_TREE_INDEX: u8 = 0;
-
 impl ZoneLifecycleWorld {
     /// Run a zone-authority permanent-delegate transfer over one of `name`'s
     /// zone-owned UTXOs: re-own its full value to the TRACKED actor `recipient` as a
@@ -94,9 +90,10 @@ impl ZoneLifecycleWorld {
 
         let transfer_ix = ZoneAuthorityTransact {
             payer: payer.pubkey(),
-            tree,
+            input_tree: tree,
+            output_tree: tree,
             zone_program_id: self.zone_program_id,
-            withdrawal: None,
+            interface_transfer_accounts: Vec::new(),
             data: ix_data.clone(),
         }
         .instruction();
@@ -220,6 +217,7 @@ impl ZoneLifecycleWorld {
                 state,
                 nullifier: non_inclusion,
             }),
+            nullifier_proof: None,
         };
 
         // Tracked recipient actor; the re-owned output is zone-owned (bound to the
@@ -276,12 +274,7 @@ impl ZoneLifecycleWorld {
         let external_data = ExternalData {
             instruction_discriminator: ZONE_AUTHORITY_TRANSACT,
             expiry_unix_ts: u64::MAX,
-            relayer_fee: 0,
-            public_sol_amount: None,
-            public_spl_amount: None,
-            user_sol_account: Address::default(),
-            user_spl_token: Address::default(),
-            spl_token_interface: Address::default(),
+            interface_transfers: Vec::new(),
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: *tx.pubkey().as_bytes(),
@@ -302,12 +295,9 @@ impl ZoneLifecycleWorld {
             inputs: vec![spend_input],
             outputs: vec![output],
             external_data: external_data.clone(),
-            public_amounts: PublicAmounts {
-                sol: [0u8; 32],
-                spl: [0u8; 32],
-                asset: [0u8; 32],
-            },
+            public_movements: PublicMovements::default(),
             payer_pubkey_hash: sha256_be(&self.payer.pubkey().to_bytes()),
+            allow_dummy_inputs: true,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(1, 1)),
         }
@@ -330,19 +320,24 @@ impl ZoneLifecycleWorld {
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-            tree_index: DEFAULT_TREE_INDEX,
             eddsa_signer_index: DEFAULT_EDDSA_SIGNER_INDEX,
         }];
 
         let ix_data = TransactIxData {
             proof: transact_proof(&proof)?,
             expiry_unix_ts: external_data.expiry_unix_ts,
-            relayer_fee: external_data.relayer_fee,
             private_tx_hash: result.private_tx_hash,
-            p256_signing_pk_x: None,
+            circuit: CircuitId::ZoneAuthority(
+                inputs.len() as u8,
+                external_data.outputs.len() as u8,
+                zolana_interface::N_PUBLIC_SLOTS as u8,
+            ),
             inputs,
-            public_sol_amount: external_data.public_sol_amount,
-            public_spl_amount: external_data.public_spl_amount,
+            interface_transfers: external_data
+                .interface_transfers
+                .iter()
+                .map(|transfer| transfer.interface_transfer())
+                .collect(),
             data_hash: external_data.data_hash,
             zone_data_hash: external_data.zone_data_hash,
             tx_viewing_pk: external_data.tx_viewing_pk,
@@ -381,9 +376,10 @@ impl ZoneLifecycleWorld {
         let payer = self.payer.insecure_clone();
         let transfer_ix = ZoneAuthorityTransact {
             payer: payer.pubkey(),
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
-            withdrawal: None,
+            interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
         .instruction();
@@ -419,14 +415,15 @@ impl ZoneLifecycleWorld {
         // single byte can instead yield `InvalidTransactProofEncoding` depending on
         // the random proof bytes.
         let mut ix_data = self.build_zone_authority_transfer(name, name, asset)?;
-        ix_data.proof = TransactProof::zeroed_eddsa();
+        ix_data.proof = TransactProof::zeroed();
 
         let payer = self.payer.insecure_clone();
         let transfer_ix = ZoneAuthorityTransact {
             payer: payer.pubkey(),
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
-            withdrawal: None,
+            interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
         .instruction();

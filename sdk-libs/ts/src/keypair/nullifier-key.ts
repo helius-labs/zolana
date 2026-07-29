@@ -55,11 +55,11 @@ export class NullifierKey {
     return poseidon([rightAlign(this.#secret)]) as Bytes32;
   }
 
-  nullifier(utxoHash: Bytes32, blinding: Bytes31): Bytes32 {
+  nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {
     this.#assertUsable();
     const hash = checkedBytes<Bytes32>(utxoHash, 32, "UTXO hash");
-    const blind = checkedBytes<Bytes31>(blinding, BLINDING_LENGTH, "blinding");
-    return poseidon([hash, rightAlign(blind), rightAlign(this.#secret)]) as Bytes32;
+    const blind = checkedBytes<Bytes32>(blinding, 32, "blinding");
+    return poseidon([hash, blind, rightAlign(this.#secret)]) as Bytes32;
   }
 
   secretBytes(): Bytes31 {

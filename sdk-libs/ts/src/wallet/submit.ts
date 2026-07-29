@@ -183,6 +183,7 @@ type MergeSubmissionClient = Pick<
   | "tree"
   | "getAccount"
   | "getInputMerkleProofs"
+  | "getNonInclusionProofs"
   | "proveMerge"
   | "finishMergeSubmissionUnsigned"
   | "sendTransaction"
@@ -262,9 +263,9 @@ function validateMergeSubmission(
  * proof is paid for.
  */
 function treeCheckedIndexer(
-  indexer: Pick<ZolanaClient, "getInputMerkleProofs">,
+  indexer: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">,
   submitTree: Address,
-): Pick<ZolanaClient, "getInputMerkleProofs"> {
+): Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs"> {
   return {
     getInputMerkleProofs: async (commitments, config, context) => {
       const proofs = await indexer.getInputMerkleProofs(commitments, config, context);
@@ -280,6 +281,17 @@ function treeCheckedIndexer(
           }
       }
       return proofs;
+    },
+    getNonInclusionProofs: async (tree, leaves, config, context) => {
+      const response = await indexer.getNonInclusionProofs(tree, leaves, config, context);
+      for (const proof of response.proofs) {
+        if (proof.merkleContext.tree !== submitTree) {
+          throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
+            details: { proofTree: proof.merkleContext.tree, submitTree },
+          });
+        }
+      }
+      return response;
     },
   };
 }
@@ -386,11 +398,7 @@ export async function merge(
         committed = true;
       }
       if (input.waitForIndexer !== false) {
-        await input.client.confirmPrivateTransaction(
-          submitted.signature,
-          [submitted.outputTag],
-          context,
-        );
+        await input.client.confirmPrivateTransaction(submitted.signature, context);
       }
       return Object.freeze({
         ...submitted,

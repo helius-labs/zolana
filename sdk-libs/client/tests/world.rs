@@ -86,9 +86,9 @@ pub(crate) fn asset_addr(asset: Asset) -> Address {
     }
 }
 
-pub(crate) fn random_blinding(rng: &mut ThreadRng) -> [u8; 31] {
-    let mut b = [0u8; 31];
-    rng.fill_bytes(&mut b);
+pub(crate) fn random_blinding(rng: &mut ThreadRng) -> [u8; 32] {
+    let mut b = [0u8; 32];
+    rng.fill_bytes(&mut b[1..]);
     b
 }
 

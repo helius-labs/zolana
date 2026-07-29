@@ -23,7 +23,7 @@ pub struct Withdraw {
 /// `invoke_signed`. The signer index selects the account whose pubkey the SPP
 /// proof's input_owner_pk_hash must match; it is not itself a proof public
 /// input, so overriding it post-proof is safe.
-const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 3;
+const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 4;
 
 impl Withdraw {
     pub fn instruction(self) -> Result<Instruction> {
@@ -53,6 +53,7 @@ impl Withdraw {
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(creator, true),
             AccountMeta::new(payer, true),
+            AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(escrow_authority_pda(), false),

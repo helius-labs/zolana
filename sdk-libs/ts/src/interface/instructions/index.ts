@@ -3,6 +3,7 @@ import { AccountRole, address, type Instruction, type TransactionSigner } from "
 
 import {
   InstructionTag,
+  SHIELDED_POOL_CPI_AUTHORITY,
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
@@ -10,8 +11,8 @@ import {
 import type { AddressTreeParams } from "../program.js";
 import {
   type Address,
+  type AssetDeposit,
   type MergeTransactInstructionData,
-  type DepositInstructionData,
   type DepositSplAccounts,
   type TransactInstructionData,
   type TransactWithdrawal,
@@ -23,6 +24,7 @@ import {
   splAssetCounterAddress,
   splAssetRegistryAddress,
   splAssetVaultAddress,
+  splAssetVaultPda,
 } from "../pda/index.js";
 import {
   encodeAddressTreeParams,
@@ -143,41 +145,103 @@ export async function createTreeInstruction(
   ]);
 }
 
-function depositAccounts(
+interface DepositLayout {
+  readonly hasSol: boolean;
+  readonly splGroups: readonly DepositSplAccounts[];
+}
+
+function depositLayout(deposits: readonly AssetDeposit[]): DepositLayout {
+  if (deposits.length === 0 || deposits.length > 0xff) {
+    fail("INTERFACE_CODEC", { reason: "invalid deposit count", count: deposits.length });
+  }
+  let hasSol = false;
+  const splGroups: DepositSplAccounts[] = [];
+  for (const deposit of deposits) {
+    if (deposit.asset.kind === "sol") {
+      hasSol = true;
+      continue;
+    }
+    const spl = deposit.asset.accounts;
+    const existing = splGroups.find((candidate) => candidate.mint === spl.mint);
+    if (
+      existing !== undefined &&
+      (existing.userToken !== spl.userToken || existing.tokenProgram !== spl.tokenProgram)
+    ) {
+      fail("INTERFACE_CODEC", { reason: "conflicting SPL deposit accounts", mint: spl.mint });
+    }
+    if (existing === undefined) splGroups.push(spl);
+  }
+  if (Number(hasSol) + splGroups.length > 5) {
+    fail("INTERFACE_CODEC", { reason: "too many deposit assets" });
+  }
+  return Object.freeze({ hasSol, splGroups: Object.freeze(splGroups) });
+}
+
+function depositAssetIndex(layout: DepositLayout, deposit: AssetDeposit): number {
+  if (deposit.asset.kind === "sol") return 0;
+  const mint = deposit.asset.accounts.mint;
+  const index = layout.splGroups.findIndex((candidate) => candidate.mint === mint);
+  if (index < 0) fail("INTERFACE_CODEC", { reason: "missing SPL deposit group" });
+  return Number(layout.hasSol) + index;
+}
+
+async function depositAccounts(
   tree: Address,
   depositor: SignerAccount,
-  spl?: DepositSplAccounts,
-): Meta[] {
+  layout: DepositLayout,
+): Promise<Readonly<{ accounts: Meta[]; vaultBumps: number[] }>> {
   const accounts = [meta(tree, false, true), meta(depositor, true, true)];
-  if (spl === undefined) {
+  if (layout.hasSol) {
+    accounts.push(meta(SYSTEM_PROGRAM, false, false), meta(solInterfaceAddress(), false, true));
+  }
+  const vaultBumps: number[] = [];
+  for (const spl of layout.splGroups) {
+    const [[vault, bump], registry] = await Promise.all([
+      splAssetVaultPda(spl.mint),
+      splAssetRegistryAddress(spl.mint),
+    ]);
+    vaultBumps.push(bump);
     accounts.push(
-      meta(SYSTEM_PROGRAM, false, false),
-      meta(solInterfaceAddress(), false, true),
-      meta(depositor, false, true),
-    );
-  } else {
-    accounts.push(
-      meta(spl.userToken, false, true),
-      meta(spl.splTokenInterface, false, true),
-      meta(spl.registry, false, false),
       meta(spl.tokenProgram, false, false),
+      meta(spl.mint, false, false),
+      meta(spl.userToken, false, true),
+      meta(vault, false, true),
+      meta(registry, false, false),
     );
   }
   accounts.push(meta(SHIELDED_POOL_PROGRAM_ID, false, false));
-  return accounts;
+  return Object.freeze({ accounts, vaultBumps });
 }
 
-export function depositInstruction(
+export async function depositInstruction(
   input: Readonly<{
     tree: Address;
     depositor: SignerAccount;
-    spl?: DepositSplAccounts;
-    data: DepositInstructionData;
+    deposits: readonly AssetDeposit[];
   }>,
-): Instruction {
+): Promise<Instruction> {
+  const layout = depositLayout(input.deposits);
+  const { accounts, vaultBumps } = await depositAccounts(input.tree, input.depositor, layout);
   return instruction(
-    tagged(InstructionTag.deposit, encodeDepositInstructionData(input.data)),
-    depositAccounts(input.tree, input.depositor, input.spl),
+    tagged(
+      InstructionTag.deposit,
+      encodeDepositInstructionData({
+        assets: [
+          ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
+          ...vaultBumps.map((vaultBump) => ({ kind: "spl" as const, vaultBump })),
+        ],
+        deposits: input.deposits.map((deposit) => ({
+          assetIndex: depositAssetIndex(layout, deposit),
+          viewTag: deposit.viewTag,
+          owner: deposit.owner,
+          blinding: deposit.blinding,
+          amount: deposit.amount,
+          ...(deposit.utxoData === undefined ? {} : { utxoData: deposit.utxoData }),
+          ...(deposit.memo === undefined ? {} : { memo: deposit.memo }),
+        })),
+      }),
+    ),
+    accounts,
   );
 }
 
@@ -186,17 +250,13 @@ function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
   if (withdrawal.kind === "sol") {
     return [meta(SOL_INTERFACE, false, true), meta(withdrawal.recipient, false, true)];
   }
-  const accounts: Meta[] = [];
-  if (withdrawal.cpiAuthority !== undefined) {
-    accounts.push(meta(withdrawal.cpiAuthority, false, false));
-  }
-  accounts.push(
+  return [
+    meta(SHIELDED_POOL_CPI_AUTHORITY, false, false),
+    meta(withdrawal.mint, false, false),
     meta(withdrawal.splTokenInterface, false, true),
-    meta(withdrawal.recipient, false, true),
     meta(withdrawal.userTokenAccount, false, true),
     meta(withdrawal.tokenProgram, false, false),
-  );
-  return accounts;
+  ];
 }
 
 function transactAccounts(
@@ -204,7 +264,7 @@ function transactAccounts(
   tree: Address,
   withdrawal?: TransactWithdrawal,
 ): Meta[] {
-  const accounts = [meta(payer, true, true), meta(tree, false, true)];
+  const accounts = [meta(payer, true, true), meta(tree, false, true), meta(tree, false, true)];
   accounts.push(...settlementAccounts(withdrawal));
   // System program for the forester-fee collection CPI and, on the native SOL
   // rail, public settlement.
@@ -318,7 +378,8 @@ export async function pauseTreeInstruction(
 
 export function mergeTransactInstruction(
   input: Readonly<{
-    tree: Address;
+    inputTree: Address;
+    outputTree: Address;
     payer: SignerAccount;
     userRecord: Address;
     data: MergeTransactInstructionData;
@@ -327,7 +388,8 @@ export function mergeTransactInstruction(
   return instruction(
     tagged(InstructionTag.mergeTransact, encodeMergeTransactInstructionData(input.data)),
     [
-      meta(input.tree, false, true),
+      meta(input.inputTree, false, true),
+      meta(input.outputTree, false, true),
       meta(input.payer, true, true),
       meta(input.userRecord, false, false),
       meta(SYSTEM_PROGRAM, false, false),

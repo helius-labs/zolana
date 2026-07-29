@@ -17,13 +17,11 @@ import {
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
-import { encodeConfidentialSlots, type P256Signature } from "../instructions/transact.js";
+import { encodeConfidentialSlots } from "../instructions/transact.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
 export type { SplitBundlePlaintext };
-
-export type { P256Signature };
 
 export interface ApprovalRequest {
   readonly solanaPublicKey: Address;
@@ -100,7 +98,6 @@ export interface WalletAuthority {
     }>,
   ): Promise<EncryptedSplit>;
   requestUserApproval(request: ApprovalRequest): Promise<void>;
-  signP256(messageHash: Bytes32): Promise<P256Signature>;
 }
 
 /** Binds local shielded keys to the Solana address that publishes them. */
@@ -233,9 +230,5 @@ export class LocalWalletAuthority implements WalletAuthority {
   requestUserApproval(request: ApprovalRequest): Promise<void> {
     void request;
     return Promise.resolve();
-  }
-
-  signP256(messageHash: Bytes32): Promise<P256Signature> {
-    return Promise.resolve(this.#keypair.signP256(messageHash));
   }
 }

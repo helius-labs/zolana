@@ -2,14 +2,16 @@ use anyhow::Result;
 use solana_address::Address;
 use swap_program::instructions::shared::u64_right_align;
 use swap_prover::TAKE_ENC_KDF_DOMAIN;
+use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::{
-    constants::BLINDING_LEN,
-    hash::{hash_field, poseidon},
+    hash::poseidon,
     merge::{merge_ciphertext_hash, symmetric_apply, MERGE_INFO},
 };
 use zolana_transaction::utxo::Blinding;
 
 use crate::{err, shared::right_align_blinding};
+
+pub const DESTINATION_CIPHERTEXT_LEN: usize = 8 + 32 + 31;
 
 fn take_shared_secret(order_utxo_blinding: &Blinding) -> Result<[u8; 32]> {
     let domain = u64_right_align(TAKE_ENC_KDF_DOMAIN);
@@ -21,11 +23,13 @@ pub fn destination_ciphertext_with_hash(
     destination_mint: &Address,
     destination_amount: u64,
     destination_output_blinding: &Blinding,
-) -> Result<(Vec<u8>, [u8; 32])> {
-    let mut plaintext = Vec::with_capacity(8 + 32 + BLINDING_LEN);
-    plaintext.extend_from_slice(&destination_amount.to_be_bytes());
-    plaintext.extend_from_slice(&hash_field(destination_mint.as_array()).map_err(err)?);
-    plaintext.extend_from_slice(destination_output_blinding);
+) -> Result<([u8; DESTINATION_CIPHERTEXT_LEN], [u8; 32])> {
+    // The take circuit packs the blinding as its low 31 bytes; keep that wire
+    // layout (the blinding is a 32-byte field element with a zero top byte).
+    let mut plaintext = [0u8; DESTINATION_CIPHERTEXT_LEN];
+    plaintext[..8].copy_from_slice(&destination_amount.to_be_bytes());
+    plaintext[8..40].copy_from_slice(&hash_bytes(destination_mint.as_array()).map_err(err)?);
+    plaintext[40..].copy_from_slice(&destination_output_blinding[1..]);
     symmetric_apply(
         &take_shared_secret(order_utxo_blinding)?,
         MERGE_INFO,
@@ -38,9 +42,9 @@ pub fn destination_ciphertext_with_hash(
 
 pub fn decrypt_destination(
     order_utxo_blinding: &Blinding,
-    ciphertext: &[u8],
+    ciphertext: &[u8; DESTINATION_CIPHERTEXT_LEN],
 ) -> Result<([u8; 32], u64)> {
-    let mut plaintext = ciphertext.to_vec();
+    let mut plaintext = *ciphertext;
     symmetric_apply(
         &take_shared_secret(order_utxo_blinding)?,
         MERGE_INFO,

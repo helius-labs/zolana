@@ -6,6 +6,8 @@ import type {
   GetNonInclusionProofsRequest,
   GetNonInclusionProofsResponse,
   GetRingsByTagsRequest,
+  GetShieldedTransactionsBySignatureRequest,
+  GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
   IndexedShieldedTransaction,
   IndexerContext,
@@ -14,6 +16,7 @@ import type {
   RingsMessage,
   RingsOutputContext,
   RingsOutputSlot,
+  SignatureIndexedShieldedTransaction,
 } from "./types.js";
 import {
   checkedAddress,
@@ -272,6 +275,17 @@ function indexedTransaction(value: unknown, path: string): IndexedShieldedTransa
   };
 }
 
+function signatureIndexedTransaction(
+  value: unknown,
+  path: string,
+): SignatureIndexedShieldedTransaction {
+  const record = object(value, path, ["event_index", "transaction"]);
+  return {
+    eventIndex: u16(record["event_index"], `${path}.event_index`),
+    transaction: indexedTransaction(record["transaction"], `${path}.transaction`),
+  };
+}
+
 function merkleContext(value: unknown, path: string): MerkleProof["merkleContext"] {
   const record = object(value, path, ["tree_type", "tree"]);
   return {
@@ -355,6 +369,14 @@ export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObje
   };
 }
 
+export function encodeShieldedTransactionsBySignatureRequest(
+  value: GetShieldedTransactionsBySignatureRequest,
+): WireObject {
+  return {
+    tx_signature: checkedSignature(value.txSignature, "$.tx_signature"),
+  };
+}
+
 export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
   const record = object(value, "$", ["context", "matches", "next_cursor"]);
   const nextCursor = optional(record["next_cursor"], "$.next_cursor", checkedBase64);
@@ -374,6 +396,16 @@ export function decodeShieldedTransactionsResponse(
     context: context(record["context"], "$.context"),
     transactions: array(record["transactions"], "$.transactions", indexedTransaction),
     ...(nextCursor === undefined ? {} : { nextCursor }),
+  };
+}
+
+export function decodeShieldedTransactionsBySignatureResponse(
+  value: unknown,
+): GetShieldedTransactionsBySignatureResponse {
+  const record = object(value, "$", ["context", "transactions"]);
+  return {
+    context: context(record["context"], "$.context"),
+    transactions: array(record["transactions"], "$.transactions", signatureIndexedTransaction),
   };
 }
 

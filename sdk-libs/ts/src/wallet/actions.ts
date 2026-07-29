@@ -6,11 +6,7 @@ import {
   type RequestContext,
   type TransactWithdrawal,
 } from "../interface/types.js";
-import {
-  associatedTokenAddress,
-  shieldedPoolCpiAuthorityAddress,
-  splAssetVaultAddress,
-} from "../interface/pda/index.js";
+import { associatedTokenAddress, splAssetVaultPda } from "../interface/pda/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
@@ -40,6 +36,7 @@ type PrivateAction =
             kind: "spl";
             userTokenAccount: Address;
             splTokenInterface: Address;
+            vaultBump: number;
           }>;
     }>
   | Readonly<{
@@ -252,17 +249,16 @@ async function withdrawal(
       accounts: { kind: "sol", recipient },
     };
   }
-  const [userTokenAccount, splTokenInterface] = await Promise.all([
+  const [userTokenAccount, [splTokenInterface, vaultBump]] = await Promise.all([
     associatedTokenAddress(recipient, asset),
-    splAssetVaultAddress(asset),
+    splAssetVaultPda(asset),
   ]);
   return {
-    target: { kind: "spl", userTokenAccount, splTokenInterface },
+    target: { kind: "spl", userTokenAccount, splTokenInterface, vaultBump },
     accounts: {
       kind: "spl",
-      cpiAuthority: shieldedPoolCpiAuthorityAddress(),
+      mint: asset,
       splTokenInterface,
-      recipient,
       userTokenAccount,
       tokenProgram: SPL_TOKEN_PROGRAM_ID,
     },

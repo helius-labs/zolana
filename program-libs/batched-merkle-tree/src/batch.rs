@@ -115,6 +115,14 @@ impl Batch {
         }
     }
 
+    /// State read for account-data paths: an out-of-range raw state is an
+    /// error, never a panic. `get_state` (which panics on corrupt data) is
+    /// for tests that construct the batch in memory.
+    pub(crate) fn checked_state(&self) -> Result<BatchState, BatchedMerkleTreeError> {
+        self.try_get_state()
+            .ok_or(BatchedMerkleTreeError::InvalidBatchState)
+    }
+
     pub fn bloom_filter_is_zeroed(&self) -> bool {
         self.bloom_filter_is_zeroed == 1
     }
@@ -137,7 +145,7 @@ impl Batch {
         &mut self,
         start_index: Option<u64>,
     ) -> Result<(), BatchedMerkleTreeError> {
-        if self.get_state() == BatchState::Inserted {
+        if self.checked_state()? == BatchState::Inserted {
             self.state = BatchState::Fill.into();
             self.set_bloom_filter_to_not_zeroed();
             self.sequence_number = 0;
@@ -165,7 +173,7 @@ impl Batch {
     /// fill -> full -> inserted -> fill
     /// (from tree insertion perspective is pending if fill or full)
     pub fn advance_state_to_inserted(&mut self) -> Result<(), BatchedMerkleTreeError> {
-        if self.get_state() == BatchState::Full {
+        if self.checked_state()? == BatchState::Full {
             self.state = BatchState::Inserted.into();
         } else {
             #[cfg(feature = "log")]
@@ -181,7 +189,7 @@ impl Batch {
     /// fill -> full -> inserted -> fill
     /// (from tree insertion perspective is pending if fill or full)
     pub fn advance_state_to_full(&mut self) -> Result<(), BatchedMerkleTreeError> {
-        if self.get_state() == BatchState::Fill {
+        if self.checked_state()? == BatchState::Fill {
             self.state = BatchState::Full.into();
         } else {
             #[cfg(feature = "log")]
@@ -195,7 +203,7 @@ impl Batch {
     }
 
     pub fn get_first_ready_zkp_batch(&self) -> Result<u64, BatchedMerkleTreeError> {
-        if self.get_state() == BatchState::Inserted {
+        if self.checked_state()? == BatchState::Inserted {
             Err(BatchedMerkleTreeError::BatchAlreadyInserted)
         } else if self.batch_is_ready_to_insert() {
             Ok(self.num_inserted_zkp_batches)
@@ -254,9 +262,15 @@ impl Batch {
     /// Insert into the bloom filter and
     /// add value to current hash chain.
     /// (used by nullifier & address queues)
-    /// 1. Add value to hash chain.
-    /// 2. Insert value into the bloom filter at bloom_filter_index.
-    /// 3. Check that value is not in any other bloom filter.
+    ///
+    /// Error-atomic: every fallible check runs before any mutation, so a
+    /// failed insert leaves the batch, both bloom filters, and the hash chain
+    /// untouched. (On-chain a failed instruction rolls back anyway; this
+    /// matters for host callers that keep the account after an error.)
+    /// 1. Check that value is not in any bloom filter (also covers same-batch
+    ///    duplicates, which therefore error as `NonInclusionCheckFailed`).
+    /// 2. Add value to hash chain (never mutates on error).
+    /// 3. Insert value into the bloom filter at bloom_filter_index.
     pub fn insert<const NUM_ITERS: usize, const BYTES: usize>(
         &mut self,
         bloom_filter_value: &[u8; 32],
@@ -265,25 +279,34 @@ impl Batch {
         hash_chain_store: &mut [[u8; 32]],
         bloom_filter_index: usize,
     ) -> Result<(), BatchedMerkleTreeError> {
-        // 1. add value to hash chain
-        self.add_to_hash_chain(hash_chain_value, hash_chain_store)?;
-        // insert into bloom filter & check non inclusion
-        {
-            let other_bloom_filter_index = if bloom_filter_index == 0 { 1 } else { 0 };
+        let other_bloom_filter_index = if bloom_filter_index == 0 { 1 } else { 0 };
 
-            // 2. Insert value into the bloom filter at bloom_filter_index.
+        // 1. Pure checks first: the value must be in neither bloom filter.
+        Self::check_non_inclusion(
+            bloom_filter_value,
             bloom_filters
-                .get_mut(bloom_filter_index)
-                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
-                .insert(bloom_filter_value)?;
-            // 3. Check that value is not in any other bloom filter.
-            Self::check_non_inclusion(
-                bloom_filter_value,
-                bloom_filters
-                    .get(other_bloom_filter_index)
-                    .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?,
-            )?;
-        }
+                .get(other_bloom_filter_index)
+                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?,
+        )?;
+        Self::check_non_inclusion(
+            bloom_filter_value,
+            bloom_filters
+                .get(bloom_filter_index)
+                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?,
+        )?;
+
+        // 2. Add value to the current hash chain. Never mutates on error: all
+        //    of its failure points (batch state, store capacity, hashing)
+        //    precede the write.
+        self.add_to_hash_chain(hash_chain_value, hash_chain_store)?;
+
+        // 3. Insert into the current bloom filter. Cannot fail here: `Full`
+        //    is only returned when every probe bit was already set, which
+        //    step 1's `contains` ruled out.
+        bloom_filters
+            .get_mut(bloom_filter_index)
+            .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
+            .insert(bloom_filter_value)?;
         Ok(())
     }
 
@@ -299,7 +322,7 @@ impl Batch {
         hash_chain_store: &mut [[u8; 32]],
     ) -> Result<(), BatchedMerkleTreeError> {
         // 1. Check that the batch is ready.
-        if self.get_state() != BatchState::Fill {
+        if self.checked_state()? != BatchState::Fill {
             return Err(BatchedMerkleTreeError::BatchNotReady);
         }
         let hash_chain_index = self.num_full_zkp_batches as usize;
@@ -381,7 +404,7 @@ impl Batch {
             self.root_index = root_index;
         }
 
-        Ok(self.get_state())
+        self.checked_state()
     }
 }
 
@@ -529,6 +552,78 @@ mod tests {
         assert_eq!(hash_chain_store[0], ref_hash_chain);
     }
 
+    /// A failed insert must not mutate the batch, the bloom filters, or the
+    /// hash chain store: host callers keep the state after an error.
+    #[test]
+    fn test_insert_is_error_atomic() {
+        const NUM_ITERS: usize = 3;
+        const BYTES: usize = 20_000;
+
+        for duplicate_batch in [0usize, 1] {
+            let mut batch = Batch::new(500, 100, 0);
+            let mut blooms = [
+                BloomFilter::<NUM_ITERS, BYTES>::new(),
+                BloomFilter::<NUM_ITERS, BYTES>::new(),
+            ];
+            let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
+
+            // Existing value in one filter.
+            let value = [7u8; 32];
+            blooms
+                .get_mut(duplicate_batch)
+                .unwrap()
+                .insert(&value)
+                .unwrap();
+            let batch_before = batch;
+            let blooms_before = blooms;
+            let chain_before = hash_chain_store.clone();
+
+            // Inserting the same value into either batch must fail with
+            // NonInclusionCheckFailed and leave all state untouched.
+            let other_batch = 1 - duplicate_batch;
+            assert_eq!(
+                batch
+                    .insert(
+                        &value,
+                        &value,
+                        &mut blooms,
+                        &mut hash_chain_store,
+                        other_batch,
+                    )
+                    .unwrap_err(),
+                BatchedMerkleTreeError::NonInclusionCheckFailed
+            );
+            assert_eq!(batch, batch_before);
+            assert_eq!(blooms, blooms_before);
+            assert_eq!(hash_chain_store, chain_before);
+        }
+
+        // A failed insert due to batch state must also leave state untouched.
+        let mut batch = Batch::new(500, 100, 0);
+        batch.advance_state_to_full().unwrap();
+        let mut blooms = [
+            BloomFilter::<NUM_ITERS, BYTES>::new(),
+            BloomFilter::<NUM_ITERS, BYTES>::new(),
+        ];
+        let mut hash_chain_store = vec![[0u8; 32]; batch.get_num_hash_chain_store()];
+        let blooms_before = blooms;
+        let chain_before = hash_chain_store.clone();
+        assert_eq!(
+            batch
+                .insert(
+                    &[9u8; 32],
+                    &[9u8; 32],
+                    &mut blooms,
+                    &mut hash_chain_store,
+                    0
+                )
+                .unwrap_err(),
+            BatchedMerkleTreeError::BatchNotReady
+        );
+        assert_eq!(blooms, blooms_before);
+        assert_eq!(hash_chain_store, chain_before);
+    }
+
     #[test]
     fn test_check_non_inclusion() {
         for processing_index in 0..=1 {
@@ -656,6 +751,40 @@ mod tests {
         assert_eq!(batch.num_inserted, 0);
         assert_eq!(batch.get_num_inserted_elements(), 0);
         assert_eq!(batch.get_hash_chain_store_len(), 0);
+    }
+
+    /// Account-data paths must return `InvalidBatchState` for a corrupt state
+    /// word instead of panicking in `From<u64>`.
+    #[test]
+    fn corrupt_state_errors_instead_of_panicking() {
+        let mut batch = get_test_batch();
+        batch.state = 3;
+        assert_eq!(
+            batch.advance_state_to_full().unwrap_err(),
+            BatchedMerkleTreeError::InvalidBatchState
+        );
+        assert_eq!(
+            batch.advance_state_to_inserted().unwrap_err(),
+            BatchedMerkleTreeError::InvalidBatchState
+        );
+        assert_eq!(
+            batch.advance_state_to_fill(None).unwrap_err(),
+            BatchedMerkleTreeError::InvalidBatchState
+        );
+        assert_eq!(
+            batch.get_first_ready_zkp_batch().unwrap_err(),
+            BatchedMerkleTreeError::InvalidBatchState
+        );
+        assert_eq!(
+            batch
+                .add_to_hash_chain(&[1u8; 32], &mut [[0u8; 32]; 5])
+                .unwrap_err(),
+            BatchedMerkleTreeError::InvalidBatchState
+        );
+        assert_eq!(
+            batch.mark_as_inserted_in_merkle_tree(0, 0, 0).unwrap_err(),
+            BatchedMerkleTreeError::InvalidBatchState
+        );
     }
 
     #[test]

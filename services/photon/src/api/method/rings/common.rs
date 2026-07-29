@@ -33,6 +33,22 @@ pub(super) fn validate_tags(tags: &[Hash]) -> Result<(), PhotonApiError> {
     Ok(())
 }
 
+pub(super) fn validate_nullifiers(nullifiers: &[Hash]) -> Result<(), PhotonApiError> {
+    if nullifiers.is_empty() {
+        return Err(PhotonApiError::ValidationError(
+            "At least one nullifier must be provided".to_string(),
+        ));
+    }
+    if len_exceeds_page_limit(nullifiers.len()) {
+        return Err(PhotonApiError::ValidationError(format!(
+            "Too many nullifiers requested {}. Maximum allowed: {}",
+            nullifiers.len(),
+            PAGE_LIMIT
+        )));
+    }
+    Ok(())
+}
+
 pub(super) fn validate_proof_leaves(leaves: &[Hash]) -> Result<(), PhotonApiError> {
     if leaves.is_empty() {
         return Err(PhotonApiError::ValidationError(

@@ -9,7 +9,6 @@ import {
   Wallet,
   deserializeWallet,
   serializeWallet,
-  type Bytes31,
   type Bytes32,
 } from "../src/index.js";
 
@@ -31,7 +30,7 @@ describe("wallet persistence", () => {
             owner: keypair.signingPublicKey(),
             asset: SOL_MINT,
             amount: 42n,
-            blinding: new Uint8Array(31).fill(3) as Bytes31,
+            blinding: new Uint8Array(32).fill(3) as Bytes32,
             data: new Data([{ kind: "memo", bytes: Uint8Array.of(4, 5) }]),
           }),
           outputContext: { hash: bytes(6), tree: TREE, leafIndex: 7n },

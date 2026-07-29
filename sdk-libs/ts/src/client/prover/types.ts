@@ -41,43 +41,29 @@ export interface TransferInputs {
   readonly outputs: readonly TransferOutput[];
   readonly externalDataHash: Field;
   readonly privateTxHash: Field;
-  readonly publicSolAmount: Field;
-  readonly publicSplAmount: Field;
-  readonly publicSplAssetPublicKey: Field;
+  readonly publicAssets: readonly Field[];
+  readonly publicAmounts: readonly Field[];
   readonly zoneProgramId: Field;
   readonly payerPublicKeyHash: Field;
+  readonly allowDummyInputs: Field;
   readonly publicInputHash: Field;
-}
-
-export interface TransferP256Inputs extends TransferInputs {
-  readonly p256PublicKeyX: Field;
-  readonly p256PublicKeyY: Field;
-  readonly p256SignatureR: Field;
-  readonly p256SignatureS: Field;
-  readonly p256MessageHashLow: Field;
-  readonly p256MessageHashHigh: Field;
-  readonly p256SigningPublicKeyField: Field;
 }
 
 export interface MergeInputs {
   readonly inputs: readonly TransferInput[];
   readonly output: TransferOutput;
-  readonly p256PublicKeyX: Field;
-  readonly p256PublicKeyY: Field;
   readonly ownerPublicKeyHash: Field;
   readonly userNullifierPublicKey: Field;
   readonly userNullifierSecret: Field;
-  readonly txViewingSecret: Field;
-  readonly userViewingPublicKey: readonly Field[];
   readonly externalDataHash: Field;
   readonly privateTxHash: Field;
+  readonly allowDummyInputs: Field;
   readonly publicInputHash: Field;
+  readonly outputZoneDataHash: Field;
   readonly zoneProgramId: Field;
 }
 
-export type ProverInputs =
-  | Readonly<{ circuit: "transfer"; payload: TransferInputs }>
-  | Readonly<{ circuit: "transferP256"; payload: TransferP256Inputs }>;
+export type ProverInputs = Readonly<{ circuit: "transfer"; payload: TransferInputs }>;
 
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;

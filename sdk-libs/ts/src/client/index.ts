@@ -31,6 +31,7 @@ export type {
   GetEncryptedUtxosByTagsResponse,
   GetMerkleProofsResponse,
   GetNonInclusionProofsResponse,
+  GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
   IndexerPollConfig,
   IndexerRpcConfig,

@@ -3,13 +3,21 @@ import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse as WireGetEncryptedUtxosByTagsResponse,
+  GetShieldedTransactionsBySignatureResponse as WireGetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse as WireGetShieldedTransactionsByTagsResponse,
   IndexedShieldedTransaction as WireShieldedTransaction,
   MerkleProof as WireMerkleProof,
   NonInclusionProof as WireNonInclusionProof,
   RingsOutputSlot as WireOutputSlot,
 } from "../indexer/types.js";
-import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../interface/types.js";
+import type {
+  Address,
+  Bytes16,
+  Bytes32,
+  Bytes33,
+  RequestContext,
+  Signature,
+} from "../interface/types.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
@@ -27,6 +35,7 @@ import {
   type GetEncryptedUtxosByTagsResponse,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
+  type GetShieldedTransactionsBySignatureResponse,
   type GetShieldedTransactionsByTagsResponse,
   type MerkleProof,
   type NonInclusionProof,
@@ -86,6 +95,25 @@ export class ZolanaIndexer {
           context,
         );
         return convertShieldedTransactionsResponse(response, method);
+      } catch (cause) {
+        throw wrapIndexer(cause, method);
+      }
+    });
+  }
+
+  getShieldedTransactionsBySignature(
+    signature: Signature,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetShieldedTransactionsBySignatureResponse> {
+    return pollIndexer(config, context, async () => {
+      const method = "getShieldedTransactionsBySignature";
+      try {
+        const response = await this.#api.getShieldedTransactionsBySignature(
+          { txSignature: signature },
+          context,
+        );
+        return convertShieldedTransactionsBySignatureResponse(response, method);
       } catch (cause) {
         throw wrapIndexer(cause, method);
       }
@@ -264,6 +292,27 @@ function convertShieldedTransactionsResponse(
     ...(response.nextCursor === undefined
       ? {}
       : { nextCursor: decodeBase64(response.nextCursor, "next_cursor") }),
+  });
+}
+
+function convertShieldedTransactionsBySignatureResponse(
+  response: WireGetShieldedTransactionsBySignatureResponse,
+  method: string,
+): GetShieldedTransactionsBySignatureResponse {
+  return Object.freeze({
+    context: Object.freeze({ blockTime: response.context.blockTime }),
+    transactions: Object.freeze(
+      response.transactions.map((item, index) =>
+        Object.freeze({
+          eventIndex: item.eventIndex,
+          transaction: convertShieldedTransaction(
+            item.transaction,
+            method,
+            `$.transactions[${String(index)}].transaction`,
+          ),
+        }),
+      ),
+    ),
   });
 }
 

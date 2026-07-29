@@ -91,8 +91,9 @@ impl QueueBatches {
         batch_size: u64,
         zkp_batch_size: u64,
     ) -> Result<(), BatchedMerkleTreeError> {
-        #[allow(clippy::manual_is_multiple_of)]
-        if batch_size % zkp_batch_size != 0 {
+        // Zero zkp batch size must error, not panic on the division below
+        // (`is_multiple_of(0)` is only true for `batch_size == 0`).
+        if zkp_batch_size == 0 || !batch_size.is_multiple_of(zkp_batch_size) {
             return Err(BatchedMerkleTreeError::BatchSizeNotDivisibleByZkpBatchSize);
         }
         Ok(())
@@ -130,7 +131,7 @@ impl QueueBatches {
     pub fn increment_currently_processing_batch_index_if_full(
         &mut self,
     ) -> Result<(), BatchedMerkleTreeError> {
-        let state = self.get_current_batch()?.get_state();
+        let state = self.get_current_batch()?.checked_state()?;
         if state == BatchState::Full {
             self.currently_processing_batch_index =
                 (self.currently_processing_batch_index + 1) % self.num_batches;

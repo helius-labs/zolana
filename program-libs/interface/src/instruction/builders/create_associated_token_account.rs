@@ -15,12 +15,13 @@ pub struct CreateAssociatedTokenAccount {
     pub payer: Pubkey,
     pub owner: Pubkey,
     pub mint: Pubkey,
+    pub token_program: Pubkey,
 }
 
 impl CreateAssociatedTokenAccount {
     /// The canonical associated token account this instruction creates.
     pub fn address(&self) -> Pubkey {
-        pda::associated_token_address(&self.owner, &self.mint)
+        pda::associated_token_address_with_program(&self.owner, &self.mint, &self.token_program)
     }
 
     pub fn instruction(&self) -> Instruction {
@@ -34,7 +35,7 @@ impl CreateAssociatedTokenAccount {
                 AccountMeta::new_readonly(self.mint, false),
                 // System program id is all-zeros, matching `Pubkey::default()`.
                 AccountMeta::new_readonly(Pubkey::default(), false),
-                AccountMeta::new_readonly(pda::spl_token_program_id(), false),
+                AccountMeta::new_readonly(self.token_program, false),
             ],
             // `1` selects SPL ATA `CreateIdempotent`; an empty payload is the
             // non-idempotent `Create`.
@@ -52,8 +53,14 @@ mod tests {
         let payer = Pubkey::new_unique();
         let owner = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
-        let builder = CreateAssociatedTokenAccount { payer, owner, mint };
-        let ata = pda::associated_token_address(&owner, &mint);
+        let token_program = pda::spl_token_program_id();
+        let builder = CreateAssociatedTokenAccount {
+            payer,
+            owner,
+            mint,
+            token_program,
+        };
+        let ata = pda::associated_token_address_with_program(&owner, &mint, &token_program);
         let ix = builder.instruction();
 
         assert_eq!(ix.program_id, pda::associated_token_program_id());
@@ -73,10 +80,33 @@ mod tests {
         assert_eq!(ix.accounts[2].pubkey, owner);
         assert_eq!(ix.accounts[3].pubkey, mint);
         assert_eq!(ix.accounts[4].pubkey, Pubkey::default());
-        assert_eq!(ix.accounts[5].pubkey, pda::spl_token_program_id());
+        assert_eq!(ix.accounts[5].pubkey, token_program);
         for meta in &ix.accounts[2..] {
             assert!(!meta.is_signer);
             assert!(!meta.is_writable);
         }
+    }
+
+    #[test]
+    fn token_2022_ata_uses_token_2022_in_both_derivation_and_instruction() {
+        let payer = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let token_program = pda::spl_token_2022_program_id();
+        let builder = CreateAssociatedTokenAccount {
+            payer,
+            owner,
+            mint,
+            token_program,
+        };
+        let legacy_ata = pda::associated_token_address(&owner, &mint);
+        let token_2022_ata =
+            pda::associated_token_address_with_program(&owner, &mint, &token_program);
+        let ix = builder.instruction();
+
+        assert_ne!(legacy_ata, token_2022_ata);
+        assert_eq!(builder.address(), token_2022_ata);
+        assert_eq!(ix.accounts[1].pubkey, token_2022_ata);
+        assert_eq!(ix.accounts[5].pubkey, token_program);
     }
 }

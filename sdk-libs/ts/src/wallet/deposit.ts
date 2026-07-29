@@ -6,19 +6,15 @@ import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
   type Address,
-  type Bytes31,
   type Bytes32,
-  type DepositInstructionData,
+  type AssetDeposit,
+  type DepositAsset,
   type Instruction,
   type RequestContext,
   type Signature,
   type Transaction,
 } from "../interface/types.js";
-import {
-  associatedTokenAddress,
-  splAssetRegistryAddress,
-  splAssetVaultAddress,
-} from "../interface/pda/index.js";
+import { associatedTokenAddress } from "../interface/pda/index.js";
 import { depositInstruction } from "../interface/instructions/index.js";
 import { randomBlinding } from "../keypair/bytes.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
@@ -26,13 +22,6 @@ import { ownerUtxoHash } from "../transaction/utxo.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
-
-export interface DepositSplAccounts {
-  readonly userToken: Address;
-  readonly splTokenInterface: Address;
-  readonly registry: Address;
-  readonly tokenProgram: Address;
-}
 
 export interface DepositParams {
   readonly recipient: ShieldedAddress;
@@ -64,37 +53,36 @@ export interface SubmittedDeposit {
 }
 
 export class Deposit {
-  readonly data: DepositInstructionData;
+  readonly data: Omit<AssetDeposit, "asset">;
   readonly utxoHash: Bytes32;
   readonly asset: Address;
-  readonly spl?: DepositSplAccounts;
+  readonly settlement: DepositAsset;
 
   constructor(
     input: Readonly<{
-      data: DepositInstructionData;
+      data: Omit<AssetDeposit, "asset">;
       utxoHash: Bytes32;
       asset: Address;
-      spl?: DepositSplAccounts;
+      settlement: DepositAsset;
     }>,
   ) {
     this.data = Object.freeze({
       ...input.data,
       viewTag: new Uint8Array(input.data.viewTag) as Bytes32,
       owner: new Uint8Array(input.data.owner) as Bytes32,
-      blinding: new Uint8Array(input.data.blinding) as Bytes31,
+      blinding: new Uint8Array(input.data.blinding) as Bytes32,
       ...(input.data.memo === undefined ? {} : { memo: new Uint8Array(input.data.memo) }),
     });
     this.utxoHash = new Uint8Array(input.utxoHash) as Bytes32;
     this.asset = input.asset;
-    if (input.spl !== undefined) this.spl = Object.freeze({ ...input.spl });
+    this.settlement = input.settlement;
   }
 
-  instruction(tree: Address, depositor: Address): Instruction {
+  instruction(tree: Address, depositor: Address): Promise<Instruction> {
     return depositInstruction({
       tree,
       depositor,
-      data: this.data,
-      ...(this.spl === undefined ? {} : { spl: this.spl }),
+      deposits: [{ ...this.data, asset: this.settlement }],
     });
   }
 
@@ -112,10 +100,8 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
     }
     const owner = params.recipient.ownerHash();
     const blinding = randomBlinding();
-    const data: DepositInstructionData = {
-      // Every output is tagged by its owner pubkey, so discovery keys on the
-      // recipient's signing key, not its viewing key.
-      viewTag: params.recipient.confidentialViewTag(),
+    const data: Omit<AssetDeposit, "asset"> = {
+      viewTag: params.recipient.viewingPublicKey.x(),
       owner,
       blinding,
       amount: params.amount,
@@ -123,22 +109,20 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
     };
     // A SOL deposit needs no token accounts, so one supplied alongside it is
     // ignored rather than rejected.
-    let spl: DepositSplAccounts | undefined;
+    let settlement: DepositAsset = { kind: "sol" };
     if (params.asset !== SOL_MINT) {
       if (params.splTokenAccount === undefined) {
         throw new WalletError("WALLET_MISSING_SPL_TOKEN_ACCOUNT", {
           details: { mint: params.asset },
         });
       }
-      const [splTokenInterface, registry] = await Promise.all([
-        splAssetVaultAddress(params.asset),
-        splAssetRegistryAddress(params.asset),
-      ]);
-      spl = {
-        userToken: params.splTokenAccount,
-        splTokenInterface,
-        registry,
-        tokenProgram: SPL_TOKEN_PROGRAM_ID,
+      settlement = {
+        kind: "spl",
+        accounts: {
+          mint: params.asset,
+          userToken: params.splTokenAccount,
+          tokenProgram: SPL_TOKEN_PROGRAM_ID,
+        },
       };
     }
     return new Deposit({
@@ -150,7 +134,7 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
         blinding,
       }),
       asset: params.asset,
-      ...(spl === undefined ? {} : { spl }),
+      settlement,
     });
   } catch (cause) {
     throw wrapWalletError("WALLET_CREATE_DEPOSIT", cause);
@@ -176,7 +160,7 @@ export async function submitDeposit(
     return await input.client.signAndSendInstructions(
       {
         feePayer: input.payer,
-        instructions: [input.deposit.instruction(input.tree, input.depositor.address)],
+        instructions: [await input.deposit.instruction(input.tree, input.depositor.address)],
         ...(input.depositor.address === input.payer.address
           ? {}
           : { additionalSigners: [input.depositor] }),
@@ -216,7 +200,7 @@ export async function deposit(
     context,
   );
   if (input.waitForIndexer !== false) {
-    await input.client.confirmPrivateTransaction(signature, [created.viewTag()], context);
+    await input.client.confirmPrivateTransaction(signature, context);
   }
   return Object.freeze({ signature, utxoHash: new Uint8Array(created.utxoHash) as Bytes32 });
 }
@@ -237,7 +221,7 @@ export async function buildDepositTransaction(
       buildUnsignedTransaction({
         feePayer: input.payer,
         lifetime,
-        instructions: [input.deposit.instruction(input.tree, input.depositor)],
+        instructions: [await input.deposit.instruction(input.tree, input.depositor)],
       }),
     );
   } catch (cause) {

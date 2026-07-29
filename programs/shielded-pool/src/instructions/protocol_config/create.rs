@@ -1,12 +1,11 @@
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_account_checks::{checks::check_data_is_zeroed, AccountIterator};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::CreateProtocolConfigData,
-    state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig},
+    error::ShieldedPoolError, instruction::CreateProtocolConfigData, state::ProtocolConfig,
     SPP_PROTOCOL_CONFIG_PDA_SEED,
 };
 
+use super::init::ProtocolConfigInitParams;
 use crate::instructions::shared::{verify_pda, CreatePdaAccount};
 
 pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -51,33 +50,4 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless,
     }
     .init(protocol_config)
-}
-
-struct ProtocolConfigInitParams {
-    protocol_authority: Address,
-    tree_creation_authority: Address,
-    tree_creation_is_permissionless: u8,
-    forester_authority: Address,
-    zone_creation_authority: Address,
-    zone_creation_is_permissionless: u8,
-    spl_interface_creation_is_permissionless: u8,
-}
-
-impl ProtocolConfigInitParams {
-    #[inline(always)]
-    fn init(self, account: &mut AccountView) -> ProgramResult {
-        let mut data = account.try_borrow_mut()?;
-        check_data_is_zeroed::<1>(&data)?;
-        let config: &mut ProtocolConfig = bytemuck::from_bytes_mut(&mut data[..]);
-        config.discriminator = PROTOCOL_CONFIG;
-        config.protocol_authority = self.protocol_authority;
-        config.tree_creation_authority = self.tree_creation_authority;
-        config.tree_creation_is_permissionless = self.tree_creation_is_permissionless;
-        config.forester_authority = self.forester_authority;
-        config.zone_creation_authority = self.zone_creation_authority;
-        config.zone_creation_is_permissionless = self.zone_creation_is_permissionless;
-        config.spl_interface_creation_is_permissionless =
-            self.spl_interface_creation_is_permissionless;
-        Ok(())
-    }
 }

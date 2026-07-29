@@ -17,12 +17,10 @@ use crate::instructions::{
         update::process_update_protocol_config,
     },
     transact::process_transact_ix,
-    zone_authority_transact::process_zone_authority_transact_ix,
     zone_config::{
         create::process_create_zone_config, update::process_update_zone_config,
         update_owner::process_update_zone_config_owner,
     },
-    zone_transact::process_zone_transact_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -48,12 +46,14 @@ pub fn process_instruction(
         InstructionTag::try_from(*ix_tag).map_err(|_| ProgramError::InvalidInstructionData)?;
 
     match ix_tag {
+        // Deliberate no-op: the event self-CPI exists only to record inner-
+        // instruction data. Anyone can invoke this tag (directly or via CPI)
+        // with forged bytes; indexers MUST filter events by parent instruction
+        // (see `zolana_event::tag::EMIT_EVENT`).
         InstructionTag::EmitEvent => Ok(()),
-        InstructionTag::Transact => process_transact_ix(accounts, payload),
-        InstructionTag::ZoneTransact => process_zone_transact_ix(accounts, payload),
-        InstructionTag::ZoneAuthorityTransact => {
-            process_zone_authority_transact_ix(accounts, payload)
-        }
+        InstructionTag::Transact
+        | InstructionTag::ZoneTransact
+        | InstructionTag::ZoneAuthorityTransact => process_transact_ix(accounts, payload, ix_tag),
         InstructionTag::CreateTree => process_create_tree(accounts, payload),
         InstructionTag::BatchUpdateNullifierTree => {
             process_batch_update_nullifier_tree(accounts, payload)

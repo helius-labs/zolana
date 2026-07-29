@@ -124,10 +124,10 @@ describe.sequential("live SDK lifecycle", () => {
     expect(await harness.client.getAccount(harness.tree)).toBeDefined();
   }, 60_000);
 
-  it("covers SOL registration, both ownership rails, sender change, spent state, and history", async () => {
+  it("covers SOL registration, multiple owners, sender change, spent state, and history", async () => {
     const alice = await actor(71);
     const bob = await actor(72);
-    const carol = await actor(73, "p256");
+    const carol = await actor(73);
     await fund(harness.client, alice, bob, carol);
     await register(harness.client, alice);
     await register(harness.client, bob);
@@ -168,7 +168,7 @@ describe.sequential("live SDK lifecycle", () => {
     });
     assertSpent(alice, aliceDeposit);
     assertIndexedNullifiers(
-      await indexedTransaction(harness.client, toBob.signature, toBob.outputTags),
+      await indexedTransaction(harness.client, toBob.signature),
       aliceDeposit,
     );
     await sync(harness.client, alice);
@@ -189,7 +189,7 @@ describe.sequential("live SDK lifecycle", () => {
     });
     assertSpent(alice, aliceChange);
     assertIndexedNullifiers(
-      await indexedTransaction(harness.client, toCarol.signature, toCarol.outputTags),
+      await indexedTransaction(harness.client, toCarol.signature),
       aliceChange,
     );
     await sync(harness.client, alice);
@@ -200,7 +200,7 @@ describe.sequential("live SDK lifecycle", () => {
     expect(unspent(alice)[0]?.utxo.amount).toBe(50_000_000n);
 
     const carolInput = unspent(carol);
-    const p256ToBob = await transfer({
+    const carolToBob = await transfer({
       client: harness.client,
       wallet: carol.wallet,
       authority: carol.authority,
@@ -210,7 +210,7 @@ describe.sequential("live SDK lifecycle", () => {
     });
     assertSpent(carol, carolInput);
     assertIndexedNullifiers(
-      await indexedTransaction(harness.client, p256ToBob.signature, p256ToBob.outputTags),
+      await indexedTransaction(harness.client, carolToBob.signature),
       carolInput,
     );
     await sync(harness.client, carol);
@@ -253,55 +253,46 @@ describe.sequential("live SDK lifecycle", () => {
     });
   }, 900_000);
 
-  it("covers Ed25519 and P256 multi-input SOL withdrawals", async () => {
-    for (const [seed, rail] of [
-      [81, "ed25519"],
-      [82, "p256"],
-    ] as const) {
-      const owner = await actor(seed, rail);
-      const recipient = await actor(seed + 20);
-      await fund(harness.client, owner);
+  it("covers a multi-input SOL withdrawal", async () => {
+    const owner = await actor(81);
+    const recipient = await actor(101);
+    await fund(harness.client, owner);
 
-      for (const amount of [30_000_000n, 40_000_000n]) {
-        await deposit({
-          client: harness.client,
-          feePayer: owner.signer,
-          recipient: owner.keypair.shieldedAddress(),
-          amount,
-        });
-      }
-      await sync(harness.client, owner, { pageLimit: 1 });
-      const inputs = unspent(owner);
-      expect(inputs).toHaveLength(2);
-
-      const before = await harness.client.getBalance(recipient.signer.address);
-      const submitted = await withdraw({
+    for (const amount of [30_000_000n, 40_000_000n]) {
+      await deposit({
         client: harness.client,
-        wallet: owner.wallet,
-        authority: owner.authority,
         feePayer: owner.signer,
-        recipient: recipient.signer.address,
-        amount: 50_000_000n,
-      });
-      assertSpent(owner, inputs);
-      const transaction = await indexedTransaction(
-        harness.client,
-        submitted.signature,
-        submitted.outputTags,
-      );
-      assertIndexedNullifiers(transaction, inputs);
-      expect(transaction.nullifiers.length).toBeGreaterThanOrEqual(2);
-
-      await sync(harness.client, owner, { pageLimit: 1 });
-      expect(await harness.client.getBalance(recipient.signer.address)).toBe(before + 50_000_000n);
-      expect(owner.wallet.balance(SOL_MINT).amount).toBe(20_000_000n);
-      expect(unspent(owner)).toHaveLength(1);
-      assertHistory(owner, {
-        kind: "publicWithdrawal",
-        direction: "outbound",
-        amount: 50_000_000n,
+        recipient: owner.keypair.shieldedAddress(),
+        amount,
       });
     }
+    await sync(harness.client, owner, { pageLimit: 1 });
+    const inputs = unspent(owner);
+    expect(inputs).toHaveLength(2);
+
+    const before = await harness.client.getBalance(recipient.signer.address);
+    const submitted = await withdraw({
+      client: harness.client,
+      wallet: owner.wallet,
+      authority: owner.authority,
+      feePayer: owner.signer,
+      recipient: recipient.signer.address,
+      amount: 50_000_000n,
+    });
+    assertSpent(owner, inputs);
+    const transaction = await indexedTransaction(harness.client, submitted.signature);
+    assertIndexedNullifiers(transaction, inputs);
+    expect(transaction.nullifiers.length).toBeGreaterThanOrEqual(2);
+
+    await sync(harness.client, owner, { pageLimit: 1 });
+    expect(await harness.client.getBalance(recipient.signer.address)).toBe(before + 50_000_000n);
+    expect(owner.wallet.balance(SOL_MINT).amount).toBe(20_000_000n);
+    expect(unspent(owner)).toHaveLength(1);
+    assertHistory(owner, {
+      kind: "publicWithdrawal",
+      direction: "outbound",
+      amount: 50_000_000n,
+    });
   }, 900_000);
 
   it("covers the SPL deposit, transfer, missing and existing ATA withdrawal paths", async () => {
@@ -603,12 +594,10 @@ describe.sequential("live SDK lifecycle", () => {
       },
       confirmPrivateTransaction: async (
         signature: Parameters<ZolanaClient["confirmPrivateTransaction"]>[0],
-        tags: Parameters<ZolanaClient["confirmPrivateTransaction"]>[1],
       ) => {
         throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
           details: {
             signature,
-            expectedTags: tags.length,
             attempts: 1,
           },
         });
@@ -632,7 +621,7 @@ describe.sequential("live SDK lifecycle", () => {
     expect(owner.wallet.balance(SOL_MINT).amount).toBe(0n);
 
     const landed = broadcast as SubmittedPrivateTransaction;
-    await harness.client.confirmPrivateTransaction(landed.signature, landed.outputTags);
+    await harness.client.confirmPrivateTransaction(landed.signature);
     await sync(harness.client, owner, { pageLimit: 1 });
     expect(owner.wallet.balance(SOL_MINT).amount).toBe(40_000_000n);
 

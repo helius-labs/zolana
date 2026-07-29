@@ -154,26 +154,14 @@ export async function sync(
 export async function indexedTransaction(
   client: ZolanaClient,
   signature: Signature,
-  tags: readonly Bytes32[],
 ): Promise<IndexedShieldedTransaction> {
-  let cursor: Uint8Array | undefined;
-  const seenCursors = new Set<string>();
-  for (let page = 0; page < 100; page++) {
-    const response = await client.getShieldedTransactionsByTags(
-      { tags, limit: 100, ...(cursor === undefined ? {} : { cursor }) },
-      { ...client.indexerConfig, waitForIndexer: true },
-      { timeoutMs: 30_000 },
-    );
-    const transaction = response.transactions.find(
-      (candidate) => candidate.txSignature === signature,
-    );
-    if (transaction !== undefined) return transaction;
-    cursor = response.nextCursor;
-    if (cursor === undefined) break;
-    const key = hex(cursor);
-    if (seenCursors.has(key)) throw new Error("Photon returned a repeated cursor");
-    seenCursors.add(key);
-  }
+  const response = await client.getShieldedTransactionsBySignature(
+    signature,
+    { ...client.indexerConfig, waitForIndexer: true },
+    { timeoutMs: 30_000 },
+  );
+  const transaction = response.transactions[0]?.transaction;
+  if (transaction !== undefined) return transaction;
   throw new Error(`Photon did not return ${signature}`);
 }
 

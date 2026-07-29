@@ -153,3 +153,22 @@ export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
   }
   return new Uint8Array(wasm.memory.buffer, outputOffset, FIELD_BYTES).slice();
 }
+
+/** Packs fixed-size bytes into 31-byte fields and folds them like Rust `hash_bytes`. */
+export function hashBytes(bytes: Uint8Array): Uint8Array {
+  if (bytes.length === 0) return new Uint8Array(FIELD_BYTES);
+  let offset = 0;
+  let result = packed(bytes.subarray(0, 31));
+  offset = 31;
+  while (offset < bytes.length) {
+    result = poseidon([result, packed(bytes.subarray(offset, offset + 31))]);
+    offset += 31;
+  }
+  return result;
+}
+
+function packed(bytes: Uint8Array): Uint8Array {
+  const field = new Uint8Array(FIELD_BYTES);
+  field.set(bytes, FIELD_BYTES - bytes.length);
+  return field;
+}

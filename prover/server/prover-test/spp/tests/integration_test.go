@@ -1,9 +1,7 @@
 package tests
 
 import (
-	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
 	"math/big"
 	"testing"
 
@@ -13,86 +11,21 @@ import (
 	txprover "zolana/prover/prover-test/spp/prover/transaction"
 )
 
-func TestBuildProofSigningPayloadAllowsUnsignedP256Input(t *testing.T) {
-	request, _, _ := p256ProofRequest(t)
+// The P256 ownership rail is removed: requests carrying P256-owned inputs are
+// rejected by both the signing-payload and the proof-bundle builders.
+func TestP256OwnedRequestRejected(t *testing.T) {
+	request := p256ProofRequest(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
-	payload, err := txprover.BuildProofSigningPayload(&txprover.ProofSystem{Shape: protocol.Shape{NInputs: 1, NOutputs: 2}}, request)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := txprover.BuildProofSigningPayload(&txprover.ProofSystem{Shape: shape}, request); err == nil {
+		t.Fatal("P256-owned signing payload unexpectedly succeeded")
 	}
-	if len(payload.Transactions) != 1 {
-		t.Fatalf("payload transaction count = %d, want 1", len(payload.Transactions))
-	}
-	if !payload.Transactions[0].RequiresP256Signature {
-		t.Fatal("signing payload did not request a P256 signature")
-	}
-	if payload.Transactions[0].PrivateTxHash == parse.FieldHex(big.NewInt(0)) {
-		t.Fatal("private tx hash was zero")
-	}
-	if payload.Transactions[0].P256MessageHash == parse.FieldHex(big.NewInt(0)) {
-		t.Fatal("P256 message hash was zero")
-	}
-	privateTxHash, err := parse.Field("0x" + payload.Transactions[0].PrivateTxHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expectedDigest, err := protocol.P256MessageDigest(privateTxHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if payload.Transactions[0].P256MessageHash != parse.BytesHex(expectedDigest[:]) {
-		t.Fatalf(
-			"P256 message hash = %q, want %q",
-			payload.Transactions[0].P256MessageHash,
-			parse.BytesHex(expectedDigest[:]),
-		)
-	}
-
-	if _, err := txprover.BuildProofBundle(&txprover.ProofSystem{Shape: protocol.Shape{NInputs: 1, NOutputs: 2}}, request); err == nil {
-		t.Fatal("unsigned P256 proof bundle unexpectedly succeeded")
+	if _, err := txprover.BuildProofBundle(&txprover.ProofSystem{Shape: shape}, request); err == nil {
+		t.Fatal("P256-owned proof bundle unexpectedly succeeded")
 	}
 }
 
-func TestBuildProofBundleAcceptsSignedP256Input(t *testing.T) {
-	request, priv, p256Pubkey := p256ProofRequest(t)
-	payload, err := txprover.BuildProofSigningPayload(&txprover.ProofSystem{Shape: protocol.Shape{NInputs: 1, NOutputs: 2}}, request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	msg, err := parse.Hex32(payload.Transactions[0].P256MessageHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r, s, err := ecdsa.Sign(rand.Reader, priv, msg[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tx := &request.Transactions[0]
-	tx.P256OwnerPubkey = parse.BytesHex(p256Pubkey)
-	tx.P256SignatureR = fieldInput(r)
-	tx.P256SignatureS = fieldInput(s)
-
-	ps, err := txprover.Setup(protocol.Shape{NInputs: 1, NOutputs: 2}, txprover.TransactionRequiresP256(*tx))
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle, err := txprover.BuildProofBundle(ps, request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(bundle.Transactions) != 1 {
-		t.Fatalf("bundle transaction count = %d, want 1", len(bundle.Transactions))
-	}
-	if bundle.Transactions[0].PrivateTxHash != payload.Transactions[0].PrivateTxHash {
-		t.Fatalf("private tx hash = %q, want %q", bundle.Transactions[0].PrivateTxHash, payload.Transactions[0].PrivateTxHash)
-	}
-	if bundle.Transactions[0].Proof == nil {
-		t.Fatal("proof is nil")
-	}
-}
-
-func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.PrivateKey, []byte) {
+func p256ProofRequest(t *testing.T) txprover.ProofBundleRequest {
 	t.Helper()
 	priv, err := p256key.PrivateKeyFromScalar(big.NewInt(11))
 	if err != nil {
@@ -130,11 +63,10 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 	return txprover.ProofBundleRequest{
 		PayerPubkey: parse.BytesHex(make([]byte, 32)),
 		Transactions: []txprover.ProofTransactionRequest{{
-			Name:                     "unsigned-p256",
+			Name:                     "p256-owned",
 			InstructionDiscriminator: 1,
 			ExpiryUnixTs:             123,
 			SenderViewTag:            fieldInput(big.NewInt(9)),
-			PublicAmountMode:         0,
 			EncryptedUtxos:           "00",
 			StateEntries: []txprover.ProofStateEntry{{
 				Index: 0,
@@ -179,7 +111,7 @@ func p256ProofRequest(t *testing.T) (txprover.ProofBundleRequest, *ecdsa.Private
 			DataHash:     fieldInput(big.NewInt(0)),
 			ZoneDataHash: fieldInput(big.NewInt(0)),
 		}},
-	}, priv, p256Pubkey
+	}
 }
 
 func fieldInput(value *big.Int) string {

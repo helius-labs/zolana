@@ -69,7 +69,6 @@ export type {
   EncryptedSplit,
   EncryptedTransfer,
   Filter,
-  P256Signature,
   PrivateTransaction,
   PrivateTransactionDirection,
   PrivateTransactionId,

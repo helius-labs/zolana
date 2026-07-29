@@ -16,16 +16,19 @@ pub fn input_sum(inputs: &[SppProofInputUtxo], asset: &Address) -> i128 {
         .sum()
 }
 
-// Places the blinding in bytes [1..32], leaving the top byte zero for field
-// validity; only well-defined when a Blinding is exactly 31 bytes. Asserted at
-// compile time so a Blinding length change is a build error, not a runtime panic
-// in `copy_from_slice`.
-const _: () = assert!(core::mem::size_of::<Blinding>() == 31);
+// A Blinding is already a 32-byte big-endian field element. Asserted at compile
+// time so a Blinding width change is a build error, not a silent mismatch.
+const _: () = assert!(core::mem::size_of::<Blinding>() == 32);
 
 pub(crate) fn right_align_blinding(blinding: &Blinding) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    out[1..].copy_from_slice(blinding);
-    out
+    *blinding
+}
+
+#[cfg(test)]
+pub(crate) fn test_blinding(byte: u8) -> Blinding {
+    let mut blinding = [byte; 32];
+    blinding[0] = 0;
+    blinding
 }
 
 pub(crate) fn check_output_utxo(

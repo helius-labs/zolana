@@ -7,7 +7,7 @@
 //! merge-authority check.
 //!
 //! The consolidated output carries the owner's signing-pubkey view tag (the
-//! confidential default-zone tag) as its single-use `merge_view_tag`, so the same
+//! confidential default-zone tag) as its output view tag, so the same
 //! tag both indexes the merged output for `Wallet::sync` discovery and is inserted
 //! into the nullifier queue for replay protection. The functional inclusion /
 //! nullifier-presence check runs inside the `merge_zone` action (where the spent
@@ -18,7 +18,6 @@
 
 use anyhow::{anyhow, Result};
 use cucumber::{then, when};
-use p256::SecretKey;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
@@ -26,9 +25,13 @@ use zolana_client::{
     prover::merge_zone::MergeZoneProver, ProverClient, SpendProof, TransferSpendInput,
 };
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeZone, P256Proof,
+    instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
+    MergeZone,
 };
-use zolana_keypair::random_blinding;
+use zolana_keypair::{
+    merge::{merge_dummy_nullifier, merge_output_blinding},
+    random_blinding,
+};
 use zolana_test_utils::test_validator_asserts::{
     assert_merge_zone, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, MergeZoneAssertArgs,
@@ -98,13 +101,25 @@ impl ZoneLifecycleWorld {
                     state,
                     nullifier: nf,
                 }),
+                nullifier_proof: None,
             });
         }
 
-        // Pad to the 8-input shape with dummies (a dummy mirrors the first real
-        // input's roots, so it carries no proof of its own).
+        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
+        let first_nullifier = keypair
+            .nullifier_key
+            .nullifier(&first_hash, &inputs[0].blinding)?;
+
+        // Pad to the 8-input shape with dummies. A dummy mirrors the first real
+        // input's UTXO root but carries a non-inclusion proof for its own
+        // deterministic nullifier.
         let owner = keypair.signing_pubkey();
         while spend_inputs.len() < MERGE_INPUT_COUNT {
+            let slot = spend_inputs.len();
+            let dummy_nullifier =
+                merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;
+            let dummy_nullifier_proof =
+                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, dummy_nullifier);
             let utxo = Utxo {
                 owner,
                 asset,
@@ -119,13 +134,13 @@ impl ZoneLifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof: None,
+                nullifier_proof: Some(dummy_nullifier_proof),
             });
         }
 
-        // The single consolidated zone-owned output, owned by the merger, with a
-        // fresh random blinding the owner recovers by decrypting the published
-        // merge ciphertext. `MergeZoneProver::build` stamps the shared zone on it.
-        let output_blinding = random_blinding();
+        // The single consolidated zone-owned output is reconstructed from the
+        // first real input and its published nullifier.
+        let output_blinding = merge_output_blinding(&keypair.nullifier_key, &first_nullifier)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
             asset,
@@ -138,13 +153,6 @@ impl ZoneLifecycleWorld {
             data: Data::default(),
         };
 
-        // Ephemeral viewing scalar: 31 random bytes are < BN254 modulus, so the
-        // value is both a valid P-256 scalar and a valid circuit witness.
-        let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
-        let tx_viewing_sk = SecretKey::from_slice(&sk_bytes)
-            .map_err(|e| anyhow!("invalid ephemeral viewing scalar: {e}"))?;
-
         let expiry_unix_ts = u64::MAX;
 
         let result = MergeZoneProver {
@@ -153,30 +161,23 @@ impl ZoneLifecycleWorld {
             expiry_unix_ts,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
-            user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk,
             zone_program_id: zone,
         }
         .build()?;
 
         let proof = ProverClient::local().prove_merge_zone(&result.inputs)?;
 
-        // `merge_zone` inserts the single-use `merge_view_tag` into the nullifier
-        // queue for replay protection, so it must be a BN254 field element: the
-        // owner-pubkey confidential tag is a raw pubkey (not reduced) and the queue
-        // rejects it. Use the derived `merge_view_tag` (HKDF, 31 bytes) keyed by the
-        // submitting payer as the merge authority; photon indexes the output under it.
-        let merge_view_tag = keypair.get_merge_view_tag(0)?;
-        let data = result.zone_instruction_data(pack_proof(&proof)?, merge_view_tag);
+        let data = result.zone_instruction_data(pack_proof(&proof)?, ZERO);
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let payer = self.payer.insecure_clone();
         let merge_ix = MergeZone {
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
             payer: payer.pubkey(),
             data: data.merge.clone(),
-            merge_view_tag: data.merge_view_tag,
+            output_zone_data_hash: data.output_zone_data_hash,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -187,7 +188,7 @@ impl ZoneLifecycleWorld {
             &[&payer],
         )?;
 
-        let indexed = wait_for_indexed_transaction(&self.indexer, merge_view_tag, sig);
+        let indexed = wait_for_indexed_transaction(&self.indexer, first_nullifier, sig);
 
         // Functional assert at the action: the tree root advanced (output appended),
         // photon serves a tracking inclusion proof for the consolidated output, and
@@ -206,9 +207,7 @@ impl ZoneLifecycleWorld {
             },
         )?;
 
-        // The merged output is anonymous (tagged by the derived merge_view_tag, which
-        // `Wallet::sync` has no scan for), so discovery is verified on-chain via the
-        // inclusion + nullifier-presence check above rather than a wallet sync.
+        // The merged output is tagged by its first input nullifier.
         self.indexed.push(indexed);
 
         self.last_merge = Some(MergeZoneRecord {
@@ -291,11 +290,22 @@ impl ZoneLifecycleWorld {
                     state,
                     nullifier: nf,
                 }),
+                nullifier_proof: None,
             });
         }
 
+        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
+        let first_nullifier = keypair
+            .nullifier_key
+            .nullifier(&first_hash, &inputs[0].blinding)?;
+
         let owner = keypair.signing_pubkey();
         while spend_inputs.len() < MERGE_INPUT_COUNT {
+            let slot = spend_inputs.len();
+            let dummy_nullifier =
+                merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;
+            let dummy_nullifier_proof =
+                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, dummy_nullifier);
             let utxo = Utxo {
                 owner,
                 asset,
@@ -310,6 +320,7 @@ impl ZoneLifecycleWorld {
                 data_hash: None,
                 zone_data_hash: None,
                 proof: None,
+                nullifier_proof: Some(dummy_nullifier_proof),
             });
         }
 
@@ -317,7 +328,7 @@ impl ZoneLifecycleWorld {
             owner_address: Some(keypair.shielded_address()?),
             asset,
             amount: total,
-            blinding: random_blinding(),
+            blinding: merge_output_blinding(&keypair.nullifier_key, &first_nullifier)?,
             zone_program_id: None,
             zone_data_hash: None,
             data_hash: None,
@@ -325,36 +336,28 @@ impl ZoneLifecycleWorld {
             data: Data::default(),
         };
 
-        let mut sk_bytes = [0u8; 32];
-        sk_bytes[1..].copy_from_slice(&random_blinding());
-        let tx_viewing_sk = SecretKey::from_slice(&sk_bytes)
-            .map_err(|e| anyhow!("invalid ephemeral viewing scalar: {e}"))?;
-
         let result = MergeZoneProver {
             inputs: spend_inputs,
             output,
             expiry_unix_ts: u64::MAX,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
-            user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk,
             zone_program_id: zone,
         }
         .build()?;
 
-        // Assemble the instruction data exactly as the happy path does (derived
-        // merge_view_tag so the nullifier-queue insert is valid), then zero the
-        // proof so verification is the only thing that fails.
-        let merge_view_tag = keypair.get_merge_view_tag(0)?;
-        let data = result.zone_instruction_data(P256Proof::zeroed(), merge_view_tag);
+        // Assemble the instruction data exactly as the happy path does, then
+        // zero the proof so verification is the only thing that fails.
+        let data = result.zone_instruction_data(MergeProof::zeroed(), ZERO);
 
         let payer = self.payer.insecure_clone();
         let merge_ix = MergeZone {
-            tree: self.tree,
+            input_tree: self.tree,
+            output_tree: self.tree,
             zone_program_id: self.zone_program_id,
             payer: payer.pubkey(),
             data: data.merge.clone(),
-            merge_view_tag: data.merge_view_tag,
+            output_zone_data_hash: data.output_zone_data_hash,
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);

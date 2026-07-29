@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 use crate::{
     constants::{BLINDING_LEN, INFO_NULLIFIER},
     error::KeypairError,
-    hash::{fe_right_align, poseidon},
+    hash::{poseidon, right_align},
     signing_key::SigningKey,
 };
 
@@ -44,17 +44,16 @@ impl NullifierKey {
     }
 
     pub fn pubkey(&self) -> Result<[u8; 32], KeypairError> {
-        let secret_fe = fe_right_align(self.secret.as_slice())?;
+        let secret_fe = right_align(self.secret());
         poseidon(&[&secret_fe])
     }
 
     pub fn nullifier(
         &self,
         utxo_hash: &[u8; 32],
-        blinding: &[u8; BLINDING_LEN],
+        blinding: &[u8; 32],
     ) -> Result<[u8; 32], KeypairError> {
-        let blinding_fe = fe_right_align(blinding)?;
-        let secret_fe = fe_right_align(self.secret.as_slice())?;
-        poseidon(&[utxo_hash, &blinding_fe, &secret_fe])
+        let secret_fe = right_align(self.secret());
+        poseidon(&[utxo_hash, blinding, &secret_fe])
     }
 }

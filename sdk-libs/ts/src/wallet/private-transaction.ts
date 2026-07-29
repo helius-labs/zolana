@@ -6,7 +6,6 @@ import type { SignedPrivateTransaction } from "../client/client.js";
 import { ClientError } from "../client/error.js";
 import type { TransactionSignOnlySigner } from "../client/kit.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
-import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { Data } from "../transaction/data.js";
 import { ConfidentialSplit } from "../transaction/instructions/builders.js";
 import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
@@ -75,20 +74,6 @@ function matchingInput(
         sameOptionalHash(entry.zoneDataHash, expected.zoneDataHash) &&
         sameUtxo(entry.utxo, expected.utxo),
     );
-}
-
-/**
- * The P256 rail is a property of the signing authority, not of the notes being
- * spent: a P256 owner must sign even when every input note carries a different
- * rail, and a Solana owner never signs.
- */
-async function applyP256Signature(
-  proofInputs: SppProofInputs,
-  address: ShieldedAddress,
-  authority: WalletAuthority,
-): Promise<void> {
-  if (address.signingPublicKey.signatureType() !== "p256") return;
-  proofInputs.applyP256Signature(await authority.signP256(proofInputs.messageHash()));
 }
 
 export async function preparePrivateTransaction(
@@ -168,7 +153,6 @@ export async function preparePrivateTransaction(
       payload: encrypted.payload,
     });
   }
-  await applyP256Signature(proofInputs, address, authority);
   const withdrawal = transaction._withdrawal();
   return Object.freeze({
     transaction: proofInputs,

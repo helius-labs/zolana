@@ -1,7 +1,7 @@
 pub mod instruction;
 pub mod state;
 
-pub use state::{SyncDelegateEntry, UserRecord};
+pub use state::UserRecord;
 
 pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] =
     pubkey_array!("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");

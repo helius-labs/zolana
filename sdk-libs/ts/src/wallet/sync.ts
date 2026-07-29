@@ -20,7 +20,7 @@ import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import type { ViewingKeyLike } from "../keypair/shielded.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
-import { EncryptedScheme, decodeOutputData } from "../transaction/serialization/codecs.js";
+import { decodeOutputData } from "../transaction/serialization/codecs.js";
 import type { WalletSyncMaterial } from "../transaction/wallet/authority.js";
 import {
   type AssetBalance,
@@ -191,16 +191,6 @@ function walletQueryTags(
   return [...tags.values()];
 }
 
-function hasMergeCiphertext(transaction: IndexedShieldedTransaction): boolean {
-  return transaction.outputSlots.some((slot) => {
-    try {
-      return decodeOutputData(slot.payload).scheme === EncryptedScheme.merge;
-    } catch {
-      return false;
-    }
-  });
-}
-
 function walletHasUnknownMint(wallet: Wallet): boolean {
   const registry = wallet.registry;
   for (const entry of wallet.utxos()) {
@@ -339,10 +329,7 @@ async function collectShieldedTransactions(
       // Photon can surface a proofless deposit here before flagging it. Those
       // are collected from the encrypted-utxo endpoint instead, so taking them
       // twice would store the same note under two keys.
-      const undecryptable =
-        (transaction.txViewingPublicKey === undefined || transaction.salt === undefined) &&
-        !hasMergeCiphertext(transaction);
-      if (transaction.proofless || undecryptable) continue;
+      if (transaction.proofless) continue;
       const key = shieldedTransactionKey(transaction);
       if (!input.out.has(key)) input.out.set(key, transaction);
     }

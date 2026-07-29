@@ -1,5 +1,6 @@
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
 import type { NullifierKey } from "../../keypair/nullifier-key.js";
+import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ViewingKeyLike } from "../../keypair/shielded.js";
 
@@ -20,8 +21,6 @@ import {
   decryptAnonymous,
   decryptConfidential,
   decryptConfidentialAsSender,
-  decryptMerge,
-  mergeUtxo,
   prooflessUtxo,
   plaintextTransferUtxos,
   readOutputData,
@@ -114,6 +113,14 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
     let classified = false;
+    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
+      for (const [index, slot] of tx.outputSlots.entries()) {
+        pushInto(recipientSites, hex(slot.viewTag), { transaction, slot: index });
+        classified = true;
+      }
+      if (!classified) unparsedTransactions++;
+      continue;
+    }
     for (const [index, slot] of tx.outputSlots.entries()) {
       let scheme: EncryptedScheme;
       try {
@@ -623,6 +630,9 @@ class SyncPass {
       this.undecryptableCandidates++;
       return outcome;
     }
+    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
+      return this.#reconstructMerge(tx, site, siteKey);
+    }
     let frame: ReturnType<typeof readOutputData>;
     try {
       frame = readOutputData(slot.payload);
@@ -763,24 +773,78 @@ class SyncPass {
       return outcome;
     }
 
-    if (frame.encoding === "verifiable" && frame.scheme === EncryptedScheme.merge) {
-      let utxo: Utxo;
-      try {
-        utxo = mergeUtxo(decryptMerge(key, body), this.#owner, this.#assets);
-      } catch (error) {
-        this.#noteUndecryptable(error, siteKey);
-        return outcome;
-      }
-      this.#resolveAssetCandidate(siteKey);
-      if (this.#storeRecipientUtxos([utxo], outputContext, undefined, undefined)) {
-        this.#processedSlots.add(siteKey);
-        this.#recordMerge(tx, outputContext, utxo);
-      }
+    this.undecryptableCandidates++;
+    return outcome;
+  }
+
+  /** Reconstruct the ciphertext-free merge output from this wallet's spent inputs. */
+  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): SlotOutcome {
+    const outcome: SlotOutcome = { recipients: [] };
+    const slot = tx.outputSlots[site.slot];
+    const firstNullifier = tx.nullifiers[0];
+    if (
+      slot === undefined ||
+      firstNullifier === undefined ||
+      !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
+    ) {
+      this.undecryptableCandidates++;
       return outcome;
     }
 
-    this.undecryptableCandidates++;
-    return outcome;
+    try {
+      const matched: WalletUtxo[] = [];
+      for (const [index, nullifier] of tx.nullifiers.entries()) {
+        if (equal(nullifier, mergeDummyNullifier(this.#nullifierKey, firstNullifier, index))) {
+          continue;
+        }
+        const entry = this.#utxos.find((candidate) => equal(candidate.nullifier, nullifier));
+        if (entry === undefined) {
+          this.undecryptableCandidates++;
+          return outcome;
+        }
+        matched.push(entry);
+      }
+      const first = matched[0];
+      if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
+        this.undecryptableCandidates++;
+        return outcome;
+      }
+      let amount = 0n;
+      for (const entry of matched) {
+        amount += entry.utxo.amount;
+        if (amount > U64_MAX) throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
+      }
+      const zoneProgramId = first.utxo.zoneProgramId;
+      if (matched.some((entry) => entry.utxo.zoneProgramId !== zoneProgramId)) {
+        this.undecryptableCandidates++;
+        return outcome;
+      }
+      const zoneDataHash =
+        zoneProgramId === undefined
+          ? undefined
+          : slot.payload.length === 32
+            ? (copy(slot.payload) as Bytes32)
+            : null;
+      if (zoneDataHash === null) {
+        this.undecryptableCandidates++;
+        return outcome;
+      }
+      const utxo = new Utxo({
+        owner: this.#owner,
+        asset: first.utxo.asset,
+        amount,
+        blinding: mergeOutputBlinding(this.#nullifierKey, firstNullifier),
+        ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
+      });
+      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, zoneDataHash)) {
+        this.#processedSlots.add(siteKey);
+        this.#recordMerge(tx, slot.outputContext, utxo);
+      }
+      return outcome;
+    } catch (error) {
+      this.#noteUndecryptable(error, siteKey);
+      return outcome;
+    }
   }
 
   /** The published transaction key and salt every encrypted scheme opens under. */

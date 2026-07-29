@@ -105,14 +105,18 @@ fn bench_deserialize(bytes: &mut [u8], pubkey: [u8; 32]) -> ProgramResult {
 #[profile]
 fn bench_append(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
     for value in values {
-        tree.utxo_tree().append(*value);
+        tree.utxo_tree()
+            .append(*value)
+            .map_err(|_| ProgramError::InvalidAccountData)?;
     }
     Ok(())
 }
 
 #[profile]
 fn bench_append_batch(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
-    tree.utxo_tree().append_batch(values.iter());
+    tree.utxo_tree()
+        .append_batch(values.iter())
+        .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }
 
@@ -131,7 +135,7 @@ fn bench_nullifier_insert(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> Pr
     let mut nullifier = tree.nullifer_tree();
     for value in values.iter() {
         nullifier
-            .insert_address_into_queue(value)
+            .insert_nullifier_into_queue(value)
             .map_err(|_| ProgramError::InvalidAccountData)?;
     }
     Ok(())

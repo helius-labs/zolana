@@ -3,9 +3,11 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use zolana_client::Rpc;
-use zolana_interface::{pda, state::ProtocolConfig, PROGRAM_ID_PUBKEY};
+use zolana_interface::{
+    pda, state::ProtocolConfig, PROGRAM_ID_PUBKEY, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+};
 use zolana_transaction::{Address, SOL_MINT};
-use zolana_wallet::create_associated_token_account;
+use zolana_wallet::create_associated_token_account_with_program;
 
 use crate::cli_config::CliConfigFile;
 
@@ -117,18 +119,36 @@ pub(super) fn ensure_owner_spl_token_account<R: Rpc>(
     payer: &Keypair,
     owner: Pubkey,
     asset: Address,
-) -> Result<Option<Pubkey>> {
+) -> Result<Option<(Pubkey, Pubkey)>> {
     if asset == SOL_MINT {
         return Ok(None);
     }
     let mint = Pubkey::new_from_array(asset.to_bytes());
-    let expected = pda::associated_token_address(&owner, &mint);
-    let (signature, token_account) = create_associated_token_account(rpc, payer, &owner, &mint)?;
+    let token_program = resolve_spl_token_program(rpc, &mint)?;
+    let expected = pda::associated_token_address_with_program(&owner, &mint, &token_program);
+    let (signature, token_account) =
+        create_associated_token_account_with_program(rpc, payer, &owner, &mint, &token_program)?;
     if token_account != expected {
         bail!("associated token account derivation returned {token_account}; expected {expected}");
     }
     println!(
         "ok associated_token_account account={token_account} owner={owner} mint={mint} signature={signature}"
     );
-    Ok(Some(token_account))
+    Ok(Some((token_account, token_program)))
+}
+
+pub(super) fn resolve_spl_token_program<R: Rpc>(rpc: &R, mint: &Pubkey) -> Result<Pubkey> {
+    let account = rpc
+        .get_account(Address::new_from_array(mint.to_bytes()))?
+        .ok_or_else(|| anyhow::anyhow!("SPL mint account {mint} was not found"))?;
+    let legacy = Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let token_2022 = Pubkey::new_from_array(SPL_TOKEN_2022_PROGRAM_ID);
+    if account.owner == legacy || account.owner == token_2022 {
+        Ok(account.owner)
+    } else {
+        bail!(
+            "mint {mint} is owned by unsupported token program {}; expected {legacy} or {token_2022}",
+            account.owner
+        )
+    }
 }

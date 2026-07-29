@@ -42,7 +42,11 @@ pub struct TakeVerifiableEncryptionPublicInput<'a> {
 
 impl TakeVerifiableEncryptionPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        let ct_hash = ciphertext_hash(self.destination_ciphertext)
+        let ciphertext: &[u8; 71] = self
+            .destination_ciphertext
+            .try_into()
+            .map_err(|_| ProgramError::from(SwapError::InvalidInstructionData))?;
+        let ct_hash = ciphertext_hash(ciphertext)
             .map_err(|_| ProgramError::from(SwapError::HashingFailed))?;
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),

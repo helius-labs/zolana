@@ -3,9 +3,11 @@
 //! the input commitments to fetch Merkle proofs for. Merge proves ownership
 //! in-circuit from the nullifier secret, so there is no signing step.
 
-use p256::SecretKey;
 use solana_address::Address;
-use zolana_keypair::{viewing_key::random_blinding, P256Pubkey, PublicKey, ShieldedKeypairTrait};
+use zolana_keypair::{
+    merge::{merge_dummy_nullifier, merge_output_blinding},
+    PublicKey, ShieldedKeypairTrait,
+};
 
 use crate::{
     error::TransactionError,
@@ -25,8 +27,6 @@ pub struct Merge {
     output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
-    user_viewing_pk: P256Pubkey,
-    tx_viewing_sk: SecretKey,
 }
 
 impl Merge {
@@ -48,7 +48,13 @@ impl Merge {
             Ok(())
         })?;
 
-        let output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
+        // The output blinding is derived, not random: slot 0 is always real
+        // (validation rejects empty inputs), and the circuit derives the same
+        // value from the owner's nullifier secret and the first nullifier. The
+        // wallet later reconstructs the output the same way.
+        let first_nullifier = inputs[0].nullifier()?;
+        let mut output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
+        output.blinding = merge_output_blinding(&keypair.nullifier_key(), &first_nullifier)?;
 
         Ok(Self {
             inputs,
@@ -57,8 +63,6 @@ impl Merge {
             // expiry`, so set this explicitly for a relayer deadline.
             expiry_unix_ts: u64::MAX,
             signing_pubkey: keypair.signing_pubkey(),
-            user_viewing_pk: keypair.viewing_pubkey(),
-            tx_viewing_sk: fresh_tx_viewing_sk()?,
         })
     }
 
@@ -75,8 +79,6 @@ impl Merge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            user_viewing_pk,
-            tx_viewing_sk,
         } = self;
         pad_with_dummies(&mut inputs);
         PreparedMerge {
@@ -84,8 +86,6 @@ impl Merge {
             output,
             expiry_unix_ts,
             signing_pubkey,
-            user_viewing_pk,
-            tx_viewing_sk,
         }
     }
 }
@@ -136,20 +136,30 @@ pub(crate) fn validate_merge_inputs<K: ShieldedKeypairTrait>(
     Ok((asset, total))
 }
 
-/// A fresh ephemeral transaction viewing key: 31 random bytes are < BN254
-/// modulus, so the value is both a valid P-256 scalar and a valid circuit
-/// witness.
-pub(crate) fn fresh_tx_viewing_sk() -> Result<SecretKey, TransactionError> {
-    let mut sk_bytes = [0u8; 32];
-    sk_bytes[1..].copy_from_slice(&random_blinding());
-    SecretKey::from_slice(&sk_bytes).map_err(|e| TransactionError::P256(e.to_string()))
-}
-
 /// Pad to [`MERGE_INPUTS`] with dummy inputs, real inputs first.
 pub(crate) fn pad_with_dummies(inputs: &mut Vec<SppProofInputUtxo>) {
     while inputs.len() < MERGE_INPUTS {
         inputs.push(SppProofInputUtxo::new_dummy());
     }
+}
+
+pub(crate) fn derive_dummy_nullifiers(
+    inputs: &[SppProofInputUtxo],
+    nullifier_key: &zolana_keypair::NullifierKey,
+) -> Result<Vec<[u8; 32]>, TransactionError> {
+    let first = inputs.first().ok_or(TransactionError::NoInputs)?;
+    if first.is_dummy() {
+        return Err(TransactionError::NoInputs);
+    }
+    let first_nullifier = first.nullifier()?;
+    inputs
+        .iter()
+        .enumerate()
+        .filter(|(_, input)| input.is_dummy())
+        .map(|(slot, _)| {
+            merge_dummy_nullifier(nullifier_key, &first_nullifier, slot as u8).map_err(Into::into)
+        })
+        .collect()
 }
 
 /// Commitments for the real inputs only; dummy padding has a zero owner and no
@@ -185,8 +195,6 @@ pub struct PreparedMerge {
     pub output: SppProofOutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
-    pub user_viewing_pk: P256Pubkey,
-    pub tx_viewing_sk: SecretKey,
 }
 
 impl PreparedMerge {
@@ -194,6 +202,15 @@ impl PreparedMerge {
     /// inputs, so an input that committed to program or zone data is rejected.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         real_input_contexts(&self.inputs, has_data)
+    }
+
+    /// Deterministic padding nullifiers whose non-inclusion proofs must be
+    /// fetched before constructing the merge circuit witness.
+    pub fn dummy_nullifiers(
+        &self,
+        nullifier_key: &zolana_keypair::NullifierKey,
+    ) -> Result<Vec<[u8; 32]>, TransactionError> {
+        derive_dummy_nullifiers(&self.inputs, nullifier_key)
     }
 }
 
@@ -330,7 +347,7 @@ mod tests {
     #[test]
     fn rejects_input_on_a_different_rail() {
         let mut seed = [0u8; 32];
-        seed[1..].copy_from_slice(&random_blinding());
+        seed.copy_from_slice(&random_blinding());
         let eddsa = ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa keypair");
         let p256 = ShieldedKeypair::new().expect("p256 keypair");
         // A P256-owned input under an ed25519 merging keypair mismatches the rail.

@@ -20,7 +20,9 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
 use solana_transaction_status_client_types::TransactionStatus;
-use zolana_interface::instruction::{Transact, TransactIxData};
+use zolana_interface::instruction::{
+    InterfaceTransfer, Transact, TransactInterfaceTransferAccounts, TransactIxData,
+};
 use zolana_keypair::hash::sha256_be;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
@@ -34,8 +36,9 @@ use crate::{
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse, ProveResult, Rpc,
-        ShieldedTransactionStream,
+        GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
+        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+        ProveResult, Rpc, ShieldedTransactionStream,
     },
 };
 
@@ -45,8 +48,8 @@ use crate::{
 /// [`ZolanaClient`]'s submission helpers.
 pub struct SignedPrivateTransaction {
     pub transaction: SppProofInputs,
-    pub withdrawal: Option<zolana_interface::instruction::TransactWithdrawal>,
-    pub tree: Address,
+    pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
+    pub input_tree: Address,
 }
 
 /// Compute-unit ceiling a private transaction is submitted with unless the
@@ -68,7 +71,7 @@ pub struct ZolanaClient<R> {
     blocking_prover_url: Option<String>,
     async_indexer: AsyncZolanaIndexer,
     async_prover: AsyncProverClient,
-    tree: Address,
+    output_tree: Address,
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
     indexer_config: IndexerRpcConfig,
@@ -82,7 +85,7 @@ impl<R> ZolanaClient<R> {
         prover: ProverClient,
         async_indexer: AsyncZolanaIndexer,
         async_prover: AsyncProverClient,
-        tree: Address,
+        output_tree: Address,
     ) -> Self {
         Self {
             rpc,
@@ -92,7 +95,7 @@ impl<R> ZolanaClient<R> {
             blocking_prover_url: None,
             async_indexer,
             async_prover,
-            tree,
+            output_tree,
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
@@ -108,7 +111,7 @@ impl<R> ZolanaClient<R> {
         rpc: R,
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
-        tree: Address,
+        output_tree: Address,
     ) -> Self {
         let indexer_url = indexer_url.as_ref().to_string();
         let prover_url = prover_url.into();
@@ -120,7 +123,7 @@ impl<R> ZolanaClient<R> {
             blocking_prover_url: Some(prover_url.clone()),
             async_indexer: AsyncZolanaIndexer::new(indexer_url),
             async_prover: AsyncProverClient::new(prover_url),
-            tree,
+            output_tree,
             cu_limit: DEFAULT_TRANSACT_CU_LIMIT,
             cu_price_micro_lamports: None,
             indexer_config: IndexerRpcConfig::default(),
@@ -153,8 +156,8 @@ impl<R> ZolanaClient<R> {
         self
     }
 
-    pub fn tree(&self) -> Address {
-        self.tree
+    pub fn output_tree(&self) -> Address {
+        self.output_tree
     }
 
     pub fn rpc(&self) -> &R {
@@ -192,13 +195,21 @@ impl<R: Rpc> ZolanaClient<R> {
     /// data ready for the [`Transact`] builder.
     pub fn prove_transact(
         &self,
+        input_tree: Address,
         proof_inputs: SppProofInputs,
         config: Option<IndexerRpcConfig>,
     ) -> Result<TransactIxData, ClientError> {
         let commitments = proof_inputs.input_utxo_hashes()?;
-        let spend_proofs = self.get_input_merkle_proofs(&commitments, config)?;
+        let spend_proofs =
+            fetch_spend_proofs(self.blocking_indexer(), input_tree, &commitments, config)?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            input_tree,
+            &proof_inputs,
+            config,
+        )?;
         self.blocking_prover()
-            .prove_transact(proof_inputs, &spend_proofs)
+            .prove_transact(proof_inputs, &spend_proofs, &dummy_proofs)
     }
 
     pub fn finish_submission_unsigned_sync(
@@ -208,22 +219,32 @@ impl<R: Rpc> ZolanaClient<R> {
         recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
-        validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
-        let spend_proofs =
-            fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments, None)?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
-        let proof = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => self.blocking_prover().prove_transfer_p256(inputs)?,
-            ProverInputs::Eddsa(inputs) => self.blocking_prover().prove_transfer(inputs)?,
-        };
+        let spend_proofs = fetch_spend_proofs(
+            self.blocking_indexer(),
+            signed.input_tree,
+            &commitments,
+            None,
+        )?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            signed.input_tree,
+            &signed.transaction,
+            None,
+        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = self.blocking_prover().prove_transfer(inputs)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
             self.cu_limit,
             self.cu_price_micro_lamports,
             fee_payer,
-            signed.tree,
-            signed.withdrawal,
+            TransactTrees {
+                input_tree: signed.input_tree,
+                output_tree: self.output_tree,
+            },
+            signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
@@ -238,38 +259,43 @@ impl<R: Rpc> ZolanaClient<R> {
         prove: impl FnOnce(&ProverInputs) -> Result<ProofCompressed, ClientError>,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
-        validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
-        let spend_proofs =
-            fetch_spend_proofs(self.blocking_indexer(), self.tree, &commitments, None)?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
+        let spend_proofs = fetch_spend_proofs(
+            self.blocking_indexer(),
+            signed.input_tree,
+            &commitments,
+            None,
+        )?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            signed.input_tree,
+            &signed.transaction,
+            None,
+        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
         build_unsigned_solana_transaction(
             self.cu_limit,
             self.cu_price_micro_lamports,
             fee_payer,
-            signed.tree,
-            signed.withdrawal,
+            TransactTrees {
+                input_tree: signed.input_tree,
+                output_tree: self.output_tree,
+            },
+            signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
     }
 
-    /// Wait until the transaction is confirmed on-chain and Photon has indexed it.
+    /// Wait until Solana confirms the transaction and Photon has indexed a
+    /// Rings event for it.
     pub fn confirm_private_transaction_sync(
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
-        let tags = self
-            .rpc()
-            .transact_output_view_tags_from_signature(signature)?;
-        wait_for_indexed_transaction(
-            self.blocking_indexer(),
-            &tags,
-            signature,
-            self.indexer_config.poll,
-        )
+        wait_for_indexed_transaction(self.blocking_indexer(), signature, self.indexer_config.poll)
     }
 }
 
@@ -281,44 +307,44 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
-        validate_transaction_tree(signed.tree, self.tree)?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
-            fetch_spend_proofs_async(&self.async_indexer, self.tree, &commitments, None).await?;
-        let assembled = assemble(signed.transaction.clone(), &spend_proofs)?;
-        let proof = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => self.async_prover.prove_transfer_p256(inputs).await?,
-            ProverInputs::Eddsa(inputs) => self.async_prover.prove_transfer(inputs).await?,
-        };
+            fetch_spend_proofs_async(&self.async_indexer, signed.input_tree, &commitments, None)
+                .await?;
+        let dummy_proofs = fetch_dummy_nullifier_proofs_async(
+            &self.async_indexer,
+            signed.input_tree,
+            &signed.transaction,
+            None,
+        )
+        .await?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = self.async_prover.prove_transfer(inputs).await?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
             self.cu_limit,
             self.cu_price_micro_lamports,
             fee_payer,
-            signed.tree,
-            signed.withdrawal,
+            TransactTrees {
+                input_tree: signed.input_tree,
+                output_tree: self.output_tree,
+            },
+            signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
         )
     }
 
-    /// Wait until the transaction is confirmed on-chain and Photon has indexed it.
+    /// Wait until Solana confirms the transaction and Photon has indexed a
+    /// Rings event for it.
     pub async fn confirm_private_transaction(
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
-        let tags = self
-            .rpc()
-            .transact_output_view_tags_from_signature(signature)
-            .await?;
-        wait_for_indexed_transaction_async(
-            &self.async_indexer,
-            &tags,
-            signature,
-            self.indexer_config.poll,
-        )
-        .await
+        wait_for_indexed_transaction_async(&self.async_indexer, signature, self.indexer_config.poll)
+            .await
     }
 }
 
@@ -481,6 +507,36 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
+    async fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        self.async_indexer
+            .get_shielded_transactions_by_signature(
+                signature,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
+            .await
+    }
+
+    async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        self.async_indexer
+            .get_shielded_transactions_by_nullifiers(
+                nullifiers,
+                cursor,
+                limit,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
+            .await
+    }
+
     async fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -527,7 +583,22 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     ) -> Result<Vec<SpendProof>, ClientError> {
         fetch_spend_proofs_async(
             &self.async_indexer,
-            self.tree,
+            self.output_tree,
+            input_utxo_commitments,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
+        .await
+    }
+
+    async fn get_input_merkle_proofs_for_tree(
+        &self,
+        input_tree: Address,
+        input_utxo_commitments: &[InputUtxoContext],
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<Vec<SpendProof>, ClientError> {
+        fetch_spend_proofs_async(
+            &self.async_indexer,
+            input_tree,
             input_utxo_commitments,
             Some(config.unwrap_or(self.indexer_config)),
         )
@@ -537,11 +608,17 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     async fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None).await?;
-        let assembled = assemble(transaction, &input_merkle_proofs)?;
-        let (proof, circuit_id) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (self.async_prover.prove_transfer_p256(inputs).await?, 1),
-            ProverInputs::Eddsa(inputs) => (self.async_prover.prove_transfer(inputs).await?, 0),
-        };
+        let dummy_proofs = fetch_dummy_nullifier_proofs_async(
+            &self.async_indexer,
+            self.output_tree,
+            &transaction,
+            None,
+        )
+        .await?;
+        let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = self.async_prover.prove_transfer(inputs).await?;
+        let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
             public_inputs: vec![assembled.public_input_hash],
@@ -691,6 +768,34 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         )
     }
 
+    fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        self.blocking_indexer()
+            .get_shielded_transactions_by_signature(
+                signature,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
+    }
+
+    fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        self.blocking_indexer()
+            .get_shielded_transactions_by_nullifiers(
+                nullifiers,
+                cursor,
+                limit,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
+    }
+
     fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -732,7 +837,21 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     ) -> Result<Vec<SpendProof>, ClientError> {
         fetch_spend_proofs(
             self.blocking_indexer(),
-            self.tree,
+            self.output_tree,
+            input_utxo_commitments,
+            Some(config.unwrap_or(self.indexer_config)),
+        )
+    }
+
+    fn get_input_merkle_proofs_for_tree(
+        &self,
+        input_tree: Address,
+        input_utxo_commitments: &[InputUtxoContext],
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<Vec<SpendProof>, ClientError> {
+        fetch_spend_proofs(
+            self.blocking_indexer(),
+            input_tree,
             input_utxo_commitments,
             Some(config.unwrap_or(self.indexer_config)),
         )
@@ -741,11 +860,16 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
-        let assembled = assemble(transaction, &input_merkle_proofs)?;
-        let (proof, circuit_id) = match &assembled.prover_inputs {
-            ProverInputs::P256(inputs) => (self.blocking_prover().prove_transfer_p256(inputs)?, 1),
-            ProverInputs::Eddsa(inputs) => (self.blocking_prover().prove_transfer(inputs)?, 0),
-        };
+        let dummy_proofs = fetch_dummy_nullifier_proofs(
+            self.blocking_indexer(),
+            self.output_tree,
+            &transaction,
+            None,
+        )?;
+        let assembled = assemble(transaction, &input_merkle_proofs, &dummy_proofs)?;
+        let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
+        let proof = self.blocking_prover().prove_transfer(inputs)?;
+        let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
             public_inputs: vec![assembled.public_input_hash],
@@ -754,19 +878,26 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     }
 }
 
+struct TransactTrees {
+    input_tree: Address,
+    output_tree: Address,
+}
+
 fn build_unsigned_solana_transaction(
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
     fee_payer: Pubkey,
-    tree: Address,
-    withdrawal: Option<zolana_interface::instruction::TransactWithdrawal>,
+    trees: TransactTrees,
+    settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
 ) -> Result<SolanaTransaction, ClientError> {
+    validate_settlement_transfers(&transact_data.interface_transfers, &settlement_transfers)?;
     let transact_ix = Transact {
         payer: fee_payer,
-        tree: Pubkey::new_from_array(tree.to_bytes()),
-        withdrawal,
+        input_tree: trees.input_tree,
+        output_tree: trees.output_tree,
+        interface_transfer_accounts: settlement_transfers,
         data: transact_data,
     }
     .instruction();
@@ -776,6 +907,40 @@ fn build_unsigned_solana_transaction(
     Ok(SolanaTransaction::new_unsigned(message))
 }
 
+fn validate_settlement_transfers(
+    interface_transfers: &[InterfaceTransfer],
+    settlement_transfers: &[TransactInterfaceTransferAccounts],
+) -> Result<(), ClientError> {
+    if interface_transfers.len() != settlement_transfers.len() {
+        return Err(ClientError::SettlementTransferCountMismatch {
+            interface_transfers: interface_transfers.len(),
+            account_groups: settlement_transfers.len(),
+        });
+    }
+    for (index, (transfer, accounts)) in interface_transfers
+        .iter()
+        .zip(settlement_transfers)
+        .enumerate()
+    {
+        if !matches!(
+            (transfer, accounts),
+            (
+                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. },
+                TransactInterfaceTransferAccounts::Sol(_)
+            ) | (
+                InterfaceTransfer::SplDeposit { .. },
+                TransactInterfaceTransferAccounts::SplDeposit(_)
+            ) | (
+                InterfaceTransfer::SplWithdrawal { .. },
+                TransactInterfaceTransferAccounts::SplWithdrawal(_)
+            )
+        ) {
+            return Err(ClientError::SettlementTransferTypeMismatch { index });
+        }
+    }
+    Ok(())
+}
+
 fn validate_fee_payer_pubkey(
     expected_payer_hash: &[u8; 32],
     fee_payer: Pubkey,
@@ -783,19 +948,6 @@ fn validate_fee_payer_pubkey(
     let actual_payer_hash = sha256_be(&fee_payer.to_bytes());
     if *expected_payer_hash != actual_payer_hash {
         return Err(ClientError::FeePayerMismatch);
-    }
-    Ok(())
-}
-
-fn validate_transaction_tree(
-    transaction_tree: Address,
-    client_tree: Address,
-) -> Result<(), ClientError> {
-    if transaction_tree != client_tree {
-        return Err(ClientError::TreeMismatch {
-            transaction_tree: transaction_tree.to_bytes(),
-            client_tree: client_tree.to_bytes(),
-        });
     }
     Ok(())
 }
@@ -839,6 +991,40 @@ fn fetch_spend_proofs(
         state_response.proofs,
         nullifier_response.proofs,
     )
+}
+
+/// Fetch the non-inclusion witness for each padding (dummy) input slot's
+/// nullifier, in slot order. The circuit checks non-inclusion for every slot,
+/// dummies included.
+fn fetch_dummy_nullifier_proofs(
+    indexer: &ZolanaIndexer,
+    tree: Address,
+    transaction: &SppProofInputs,
+    config: Option<IndexerRpcConfig>,
+) -> Result<Vec<crate::rpc::NonInclusionProof>, ClientError> {
+    let nullifiers = transaction.dummy_nullifiers()?;
+    if nullifiers.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(indexer
+        .get_non_inclusion_proofs(tree, nullifiers, config)?
+        .proofs)
+}
+
+async fn fetch_dummy_nullifier_proofs_async(
+    indexer: &AsyncZolanaIndexer,
+    tree: Address,
+    transaction: &SppProofInputs,
+    config: Option<IndexerRpcConfig>,
+) -> Result<Vec<crate::rpc::NonInclusionProof>, ClientError> {
+    let nullifiers = transaction.dummy_nullifiers()?;
+    if nullifiers.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(indexer
+        .get_non_inclusion_proofs(tree, nullifiers, config)
+        .await?
+        .proofs)
 }
 
 async fn fetch_spend_proofs_async(
@@ -941,65 +1127,72 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
     )))
 }
 
-/// Poll the indexer until the sent transaction is visible under any output
-/// `view_tag` from the confirmed `TRANSACT` instruction. The indexer lags the
-/// chain, so a plain on-chain confirmation is not enough for a caller that
-/// reads state back immediately.
+/// Poll Photon until it has indexed a Rings event for `signature`. Photon lags
+/// the chain, so an on-chain confirmation alone is not enough for a caller that
+/// reads its own outputs back immediately.
+///
+/// Every Rings event of one Solana transaction is persisted in a single
+/// database transaction, so a single visible event proves the whole transaction
+/// is indexed. Matching the event against the transaction's view tags would add
+/// no guarantee and would reject legitimate transactions whose events share a
+/// tag.
 fn wait_for_indexed_transaction(
     indexer: &ZolanaIndexer,
-    tags: &[[u8; 32]],
     signature: Signature,
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
-    if tags.is_empty() {
-        return Err(ClientError::Rpc(
-            "confirmed TRANSACT instruction has no output view tags".into(),
-        ));
-    }
+    let mut last_error = None;
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
             sleep(delay);
         }
-        let response =
-            indexer.get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50), None)?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
-        {
-            return Ok(());
+        match indexer.get_shielded_transactions_by_signature(signature, None) {
+            Ok(response) if !response.transactions.is_empty() => return Ok(()),
+            Ok(_) => last_error = None,
+            Err(error) if indexer.should_retry(&error) => last_error = Some(error.to_string()),
+            Err(error) => return Err(error),
         }
     }
-    Err(ClientError::IndexerTimeout)
+    Err(indexer_poll_timeout(retry, last_error))
 }
 
 async fn wait_for_indexed_transaction_async(
     indexer: &AsyncZolanaIndexer,
-    tags: &[[u8; 32]],
     signature: Signature,
     retry: IndexerPollConfig,
 ) -> Result<(), ClientError> {
-    if tags.is_empty() {
-        return Err(ClientError::Rpc(
-            "confirmed TRANSACT instruction has no output view tags".into(),
-        ));
-    }
+    let mut last_error = None;
     for delay in std::iter::once(Duration::ZERO).chain(retry.backoff()) {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
-        let response = indexer
-            .get_shielded_transactions_by_tags(tags.to_vec(), None, Some(50), None)
-            .await?;
-        if response
-            .transactions
-            .iter()
-            .any(|item| item.tx_signature == signature)
+        match indexer
+            .get_shielded_transactions_by_signature(signature, None)
+            .await
         {
-            return Ok(());
+            Ok(response) if !response.transactions.is_empty() => return Ok(()),
+            Ok(_) => last_error = None,
+            Err(error) if indexer.should_retry(&error) => last_error = Some(error.to_string()),
+            Err(error) => return Err(error),
         }
     }
-    Err(ClientError::IndexerTimeout)
+    Err(indexer_poll_timeout(retry, last_error))
+}
+
+/// Classify an exhausted poll by how the *final* attempt went, since that is
+/// the freshest evidence of what the indexer is doing now: an attempt that
+/// answered without the transaction means the indexer is behind, and one that
+/// failed means it never answered, which is not a lag report the caller should
+/// act on. Earlier failures inside the window are deliberately not reported --
+/// a blip the indexer recovered from should not be blamed for a genuine lag.
+fn indexer_poll_timeout(retry: IndexerPollConfig, last_error: Option<String>) -> ClientError {
+    match last_error {
+        Some(last_error) => ClientError::PollTimedOut {
+            attempts: retry.num_retries.saturating_add(1),
+            last_error: Some(last_error),
+        },
+        None => ClientError::IndexerTimeout,
+    }
 }
 
 #[cfg(test)]
@@ -1018,13 +1211,13 @@ mod tests {
     use zolana_transaction::{AssetRegistry, Data, Utxo, Wallet, WalletUtxo, SOL_MINT};
 
     use super::*;
-    use crate::{
-        prover::CompressedCommitments,
-        rpc::{MerkleContext, MerkleProof, NonInclusionProof},
+    use crate::rpc::{MerkleContext, MerkleProof, NonInclusionProof};
+    use zolana_interface::instruction::{
+        InterfaceTransfer, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        TransactSplDepositAccounts,
     };
-    use zolana_interface::instruction::{TransactSolWithdrawal, TransactWithdrawal};
     use zolana_transaction::instructions::{
-        transact::{ConfidentialTransfer, WithdrawalTarget},
+        transact::{ConfidentialTransfer, SettlementTarget},
         types::SppProofInputUtxo,
     };
 
@@ -1034,7 +1227,7 @@ mod tests {
         let client =
             ZolanaClient::from_urls((), "http://127.0.0.1:8784", "http://127.0.0.1:3001", tree);
 
-        assert_eq!(client.tree(), tree);
+        assert_eq!(client.output_tree(), tree);
         assert!(
             client.indexer.get().is_none(),
             "blocking indexer must be initialized lazily"
@@ -1046,9 +1239,64 @@ mod tests {
     }
 
     #[test]
+    fn settlement_accounts_accept_duplicate_sol_recipients_and_mixed_directions() {
+        let spl = TransactSplDepositAccounts {
+            mint: Pubkey::new_unique(),
+            vault: Pubkey::new_unique(),
+            depositor: Pubkey::new_unique(),
+            user_token_account: Pubkey::new_unique(),
+            token_program: Pubkey::new_unique(),
+        };
+        let interface_transfers = [
+            InterfaceTransfer::SolWithdrawal { amount: 7 },
+            InterfaceTransfer::SplDeposit {
+                amount: 11,
+                vault_bump: 42,
+            },
+            InterfaceTransfer::SolWithdrawal { amount: 3 },
+        ];
+        let settlement_transfers = [
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                recipient: Pubkey::new_unique(),
+            }),
+            TransactInterfaceTransferAccounts::SplDeposit(spl),
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                recipient: Pubkey::new_unique(),
+            }),
+        ];
+
+        validate_settlement_transfers(&interface_transfers, &settlement_transfers)
+            .expect("ordered duplicate-asset account groups are valid");
+    }
+
+    #[test]
+    fn settlement_accounts_reject_count_and_type_mismatches() {
+        let sol_accounts = TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+            recipient: Pubkey::new_unique(),
+        });
+        assert!(matches!(
+            validate_settlement_transfers(&[InterfaceTransfer::SolWithdrawal { amount: 1 }], &[],),
+            Err(ClientError::SettlementTransferCountMismatch {
+                interface_transfers: 1,
+                account_groups: 0,
+            })
+        ));
+        assert!(matches!(
+            validate_settlement_transfers(
+                &[InterfaceTransfer::SplWithdrawal {
+                    amount: 1,
+                    vault_bump: 42,
+                }],
+                &[sol_accounts],
+            ),
+            Err(ClientError::SettlementTransferTypeMismatch { index: 0 })
+        ));
+    }
+
+    #[test]
     fn confirm_private_transaction_sync_waits_for_indexer() {
         let payer = Keypair::new();
-        let sender = ShieldedKeypair::new().expect("sender");
+        let sender = ShieldedKeypair::from_solana_keypair(&payer).expect("sender");
         let tree = Address::new_from_array([6u8; 32]);
         let wallet = wallet_with_tree(sender.clone(), tree, 10);
         let recipient = Pubkey::new_unique();
@@ -1065,7 +1313,7 @@ mod tests {
             .withdraw(
                 SOL_MINT,
                 4,
-                WithdrawalTarget::Sol {
+                SettlementTarget::Sol {
                     user_sol_account: recipient,
                 },
             )
@@ -1075,15 +1323,17 @@ mod tests {
             .expect("sign");
         let shielded = SignedPrivateTransaction {
             transaction: proof_inputs,
-            withdrawal: Some(TransactWithdrawal::Sol(TransactSolWithdrawal { recipient })),
-            tree,
+            settlement_transfers: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts { recipient },
+            )],
+            input_tree: tree,
         };
         let commitment = shielded.transaction.input_utxo_hashes().unwrap().remove(0);
         let signature = Signature::from([5u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             merkle_response(tree, commitment.utxo_hash),
             nullifier_response(tree, commitment.nullifier),
-            indexed_transaction_response(signature),
+            indexed_transaction_by_signature_response(signature),
         ]);
         let rpc = MockSubmitRpc::new(signature);
         let sent = rpc.sent.clone();
@@ -1104,17 +1354,14 @@ mod tests {
                     a: [0u8; 32],
                     b: [0u8; 64],
                     c: [0u8; 32],
-                    commitment: Some(CompressedCommitments {
-                        commitment: [0u8; 32],
-                        commitment_pok: [0u8; 32],
-                    }),
+                    commitment: None,
                 })
             })
             .expect("finish");
         transaction
             .try_sign(&[&payer], blockhash)
             .expect("sign native transaction");
-        let result = client.rpc().send_transaction(&transaction).expect("send");
+        let result = Rpc::send_transaction(client.rpc(), &transaction).expect("send");
         client
             .confirm_private_transaction_sync(result)
             .expect("indexed");
@@ -1129,28 +1376,21 @@ mod tests {
             [
                 "/get_merkle_proofs",
                 "/get_non_inclusion_proofs",
-                "/get_shielded_transactions_by_tags",
+                "/get_shielded_transactions_by_signature",
             ]
         );
     }
 
     #[test]
-    fn submit_validation_binds_fee_payer_and_tree() {
+    fn submit_validation_binds_fee_payer() {
         let payer = Keypair::new();
         let payer_hash = sha256_be(&payer.pubkey().to_bytes());
-        let tree = Address::new_from_array([7u8; 32]);
-
         validate_fee_payer_pubkey(&payer_hash, payer.pubkey()).expect("matching payer");
-        validate_transaction_tree(tree, tree).expect("matching tree");
 
         let other_payer = Keypair::new();
         assert!(matches!(
             validate_fee_payer_pubkey(&payer_hash, other_payer.pubkey()),
             Err(ClientError::FeePayerMismatch)
-        ));
-        assert!(matches!(
-            validate_transaction_tree(tree, Address::default()),
-            Err(ClientError::TreeMismatch { .. })
         ));
     }
 
@@ -1228,7 +1468,6 @@ mod tests {
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
             "context": { "block_time": 12 },
             "transactions": [],
-            "next_cursor": null,
         }))]);
         let rpc = MockSubmitRpc::new(signature);
         let client = ZolanaClient::new(
@@ -1246,6 +1485,178 @@ mod tests {
         let _ = server.requests();
 
         assert!(matches!(error, ClientError::IndexerTimeout));
+    }
+
+    #[test]
+    fn confirm_private_transaction_async_polls_until_the_event_is_indexed() {
+        let signature = Signature::from([10u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_result(json!({
+                "context": { "block_time": 12 },
+                "transactions": [],
+            })),
+            indexed_transaction_by_signature_response(signature),
+        ]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime
+            .block_on(client.confirm_private_transaction(signature))
+            .expect("async lookup should poll past an empty response");
+
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_signature",
+                "/get_shielded_transactions_by_signature",
+            ]
+        );
+    }
+
+    #[test]
+    fn confirm_private_transaction_sync_retries_transient_indexer_error() {
+        let signature = Signature::from([15u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_error(-32603, "Internal error"),
+            indexed_transaction_by_signature_response(signature),
+        ]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
+
+        client
+            .confirm_private_transaction_sync(signature)
+            .expect("retryable indexer error should be retried");
+
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_signature",
+                "/get_shielded_transactions_by_signature",
+            ]
+        );
+    }
+
+    /// An indexer that fails every attempt has not reported a lag, so reporting
+    /// `IndexerTimeout` would send the caller looking for a transaction that
+    /// was never queried successfully.
+    #[test]
+    fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
+        let signature = Signature::from([20u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_error(-32603, "Internal error"),
+            rpc_error(-32603, "Internal error"),
+        ]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
+
+        let error = client
+            .confirm_private_transaction_sync(signature)
+            .expect_err("an indexer that never answers must not look like a lag");
+
+        assert_eq!(
+            server.requests(),
+            [
+                "/get_shielded_transactions_by_signature",
+                "/get_shielded_transactions_by_signature",
+            ]
+        );
+        let ClientError::PollTimedOut {
+            attempts,
+            last_error,
+        } = error
+        else {
+            panic!("expected PollTimedOut, got {error:?}");
+        };
+        assert_eq!(attempts, 2);
+        assert!(last_error
+            .expect("the last transient error is kept")
+            .contains("Internal error"));
+    }
+
+    /// One signature can carry several Rings events, and nothing stops two of
+    /// them from sharing a view tag. Confirmation only proves the transaction
+    /// is indexed, so every event of that signature is an acceptable answer.
+    #[test]
+    fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
+        let signature = Signature::from([18u8; 64]);
+        let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
+            "context": { "block_time": 12 },
+            "transactions": [
+                { "event_index": 0, "transaction": indexed_transaction_json(signature) },
+                { "event_index": 1, "transaction": indexed_transaction_json(signature) },
+            ],
+        }))]);
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature),
+            ZolanaIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new(server.url()),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
+
+        client
+            .confirm_private_transaction_sync(signature)
+            .expect("events sharing a view tag are not an error");
+
+        assert_eq!(
+            server.requests(),
+            ["/get_shielded_transactions_by_signature"]
+        );
+    }
+
+    /// Confirmation no longer reads view tags, so the forwarders are the only
+    /// thing keeping the capability reachable through `ZolanaClient`.
+    #[test]
+    fn client_forwards_transact_output_view_tags_to_the_rpc() {
+        let signature = Signature::from([21u8; 64]);
+        let expected = vec![[7u8; 32], [9u8; 32]];
+        let client = ZolanaClient::new(
+            MockSubmitRpc::new(signature).with_view_tags(expected.clone()),
+            ZolanaIndexer::new("http://unused.invalid"),
+            ProverClient::new("http://unused.invalid".to_string()),
+            AsyncZolanaIndexer::new("http://unused.invalid"),
+            AsyncProverClient::new("http://unused.invalid".to_string()),
+            Address::new_from_array([8u8; 32]),
+        );
+
+        assert_eq!(
+            Rpc::transact_output_view_tags_from_signature(&client, signature).expect("sync tags"),
+            expected
+        );
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        assert_eq!(
+            runtime
+                .block_on(AsyncRpc::transact_output_view_tags_from_signature(
+                    &client, signature
+                ))
+                .expect("async tags"),
+            expected
+        );
     }
 
     fn state_proof(tree: Address, leaf: [u8; 32]) -> MerkleProof {
@@ -1281,11 +1692,13 @@ mod tests {
             AssetRegistry::default(),
         )
         .expect("wallet");
+        let mut blinding = [0u8; 32];
+        blinding[1..].fill(7);
         let utxo = Utxo {
             owner: keypair.signing_pubkey(),
             asset: SOL_MINT,
             amount,
-            blinding: [7u8; 31],
+            blinding,
             zone_program_id: None,
             data: Data::default(),
         };
@@ -1320,9 +1733,14 @@ mod tests {
         fn new(signature: Signature) -> Self {
             Self {
                 signature,
-                view_tags: vec![[0u8; 32]],
+                view_tags: Vec::new(),
                 sent: Arc::new(Mutex::new(Vec::new())),
             }
+        }
+
+        fn with_view_tags(mut self, view_tags: Vec<[u8; 32]>) -> Self {
+            self.view_tags = view_tags;
+            self
         }
     }
 
@@ -1348,6 +1766,20 @@ mod tests {
         }
 
         fn transact_output_view_tags_from_signature(
+            &self,
+            _signature: Signature,
+        ) -> Result<Vec<[u8; 32]>, ClientError> {
+            Ok(self.view_tags.clone())
+        }
+    }
+
+    #[async_trait]
+    impl AsyncRpc for MockSubmitRpc {
+        async fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
+            Ok(true)
+        }
+
+        async fn transact_output_view_tags_from_signature(
             &self,
             _signature: Signature,
         ) -> Result<Vec<[u8; 32]>, ClientError> {
@@ -1394,19 +1826,33 @@ mod tests {
         }))
     }
 
-    fn indexed_transaction_response(signature: Signature) -> Value {
+    fn indexed_transaction_json(signature: Signature) -> Value {
+        json!({
+            "slot": 11,
+            "tx_signature": signature.to_string(),
+            "tx_viewing_pk": null,
+            "output_slots": [{
+                "view_tag": encode_hash([0u8; 32]),
+                "output_context": {
+                    "hash": encode_hash([1u8; 32]),
+                    "tree": encode_address(Address::new_from_array([8u8; 32])),
+                    "leaf_index": 0,
+                },
+                "payload": "",
+            }],
+            "messages": [],
+            "nullifiers": [],
+            "proofless": false,
+        })
+    }
+
+    fn indexed_transaction_by_signature_response(signature: Signature) -> Value {
         rpc_result(json!({
             "context": { "block_time": 11 },
             "transactions": [{
-                "slot": 11,
-                "tx_signature": signature.to_string(),
-                "tx_viewing_pk": null,
-                "output_slots": [],
-                "messages": [],
-                "nullifiers": [],
-                "proofless": false,
+                "event_index": 0,
+                "transaction": indexed_transaction_json(signature),
             }],
-            "next_cursor": null,
         }))
     }
 
@@ -1415,6 +1861,17 @@ mod tests {
             "id": "test-account",
             "jsonrpc": "2.0",
             "result": result,
+        })
+    }
+
+    fn rpc_error(code: i64, message: &str) -> Value {
+        json!({
+            "id": "test-account",
+            "jsonrpc": "2.0",
+            "error": {
+                "code": code,
+                "message": message,
+            },
         })
     }
 
@@ -1428,8 +1885,12 @@ mod tests {
 
     struct MockIndexerServer {
         url: String,
-        requests: mpsc::Receiver<String>,
+        requests: mpsc::Receiver<MockRequest>,
         handle: thread::JoinHandle<()>,
+    }
+
+    struct MockRequest {
+        path: String,
     }
 
     impl MockIndexerServer {
@@ -1441,7 +1902,7 @@ mod tests {
                 for response in responses {
                     let (mut stream, _) = listener.accept().expect("accept request");
                     request_tx
-                        .send(read_request_path(&mut stream))
+                        .send(read_request(&mut stream))
                         .expect("record request");
                     write_json_response(&mut stream, &response);
                 }
@@ -1459,11 +1920,14 @@ mod tests {
 
         fn requests(self) -> Vec<String> {
             self.handle.join().expect("mock indexer thread");
-            self.requests.try_iter().collect()
+            self.requests
+                .try_iter()
+                .map(|request| request.path)
+                .collect()
         }
     }
 
-    fn read_request_path(stream: &mut TcpStream) -> String {
+    fn read_request(stream: &mut TcpStream) -> MockRequest {
         let mut data = Vec::new();
         let mut buffer = [0u8; 1024];
         let mut body_start = None;
@@ -1492,13 +1956,15 @@ mod tests {
                 }
             }
         }
-        let headers = String::from_utf8_lossy(&data);
-        headers
+        let start = body_start.expect("request body");
+        let headers = String::from_utf8_lossy(&data[..start]);
+        let path = headers
             .lines()
             .next()
             .and_then(|line| line.split_whitespace().nth(1))
             .expect("request path")
-            .to_string()
+            .to_string();
+        MockRequest { path }
     }
 
     fn write_json_response(stream: &mut TcpStream, response: &Value) {

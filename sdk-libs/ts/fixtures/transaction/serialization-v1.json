@@ -109,7 +109,7 @@
   },
   "id": "fx-p00-transaction-serialization-v1",
   "inputs": {
-    "blindingSeedBytes": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "blindingSeedBytes": "000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
     "saltBytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
     "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
     "testOnlySecret": true,

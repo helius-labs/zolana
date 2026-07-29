@@ -15,7 +15,7 @@ pub struct Take {
     pub spp_proof: TransactIxData,
 }
 
-const ORDER_AUTHORITY_SIGNER_INDEX: u8 = 3;
+const ORDER_AUTHORITY_SIGNER_INDEX: u8 = 4;
 
 impl Take {
     pub fn instruction(self) -> Result<Instruction> {
@@ -38,6 +38,7 @@ impl Take {
         let accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
+            AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(order_authority_pda(), false),

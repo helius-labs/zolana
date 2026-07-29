@@ -30,7 +30,7 @@ import type {
   TransactWithdrawal,
 } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
-import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
+import type { ShieldedPublicKey } from "../keypair/public-key.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
 
@@ -59,6 +59,7 @@ import {
   type GetEncryptedUtxosByTagsResponse,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
+  type GetShieldedTransactionsBySignatureResponse,
   type GetShieldedTransactionsByTagsResponse,
   type IndexerRpcConfig,
   type RpcAccount,
@@ -96,7 +97,6 @@ export interface SubmittedPrivateTransaction {
 
 export interface MergeMaterialInput {
   readonly signingPublicKey: ShieldedPublicKey;
-  readonly viewingPublicKey: P256PublicKey;
   readonly nullifierKey: NullifierKey;
 }
 
@@ -291,6 +291,19 @@ export class ZolanaClient {
     return this.#indexer.getShieldedTransactionsByTags(request, this.#configOr(config), context);
   }
 
+  getShieldedTransactionsBySignature(
+    signature: Signature,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetShieldedTransactionsBySignatureResponse> {
+    checkedSignature(signature);
+    return this.#indexer.getShieldedTransactionsBySignature(
+      signature,
+      this.#configOr(config),
+      context,
+    );
+  }
+
   getMerkleProofs(
     treeAccount: Address,
     leaves: readonly Bytes32[],
@@ -425,8 +438,31 @@ export class ZolanaClient {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
     try {
-      const proofs = await this.getInputMerkleProofs(proofInputs.inputContexts(), config, context);
-      const assembled = assemble(proofInputs, proofs);
+      const dummyNullifiers = proofInputs.dummyNullifiers();
+      const [proofs, dummyResponse] = await Promise.all([
+        this.getInputMerkleProofs(proofInputs.inputContexts(), config, context),
+        dummyNullifiers.length === 0
+          ? Promise.resolve(undefined)
+          : this.getNonInclusionProofs(this.tree, dummyNullifiers, config, context),
+      ]);
+      const dummyProofs = dummyResponse?.proofs ?? [];
+      if (dummyProofs.length !== dummyNullifiers.length) {
+        throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
+          details: {
+            expected: dummyNullifiers.length,
+            state: 0,
+            nullifier: dummyProofs.length,
+          },
+        });
+      }
+      dummyProofs.forEach((proof, index) => {
+        if (proof.merkleContext.tree !== this.tree) {
+          throw new ClientError("CLIENT_NULLIFIER_PROOF_TREE_MISMATCH", {
+            details: { index },
+          });
+        }
+      });
+      const assembled = assemble(proofInputs, proofs, dummyProofs);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
       return assembled.withProof(compressProof(proof).toTransactProof());
     } catch (cause) {
@@ -438,7 +474,7 @@ export class ZolanaClient {
     input: Readonly<{
       prepared: PreparedMerge;
       material: MergeMaterialInput;
-      indexer?: Pick<ZolanaClient, "getInputMerkleProofs">;
+      indexer?: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
@@ -456,15 +492,11 @@ export class ZolanaClient {
     const compressed = compressProof(
       await this.#prover.proveMerge(assembled.proverInputs, context),
     );
-    const commitment = compressed.commitment;
-    if (!commitment) throw new ClientError("CLIENT_MERGE_PROOF_COMMITMENT");
     return Object.freeze({
       data: assembled.instructionData({
         a: compressed.a,
         b: compressed.b,
         c: compressed.c,
-        commitment: commitment.commitment,
-        commitmentPok: commitment.commitmentPok,
       }),
       outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
     });
@@ -599,47 +631,17 @@ export class ZolanaClient {
     });
   }
 
-  async confirmPrivateTransaction(
-    signature: Signature,
-    outputTags: readonly Bytes32[],
-    context?: RequestContext,
-  ): Promise<void> {
+  async confirmPrivateTransaction(signature: Signature, context?: RequestContext): Promise<void> {
     checkedSignature(signature);
-    const tags = copyOutputTags(outputTags);
-    if (tags.length === 0) throw new ClientError("CLIENT_MISSING_OUTPUT");
     try {
       await pollUntil(
-        async () => {
-          let cursor: Uint8Array | undefined;
-          const seenCursors = new Set<string>();
-          do {
-            const response = await this.getShieldedTransactionsByTags(
-              { tags, limit: 100, ...(cursor === undefined ? {} : { cursor }) },
-              { ...this.#indexerConfig, waitForIndexer: false },
-              context,
-            );
-            if (
-              response.transactions.some((transaction) => transaction.txSignature === signature)
-            ) {
-              return true;
-            }
-            cursor = response.nextCursor;
-            if (cursor !== undefined) {
-              const key = Array.from(cursor).join(",");
-              if (seenCursors.has(key)) {
-                throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-                  details: {
-                    method: "getShieldedTransactionsByTags",
-                    path: "$.next_cursor",
-                  },
-                });
-              }
-              seenCursors.add(key);
-            }
-          } while (cursor !== undefined);
-          return false;
-        },
-        (found) => found,
+        () =>
+          this.getShieldedTransactionsBySignature(
+            signature,
+            { ...this.#indexerConfig, waitForIndexer: false },
+            context,
+          ),
+        (response) => response.transactions.length > 0,
         {
           config: this.#indexerConfig.poll,
           ...(context === undefined ? {} : { context }),
@@ -651,7 +653,6 @@ export class ZolanaClient {
       throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
         details: {
           signature,
-          expectedTags: tags.length,
           attempts: this.#indexerConfig.poll.numRetries + 1,
         },
         cause,
@@ -733,7 +734,8 @@ export function buildUnsignedMergeTransaction(
     compileKitTransaction(input.feePayer, input.lifetime, [
       getSetComputeUnitLimitInstruction({ units: 1_400_000 }),
       mergeTransactInstruction({
-        tree: input.tree,
+        inputTree: input.tree,
+        outputTree: input.tree,
         payer: input.feePayer,
         userRecord: input.userRecord,
         data: input.data,
@@ -785,29 +787,6 @@ function checkedSignature(value: Signature): void {
       details: { field: "signature" },
     });
   }
-}
-
-function copyOutputTags(value: readonly Bytes32[]): readonly Bytes32[] {
-  const candidate: unknown = value;
-  if (!Array.isArray(candidate)) {
-    throw new ClientError("CLIENT_INVALID_CONFIG", {
-      details: { field: "outputTags" },
-    });
-  }
-  return Object.freeze(
-    candidate.map((tag: unknown, index) => {
-      if (!(tag instanceof Uint8Array) || tag.length !== 32) {
-        throw new ClientError("CLIENT_INVALID_LENGTH", {
-          details: {
-            field: `outputTags[${String(index)}]`,
-            expected: 32,
-            actual: tag instanceof Uint8Array ? tag.length : -1,
-          },
-        });
-      }
-      return new Uint8Array(tag) as Bytes32;
-    }),
-  );
 }
 
 function privateOutputTags(transaction: SppProofInputs): readonly Bytes32[] {

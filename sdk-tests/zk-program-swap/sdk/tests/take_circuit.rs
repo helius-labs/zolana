@@ -13,7 +13,8 @@ use swap_program::{
 };
 use swap_prover::{CircuitId, OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
 use swap_sdk::{instructions::take::derive_destination_blinding, state::DataHash};
-use zolana_keypair::{hash::hash_field, ViewingKey};
+use zolana_hasher::primitives::hash_bytes;
+use zolana_keypair::ViewingKey;
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
@@ -42,15 +43,15 @@ fn fe(byte: u8) -> [u8; 32] {
 }
 
 fn blinding(byte: u8) -> Blinding {
-    let mut out = [0u8; 31];
-    out[30] = byte;
+    let mut out = [0u8; 32];
+    out[31] = byte;
     out
 }
 
 fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
     let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     let order = OrderTermsProofInput {
-        destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
+        destination_asset: hash_bytes(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,
         maker_owner_hash: fe(99),
         maker_viewing_pk,

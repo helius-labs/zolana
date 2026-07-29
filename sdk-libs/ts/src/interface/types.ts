@@ -18,12 +18,8 @@ export interface RequestContext {
 }
 
 export interface DepositInstructionData {
-  readonly viewTag: Bytes32;
-  readonly owner: Bytes32;
-  readonly blinding: Bytes31;
-  readonly amount: bigint;
-  readonly utxoData?: UtxoData;
-  readonly memo?: Uint8Array;
+  readonly assets: readonly DepositAssetKind[];
+  readonly deposits: readonly DepositEntry[];
 }
 
 export interface UtxoData {
@@ -31,25 +27,44 @@ export interface UtxoData {
   readonly data: Uint8Array;
 }
 
+export type DepositAssetKind =
+  | Readonly<{ kind: "sol" }>
+  | Readonly<{ kind: "spl"; vaultBump: number }>;
+
+export interface DepositEntry {
+  readonly assetIndex: number;
+  readonly viewTag: Bytes32;
+  readonly owner: Bytes32;
+  readonly blinding: Bytes32;
+  readonly amount: bigint;
+  readonly utxoData?: UtxoData;
+  readonly memo?: Uint8Array;
+}
+
 export interface DepositSplAccounts {
+  readonly mint: Address;
   readonly userToken: Address;
-  readonly splTokenInterface: Address;
-  readonly registry: Address;
   readonly tokenProgram: Address;
+}
+
+export type DepositAsset =
+  | Readonly<{ kind: "sol" }>
+  | Readonly<{ kind: "spl"; accounts: DepositSplAccounts }>;
+
+export interface AssetDeposit extends Omit<DepositEntry, "assetIndex"> {
+  readonly asset: DepositAsset;
 }
 
 export interface InputUtxo {
   readonly nullifierHash: Bytes32;
   readonly nullifierTreeRootIndex: number;
   readonly utxoTreeRootIndex: number;
-  readonly treeIndex: number;
   readonly eddsaSignerIndex: number;
 }
 
 export type OwnerTag =
   | Readonly<{ kind: "inline"; value: Bytes32 }>
-  | Readonly<{ kind: "account"; index: number }>
-  | Readonly<{ kind: "p256SigningKey" }>;
+  | Readonly<{ kind: "account"; index: number }>;
 
 export interface TransactOutput {
   readonly utxoHash: Bytes32;
@@ -74,28 +89,63 @@ export interface ResolvedOutput {
   readonly data?: Uint8Array;
 }
 
-export type TransactProof =
-  | Readonly<{ rail: "eddsa"; a: Bytes32; b: Bytes64; c: Bytes32 }>
+export interface TransactProof {
+  readonly a: Bytes32;
+  readonly b: Bytes64;
+  readonly c: Bytes32;
+}
+
+export type CircuitId =
   | Readonly<{
-      rail: "p256";
-      a: Bytes32;
-      b: Bytes64;
-      c: Bytes32;
-      commitment: Bytes32;
-      commitmentPok: Bytes32;
+      kind: "confidentialEddsa";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+    }>
+  | Readonly<{
+      kind: "zoneEddsa";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+    }>
+  | Readonly<{
+      kind: "zoneAuthority";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+    }>;
+
+export type InterfaceTransfer =
+  | Readonly<{ kind: "solDeposit"; amount: bigint }>
+  | Readonly<{ kind: "solWithdrawal"; amount: bigint }>
+  | Readonly<{ kind: "splDeposit"; amount: bigint; vaultBump: number }>
+  | Readonly<{ kind: "splWithdrawal"; amount: bigint; vaultBump: number }>;
+
+export type ResolvedInterfaceTransfer =
+  | Readonly<{ kind: "solDeposit"; amount: bigint; recipient: Address }>
+  | Readonly<{ kind: "solWithdrawal"; amount: bigint; recipient: Address }>
+  | Readonly<{
+      kind: "splDeposit";
+      amount: bigint;
+      userTokenAccount: Address;
+      vault: Address;
+    }>
+  | Readonly<{
+      kind: "splWithdrawal";
+      amount: bigint;
+      userTokenAccount: Address;
+      vault: Address;
     }>;
 
 export interface TransactInstructionData {
-  readonly proof: TransactProof;
   readonly expiryUnixTs: bigint;
-  readonly relayerFee: number;
   readonly privateTxHash: Bytes32;
-  readonly p256SigningPkX?: Bytes32;
+  readonly circuit: CircuitId;
   readonly txViewingPk: Bytes33;
   readonly salt: Bytes16;
+  readonly proof: TransactProof;
   readonly inputs: readonly InputUtxo[];
-  readonly publicSolAmount?: bigint;
-  readonly publicSplAmount?: bigint;
+  readonly interfaceTransfers: readonly InterfaceTransfer[];
   readonly dataHash?: Bytes32;
   readonly zoneDataHash?: Bytes32;
   readonly outputs: readonly TransactOutput[];
@@ -106,9 +156,8 @@ export type TransactWithdrawal =
   | Readonly<{ kind: "sol"; recipient: Address }>
   | Readonly<{
       kind: "spl";
-      cpiAuthority?: Address;
+      mint: Address;
       splTokenInterface: Address;
-      recipient: Address;
       userTokenAccount: Address;
       tokenProgram: Address;
     }>;
@@ -145,14 +194,11 @@ export interface MergeTransactInstructionData {
     a: Bytes32;
     b: Bytes64;
     c: Bytes32;
-    commitment: Bytes32;
-    commitmentPok: Bytes32;
   }>;
   readonly outputUtxoHash: Bytes32;
+  readonly eddsaOwner: boolean;
+  readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndexes: readonly number[];
   readonly nullifierTreeRootIndexes: readonly number[];
-  readonly privateTxHash: Bytes32;
-  readonly encryptedUtxo: Uint8Array;
-  readonly eddsaOwner: boolean;
 }

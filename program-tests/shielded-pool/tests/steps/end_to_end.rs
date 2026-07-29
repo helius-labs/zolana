@@ -5,8 +5,8 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::pda;
-use zolana_keypair::{constants::BLINDING_LEN, ShieldedKeypair};
-use zolana_program_test::ZolanaProgramTest;
+use zolana_keypair::ShieldedKeypair;
+use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_transaction::{
     owner_utxo_hash, Address, AssetRegistry, LocalWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
 };
@@ -34,7 +34,7 @@ fn shield_into_pool(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree_before = world.rpc().account_data(&tree).expect("tree data");
     let recipient = ShieldedKeypair::new().expect("recipient keypair");
 
-    let seed = [42u8; BLINDING_LEN];
+    let seed = test_blinding(42);
     let data = ZolanaProgramTest::wallet_sol_shield_data(
         amount,
         &recipient.shielded_address().expect("shielded address"),
@@ -104,8 +104,8 @@ fn bootstrap_deposits(world: &mut ShieldedPoolWorld) {
     let mut owner_utxo_hashes = Vec::new();
     let mut view_tags = Vec::new();
     for (i, amount) in E2E_AMOUNTS.into_iter().enumerate() {
-        let mut seed = [0xA0; BLINDING_LEN];
-        seed[30] = i as u8;
+        let mut seed = test_blinding(0xA0);
+        seed[31] = i as u8;
         let data =
             ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity, &seed, i as u8)
                 .expect("wallet deposit data");

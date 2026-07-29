@@ -417,7 +417,7 @@ pub fn resolved_address_from_record(
     record: &UserRecord,
 ) -> Result<ResolvedAddress, ClientError> {
     let signing_pubkey = signing_pubkey_from_record(owner, record)?;
-    let viewing_pubkey = P256Pubkey::from_bytes(record.sender_viewing_pubkey())?;
+    let viewing_pubkey = P256Pubkey::from_bytes(record.viewing_pubkey)?;
     Ok(ResolvedAddress {
         owner,
         address: ShieldedAddress {
@@ -435,7 +435,7 @@ mod tests {
     use solana_account::Account;
     use solana_signer::Signer;
     use zolana_keypair::{ShieldedKeypair, ViewingKey};
-    use zolana_user_registry_interface::{user_registry_program_id, SyncDelegateEntry};
+    use zolana_user_registry_interface::user_registry_program_id;
 
     use super::*;
 
@@ -471,6 +471,7 @@ mod tests {
     fn account_data(record: &UserRecord) -> Vec<u8> {
         let mut data = vec![UserRecord::DISCRIMINATOR];
         data.extend_from_slice(&to_vec(record).expect("serialize user record"));
+        data.resize(UserRecord::SIZE, 0);
         data
     }
 
@@ -481,8 +482,6 @@ mod tests {
             owner_p256: Some([2u8; 33]),
             nullifier_pubkey: [3u8; 32],
             viewing_pubkey: [4u8; 33],
-            sync_delegate: None,
-            entries: Vec::new(),
             merging_enabled: false,
         }
     }
@@ -504,8 +503,6 @@ mod tests {
             owner_p256: Some(*keypair.signing_pubkey().as_p256().unwrap().as_bytes()),
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
-            sync_delegate: None,
-            entries: Vec::new(),
             merging_enabled: false,
         }
     }
@@ -725,8 +722,6 @@ mod tests {
             owner_p256: None,
             nullifier_pubkey: keypair.nullifier_key.pubkey().unwrap(),
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
-            sync_delegate: None,
-            entries: Vec::new(),
             merging_enabled: false,
         };
         let rpc = MockRpc {
@@ -802,16 +797,9 @@ mod tests {
             &to_vec(&UserRecord {
                 owner: [1u8; 32].into(),
                 bump: 255,
-                owner_p256: None,
+                owner_p256: Some([4u8; 33]),
                 nullifier_pubkey: [2u8; 32],
                 viewing_pubkey: [3u8; 33],
-                sync_delegate: Some([4u8; 32]),
-                entries: vec![SyncDelegateEntry {
-                    delegate: [4u8; 32],
-                    sync_pubkey: [5u8; 33],
-                    viewing_pubkey: [6u8; 33],
-                    created_at: 1,
-                }],
                 merging_enabled: false,
             })
             .expect("serialize user record"),

@@ -3486,6 +3486,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "light-array-map"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bdd13b18028ac9d80d0a987551c0dad7fe81be8140e87cc9d568b80f3728203"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "light-poseidon"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4295,6 +4304,7 @@ dependencies = [
  "cadence",
  "cadence-macros",
  "clap",
+ "criterion",
  "futures",
  "http-body-util",
  "hyper",
@@ -5906,9 +5916,11 @@ dependencies = [
  "borsh",
  "bytemuck",
  "groth16-solana",
+ "light-array-map",
  "light-program-profiler",
  "pinocchio 0.11.2",
  "pinocchio-system",
+ "spl-token-2022-interface",
  "tinyvec",
  "zolana-account-checks",
  "zolana-hasher",
@@ -5944,6 +5956,7 @@ dependencies = [
  "solana-signature 3.4.1",
  "solana-signer",
  "solana-transaction",
+ "spl-token-2022-interface",
  "tokio",
  "zolana-client",
  "zolana-event",
@@ -9109,7 +9122,6 @@ dependencies = [
  "anyhow",
  "cucumber",
  "futures",
- "p256",
  "rand 0.8.7",
  "solana-account 3.4.0",
  "solana-address 2.6.1",
@@ -9412,6 +9424,7 @@ dependencies = [
  "swap-prover",
  "wincode",
  "zolana-client",
+ "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",
@@ -9720,6 +9733,7 @@ dependencies = [
  "timelock-escrow-program",
  "timelock-escrow-prover",
  "wincode",
+ "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",
@@ -11273,16 +11287,17 @@ version = "5.0.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
- "borsh",
+ "hex",
  "light-poseidon 0.4.0",
  "num-bigint 0.4.8",
  "rand 0.8.7",
+ "serde",
+ "serde_json",
  "sha2 0.10.9",
  "sha3",
  "solana-program-error 3.0.1",
  "solana-pubkey 4.2.0",
  "thiserror 2.0.18",
- "tinyvec",
 ]
 
 [[package]]
@@ -11421,12 +11436,10 @@ dependencies = [
 name = "zolana-transaction"
 version = "0.1.0"
 dependencies = [
- "ark-bn254 0.5.0",
  "async-trait",
  "borsh",
  "criterion",
  "cucumber",
- "light-poseidon 0.4.0",
  "num-bigint 0.4.8",
  "p256",
  "proptest",
@@ -11448,6 +11461,7 @@ name = "zolana-tree"
 version = "0.1.0"
 dependencies = [
  "pinocchio 0.11.2",
+ "thiserror 2.0.18",
  "wincode",
  "zolana-batched-merkle-tree",
  "zolana-hasher",

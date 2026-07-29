@@ -1,14 +1,16 @@
 use num_bigint::BigUint;
-use zolana_transaction::{instructions::transact::PrivateTxHash, ExternalData, SppProofOutputUtxo};
+use zolana_transaction::{
+    instructions::transact::{PrivateTxHash, PublicMovements},
+    ExternalData, SppProofOutputUtxo,
+};
 
 use crate::{
     error::ClientError,
     prover::{
         field::be,
         resolve_shape,
-        transact::p256_and_eddsa::{
-            assemble_inputs, assemble_outputs, OwnerMode, PublicAmounts, PublicInputs,
-            TransferSpendInput,
+        transact::assembly::{
+            assemble_inputs, assemble_outputs, OwnerMode, PublicInputs, TransferSpendInput,
         },
         Shape, TransferInputs,
     },
@@ -18,8 +20,9 @@ pub struct TransferProver {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub public_amounts: PublicAmounts,
+    pub public_movements: PublicMovements,
     pub payer_pubkey_hash: [u8; 32],
+    pub allow_dummy_inputs: bool,
     pub shape: Option<Shape>,
 }
 
@@ -36,9 +39,6 @@ pub struct TransferProofResult {
 impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        // The eddsa rail has no P256 owner, so the shared signing pk_field is 0 even
-        // in the confidential variant; only the output owner tags are bound.
-        let p256_signing_pk_field = [0u8; 32];
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
@@ -48,21 +48,19 @@ impl TransferProver {
             &external_data_hash,
         )
         .hash()?;
-        let p256_message_hash = [0u8; 32];
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
             utxo_roots: &assembled_inputs.utxo_roots,
             nullifier_tree_roots: &assembled_inputs.nullifier_tree_roots,
             private_tx: &private_tx,
-            p256_message_hash: &p256_message_hash,
             external_data_hash: &external_data_hash,
-            public_amounts: &self.public_amounts,
+            public_movements: &self.public_movements,
             zone_program_id: &[0u8; 32],
             payer_pubkey_hash: &self.payer_pubkey_hash,
+            allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
             input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
             output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
-            p256_signing_pk_field: &p256_signing_pk_field,
         }
         .hash()?;
 
@@ -71,11 +69,11 @@ impl TransferProver {
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_sol_amount: be(&self.public_amounts.sol),
-            public_spl_amount: be(&self.public_amounts.spl),
-            public_spl_asset_pubkey: be(&self.public_amounts.asset),
+            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
             zone_program_id: BigUint::ZERO,
             payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             public_input_hash: be(&public_input),
         };
 

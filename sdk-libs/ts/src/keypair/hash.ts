@@ -1,5 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { pack33 as interfacePack33 } from "../interface/merge-utils.js";
+import { hashBytes } from "../hasher/core.js";
 
 import { type Bytes32 } from "./bytes.js";
 import { wrapKeypairError } from "./error.js";
@@ -14,7 +15,7 @@ export function splitBigEndian128(value: Uint8Array): readonly [Uint8Array, Uint
 }
 
 export function hashField(value: Uint8Array): Bytes32 {
-  return poseidon(splitBigEndian128(value)) as Bytes32;
+  return hashBytes(value) as Bytes32;
 }
 
 export function ownerHash(

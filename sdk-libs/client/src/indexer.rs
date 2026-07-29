@@ -7,11 +7,10 @@ use std::{
 
 use async_trait::async_trait;
 use solana_address::Address;
-#[cfg(test)]
 use solana_signature::Signature;
 use zolana_api::{
     Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
-    SerializablePubkey, ZolanaApi,
+    SerializablePubkey, SerializableSignature, ZolanaApi,
 };
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
@@ -24,13 +23,17 @@ use crate::{
     rpc::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-        GetShieldedTransactionsByTagsResponse, MerkleContext, MerkleProof, NonInclusionProof,
-        OutputContext, OutputSlot, Rpc, ShieldedTransaction,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext,
+        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, Rpc, ShieldedTransaction,
     },
 };
 
 const MERKLE_PROOF_POLL_TIMEOUT: Duration = Duration::from_secs(60);
 const MERKLE_PROOF_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
+const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 
 fn now_unix_seconds() -> i64 {
     SystemTime::now()
@@ -132,35 +135,57 @@ impl ZolanaIndexer {
         tree: Address,
         proof_inputs: SppProofInputs,
     ) -> Result<TransactIxData, ClientError> {
-        let spend_proofs = self.spend_proofs(tree, &proof_inputs)?;
-        ProverClient::local().prove_transact(proof_inputs, &spend_proofs)
+        let (spend_proofs, dummy_nullifier_proofs) = self.spend_proofs(tree, &proof_inputs)?;
+        ProverClient::local().prove_transact(proof_inputs, &spend_proofs, &dummy_nullifier_proofs)
     }
 
+    /// Fetch the per-slot Merkle witnesses: state-inclusion proofs for the real
+    /// inputs, and nullifier non-inclusion proofs for every slot — the circuit
+    /// checks non-inclusion for dummies too, so each padding slot gets a real
+    /// low-element witness for its own (random-blinding) nullifier.
     fn spend_proofs(
         &self,
         tree: Address,
         proof_inputs: &SppProofInputs,
-    ) -> Result<Vec<SpendProof>, ClientError> {
-        let inputs = proof_inputs.input_utxo_hashes()?;
+    ) -> Result<(Vec<SpendProof>, Vec<NonInclusionProof>), ClientError> {
+        let real = proof_inputs.input_utxo_hashes()?;
         let state_proofs = self
-            .get_merkle_proofs(tree, inputs.iter().map(|c| c.utxo_hash).collect(), None)?
+            .get_merkle_proofs(tree, real.iter().map(|c| c.utxo_hash).collect(), None)?
             .proofs;
+        let slot_nullifiers = proof_inputs
+            .input_utxos
+            .iter()
+            .map(|spend| spend.nullifier())
+            .collect::<Result<Vec<_>, _>>()?;
         let nullifier_proofs = self
-            .get_non_inclusion_proofs(tree, inputs.iter().map(|c| c.nullifier).collect(), None)?
+            .get_non_inclusion_proofs(tree, slot_nullifiers, None)?
             .proofs;
-        if state_proofs.len() != inputs.len() || nullifier_proofs.len() != inputs.len() {
+        if state_proofs.len() != real.len()
+            || nullifier_proofs.len() != proof_inputs.input_utxos.len()
+        {
             return Err(ClientError::Rpc(format!(
-                "indexer returned {} state and {} nullifier proofs for {} inputs",
+                "indexer returned {} state proofs for {} real inputs and {} nullifier proofs for {} slots",
                 state_proofs.len(),
+                real.len(),
                 nullifier_proofs.len(),
-                inputs.len()
+                proof_inputs.input_utxos.len()
             )));
         }
-        Ok(state_proofs
-            .into_iter()
-            .zip(nullifier_proofs)
-            .map(|(state, nullifier)| SpendProof { state, nullifier })
-            .collect())
+
+        let mut spend_proofs = Vec::with_capacity(real.len());
+        let mut dummy_nullifier_proofs = Vec::new();
+        let mut state_iter = state_proofs.into_iter();
+        for (spend, nullifier) in proof_inputs.input_utxos.iter().zip(nullifier_proofs) {
+            if spend.is_dummy() {
+                dummy_nullifier_proofs.push(nullifier);
+            } else {
+                let state = state_iter
+                    .next()
+                    .ok_or_else(|| ClientError::Rpc("missing state proof".into()))?;
+                spend_proofs.push(SpendProof { state, nullifier });
+            }
+        }
+        Ok((spend_proofs, dummy_nullifier_proofs))
     }
 }
 
@@ -186,6 +211,10 @@ impl AsyncZolanaIndexer {
 }
 
 impl Rpc for ZolanaIndexer {
+    fn should_retry(&self, error: &ClientError) -> bool {
+        matches!(error, ClientError::IndexerUnavailable(_))
+    }
+
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -240,13 +269,59 @@ impl Rpc for ZolanaIndexer {
                     )
                     .map_err(indexer_error)?;
 
-                Ok(GetShieldedTransactionsByTagsResponse {
+                convert_shielded_transactions_response(response)
+            },
+        )
+    }
+
+    fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        wait_for_indexer(
+            config,
+            |response: &GetShieldedTransactionsBySignatureResponse| response.context.block_time,
+            || {
+                let response = self
+                    .api
+                    .get_shielded_transactions_by_signature(SerializableSignature(signature))
+                    .map_err(indexer_error)?;
+
+                convert_shielded_transactions_by_signature_response(response)
+            },
+        )
+    }
+
+    fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        wait_for_indexer(
+            config,
+            |response: &GetShieldedTransactionsByNullifiersResponse| response.context.block_time,
+            || {
+                let response = self
+                    .api
+                    .get_shielded_transactions_by_nullifiers(
+                        nullifiers.iter().copied().map(encode_hash).collect(),
+                        encode_cursor(cursor.clone()),
+                        limit.map(u64::from),
+                    )
+                    .map_err(indexer_error)?;
+
+                Ok(GetShieldedTransactionsByNullifiersResponse {
                     context: convert_context(response.context),
                     transactions: response
                         .transactions
                         .into_iter()
                         .enumerate()
-                        .map(|(index, item)| convert_shielded_transaction(index, item))
+                        .map(|(index, item)| {
+                            convert_shielded_transaction(&format!("transactions[{index}]"), item)
+                        })
                         .collect::<Result<Vec<_>, _>>()?,
                     next_cursor: response.next_cursor.map(Into::into),
                 })
@@ -338,6 +413,10 @@ impl Rpc for ZolanaIndexer {
 
 #[async_trait]
 impl AsyncRpc for AsyncZolanaIndexer {
+    fn should_retry(&self, error: &ClientError) -> bool {
+        matches!(error, ClientError::IndexerUnavailable(_))
+    }
+
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
@@ -395,13 +474,63 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .await
                     .map_err(indexer_error)?;
 
-                Ok(GetShieldedTransactionsByTagsResponse {
+                convert_shielded_transactions_response(response)
+            },
+        )
+        .await
+    }
+
+    async fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        wait_for_indexer_async(
+            config,
+            |response: &GetShieldedTransactionsBySignatureResponse| response.context.block_time,
+            || async {
+                let response = self
+                    .api
+                    .get_shielded_transactions_by_signature(SerializableSignature(signature))
+                    .await
+                    .map_err(indexer_error)?;
+
+                convert_shielded_transactions_by_signature_response(response)
+            },
+        )
+        .await
+    }
+
+    async fn get_shielded_transactions_by_nullifiers(
+        &self,
+        nullifiers: Vec<[u8; 32]>,
+        cursor: Option<Vec<u8>>,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+        wait_for_indexer_async(
+            config,
+            |response: &GetShieldedTransactionsByNullifiersResponse| response.context.block_time,
+            || async {
+                let response = self
+                    .api
+                    .get_shielded_transactions_by_nullifiers(
+                        nullifiers.iter().copied().map(encode_hash).collect(),
+                        encode_cursor(cursor.clone()),
+                        limit.map(u64::from),
+                    )
+                    .await
+                    .map_err(indexer_error)?;
+
+                Ok(GetShieldedTransactionsByNullifiersResponse {
                     context: convert_context(response.context),
                     transactions: response
                         .transactions
                         .into_iter()
                         .enumerate()
-                        .map(|(index, item)| convert_shielded_transaction(index, item))
+                        .map(|(index, item)| {
+                            convert_shielded_transaction(&format!("transactions[{index}]"), item)
+                        })
                         .collect::<Result<Vec<_>, _>>()?,
                     next_cursor: response.next_cursor.map(Into::into),
                 })
@@ -475,8 +604,33 @@ impl AsyncRpc for AsyncZolanaIndexer {
     }
 }
 
+/// Split indexer failures into the ones worth polling through and the ones that
+/// will never succeed. Photon reports both a transient database failure and a
+/// permanent internal bug as `-32603` with the body scrubbed, so `-32603` is
+/// retried and the caller is handed the last one it saw rather than a bare
+/// timeout.
 fn indexer_error(error: zolana_api::ApiError) -> ClientError {
-    ClientError::Indexer(error.to_string())
+    let message = error.to_string();
+    match error {
+        zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
+            ClientError::IndexerUnavailable(message)
+        }
+        zolana_api::ApiError::Response { status, .. }
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() =>
+        {
+            ClientError::IndexerUnavailable(message)
+        }
+        zolana_api::ApiError::JsonRpc {
+            method,
+            code: Some(JSON_RPC_METHOD_NOT_FOUND),
+            ..
+        } => ClientError::UnsupportedRpcMethod(method),
+        zolana_api::ApiError::JsonRpc {
+            code: Some(JSON_RPC_INTERNAL_ERROR),
+            ..
+        } => ClientError::IndexerUnavailable(message),
+        _ => ClientError::Indexer(message),
+    }
 }
 
 fn convert_context(context: zolana_api::Context) -> Context {
@@ -501,18 +655,54 @@ fn convert_encrypted_utxo_match(
     })
 }
 
+fn convert_shielded_transactions_response(
+    response: zolana_api::GetShieldedTransactionsByTagsResponse,
+) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+    Ok(GetShieldedTransactionsByTagsResponse {
+        context: convert_context(response.context),
+        transactions: response
+            .transactions
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| {
+                convert_shielded_transaction(&format!("transactions[{index}]"), item)
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        next_cursor: response.next_cursor.map(Into::into),
+    })
+}
+
+fn convert_shielded_transactions_by_signature_response(
+    response: zolana_api::GetShieldedTransactionsBySignatureResponse,
+) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+    Ok(GetShieldedTransactionsBySignatureResponse {
+        context: convert_context(response.context),
+        transactions: response
+            .transactions
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| {
+                Ok(IndexedShieldedTransaction {
+                    event_index: item.event_index,
+                    transaction: convert_shielded_transaction(
+                        &format!("transactions[{index}].transaction"),
+                        item.transaction,
+                    )?,
+                })
+            })
+            .collect::<Result<Vec<_>, ClientError>>()?,
+    })
+}
+
 fn convert_shielded_transaction(
-    index: usize,
+    path: &str,
     item: zolana_api::ShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
     Ok(ShieldedTransaction {
         slot: item.slot,
         tx_signature: item.tx_signature.0,
-        tx_viewing_pk: decode_optional_p256(
-            item.tx_viewing_pk,
-            &format!("transactions[{index}].tx_viewing_pk"),
-        )?,
-        salt: decode_optional_salt(item.salt, &format!("transactions[{index}].salt"))?,
+        tx_viewing_pk: decode_optional_p256(item.tx_viewing_pk, &format!("{path}.tx_viewing_pk"))?,
+        salt: decode_optional_salt(item.salt, &format!("{path}.salt"))?,
         output_slots: item
             .output_slots
             .into_iter()
@@ -803,6 +993,92 @@ mod tests {
     }
 
     #[test]
+    fn get_shielded_transactions_by_signature_preserves_event_index() {
+        let signature = signature(24);
+        let response = rpc_result(json!({
+            "context": { "block_time": 52 },
+            "transactions": [{
+                "event_index": 3,
+                "transaction": {
+                    "slot": 50,
+                    "tx_signature": signature.to_string(),
+                    "tx_viewing_pk": null,
+                    "output_slots": [],
+                    "messages": [],
+                    "nullifiers": [],
+                    "proofless": false,
+                },
+            }],
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let got = indexer
+            .get_shielded_transactions_by_signature(signature, None)
+            .expect("direct shielded transaction lookup");
+        let request = server.request();
+
+        assert_eq!(request.path, "/get_shielded_transactions_by_signature");
+        assert_json_rpc_request(&request.body, "get_shielded_transactions_by_signature");
+        assert_eq!(
+            request.body["params"],
+            json!({ "tx_signature": signature.to_string() })
+        );
+        let indexed = got
+            .transactions
+            .first()
+            .expect("one indexed Rings event for the signature");
+        assert_eq!(got.transactions.len(), 1);
+        assert_eq!(indexed.event_index, 3);
+        assert_eq!(indexed.transaction.tx_signature, signature);
+    }
+
+    #[test]
+    fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
+        let nullifier_a = bytes32(24);
+        let nullifier_b = bytes32(25);
+        let response = rpc_result(json!({
+            "context": { "block_time": 52 },
+            "transactions": [],
+            "next_cursor": null,
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let got = indexer
+            .get_shielded_transactions_by_nullifiers(
+                vec![nullifier_a, nullifier_b],
+                Some(vec![1, 2]),
+                Some(3),
+                None,
+            )
+            .expect("nullifier transaction lookup");
+        let request = server.request();
+
+        assert_eq!(request.path, "/get_shielded_transactions_by_nullifiers");
+        assert_json_rpc_request(&request.body, "get_shielded_transactions_by_nullifiers");
+        assert_eq!(
+            request.body["params"],
+            json!({
+                "nullifiers": [
+                    encode_hash_string(nullifier_a),
+                    encode_hash_string(nullifier_b)
+                ],
+                "cursor": STANDARD.encode([1, 2]),
+                "limit": 3,
+            })
+        );
+        assert_eq!(
+            got,
+            GetShieldedTransactionsByNullifiersResponse {
+                context: Context { block_time: 52 },
+                transactions: vec![],
+                next_cursor: None,
+            }
+        );
+    }
+
+    #[test]
     fn get_merkle_proofs_encodes_tree_and_maps_root_metadata() {
         let tree = Address::new_from_array(bytes32(31));
         let leaf_a = bytes32(32);
@@ -943,6 +1219,42 @@ mod tests {
     }
 
     #[test]
+    fn classifies_transient_indexer_errors_for_retry() {
+        let rate_limit = indexer_error(zolana_api::ApiError::Response {
+            status: reqwest::StatusCode::TOO_MANY_REQUESTS,
+            body: "retry later".to_string(),
+        });
+        assert!(matches!(rate_limit, ClientError::IndexerUnavailable(_)));
+
+        let internal_error = indexer_error(zolana_api::ApiError::JsonRpc {
+            method: "get_shielded_transactions_by_signature",
+            code: Some(-32603),
+            message: Some("Internal error".to_string()),
+        });
+        assert!(matches!(internal_error, ClientError::IndexerUnavailable(_)));
+    }
+
+    #[test]
+    fn classifies_non_transient_indexer_errors_without_retry() {
+        let method_not_found = indexer_error(zolana_api::ApiError::JsonRpc {
+            method: "get_shielded_transactions_by_signature",
+            code: Some(-32601),
+            message: Some("Method not found".to_string()),
+        });
+        assert!(matches!(
+            method_not_found,
+            ClientError::UnsupportedRpcMethod("get_shielded_transactions_by_signature")
+        ));
+
+        let request_error = reqwest::blocking::Client::new()
+            .get("not a url")
+            .send()
+            .expect_err("relative URL should be rejected");
+        let malformed_request = indexer_error(zolana_api::ApiError::Request(request_error));
+        assert!(matches!(malformed_request, ClientError::Indexer(_)));
+    }
+
+    #[test]
     fn rejects_malformed_output_slot_hash() {
         let tag = bytes32(51);
         let response = rpc_result(json!({
@@ -977,6 +1289,37 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("wrong size"));
         assert!(message.contains("result.transactions[0].output_slots[0].output_context.hash"));
+    }
+
+    #[test]
+    fn by_signature_error_path_includes_transaction_nesting() {
+        let signature = signature(61);
+        let response = rpc_result(json!({
+            "context": { "block_time": 1 },
+            "transactions": [{
+                "event_index": 0,
+                "transaction": {
+                    "slot": 1,
+                    "tx_signature": signature.to_string(),
+                    "tx_viewing_pk": STANDARD.encode([1u8; 16]),
+                    "output_slots": [],
+                    "messages": [],
+                    "nullifiers": [],
+                    "proofless": false,
+                },
+            }],
+        }));
+        let server = MockServer::respond_once(response);
+        let indexer = ZolanaIndexer::new(server.url());
+
+        let err = indexer
+            .get_shielded_transactions_by_signature(signature, None)
+            .expect_err("short viewing key must fail");
+        let _ = server.request();
+
+        assert!(err
+            .to_string()
+            .contains("transactions[0].transaction.tx_viewing_pk"));
     }
 
     fn assert_json_rpc_request(body: &Value, method: &str) {

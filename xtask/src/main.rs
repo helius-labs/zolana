@@ -333,8 +333,11 @@ fn tx_size(args: Vec<String>) {
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
     use zolana_interface::{
-        instruction::{tag, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof},
-        SHIELDED_POOL_PROGRAM_ID,
+        instruction::{
+            tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
+            TransactProof,
+        },
+        N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
     use zolana_transaction::instructions::transact::SENDER_SLOT_COUNT;
 
@@ -401,9 +404,9 @@ fn tx_size(args: Vec<String>) {
     // length (`None` = a covered position carrying `data: None`). Since outputs
     // now fold the utxo hash, owner tag, and ciphertext into one `TransactOutput`,
     // this descriptor is all a shape needs.
-    let build_ix_data = |public_spl: Option<i64>,
+    let build_ix_data = |interface_transfers: Vec<InterfaceTransfer>,
                          n: usize,
-                         p256_signing_pk_x: Option<[u8; 32]>,
+                         proof: TransactProof,
                          outputs_spec: &[(OwnerTag, Option<usize>)]|
      -> TransactIxData {
         let inputs = (0..n)
@@ -411,11 +414,10 @@ fn tx_size(args: Vec<String>) {
                 nullifier_hash: [0u8; 32],
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
-                tree_index: 0,
                 eddsa_signer_index: 255,
             })
             .collect();
-        let outputs = outputs_spec
+        let outputs: Vec<TransactOutput> = outputs_spec
             .iter()
             .map(|(owner_tag, data_len)| TransactOutput {
                 utxo_hash: [0u8; 32],
@@ -424,14 +426,16 @@ fn tx_size(args: Vec<String>) {
             })
             .collect();
         TransactIxData {
-            proof: TransactProof::zeroed_eddsa(),
+            proof,
             expiry_unix_ts: 0,
-            relayer_fee: 0,
             private_tx_hash: [0u8; 32],
-            p256_signing_pk_x,
+            circuit: CircuitId::ConfidentialEddsa(
+                n as u8,
+                outputs.len() as u8,
+                N_PUBLIC_SLOTS as u8,
+            ),
             inputs,
-            public_sol_amount: None,
-            public_spl_amount: public_spl,
+            interface_transfers,
             data_hash: None,
             zone_data_hash: None,
             tx_viewing_pk: [0u8; 33],
@@ -444,9 +448,8 @@ fn tx_size(args: Vec<String>) {
     // Transfer layout: the sender bundle covers the leading SENDER_SLOT_COUNT
     // change positions (position 0 carries the ciphertext under the sender's tag,
     // the rest carry `None`), then R recipient positions each carry their own
-    // Inline-tagged ciphertext. The sender tag varies by ownership rail
-    // (Account(0) when the owner is the payer, P256SigningKey on the P256 rail,
-    // Inline(..) for a relayed ed25519 transfer).
+    // Inline-tagged ciphertext. The sender tag is Account(0) when the owner is
+    // the payer and Inline(..) for a relayed Ed25519 transfer.
     let transfer_layout = |m: usize,
                            sender_tag: OwnerTag,
                            sender_len: usize,
@@ -482,6 +485,31 @@ fn tx_size(args: Vec<String>) {
             .collect()
     };
 
+    let repeated_spl_withdraw_accounts = |leg_count: usize| {
+        use solana_instruction::AccountMeta;
+        use zolana_interface::SHIELDED_POOL_CPI_AUTHORITY_PUBKEY;
+
+        let mut accounts = vec![
+            AccountMeta::new(payer_pk, true),
+            AccountMeta::new(tree_pk, false),
+            AccountMeta::new(tree_pk, false),
+        ];
+        for index in 0..leg_count {
+            let recipient = Pubkey::from([20 + index as u8; 32]);
+            let user_token = Pubkey::from([40 + index as u8; 32]);
+            accounts.push(AccountMeta::new_readonly(
+                SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
+                false,
+            ));
+            accounts.push(AccountMeta::new(vault_pk, false));
+            accounts.push(AccountMeta::new(recipient, false));
+            accounts.push(AccountMeta::new(user_token, false));
+            accounts.push(AccountMeta::new_readonly(token_program_pk, false));
+        }
+        accounts.push(AccountMeta::new_readonly(spp_pk, false));
+        accounts
+    };
+
     let make_ix_bytes = |data: &TransactIxData| -> Vec<u8> {
         let mut d = vec![tag::TRANSACT];
         d.extend_from_slice(&data.serialize().unwrap());
@@ -500,26 +528,28 @@ fn tx_size(args: Vec<String>) {
         bincode::serialize(&tx).unwrap().len()
     };
 
-    // TransactIxData.proof is now a wincode enum: a 1-byte rail tag plus the
-    // compressed Groth16 points. The EdDSA (Solana) rail is vanilla Groth16 (128 B,
-    // no commitment); the P256 rail adds 32 B proof_commitment + 32 B
-    // proof_commitment_pok (192 B). The fixture above bakes the EdDSA variant.
-    const RAIL_TAG_LEN: usize = 1;
-    const EDDSA_PROOF_LEN: usize = 128;
-    // Serialized proof bytes the fixture bakes (EdDSA rail): tag + payload.
-    const FIXTURE_PROOF_SER_LEN: usize = RAIL_TAG_LEN + EDDSA_PROOF_LEN;
+    // TransactIxData.proof carries the compressed Groth16 points.
+    const TRANSACT_PROOF_LEN: usize = 128;
     // Legacy flat proof (pre-enum, always 192 B, no tag) for the baseline table.
     const LEGACY_PROOF_LEN: usize = 192;
 
     let make_tx_sizes = |outputs_spec: &[(OwnerTag, Option<usize>)],
                          n: usize,
-                         p256_signing_pk_x: Option<[u8; 32]>,
-                         proof_len: usize|
+                         proof: TransactProof,
+                         serialized_proof_len: usize|
      -> (usize, usize, usize, usize, usize) {
-        let transfer_data = build_ix_data(None, n, p256_signing_pk_x, outputs_spec);
-        let shield_data = build_ix_data(Some(1000), n, p256_signing_pk_x, outputs_spec);
+        let transfer_data = build_ix_data(Vec::new(), n, proof, outputs_spec);
+        let shield_data = build_ix_data(
+            vec![InterfaceTransfer::SplDeposit {
+                amount: 1000,
+                vault_bump: 0,
+            }],
+            n,
+            proof,
+            outputs_spec,
+        );
 
-        let adj = proof_len as isize - FIXTURE_PROOF_SER_LEN as isize;
+        let adj = serialized_proof_len as isize - TRANSACT_PROOF_LEN as isize;
         let adjust = |v: usize| (v as isize + adj) as usize;
 
         let ix_len = adjust(make_ix_bytes(&transfer_data).len());
@@ -565,7 +595,7 @@ fn tx_size(args: Vec<String>) {
         (ix_len, t_legacy, t_v0, s_legacy, s_v0)
     };
 
-    println!("Current code (AES-GCM, redundant pubkeys in ciphertexts, 192 B proof):");
+    println!("Legacy baseline (AES-GCM, redundant pubkeys in ciphertexts, 192 B proof):");
     println!(
         "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         "Circuit",
@@ -588,7 +618,8 @@ fn tx_size(args: Vec<String>) {
             current_sender_data_len(r),
             current_recipient_data_len,
         );
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, LEGACY_PROOF_LEN);
+        let (ix, tl, tv, sl, sv) =
+            make_tx_sizes(&spec, n, TransactProof::zeroed(), LEGACY_PROOF_LEN);
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -610,8 +641,7 @@ fn tx_size(args: Vec<String>) {
     }
 
     println!();
-    println!("Spec-target EdDSA (AES-256-CTR, no redundant pubkeys, enum proof: 1 B tag + 128 B):");
-    println!("  P256 rail adds 64 B (proof_commitment 32 B + proof_commitment_pok 32 B).");
+    println!("Spec-target (AES-256-CTR, no redundant pubkeys, 128 B vanilla proof):");
     println!(
         "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         "Circuit",
@@ -634,7 +664,8 @@ fn tx_size(args: Vec<String>) {
             OPT_SENDER_DATA_LEN,
             OPT_RECIPIENT_DATA_LEN,
         );
-        let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, FIXTURE_PROOF_SER_LEN);
+        let (ix, tl, tv, sl, sv) =
+            make_tx_sizes(&spec, n, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
         let fmt = |v: usize, show: bool| {
             if show {
                 v.to_string()
@@ -655,13 +686,8 @@ fn tx_size(args: Vec<String>) {
         );
     }
 
-    // Sender owner-tag sensitivity. The regrouping lets the sender tag encode as
-    // Account(0) (2 B), P256SigningKey (1 B), or Inline (33 B) per change
-    // position; the old fixed 32-byte view_tag had no such choice. Held equal:
-    // eddsa proof, no shared P256 key -- this isolates the per-position tag cost.
-    // P256SigningKey additionally needs the shared `p256_signing_pk_x` field
-    // (+33 B) and runs on the P256 rail (+64 B proof); Inline is the relayed-
-    // transfer regression case.
+    // Sender owner-tag sensitivity: Account(0) is compact when the owner is the
+    // payer; Inline is the relayed-Ed25519 case.
     println!();
     println!("Sender owner-tag sensitivity (3 in 3 out, eddsa rail, 2 change positions):");
     println!(
@@ -674,12 +700,12 @@ fn tx_size(args: Vec<String>) {
     );
     let sender_tag_kinds = [
         ("Account(0)", OwnerTag::Account(0), 2usize),
-        ("P256SigningKey", OwnerTag::P256SigningKey, 1),
         ("Inline([u8;32])", OwnerTag::Inline([0u8; 32]), 33),
     ];
     for &(label, tag, tag_bytes) in &sender_tag_kinds {
         let spec = transfer_layout(3, tag, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN);
-        let (ix, tl, tv, _sl, _sv) = make_tx_sizes(&spec, 3, None, FIXTURE_PROOF_SER_LEN);
+        let (ix, tl, tv, _sl, _sv) =
+            make_tx_sizes(&spec, 3, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
         println!(
             "| {:<16} | {:>13} | {:>11} | {:>16} | {:>13} |",
             label, tag_bytes, ix, tl, tv,
@@ -706,7 +732,7 @@ fn tx_size(args: Vec<String>) {
     );
     let (n, m) = (1usize, 8usize);
     let spec = split_layout(m, OPT_SENDER_DATA_LEN);
-    let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, None, FIXTURE_PROOF_SER_LEN);
+    let (ix, tl, tv, sl, sv) = make_tx_sizes(&spec, n, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
     println!(
         "| {:<14} | {} | {} | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         format!("{n} in {m} out"),
@@ -718,6 +744,45 @@ fn tx_size(args: Vec<String>) {
         sl,
         sv,
     );
+
+    println!();
+    println!("Public-leg sensitivity (3 in 3 out, repeated same-asset SPL withdrawals):");
+    println!(
+        "| {:>11} | {:>17} | {:>16} |",
+        "interface transfers", "EdDSA ix data (B)", "EdDSA tx (B)",
+    );
+    println!("|{:-<13}|{:-<19}|{:-<18}|", "", "", "");
+    let spec = transfer_layout(
+        3,
+        OwnerTag::Account(0),
+        OPT_SENDER_DATA_LEN,
+        OPT_RECIPIENT_DATA_LEN,
+    );
+    for leg_count in [0usize, 1, 5] {
+        let interface_transfers = (0..leg_count)
+            .map(|_| InterfaceTransfer::SplWithdrawal {
+                amount: 1,
+                vault_bump: 0,
+            })
+            .collect::<Vec<_>>();
+        let eddsa_data = build_ix_data(
+            interface_transfers.clone(),
+            3,
+            TransactProof::zeroed(),
+            &spec,
+        );
+        let eddsa_ix = Instruction {
+            program_id: spp_pk,
+            accounts: repeated_spl_withdraw_accounts(leg_count),
+            data: make_ix_bytes(&eddsa_data),
+        };
+        println!(
+            "| {:>11} | {:>17} | {:>16} |",
+            leg_count,
+            eddsa_ix.data.len(),
+            legacy_tx_len(eddsa_ix),
+        );
+    }
 }
 
 fn transfer_accounts(
@@ -728,6 +793,7 @@ fn transfer_accounts(
     use solana_instruction::AccountMeta;
     vec![
         AccountMeta::new(payer, true),
+        AccountMeta::new(tree, false),
         AccountMeta::new(tree, false),
         AccountMeta::new_readonly(spp, false),
     ]
@@ -746,6 +812,7 @@ fn shield_accounts(
     use solana_instruction::AccountMeta;
     vec![
         AccountMeta::new(payer, true),
+        AccountMeta::new(tree, false),
         AccountMeta::new(tree, false),
         AccountMeta::new(vault, false),
         AccountMeta::new(recipient, false),

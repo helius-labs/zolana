@@ -1,13 +1,6 @@
 import { getAddressDecoder, type Address } from "@solana/kit";
 
-import {
-  type Bytes31,
-  type Bytes32,
-  type Bytes64,
-  checkedBytes,
-  concatBytes,
-  copyBytes,
-} from "./bytes.js";
+import { type Bytes32, type Bytes64, checkedBytes, concatBytes, copyBytes } from "./bytes.js";
 import { ownerHash, pack33 } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
 import { poseidon } from "./poseidon.js";
@@ -131,7 +124,7 @@ export interface ShieldedKeypairLike {
   ownerHash(): Bytes32 | Promise<Bytes32>;
   compressedAddress(): CompressedShieldedAddress | Promise<CompressedShieldedAddress>;
   sign(message: Uint8Array): Bytes64 | Promise<Bytes64>;
-  nullifier(utxoHash: Bytes32, blinding: Bytes31): Bytes32 | Promise<Bytes32>;
+  nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 | Promise<Bytes32>;
   /** The nullifier public key, so a caller can build inputs without the secret. */
   nullifierPublicKey(): Bytes32 | Promise<Bytes32>;
 }
@@ -374,7 +367,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     });
   }
 
-  nullifier(utxoHash: Bytes32, blinding: Bytes31): Bytes32 {
+  nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {
     return this.#nullifier.nullifier(utxoHash, blinding);
   }
 

@@ -4,11 +4,11 @@ Feature: Hash primitives
     Then sha256_be of "abc" has a zero first byte and matches SHA-256
 
   Scenario: sha256 keeps the full digest for the P256 signature message
-    Then sha256 of "abc" is the full SHA-256 digest and its limbs reconstruct it
+    Then sha256 of "abc" is the full SHA-256 digest
 
   Scenario: pubkey_field of the P256 generator matches the golden vector
     Given a P256 signing key "g" from scalar 1
-    Then pubkey_field of signing key "g" is "044773b2681cec700fdb631cf2ca84410447986764b430e88ac2e83e81b4a665"
+    Then pubkey_field of signing key "g" is "0f4bf7083f874501d5a318701d2b677b3bed1dd709817e16198255bd1ce45ec3"
 
   Scenario: pubkey_field is stable across calls
     Given a P256 signing key "g" from scalar 1

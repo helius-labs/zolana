@@ -31,22 +31,25 @@ pub use prover::{
     canonical_shape,
     merge::MergeWitness,
     resolve_shape, spawn_prover,
-    transact::{assemble, into_prover, AssembledTransfer, CircuitType, ProverInputs, SpendProof},
+    transact::{
+        assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,
+        AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
+    },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness,
-    P256Owner, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicAmounts, Shape,
-    TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TransferP256ProofResult,
-    TransferP256Prover, TransferProofResult, TransferProver, TransferSpendInput,
-    ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness,
-    ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
+    CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness, Proof,
+    ProofCompressed, ProofInputUtxo, ProverClient, PublicMovements, Shape, TransferInput,
+    TransferInputs, TransferOutput, TransferProofResult, TransferProver, TransferSpendInput,
+    ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness, ZoneTransferProofResult,
     ZoneTransferProver, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse, GetShieldedTransactionsByTagsResponse,
-    MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot, ProveResult, Rpc,
-    ShieldedTransaction, ShieldedTransactionStream, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    GetMerkleProofsResponse, GetNonInclusionProofsResponse,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
+    OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
@@ -54,7 +57,7 @@ pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
         merge_zone::{MergeZone, PreparedMergeZone},
-        transact::{ConfidentialTransfer, SppProofInputs, WithdrawalTarget},
+        transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},
         types::{InputUtxoContext, SppProofInputUtxo},
         zone_authority::PreparedZoneAuthority,
     },

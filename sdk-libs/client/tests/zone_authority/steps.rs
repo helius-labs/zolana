@@ -8,8 +8,8 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicAmounts, Rpc, Shape,
-    SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
+    spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicMovements, Rpc,
+    Shape, SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
 };
 use zolana_interface::{
     instruction::{
@@ -23,8 +23,8 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::transact::{shape::Shape as TxShape, PublicAmounts as TxPublicAmounts},
-    Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    instructions::transact::shape::Shape as TxShape, Data, ExternalData, SppProofOutputUtxo, Utxo,
+    SOL_MINT,
 };
 
 use crate::{
@@ -160,11 +160,7 @@ fn boundary_prover() -> ZoneAuthorityProver {
             SppProofInputUtxo::new_dummy(),
         ],
         outputs: vec![dummy_output(), dummy_output()],
-        public_amounts: TxPublicAmounts {
-            sol: [0u8; 32],
-            spl: [0u8; 32],
-            asset: [0u8; 32],
-        },
+        public_movements: PublicMovements::default(),
         external_data: zone_external_data(2),
         payer_pubkey_hash: [0u8; 32],
         zone_program_id: Some(zone),
@@ -174,8 +170,21 @@ fn boundary_prover() -> ZoneAuthorityProver {
     let proofs = indexer
         .get_input_merkle_proofs(&commitments, None)
         .expect("merkle proofs");
-    ZoneAuthorityProver::try_from(ZoneAuthorityWitness { prepared, proofs })
-        .expect("zone-authority prover")
+    let dummy_nullifier_proofs = prepared
+        .inputs
+        .iter()
+        .filter(|input| input.is_dummy())
+        .map(|input| {
+            let nullifier = input.nullifier().expect("dummy nullifier");
+            TestIndexer::new().dummy_nullifier_proof(nullifier)
+        })
+        .collect();
+    ZoneAuthorityProver::try_from(ZoneAuthorityWitness {
+        prepared,
+        proofs,
+        dummy_nullifier_proofs,
+    })
+    .expect("zone-authority prover")
 }
 
 // ---- shared helpers -----------------------------------------------------------
@@ -209,12 +218,9 @@ fn assemble_prover(
         inputs,
         outputs,
         external_data: zone_external_data(n_out),
-        public_amounts: PublicAmounts {
-            sol: [0u8; 32],
-            spl: [0u8; 32],
-            asset: [0u8; 32],
-        },
+        public_movements: PublicMovements::default(),
         payer_pubkey_hash: [0u8; 32],
+        allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
     }
@@ -270,6 +276,7 @@ fn build_real_inputs(
             data_hash: None,
             zone_data_hash: None,
             proof: Some(proof),
+            nullifier_proof: None,
         })
         .collect()
 }
@@ -297,23 +304,31 @@ fn dummy_output() -> SppProofOutputUtxo {
     }
 }
 
-/// A padding input: zero owner, random blinding, no proof. The prover mirrors the
-/// first real input's roots onto it; the circuit skips its checks.
+/// A padding input: zero owner, random blinding, no state proof. The prover
+/// mirrors the first real input's state root onto it; the non-inclusion witness
+/// for its own nullifier comes from a fresh tree (the circuit checks
+/// non-inclusion per slot against the slot's own root).
 fn dummy_input() -> TransferSpendInput {
+    let blinding = random_blinding();
     let utxo = Utxo {
         owner: PublicKey::zeroed(),
         asset: SOL_MINT,
         amount: 0,
-        blinding: random_blinding(),
+        blinding,
         zone_program_id: None,
         data: Data::default(),
     };
+    let mut spend = SppProofInputUtxo::new_dummy();
+    spend.utxo.blinding = blinding;
+    let nullifier = spend.nullifier().expect("dummy nullifier");
+    let nullifier_proof = TestIndexer::new().dummy_nullifier_proof(nullifier);
     TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
         zone_data_hash: None,
         proof: None,
+        nullifier_proof: Some(nullifier_proof),
     }
 }
 
@@ -324,12 +339,7 @@ fn zone_external_data(n_out: usize) -> ExternalData {
     ExternalData {
         instruction_discriminator: ZONE_AUTHORITY_TRANSACT,
         expiry_unix_ts: 0,
-        relayer_fee: 0,
-        public_sol_amount: None,
-        public_spl_amount: None,
-        user_sol_account: Address::default(),
-        user_spl_token: Address::default(),
-        spl_token_interface: Address::default(),
+        interface_transfers: Vec::new(),
         data_hash: None,
         zone_data_hash: None,
         tx_viewing_pk: [0u8; 33],
@@ -354,7 +364,7 @@ fn zone_program() -> Address {
 
 fn eddsa_keypair() -> ShieldedKeypair {
     let mut seed = [0u8; 32];
-    seed[1..].copy_from_slice(&random_blinding());
+    seed.copy_from_slice(&random_blinding());
     ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa keypair")
 }
 

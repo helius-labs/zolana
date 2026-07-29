@@ -178,11 +178,7 @@ async function submitPrivate(
       committed = true;
     }
     if (input.waitForIndexer !== false) {
-      await input.client.confirmPrivateTransaction(
-        submitted.signature,
-        submitted.outputTags,
-        context,
-      );
+      await input.client.confirmPrivateTransaction(submitted.signature, context);
     }
     return submitted;
   } catch (cause) {

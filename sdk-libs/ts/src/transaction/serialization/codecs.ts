@@ -1,4 +1,4 @@
-import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "../../interface/types.js";
+import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { ViewingKeyLike } from "../../keypair/shielded.js";
@@ -6,15 +6,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
-import {
-  checked,
-  concat,
-  copy,
-  decodeAddress,
-  encodeAddress,
-  equal,
-  hashField,
-} from "../internal.js";
+import { checked, concat, copy, decodeAddress, encodeAddress, equal } from "../internal.js";
 import { SOL_MINT, type AssetRegistry } from "../wallet/asset.js";
 import { Utxo, deriveBlinding, resolveZoneProgramId } from "../utxo.js";
 
@@ -79,7 +71,7 @@ export function outputDataEncoding(scheme: EncryptedScheme): OutputDataEncoding 
 export interface ConfidentialOutputPlaintext {
   readonly assetId: bigint;
   readonly amount: bigint;
-  readonly blinding: Bytes31;
+  readonly blinding: Bytes32;
   readonly zoneProgramId?: Address;
   readonly data: Data;
 }
@@ -89,7 +81,7 @@ export interface AnonymousRecipientPlaintext {
   readonly senderPublicKey: P256PublicKey;
   readonly assetId: bigint;
   readonly amount: bigint;
-  readonly blinding: Bytes31;
+  readonly blinding: Bytes32;
   readonly data: Data;
 }
 
@@ -98,7 +90,7 @@ export interface AnonymousSenderPlaintext {
   readonly splAssetId: bigint;
   readonly splAmount: bigint;
   readonly solAmount: bigint;
-  readonly blindingSeed: Bytes31;
+  readonly blindingSeed: Bytes32;
   readonly recipientViewingPublicKeys: readonly P256PublicKey[];
   readonly splData: Data;
   readonly solData: Data;
@@ -109,7 +101,7 @@ export interface SplitBundlePlaintext {
   readonly numOutputs: number;
   readonly assetId: bigint;
   readonly assetAmount: bigint;
-  readonly blindingSeed: Bytes31;
+  readonly blindingSeed: Bytes32;
   readonly data: Data;
 }
 
@@ -118,12 +110,6 @@ export interface SplitEncryptedUtxos {
   readonly txViewingPublicKey: P256PublicKey;
   readonly salt: Bytes16;
   readonly ciphertext: Uint8Array;
-}
-
-export interface MergePlaintext {
-  readonly amount: bigint;
-  readonly assetField: Bytes32;
-  readonly blinding: Bytes31;
 }
 
 export interface TransferPlaintextSplChange {
@@ -148,14 +134,14 @@ export interface TransferPlaintextRecipient {
 
 export interface TransferPlaintextUtxos {
   readonly typePrefix: number;
-  readonly blindingSeed: Bytes31;
+  readonly blindingSeed: Bytes32;
   readonly sender?: TransferPlaintextSender;
   readonly recipientSlots: readonly TransferPlaintextRecipient[];
 }
 
 export interface ProoflessOutput {
   readonly owner: Bytes32;
-  readonly blinding: Bytes31;
+  readonly blinding: Bytes32;
   readonly asset: Address;
   readonly amount: bigint;
   readonly dataHash?: Bytes32;
@@ -347,7 +333,7 @@ export function encodeConfidential(value: ConfidentialOutputPlaintext): Uint8Arr
   const writer = new Writer();
   writer.u64(value.assetId);
   writer.u64(value.amount);
-  writer.bytes(checked<Bytes31>(value.blinding, 31, "blinding"));
+  writer.bytes(checked<Bytes32>(value.blinding, 32, "blinding"));
   writer.option(value.zoneProgramId, (address) => {
     writer.bytes(decodeAddress(address));
   });
@@ -359,7 +345,7 @@ export function decodeConfidential(bytes: Uint8Array): ConfidentialOutputPlainte
   const reader = new Reader(bytes);
   const assetId = reader.u64();
   const amount = reader.u64();
-  const blinding = reader.take(31) as Bytes31;
+  const blinding = reader.take(32) as Bytes32;
   const zoneProgramId = reader.option(() => encodeAddress(reader.take(32)));
   const result: ConfidentialOutputPlaintext = {
     assetId,
@@ -413,7 +399,7 @@ export function encodeAnonymousRecipient(value: AnonymousRecipientPlaintext): Ui
   writer.bytes(value.senderPublicKey.toBytes());
   writer.u64(value.assetId);
   writer.u64(value.amount);
-  writer.bytes(checked<Bytes31>(value.blinding, 31, "blinding"));
+  writer.bytes(checked<Bytes32>(value.blinding, 32, "blinding"));
   writeData(writer, value.data);
   return writer.finish();
 }
@@ -425,7 +411,7 @@ export function decodeAnonymousRecipient(bytes: Uint8Array): AnonymousRecipientP
     senderPublicKey: P256PublicKey.fromBytes(reader.take(33) as Bytes33),
     assetId: reader.u64(),
     amount: reader.u64(),
-    blinding: reader.take(31) as Bytes31,
+    blinding: reader.take(32) as Bytes32,
     data: readData(reader),
   };
   reader.exact();
@@ -461,7 +447,7 @@ export function encodeAnonymousSender(value: AnonymousSenderPlaintext): Uint8Arr
   writer.u64(value.splAssetId);
   writer.u64(value.splAmount);
   writer.u64(value.solAmount);
-  writer.bytes(checked<Bytes31>(value.blindingSeed, 31, "blinding seed"));
+  writer.bytes(checked<Bytes32>(value.blindingSeed, 32, "blinding seed"));
   writer.u8(value.recipientViewingPublicKeys.length);
   value.recipientViewingPublicKeys.forEach((key) => {
     writer.bytes(key.toBytes());
@@ -477,7 +463,7 @@ export function decodeAnonymousSender(bytes: Uint8Array): AnonymousSenderPlainte
   const splAssetId = reader.u64();
   const splAmount = reader.u64();
   const solAmount = reader.u64();
-  const blindingSeed = reader.take(31) as Bytes31;
+  const blindingSeed = reader.take(32) as Bytes32;
   const recipientViewingPublicKeys = Array.from({ length: reader.u8() }, () =>
     P256PublicKey.fromBytes(reader.take(33) as Bytes33),
   );
@@ -543,7 +529,7 @@ export function encodePlaintextTransfer(value: TransferPlaintextUtxos): Uint8Arr
   }
   const writer = new Writer();
   writer.u8(value.typePrefix);
-  writer.bytes(checked<Bytes31>(value.blindingSeed, 31, "blinding seed"));
+  writer.bytes(checked<Bytes32>(value.blindingSeed, 32, "blinding seed"));
   writer.option(value.sender, (sender) => {
     writer.bytes(sender.ownerPublicKey.toBytes());
     writer.option(sender.spl, (spl) => {
@@ -575,7 +561,7 @@ export function decodePlaintextTransfer(
   if (typePrefix !== expectedTypePrefix) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { typePrefix });
   }
-  const blindingSeed = reader.take(31) as Bytes31;
+  const blindingSeed = reader.take(32) as Bytes32;
   const sender = reader.option<TransferPlaintextSender>(() => {
     const ownerPublicKey = ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34);
     const spl = reader.option<TransferPlaintextSplChange>(() => ({
@@ -681,7 +667,7 @@ export function encodeSplitBundle(value: SplitBundlePlaintext): Uint8Array {
   writer.u8(value.numOutputs);
   writer.u64(value.assetId);
   writer.u64(value.assetAmount);
-  writer.bytes(checked<Bytes31>(value.blindingSeed, 31, "blinding seed"));
+  writer.bytes(checked<Bytes32>(value.blindingSeed, 32, "blinding seed"));
   writeData(writer, value.data);
   return writer.finish();
 }
@@ -693,7 +679,7 @@ export function decodeSplitBundle(bytes: Uint8Array): SplitBundlePlaintext {
     numOutputs: reader.u8(),
     assetId: reader.u64(),
     assetAmount: reader.u64(),
-    blindingSeed: reader.take(31) as Bytes31,
+    blindingSeed: reader.take(32) as Bytes32,
     data: readData(reader),
   };
   reader.exact();
@@ -855,7 +841,7 @@ function outputDataEncodingFromTag(tag: number): OutputDataEncoding {
 export function encodeProofless(value: ProoflessOutput): Uint8Array {
   const writer = new Writer();
   writer.bytes(checked<Bytes32>(value.owner, 32, "owner hash"));
-  writer.bytes(checked<Bytes31>(value.blinding, 31, "blinding"));
+  writer.bytes(checked<Bytes32>(value.blinding, 32, "blinding"));
   writer.bytes(decodeAddress(value.asset));
   writer.u64(value.amount);
   const optionalBytes = (bytes: Uint8Array | undefined): void => {
@@ -882,7 +868,7 @@ export function encodeProofless(value: ProoflessOutput): Uint8Array {
 export function decodeProofless(bytes: Uint8Array): ProoflessOutput {
   const reader = new Reader(bytes);
   const owner = reader.take(32) as Bytes32;
-  const blinding = reader.take(31) as Bytes31;
+  const blinding = reader.take(32) as Bytes32;
   const asset = encodeAddress(reader.take(32));
   const amount = reader.u64();
   const dataHash = reader.option(() => reader.take(32) as Bytes32);
@@ -1032,89 +1018,6 @@ export function decryptConfidentialAsSender(
   );
 }
 
-export function encodeMerge(value: MergePlaintext): Uint8Array {
-  if (
-    typeof value.amount !== "bigint" ||
-    value.amount < 0n ||
-    value.amount > 0xffff_ffff_ffff_ffffn
-  ) {
-    throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
-      value: String(value.amount),
-    });
-  }
-  const amount = new Uint8Array(8);
-  new DataView(amount.buffer).setBigUint64(0, value.amount, false);
-  return concat(
-    amount,
-    checked<Bytes32>(value.assetField, 32, "asset field"),
-    checked<Bytes31>(value.blinding, 31, "blinding"),
-  );
-}
-
-export function decodeMerge(bytes: Uint8Array): MergePlaintext {
-  if (bytes.length !== 71) {
-    throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
-      expected: 71,
-      actual: bytes.length,
-    });
-  }
-  return {
-    amount: new DataView(bytes.buffer, bytes.byteOffset, 8).getBigUint64(0, false),
-    assetField: copy(bytes.slice(8, 40)) as Bytes32,
-    blinding: copy(bytes.slice(40)) as Bytes31,
-  };
-}
-
-export function mergePlaintextFromUtxo(utxo: Utxo, owner: ShieldedPublicKey): MergePlaintext {
-  requireOwner(utxo, owner);
-  if (!utxo.data.isEmpty()) {
-    throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index: 0 });
-  }
-  return {
-    amount: utxo.amount,
-    assetField: hashField(decodeAddress(utxo.asset)),
-    blinding: copy(utxo.blinding),
-  };
-}
-
-export function mergeUtxo(
-  value: MergePlaintext,
-  owner: ShieldedPublicKey,
-  assets: AssetRegistry,
-  zoneProgramId?: Address,
-): Utxo {
-  const asset = assets.addressForField(checked<Bytes32>(value.assetField, 32, "asset field"));
-  if (asset === undefined) {
-    throw new TransactionError("TRANSACTION_UNKNOWN_ASSET_FIELD", {
-      assetField: [...value.assetField],
-    });
-  }
-  return new Utxo({
-    owner,
-    asset,
-    amount: value.amount,
-    blinding: value.blinding,
-    ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
-  });
-}
-
-export function encryptMerge(
-  txViewingKey: ViewingKeyLike,
-  userViewingPublicKey: P256PublicKey,
-  value: MergePlaintext,
-): Uint8Array {
-  const plaintext = encodeMerge(value);
-  const encrypted = inTransactionCategory(() =>
-    txViewingKey.encryptVerifiable(userViewingPublicKey, plaintext),
-  );
-  return concat(encrypted.txViewingPublicKey.toBytes(), encrypted.ciphertext);
-}
-
-export function decryptMerge(userViewingKey: ViewingKeyLike, body: Uint8Array): MergePlaintext {
-  const { key, rest } = inTransactionCategory(() => splitEmbeddedKey(body));
-  return decodeMerge(inTransactionCategory(() => userViewingKey.decryptVerifiable(key, rest)));
-}
-
 function requireOwner(utxo: Utxo, owner: ShieldedPublicKey): void {
   if (!equal(utxo.owner.toBytes(), owner.toBytes())) {
     throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index: 0 });
@@ -1198,7 +1101,7 @@ function validateZone(utxo: Utxo, zoneProgramId: Address | undefined, index: num
 }
 
 /** The blinding position a UTXO sits at, or `undefined` if the seed derives none. */
-function blindingPosition(seed: Bytes31, blinding: Bytes31): number | undefined {
+function blindingPosition(seed: Bytes32, blinding: Bytes32): number | undefined {
   for (let position = 0; position <= 0xff; position++) {
     if (equal(deriveBlinding(seed, position), blinding)) return position;
   }
@@ -1208,9 +1111,9 @@ function blindingPosition(seed: Bytes31, blinding: Bytes31): number | undefined 
 export function plaintextTransferFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
-  cx: Readonly<{ blindingSeed: Bytes31 }>,
+  cx: Readonly<{ blindingSeed: Bytes32 }>,
 ): TransferPlaintextUtxos {
-  const blindingSeed = checked<Bytes31>(cx.blindingSeed, 31, "blinding seed");
+  const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
   let senderOwner: ShieldedPublicKey | undefined;
   let spl: TransferPlaintextSplChange | undefined;
   let solAmount: bigint | undefined;
@@ -1302,12 +1205,12 @@ export function anonymousSenderFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
   cx: Readonly<{
-    blindingSeed: Bytes31;
+    blindingSeed: Bytes32;
     recipientViewingPublicKeys: readonly P256PublicKey[];
   }>,
 ): AnonymousSenderPlaintext {
   if (utxos.length === 0) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
-  const blindingSeed = checked<Bytes31>(cx.blindingSeed, 31, "blinding seed");
+  const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
   let splAssetId = 0n;
   let splAmount = 0n;
   let solAmount = 0n;
@@ -1350,12 +1253,12 @@ export function anonymousSenderFromUtxos(
 export function splitBundleFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
-  cx: Readonly<{ blindingSeed: Bytes31 }>,
+  cx: Readonly<{ blindingSeed: Bytes32 }>,
 ): SplitBundlePlaintext {
   const first = utxos[0];
   if (first === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
   if (utxos.length > 0xff) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
-  const blindingSeed = checked<Bytes31>(cx.blindingSeed, 31, "blinding seed");
+  const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
   for (const [index, utxo] of utxos.entries()) {
     validateOwner(utxo, owner.owner, index);
     validateZone(utxo, owner.zoneProgramId, index);

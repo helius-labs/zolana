@@ -2,7 +2,7 @@ import { address, type Address, type Signature, type TransactionSendingSigner } 
 import { describe, expect, it, vi } from "vitest";
 
 import type { TransactionSignOnlySigner, ZolanaClient } from "../src/client/index.js";
-import { type Bytes31, type Bytes32 } from "../src/interface/index.js";
+import { type Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { Data, LocalWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/wallet/asset.js";
@@ -27,11 +27,15 @@ function filled(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
-function signer(): TransactionSignOnlySigner {
+function signer(signerAddress: Address = PAYER): TransactionSignOnlySigner {
   return {
-    address: PAYER,
+    address: signerAddress,
     signTransactions: vi.fn(),
   } as unknown as TransactionSignOnlySigner;
+}
+
+function spendingKeypair(): ShieldedKeypair {
+  return ShieldedKeypair.fromEd25519(filled(42), 0);
 }
 
 function fundedWallet(
@@ -50,7 +54,7 @@ function fundedWallet(
         owner: keypair.signingPublicKey(),
         asset,
         amount,
-        blinding: new Uint8Array(31).fill(index + 1) as Bytes31,
+        blinding: new Uint8Array(32).fill(index + 1) as Bytes32,
         data: new Data(),
         ...(options.zoneProgramId === undefined ? {} : { zoneProgramId: options.zoneProgramId }),
       }),
@@ -226,7 +230,8 @@ describe("private transaction construction", () => {
 
 describe("build, sign, send action wrappers", () => {
   it("submits and indexes a withdrawal exactly once", async () => {
-    const keypair = ShieldedKeypair.generate();
+    const keypair = spendingKeypair();
+    const payer = keypair.shieldedAddress().solanaAddress();
     const wallet = fundedWallet(keypair, [100n]);
     const outputTag = filled(91);
     const submitPrivateTransaction = vi.fn(async () => ({
@@ -243,20 +248,21 @@ describe("build, sign, send action wrappers", () => {
     const result = await withdraw({
       client,
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: PAYER, keypair }),
-      feePayer: signer(),
+      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      feePayer: signer(payer),
       recipient: RECIPIENT,
       amount: 25n,
     });
 
     expect(result.signature).toBe(SIGNATURE);
     expect(submitPrivateTransaction).toHaveBeenCalledOnce();
-    expect(confirmPrivateTransaction).toHaveBeenCalledWith(SIGNATURE, [outputTag], undefined);
+    expect(confirmPrivateTransaction).toHaveBeenCalledWith(SIGNATURE, undefined);
     expect(wallet.utxos()[0]?.spent).toBe(true);
   });
 
   it("creates a missing SPL recipient ATA in the withdrawal transaction", async () => {
-    const keypair = ShieldedKeypair.generate();
+    const keypair = spendingKeypair();
+    const payer = keypair.shieldedAddress().solanaAddress();
     const wallet = fundedWallet(keypair, [100n], { asset: SPL_MINT });
     const submitPrivateTransaction = vi.fn(async (request: SubmitPrivateRequest) => {
       request.onReadyToSubmit?.();
@@ -271,8 +277,8 @@ describe("build, sign, send action wrappers", () => {
     await withdraw({
       client,
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: PAYER, keypair }),
-      feePayer: signer(),
+      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      feePayer: signer(payer),
       recipient: RECIPIENT,
       asset: SPL_MINT,
       amount: 25n,
@@ -283,7 +289,8 @@ describe("build, sign, send action wrappers", () => {
   });
 
   it("reserves inputs before asynchronous proof submission", async () => {
-    const keypair = ShieldedKeypair.generate();
+    const keypair = spendingKeypair();
+    const payer = keypair.shieldedAddress().solanaAddress();
     const wallet = fundedWallet(keypair, [100n]);
     let entered!: () => void;
     let release!: () => void;
@@ -300,14 +307,14 @@ describe("build, sign, send action wrappers", () => {
       return { signature: SIGNATURE, outputTags: [filled(95)] };
     });
     const client = { tree: TREE, submitPrivateTransaction } as unknown as ZolanaClient;
-    const authority = new LocalWalletAuthority({ solanaPublicKey: PAYER, keypair });
+    const authority = new LocalWalletAuthority({ solanaPublicKey: payer, keypair });
     const recipient = ShieldedKeypair.generate().shieldedAddress();
 
     const first = transfer({
       client,
       wallet,
       authority,
-      feePayer: signer(),
+      feePayer: signer(payer),
       recipient,
       amount: 25n,
       waitForIndexer: false,
@@ -319,7 +326,7 @@ describe("build, sign, send action wrappers", () => {
         client,
         wallet,
         authority,
-        feePayer: signer(),
+        feePayer: signer(payer),
         recipient,
         amount: 25n,
         waitForIndexer: false,
@@ -388,7 +395,8 @@ describe("build, sign, send action wrappers", () => {
   });
 
   it("applies split defaults before one submit and confirmation", async () => {
-    const keypair = ShieldedKeypair.generate();
+    const keypair = spendingKeypair();
+    const payer = keypair.shieldedAddress().solanaAddress();
     const outputTag = filled(93);
     const submitPrivateTransaction = vi.fn(async () => ({
       signature: SIGNATURE,
@@ -404,12 +412,12 @@ describe("build, sign, send action wrappers", () => {
     const result = await split({
       client,
       wallet: fundedWallet(keypair, [100n]),
-      authority: new LocalWalletAuthority({ solanaPublicKey: PAYER, keypair }),
-      feePayer: signer(),
+      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      feePayer: signer(payer),
     });
 
     expect(result).toMatchObject({ signature: SIGNATURE, numOutputs: 2, perOutputAmount: 50n });
     expect(submitPrivateTransaction).toHaveBeenCalledOnce();
-    expect(confirmPrivateTransaction).toHaveBeenCalledWith(SIGNATURE, [outputTag], undefined);
+    expect(confirmPrivateTransaction).toHaveBeenCalledWith(SIGNATURE, undefined);
   });
 });

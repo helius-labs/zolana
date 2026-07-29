@@ -1,6 +1,8 @@
 import { address } from "@solana/kit";
 
 import type { Address, Bytes31, Bytes32 } from "../interface/types.js";
+import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
+import { randomBlinding } from "../keypair/bytes.js";
 import { NullifierKey } from "../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
@@ -16,12 +18,11 @@ import {
   decodeAddress,
   hashField,
   poseidon,
-  random31,
   rightAlign,
   sha256Bytes,
 } from "./internal.js";
 
-export type Blinding = Bytes31;
+export type Blinding = Bytes32;
 
 export interface UtxoInit {
   readonly owner: ShieldedPublicKey;
@@ -50,21 +51,24 @@ export function resolveZoneProgramId(
   return zoneProgramId;
 }
 
-export function deriveBlinding(seed: Bytes31, position: number): Blinding {
-  const checkedSeed = checked<Bytes31>(seed, 31, "blinding seed");
+export function deriveBlinding(seed: Bytes32, position: number): Blinding {
+  const checkedSeed = checked<Bytes32>(seed, 32, "blinding seed");
   if (!Number.isInteger(position) || position < 0 || position > 0xff) {
     throw new TransactionError("TRANSACTION_INVALID_POSITION", { position });
   }
-  const digest = sha256Bytes(Uint8Array.from([...checkedSeed, position]));
-  return copy(digest.subarray(1)) as Blinding;
+  const digest = sha256Bytes(Uint8Array.from([...checkedSeed.subarray(1), position]));
+  const blinding = new Uint8Array(32);
+  blinding.set(digest.subarray(1), 1);
+  return blinding as Blinding;
 }
 
 function commitmentFields(
   input: Readonly<{
+    domain?: number;
     owner: Bytes32;
     asset: Address;
     amount: bigint;
-    blinding: Bytes31;
+    blinding: Bytes32;
     dataHash?: Bytes32;
     zoneDataHash?: Bytes32;
     zoneProgramId?: Address;
@@ -83,10 +87,10 @@ function commitmentFields(
   const zoneHash = commitmentPoseidon([zoneDataHash, zoneProgramId]);
   const ownerCommitment = commitmentPoseidon([
     checked<Bytes32>(input.owner, 32, "owner hash"),
-    rightAlign(checked<Bytes31>(input.blinding, 31, "blinding")),
+    checked<Bytes32>(input.blinding, 32, "blinding"),
   ]);
   return [
-    rightAlign(Uint8Array.of(1)),
+    rightAlign(Uint8Array.of(input.domain ?? UTXO_DOMAIN)),
     hashField(decodeAddress(input.asset)),
     rightAlign(bigintToU64(input.amount)),
     input.dataHash ? checked<Bytes32>(input.dataHash, 32, "data hash") : ZERO_32,
@@ -119,22 +123,33 @@ function fullOwnerUtxoHash(
     owner: Bytes32;
     asset: Address;
     amount: bigint;
-    blinding: Bytes31;
+    blinding: Bytes32;
     dataHash?: Bytes32;
     zoneDataHash?: Bytes32;
     zoneProgramId?: Address;
   }>,
+  dummy = false,
 ): Bytes32 {
+  if (dummy) {
+    return commitmentPoseidon([
+      rightAlign(Uint8Array.of(DUMMY_DOMAIN)),
+      ZERO_32,
+      ZERO_32,
+      ZERO_32,
+      commitmentPoseidon([ZERO_32, ZERO_32]),
+      commitmentPoseidon([ZERO_32, checked<Bytes32>(input.blinding, 32, "blinding")]),
+    ]);
+  }
   return commitmentPoseidon(commitmentFields(input));
 }
 
-export function ownerUtxoHash(ownerHash: Bytes32, blinding: Bytes31): Bytes32;
+export function ownerUtxoHash(ownerHash: Bytes32, blinding: Bytes32): Bytes32;
 export function ownerUtxoHash(
   input: Readonly<{
     owner: Bytes32;
     asset: Address;
     amount: bigint;
-    blinding: Bytes31;
+    blinding: Bytes32;
     dataHash?: Bytes32;
     zoneDataHash?: Bytes32;
     zoneProgramId?: Address;
@@ -147,18 +162,18 @@ export function ownerUtxoHash(
         owner: Bytes32;
         asset: Address;
         amount: bigint;
-        blinding: Bytes31;
+        blinding: Bytes32;
         dataHash?: Bytes32;
         zoneDataHash?: Bytes32;
         zoneProgramId?: Address;
       }>,
-  blinding?: Bytes31,
+  blinding?: Bytes32,
 ): Bytes32 {
   if (ownerOrInput instanceof Uint8Array) {
     if (!blinding) throw new TransactionError("TRANSACTION_INVALID_BLINDING");
     return commitmentPoseidon([
       checked<Bytes32>(ownerOrInput, 32, "owner hash"),
-      rightAlign(checked<Bytes31>(blinding, 31, "blinding")),
+      checked<Bytes32>(blinding, 32, "blinding"),
     ]);
   }
   return fullOwnerUtxoHash(ownerOrInput);
@@ -176,7 +191,7 @@ export class Utxo {
     this.owner = input.owner;
     this.asset = input.asset;
     this.amount = checkU64(input.amount, "amount");
-    this.blinding = checked<Blinding>(input.blinding, 31, "blinding");
+    this.blinding = checked<Blinding>(input.blinding, 32, "blinding");
     this.data = new Data((input.data ?? new Data()).records());
     if (input.zoneProgramId !== undefined) this.zoneProgramId = input.zoneProgramId;
   }
@@ -251,7 +266,7 @@ export class ProofInputUtxo {
     this.checkCanonicalDummy();
   }
 
-  static dummy(blinding = random31()): ProofInputUtxo {
+  static dummy(blinding = randomBlinding()): ProofInputUtxo {
     const nullifierKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
     try {
       return new ProofInputUtxo({
@@ -259,7 +274,7 @@ export class ProofInputUtxo {
           owner: ShieldedPublicKey.zeroed(),
           asset: address("11111111111111111111111111111111"),
           amount: 0n,
-          blinding: checked<Bytes31>(blinding, 31, "dummy blinding"),
+          blinding: checked<Bytes32>(blinding, 32, "dummy blinding"),
         }),
         nullifierKey,
       });
@@ -295,15 +310,20 @@ export class ProofInputUtxo {
     const owner = this.isDummy()
       ? ZERO_32
       : poseidon([this.utxo.owner.ownerPublicKeyField(), this.nullifierKey.publicKey()]);
-    return fullOwnerUtxoHash({
-      owner,
-      asset: this.utxo.asset,
-      amount: this.utxo.amount,
-      blinding: this.utxo.blinding,
-      ...(this.dataHash === undefined ? {} : { dataHash: this.dataHash }),
-      ...(this.zoneDataHash === undefined ? {} : { zoneDataHash: this.zoneDataHash }),
-      ...(this.utxo.zoneProgramId === undefined ? {} : { zoneProgramId: this.utxo.zoneProgramId }),
-    });
+    return fullOwnerUtxoHash(
+      {
+        owner,
+        asset: this.utxo.asset,
+        amount: this.utxo.amount,
+        blinding: this.utxo.blinding,
+        ...(this.dataHash === undefined ? {} : { dataHash: this.dataHash }),
+        ...(this.zoneDataHash === undefined ? {} : { zoneDataHash: this.zoneDataHash }),
+        ...(this.utxo.zoneProgramId === undefined
+          ? {}
+          : { zoneProgramId: this.utxo.zoneProgramId }),
+      },
+      this.isDummy(),
+    );
   }
 
   nullifier(): Bytes32 {
@@ -338,7 +358,7 @@ export interface ProofOutputUtxo {
   readonly ownerAddress?: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
-  readonly blinding: Bytes31;
+  readonly blinding: Bytes32;
   readonly zoneProgramId?: Address;
   readonly zoneDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
@@ -359,7 +379,7 @@ export interface ProofOutputInit {
   readonly ownerAddress?: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
-  readonly blinding?: Bytes31;
+  readonly blinding?: Bytes32;
   readonly zoneProgramId?: Address;
   readonly zoneDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
@@ -383,7 +403,7 @@ function withDataRecord(data: Data, record: DataRecord): Data {
 }
 
 export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
-  const blinding = checked<Bytes31>(input.blinding ?? random31(), 31, "output blinding");
+  const blinding = checked<Bytes32>(input.blinding ?? randomBlinding(), 32, "output blinding");
   const amount = checkU64(input.amount, "output amount");
   const data = new Data((input.data ?? new Data()).records());
   const { zoneDataHash: suppliedZoneDataHash, ...rest } = input;
@@ -404,15 +424,18 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
     data,
     ownerHash,
     hash(): Bytes32 {
-      return fullOwnerUtxoHash({
-        owner: ownerHash(),
-        asset: input.asset,
-        amount,
-        blinding,
-        ...(input.dataHash === undefined ? {} : { dataHash: input.dataHash }),
-        ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
-        ...(input.zoneProgramId === undefined ? {} : { zoneProgramId: input.zoneProgramId }),
-      });
+      return fullOwnerUtxoHash(
+        {
+          owner: ownerHash(),
+          asset: input.asset,
+          amount,
+          blinding,
+          ...(input.dataHash === undefined ? {} : { dataHash: input.dataHash }),
+          ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
+          ...(input.zoneProgramId === undefined ? {} : { zoneProgramId: input.zoneProgramId }),
+        },
+        input.ownerAddress === undefined,
+      );
     },
     isDummy(): boolean {
       return input.ownerAddress === undefined;

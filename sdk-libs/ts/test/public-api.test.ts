@@ -13,8 +13,8 @@ import {
 } from "../src/index.js";
 import type { ZolanaClient } from "../src/client/client.js";
 import { getProtocolConfigAddress, getSplAssetRegistryAddress } from "../src/addresses.js";
-import { getCreateTreeInstructionAsync, getDepositInstruction } from "../src/instructions.js";
-import { InstructionTag, type Bytes31, type Bytes32 } from "../src/interface/index.js";
+import { getCreateTreeInstructionAsync, getDepositInstructionAsync } from "../src/instructions.js";
+import { InstructionTag, type Bytes32 } from "../src/interface/index.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const SIGNATURE = "1".repeat(64) as Signature;
@@ -80,7 +80,7 @@ describe("public package surface", () => {
     const request = signAndSendInstructions.mock.calls[0]?.[0];
     expect(request?.instructions[0]).toMatchObject({
       programAddress: USER_REGISTRY_PROGRAM_ID,
-      data: Uint8Array.of(4, 1),
+      data: Uint8Array.of(1, 1),
       accounts: [
         { role: AccountRole.WRITABLE },
         { address: OWNER, role: AccountRole.READONLY_SIGNER, signer: owner },
@@ -114,19 +114,23 @@ describe("address and instruction builders", () => {
     expect(instruction.accounts?.[0]).toMatchObject({ signer: authority });
   });
 
-  it("builds a fixed-layout deposit instruction", () => {
-    const instruction = getDepositInstruction({
+  it("builds a deposit instruction", async () => {
+    const depositor = { address: OWNER } as TransactionSigner;
+    const instruction = await getDepositInstructionAsync({
       tree: DEFAULT_TREE_ADDRESS,
-      depositor: OWNER,
-      data: {
-        viewTag: new Uint8Array(32).fill(1) as Bytes32,
-        owner: new Uint8Array(32).fill(2) as Bytes32,
-        blinding: new Uint8Array(31).fill(3) as Bytes31,
-        amount: 42n,
-      },
+      depositor,
+      deposits: [
+        {
+          asset: { kind: "sol" },
+          viewTag: new Uint8Array(32).fill(1) as Bytes32,
+          owner: new Uint8Array(32).fill(2) as Bytes32,
+          blinding: new Uint8Array(32).fill(3) as Bytes32,
+          amount: 42n,
+        },
+      ],
     });
     expect(instruction.data?.[0]).toBe(InstructionTag.deposit);
-    expect(instruction.accounts).toHaveLength(6);
+    expect(instruction.accounts).toHaveLength(5);
     expect(instruction.programAddress).toBe(SHIELDED_POOL_PROGRAM_ID);
   });
 });

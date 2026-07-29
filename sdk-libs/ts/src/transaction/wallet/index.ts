@@ -5,7 +5,6 @@ export {
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
-  type P256Signature,
   type SplitBundlePlaintext,
   type SyncWalletAuthority,
   type WalletAuthority,

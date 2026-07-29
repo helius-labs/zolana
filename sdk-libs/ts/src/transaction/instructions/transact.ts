@@ -15,7 +15,7 @@ import {
   type Signature,
   type TransactOutput,
 } from "../../interface/types.js";
-import { randomSalt } from "../../keypair/bytes.js";
+import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import { P256PublicKey, type SignatureType } from "../../keypair/public-key.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 import { SigningKey } from "../../keypair/signing-key.js";
@@ -34,7 +34,6 @@ import {
   hashChain,
   hashField,
   poseidon,
-  random31,
   sha256Be,
   sha256Bytes,
 } from "../internal.js";
@@ -176,11 +175,22 @@ export interface PublicAmounts {
   readonly spl?: bigint;
 }
 
-export interface P256Signature {
-  readonly publicKey: P256PublicKey;
-  readonly r: Bytes32;
-  readonly s: Bytes32;
-}
+export type SettlementTransfer =
+  | Readonly<{
+      kind: "sol";
+      isDeposit: boolean;
+      amount: bigint;
+      userSolAccount: Address;
+    }>
+  | Readonly<{
+      kind: "spl";
+      mint: Address;
+      isDeposit: boolean;
+      amount: bigint;
+      userSplToken: Address;
+      splTokenInterface: Address;
+      vaultBump: number;
+    }>;
 
 export interface InputUtxoContext {
   readonly index: number;
@@ -191,12 +201,7 @@ export interface InputUtxoContext {
 export interface ExternalData {
   readonly instructionDiscriminator: number;
   readonly expiryUnixTs: bigint;
-  readonly relayerFee: number;
-  readonly publicSolAmount?: bigint;
-  readonly publicSplAmount?: bigint;
-  readonly userSolAccount: Address;
-  readonly userSplToken: Address;
-  readonly splTokenInterface: Address;
+  readonly interfaceTransfers: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
   readonly zoneDataHash?: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
@@ -205,27 +210,19 @@ export interface ExternalData {
   readonly resolvedOwnerTags: readonly Bytes32[];
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
   hash(): Bytes32;
-  /** Rust `ExternalData::with_public_sol`. A leg may be set once. */
-  withPublicSol(amount: bigint, userSolAccount: Address): ExternalData;
-  /** Rust `ExternalData::with_public_spl`. A leg may be set once. */
-  withPublicSpl(amount: bigint, userSplToken: Address, splTokenInterface: Address): ExternalData;
+  withInterfaceTransfer(transfer: SettlementTransfer): ExternalData;
+  withInterfaceTransfers(transfers: readonly SettlementTransfer[]): ExternalData;
 }
 
 /**
  * What a caller must supply, the counterpart of Rust `ExternalData::new`. The
- * public legs, optional hashes, the expiry, the relayer fee, and the three
- * accounts carry Rust's defaults, so a confidential transfer names only the
- * fields it actually has.
+ * interface transfers, optional hashes, and expiry carry Rust's defaults, so a
+ * confidential transfer names only the fields it actually has.
  */
 export interface ExternalDataInit {
   readonly instructionDiscriminator?: number;
   readonly expiryUnixTs?: bigint;
-  readonly relayerFee?: number;
-  readonly publicSolAmount?: bigint;
-  readonly publicSplAmount?: bigint;
-  readonly userSolAccount?: Address;
-  readonly userSplToken?: Address;
-  readonly splTokenInterface?: Address;
+  readonly interfaceTransfers?: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
   readonly zoneDataHash?: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
@@ -239,9 +236,6 @@ export interface ExternalDataInit {
 const TRANSACT_DISCRIMINATOR = 0;
 /** Rust's default expiry: `u64::MAX`, meaning no expiry. */
 const NO_EXPIRY = 0xffff_ffff_ffff_ffffn;
-/** The all-zero address Rust defaults the three accounts to. */
-const UNSET_ACCOUNT = address("11111111111111111111111111111111");
-
 function externalDataHash(data: ExternalDataFields): Bytes32 {
   if (data.outputs.length !== data.resolvedOwnerTags.length) {
     throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
@@ -271,9 +265,18 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
     }
   };
   checkedInteger(data.expiryUnixTs, 8);
-  checkedInteger(BigInt(data.relayerFee), 2);
-  checkedInteger(data.publicSolAmount ?? 0n, 8, true);
-  checkedInteger(data.publicSplAmount ?? 0n, 8, true);
+  if (data.interfaceTransfers.length > 0xff) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_INTERFACE_TRANSFERS", {
+      got: data.interfaceTransfers.length,
+      max: 0xff,
+    });
+  }
+  for (const transfer of data.interfaceTransfers) {
+    checkedInteger(transfer.amount, 8);
+    if (transfer.amount === 0n) {
+      throw new TransactionError("TRANSACTION_ZERO_INTERFACE_TRANSFER_AMOUNT");
+    }
+  }
   data.outputs.forEach((output, index) => {
     if (data.resolvedOwnerTags[index] === undefined) {
       throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
@@ -286,14 +289,24 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   return interfaceExternalDataHash({
     instructionDiscriminator: data.instructionDiscriminator,
     expiryUnixTs: data.expiryUnixTs,
-    relayerFee: data.relayerFee,
-    ...(data.publicSolAmount === undefined ? {} : { publicSolAmount: data.publicSolAmount }),
-    ...(data.publicSplAmount === undefined ? {} : { publicSplAmount: data.publicSplAmount }),
-    userSolAccount: data.userSolAccount,
-    userSplTokenAccount: data.userSplToken,
-    splTokenInterface: data.splTokenInterface,
+    interfaceTransfers: data.interfaceTransfers.map((transfer) =>
+      transfer.kind === "sol"
+        ? {
+            kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
+            amount: transfer.amount,
+            recipient: transfer.userSolAccount,
+          }
+        : {
+            kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
+            amount: transfer.amount,
+            userTokenAccount: transfer.userSplToken,
+            vault: transfer.splTokenInterface,
+          },
+    ),
     ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
     ...(data.zoneDataHash === undefined ? {} : { zoneDataHash: data.zoneDataHash }),
+    txViewingPk: data.txViewingPublicKey.toBytes(),
+    salt: data.salt,
     outputs: data.outputs.map((output, index) => ({
       utxoHash: output.utxoHash,
       ownerTag: data.resolvedOwnerTags[index] as Bytes32,
@@ -303,17 +316,19 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   });
 }
 
-type ExternalDataFields = Omit<ExternalData, "hash" | "withPublicSol" | "withPublicSpl">;
+type ExternalDataFields = Omit<
+  ExternalData,
+  "hash" | "withInterfaceTransfer" | "withInterfaceTransfers"
+>;
 
 export function createExternalData(input: ExternalDataInit): ExternalData {
   const snapshot: ExternalDataFields = {
     ...input,
     instructionDiscriminator: input.instructionDiscriminator ?? TRANSACT_DISCRIMINATOR,
     expiryUnixTs: input.expiryUnixTs ?? NO_EXPIRY,
-    relayerFee: input.relayerFee ?? 0,
-    userSolAccount: input.userSolAccount ?? UNSET_ACCOUNT,
-    userSplToken: input.userSplToken ?? UNSET_ACCOUNT,
-    splTokenInterface: input.splTokenInterface ?? UNSET_ACCOUNT,
+    interfaceTransfers: Object.freeze(
+      (input.interfaceTransfers ?? []).map((transfer) => Object.freeze({ ...transfer })),
+    ),
     salt: checked<Bytes16>(input.salt, 16, "salt"),
     // The hash closes over these arrays, so freezing them is what keeps a
     // holder of the returned value from changing the preimage under it.
@@ -357,22 +372,10 @@ function sealExternalData(fields: ExternalDataFields): ExternalData {
   return Object.freeze({
     ...fields,
     hash: (): Bytes32 => externalDataHash(fields),
-    withPublicSol: (amount: bigint, userSolAccount: Address): ExternalData => {
-      if (fields.publicSolAmount !== undefined) {
-        throw new TransactionError("TRANSACTION_PUBLIC_SOL_ALREADY_SET");
-      }
-      return set({ publicSolAmount: amount, userSolAccount });
-    },
-    withPublicSpl: (
-      amount: bigint,
-      userSplToken: Address,
-      splTokenInterface: Address,
-    ): ExternalData => {
-      if (fields.publicSplAmount !== undefined) {
-        throw new TransactionError("TRANSACTION_PUBLIC_SPL_ALREADY_SET");
-      }
-      return set({ publicSplAmount: amount, userSplToken, splTokenInterface });
-    },
+    withInterfaceTransfer: (transfer: SettlementTransfer): ExternalData =>
+      set({ interfaceTransfers: [...fields.interfaceTransfers, transfer] }),
+    withInterfaceTransfers: (transfers: readonly SettlementTransfer[]): ExternalData =>
+      set({ interfaceTransfers: [...transfers] }),
   });
 }
 
@@ -480,8 +483,6 @@ export class SppProofInputs {
   readonly inputUtxos: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly externalData: ExternalData;
-  #p256Signature?: P256Signature;
-
   constructor(
     input: Readonly<{
       payerPublicKeyHash: Bytes32;
@@ -496,6 +497,13 @@ export class SppProofInputs {
       "payer public key hash",
     );
     this.inputUtxos = Object.freeze([...input.inputUtxos]);
+    if (
+      this.inputUtxos.some(
+        (entry) => !entry.isDummy() && entry.utxo.owner.signatureType() === "p256",
+      )
+    ) {
+      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
+    }
     this.outputs = Object.freeze([...input.outputs]);
     this.externalData = input.externalData;
     this.checkShape();
@@ -503,17 +511,6 @@ export class SppProofInputs {
 
   checkShape(): Shape {
     return exactShape(this.inputUtxos.length, this.outputs.length);
-  }
-
-  publicAmounts(): PublicAmounts {
-    return Object.freeze({
-      ...(this.externalData.publicSolAmount === undefined
-        ? {}
-        : { sol: this.externalData.publicSolAmount }),
-      ...(this.externalData.publicSplAmount === undefined
-        ? {}
-        : { spl: this.externalData.publicSplAmount }),
-    });
   }
 
   inputUtxoHashes(): readonly Bytes32[] {
@@ -532,6 +529,12 @@ export class SppProofInputs {
       );
   }
 
+  dummyNullifiers(): readonly Bytes32[] {
+    return this.inputUtxos
+      .filter((input) => input.isDummy())
+      .map((input) => new Uint8Array(input.nullifier()) as Bytes32);
+  }
+
   messageHash(): Bytes32 {
     const inputHashes = this.inputUtxos.map((input) =>
       input.isDummy() ? copy(ZERO_32) : input.hash(),
@@ -547,28 +550,6 @@ export class SppProofInputs {
       }),
     );
   }
-
-  applyP256Signature(signature: P256Signature): void {
-    const real = this.inputUtxos.filter((input) => !input.isDummy());
-    const p256 = real.filter((input) => input.utxo.owner.signatureType() === "p256");
-    if (p256.length === 0) {
-      throw new TransactionError("TRANSACTION_SIGNER_NOT_P256");
-    }
-    if (
-      p256.some((input) => !equal(input.utxo.owner.confidentialViewTag(), signature.publicKey.x()))
-    ) {
-      throw new TransactionError("TRANSACTION_SIGNATURE_OWNER_MISMATCH");
-    }
-    this.#p256Signature = Object.freeze({
-      publicKey: signature.publicKey,
-      r: checked<Bytes32>(signature.r, 32, "signature r"),
-      s: checked<Bytes32>(signature.s, 32, "signature s"),
-    });
-  }
-
-  p256Signature(): P256Signature | undefined {
-    return this.#p256Signature;
-  }
 }
 
 export type WithdrawalTarget =
@@ -577,6 +558,7 @@ export type WithdrawalTarget =
       kind: "spl";
       userTokenAccount: Address;
       splTokenInterface: Address;
+      vaultBump: number;
     }>;
 
 export interface PreparedTransfer {
@@ -586,11 +568,7 @@ export interface PreparedTransfer {
   readonly firstNullifier: Bytes32;
   readonly shape: Shape;
   readonly payerPublicKeyHash: Bytes32;
-  readonly publicSolAmount?: bigint;
-  readonly publicSplAmount?: bigint;
-  readonly userSolAccount: Address;
-  readonly userSplToken: Address;
-  readonly splTokenInterface: Address;
+  readonly interfaceTransfers: readonly SettlementTransfer[];
   finalize(
     input: Readonly<{
       txViewingPublicKey: P256PublicKey;
@@ -613,13 +591,16 @@ export class ConfidentialTransfer {
   readonly #inputs: readonly ProofInputUtxo[];
   readonly #payerPublicKeyHash: Bytes32;
   readonly #recipients: Recipient[] = [];
-  readonly #blindingSeed = random31();
+  readonly #blindingSeed = randomBlinding();
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
 
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], payer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (owner.signingPublicKey.signatureType() === "ed25519" && owner.solanaAddress() !== payer) {
+    if (owner.signingPublicKey.signatureType() === "p256") {
+      throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
+    }
+    if (owner.solanaAddress() !== payer) {
       throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
         owner: owner.solanaAddress(),
         payer,
@@ -651,9 +632,7 @@ export class ConfidentialTransfer {
   }
 
   requiresP256Owner(): boolean {
-    return this.#inputs.some(
-      (input) => !input.isDummy() && input.utxo.owner.signatureType() === "p256",
-    );
+    return false;
   }
 
   // Rust `send` performs no amount check; `checkU64` stands in for its `u64`
@@ -752,6 +731,29 @@ export class ConfidentialTransfer {
     // authority for encryption are the real outputs only.
     const inputs = [...this.#inputs];
     const target = this.#withdrawal?.target;
+    const interfaceTransfers: SettlementTransfer[] =
+      this.#withdrawal === undefined || target === undefined
+        ? []
+        : target.kind === "sol"
+          ? [
+              {
+                kind: "sol",
+                isDeposit: false,
+                amount: this.#withdrawal.amount,
+                userSolAccount: target.recipient,
+              },
+            ]
+          : [
+              {
+                kind: "spl",
+                mint: this.#withdrawal.asset,
+                isDeposit: false,
+                amount: this.#withdrawal.amount,
+                userSplToken: target.userTokenAccount,
+                splTokenInterface: target.splTokenInterface,
+                vaultBump: target.vaultBump,
+              },
+            ];
     const firstInput = this.#inputs[0];
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const preparedBase = {
@@ -761,11 +763,7 @@ export class ConfidentialTransfer {
       firstNullifier: firstInput.nullifier(),
       shape,
       payerPublicKeyHash: copy(this.#payerPublicKeyHash),
-      ...(publicSol === 0n ? {} : { publicSolAmount: publicSol }),
-      ...(publicSpl === 0n ? {} : { publicSplAmount: publicSpl }),
-      userSolAccount: target?.kind === "sol" ? target.recipient : ZERO_ADDRESS,
-      userSplToken: target?.kind === "spl" ? target.userTokenAccount : ZERO_ADDRESS,
-      splTokenInterface: target?.kind === "spl" ? target.splTokenInterface : ZERO_ADDRESS,
+      interfaceTransfers: Object.freeze(interfaceTransfers),
     };
     return Object.freeze({
       ...preparedBase,
@@ -788,9 +786,6 @@ export class ConfidentialTransfer {
       salt,
       payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
     });
-    if (keypair.signingPublicKey().signatureType() === "p256") {
-      signed.applyP256Signature(keypair.signP256(signed.messageHash()));
-    }
     return signed;
   }
 }
@@ -812,12 +807,9 @@ function finalizeTransfer(
     });
   }
   const senderResolved = prepared.owner.confidentialViewTag();
-  const senderTag: OwnerTag =
-    prepared.owner.signingPublicKey.signatureType() === "p256"
-      ? { kind: "p256SigningKey" }
-      : equal(sha256Be(senderResolved), prepared.payerPublicKeyHash)
-        ? { kind: "account", index: 0 }
-        : { kind: "inline", value: senderResolved };
+  const senderTag: OwnerTag = equal(sha256Be(senderResolved), prepared.payerPublicKeyHash)
+    ? { kind: "account", index: 0 }
+    : { kind: "inline", value: senderResolved };
 
   // Each padded slot gets one throwaway-key view tag, shared between its dummy
   // output and its dummy ciphertext. The tag's rail is sampled from this
@@ -877,16 +869,7 @@ function finalizeTransfer(
   const externalData = createExternalData({
     instructionDiscriminator: 0,
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
-    relayerFee: 0,
-    ...(prepared.publicSolAmount === undefined
-      ? {}
-      : { publicSolAmount: prepared.publicSolAmount }),
-    ...(prepared.publicSplAmount === undefined
-      ? {}
-      : { publicSplAmount: prepared.publicSplAmount }),
-    userSolAccount: prepared.userSolAccount,
-    userSplToken: prepared.userSplToken,
-    splTokenInterface: prepared.splTokenInterface,
+    interfaceTransfers: prepared.interfaceTransfers,
     txViewingPublicKey: encrypted.txViewingPublicKey,
     salt: encrypted.salt,
     outputs,
@@ -987,7 +970,7 @@ function dummyCiphertextLength(salt: Bytes16): number {
     encryptConfidential(
       throwaway,
       throwaway.publicKey(),
-      { assetId: SOL_ASSET_ID, amount: 0n, blinding: random31(), data: new Data() },
+      { assetId: SOL_ASSET_ID, amount: 0n, blinding: randomBlinding(), data: new Data() },
       salt,
       0,
     ),

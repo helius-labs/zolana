@@ -60,6 +60,44 @@ describe("transport configuration", () => {
     );
   });
 
+  it("looks up every indexed event by transaction signature", async () => {
+    const injected = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        success({
+          context: { block_time: 0 },
+          transactions: [
+            {
+              event_index: 1,
+              transaction: {
+                slot: 2,
+                tx_signature: SIGNATURE,
+                tx_viewing_pk: null,
+                salt: null,
+                output_slots: [],
+                messages: [],
+                nullifiers: [],
+                proofless: false,
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    const api = new ZolanaApi({ url: "https://rpc.example.test", fetch: injected });
+
+    const response = await api.getShieldedTransactionsBySignature({
+      txSignature: SIGNATURE as never,
+    });
+
+    expect(response.transactions[0]?.eventIndex).toBe(1);
+    expect(String(injected.mock.calls[0]?.[0])).toBe(
+      "https://rpc.example.test/get_shielded_transactions_by_signature",
+    );
+    expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body))).toMatchObject({
+      params: { tx_signature: SIGNATURE },
+    });
+  });
+
   it.each([
     [{ url: "not a url" }, "url"],
     [{ url: "file:///tmp/indexer" }, "url"],

@@ -1,158 +1,211 @@
+use light_array_map::ArrayMap;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{DepositIxData, UtxoData, ZoneDepositIxData},
+    event::SplTransfer,
+    instruction::{
+        DepositAssetKind, DepositEntryRef, DepositIxDataRef, ZoneDepositIxDataRef,
+        MAX_DEPOSIT_ASSETS,
+    },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    UTXO_DOMAIN,
 };
 use zolana_tree::TreeAccount;
 
 use super::{
     account::DepositAccounts,
-    event::{emit_proofless_event, ProoflessOutputCtx},
+    event::{emit_deposit_event, proofless_output_utxo, DepositEvent, ProoflessOutputCtx},
 };
 use crate::instructions::{
-    hash::{field_from_u64, solana_pk_hash},
-    settlement::{settle_sol, settle_spl, Settlement},
+    hash::{field_from_u64, solana_pk_hash, UTXO_DOMAIN_FIELD},
+    settlement::{settle_sol, settle_spl_deposit, Settlement},
 };
 
-pub(crate) struct ZoneData {
-    pub data_hash: [u8; 32],
-    pub data: Vec<u8>,
+pub(crate) struct ZoneData<'a> {
+    pub data_hash: &'a [u8; 32],
+    pub data: &'a [u8],
 }
 
-pub(crate) struct DepositParams {
-    pub view_tag: [u8; 32],
-    pub owner: [u8; 32],
-    pub blinding: [u8; 31],
-    pub amount: u64,
-    pub utxo_data: Option<UtxoData>,
-    pub zone: Option<ZoneData>,
-    pub memo: Option<Vec<u8>>,
+struct ProcessingEntry<'a> {
+    deposit: DepositEntryRef<'a>,
+    zone: Option<ZoneData<'a>>,
 }
 
 #[profile]
 pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let data =
-        DepositIxData::deserialize(data).map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-    if accounts.len() < 3 {
-        return Err(ProgramError::NotEnoughAccountKeys);
-    }
-    let depositor = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if !depositor.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
+    let data = DepositIxDataRef::from_bytes(data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     process_deposit_internal::<false>(
         accounts,
-        DepositParams {
-            view_tag: data.view_tag,
-            owner: data.owner,
-            blinding: data.blinding,
-            amount: data.amount,
-            utxo_data: data.utxo_data,
+        &data.assets,
+        data.deposits.into_iter().map(|deposit| ProcessingEntry {
+            deposit,
             zone: None,
-            memo: data.memo,
-        },
+        }),
     )
 }
 
 pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let data = ZoneDepositIxData::deserialize(data)
+    let data = ZoneDepositIxDataRef::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-    if accounts.len() < 4 {
-        return Err(ProgramError::NotEnoughAccountKeys);
-    }
-    let depositor = accounts.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if !depositor.is_signer() {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
     process_deposit_internal::<true>(
         accounts,
-        DepositParams {
-            view_tag: data.view_tag,
-            owner: data.owner,
-            blinding: data.blinding,
-            amount: data.amount,
-            utxo_data: data.utxo_data,
+        &data.assets,
+        data.deposits.into_iter().map(|entry| ProcessingEntry {
+            deposit: entry.deposit,
             zone: Some(ZoneData {
-                data_hash: data.zone_data_hash,
-                data: data.zone_data,
+                data_hash: entry.zone_data_hash,
+                data: entry.zone_data,
             }),
-            memo: data.memo,
-        },
+        }),
     )
 }
 
-fn process_deposit_internal<const HAS_ZONE: bool>(
+fn process_deposit_internal<'a, const HAS_ZONE: bool>(
     accounts: &mut [AccountView],
-    d: DepositParams,
+    assets: &[DepositAssetKind],
+    entries: impl ExactSizeIterator<Item = ProcessingEntry<'a>>,
 ) -> ProgramResult {
-    if d.amount == 0 {
-        return Err(ShieldedPoolError::InvalidTransactShape.into());
+    let entry_count = entries.len();
+    if entry_count == 0 {
+        return Err(ShieldedPoolError::EmptyDepositBatch.into());
     }
-    let amount = d.amount;
 
     let (parsed, zone_program_id) =
-        DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts)?;
-    let needs_spl = matches!(parsed.settlement, Settlement::Spl(_));
-
-    let asset = parsed.asset;
-    let asset_field = solana_pk_hash(&asset)?;
+        DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts, assets)?;
 
     let zero = [0u8; 32];
-    let data_hash = match &d.utxo_data {
-        Some(utxo_data) => utxo_data.data_hash,
+    let zone_program_id_field = match &zone_program_id {
+        Some(program_id) => solana_pk_hash(program_id)?,
         None => zero,
     };
-    let (zone_data_hash, zone_id_field) = match (&d.zone, &zone_program_id) {
-        (Some(zone), Some(program_id)) => (zone.data_hash, solana_pk_hash(program_id)?),
-        _ => (zero, zero),
-    };
-    let zone_hash = hash_with_program_id(&zone_data_hash, &zone_id_field)?;
-    let mut blinding = [0u8; 32];
-    blinding[1..].copy_from_slice(&d.blinding);
-    let owner_utxo_hash = Poseidon::hashv(&[d.owner.as_slice(), blinding.as_slice()])
-        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
-    let utxo_hash = Poseidon::hashv(&[
-        field_from_u64(u64::from(UTXO_DOMAIN)).as_slice(),
-        asset_field.as_slice(),
-        field_from_u64(amount).as_slice(),
-        data_hash.as_slice(),
-        zone_hash.as_slice(),
-        owner_utxo_hash.as_slice(),
-    ])
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
-
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
-    let first_output_leaf_index = {
-        let mut tree =
-            TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-                .map_err(ShieldedPoolError::from)?;
-        let index = tree.utxo_tree().next_index();
-        tree.utxo_tree().append(utxo_hash);
-        index
-    };
 
-    match &parsed.settlement {
-        Settlement::Sol(sol) => settle_sol(sol, amount, true)?,
-        Settlement::Spl(spl) => settle_spl(spl, amount)?,
+    let mut asset_sums: ArrayMap<u8, u64, MAX_DEPOSIT_ASSETS> = ArrayMap::new();
+    let mut outputs = Vec::with_capacity(entry_count);
+    let mut utxo_hashes = Vec::with_capacity(entry_count);
+
+    // Load the tree before hashing so a paused tree costs no Poseidon work, and
+    // keep the one borrow until the batch append below (never load it twice).
+    let mut tree =
+        TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
+            .map_err(ShieldedPoolError::from)?;
+    let first_output_leaf_index = tree.utxo_tree().next_index();
+
+    for processing_entry in entries {
+        let ProcessingEntry { deposit, zone } = processing_entry;
+        let group = parsed
+            .groups
+            .get(usize::from(deposit.asset_index))
+            .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
+
+        let data_hash = match deposit.utxo_data {
+            Some(utxo_data) => utxo_data.data_hash,
+            None => &zero,
+        };
+        let owner_utxo_hash =
+            Poseidon::hashv(&[deposit.owner.as_slice(), deposit.blinding.as_slice()])
+                .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+        let zone_data_hash = match zone.as_ref() {
+            Some(zone) => zone.data_hash,
+            None => &zero,
+        };
+        let zone_hash = hash_with_program_id(zone_data_hash, &zone_program_id_field)?;
+        let utxo_hash = Poseidon::hashv(&[
+            UTXO_DOMAIN_FIELD.as_slice(),
+            group.asset_field.as_slice(),
+            field_from_u64(deposit.amount).as_slice(),
+            data_hash.as_slice(),
+            zone_hash.as_slice(),
+            owner_utxo_hash.as_slice(),
+        ])
+        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+        utxo_hashes.push(utxo_hash);
+
+        match asset_sums.get_mut_by_key(&deposit.asset_index) {
+            Some(total) => {
+                *total = total
+                    .checked_add(deposit.amount)
+                    .ok_or(ShieldedPoolError::DepositAmountOverflow)?;
+            }
+            None => {
+                asset_sums.insert(
+                    deposit.asset_index,
+                    deposit.amount,
+                    ShieldedPoolError::TooManyDepositAssets,
+                )?;
+            }
+        }
+
+        outputs.push(proofless_output_utxo(
+            deposit,
+            zone,
+            ProoflessOutputCtx {
+                utxo_hash,
+                asset: group.asset,
+                zone_program_id,
+            },
+        ));
     }
 
-    emit_proofless_event(
-        d,
-        ProoflessOutputCtx {
-            utxo_hash,
-            asset,
-            needs_spl,
-            amount,
-            first_output_leaf_index,
-            output_tree,
-            zone_program_id,
-        },
-    )
+    // One batch append: only the last leaf hashes up to the root, so a batch
+    // costs one root recomputation instead of one per entry.
+    tree.utxo_tree()
+        .append_batch(utxo_hashes.iter())
+        .map_err(ShieldedPoolError::from)?;
+    drop(tree);
+
+    // Every settlement group must be funded by at least one entry; unused
+    // groups would otherwise pass validation without settling.
+    if asset_sums.len() != parsed.groups.len() {
+        return Err(ShieldedPoolError::UnreferencedDepositAsset.into());
+    }
+
+    let mut spl_transfers = Vec::with_capacity(asset_sums.len());
+    for slot in 0..asset_sums.len() {
+        let (asset_index, total) = asset_sums
+            .get_by_index(slot)
+            .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
+        let group = parsed
+            .groups
+            .get(usize::from(*asset_index))
+            .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
+
+        match &group.settlement {
+            Settlement::Sol(sol) => {
+                if *total > 0 {
+                    settle_sol(sol, *total, true)?;
+                }
+                spl_transfers.push(SplTransfer {
+                    is_deposit: true,
+                    amount: *total,
+                    asset: None,
+                });
+            }
+            Settlement::SplDeposit(spl) => {
+                if *total > 0 {
+                    settle_spl_deposit(spl, *total)?;
+                }
+                spl_transfers.push(SplTransfer {
+                    is_deposit: true,
+                    amount: *total,
+                    asset: Some(group.asset),
+                });
+            }
+            Settlement::SplWithdrawal(_) => {
+                return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+            }
+        }
+    }
+
+    emit_deposit_event(DepositEvent {
+        outputs,
+        spl_transfers,
+        first_output_leaf_index,
+        output_tree,
+    })
 }
 
 fn hash_with_program_id(

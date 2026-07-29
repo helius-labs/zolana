@@ -1,5 +1,4 @@
 import { p256 } from "@noble/curves/nist.js";
-import { ownerPkFieldCompressed, pkFieldCompressed } from "../interface/merge-utils.js";
 
 import { type Bytes32, type Bytes33, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
 import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "./constants.js";
@@ -119,24 +118,10 @@ export class ShieldedPublicKey {
   }
 
   hash(): Bytes32 {
-    if (this.signatureType() === "p256") {
-      try {
-        return pkFieldCompressed(this.p256().toBytes());
-      } catch (error) {
-        throw wrapKeypairError("KEYPAIR_POSEIDON", error);
-      }
-    }
     return hashField(this.confidentialViewTag());
   }
 
   ownerPublicKeyField(): Bytes32 {
-    if (this.signatureType() === "p256") {
-      try {
-        return ownerPkFieldCompressed(this.p256().toBytes());
-      } catch (error) {
-        throw wrapKeypairError("KEYPAIR_POSEIDON", error);
-      }
-    }
     return hashField(this.confidentialViewTag());
   }
 

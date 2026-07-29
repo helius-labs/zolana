@@ -57,6 +57,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         client,
         tree,
         maker,
+        maker_input,
         mut taker,
         spl_mint,
     } = setup()?;
@@ -97,16 +98,8 @@ fn make_and_take_swap_inline() -> Result<()> {
         };
         let order_output_utxo = order_utxo.output_utxo(taker_address.viewing_pubkey)?;
 
-        let maker_input_utxo = maker
-            .balance(spl_mint, Some(Filter::MinAmount(SOURCE_AMOUNT)))?
-            .utxos
-            .first()
-            .cloned()
-            .ok_or_else(|| anyhow!("no spendable utxo of {spl_mint} >= {SOURCE_AMOUNT}"))?;
-
         // 2. Select input utxos.
-        let input_utxo = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
-        let input_utxos = vec![input_utxo, SppProofInputUtxo::new_dummy()];
+        let input_utxos = vec![maker_input, SppProofInputUtxo::new_dummy()];
 
         // 3. create output utxos.
         let order_utxo_asset = order_output_utxo.asset;

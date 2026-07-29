@@ -6,6 +6,8 @@ import type {
   GetNonInclusionProofsRequest,
   GetNonInclusionProofsResponse,
   GetRingsByTagsRequest,
+  GetShieldedTransactionsBySignatureRequest,
+  GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
 } from "../indexer/types.js";
 import type { IndexerSchemaError } from "../indexer/scalars.js";
@@ -13,6 +15,7 @@ import {
   getEncryptedUtxosByTagsMethod,
   getMerkleProofsMethod,
   getNonInclusionProofsMethod,
+  getShieldedTransactionsBySignatureMethod,
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
 } from "../indexer/methods/index.js";
@@ -87,6 +90,13 @@ export class ZolanaApi {
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
     return this.#call(getShieldedTransactionsByTagsMethod, request, context);
+  }
+
+  getShieldedTransactionsBySignature(
+    request: GetShieldedTransactionsBySignatureRequest,
+    context?: RequestContext,
+  ): Promise<GetShieldedTransactionsBySignatureResponse> {
+    return this.#call(getShieldedTransactionsBySignatureMethod, request, context);
   }
 
   getMerkleProofs(

@@ -26,7 +26,7 @@ pub struct Pair {
     /// on every call.
     pub authority_owner_hash: [u8; 32],
     /// The source asset's UTXO commitment (`asset_field(source_mint)` =
-    /// `hash_field(source_mint)`), supplied at `create_pair` time. The program
+    /// `hash_bytes(source_mint)`), supplied at `create_pair` time. The program
     /// has only the `source_asset_id` registry number, not a mint->field map,
     /// so this canonical commitment is client-supplied. `create_escrow` feeds
     /// it as the `escrow_open` circuit's `SourceAsset` public input, binding the

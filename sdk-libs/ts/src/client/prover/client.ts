@@ -16,7 +16,6 @@ import type {
   Proof,
   ProverInputs,
   TransferInput,
-  TransferP256Inputs,
   TransferOutput,
 } from "./types.js";
 
@@ -72,11 +71,11 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(proverRequest(inputs)), committed(inputs), context);
+    return this.#send(JSON.stringify(proverRequest(inputs)), false, context);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(mergeProverRequest(inputs)), true, context);
+    return this.#send(JSON.stringify(mergeProverRequest(inputs)), false, context);
   }
 
   async #send(body: string, p256: boolean, context?: RequestContext): Promise<Proof> {
@@ -231,76 +230,62 @@ export class ProverClient {
 function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknown>> {
   return Object.freeze({
     circuitType: "merge",
-    inputs: inputs.inputs.map(inputJson),
-    output: outputJson(inputs.output),
-    p256PubX: hex(inputs.p256PublicKeyX),
-    p256PubY: hex(inputs.p256PublicKeyY),
+    inputs: inputs.inputs.map(mergeInputJson),
+    output: mergeOutputJson(inputs.output),
+    asset: hex(circuitUtxo(inputs.output).asset),
     ownerPkHash: hex(inputs.ownerPublicKeyHash),
     userNullifierPk: hex(inputs.userNullifierPublicKey),
     userNullifierSecret: hex(inputs.userNullifierSecret),
-    txViewingSk: hex(inputs.txViewingSecret),
-    userViewingPubkey: inputs.userViewingPublicKey.map(hex),
     externalDataHash: hex(inputs.externalDataHash),
     privateTxHash: hex(inputs.privateTxHash),
     publicInputHash: hex(inputs.publicInputHash),
+    allowDummyInputs: hex(inputs.allowDummyInputs),
+    outputZoneDataHash: hex(inputs.outputZoneDataHash),
     zoneProgramId: hex(inputs.zoneProgramId),
   });
 }
 
-/// The prover server's `circuitType` for the two wallet-owned transfer rails.
-const CIRCUIT_TYPES = Object.freeze({
-  transfer: "transfer-confidential",
-  transferP256: "transfer-p256-confidential",
-} as const);
+function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>> {
+  const utxo = circuitUtxo(input);
+  return Object.freeze({
+    domain: hex(utxo.domain),
+    amount: hex(utxo.amount),
+    blinding: hex(utxo.blinding),
+    zoneDataHash: hex(utxo.zoneDataHash),
+    statePathElements: input.statePathElements.map(hex),
+    statePathIndex: hex(input.statePathIndex),
+    nullifierLowValue: hex(input.nullifierLowValue),
+    nullifierNextValue: hex(input.nullifierNextValue),
+    nullifierLowPathElements: input.nullifierLowPathElements.map(hex),
+    nullifierLowPathIndex: hex(input.nullifierLowPathIndex),
+    utxoTreeRoot: hex(input.utxoTreeRoot),
+    nullifierTreeRoot: hex(input.nullifierTreeRoot),
+    nullifier: hex(input.nullifier),
+  });
+}
 
-/// The P256 rail carries a BSB22 commitment; ed25519 uses standard Groth16.
-function committed(inputs: ProverInputs): inputs is Readonly<{
-  circuit: "transferP256";
-  payload: TransferP256Inputs;
-}> {
-  return inputs.circuit === "transferP256";
+function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    zoneDataHash: hex(circuitUtxo(output).zoneDataHash),
+    hash: hex(output.hash),
+  });
 }
 
 function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
   const payload = inputs.payload;
-  const head = {
-    circuitType: CIRCUIT_TYPES[inputs.circuit],
+  return Object.freeze({
+    circuitType: "transfer-confidential",
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map(inputJson),
     outputs: payload.outputs.map(outputJson),
     externalDataHash: hex(payload.externalDataHash),
-  };
-  const tail = {
-    publicSolAmount: hex(payload.publicSolAmount),
-    publicSplAmount: hex(payload.publicSplAmount),
-    publicSplAssetPubkey: hex(payload.publicSplAssetPublicKey),
+    privateTxHash: hex(payload.privateTxHash),
+    publicAssets: payload.publicAssets.map(hex),
+    publicAmounts: payload.publicAmounts.map(hex),
     zoneProgramId: hex(payload.zoneProgramId),
     payerPubkeyHash: hex(payload.payerPublicKeyHash),
-  };
-  // The key order follows the Rust request structs so the two serializers
-  // produce the same bytes, not merely the same object. On the P256 rail the
-  // signature fields sit between `externalDataHash` and `privateTxHash`, and
-  // `p256SigningPkField` between `payerPubkeyHash` and `publicInputHash`.
-  if (!committed(inputs)) {
-    return Object.freeze({
-      ...head,
-      privateTxHash: hex(payload.privateTxHash),
-      ...tail,
-      publicInputHash: hex(payload.publicInputHash),
-    });
-  }
-  return Object.freeze({
-    ...head,
-    p256PubX: hex(inputs.payload.p256PublicKeyX),
-    p256PubY: hex(inputs.payload.p256PublicKeyY),
-    p256SigR: hex(inputs.payload.p256SignatureR),
-    p256SigS: hex(inputs.payload.p256SignatureS),
-    privateTxHash: hex(payload.privateTxHash),
-    p256MessageHashLow: hex(inputs.payload.p256MessageHashLow),
-    p256MessageHashHigh: hex(inputs.payload.p256MessageHashHigh),
-    ...tail,
-    p256SigningPkField: hex(inputs.payload.p256SigningPublicKeyField),
+    allowDummyInputs: hex(payload.allowDummyInputs),
     publicInputHash: hex(payload.publicInputHash),
   });
 }

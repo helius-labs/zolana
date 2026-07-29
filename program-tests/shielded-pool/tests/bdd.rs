@@ -27,9 +27,9 @@ pub struct ShieldedPoolWorld {
     previous_zone_authority: Option<Keypair>,
     rotated_authority: Option<Keypair>,
     last_proofless_view: Option<DepositOutput>,
+    batch_outputs: Vec<DepositOutput>,
     last_error: Option<ProgramTestError>,
     sol_deposit: Option<SolDepositObservation>,
-    indexed_utxo_count_before: Option<usize>,
     state_roots: Vec<[u8; 32]>,
 }
 

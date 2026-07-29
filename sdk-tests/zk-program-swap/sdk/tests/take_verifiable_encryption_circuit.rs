@@ -19,15 +19,13 @@ use swap_prover::{
 };
 use swap_sdk::{
     instructions::take_verifiable_encryption::{
-        decrypt_destination, destination_ciphertext_with_hash,
+        decrypt_destination, destination_ciphertext_with_hash, DESTINATION_CIPHERTEXT_LEN,
     },
     state::DataHash,
 };
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::merge_utils::ciphertext_hash;
-use zolana_keypair::{
-    hash::{hash_field, poseidon},
-    ViewingKey,
-};
+use zolana_keypair::{hash::poseidon, ViewingKey};
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
 
 mod shared;
@@ -57,15 +55,15 @@ fn fe(byte: u8) -> [u8; 32] {
 }
 
 fn blinding(byte: u8) -> Blinding {
-    let mut out = [0u8; 31];
-    out[30] = byte;
+    let mut out = [0u8; 32];
+    out[31] = byte;
     out
 }
 
 fn sample_order() -> OrderTermsProofInput {
     let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     OrderTermsProofInput {
-        destination_asset: hash_field(&[2u8; 32]).expect("destination asset"),
+        destination_asset: hash_bytes(&[2u8; 32]).expect("destination asset"),
         destination_amount: 250,
         maker_owner_hash: fe(99),
         maker_viewing_pk,
@@ -158,7 +156,7 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
     }
 }
 
-fn sample_ciphertext(order: &OrderTermsProofInput) -> (Vec<u8>, [u8; 32]) {
+fn sample_ciphertext(order: &OrderTermsProofInput) -> ([u8; DESTINATION_CIPHERTEXT_LEN], [u8; 32]) {
     destination_ciphertext_with_hash(
         &blinding(7),
         &Address::new_from_array([2u8; 32]),
@@ -301,7 +299,7 @@ fn take_prove_verify_and_round_trip() {
     assert_eq!(
         (asset, amount),
         (
-            hash_field(&[2u8; 32]).expect("destination asset"),
+            hash_bytes(&[2u8; 32]).expect("destination asset"),
             inputs.order.destination_amount
         ),
         "the maker recovers (destination_asset, destination_amount) by decrypting with the order utxo blinding"

@@ -46,8 +46,12 @@ export async function splAssetRegistryAddress(mint: Address): Promise<Address> {
   return (await derive("spl_asset_registry", mint))[0];
 }
 
+export function splAssetVaultPda(mint: Address): Promise<ProgramDerivedAddress> {
+  return derive("spl_asset_vault", mint);
+}
+
 export async function splAssetVaultAddress(mint: Address): Promise<Address> {
-  return (await derive("spl_asset_vault", mint))[0];
+  return (await splAssetVaultPda(mint))[0];
 }
 
 export async function associatedTokenAddress(owner: Address, mint: Address): Promise<Address> {

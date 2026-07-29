@@ -2,13 +2,9 @@ import { address, getAddressEncoder, getBase64Decoder, type Signature } from "@s
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ZolanaClient } from "../src/client/index.js";
-import { ShieldedKeypair, ViewingKey } from "../src/keypair/index.js";
-import {
-  SHIELDED_POOL_PROGRAM_ID,
-  type Bytes16,
-  type Bytes31,
-  type Bytes32,
-} from "../src/interface/index.js";
+import { ShieldedKeypair } from "../src/keypair/index.js";
+import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
+import { SHIELDED_POOL_PROGRAM_ID, type Bytes16, type Bytes32 } from "../src/interface/index.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
   Data,
@@ -16,15 +12,8 @@ import {
   SOL_MINT,
   Utxo,
   Wallet,
-  assetField,
   decryptTransactions,
 } from "../src/transaction/index.js";
-import { newViewingKeyEntry } from "../src/transaction/wallet/state.js";
-import {
-  EncryptedScheme,
-  encodeOutputData,
-  encryptMerge,
-} from "../src/transaction/serialization/index.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
@@ -99,7 +88,7 @@ describe("wallet sync", () => {
   it("backfills an SPL mint already present in the wallet", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const blinding = new Uint8Array(31).fill(3) as Bytes31;
+    const blinding = new Uint8Array(32).fill(3) as Bytes32;
     const utxo = new Utxo({
       owner: keypair.signingPublicKey(),
       asset: SPL_MINT,
@@ -159,14 +148,38 @@ describe("wallet sync", () => {
     expect(wallet.balance(SPL_MINT)).toMatchObject({ assetId: 2n, amount: 42n });
   });
 
-  it("reports an unresolved merge asset field explicitly", async () => {
+  it("reconstructs a ciphertext-free merge from owned spent inputs", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const assetField = bytes(77);
-    const ciphertext = encryptMerge(keypair, keypair.viewingPublicKey(), {
+    const inputUtxos = [20n, 22n].map((amount, index) => {
+      const blinding = bytes(index + 3);
+      const utxo = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding,
+      });
+      const hash = utxo.hash(keypair.nullifierPublicKey());
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
+        nullifier: keypair.nullifier(hash, blinding),
+        spent: false,
+      };
+    });
+    wallet._replace({ ...wallet._state(), utxos: inputUtxos });
+    const firstNullifier = inputUtxos[0]!.nullifier;
+    const nullifiers = [
+      ...inputUtxos.map((entry) => entry.nullifier),
+      ...Array.from({ length: 6 }, (_, offset) =>
+        mergeDummyNullifier(keypair.nullifierKey(), firstNullifier, offset + 2),
+      ),
+    ];
+    const merged = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
       amount: 42n,
-      assetField,
-      blinding: new Uint8Array(31).fill(4) as Bytes31,
+      blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
     });
 
     const report = await decryptTransactions({
@@ -179,42 +192,46 @@ describe("wallet sync", () => {
           outputSlots: [
             {
               viewTag: keypair.signingPublicKey().confidentialViewTag(),
-              outputContext: { hash: bytes(78), tree: TREE, leafIndex: 0n },
-              payload: encodeOutputData(EncryptedScheme.merge, ciphertext, "verifiable"),
+              outputContext: {
+                hash: merged.hash(keypair.nullifierPublicKey()),
+                tree: TREE,
+                leafIndex: 2n,
+              },
+              payload: new Uint8Array(),
             },
           ],
           messages: [],
-          nullifiers: [],
+          nullifiers,
           proofless: false,
         },
       ],
     });
 
-    expect(report.unknownAssetFields).toEqual([assetField]);
+    expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
+    expect(wallet.balance(SOL_MINT).amount).toBe(42n);
   });
 
-  it("does not backfill for a merge another viewing key cannot decrypt", async () => {
+  it("ignores a merge whose first nullifier is not owned", async () => {
     const keypair = ShieldedKeypair.generate();
-    const oldViewingKey = ViewingKey.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._replace({
-      ...wallet._state(),
-      viewingKeyHistory: [
-        newViewingKeyEntry(oldViewingKey.publicKey(), 0n),
-        newViewingKeyEntry(keypair.viewingPublicKey(), 0n),
-      ],
-    });
-    const blinding = new Uint8Array(31).fill(5) as Bytes31;
-    const mergedUtxo = new Utxo({
+    const blinding = new Uint8Array(32).fill(5) as Bytes32;
+    const existing = new Utxo({
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
       amount: 42n,
       blinding,
     });
-    const ciphertext = encryptMerge(keypair, keypair.viewingPublicKey(), {
-      amount: 42n,
-      assetField: assetField(SOL_MINT),
-      blinding,
+    const hash = existing.hash(keypair.nullifierPublicKey());
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo: existing,
+          outputContext: { hash, tree: TREE, leafIndex: 0n },
+          nullifier: keypair.nullifier(hash, blinding),
+          spent: false,
+        },
+      ],
     });
     const transaction = {
       slot: 1n,
@@ -223,15 +240,15 @@ describe("wallet sync", () => {
         {
           viewTag: keypair.signingPublicKey().confidentialViewTag(),
           outputContext: {
-            hash: mergedUtxo.hash(keypair.nullifierPublicKey()),
+            hash: bytes(78),
             tree: TREE,
-            leafIndex: 0n,
+            leafIndex: 1n,
           },
-          payload: encodeOutputData(EncryptedScheme.merge, ciphertext, "verifiable"),
+          payload: new Uint8Array(),
         },
       ],
       messages: [],
-      nullifiers: [],
+      nullifiers: Array.from({ length: 8 }, (_, index) => bytes(index + 80)),
       proofless: false,
     } as const;
     const client = {
@@ -247,7 +264,7 @@ describe("wallet sync", () => {
     const authority = {
       syncMaterial: async () => ({
         identity: keypair.shieldedAddress(),
-        viewingKeys: [oldViewingKey, keypair.viewingKey()],
+        viewingKeys: [keypair.viewingKey()],
         nullifierKey: keypair.nullifierKey(),
       }),
     } as never;

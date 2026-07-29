@@ -16,30 +16,27 @@ pub fn build_merge_event(
     ix: &MergeTransactIxDataRef<'_>,
     tree_write: MergeTreeWrite,
     output_view_tag: [u8; 32],
+    output_data: Vec<u8>,
 ) -> GeneralEvent {
-    let mut tx_viewing_pk = [0u8; 33];
-    if let Ok(blob_pk) = ix.tx_viewing_pk() {
-        tx_viewing_pk.copy_from_slice(blob_pk);
-    }
-
     // The merged output is owner-indexed like every confidential output: the view
     // tag is the owner signing pubkey, so `Wallet::sync` rediscovers it via the
-    // confidential owner-pubkey scan.
+    // confidential owner-pubkey scan. It carries no ciphertext: the wallet
+    // reconstructs it from `nullifiers[0]` and its spent inputs. `merge_zone`
+    // additionally publishes the output `zone_data_hash` in the output data.
     let outputs = vec![OutputUtxo {
         view_tag: output_view_tag,
         utxo_hash: *ix.output_utxo_hash,
-        data: ix.encrypted_utxo.to_vec(),
+        data: output_data,
     }];
 
     GeneralEvent {
         inputs: tree_write.inputs,
         outputs,
         messages: Vec::new(),
-        tx_viewing_pk,
-        salt: [0u8; 16], // TODO: send salt in instruction data
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
         first_output_leaf_index: tree_write.output_leaf_index,
         output_tree: tree_write.output_tree,
-        relay_fee: None,
-        deposit_withdraw: None,
+        spl_transfers: Vec::new(),
     }
 }

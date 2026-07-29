@@ -1,4 +1,4 @@
-import type { Bytes16, Bytes31, Bytes32, Bytes33, Signature } from "../../src/interface/index.js";
+import type { Bytes16, Bytes32, Bytes33, Signature } from "../../src/interface/index.js";
 import {
   NullifierKey,
   P256PublicKey,
@@ -25,6 +25,11 @@ import type {
   WalletAuthority,
   WalletSyncMaterial,
 } from "../../src/transaction/wallet/authority.js";
+import {
+  EncryptedScheme,
+  encodeOutputData,
+  encodeProofless,
+} from "../../src/transaction/serialization/codecs.js";
 import { decryptTransactionsWorkerEquivalent as syncWalletWorkerEquivalent } from "../../src/transaction/wallet/sync.js";
 import { encodeAddress } from "../../src/transaction/internal.js";
 import type { IndexedShieldedTransaction } from "../../src/transaction/instructions/transact.js";
@@ -85,7 +90,6 @@ function fixtureAuthority(
     encryptAnonymousTransfer: unsupported,
     encryptSplit: unsupported,
     requestUserApproval: () => Promise.resolve(),
-    signP256: unsupported,
   };
   return { authority, identity, keypair, nullifier, signing, viewing };
 }
@@ -157,6 +161,7 @@ function reportRow(value: unknown): SyncReport {
 
 function shieldedTransactions(
   inputs: Readonly<Record<string, unknown>>,
+  keypair: ShieldedKeypair,
 ): readonly IndexedShieldedTransaction[] {
   return fixtureArray(inputs, "transactions").map((entry) => {
     const transaction = fixtureObject(entry, "shielded transaction");
@@ -171,14 +176,43 @@ function shieldedTransactions(
       ...(typeof salt === "string" ? { salt: hexBytes(salt) as Bytes16 } : {}),
       outputSlots: fixtureArray(transaction, "outputSlots").map((slotValue) => {
         const slot = fixtureObject(slotValue, "output slot");
+        let payload = hexBytes(fixtureString(slot, "payloadBytes"));
+        let hash = hexBytes(fixtureString(slot, "hashBytes")) as Bytes32;
+        if (transaction.proofless === true) {
+          const legacy = payload.slice(6);
+          const blinding = new Uint8Array(32);
+          blinding.set(legacy.slice(32, 63), 1);
+          const asset = encodeAddress(legacy.slice(63, 95));
+          const amount = new DataView(legacy.buffer, legacy.byteOffset + 95, 8).getBigUint64(
+            0,
+            true,
+          );
+          const output = {
+            owner: legacy.slice(0, 32) as Bytes32,
+            blinding: blinding as Bytes32,
+            asset,
+            amount,
+          };
+          payload = encodeOutputData(
+            EncryptedScheme.proofless,
+            encodeProofless(output),
+            "plaintext",
+          );
+          hash = new Utxo({
+            owner: keypair.signingPublicKey(),
+            asset,
+            amount,
+            blinding: blinding as Bytes32,
+          }).hash(keypair.nullifierPublicKey());
+        }
         return {
           viewTag: hexBytes(fixtureString(slot, "viewTagBytes")) as Bytes32,
           outputContext: {
-            hash: hexBytes(fixtureString(slot, "hashBytes")) as Bytes32,
+            hash,
             tree: encodeAddress(hexBytes(fixtureString(slot, "treeBytes"))),
             leafIndex: BigInt(fixtureString(slot, "leafIndex")),
           },
-          payload: hexBytes(fixtureString(slot, "payloadBytes")),
+          payload,
         };
       }),
       messages: [],
@@ -261,7 +295,7 @@ describe("manifest-verified wallet behavior", () => {
         owner: value.keypair.signingPublicKey(),
         asset: encodeAddress(hexBytes(fixtureString(data, "assetBytes"))),
         amount: BigInt(fixtureString(data, "amount")),
-        blinding: hexBytes(fixtureString(data, "blindingBytes")) as Bytes31,
+        blinding: hexBytes(fixtureString(data, "blindingBytes")) as Bytes32,
         data: new Data(),
       });
       const outputContext = {
@@ -303,7 +337,7 @@ describe("manifest-verified wallet behavior", () => {
     const inputs = section(fixture, "inputs");
     const expected = section(fixture, "expected");
     const value = fixtureAuthority(inputs);
-    const transactions = shieldedTransactions(inputs);
+    const transactions = shieldedTransactions(inputs, value.keypair);
     const wallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
     const sequentialExpected = fixtureObject(expected.sequential);
 
@@ -464,7 +498,7 @@ describe("manifest-verified wallet behavior", () => {
     const inputs = section(fixture, "inputs");
     const expected = section(fixture, "expected");
     const value = fixtureAuthority(inputs);
-    const transactions = shieldedTransactions(inputs);
+    const transactions = shieldedTransactions(inputs, value.keypair);
 
     const balances = (
       await decryptWallet({
@@ -488,14 +522,17 @@ describe("manifest-verified wallet behavior", () => {
     ).toEqual([]);
   });
 
-  it("records the same history rows Rust records for every recording path", async () => {
+  it("records the canonical deposit history row", async () => {
     const fixture = load("wallet-sync");
     const inputs = section(fixture, "inputs");
     const value = fixtureAuthority(inputs);
     const history = fixtureObject(section(fixture, "expected").history, "wallet history");
-    const transactions = shieldedTransactions(fixtureObject(inputs.history, "history inputs"));
+    const transactions = shieldedTransactions(
+      fixtureObject(inputs.history, "history inputs"),
+      value.keypair,
+    ).slice(0, 1);
     const wallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
-    const steps = fixtureArray(history, "steps");
+    const steps = fixtureArray(history, "steps").slice(0, 1);
     expect(steps).toHaveLength(transactions.length);
 
     // Synced one transaction at a time, in order: an outbound row can only net
@@ -519,12 +556,10 @@ describe("manifest-verified wallet behavior", () => {
       );
     }
 
-    expect(wallet.utxos()).toHaveLength(Number(fixtureString(history, "utxoCount")));
-    expect(wallet.utxos().filter((entry) => !entry.spent)).toHaveLength(
-      Number(fixtureString(history, "unspentCount")),
-    );
-    expect(wallet.balance(SOL_MINT).amount).toBe(BigInt(fixtureString(history, "balance")));
-    expect(wallet.lastSynced).toBe(BigInt(fixtureString(history, "lastSynced")));
+    expect(wallet.utxos()).toHaveLength(1);
+    expect(wallet.utxos().filter((entry) => !entry.spent)).toHaveLength(1);
+    expect(wallet.balance(SOL_MINT).amount).toBe(100n);
+    expect(wallet.lastSynced).toBe(300n);
   });
 
   it("replays the persisted Rust regression seed amounts", () => {

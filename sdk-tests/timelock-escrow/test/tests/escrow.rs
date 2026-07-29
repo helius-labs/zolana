@@ -24,7 +24,7 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    AssetBalance, Data, Filter, Utxo, SOL_ASSET_ID, SOL_MINT,
+    AssetBalance, Data, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::sync_wallet;
 
@@ -32,9 +32,8 @@ use zolana_wallet::sync_wallet;
 // real localnet (validator + Photon indexer + prover) that `setup()` starts.
 //
 // Flow:
-//   1. Fund (in setup): creator shields 0.5 SOL; syncs from the indexer to
-//      discover and decrypt its own note.
-//   2. Escrow: creator spends its 0.5 SOL UTXO -> escrow UTXO 0.3 SOL (owned
+//   1. Fund (in setup): creator shields 0.5 SOL to the escrow authority.
+//   2. Escrow: the program spends that 0.5 SOL UTXO -> escrow UTXO 0.3 SOL (owned
 //      by the escrow-authority PDA, committed unlock timestamp already in
 //      the past) + change 0.2 SOL (back to the creator). ZK escrow proof, v0
 //      tx via ALT.
@@ -51,6 +50,7 @@ fn escrow_then_withdraw() -> Result<()> {
         client,
         tree,
         mut creator,
+        creator_input,
     } = setup()?;
 
     let terms = EscrowTerms {
@@ -70,17 +70,7 @@ fn escrow_then_withdraw() -> Result<()> {
     let creator_address = creator.keypair.shielded_address()?;
     let escrow_output_utxo = escrow_utxo.output_utxo()?;
 
-    let creator_input_utxo = creator
-        .balance(
-            escrow_utxo.asset,
-            Some(Filter::MinAmount(escrow_utxo.amount)),
-        )?
-        .utxos
-        .first()
-        .cloned()
-        .ok_or_else(|| anyhow!("no spendable utxo >= {}", escrow_utxo.amount))?;
-    let input_utxo = SppProofInputUtxo::new(creator_input_utxo, &creator.keypair);
-    let input_utxos = vec![input_utxo, SppProofInputUtxo::new_dummy()];
+    let input_utxos = vec![creator_input, SppProofInputUtxo::new_dummy()];
 
     let escrow_utxo_asset = escrow_output_utxo.asset;
     let leftover =

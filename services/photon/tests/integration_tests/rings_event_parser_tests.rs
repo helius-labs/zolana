@@ -1,11 +1,19 @@
 use std::collections::HashMap;
 
+#[path = "../rings_fixtures/mod.rs"]
+mod rings_fixtures;
+
+use rings_fixtures::{
+    fresh_rings_database, resolve_by_signature, resolve_by_tags, seed_tagged_transaction_history,
+    signature_at, tag_page, LookupCost, PAGE_LIMIT, VIEW_TAG,
+};
+
 use photon_indexer::{
     api::{
         error::PhotonApiError,
         method::rings::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
-            get_shielded_transactions_by_tags,
+            get_shielded_transactions_by_signature, get_shielded_transactions_by_tags,
         },
     },
     common::rings_tree::RingsTreeKind,
@@ -46,12 +54,12 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
-    encode_event_instruction, encode_output_data, encode_verifiably_encrypted, DepositWithdraw,
-    EventKind, GeneralEvent, Input, OutputUtxo, ProoflessOutput,
+    encode_event_instruction, encode_output_data, encode_verifiably_encrypted, EventKind,
+    GeneralEvent, Input, OutputUtxo, ProoflessOutput, SplTransfer,
 };
 use zolana_indexer_api::{
-    GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest, Hash,
-    SerializablePubkey,
+    GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
+    GetShieldedTransactionsBySignatureRequest, Hash, SerializablePubkey, SerializableSignature,
 };
 use zolana_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
@@ -82,6 +90,7 @@ fn parses_proofless_shield_event_with_photon_parser() {
         parse_rings_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::DEPOSIT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 0);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -101,6 +110,7 @@ fn parses_shielded_transfer_event_with_photon_parser() {
         parse_rings_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 1);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -129,6 +139,7 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
     );
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 2);
     let tx_viewing_pk = rings_tx
@@ -162,6 +173,7 @@ fn parses_unshield_event_with_photon_parser() {
     let state_update = parse_rings_update(unshield_transaction_info(), UNSHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 3);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 4);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -326,6 +338,123 @@ async fn persists_rings_events() {
         .first()
         .expect("persisted Rings outputs should not be empty");
     assert_rings_api_exposes_output_hashes(&db, output).await;
+}
+
+#[tokio::test]
+async fn signature_lookup_returns_multiple_events_in_event_order() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    RingsMigrator::up(&db, None).await.unwrap();
+    let slot = SHIELDED_TRANSFER_SLOT;
+    insert_test_blocks(&db, &[slot]).await;
+
+    let mut transaction = shielded_transfer_transaction_info();
+    transaction
+        .instruction_groups
+        .extend(proofless_shield_transaction_info().instruction_groups);
+    let state_update = parse_ingestion_update(transaction.clone(), slot);
+    insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
+    let txn = db.begin().await.unwrap();
+    persist_state_update(&txn, state_update).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let response = get_shielded_transactions_by_signature(
+        &db,
+        GetShieldedTransactionsBySignatureRequest {
+            tx_signature: SerializableSignature(transaction.signature),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.transactions.len(), 2);
+    assert_eq!(
+        response
+            .transactions
+            .iter()
+            .map(|item| item.event_index)
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    assert!(response
+        .transactions
+        .iter()
+        .all(|item| item.transaction.tx_signature.0 == transaction.signature));
+
+    let missing = get_shielded_transactions_by_signature(
+        &db,
+        GetShieldedTransactionsBySignatureRequest {
+            tx_signature: SerializableSignature(Signature::from([99u8; 64])),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(missing.transactions.is_empty());
+}
+
+/// A caller that already knows its signature -- the confirmation path, or
+/// anyone resolving a signature seen elsewhere -- can ask for that one
+/// transaction instead of walking the view tag index.
+///
+/// The signature lookup is one equality on the unique `(signature,
+/// event_index)` index, so it costs the same on a tag with 40 or 400
+/// transactions. Reaching the same transaction through the tag index costs one
+/// request per page and hydrates every older transaction it walks past, because
+/// that query filters with `EXISTS` subqueries over `rings_outputs` and orders
+/// by `slot ASC`. This test pins that difference so it cannot regress back into
+/// a tag scan.
+#[tokio::test]
+async fn signature_lookup_cost_is_independent_of_view_tag_history() {
+    const SHORT_HISTORY: u64 = 40;
+    const LONG_HISTORY: u64 = 400;
+
+    let db = fresh_rings_database().await;
+
+    seed_tagged_transaction_history(&db, VIEW_TAG, 0..SHORT_HISTORY).await;
+    let short_signature = signature_at(SHORT_HISTORY - 1);
+    let short_by_signature = resolve_by_signature(&db, short_signature).await;
+    let short_by_tags = resolve_by_tags(&db, VIEW_TAG, short_signature, PAGE_LIMIT).await;
+
+    seed_tagged_transaction_history(&db, VIEW_TAG, SHORT_HISTORY..LONG_HISTORY).await;
+    let long_signature = signature_at(LONG_HISTORY - 1);
+    let long_by_signature = resolve_by_signature(&db, long_signature).await;
+    let long_by_tags = resolve_by_tags(&db, VIEW_TAG, long_signature, PAGE_LIMIT).await;
+
+    // The signature lookup does not notice that the tag grew tenfold.
+    let flat = LookupCost {
+        requests: 1,
+        hydrated_transactions: 1,
+    };
+    assert_eq!(short_by_signature, flat);
+    assert_eq!(long_by_signature, flat);
+
+    // The tag walk pays for the whole history every time.
+    assert_eq!(
+        short_by_tags,
+        LookupCost {
+            requests: 1,
+            hydrated_transactions: usize::try_from(SHORT_HISTORY).unwrap(),
+        }
+    );
+    assert_eq!(
+        long_by_tags,
+        LookupCost {
+            requests: usize::try_from(LONG_HISTORY.div_ceil(PAGE_LIMIT)).unwrap(),
+            hydrated_transactions: usize::try_from(LONG_HISTORY).unwrap(),
+        }
+    );
+
+    // The confirmation path on a single unpaginated page is not just slower on
+    // a long tag, it never sees the transaction at all: the tag query orders by
+    // `slot ASC`, so the newest transaction sits on the last page.
+    let first_page = tag_page(&db, VIEW_TAG, None, PAGE_LIMIT).await;
+    assert_eq!(
+        usize::try_from(PAGE_LIMIT).unwrap(),
+        first_page.transactions.len()
+    );
+    assert!(!first_page
+        .transactions
+        .iter()
+        .any(|item| item.tx_signature.0 == long_signature));
 }
 
 #[tokio::test]
@@ -1210,6 +1339,33 @@ async fn assert_rings_api_exposes_output_hashes(
     );
     assert_eq!(output_slot.payload.0, payload.payload);
 
+    let rings_tx = rings_transactions::Entity::find_by_id(output.rings_tx_id)
+        .one(db)
+        .await
+        .unwrap()
+        .expect("rings transaction should exist");
+    let signature = Signature::from(
+        <[u8; 64]>::try_from(rings_tx.signature.as_slice()).expect("stored signature length"),
+    );
+    let direct = get_shielded_transactions_by_signature(
+        db,
+        GetShieldedTransactionsBySignatureRequest {
+            tx_signature: SerializableSignature(signature),
+        },
+    )
+    .await
+    .unwrap();
+    let indexed = direct
+        .transactions
+        .first()
+        .expect("one indexed Rings event for the signature");
+    assert_eq!(direct.transactions.len(), 1);
+    assert_eq!(
+        indexed.event_index,
+        u16::try_from(rings_tx.event_index).expect("event index is non-negative")
+    );
+    assert_eq!(indexed.transaction.tx_signature.0, signature);
+
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
     assert!(encrypted.next_cursor.is_none());
@@ -1371,12 +1527,11 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 0,
             output_tree: TEST_TREE,
-            relay_fee: None,
-            deposit_withdraw: Some(DepositWithdraw {
+            spl_transfers: vec![SplTransfer {
                 is_deposit: true,
                 amount: 100,
                 asset: None,
-            }),
+            }],
         },
     )
 }
@@ -1384,7 +1539,11 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
 fn proofless_output_payload() -> Vec<u8> {
     encode_output_data(ProoflessOutput {
         owner: [1; 32],
-        blinding: [2; 31],
+        blinding: {
+            let mut blinding = [2; 32];
+            blinding[0] = 0;
+            blinding
+        },
         asset: [0; 32],
         amount: 100,
         data_hash: None,
@@ -1413,8 +1572,7 @@ fn shielded_transfer_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 1,
             output_tree: TEST_TREE,
-            relay_fee: None,
-            deposit_withdraw: None,
+            spl_transfers: Vec::new(),
         },
     )
 }
@@ -1436,12 +1594,11 @@ fn unshield_transaction_info() -> TransactionInfo {
             salt: [0; 16],
             first_output_leaf_index: 4,
             output_tree: TEST_TREE,
-            relay_fee: None,
-            deposit_withdraw: Some(DepositWithdraw {
+            spl_transfers: vec![SplTransfer {
                 is_deposit: false,
                 amount: 40,
                 asset: None,
-            }),
+            }],
         },
     )
 }
@@ -1463,8 +1620,7 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
             salt: [6; 16],
             first_output_leaf_index: 2,
             output_tree: TEST_TREE,
-            relay_fee: None,
-            deposit_withdraw: None,
+            spl_transfers: Vec::new(),
         },
     )
 }

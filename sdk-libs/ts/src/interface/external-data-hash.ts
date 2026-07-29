@@ -1,25 +1,21 @@
-import type { Address, Bytes32, MessageData, ResolvedOutput } from "./types.js";
-import {
-  addressBytes,
-  copyBytes,
-  fail,
-  sha256,
-  signedBigint,
-  unsigned,
-  unsignedBigint,
-} from "./internal.js";
+import type {
+  Bytes16,
+  Bytes32,
+  Bytes33,
+  MessageData,
+  ResolvedInterfaceTransfer,
+  ResolvedOutput,
+} from "./types.js";
+import { addressBytes, copyBytes, fail, sha256, unsigned, unsignedBigint } from "./internal.js";
 
 export interface ExternalDataHashInput {
   readonly instructionDiscriminator: number;
   readonly expiryUnixTs: bigint;
-  readonly relayerFee: number;
-  readonly publicSolAmount?: bigint;
-  readonly publicSplAmount?: bigint;
-  readonly userSolAccount: Address;
-  readonly userSplTokenAccount: Address;
-  readonly splTokenInterface: Address;
+  readonly interfaceTransfers: readonly ResolvedInterfaceTransfer[];
   readonly dataHash?: Bytes32;
   readonly zoneDataHash?: Bytes32;
+  readonly txViewingPk: Bytes33;
+  readonly salt: Bytes16;
   readonly outputs: readonly ResolvedOutput[];
   readonly messages: readonly MessageData[];
 }
@@ -28,16 +24,36 @@ export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
   const parts: Uint8Array[] = [
     Uint8Array.of(unsigned(input.instructionDiscriminator, 0xff, "instructionDiscriminator")),
     integer(unsignedBigint(input.expiryUnixTs, (1n << 64n) - 1n, "expiryUnixTs"), 8),
-    integer(BigInt(unsigned(input.relayerFee, 0xffff, "relayerFee")), 2),
-    integer(signedAmount(input.publicSolAmount, "publicSolAmount"), 8),
-    integer(signedAmount(input.publicSplAmount, "publicSplAmount"), 8),
-    addressBytes(input.userSolAccount, "userSolAccount"),
-    addressBytes(input.userSplTokenAccount, "userSplTokenAccount"),
-    addressBytes(input.splTokenInterface, "splTokenInterface"),
+    Uint8Array.of(unsigned(input.interfaceTransfers.length, 0xff, "interfaceTransfers")),
+  ];
+  input.interfaceTransfers.forEach((transfer, index) => {
+    const position = `interfaceTransfers[${String(index)}]`;
+    const amount = integer(
+      unsignedBigint(transfer.amount, (1n << 64n) - 1n, `${position}.amount`),
+      8,
+    );
+    if (transfer.kind === "solDeposit" || transfer.kind === "solWithdrawal") {
+      parts.push(
+        Uint8Array.of(0, transfer.kind === "solDeposit" ? 1 : 0),
+        amount,
+        addressBytes(transfer.recipient, `${position}.recipient`),
+      );
+    } else {
+      parts.push(
+        Uint8Array.of(1, transfer.kind === "splDeposit" ? 1 : 0),
+        amount,
+        addressBytes(transfer.userTokenAccount, `${position}.userTokenAccount`),
+        addressBytes(transfer.vault, `${position}.vault`),
+      );
+    }
+  });
+  parts.push(
     optionalBytes(input.dataHash, "dataHash"),
     optionalBytes(input.zoneDataHash, "zoneDataHash"),
+    copyBytes(input.txViewingPk, 33, "txViewingPk"),
+    copyBytes(input.salt, 16, "salt"),
     count(input.outputs.length, "outputs"),
-  ];
+  );
 
   input.outputs.forEach((output, index) => {
     const position = String(index);
@@ -69,13 +85,10 @@ export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
   return digest as Bytes32;
 }
 
-function signedAmount(value: bigint | undefined, name: string): bigint {
-  const amount = signedBigint(value ?? 0n, -(1n << 63n), (1n << 63n) - 1n, name);
-  return BigInt.asUintN(64, amount);
-}
-
 function optionalBytes(value: Bytes32 | undefined, name: string): Uint8Array {
-  return value === undefined ? new Uint8Array(32) : copyBytes(value, 32, name);
+  return value === undefined
+    ? new Uint8Array(33)
+    : concat([Uint8Array.of(1), copyBytes(value, 32, name)]);
 }
 
 function count(value: number, name: string): Uint8Array {

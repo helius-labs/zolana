@@ -2,15 +2,18 @@ import {
   decodeEncryptedUtxosResponse,
   decodeMerkleProofsResponse,
   decodeNonInclusionProofsResponse,
+  decodeShieldedTransactionsBySignatureResponse,
   decodeShieldedTransactionsResponse,
   encodeMerkleProofsRequest,
   encodeNonInclusionProofsRequest,
   encodeRingsByTagsRequest,
+  encodeShieldedTransactionsBySignatureRequest,
 } from "../codec.js";
 import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
   GET_MERKLE_PROOFS,
   GET_NON_INCLUSION_PROOFS,
+  GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
   GET_SHIELDED_TRANSACTIONS_BY_TAGS,
 } from "../names.js";
 import type {
@@ -20,6 +23,8 @@ import type {
   GetNonInclusionProofsRequest,
   GetNonInclusionProofsResponse,
   GetRingsByTagsRequest,
+  GetShieldedTransactionsBySignatureRequest,
+  GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
 } from "../types.js";
 
@@ -45,6 +50,15 @@ export const getShieldedTransactionsByTagsMethod: MethodDescriptor<
   name: GET_SHIELDED_TRANSACTIONS_BY_TAGS,
   encodeRequest: encodeRingsByTagsRequest,
   decodeResponse: decodeShieldedTransactionsResponse,
+};
+
+export const getShieldedTransactionsBySignatureMethod: MethodDescriptor<
+  GetShieldedTransactionsBySignatureRequest,
+  GetShieldedTransactionsBySignatureResponse
+> = {
+  name: GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
+  encodeRequest: encodeShieldedTransactionsBySignatureRequest,
+  decodeResponse: decodeShieldedTransactionsBySignatureResponse,
 };
 
 export const getMerkleProofsMethod: MethodDescriptor<

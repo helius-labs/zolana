@@ -1,11 +1,15 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
+use zolana_interface::instruction::DepositBuildError;
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("deposit builder error: {0}")]
+    DepositBuild(#[from] DepositBuildError),
+
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),
 
@@ -47,17 +51,28 @@ pub enum ClientError {
         tree_count: usize,
     },
 
-    #[error("private transaction targets tree {transaction_tree:?}, but the client uses {client_tree:?}")]
-    TreeMismatch {
-        transaction_tree: [u8; 32],
-        client_tree: [u8; 32],
-    },
-
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
 
+    #[error("SPL token program is required for mint {mint}")]
+    MissingSplTokenProgram { mint: Pubkey },
+
+    #[error("mint {mint} is owned by unsupported SPL token program {owner}")]
+    UnsupportedSplTokenProgram { mint: Pubkey, owner: Pubkey },
+
     #[error("address resolution error: {0}")]
     AddressResolution(String),
+
+    #[error(
+        "interface transfers and settlement account groups must have equal lengths: {interface_transfers} transfers, {account_groups} account groups"
+    )]
+    SettlementTransferCountMismatch {
+        interface_transfers: usize,
+        account_groups: usize,
+    },
+
+    #[error("interface transfer {index} does not match its settlement account group type")]
+    SettlementTransferTypeMismatch { index: usize },
 
     #[error("user registry record not found for {owner}: {record}")]
     UserRegistryRecordNotFound { owner: Pubkey, record: Pubkey },
@@ -70,6 +85,9 @@ pub enum ClientError {
 
     #[error("a transaction must spend at least one input")]
     NoInputs,
+
+    #[error("the current tree capacity does not allow dummy input slots")]
+    DummyInputsNotAllowed,
 
     #[error(
         "input {index} is not Solana-owned; the transfer-eddsa rail rejects P256-owned inputs"
@@ -103,10 +121,12 @@ pub enum ClientError {
     #[error("merging keypair viewing key does not match the registry record for {owner}")]
     MergeViewingKeyMismatch { owner: Pubkey },
 
-    #[error("merge proof was fetched for tree {proof_tree:?}, but the submit ix targets {submit_tree:?}")]
-    MergeTreeMismatch {
+    #[error(
+        "merge proof was fetched for tree {proof_tree:?}, but the input tree is {input_tree:?}"
+    )]
+    MergeInputTreeMismatch {
         proof_tree: [u8; 32],
-        submit_tree: [u8; 32],
+        input_tree: [u8; 32],
     },
 
     #[error("split amount {amount} is not divisible into {parts} equal parts")]
@@ -130,8 +150,8 @@ pub enum ClientError {
     #[error("split input utxo {hash:?} is bound to a zone, which is not supported")]
     SplitInputZoneMismatch { hash: [u8; 32] },
 
-    #[error("p256 signature error: {0}")]
-    P256Signature(String),
+    #[error("P256-owned inputs are unsupported by transact")]
+    P256TransactUnsupported,
 
     #[error("field element exceeds 32 bytes")]
     FieldTooLong,
@@ -180,6 +200,11 @@ pub enum ClientError {
 
     #[error("indexer error: {0}")]
     Indexer(String),
+
+    /// The indexer answered with a rate-limit or internal JSON-RPC error.
+    /// Acted on by `Rpc::should_retry` during the confirmation poll.
+    #[error("indexer temporarily unavailable: {0}")]
+    IndexerUnavailable(String),
 
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),

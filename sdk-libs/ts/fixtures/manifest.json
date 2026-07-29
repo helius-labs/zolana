@@ -12,11 +12,11 @@
     },
     {
       "path": "transaction/serialization-v1.json",
-      "sha256": "e149e6224e60bf23e64971de3b63f18bbf54b738d27d9ebf5847b572abf70654"
+      "sha256": "e09a5d9f1163adb9835f7fba57ebfa1decb8436d12ff4c4187ce62aa97b214ea"
     },
     {
       "path": "transaction/wallet-state-v1.json",
-      "sha256": "540241a4be8c8d3d10204375a33e54df8883e2298b88f0228d3171108e29c6c3"
+      "sha256": "595909549293707e68eff8da70278be12bf4650667c7c51307976dd433b4d55e"
     },
     {
       "path": "transaction/wallet-sync-v1.json",

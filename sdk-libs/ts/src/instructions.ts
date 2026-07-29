@@ -4,7 +4,7 @@ export {
   createProtocolConfigInstruction as getCreateProtocolConfigInstructionAsync,
   createSplInterfaceInstruction as getCreateSplInterfaceInstructionAsync,
   createTreeInstruction as getCreateTreeInstructionAsync,
-  depositInstruction as getDepositInstruction,
+  depositInstruction as getDepositInstructionAsync,
   mergeTransactInstruction as getMergeTransactInstruction,
   pauseTreeInstruction as getPauseTreeInstructionAsync,
   transactInstruction as getTransactInstruction,
@@ -13,6 +13,8 @@ export {
   type SignerAccount,
 } from "./interface/instructions/index.js";
 export type {
+  AssetDeposit,
+  DepositAsset,
   DepositInstructionData,
   DepositSplAccounts,
   MergeTransactInstructionData,
