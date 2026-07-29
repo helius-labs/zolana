@@ -138,6 +138,21 @@ test-sdk-libs:
 test-photon:
     cargo nextest run -p photon-indexer
 
+# Line/region coverage for the host-instrumentable kernels + SDK via
+# cargo-llvm-cov. Default prints a summary; `just coverage --html` writes
+# target/llvm-cov/html, `just coverage --lcov --output-path lcov.info` for CI
+# upload. Scoped to crates whose tests run in-process: llvm-cov instruments the
+# host build, so code executed inside the SVM (the program's on-chain paths, via
+# litesvm/mollusk) is NOT measured here — that surface is covered by the
+# exact-error negative suites. Proof/validator tiers are excluded (external
+# services, dominate runtime).
+coverage *args="--summary-only":
+    cargo llvm-cov {{args}} \
+        -p zolana-interface -p zolana-tree -p zolana-bloom-filter \
+        -p zolana-hasher -p zolana-indexed-array \
+        -p zolana-keypair -p zolana-transaction \
+        --features zolana-interface/solana
+
 # All zolana-client tests (lib unit tests and the proving/integration test
 # binaries). The proving tests spawn the prover server
 # (via the zolana CLI), which lazily downloads any missing proving keys from
