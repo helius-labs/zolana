@@ -5712,6 +5712,7 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
  "arrayvec",
+ "bincode 2.0.1",
  "borsh",
  "bytemuck",
  "groth16-solana",
@@ -5719,6 +5720,8 @@ dependencies = [
  "light-program-profiler",
  "pinocchio 0.11.2",
  "pinocchio-system",
+ "serde_json",
+ "solana-loader-v3-interface 8.0.1",
  "spl-token-2022-interface",
  "tinyvec",
  "zolana-account-checks",
@@ -6677,6 +6680,9 @@ version = "8.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "362b468fbde4c20521b9ff5ef743bc0d9b410455a5a92a8b29fd46954e89345f"
 dependencies = [
+ "serde",
+ "serde_bytes",
+ "serde_derive",
  "solana-instruction",
  "solana-pubkey 4.2.0",
  "solana-sdk-ids",
@@ -9833,6 +9839,7 @@ dependencies = [
  "solana-hash",
  "solana-instruction",
  "solana-keypair",
+ "solana-loader-v3-interface 8.0.1",
  "solana-message",
  "solana-pubkey 4.2.0",
  "solana-signer",
@@ -9841,6 +9848,7 @@ dependencies = [
  "zolana-client",
  "zolana-interface",
  "zolana-program-test",
+ "zolana-smart-account-client",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-user-registry-interface",
@@ -10264,6 +10272,7 @@ name = "zolana-smart-account-client"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "sha2 0.10.9",
  "solana-instruction",
  "solana-pubkey 4.2.0",
 ]
