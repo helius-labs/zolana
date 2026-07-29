@@ -105,11 +105,18 @@ if (mode === "--build") {
     actual.wasmBytes !== expected.wasmBytes
   ) {
     if (mode === "--verify" && process.env.CI) {
-      const encoded = gzipSync(bytes, { level: 9 }).toString("base64");
+      const committed = await readFile(assetPath);
+      const xor = Buffer.alloc(Math.max(bytes.length, committed.length));
+      for (let index = 0; index < xor.length; index++) {
+        xor[index] = (bytes[index] ?? 0) ^ (committed[index] ?? 0);
+      }
+      const encoded = gzipSync(xor, { level: 9 }).toString("base64");
       const chunks = encoded.match(/.{1,30000}/g) ?? [];
-      console.error(`POSEIDON_WASM_CHUNK_COUNT=${chunks.length}`);
+      console.error(`POSEIDON_WASM_ACTUAL=${JSON.stringify(actual)}`);
+      console.error(`POSEIDON_WASM_XOR_BYTES=${xor.length}`);
+      console.error(`POSEIDON_WASM_XOR_CHUNK_COUNT=${chunks.length}`);
       for (const [index, chunk] of chunks.entries()) {
-        console.error(`POSEIDON_WASM_CHUNK_${index}=${chunk}`);
+        console.error(`POSEIDON_WASM_XOR_CHUNK_${index}=${chunk}`);
       }
     }
     throw new Error(
