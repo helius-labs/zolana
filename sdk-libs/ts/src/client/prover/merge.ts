@@ -8,11 +8,7 @@ import { mergeExternalDataHash } from "../../interface/codecs/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import { encryptVerifiable, mergePublicContribution } from "../../keypair/merge/index.js";
-import {
-  MERGE_INPUTS,
-  PreparedMerge,
-  PreparedMergeZone,
-} from "../../transaction/instructions/builders.js";
+import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
 import {
   EncryptedScheme,
   encodeMerge,
@@ -43,7 +39,6 @@ import {
 import type { Field, MergeInputs, TransferInput } from "./types.js";
 
 const MERGE_INSTRUCTION_TAG = 12;
-const MERGE_ZONE_INSTRUCTION_TAG = 13;
 const P256_GENERATOR_X = 0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296n;
 const P256_GENERATOR_Y = 0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5n;
 
@@ -72,10 +67,6 @@ export interface MergeAssembly {
   readonly txViewingPublicKey: P256PublicKey;
   readonly eddsaOwner: boolean;
   instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData;
-  zoneInstructionData(
-    proof: MergeTransactInstructionData["proof"],
-    mergeViewTag: Bytes32,
-  ): Readonly<{ mergeViewTag: Bytes32; merge: MergeTransactInstructionData }>;
 }
 
 export async function assembleMerge(
@@ -86,14 +77,13 @@ export async function assembleMerge(
   context?: RequestContext,
 ): Promise<MergeAssembly> {
   try {
-    if (prepared instanceof PreparedMergeZone) throw new ClientError("CLIENT_INVALID_MERGE");
     validateMergeMaterial(prepared, material);
     const proofs = await indexer.getInputMerkleProofs(
       prepared.inputUtxoHashes(),
       undefined,
       context,
     );
-    return assembleMergeRailUnchecked(prepared, material, proofs, tree);
+    return assembleMergeUnchecked(prepared, material, proofs, tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -106,63 +96,17 @@ export function assembleMergeWithProofs(
   tree: Address,
 ): MergeAssembly {
   try {
-    if (prepared instanceof PreparedMergeZone) throw new ClientError("CLIENT_INVALID_MERGE");
-    return assembleMergeRailUnchecked(prepared, material, proofs, tree);
+    return assembleMergeUnchecked(prepared, material, proofs, tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
 }
 
-export async function assembleMergeZone(
-  prepared: PreparedMergeZone,
-  material: MergeMaterialInput,
-  indexer: Pick<ZolanaClient, "getInputMerkleProofs">,
-  tree: Address,
-  context?: RequestContext,
-): Promise<MergeAssembly> {
-  try {
-    if (!(prepared instanceof PreparedMergeZone)) throw new ClientError("CLIENT_INVALID_MERGE");
-    validateMergeMaterial(prepared, material);
-    const proofs = await indexer.getInputMerkleProofs(
-      prepared.inputUtxoHashes(),
-      undefined,
-      context,
-    );
-    return assembleMergeRailUnchecked(prepared, material, proofs, tree, prepared.zoneProgramId);
-  } catch (cause) {
-    throw fromClientCause(cause);
-  }
-}
-
-export function assembleMergeZoneWithProofs(
-  prepared: PreparedMergeZone,
-  material: MergeMaterialInput,
-  proofs: readonly SpendProof[],
-  tree: Address,
-): MergeAssembly {
-  try {
-    if (!(prepared instanceof PreparedMergeZone)) throw new ClientError("CLIENT_INVALID_MERGE");
-    // The zone binding check lives on the hash accessor the proof-fetching entry
-    // point calls; run it here too so both paths reject an unbound input.
-    prepared.inputUtxoHashes();
-    return assembleMergeRailUnchecked(prepared, material, proofs, tree, prepared.zoneProgramId);
-  } catch (cause) {
-    throw fromClientCause(cause);
-  }
-}
-
-/**
- * Shared body of the four entry points. Unchecked only in that the caller has
- * already established which rail `prepared` belongs to; the material is still
- * validated here, so the entry points that fetch proofs validate twice on
- * purpose, to fail before the indexer round trip.
- */
-function assembleMergeRailUnchecked(
+function assembleMergeUnchecked(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
   proofs: readonly SpendProof[],
   tree: Address,
-  zoneProgramId?: Address,
 ): MergeAssembly {
   validateMergeMaterial(prepared, material);
   const realInputs = prepared.inputs.filter((input) => !input.isDummy());
@@ -263,8 +207,7 @@ function assembleMergeRailUnchecked(
     });
   }
   const externalDataHash = mergeExternalDataHash({
-    instructionTag:
-      zoneProgramId === undefined ? MERGE_INSTRUCTION_TAG : MERGE_ZONE_INSTRUCTION_TAG,
+    instructionTag: MERGE_INSTRUCTION_TAG,
     expiryUnixTs: prepared.expiryUnixTs,
     outputUtxoHash: outputHash,
     encryptedUtxo,
@@ -298,27 +241,15 @@ function assembleMergeRailUnchecked(
     bytesToBigInt(privateTxHash),
     bytesToBigInt(externalDataHash),
   ];
-  const zoneProgramField =
-    zoneProgramId === undefined ? 0n : hashField(addressBytes(zoneProgramId));
   const publicInputHash = bigintToBytes(
-    hashChain(
-      zoneProgramId === undefined
-        ? [
-            ...commonPublicInputs,
-            bytesToBigInt(prepared.signingPublicKey.ownerPublicKeyField()),
-            bytesToBigInt(ShieldedPublicKey.fromP256(prepared.userViewingPublicKey).hash()),
-            bytesToBigInt(contribution.txViewingPublicKeyLow),
-            bytesToBigInt(contribution.txViewingPublicKeyHigh),
-            bytesToBigInt(contribution.ciphertextHash),
-          ]
-        : [
-            ...commonPublicInputs,
-            bytesToBigInt(contribution.txViewingPublicKeyLow),
-            bytesToBigInt(contribution.txViewingPublicKeyHigh),
-            bytesToBigInt(contribution.ciphertextHash),
-            zoneProgramField,
-          ],
-    ),
+    hashChain([
+      ...commonPublicInputs,
+      bytesToBigInt(prepared.signingPublicKey.ownerPublicKeyField()),
+      bytesToBigInt(ShieldedPublicKey.fromP256(prepared.userViewingPublicKey).hash()),
+      bytesToBigInt(contribution.txViewingPublicKeyLow),
+      bytesToBigInt(contribution.txViewingPublicKeyHigh),
+      bytesToBigInt(contribution.ciphertextHash),
+    ]),
   ) as Bytes32;
   const proverInputs: MergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
@@ -339,7 +270,7 @@ function assembleMergeRailUnchecked(
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
     publicInputHash: asField(bytesToBigInt(publicInputHash)),
-    zoneProgramId: asField(zoneProgramField),
+    zoneProgramId: asField(0n),
   });
   const utxoTreeRootIndexes = Object.freeze(rootIndexes.map(([state]) => state));
   const nullifierTreeRootIndexes = Object.freeze(rootIndexes.map(([, nullifier]) => nullifier));
@@ -379,15 +310,6 @@ function assembleMergeRailUnchecked(
     txViewingPublicKey: encrypted.txViewingPublicKey,
     eddsaOwner,
     instructionData,
-    zoneInstructionData(
-      proof: MergeTransactInstructionData["proof"],
-      mergeViewTag: Bytes32,
-    ): Readonly<{ mergeViewTag: Bytes32; merge: MergeTransactInstructionData }> {
-      return Object.freeze({
-        mergeViewTag: checkedBytes(mergeViewTag, 32, "merge view tag"),
-        merge: instructionData(proof),
-      });
-    },
   });
 }
 

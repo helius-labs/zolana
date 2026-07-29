@@ -112,8 +112,7 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
-      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
-      --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so
     "$bin" config set --rpc-url {{localnet-rpc-url}} \
       --indexer-url {{localnet-photon-url}} --prover-url {{localnet-prover-url}} >/dev/null
     "$bin" wallet new --outfile "$workdir/authority.json"
@@ -134,8 +133,7 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
       ZOLANA_TREE="$tree" \
       ZOLANA_TEST_MINT="$mint" \
       ZOLANA_TEST_TOKEN_ACCOUNT="$token_account" \
-      ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" \
-      ZOLANA_ZONE_PROGRAM_ID="$ZONE_TEST_PROGRAM_ID" npm run test:ts:e2e
+      ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" npm run test:ts:e2e
 
 test-ts-all: test-ts test-ts-e2e
 

@@ -209,13 +209,11 @@ export interface ExternalData {
   withPublicSol(amount: bigint, userSolAccount: Address): ExternalData;
   /** Rust `ExternalData::with_public_spl`. A leg may be set once. */
   withPublicSpl(amount: bigint, userSplToken: Address, splTokenInterface: Address): ExternalData;
-  /** Rust `ExternalData::with_zone_hashes`. Both hashes are set together, once. */
-  withZoneHashes(dataHash: Bytes32, zoneDataHash: Bytes32): ExternalData;
 }
 
 /**
  * What a caller must supply, the counterpart of Rust `ExternalData::new`. The
- * public legs, the zone hashes, the expiry, the relayer fee, and the three
+ * public legs, optional hashes, the expiry, the relayer fee, and the three
  * accounts carry Rust's defaults, so a confidential transfer names only the
  * fields it actually has.
  */
@@ -305,10 +303,7 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   });
 }
 
-type ExternalDataFields = Omit<
-  ExternalData,
-  "hash" | "withPublicSol" | "withPublicSpl" | "withZoneHashes"
->;
+type ExternalDataFields = Omit<ExternalData, "hash" | "withPublicSol" | "withPublicSpl">;
 
 export function createExternalData(input: ExternalDataInit): ExternalData {
   const snapshot: ExternalDataFields = {
@@ -377,15 +372,6 @@ function sealExternalData(fields: ExternalDataFields): ExternalData {
         throw new TransactionError("TRANSACTION_PUBLIC_SPL_ALREADY_SET");
       }
       return set({ publicSplAmount: amount, userSplToken, splTokenInterface });
-    },
-    withZoneHashes: (dataHash: Bytes32, zoneDataHash: Bytes32): ExternalData => {
-      if (fields.dataHash !== undefined || fields.zoneDataHash !== undefined) {
-        throw new TransactionError("TRANSACTION_ZONE_HASHES_ALREADY_SET");
-      }
-      return set({
-        dataHash: checked<Bytes32>(dataHash, 32, "data hash"),
-        zoneDataHash: checked<Bytes32>(zoneDataHash, 32, "zone data hash"),
-      });
     },
   });
 }

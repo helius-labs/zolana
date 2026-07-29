@@ -31,11 +31,6 @@ export interface UtxoData {
   readonly data: Uint8Array;
 }
 
-export interface ZoneDepositInstructionData extends DepositInstructionData {
-  readonly zoneDataHash: Bytes32;
-  readonly zoneData: Uint8Array;
-}
-
 export interface DepositSplAccounts {
   readonly userToken: Address;
   readonly splTokenInterface: Address;
@@ -160,23 +155,4 @@ export interface MergeTransactInstructionData {
   readonly privateTxHash: Bytes32;
   readonly encryptedUtxo: Uint8Array;
   readonly eddsaOwner: boolean;
-}
-
-export interface MergeZoneInstructionData {
-  readonly mergeViewTag: Bytes32;
-  readonly merge: MergeTransactInstructionData;
-}
-
-export interface CreateZoneConfigData {
-  readonly programId: Address;
-  readonly authority: Address;
-  readonly zoneAuthorityTransactIsEnabled: boolean;
-}
-
-export interface UpdateZoneConfigOwnerData {
-  readonly newAuthority: Address;
-}
-
-export interface UpdateZoneConfigData {
-  readonly zoneAuthorityTransactIsEnabled: boolean;
 }

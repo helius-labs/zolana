@@ -1,11 +1,9 @@
 import type {
   Address,
   Bytes32,
-  CreateZoneConfigData,
   DepositInstructionData,
   InputUtxo,
   MergeTransactInstructionData,
-  MergeZoneInstructionData,
   OwnerTag,
   ProtocolConfigAccount,
   SplAssetCounterAccount,
@@ -13,10 +11,7 @@ import type {
   TransactInstructionData,
   TransactOutput,
   TransactProof,
-  UpdateZoneConfigData,
-  UpdateZoneConfigOwnerData,
   ZoneConfigAccount,
-  ZoneDepositInstructionData,
 } from "../types.js";
 import { MERGE_ENCRYPTED_UTXO_LENGTH, MERGE_INPUT_COUNT } from "../constants.js";
 import type { AddressTreeParams } from "../program.js";
@@ -24,7 +19,6 @@ import { StateDiscriminator } from "../state.js";
 import {
   Reader,
   Writer,
-  addressBytes,
   copyBytes,
   encodeBase58,
   fail,
@@ -67,28 +61,6 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
 
 export function encodeDepositInstructionData(value: DepositInstructionData): Uint8Array {
   return encoded(value, writeDepositData);
-}
-
-function writeZoneDepositData(writer: Writer, value: ZoneDepositInstructionData): void {
-  writer
-    .bytes(value.viewTag, 32, "viewTag")
-    .bytes(value.owner, 32, "owner")
-    .bytes(value.blinding, 31, "blinding")
-    .u64(value.amount, "amount")
-    .bytes(value.zoneDataHash, 32, "zoneDataHash");
-  byteVector(writer, value.zoneData, "zoneData");
-  writer
-    .option(value.utxoData, (output, data) => {
-      output.bytes(data.dataHash, 32, "utxoData.dataHash");
-      byteVector(output, data.data, "utxoData.data");
-    })
-    .option(value.memo, (output, memo) => {
-      byteVector(output, memo, "memo");
-    });
-}
-
-export function encodeZoneDepositInstructionData(value: ZoneDepositInstructionData): Uint8Array {
-  return encoded(value, writeZoneDepositData);
 }
 
 export function encodeAddressTreeParams(value: AddressTreeParams): Uint8Array {
@@ -230,17 +202,6 @@ export function encodeMergeTransactInstructionData(
   return encoded(value, writeMergeData, 668);
 }
 
-export function encodeMergeZoneInstructionData(value: MergeZoneInstructionData): Uint8Array {
-  return encoded(
-    value,
-    (writer, input) => {
-      writer.bytes(input.mergeViewTag, 32, "mergeViewTag");
-      writeMergeData(writer, input.merge);
-    },
-    700,
-  );
-}
-
 export function mergeExternalDataHash(
   input: Readonly<{
     instructionTag: number;
@@ -266,35 +227,6 @@ export function mergeExternalDataHash(
   const digest = sha256(writer.finish());
   digest[0] = 0;
   return digest as Bytes32;
-}
-
-export function encodeCreateZoneConfigData(value: CreateZoneConfigData): Uint8Array {
-  return encoded(
-    value,
-    (writer, input) =>
-      writer
-        .bytes(addressBytes(input.programId, "programId"))
-        .bytes(addressBytes(input.authority, "authority"))
-        .bool(input.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled"),
-    65,
-  );
-}
-
-export function encodeUpdateZoneConfigOwnerData(value: UpdateZoneConfigOwnerData): Uint8Array {
-  return encoded(
-    value,
-    (writer, input) => writer.bytes(addressBytes(input.newAuthority, "newAuthority")),
-    32,
-  );
-}
-
-export function encodeUpdateZoneConfigData(value: UpdateZoneConfigData): Uint8Array {
-  return encoded(
-    value,
-    (writer, input) =>
-      writer.bool(input.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled"),
-    1,
-  );
 }
 
 function decodeAccount<T>(

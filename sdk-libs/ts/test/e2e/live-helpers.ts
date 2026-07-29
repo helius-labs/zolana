@@ -38,7 +38,6 @@ export interface LiveHarness {
   readonly mint: Address;
   readonly testTokenAccount: Address;
   readonly testAuthority: KeyPairSigner;
-  readonly zoneProgramId: Address;
 }
 
 function requiredEnv(name: string): string {
@@ -87,7 +86,6 @@ export async function liveHarness(): Promise<LiveHarness> {
   const mint = address(requiredEnv("ZOLANA_TEST_MINT"));
   const testTokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_ACCOUNT"));
   const testAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
-  const zoneProgramId = address(requiredEnv("ZOLANA_ZONE_PROGRAM_ID"));
   const client = await createZolanaClient({
     solanaRpcUrl: rpcUrl,
     indexerUrl,
@@ -107,7 +105,6 @@ export async function liveHarness(): Promise<LiveHarness> {
     mint,
     testTokenAccount,
     testAuthority,
-    zoneProgramId,
   };
 }
 

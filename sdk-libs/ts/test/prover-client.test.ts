@@ -102,7 +102,7 @@ describe("queued prover polling", () => {
 });
 
 describe("prover request routing", () => {
-  it("routes merge variants through their canonical circuit types", async () => {
+  it("routes merge through its canonical circuit type", async () => {
     const bodies: unknown[] = [];
     const redirects: (RequestRedirect | undefined)[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
@@ -115,9 +115,8 @@ describe("prover request routing", () => {
     const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
 
     await prover.proveMerge(mergeInputs());
-    await prover.proveMergeZone(mergeInputs());
 
-    expect(bodies).toMatchObject([{ circuitType: "merge" }, { circuitType: "merge-zone" }]);
-    expect(redirects).toEqual(["error", "error"]);
+    expect(bodies).toMatchObject([{ circuitType: "merge" }]);
+    expect(redirects).toEqual(["error"]);
   });
 });

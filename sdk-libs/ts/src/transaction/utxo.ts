@@ -347,21 +347,10 @@ export interface ProofOutputUtxo {
   ownerHash(): Bytes32;
   hash(): Bytes32;
   isDummy(): boolean;
-  withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo;
-  withZoneData(
-    zoneProgramId: Address,
-    zoneData: Uint8Array,
-    zoneDataHash: Bytes32,
-  ): ProofOutputUtxo;
-  /**
-   * Bind an output to policy-zone state when only its commitment hash belongs in
-   * the witness; the zone owes the owner the preimage under its own policy.
-   */
-  withZoneDataHash(zoneProgramId: Address, zoneDataHash: Bytes32): ProofOutputUtxo;
   withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo;
   /**
    * A memo rides in the recipient's note but no commitment covers it, so unlike
-   * the two data setters above it leaves `dataHash` alone.
+   * the data setter above it leaves `dataHash` alone.
    */
   withMemo(memo: Uint8Array): ProofOutputUtxo;
 }
@@ -427,24 +416,6 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
     },
     isDummy(): boolean {
       return input.ownerAddress === undefined;
-    },
-    withZoneProgramId(zoneProgramId: Address): ProofOutputUtxo {
-      return createProofOutput({ ...init, zoneProgramId });
-    },
-    withZoneData(
-      zoneProgramId: Address,
-      zoneData: Uint8Array,
-      zoneDataHash: Bytes32,
-    ): ProofOutputUtxo {
-      return createProofOutput({
-        ...init,
-        zoneProgramId,
-        zoneDataHash,
-        data: withDataRecord(data, { kind: "zoneData", bytes: zoneData }),
-      });
-    },
-    withZoneDataHash(zoneProgramId: Address, zoneDataHash: Bytes32): ProofOutputUtxo {
-      return createProofOutput({ ...init, zoneProgramId, zoneDataHash });
     },
     withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo {
       return createProofOutput({

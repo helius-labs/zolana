@@ -11,9 +11,6 @@ import type { AddressTreeParams } from "../program.js";
 import {
   type Address,
   type MergeTransactInstructionData,
-  type ZoneDepositInstructionData,
-  type Bytes31,
-  type Bytes32,
   type DepositInstructionData,
   type DepositSplAccounts,
   type TransactInstructionData,
@@ -26,18 +23,12 @@ import {
   splAssetCounterAddress,
   splAssetRegistryAddress,
   splAssetVaultAddress,
-  zoneAuthAddress,
 } from "../pda/index.js";
 import {
   encodeAddressTreeParams,
-  encodeCreateZoneConfigData,
   encodeDepositInstructionData,
   encodeMergeTransactInstructionData,
-  encodeMergeZoneInstructionData,
   encodeTransactInstructionData,
-  encodeUpdateZoneConfigData,
-  encodeUpdateZoneConfigOwnerData,
-  encodeZoneDepositInstructionData,
 } from "../codecs/index.js";
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
@@ -156,12 +147,8 @@ function depositAccounts(
   tree: Address,
   depositor: SignerAccount,
   spl?: DepositSplAccounts,
-  zoneAuthority?: Readonly<{ address: Address; signer: boolean }>,
 ): Meta[] {
   const accounts = [meta(tree, false, true), meta(depositor, true, true)];
-  if (zoneAuthority !== undefined) {
-    accounts.push(meta(zoneAuthority.address, zoneAuthority.signer, false));
-  }
   if (spl === undefined) {
     accounts.push(
       meta(SYSTEM_PROGRAM, false, false),
@@ -216,12 +203,8 @@ function transactAccounts(
   payer: SignerAccount,
   tree: Address,
   withdrawal?: TransactWithdrawal,
-  zoneAuthority?: Readonly<{ address: Address; signer: boolean }>,
 ): Meta[] {
   const accounts = [meta(payer, true, true), meta(tree, false, true)];
-  if (zoneAuthority !== undefined) {
-    accounts.push(meta(zoneAuthority.address, zoneAuthority.signer, false));
-  }
   accounts.push(...settlementAccounts(withdrawal));
   // System program for the forester-fee collection CPI and, on the native SOL
   // rail, public settlement.
@@ -333,136 +316,6 @@ export async function pauseTreeInstruction(
   );
 }
 
-export async function createZoneConfigInstruction(
-  input: Readonly<{
-    payer: SignerAccount;
-    programId: Address;
-    authority: Address;
-    zoneAuthorityTransactIsEnabled: boolean;
-  }>,
-): Promise<Instruction> {
-  const [[zoneAuthority], protocolConfig] = await Promise.all([
-    zoneAuthAddress(input.programId),
-    protocolConfigAddress(),
-  ]);
-  const payload = encodeCreateZoneConfigData(input);
-  return instruction(tagged(InstructionTag.createZoneConfig, payload), [
-    meta(input.payer, true, true),
-    meta(protocolConfig, false, false),
-    meta(zoneAuthority, true, true),
-    meta(SYSTEM_PROGRAM, false, false),
-  ]);
-}
-
-export function updateZoneConfigInstruction(
-  input: Readonly<{
-    authority: SignerAccount;
-    zoneConfig: Address;
-    zoneAuthorityTransactIsEnabled: boolean;
-  }>,
-): Instruction {
-  return instruction(tagged(InstructionTag.updateZoneConfig, encodeUpdateZoneConfigData(input)), [
-    meta(input.authority, true, false),
-    meta(input.zoneConfig, false, true),
-  ]);
-}
-
-export function updateZoneConfigOwnerInstruction(
-  input: Readonly<{
-    authority: SignerAccount;
-    zoneConfig: Address;
-    newAuthority: SignerAccount;
-  }>,
-): Instruction {
-  return instruction(
-    tagged(
-      InstructionTag.updateZoneConfigOwner,
-      encodeUpdateZoneConfigOwnerData({ newAuthority: accountAddress(input.newAuthority) }),
-    ),
-    [
-      meta(input.authority, true, false),
-      meta(input.zoneConfig, false, true),
-      meta(input.newAuthority, true, false),
-    ],
-  );
-}
-
-export async function zoneDepositInstruction(
-  input: Readonly<{
-    tree: Address;
-    depositor: SignerAccount;
-    spl?: DepositSplAccounts;
-    viewTag: Bytes32;
-    owner: Bytes32;
-    blinding: Bytes31;
-    amount: bigint;
-    zoneProgramId: Address;
-    zoneDataHash: Bytes32;
-    zoneData: Uint8Array;
-    utxoData?: Readonly<{ dataHash: Bytes32; data: Uint8Array }>;
-    memo?: Uint8Array;
-    cpi?: boolean;
-  }>,
-): Promise<Instruction> {
-  const [zoneAuthority] = await zoneAuthAddress(input.zoneProgramId);
-  const data: ZoneDepositInstructionData = input;
-  return instruction(
-    tagged(InstructionTag.zoneDeposit, encodeZoneDepositInstructionData(data)),
-    depositAccounts(input.tree, input.depositor, input.spl, {
-      address: zoneAuthority,
-      signer: input.cpi === true,
-    }),
-    input.cpi === true ? SHIELDED_POOL_PROGRAM_ID : input.zoneProgramId,
-  );
-}
-
-type ZoneTransactInput = Readonly<{
-  payer: SignerAccount;
-  tree: Address;
-  zoneProgramId: Address;
-  withdrawal?: TransactWithdrawal;
-  data: TransactInstructionData;
-  cpi?: boolean;
-}>;
-
-async function buildZoneTransact(tag: number, input: ZoneTransactInput): Promise<Instruction> {
-  const [zoneAuthority] = await zoneAuthAddress(input.zoneProgramId);
-  return instruction(
-    tagged(tag, encodeTransactInstructionData(input.data)),
-    transactAccounts(input.payer, input.tree, input.withdrawal, {
-      address: zoneAuthority,
-      signer: input.cpi === true,
-    }),
-    input.cpi === true ? SHIELDED_POOL_PROGRAM_ID : input.zoneProgramId,
-  );
-}
-
-export function zoneTransactInstruction(
-  input: Readonly<{
-    payer: SignerAccount;
-    tree: Address;
-    zoneProgramId: Address;
-    withdrawal?: TransactWithdrawal;
-    data: TransactInstructionData;
-    cpi?: boolean;
-  }>,
-): Promise<Instruction> {
-  return buildZoneTransact(InstructionTag.zoneTransact, input);
-}
-
-export function zoneAuthorityTransactInstruction(
-  input: Readonly<{
-    payer: SignerAccount;
-    tree: Address;
-    zoneProgramId: Address;
-    withdrawal?: TransactWithdrawal;
-    data: TransactInstructionData;
-    cpi?: boolean;
-  }>,
-): Promise<Instruction> {
-  return buildZoneTransact(InstructionTag.zoneAuthorityTransact, input);
-}
-
 export function mergeTransactInstruction(
   input: Readonly<{
     tree: Address;
@@ -480,35 +333,5 @@ export function mergeTransactInstruction(
       meta(SYSTEM_PROGRAM, false, false),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     ],
-  );
-}
-
-export async function mergeZoneInstruction(
-  input: Readonly<{
-    tree: Address;
-    zoneProgramId: Address;
-    payer: SignerAccount;
-    data: MergeTransactInstructionData;
-    mergeViewTag: Bytes32;
-    cpi?: boolean;
-  }>,
-): Promise<Instruction> {
-  const [authority] = await zoneAuthAddress(input.zoneProgramId);
-  return instruction(
-    tagged(
-      InstructionTag.zoneMergeTransact,
-      encodeMergeZoneInstructionData({
-        mergeViewTag: input.mergeViewTag,
-        merge: input.data,
-      }),
-    ),
-    [
-      meta(input.tree, false, true),
-      meta(authority, input.cpi === true, false),
-      meta(input.payer, true, true),
-      meta(SYSTEM_PROGRAM, false, false),
-      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
-    ],
-    input.cpi === true ? SHIELDED_POOL_PROGRAM_ID : input.zoneProgramId,
   );
 }

@@ -17,7 +17,7 @@ import {
 import { type AssetRegistry } from "../wallet/asset.js";
 import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
 
-/** Padded input count of both merge rails, the counterpart of Rust `MERGE_INPUTS`. */
+/** Padded input count of the merge circuit, the counterpart of Rust `MERGE_INPUTS`. */
 export const MERGE_INPUTS = 8;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
@@ -89,15 +89,6 @@ function hasData(input: ProofInputUtxo): boolean {
   return (
     input.dataHash !== undefined || input.zoneDataHash !== undefined || !input.utxo.data.isEmpty()
   );
-}
-
-/**
- * An input carrying program-controlled UTXO data. A policy zone authorizes its own
- * data's transition before the merge, so `zoneDataHash` stays consumable there
- * while `utxoData` never is.
- */
-function hasUtxoData(input: ProofInputUtxo): boolean {
-  return input.dataHash !== undefined || input.utxo.data.utxoData() !== undefined;
 }
 
 /**
@@ -204,118 +195,6 @@ export class Merge {
     });
     return this;
   }
-}
-
-export class PreparedMergeZone extends PreparedMerge {
-  readonly zoneProgramId: Address;
-
-  constructor(
-    input: ConstructorParameters<typeof PreparedMerge>[0] & Readonly<{ zoneProgramId: Address }>,
-  ) {
-    super(input);
-    this.zoneProgramId = input.zoneProgramId;
-  }
-
-  // Rust re-checks only the data policy here; the zone binding is the builder's
-  // rule, and `validateMergeZoneInputs` stays available for callers that want it.
-  override inputUtxoHashes(): readonly InputUtxoContext[] {
-    return realInputContexts(this.inputs, hasUtxoData);
-  }
-}
-
-export class MergeZone {
-  #prepared: PreparedMergeZone;
-
-  constructor(
-    keypair: ShieldedKeypair,
-    inputs: readonly ProofInputUtxo[],
-    zoneProgramId: Address,
-    outputZoneDataHash?: Bytes32,
-  ) {
-    if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (inputs.length > MERGE_INPUTS) {
-      throw new TransactionError("TRANSACTION_TOO_MANY_INPUTS", {
-        got: inputs.length,
-        max: MERGE_INPUTS,
-      });
-    }
-    const owner = keypair.signingPublicKey();
-    const asset = inputs[0]?.utxo.asset;
-    if (asset === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    const expectedNullifierKey = keypair.nullifierKey().publicKey();
-    let amount = 0n;
-    inputs.forEach((input, index) => {
-      if (input.utxo.owner.signatureType() !== owner.signatureType()) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_RAIL_MISMATCH", { index });
-      }
-      if (!equal(input.utxo.owner.toBytes(), owner.toBytes())) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_OWNER_MISMATCH", { index });
-      }
-      if (!equal(input.nullifierKey.publicKey(), expectedNullifierKey)) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH", { index });
-      }
-      if (input.utxo.asset !== asset) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
-      }
-      if (input.utxo.zoneProgramId !== zoneProgramId) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_ZONE_MISMATCH", { index });
-      }
-      if (input.dataHash !== undefined || input.utxo.data.utxoData() !== undefined) {
-        throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
-      }
-      amount += input.utxo.amount;
-      if (amount > 0xffff_ffff_ffff_ffffn) {
-        throw new TransactionError("TRANSACTION_SELECTED_BALANCE_OVERFLOW");
-      }
-    });
-    const padded = [...inputs];
-    while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy());
-    const secret = new Uint8Array(32);
-    secret.set(random31(), 1);
-    this.#prepared = new PreparedMergeZone({
-      inputs: padded,
-      output: createProofOutput({
-        ownerAddress: keypair.shieldedAddress(),
-        asset,
-        amount,
-        zoneProgramId,
-        ...(outputZoneDataHash === undefined ? {} : { zoneDataHash: outputZoneDataHash }),
-      }),
-      expiryUnixTs: 0xffff_ffff_ffff_ffffn,
-      signingPublicKey: owner,
-      userViewingPublicKey: keypair.viewingPublicKey(),
-      txViewingSecret: secret as Bytes32,
-      zoneProgramId,
-    });
-  }
-
-  prepare(): PreparedMergeZone {
-    return this.#prepared;
-  }
-
-  withExpiry(expiryUnixTs: bigint): this {
-    this.#prepared = new PreparedMergeZone({
-      inputs: this.#prepared.inputs,
-      output: this.#prepared.output,
-      expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
-      signingPublicKey: this.#prepared.signingPublicKey,
-      userViewingPublicKey: this.#prepared.userViewingPublicKey,
-      txViewingSecret: this.#prepared.txViewingSecret,
-      zoneProgramId: this.#prepared.zoneProgramId,
-    });
-    return this;
-  }
-}
-
-export function validateMergeZoneInputs(
-  inputs: readonly ProofInputUtxo[],
-  zoneProgramId: Address,
-): void {
-  inputs.forEach((input, index) => {
-    if (!input.isDummy() && input.utxo.zoneProgramId !== zoneProgramId) {
-      throw new TransactionError("TRANSACTION_MERGE_INPUT_ZONE_MISMATCH", { index });
-    }
-  });
 }
 
 export class ConfidentialSplit {

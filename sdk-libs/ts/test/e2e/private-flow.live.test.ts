@@ -1,13 +1,10 @@
-import { AccountRole, type Instruction } from "@solana/kit";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   ClientError,
-  SHIELDED_POOL_PROGRAM_ID,
   SOL_MINT,
   ShieldedKeypair,
   Wallet,
-  WalletError,
   createZolanaClient,
   deposit,
   deserializeWallet,
@@ -19,24 +16,12 @@ import {
   syncWallet,
   transfer,
   withdraw,
-  type Bytes31,
   type Bytes32,
   type SubmittedPrivateTransaction,
   type TransactionSignOnlySigner,
   type WalletAuthority,
 } from "../../src/index.js";
-import {
-  getAssociatedTokenAddress,
-  getSplAssetVaultAddress,
-  getZoneConfigAddress,
-} from "../../src/addresses.js";
-import {
-  getCreateZoneConfigInstructionAsync,
-  getUpdateZoneConfigInstruction,
-  getUpdateZoneConfigOwnerInstruction,
-  getZoneDepositInstructionAsync,
-} from "../../src/instructions.js";
-import { decodeZoneConfig } from "../../src/interface/accounts.js";
+import { getAssociatedTokenAddress, getSplAssetVaultAddress } from "../../src/addresses.js";
 import type { ZolanaClient } from "../../src/client/client.js";
 import type { WalletUtxo } from "../../src/transaction/wallet/state.js";
 import { fetchUserRecordChecked } from "../../src/wallet/registry.js";
@@ -704,121 +689,4 @@ describe.sequential("live SDK lifecycle", () => {
     expect(restored.balance(SOL_MINT).amount).toBe(40_000_000n);
     assertUniqueWalletState(restored);
   }, 1_200_000);
-
-  it("covers the supported conditional zone lifecycle", async () => {
-    const owner = await actor(131);
-    const nextAuthority = await actor(132);
-    await fund(harness.client, owner);
-    const [zoneConfigAddress] = await getZoneConfigAddress(harness.zoneProgramId);
-    const inner = await getCreateZoneConfigInstructionAsync({
-      payer: harness.testAuthority,
-      programId: harness.zoneProgramId,
-      authority: owner.signer.address,
-      zoneAuthorityTransactIsEnabled: true,
-    });
-    if (inner.accounts === undefined) throw new Error("zone config instruction has no accounts");
-    if (inner.data === undefined) throw new Error("zone config instruction has no data");
-    const outer: Instruction = {
-      programAddress: harness.zoneProgramId,
-      accounts: [
-        ...inner.accounts.map((account) =>
-          account.address === zoneConfigAddress
-            ? { address: account.address, role: AccountRole.WRITABLE }
-            : account,
-        ),
-        { address: SHIELDED_POOL_PROGRAM_ID, role: AccountRole.READONLY },
-      ],
-      data: inner.data,
-    };
-    await harness.client.signAndSendInstructions({
-      feePayer: harness.testAuthority,
-      instructions: [outer],
-    });
-
-    const created = await harness.client.getAccount(zoneConfigAddress);
-    if (created === undefined) throw new Error("zone config was not created");
-    expect(decodeZoneConfig(created.data)).toMatchObject({
-      programId: harness.zoneProgramId,
-      authority: owner.signer.address,
-      zoneAuthorityTransactIsEnabled: true,
-    });
-
-    await harness.client.signAndSendInstructions({
-      feePayer: owner.signer,
-      instructions: [
-        getUpdateZoneConfigInstruction({
-          authority: owner.signer,
-          zoneConfig: zoneConfigAddress,
-          zoneAuthorityTransactIsEnabled: false,
-        }),
-      ],
-    });
-    const updated = await harness.client.getAccount(zoneConfigAddress);
-    if (updated === undefined) throw new Error("zone config disappeared");
-    expect(decodeZoneConfig(updated.data).zoneAuthorityTransactIsEnabled).toBe(false);
-
-    await harness.client.signAndSendInstructions({
-      feePayer: owner.signer,
-      instructions: [
-        getUpdateZoneConfigOwnerInstruction({
-          authority: owner.signer,
-          zoneConfig: zoneConfigAddress,
-          newAuthority: nextAuthority.signer,
-        }),
-      ],
-    });
-    const rotated = await harness.client.getAccount(zoneConfigAddress);
-    if (rotated === undefined) throw new Error("zone config disappeared");
-    expect(decodeZoneConfig(rotated.data).authority).toBe(nextAuthority.signer.address);
-
-    await harness.client.signAndSendInstructions({
-      feePayer: owner.signer,
-      instructions: [
-        getUpdateZoneConfigInstruction({
-          authority: nextAuthority.signer,
-          zoneConfig: zoneConfigAddress,
-          zoneAuthorityTransactIsEnabled: true,
-        }),
-      ],
-    });
-    const reenabled = await harness.client.getAccount(zoneConfigAddress);
-    if (reenabled === undefined) throw new Error("zone config disappeared");
-    expect(decodeZoneConfig(reenabled.data).zoneAuthorityTransactIsEnabled).toBe(true);
-
-    const shielded = owner.keypair.shieldedAddress();
-    const viewTag = shielded.confidentialViewTag();
-    const zoneDeposit = await getZoneDepositInstructionAsync({
-      tree: harness.tree,
-      depositor: owner.signer,
-      viewTag,
-      owner: shielded.ownerHash(),
-      blinding: new Uint8Array(31).fill(7) as Bytes31,
-      amount: 10_000_000n,
-      zoneProgramId: harness.zoneProgramId,
-      zoneDataHash: new Uint8Array(32) as Bytes32,
-      zoneData: new Uint8Array(),
-    });
-    const signature = await harness.client.signAndSendInstructions({
-      feePayer: owner.signer,
-      instructions: [zoneDeposit],
-    });
-    await harness.client.confirmPrivateTransaction(signature, [viewTag]);
-    await sync(harness.client, owner);
-    expect(owner.wallet.balance(SOL_MINT).amount).toBe(10_000_000n);
-    expect(unspent(owner)[0]?.utxo.zoneProgramId).toBe(harness.zoneProgramId);
-
-    await expect(
-      withdraw({
-        client: harness.client,
-        wallet: owner.wallet,
-        authority: owner.authority,
-        feePayer: owner.signer,
-        recipient: owner.signer.address,
-        amount: 1n,
-      }),
-    ).rejects.toMatchObject({
-      name: WalletError.name,
-      code: "WALLET_INSUFFICIENT_BALANCE",
-    });
-  }, 300_000);
 });

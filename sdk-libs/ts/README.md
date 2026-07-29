@@ -106,6 +106,10 @@ requests. Signer accounts accept Kit `TransactionSigner` objects, so their
 signers are carried into the transaction message automatically; an `Address`
 can still be supplied for offline or externally signed flows.
 
+Policy-zone instructions and proving are not exposed by the TypeScript SDK.
+Zone metadata is still decoded and persisted for protocol compatibility, while
+wallet actions select only unbound notes.
+
 `syncWallet` returns `complete: false` if its configured round bound is reached
 while discovery is still advancing; call it again to continue. Use
 `serializeWallet` and `deserializeWallet` to persist resumable wallet state.

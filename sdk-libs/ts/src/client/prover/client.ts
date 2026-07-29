@@ -79,10 +79,6 @@ export class ProverClient {
     return this.#send(JSON.stringify(mergeProverRequest(inputs)), true, context);
   }
 
-  async proveMergeZone(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(mergeProverRequest(inputs, "merge-zone")), true, context);
-  }
-
   async #send(body: string, p256: boolean, context?: RequestContext): Promise<Proof> {
     const signal = composeSignal(context, "prove");
     try {
@@ -232,12 +228,9 @@ export class ProverClient {
   }
 }
 
-function mergeProverRequest(
-  inputs: MergeInputs,
-  circuitType: "merge" | "merge-zone" = "merge",
-): Readonly<Record<string, unknown>> {
+function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    circuitType,
+    circuitType: "merge",
     inputs: inputs.inputs.map(inputJson),
     output: outputJson(inputs.output),
     p256PubX: hex(inputs.p256PublicKeyX),

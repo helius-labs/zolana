@@ -2,9 +2,7 @@ export {
   ConfidentialSplit,
   MERGE_INPUTS,
   Merge,
-  MergeZone,
   PreparedMerge,
-  PreparedMergeZone,
   PreparedSplit,
 } from "./builders.js";
 export {

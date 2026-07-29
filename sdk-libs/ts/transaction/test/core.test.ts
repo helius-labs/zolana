@@ -310,11 +310,20 @@ describe("transaction core", () => {
       amount: 42n,
       blinding,
     });
-    expect(output.withZoneDataHash(ZONE, ZERO_HASH()).zoneDataHash).toBeUndefined();
     expect(
-      output.withZoneData(ZONE, Uint8Array.of(1, 2), ZERO_HASH()).zoneDataHash,
+      createProofOutput({ ...output, zoneProgramId: ZONE, zoneDataHash: ZERO_HASH() }).zoneDataHash,
     ).toBeUndefined();
-    expect(output.withZoneProgramId(ZERO_ADDRESS).hash()).not.toEqual(output.hash());
+    expect(
+      createProofOutput({
+        ...output,
+        zoneProgramId: ZONE,
+        zoneDataHash: ZERO_HASH(),
+        data: new Data([{ kind: "zoneData", bytes: Uint8Array.of(1, 2) }]),
+      }).zoneDataHash,
+    ).toBeUndefined();
+    expect(createProofOutput({ ...output, zoneProgramId: ZERO_ADDRESS }).hash()).not.toEqual(
+      output.hash(),
+    );
   });
 
   // The commitment is the one hashing path Rust drives through `light_poseidon`

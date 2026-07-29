@@ -2,7 +2,6 @@ export { ZolanaClient } from "./client.js";
 export type {
   MergeMaterialInput,
   ProvedMerge,
-  ProvedMergeZone,
   SignedPrivateTransaction,
   SubmittedPrivateTransaction,
   ZolanaClientConfig,

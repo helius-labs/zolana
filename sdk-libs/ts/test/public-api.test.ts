@@ -12,16 +12,11 @@ import {
   setMergingEnabled,
 } from "../src/index.js";
 import type { ZolanaClient } from "../src/client/client.js";
-import {
-  getProtocolConfigAddress,
-  getSplAssetRegistryAddress,
-  getZoneConfigAddress,
-} from "../src/addresses.js";
+import { getProtocolConfigAddress, getSplAssetRegistryAddress } from "../src/addresses.js";
 import { getCreateTreeInstructionAsync, getDepositInstruction } from "../src/instructions.js";
 import { InstructionTag, type Bytes31, type Bytes32 } from "../src/interface/index.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
-const ZONE = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
 const SIGNATURE = "1".repeat(64) as Signature;
 
 describe("public package surface", () => {
@@ -36,6 +31,8 @@ describe("public package surface", () => {
     expect(client.solanaRpc).toBeDefined();
     expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
+    expect("proveMergeZone" in client).toBe(false);
+    expect("finishMergeZoneSubmissionUnsigned" in client).toBe(false);
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {
@@ -45,6 +42,26 @@ describe("public package surface", () => {
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
     expect(SHIELDED_POOL_PROGRAM_ID).toBe("sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA");
     expect(USER_REGISTRY_PROGRAM_ID).toBe("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
+  });
+
+  it("does not expose partial zone builders", async () => {
+    const [addresses, instructions, protocol, transaction] = await Promise.all([
+      import("../src/addresses.js"),
+      import("../src/instructions.js"),
+      import("../src/interface/index.js"),
+      import("../src/transaction/index.js"),
+    ]);
+    expect(addresses).not.toHaveProperty("getZoneConfigAddress");
+    expect(instructions).not.toHaveProperty("getCreateZoneConfigInstructionAsync");
+    expect(instructions).not.toHaveProperty("getUpdateZoneConfigInstruction");
+    expect(instructions).not.toHaveProperty("getUpdateZoneConfigOwnerInstruction");
+    expect(instructions).not.toHaveProperty("getZoneDepositInstructionAsync");
+    expect(instructions).not.toHaveProperty("getZoneTransactInstructionAsync");
+    expect(instructions).not.toHaveProperty("getZoneAuthorityTransactInstructionAsync");
+    expect(instructions).not.toHaveProperty("getMergeZoneInstructionAsync");
+    expect(transaction).not.toHaveProperty("MergeZone");
+    expect(transaction).not.toHaveProperty("PreparedMergeZone");
+    expect(protocol.decodeZoneConfig).toBeTypeOf("function");
   });
 
   it("builds the merging opt-in with the owner signer", async () => {
@@ -73,14 +90,12 @@ describe("public package surface", () => {
 });
 
 describe("address and instruction builders", () => {
-  it("derives protocol and zone addresses without RPC calls", async () => {
-    const [protocol, registry, zoneConfig] = await Promise.all([
+  it("derives protocol addresses without RPC calls", async () => {
+    const [protocol, registry] = await Promise.all([
       getProtocolConfigAddress(),
       getSplAssetRegistryAddress(OWNER),
-      getZoneConfigAddress(ZONE),
     ]);
-    expect(new Set([protocol, registry, zoneConfig[0]]).size).toBe(3);
-    expect(zoneConfig[1]).toBeTypeOf("number");
+    expect(protocol).not.toBe(registry);
   });
 
   it("uses Kit account roles and canonical program addresses", async () => {

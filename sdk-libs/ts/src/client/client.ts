@@ -18,7 +18,6 @@ import {
 import { ZolanaApi } from "../api/index.js";
 import {
   mergeTransactInstruction,
-  mergeZoneInstruction,
   transactInstruction,
   type MergeTransactInstructionData,
 } from "../interface/instructions/index.js";
@@ -32,7 +31,7 @@ import type {
 } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
-import { PreparedMerge, PreparedMergeZone } from "../transaction/instructions/builders.js";
+import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
 
 import { ClientError, fromClientCause, isClientError } from "./error.js";
@@ -52,7 +51,7 @@ import {
 } from "./kit.js";
 import { assemble } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig } from "./prover/client.js";
-import { assembleMerge, assembleMergeZone } from "./prover/merge.js";
+import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
 import { DEFAULT_INDEXER_RPC_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
 import {
@@ -104,10 +103,6 @@ export interface MergeMaterialInput {
 export interface ProvedMerge {
   readonly data: MergeTransactInstructionData;
   readonly outputHash: Bytes32;
-}
-
-export interface ProvedMergeZone extends ProvedMerge {
-  readonly zoneProgramId: Address;
 }
 
 export class ZolanaClient {
@@ -475,43 +470,6 @@ export class ZolanaClient {
     });
   }
 
-  async proveMergeZone(
-    input: Readonly<{
-      prepared: PreparedMergeZone;
-      material: MergeMaterialInput;
-      indexer?: Pick<ZolanaClient, "getInputMerkleProofs">;
-    }>,
-    context?: RequestContext,
-  ): Promise<ProvedMergeZone> {
-    const candidate: unknown = input;
-    if (typeof candidate !== "object" || candidate === null) {
-      throw new ClientError("CLIENT_INVALID_MERGE");
-    }
-    const assembled = await assembleMergeZone(
-      input.prepared,
-      input.material,
-      input.indexer ?? this,
-      this.tree,
-      context,
-    );
-    const compressed = compressProof(
-      await this.#prover.proveMergeZone(assembled.proverInputs, context),
-    );
-    const commitment = compressed.commitment;
-    if (!commitment) throw new ClientError("CLIENT_MERGE_PROOF_COMMITMENT");
-    return Object.freeze({
-      data: assembled.instructionData({
-        a: compressed.a,
-        b: compressed.b,
-        c: compressed.c,
-        commitment: commitment.commitment,
-        commitmentPok: commitment.commitmentPok,
-      }),
-      outputHash: new Uint8Array(assembled.outputHash) as Bytes32,
-      zoneProgramId: input.prepared.zoneProgramId,
-    });
-  }
-
   async finishMergeSubmissionUnsigned(
     input: Readonly<{
       proved: ProvedMerge;
@@ -538,42 +496,6 @@ export class ZolanaClient {
       tree: this.tree,
       feePayer: input.feePayer,
       userRecord: input.userRecord,
-      lifetime,
-      data: proved.data,
-    });
-  }
-
-  async finishMergeZoneSubmissionUnsigned(
-    input: Readonly<{
-      proved: ProvedMergeZone;
-      feePayer: Address;
-      zoneProgramId: Address;
-      mergeViewTag: Bytes32;
-    }>,
-    context?: RequestContext,
-  ): Promise<Transaction> {
-    const candidate: unknown = input;
-    const proved =
-      typeof candidate === "object" && candidate !== null
-        ? (candidate as Record<string, unknown>)["proved"]
-        : undefined;
-    if (!isProvedMergeZone(proved) || proved.zoneProgramId !== input.zoneProgramId) {
-      throw new ClientError("CLIENT_INVALID_MERGE");
-    }
-    if (!equal(proved.outputHash, proved.data.outputUtxoHash)) {
-      throw new ClientError("CLIENT_MERGE_OUTPUT_MISMATCH");
-    }
-    checkedAddress(input.feePayer, "feePayer");
-    checkedAddress(input.zoneProgramId, "zoneProgramId");
-    if (!(input.mergeViewTag instanceof Uint8Array) || input.mergeViewTag.length !== 32) {
-      throw new ClientError("CLIENT_INVALID_MERGE");
-    }
-    const lifetime = await this.getLatestBlockhash(context);
-    return await buildUnsignedMergeZoneTransaction({
-      tree: this.tree,
-      feePayer: input.feePayer,
-      zoneProgramId: input.zoneProgramId,
-      mergeViewTag: input.mergeViewTag,
       lifetime,
       data: proved.data,
     });
@@ -820,36 +742,6 @@ export function buildUnsignedMergeTransaction(
   );
 }
 
-export async function buildUnsignedMergeZoneTransaction(
-  input: Readonly<{
-    tree: Address;
-    feePayer: Address;
-    zoneProgramId: Address;
-    mergeViewTag: Bytes32;
-    lifetime: LatestBlockhash;
-    data: MergeTransactInstructionData;
-  }>,
-): Promise<Transaction> {
-  checkedAddress(input.tree, "tree");
-  checkedAddress(input.feePayer, "feePayer");
-  checkedAddress(input.zoneProgramId, "zoneProgramId");
-  if (!(input.mergeViewTag instanceof Uint8Array) || input.mergeViewTag.length !== 32) {
-    throw new ClientError("CLIENT_INVALID_MERGE");
-  }
-  return checkedTransactionSize(
-    compileKitTransaction(input.feePayer, input.lifetime, [
-      getSetComputeUnitLimitInstruction({ units: 1_400_000 }),
-      await mergeZoneInstruction({
-        tree: input.tree,
-        zoneProgramId: input.zoneProgramId,
-        payer: input.feePayer,
-        data: input.data,
-        mergeViewTag: input.mergeViewTag,
-      }),
-    ]),
-  );
-}
-
 function compileKitTransaction(
   feePayer: Address,
   lifetime: LatestBlockhash,
@@ -979,12 +871,6 @@ function isProvedMerge(value: unknown): value is ProvedMerge {
     outputHash.length === 32 &&
     dataOutputHash instanceof Uint8Array &&
     dataOutputHash.length === 32
-  );
-}
-
-function isProvedMergeZone(value: unknown): value is ProvedMergeZone {
-  return (
-    isProvedMerge(value) && "zoneProgramId" in value && typeof value.zoneProgramId === "string"
   );
 }
 

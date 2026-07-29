@@ -50,13 +50,6 @@ export async function splAssetVaultAddress(mint: Address): Promise<Address> {
   return (await derive("spl_asset_vault", mint))[0];
 }
 
-export function zoneAuthAddress(zoneProgram: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: zoneProgram,
-    seeds: [encoder.encode("zone_auth")],
-  });
-}
-
 export async function associatedTokenAddress(owner: Address, mint: Address): Promise<Address> {
   return (
     await findAssociatedTokenPda({
