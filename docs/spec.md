@@ -1637,10 +1637,12 @@ enum OutputDataEncoding {
     /// Opaque to SPP: a client-serialized [encrypted transfer](#transfer-2) or
     /// [plaintext transfer](#plaintext-transfer) blob.
     Encrypted(Vec<u8>),
-    /// Legacy wrapper for historical merge ciphertexts. The merge is now
-    /// ciphertext-free (see [`merge_transact`](#merge_transact)) and no current
-    /// instruction emits this variant; it remains so wallets can recognize
-    /// legacy merge outputs on sync and skip their undecodable payloads.
+    /// Verifiably-encrypted payload: ciphertext whose well-formedness is
+    /// proven in-circuit. No current instruction emits this variant (the
+    /// merge is ciphertext-free, see [`merge_transact`](#merge_transact));
+    /// it is reserved for upcoming auditor encryption flows (custom rings
+    /// with auditor), where the output must be provably decryptable by the
+    /// auditor.
     VerifiablyEncrypted(Vec<u8>),
 }
 
