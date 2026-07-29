@@ -30,6 +30,11 @@ The measured full-path duals clear the 10% gate. BatchTransact N=2 saves 13.6%
 and NullifierTreeMany N=2 saves 22.5% (`just bench-batch-dual`). Both paths are
 recommended for same-vk N of two or more.
 
+Operators with volume go further: the [two-phase queue](./two-phase.md)
+(enqueue, verify once, apply in slices) removes the packet bound and saves a
+measured 27.6% at N=8 and 30.3% at N=16 end to end, 39% to 42% on the
+contended tree accounts.
+
 ## When batching does not help
 
 Mixed-key k=2 (one app policy proof plus one SPP transfer) measures worse than a

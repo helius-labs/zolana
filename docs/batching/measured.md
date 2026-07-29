@@ -33,6 +33,17 @@ to the measured 773-byte wallet entry. Their rows are a 4096 size simulation:
 the CU is measured, the packet does not exist yet. The nullifier updates use
 zkp batch 10 (`batch_address-append_40_10.key`).
 
+### Two-phase operator queue ([two-phase.md](./two-phase.md))
+
+| N | Legacy CU | Two-phase total | Saved | Hot path | Hot saved |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 1233588 | 892955 | 27.6% | 750369 | 39.2% |
+| 16 | 2468036 | 1720717 | 30.3% | 1436520 | 41.8% |
+
+The total includes create, enqueues, and close. The hot path is execute plus
+applies, the CU on the contended tree accounts. The queue removes the packet
+bound on the batch size, so these rows need no size simulation.
+
 ### Mixed-key k=2, app plus SPP: no boost
 
 | Use case | Legacy CU | Batch CU | Delta | Status |
