@@ -245,7 +245,7 @@ pub struct BatchSubmission {
 /// one `BatchTransact` transaction when it fits a packet, else one solo
 /// `Transact` transaction per entry. The authority approves the batch once
 /// through `request_batch_approval` before any entry signs.
-pub fn build_batch_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
+pub fn build_batch_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + Sync>(
     entries: Vec<UnsignedPrivateTransaction>,
     wallet: &Wallet,
     authority: &A,
@@ -257,6 +257,14 @@ pub fn build_batch_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: 
     }
     let input_tree = entries[0].tree;
     let expected_payer_hash = sha256_be(&fee_payer.to_bytes());
+    for (index, entry) in entries.iter().enumerate() {
+        if !entry.settlement_transfers.is_empty() {
+            return Err(ClientError::BatchNotPureShielded { index });
+        }
+        if entry.tree != input_tree {
+            return Err(ClientError::BatchMixedTrees { index });
+        }
+    }
 
     // One approval covers the batch. Entries then sign preapproved.
     let requests = entries
@@ -268,22 +276,30 @@ pub fn build_batch_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: 
         .collect();
     authority.request_batch_approval(requests)?;
 
-    let mut proved = Vec::with_capacity(entries.len());
-    for (index, entry) in entries.into_iter().enumerate() {
-        if !entry.settlement_transfers.is_empty() {
-            return Err(ClientError::BatchNotPureShielded { index });
-        }
-        if entry.tree != input_tree {
-            return Err(ClientError::BatchMixedTrees { index });
-        }
-        let signed = futures::executor::block_on(sign_shielded_transaction_inner(
-            entry, wallet, authority, false,
-        ))?;
-        if signed.transaction.payer_pubkey_hash != expected_payer_hash {
-            return Err(ClientError::FeePayerMismatch);
-        }
-        proved.push(client.prove_signed_entry_sync(&signed)?);
-    }
+    // Entries are independent, so they sign and prove concurrently. The
+    // prover server handles the parallel requests over one loaded key. Join
+    // order equals entry order, so the result stays stable.
+    let proved = std::thread::scope(|scope| {
+        let handles: Vec<_> = entries
+            .into_iter()
+            .map(|entry| {
+                scope.spawn(move || -> Result<_, ClientError> {
+                    let signed = futures::executor::block_on(sign_shielded_transaction_inner(
+                        entry, wallet, authority, false,
+                    ))?;
+                    if signed.transaction.payer_pubkey_hash != expected_payer_hash {
+                        return Err(ClientError::FeePayerMismatch);
+                    }
+                    client.prove_signed_entry_sync(&signed)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("batch entry thread"))
+            .collect::<Result<Vec<_>, ClientError>>()
+    })?;
+
     let (blockhash, _) = client.rpc().get_latest_blockhash()?;
     let (transactions, batched) =
         client.build_batch_submission_unsigned_sync(fee_payer, input_tree, proved, blockhash)?;

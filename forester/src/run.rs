@@ -400,6 +400,8 @@ fn drain_once(
     let cap = limit
         .map(|limit| limit.min(snapshot.ready))
         .unwrap_or(snapshot.ready);
+    // Proofs stay sequential by construction: every update proves the root
+    // transition the previous update produced.
     let mut updates = Vec::with_capacity(cap as usize);
     for i in 0..cap {
         let zkp_index = snapshot.already_applied + i;

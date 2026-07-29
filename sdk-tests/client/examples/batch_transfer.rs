@@ -94,23 +94,43 @@ fn main() -> Result<()> {
         bob_keypair.shielded_address()?,
         carol_keypair.shielded_address()?,
     ];
-    let mut entries = Vec::with_capacity(recipients.len());
-    for (utxo, recipient) in utxos.iter().zip(recipients.iter()) {
-        let input = SppProofInputUtxo::new(utxo.clone(), &alice_keypair);
-        let mut transfer = ConfidentialTransfer::new(
-            alice_shielded_address,
-            vec![input],
-            alice_solana_keypair.pubkey(),
-        );
-        transfer.send(recipient, SOL_MINT, DEPOSIT_AMOUNT)?;
-        let proof_inputs = transfer.sign(&alice_keypair, &assets)?;
-        let entry = client.prove_transact(tree, proof_inputs, Some(IndexerRpcConfig::wait()))?;
+    // Entries are independent, so they prove concurrently.
+    let proving_started = std::time::Instant::now();
+    let entries = std::thread::scope(|scope| {
+        let handles: Vec<_> = utxos
+            .iter()
+            .zip(recipients.iter())
+            .map(|(utxo, recipient)| {
+                let client = &client;
+                let alice_keypair = &alice_keypair;
+                let assets = &assets;
+                let payer = alice_solana_keypair.pubkey();
+                scope.spawn(move || -> Result<_> {
+                    let input = SppProofInputUtxo::new(utxo.clone(), alice_keypair);
+                    let mut transfer =
+                        ConfidentialTransfer::new(alice_shielded_address, vec![input], payer);
+                    transfer.send(recipient, SOL_MINT, DEPOSIT_AMOUNT)?;
+                    let proof_inputs = transfer.sign(alice_keypair, assets)?;
+                    Ok(client.prove_transact(tree, proof_inputs, Some(IndexerRpcConfig::wait()))?)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("prove thread"))
+            .collect::<Result<Vec<_>>>()
+    })?;
+    println!(
+        "proved {} entries concurrently in {:?}",
+        entries.len(),
+        proving_started.elapsed()
+    );
+    for entry in &entries {
         println!(
             "entry: circuit {:?}, {} bytes",
             entry.circuit,
             entry.serialize()?.len()
         );
-        entries.push(entry);
     }
 
     // 3. Plan first to show the size decision, then submit through the same
