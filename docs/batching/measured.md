@@ -1,18 +1,10 @@
-# Measured batch CU snapshot
+# Batcing benchmark results
 
 Sources and regeneration:
 
 - `program-libs/groth16-batch/CU_MATRIX.md`: sizes and the main table (`just bench-batch-matrix`)
 - `program-libs/groth16-batch/BATCH_CU_RESULTS.md`: full-path duals (`just bench-batch-dual`)
 - `program-libs/groth16-batch/FOLD_CU.md`: fold-only syscall CU (`just bench-batch-fold-cu`)
-
-Measured on 2026-07-27 to 2026-07-29 at agave pin 7090028bb.
-
-## Policy gate
-
-Recommend a path only when the full-path saving is 10% or more against the
-legacy path with the same semantics. Fold-only numbers show the verify leg and
-are not a full-path claim.
 
 ## Full-path duals
 

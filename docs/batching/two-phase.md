@@ -1,19 +1,13 @@
 # Two-phase operator queue
 
-Design for the operator batch rail: enqueue transact entries into a queue
+Design is intended for the operator batch rail: enqueue transact entries into a queue
 account, verify them in one RLC, then apply them in slices. The packet limit
 stops bounding the batch size, which unlocks the fold ratios at N=8 and N=16
 (the verify leg alone drops 64% to 69% against solo verifies).
 
-Supersedes the queue sketch in the internal design notes: the RLC verifier
-exists (`zolana-groth16-batch` over the agave fold), tags 52 and 53 are taken
-by the packet-bound batch instructions, and the eddsa authorization question
-is resolved below.
-
 ## Status
 
-Implemented and measured (2026-07-29, `just bench-batch-dual`). Both duals
-clear the 10% gate, so the path is recommended for operators:
+The path is recommended for operators:
 
 | N | Legacy CU | Two-phase total | Saved | Hot path (execute plus applies) | Hot saved |
 | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -75,12 +69,12 @@ Allowed at the applied stage or on an empty queue.
 The eddsa rail authorizes a spend by the input owner signing the transaction.
 At execute time the user is absent, so the signature check cannot move there.
 The P256 rail carries ownership inside the circuit but uses BSB22, which the
-batch fold rejects.
+batch fold currently rejects.
 
-Resolution: the users co-sign the enqueue transaction. `EnqueueTransact` runs
+To resolve this the users co-sign the enqueue transaction. `EnqueueTransact` runs
 the same input-signer checks `Transact` runs, against the enqueue accounts.
 The queue then holds the payload immutably, so the recorded authorization
-covers exactly the bytes that verify and apply later. The operator cannot
+covers the bytes that verify and apply later. The operator cannot
 alter an entry after enqueue without failing the fold.
 
 ## Restrictions
