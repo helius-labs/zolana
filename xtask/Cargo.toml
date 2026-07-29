@@ -20,6 +20,7 @@ solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
+solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }

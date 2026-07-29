@@ -5,6 +5,7 @@ use solana_account::Account;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::{read_keypair_file, Keypair};
+use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
@@ -13,7 +14,6 @@ use zolana_interface::{
         CreateAssetCounter, CreateProtocolConfig, CreateTree, UpdateProtocolConfig,
         UpdateProtocolConfigData,
     },
-    loader_v3::{parse_loader_v3_programdata_address, parse_loader_v3_upgrade_authority},
     pda,
     state::{tree_account_size, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
@@ -548,9 +548,12 @@ fn read_deploy_upgrade_authority(rpc: &SolanaRpc) -> Result<Option<Pubkey>> {
     if program.owner != BPF_LOADER_UPGRADEABLE_PUBKEY {
         return Ok(None);
     }
-    let program_data_address = parse_loader_v3_programdata_address(&program.data)
-        .map(Pubkey::new_from_array)
-        .ok_or_else(|| anyhow!("shielded-pool program account is not a loader-v3 Program state"))?;
+    let program_data_address = match decode_loader_state(&program.data) {
+        Some(UpgradeableLoaderState::Program {
+            programdata_address,
+        }) => programdata_address,
+        _ => bail!("shielded-pool program account is not a loader-v3 Program state"),
+    };
     let program_data = rpc
         .get_account(to_address(&program_data_address))
         .context("fetching shielded-pool ProgramData account")?
@@ -559,6 +562,13 @@ fn read_deploy_upgrade_authority(rpc: &SolanaRpc) -> Result<Option<Pubkey>> {
         bail!("ProgramData account {program_data_address} is not loader-owned");
     }
     read_program_data_upgrade_authority(&program_data_address, &program_data.data)
+}
+
+/// Decode loader-v3 account state with the canonical agave type. bincode 1.x
+/// (the wire format Solana account states use) allows trailing bytes: the
+/// `ProgramData` account carries the ELF binary after the header.
+fn decode_loader_state(data: &[u8]) -> Option<UpgradeableLoaderState> {
+    bincode::deserialize(data).ok()
 }
 
 /// Map a loader-v3 `ProgramData` account's upgrade authority to the deploy
@@ -570,12 +580,15 @@ fn read_program_data_upgrade_authority(
     program_data_address: &Pubkey,
     data: &[u8],
 ) -> Result<Option<Pubkey>> {
-    let authority = parse_loader_v3_upgrade_authority(data).ok_or_else(|| {
-        anyhow!("ProgramData account {program_data_address} is not a loader-v3 ProgramData state")
-    })?;
-    Ok(authority.and_then(|authority| {
-        (authority != [0u8; 32]).then_some(Pubkey::new_from_array(authority))
-    }))
+    let Some(UpgradeableLoaderState::ProgramData {
+        upgrade_authority_address,
+        ..
+    }) = decode_loader_state(data)
+    else {
+        bail!("ProgramData account {program_data_address} is not a loader-v3 ProgramData state");
+    };
+    Ok(upgrade_authority_address
+        .and_then(|authority| (authority != Pubkey::default()).then_some(authority)))
 }
 
 fn send_protocol_config(
@@ -966,8 +979,8 @@ mod tests {
     use super::*;
 
     /// Minimal loader-v3 `ProgramData` header: u32 tag 3 || slot u64 le ||
-    /// u8 option tag || 32-byte authority. Full parser coverage (fixtures,
-    /// truncation, tags) lives in `zolana_interface::loader_v3`.
+    /// u8 option tag || 32-byte authority. The same layout the canonical
+    /// `UpgradeableLoaderState` bincode deserialization reads on-chain.
     fn program_data_fixture(option_tag: u8, authority: &[u8; 32]) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&3u32.to_le_bytes());

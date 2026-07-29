@@ -31,9 +31,9 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-CREATE-PC-10: on an upgradeable deployment, only the deploy upgrade authority may initialize**
-  - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_rejects_a_fee_payer_that_is_not_the_upgrade_authority`, `create_accepts_the_upgrade_authority`, `create_skips_the_check_without_an_upgrade_authority`; loader-state parser unit tests in `program-libs/interface/src/loader_v3.rs` (`parse_loader_v3_programdata_address`, `parse_loader_v3_upgrade_authority`)
+  - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_rejects_a_fee_payer_that_is_not_the_upgrade_authority`, `create_accepts_the_upgrade_authority`, `create_skips_the_check_without_an_upgrade_authority`; loader-state fixtures in `xtask/src/init_protocol.rs` tests
   - Kind: precondition
-  - Statement: when the program account is owned by the upgradeable BPF loader and its `ProgramData` names an upgrade authority, `create_protocol_config` returns Err for every fee payer other than that authority; a non-upgradeable deployment (localnet `--bpf-program`) or an unset authority (immutable program, LiteSVM harness) skips the check; a forged program/`ProgramData` account or truncated loader state fails closed. (F-07: permissionless self-nomination alone let an attacker front-run deployment and seize the protocol/forester authorities.)
+  - Statement: when the program account is owned by the upgradeable BPF loader and its `ProgramData` names an upgrade authority, `create_protocol_config` returns Err for every fee payer other than that authority; a non-upgradeable deployment (localnet `--bpf-program`) or an unset authority (immutable program, LiteSVM harness) skips the check; a forged program/`ProgramData` account or truncated loader state fails closed. Loader state is decoded with the canonical `solana-loader-v3-interface` bincode type on-chain and in xtask.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:76-112` (`fn check_initialization_authority`)
   - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
   - Severity: Critical (authority bootstrap)
