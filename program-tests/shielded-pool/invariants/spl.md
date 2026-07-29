@@ -70,7 +70,7 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
   - Suggested test: positive; harness: mollusk unit
 
 - [x] **INV-CREATE-AC-07: re-initialization is impossible**
-  - Covered by: `program-libs/interface/tests/state_props.rs` `init_rejects_reinitialization`
+  - Covered by: the state_props init_rejects_reinitialization case on the security/spp-config-init-gate branch (program-libs/interface/tests/state_props.rs, landing before this branch)
   - Kind: precondition
   - Statement: `create_asset_counter` on a counter whose discriminator byte is not 0 returns Err and leaves `next_id` unchanged (a second init cannot reset the id sequence).
   - Location: `program-libs/interface/src/state/spl_asset_counter.rs:35-37` (`fn init`)

@@ -164,7 +164,7 @@ now states H=32 and lists tag 51.
 ### Indexer Sync
 
 - [x] **INV-BATCH-NULL-07: Photon records a batch update only from an authenticated emitted event**
-  - Covered by: `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs` `drops_forged_batch_update_cpi_without_event`, `drops_successful_batch_update_without_event`, `drops_event_with_foreign_parent`, `drops_event_under_non_batch_update_parent`, `parses_batch_update_from_emitted_event`, `records_event_root_not_instruction_root`
+  - Covered by: the batch-update parser tests on the security/photon-batch-event-sourcing branch (services/photon nullifier_tree_batch_update_parser.rs test module, landing before this branch: drops_forged_batch_update_cpi_without_event, drops_successful_batch_update_without_event, drops_event_with_foreign_parent, drops_event_under_non_batch_update_parent, parses_batch_update_from_emitted_event, records_event_root_not_instruction_root)
   - Kind: postcondition (indexer)
   - Statement: Photon ingests a nullifier-tree batch update only from a `BatchAddressAppendEvent` carried by an `EMIT_EVENT` inner instruction whose stack-height parent is a shielded-pool `BATCH_UPDATE_NULLIFIER_TREE` instruction (the program emits the event only when an update actually applied). A forged tag-51 CPI that fails the on-chain forester-authority check, a successful no-op update, and a forged `EMIT_EVENT` with a foreign parent all record nothing; the tree and new root are taken from the event, never from instruction data (F-04).
   - Location: `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs` (`fn parse_nullifier_tree_batch_update`)
