@@ -18,6 +18,13 @@ inputs:
       dependencies need a PAT or fine-grained token passed in via secrets.
     required: false
     default: ""
+  agave-pin:
+    description: |
+      Commit of the Atamanov/agave fork that third-party/agave-bn254 symlinks
+      into. The workspace does not compile without a sibling checkout at this
+      pin. Set to "" to skip the clone.
+    required: false
+    default: "7090028bb328e63b5207e35cfcea864728fea0b7"
 
 runs:
   using: composite
@@ -29,6 +36,22 @@ runs:
         TOKEN: ${{ inputs.private-libs-token }}
       run: |
         git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+    - if: inputs.agave-pin != ''
+      name: Clone the agave fork at the pin
+      shell: bash
+      env:
+        AGAVE_PIN: ${{ inputs.agave-pin }}
+      run: |
+        agave_dir="${GITHUB_WORKSPACE}/../agave"
+        if [ ! -d "$agave_dir/.git" ]; then
+          git clone --depth 1 --branch helius/bn254-b1-zolana-pin \
+            https://github.com/Atamanov/agave.git "$agave_dir"
+        fi
+        head=$(git -C "$agave_dir" rev-parse HEAD)
+        if [ "$head" != "$AGAVE_PIN" ]; then
+          echo "agave checkout is at $head, expected $AGAVE_PIN" >&2
+          exit 1
+        fi
     - name: Install workspace Rust toolchain
       shell: bash
       run: rustup show active-toolchain

@@ -12,6 +12,11 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
+# The workspace includes path shims that symlink into a sibling agave checkout
+# (third-party/agave-bn254). Clone the fork at the pin next to the workspace.
+RUN git clone --depth 1 --branch helius/bn254-b1-zolana-pin \
+    https://github.com/Atamanov/agave.git /agave
+
 # This Dockerfile is built from the repository root so Photon and its protocol
 # dependencies are resolved from the same workspace and lockfile.
 COPY . .

@@ -1,0 +1,34 @@
+name: Agave test validator
+description: |
+  Build the pinned agave solana-test-validator with the BN254 batch syscalls,
+  cached by pin. A stock validator rejects the shielded pool binary at ELF
+  load. Run after setup-rust, which clones the fork checkout this builds from.
+  The binary lands in ../agave/target/release where the justfile finds it.
+
+inputs:
+  agave-pin:
+    description: Commit of the Atamanov/agave fork to build.
+    required: false
+    default: "7090028bb328e63b5207e35cfcea864728fea0b7"
+
+runs:
+  using: composite
+  steps:
+    - name: Cache the validator binary
+      id: validator-cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ../agave/target/release/solana-test-validator
+        key: agave-test-validator-${{ runner.os }}-${{ inputs.agave-pin }}
+    - if: steps.validator-cache.outputs.cache-hit != 'true'
+      name: Install agave build dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libudev-dev llvm clang cmake protobuf-compiler
+    - if: steps.validator-cache.outputs.cache-hit != 'true'
+      name: Build solana-test-validator
+      shell: bash
+      run: |
+        cargo build --release --bin solana-test-validator \
+          --manifest-path "${GITHUB_WORKSPACE}/../agave/Cargo.toml"

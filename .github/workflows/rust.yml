@@ -42,6 +42,10 @@ jobs:
           TOKEN: ${{ secrets.PRIVATE_LIBS_TOKEN }}
         run: |
           git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Clone the agave fork at the pin
+        run: |
+          git clone --depth 1 --branch helius/bn254-b1-zolana-pin \
+            https://github.com/Atamanov/agave.git "${GITHUB_WORKSPACE}/../agave"
       - name: Install workspace Rust toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check
@@ -224,6 +228,7 @@ jobs:
         with:
           shared-key: localnet-photon
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - uses: ./.github/actions/agave-validator
       - name: Install Anza CLI
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
@@ -298,6 +303,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - uses: ./.github/actions/agave-validator
       # Cache the keys dir across runs, keyed by the lockfile so a key rotation
       # invalidates it; the prover re-verifies cached keys against the lock on use.
       - name: Cache proving keys
