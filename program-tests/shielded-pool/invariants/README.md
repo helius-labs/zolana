@@ -244,3 +244,9 @@ Status of the audit findings against the current (post-PR164) tree:
   mismatch is self-inflicted; the deposit path
   (`programs/shielded-pool/src/instructions/deposit/processor.rs:104-124`)
   still folds the supplied `data_hash` into the UTXO hash as specified.
+
+Post-audit note: an attempted removal of `OutputDataEncoding::VerifiablyEncrypted`
+(dead after PR164's ciphertext-free merge) was **reverted** — the variant is
+reserved for upcoming auditor encryption flows (custom rings with auditor;
+PR #177 review, ananas-block). The spec entry on `docs/spec-pr171-catchup`
+documents it as reserved, not legacy.
