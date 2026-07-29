@@ -31,6 +31,10 @@ let ix = BatchTransact {
 
 Runnable size packing: `cargo test -p zolana-groth16-batch --test matrix_measure -- --nocapture`.
 
+Runnable e2e with proofs: `batch_transact_executes_n2` and
+`nullifier_tree_many_executes_n2` in
+`program-tests/shielded-pool/tests/batch_dual_cu.rs` (needs `just build-programs`).
+
 ## Do: same-vk nullifier many (forester)
 
 ```rust

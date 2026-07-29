@@ -25,7 +25,7 @@ Snapshot and interpretation: [measured.md](./measured.md).
 - SPP: [`BatchTransact`](./same-vk-batch.md) — N pure-shielded transfers, one RLC
 - Forester: [`BatchUpdateNullifierTreeMany`](./same-vk-batch.md) — N address-append proofs
 
-Fold amortization (syscall layout, Independent same-vk) already shows large savings at N=2+; full-path promotion still requires a measured ≥10% dual run (see same-vk guide).
+Measured full-path duals clear the ≥10% gate: BatchTransact N=2 saves **13.6%**, NullifierTreeMany N=2 saves **22.5%** (`just bench-batch-dual`, see [measured.md](./measured.md)). Both paths are **recommended** for same-vk N ≥ 2.
 
 ## When batching does not help
 

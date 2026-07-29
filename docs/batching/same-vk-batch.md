@@ -1,6 +1,6 @@
 # Same-vk multi-proof batching (the winning pattern)
 
-Fold **N ≥ 2 proofs under one verifying key** in a single instruction. This is where RLC amortization shows up (fold-only ~36% at N=2; full-path promotion requires ≥10% measured savings).
+Fold **N ≥ 2 proofs under one verifying key** in a single instruction. This is where RLC amortization shows up: measured full-path savings at N=2 are **13.6%** (BatchTransact) and **22.5%** (NullifierTreeMany) — both **recommended** under the ≥10% gate.
 
 ## 1. `BatchTransact` (SPP)
 
@@ -29,9 +29,9 @@ Accounts match a normal multi-entry pure-shielded path (shared tree, fee payer, 
 | 2 | 741 | 715 | 1232 |
 | 4 | 1201 | 1175 | 1232 |
 
-### CU
+### CU (measured full path)
 
-Full-path dual (N× `Transact` vs one `BatchTransact`) is the promotion gate. Fold-only (same-vk Independent, 1 public input):
+N=2 dual (`just bench-batch-dual`, (1,1) entries): 307 296 legacy vs 265 553 batch — **13.6% saved, recommended**. Practical N today is 2: with complete bodies, N=4 exceeds the 1232-byte packet even for (1,1). Fold-only (same-vk Independent, 1 public input):
 
 | N | Fold syscall CU |
 | ---: | ---: |
@@ -39,7 +39,7 @@ Full-path dual (N× `Transact` vs one `BatchTransact`) is the promotion gate. Fo
 | 2 | 92 395 |
 | 4 | 131 784 |
 
-See [measured.md](./measured.md). Recommend in product docs only after full-path Δ ≥ 10%.
+See [measured.md](./measured.md).
 
 ## 2. `BatchUpdateNullifierTreeMany` (forester)
 
@@ -58,9 +58,9 @@ See [measured.md](./measured.md). Recommend in product docs only after full-path
 | 8 | 1836 | 1810 | 4096-sim |
 | 16 | 3388 | 3362 | 4096-sim |
 
-### CU
+### CU (measured full path)
 
-Same rule: promote as recommended only with full-path dual ≥10% vs N singles.
+N=2 dual (zkp batch 10): 198 110 legacy vs 153 484 batch — **22.5% saved, recommended**.
 
 ## Rules of thumb
 
@@ -74,6 +74,5 @@ Same rule: promote as recommended only with full-path dual ≥10% vs N singles.
 ```bash
 just bench-batch-matrix    # sizes → CU_MATRIX.md
 just bench-batch-fold-cu   # fold-only syscall CU
-# full-path same-vk dual (when harness exists):
-# just bench-batch-same-vk-cu
+just bench-batch-dual      # full-path same-vk dual → BATCH_CU_RESULTS.md
 ```

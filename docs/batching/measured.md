@@ -22,16 +22,20 @@ Recommend a path only if **full-path** savings ≥ **10%** vs legacy (same seman
 | Swap cancel | 260 690 | 262 078 | −1 388 | **no boost** — do not implement |
 | Swap make | — | — | — | blocked (circuit); would be same shape |
 
-### Same-vk multi — full path
+### Same-vk multi — full path (measured, `just bench-batch-dual`)
 
-| Use case | Legacy | Batch | Δ | Status |
-| --- | --- | --- | --- | --- |
-| BatchTransact N=2 vs 2× Transact | TBD | TBD | TBD | keep for atomic multi-apply; measure before **recommend for CU** |
-| BatchTransact N=4 vs 4× Transact | TBD | TBD | TBD | same |
-| NullifierTreeMany N=2 vs 2× single | TBD | TBD | TBD | same |
-| NullifierTreeMany N=4 vs 4× single | TBD | TBD | TBD | same |
+One transaction per leg: N solo instructions vs one batch instruction, CU read
+from the VM on the SBF program with proofs.
 
-Instructions stay in the program for correctness / multi-apply. Docs claim a CU win only after a dual LiteSVM full-path run clears 10%.
+| Use case | Legacy CU | Batch CU | Δ | Saved | Status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| BatchTransact N=2 vs 2× Transact (1,1) | 307 296 | 265 553 | 41 743 | **13.6%** | **recommended** |
+| NullifierTreeMany N=2 vs 2× single (zkp=10) | 198 110 | 153 484 | 44 626 | **22.5%** | **recommended** |
+
+Both clear the ≥10% gate. Shape notes: transact entries use (1,1) — with
+bodies a (2,3) N=2 batch already exceeds the 1232-byte packet; nullifier
+updates use zkp batch 10 (`batch_address-append_40_10.key`). Larger N saves
+more on the verify leg (see fold-only) but needs larger packets for size.
 
 ## Fold-only (syscall layout × agave prices)
 
