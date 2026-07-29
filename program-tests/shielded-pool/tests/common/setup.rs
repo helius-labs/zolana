@@ -5,6 +5,8 @@ pub fn tree_account_size() -> u64 {
     state::tree_account_size() as u64
 }
 
+// `#[path]`-included into several test binaries; not every binary uses it.
+#[allow(dead_code)]
 pub fn program_test() -> Option<ZolanaProgramTest> {
     match ZolanaProgramTest::new() {
         Ok(r) => Some(r),

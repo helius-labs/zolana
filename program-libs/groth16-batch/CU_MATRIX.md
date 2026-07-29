@@ -18,7 +18,7 @@ Agave `5134c411` — `program-runtime/src/execution_budget.rs` MSM / pairing_che
 | --- | --- |
 | CU (legacy app / RFQ) | Existing `just bench-*` mollusk tables |
 | Bytes (forester / BatchTransact) | This test: full builder serialize |
-| CU (same-vk full path) | blank until dual LiteSVM harness |
+| CU (same-vk full path) | `BATCH_CU_RESULTS.md` (`just bench-batch-dual`) |
 | App mixed-key batch | removed — see `BATCH_CU_RESULTS.md` / `docs/batching/no-boost.md` |
 
 ## Table

@@ -310,10 +310,12 @@ bench-batch-matrix:
 bench-batch-fold-cu:
     cargo test -p zolana-groth16-batch --test fold_cu_litesvm -- --nocapture
 
-# Mixed-key k=2 app batch twins (take/cancel) measured no CU boost and were
-# removed. Numbers: docs/batching/no-boost.md and
-# program-libs/groth16-batch/BATCH_CU_RESULTS.md. Same-vk duals:
-# just bench-batch-fold-cu + full-path harness when added.
+# Full-path dual CU: N solo instructions vs one same-vk batch under LiteSVM
+# with agave batch syscalls and proofs. Writes BATCH_CU_RESULTS.md.
+# Mixed-key k=2 app twins measured no boost and were removed
+# (docs/batching/no-boost.md).
+bench-batch-dual: build-programs build-prover-server build-cli
+    cargo test -p shielded-pool-tests --test batch_dual_cu -- --ignored --nocapture
 
 # Fetch the pinned escrow/withdraw proving keys from the escrow-keys release
 # and verify them against the committed manifest. groth16.Setup is

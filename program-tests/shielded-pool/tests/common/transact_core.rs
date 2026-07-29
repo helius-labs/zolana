@@ -247,6 +247,7 @@ pub fn external_data_hash(
 /// the program appends to the tree and the proof commits via the public output
 /// chain, while contributing `0` to `private_tx_hash`. Returns the witness output
 /// and that hash so callers can wire both consistently.
+#[allow(dead_code)]
 pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8; 32])> {
     let mut field_blinding = [0u8; 32];
     field_blinding[1..].copy_from_slice(blinding);
@@ -301,21 +302,34 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
     }
 }
 
+#[allow(dead_code)]
 pub fn prove_and_verify_transfer(
     prover_inputs: &TransferInputs,
     public_input_hash: [u8; 32],
     label: &str,
 ) -> Result<TransactProof> {
+    prove_and_verify_transfer_vk(
+        prover_inputs,
+        public_input_hash,
+        &transfer_confidential_2_3::VERIFYINGKEY,
+        label,
+    )
+}
+
+/// Shape-generic variant: the caller picks the verifying key matching the
+/// prover-input shape (e.g. `CircuitId::verifying_key()`).
+#[allow(dead_code)]
+pub fn prove_and_verify_transfer_vk(
+    prover_inputs: &TransferInputs,
+    public_input_hash: [u8; 32],
+    verifying_key: &groth16_solana::groth16::Groth16Verifyingkey,
+    label: &str,
+) -> Result<TransactProof> {
     let proof = ProverClient::local().prove_transfer(prover_inputs)?;
     let public_inputs = [public_input_hash];
-    let mut verifier = Groth16Verifier::new(
-        &proof.a,
-        &proof.b,
-        &proof.c,
-        &public_inputs,
-        &transfer_confidential_2_3::VERIFYINGKEY,
-    )
-    .map_err(|err| anyhow!("construct {label} verifier: {err:?}"))?;
+    let mut verifier =
+        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
+            .map_err(|err| anyhow!("construct {label} verifier: {err:?}"))?;
     verifier
         .verify()
         .map_err(|err| anyhow!("verify {label} proof: {err:?}"))?;

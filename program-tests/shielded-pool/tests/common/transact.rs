@@ -11,8 +11,9 @@ use solana_address::Address;
 pub use transact_core::{
     build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
     inline_outputs, new_transact_ix_data, output_owner_pk_hashes, pack_proof,
-    prove_and_verify_transfer, public_input_hash, resolve_outputs, set_output_owner_tags,
-    sol_public_slots, spl_public_slots, start_prover, TransferProverInputsArgs,
+    prove_and_verify_transfer, prove_and_verify_transfer_vk, public_input_hash, resolve_outputs,
+    set_output_owner_tags, sol_public_slots, spl_public_slots, start_prover,
+    TransferProverInputsArgs,
 };
 use zolana_client::{
     prover::field::{be, right_align_slice},

@@ -4,6 +4,20 @@ Policy: ship / recommend only if full-path savings ≥ **10%**. See `docs/batchi
 
 Fold-only syscall numbers: [`FOLD_CU.md`](./FOLD_CU.md) (`just bench-batch-fold-cu`).
 
+## Same-vk multi — full path (measured)
+
+One transaction per leg: N solo instructions vs one batch instruction, CU
+read from the VM. Transact entries use the (1,1) confidential eddsa shape
+(N=2 with complete bodies fits 1232; (2,3) does not). Nullifier updates use
+zkp batch 10 (`batch_address-append_40_10.key`).
+
+| Use case | Legacy CU | Batch CU | Delta | Saved | Gate |
+| --- | ---: | ---: | ---: | ---: | --- |
+| BatchTransact N=2 vs 2x Transact (1,1) | 307296 | 265553 | 41743 | 13.6% | **recommend** (≥10%) |
+| NullifierTreeMany N=2 vs 2x single (zkp=10) | 198110 | 153484 | 44626 | 22.5% | **recommend** (≥10%) |
+
+Regenerate: `just bench-batch-dual`.
+
 ## Mixed-key k=2 app + SPP — no boost (twins removed)
 
 Measured under the experimental `*_BATCH` twins (since deleted). Kept so nobody
@@ -17,24 +31,3 @@ re-implements the same shape for CU.
 
 Batch mixed-key k=2 is slightly higher than legacy: solo app verify is cheap
 relative to SPP, and the RLC still pays n+3k pairing structure.
-
-## Same-vk multi — full path
-
-| Use case | Legacy CU | Batch CU | Delta | Gate |
-| --- | ---: | ---: | ---: | --- |
-| BatchTransact N=2 vs 2× Transact | | | | ≥10% to recommend |
-| NullifierTreeMany N=2 vs 2× single | | | | ≥10% to recommend |
-
-Fill via a same-vk dual harness (not the removed swap twin bench).
-
-## Fold-only highlight (same-vk Independent)
-
-From `just bench-batch-fold-cu`:
-
-| N | Fold syscall CU | vs N×(N=1) |
-| ---: | ---: | ---: |
-| 1 | 72603 | — |
-| 2 | 92395 | ~36% lower than 2×1 |
-| 4 | 131784 | ~55% |
-
-Solo×2 rough IC+pairing ≈ 124674; batch N=2 = 92395; **delta ≈ 32279** (~26% on verify-only). Full-path % is lower because apply still scales with N — measure before claiming ≥10% end-to-end.
