@@ -11,10 +11,13 @@ read from the VM. Transact entries use the (1,1) confidential eddsa shape
 (N=2 with complete bodies fits 1232; (2,3) does not). Nullifier updates use
 zkp batch 10 (`batch_address-append_40_10.key`).
 
+Batch CU moves a few units between runs because proof bytes are
+random. Treat deltas under 100 CU as the same measurement.
+
 | Use case | Legacy CU | Batch CU | Delta | Saved | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
-| BatchTransact N=2 vs 2x Transact (1,1) | 307296 | 265525 | 41771 | 13.6% | **recommend** (≥10%) |
-| NullifierTreeMany N=2 vs 2x single (zkp=10) | 198110 | 153485 | 44625 | 22.5% | **recommend** (≥10%) |
+| BatchTransact N=2 vs 2x Transact (1,1) | 307296 | 265491 | 41805 | 13.6% | **recommend** (≥10%) |
+| NullifierTreeMany N=2 vs 2x single (zkp=10) | 198110 | 153446 | 44664 | 22.5% | **recommend** (≥10%) |
 
 Regenerate: `just bench-batch-dual`.
 

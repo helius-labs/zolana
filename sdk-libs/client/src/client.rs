@@ -283,9 +283,7 @@ impl<R: Rpc> ZolanaClient<R> {
         )?;
         let batched = plan.is_batched();
         let cu_limit = if batched {
-            self.cu_limit
-                .saturating_mul(entry_count)
-                .min(crate::batch::BATCH_TRANSACT_CU_LIMIT)
+            crate::batch::batch_compute_limit(entry_count)
         } else {
             self.cu_limit
         };
@@ -366,10 +364,7 @@ impl<R: Rpc> ZolanaClient<R> {
         let payer_address = Address::new_from_array(payer.to_bytes());
         match plan {
             crate::batch::BatchTransactPlan::Batched { instruction, .. } => {
-                // One RLC verify still scales with N on the apply side.
-                let cu_limit = (self.cu_limit)
-                    .saturating_mul(entry_count)
-                    .min(crate::batch::BATCH_TRANSACT_CU_LIMIT);
+                let cu_limit = crate::batch::batch_compute_limit(entry_count);
                 let instructions =
                     submit_instructions(cu_limit, self.cu_price_micro_lamports, instruction);
                 let signature =

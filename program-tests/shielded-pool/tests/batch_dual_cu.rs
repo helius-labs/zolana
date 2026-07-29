@@ -632,6 +632,8 @@ fn write_results(transact_legacy: u64, transact_batch: u64, null_legacy: u64, nu
          read from the VM. Transact entries use the (1,1) confidential eddsa shape\n\
          (N=2 with complete bodies fits 1232; (2,3) does not). Nullifier updates use\n\
          zkp batch 10 (`batch_address-append_40_10.key`).\n\n\
+         Batch CU moves a few units between runs because proof bytes are\n\
+         random. Treat deltas under 100 CU as the same measurement.\n\n\
          | Use case | Legacy CU | Batch CU | Delta | Saved | Gate |\n\
          | --- | ---: | ---: | ---: | ---: | --- |\n",
     );

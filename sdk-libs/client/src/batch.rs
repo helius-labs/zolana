@@ -19,9 +19,22 @@ use crate::error::ClientError;
 /// cluster accepts today (SIMD-0296 may raise it).
 pub const PACKET_DATA_SIZE: usize = 1232;
 
-/// Compute-unit ceiling requested for a batch submission. Measured N=2 uses
-/// ~266k; the probe budgets generously since unused budget is not charged.
+/// Hard compute ceiling for one transaction.
 pub const BATCH_TRANSACT_CU_LIMIT: u32 = 1_400_000;
+
+/// Batch compute anchors from the measured dual (BATCH_CU_RESULTS.md): the
+/// N=2 total is ~266k CU, which splits into a ~66k fold base and ~100k per
+/// entry. The constants carry a margin for heavier entry shapes.
+pub const BATCH_CU_BASE: u32 = 150_000;
+pub const BATCH_CU_PER_ENTRY: u32 = 150_000;
+
+/// The compute limit to request for a batch of `entries` entries, capped at
+/// the transaction ceiling.
+pub fn batch_compute_limit(entries: u32) -> u32 {
+    BATCH_CU_BASE
+        .saturating_add(BATCH_CU_PER_ENTRY.saturating_mul(entries))
+        .min(BATCH_TRANSACT_CU_LIMIT)
+}
 
 /// How to submit N pure-shielded transacts: one `BatchTransact` when the
 /// combined transaction fits a packet, otherwise N solo `Transact`s.
@@ -196,6 +209,14 @@ mod tests {
             plan_batch_transact(accounts(), entries),
             Err(ClientError::BatchMixedCircuits { index: 1 })
         ));
+    }
+
+    #[test]
+    fn compute_limit_covers_the_measured_dual() {
+        // Measured N=2 total is 265553 CU (BATCH_CU_RESULTS.md).
+        assert!(batch_compute_limit(2) > 265_553);
+        assert_eq!(batch_compute_limit(2), 450_000);
+        assert_eq!(batch_compute_limit(100), BATCH_TRANSACT_CU_LIMIT);
     }
 
     #[test]

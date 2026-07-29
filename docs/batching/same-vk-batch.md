@@ -11,7 +11,7 @@ N pure-shielded transfers with the same circuit, no public settlement legs,
 one RLC.
 
 **Program:** `programs/shielded-pool`, `process_batch_transact_ix`, tag 53  
-**Cap:** `MAX_BATCH_TRANSACT` = 4  
+**Cap:** `MAX_BATCH_TRANSACT` = 4, sized for larger packets. Packets bound the practical N to 2 today.  
 **Builder:** `zolana_interface::instruction::BatchTransact`  
 **SDK:** `zolana_client::plan_batch_transact` (size gate with solo fallback) and `zolana_wallet::create_batch_transfer_sync`
 
