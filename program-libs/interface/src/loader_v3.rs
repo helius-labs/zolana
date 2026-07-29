@@ -118,4 +118,51 @@ mod tests {
             None
         );
     }
+
+    /// The hand-rolled parsers must agree with the canonical bincode
+    /// deserialization of `UpgradeableLoaderState`, so the layout knowledge
+    /// lives in exactly one upstream type. Dev-only: `solana-program`/`bincode`
+    /// never ship in the SBF build.
+    #[test]
+    fn matches_canonical_bincode_deserialization() {
+        use solana_loader_v3_interface::state::UpgradeableLoaderState;
+
+        fn decode(bytes: &[u8]) -> UpgradeableLoaderState {
+            bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+                .expect("canonical decode")
+                .0
+        }
+
+        // Program account: canonical and hand parser agree on the
+        // ProgramData address.
+        let pd_address = [0xAB; 32];
+        let UpgradeableLoaderState::Program { programdata_address } =
+            decode(&program_state(pd_address))
+        else {
+            panic!("expected Program variant");
+        };
+        assert_eq!(programdata_address.to_bytes(), pd_address);
+        assert_eq!(
+            parse_loader_v3_programdata_address(&program_state(pd_address)),
+            Some(pd_address)
+        );
+
+        // ProgramData account across all authority shapes, including the
+        // zeroed-authority localnet shape with trailing ELF bytecode.
+        for authority in [None, Some([0xCD; 32]), Some([0u8; 32])] {
+            let bytes = program_data_state(authority);
+            let UpgradeableLoaderState::ProgramData {
+                upgrade_authority_address,
+                ..
+            } = decode(&bytes)
+            else {
+                panic!("expected ProgramData variant");
+            };
+            assert_eq!(
+                parse_loader_v3_upgrade_authority(&bytes),
+                Some(upgrade_authority_address.map(|key| key.to_bytes())),
+                "authority {authority:?}"
+            );
+        }
+    }
 }

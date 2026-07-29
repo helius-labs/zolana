@@ -34,3 +34,5 @@ bytemuck = { workspace = true }
 proptest = { workspace = true }
 solana-address = { workspace = true }
 zolana-hasher = { workspace = true, features = ["sha256", "poseidon"] }
+solana-loader-v3-interface = { workspace = true, features = ["serde"] }
+bincode = { workspace = true }
