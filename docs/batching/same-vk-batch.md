@@ -9,7 +9,8 @@ Fold **N ≥ 2 proofs under one verifying key** in a single instruction. This is
 **Where:** `programs/shielded-pool` → `process_batch_transact_ix`  
 **Tag:** `BatchTransact` (see `zolana_interface` / event tags)  
 **Cap:** `MAX_BATCH_TRANSACT = 4`  
-**Builder:** `zolana_interface::instruction::BatchTransact`
+**Builder:** `zolana_interface::instruction::BatchTransact`  
+**SDK:** `zolana_client::plan_batch_transact` (size-gated, solo fallback), `zolana_wallet::create_batch_transfer_sync`
 
 ### Wire
 

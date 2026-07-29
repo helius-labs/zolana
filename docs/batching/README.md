@@ -35,9 +35,16 @@ Details and numbers: [no-boost.md](./no-boost.md).
 
 **BSB22 / committed proofs** — not on the batch rail (standard Groth16 only).
 
+## SDK surface
+
+- `zolana_client::plan_batch_transact` — validate entries, decide batched vs solo by measured size (never worse than solo)
+- `ZolanaClient::send_batch_transact_sync` — plan and submit
+- `zolana_wallet::{create_batch_transfer_sync, build_batch_private_transaction_sync}` — wallet-level batch transfers
+- `sdk-tests/batch-payout/` — dapp pattern: app policy check, then `BatchTransact` CPI (no app proof in the fold)
+
 ## Examples
 
-Copy-paste oriented patterns: [examples.md](./examples.md).
+Runnable patterns and the size rules: [examples.md](./examples.md).
 
 ## Related design notes
 

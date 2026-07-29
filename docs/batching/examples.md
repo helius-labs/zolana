@@ -1,62 +1,72 @@
 # Batching examples
 
-How to use batching well — and what not to do.
+How to use batching well — and what not to do. Every path below is runnable
+code, not a sketch.
 
-## Do: same-vk `BatchTransact` (N=2)
+## SDK surface
 
-Two pure-shielded transfers, **same circuit**, one verify.
+| Layer | Entry point | Use it for |
+| --- | --- | --- |
+| App | `zolana_client::plan_batch_transact` | Validate N `TransactIxData` entries and decide batched vs solo by measured transaction size |
+| App | `ZolanaClient::send_batch_transact_sync` | Plan and submit in one call |
+| Wallet | `zolana_wallet::create_batch_transfer_sync` | Build N pure-shielded transfers with same-tree and no-UTXO-overlap checks |
+| Wallet | `zolana_wallet::build_batch_private_transaction_sync` | Sign, prove, and wrap the entries per the size plan |
+| Raw | `zolana_interface::instruction::BatchTransact` | Hand-built entries (custom protocols) |
 
-```rust
-// Sketch: builders and account lists follow zolana_interface.
-// Both bodies: pure shielded, identical circuit tag, no interface_transfers.
+The plan is size-gated: it returns one `BatchTransact` instruction when the
+serialized transaction fits a 1232-byte packet, and N solo `Transact`
+instructions when it does not. Callers are never worse off than solo
+submission.
 
-use zolana_interface::instruction::BatchTransact;
+## When batching engages
 
-let ix = BatchTransact {
-    // fee payer, tree accounts, … same as multi pure-shielded layout
-    entries: vec![transact_body_a, transact_body_b],
-}
-.instruction(/* accounts */);
+- **Compact app entries fit today.** (1,1) entries without inline ciphertexts
+  batch at N=2 (~950-byte transaction) and save a measured **13.6%** CU
+  ([measured.md](./measured.md)).
+- **Standard wallet transfers do not fit at N=2.** Every wallet-built output
+  carries a length-matched ciphertext: a (2,3) transfer entry measures
+  773 bytes and the N=2 batch probe 1831 bytes (`just
+  test-client-batch-example`), so the plan API falls back to solo
+  automatically. Larger packets (SIMD-0296) change this.
+- The program caps a batch at `MAX_BATCH_TRANSACT` (4) entries; entry count
+  above 2 needs larger packets for complete bodies anyway.
+
+## Do: batch payout through the client SDK
+
+`sdk-tests/client/examples/batch_transfer.rs` (`just test-client-batch-example`):
+Alice deposits two UTXOs, builds one transfer per recipient, proves each entry
+with `client.prove_transact`, and submits through
+`send_batch_transact_sync`. The example prints the plan decision and the
+measured sizes; both recipients decrypt their balances whichever branch runs.
+
+## Do: dapp policy + `BatchTransact` CPI (the sanctioned app pattern)
+
+`sdk-tests/batch-payout/` — a minimal program that checks an admin config PDA
+and then CPIs shielded-pool `BatchTransact` with the forwarded entries:
+
+```text
+batch-payout PAYOUT
+  → require admin signature (app policy, no app proof)
+  → CPI shielded-pool BatchTransact   // one same-vk RLC over N entries
 ```
 
-**Checks the program enforces for you:**
-
-- `count ∈ 1..=MAX_BATCH_TRANSACT` (currently 4)
-- every entry same `circuit`
-- no public settlement legs in a batch entry
-
-**Size:** N=2 fits comfortably under 1232 (measured ~741 legacy / ~715 v0+ALT). N=4 is tight (~1201 / ~1175).
-
-**CU:** only claim a win after a dual full-path bench ≥10% vs two solo `Transact`s. Until then treat this as atomic multi-apply + shared verify path.
-
-Runnable size packing: `cargo test -p zolana-groth16-batch --test matrix_measure -- --nocapture`.
-
-Runnable e2e with proofs: `batch_transact_executes_n2` and
-`nullifier_tree_many_executes_n2` in
-`program-tests/shielded-pool/tests/batch_dual_cu.rs` (needs `just build-programs`).
+The app proof never enters the fold. The e2e
+(`cargo test -p batch-payout-test`) builds compact (1,1) entries with
+proofs from public SDK crates only, so it doubles as copy-paste material for
+custom protocols.
 
 ## Do: same-vk nullifier many (forester)
 
-```rust
-// N proofs under the address-append VK, one BatchUpdateNullifierTreeMany (or
-// equivalent builder). Prefer N=2 or 4 under today's 1232 packet limit.
-// N=8/16 need larger-tx sim or future packet limits for size — CU can still
-// be measured independently of network acceptance.
-```
-
-Measured sizes: [same-vk-batch.md](./same-vk-batch.md).
+N address-append proofs under one VK, one `BatchUpdateNullifierTreeMany`.
+Measured **22.5%** CU saving at N=2 ([measured.md](./measured.md)). Runnable:
+`nullifier_tree_many_executes_n2` in
+`program-tests/shielded-pool/tests/batch_dual_cu.rs`.
 
 ## Do: legacy swap take (correct product path)
 
-One app take proof (solo verify in the swap program) + SPP `Transact` CPI. This is the supported make/take/cancel shape.
-
-```text
-swap TAKE
-  → verify take Groth16 (app VK)
-  → CPI shielded-pool Transact (SPP VK)
-```
-
-Do **not** replace this with a compose/RLC twin for compute. Measured duals were slightly worse: [no-boost.md](./no-boost.md).
+One app take proof (solo verify in the swap program) + SPP `Transact` CPI. Do
+**not** replace this with a compose/RLC twin for compute; measured duals were
+slightly worse: [no-boost.md](./no-boost.md).
 
 ## Don’t: mixed-key k=2 for CU
 
@@ -67,21 +77,20 @@ MAKE_BATCH / TAKE_BATCH / CANCEL_BATCH
   → compose hub (foreign + spp)      // one RLC, k=2 — removed with the twins
 ```
 
-Why it fails the ≥10% bar: RLC pays multi-VK structure; the cheap app proof does not amortize. Atomicity alone is not a reason to pay more CU on the hot path.
-
-If you need single-transaction atomicity across two proof systems without a CU claim, that is a product decision — document it as such, not as “batching savings.”
+The RLC pays multi-VK structure and the cheap app proof does not amortize.
+Atomicity alone is not a reason to pay more CU on the hot path.
 
 ## Don’t: BSB22 on the batch rail
 
-Committed / Pedersen proofs (`take_ve`) stay on solo verify. Batch fold rejects committed VKs.
+Committed / Pedersen proofs (`take_ve`) stay on solo verify. Batch fold rejects
+committed VKs.
 
-## Future (document only)
+## Localnet note
 
-| Idea | Status |
-| --- | --- |
-| N=8/16 nullifier many under 4096 packets | Size table exists (4096-sim); not a mainnet claim |
-| Operator same-vk stuffing, two-phase enqueue/execute | Design: [proof-batching-programming-models.md](../alt-designs/proof-batching-programming-models.md) Model B |
-| Multi-order same-vk **app-only** RLC (no SPP in the fold) | Not measured; only consider if a dual clears ≥10% |
+The shielded-pool binary links the BN254 batch syscalls. A stock
+`solana-test-validator` rejects it at load. Localnet recipes default to the
+pinned agave build (`../agave/target/release/solana-test-validator`) via
+`ZOLANA_TEST_VALIDATOR_BIN`; see `third-party/agave-bn254/README.md`.
 
 ## Checklist before adding a new batch twin
 
