@@ -73,8 +73,8 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: positive with two distinct tree accounts; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-TRANSACT-41: trailing system program account is mandatory**
-  - No dedicated transact-level test (merge-side unit exists, see INV-MERGE-18).
+- [x] **INV-TRANSACT-41: trailing system program account is mandatory**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_wrong_trailing_system_program_account` (merge-side unit also exists, see INV-MERGE-18)
   - Kind: precondition
   - Statement: after the settlement groups, the next account must be the system program (kept in the account keys so the forester-fee Transfer CPI resolves); any other address returns Err.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:115-118` (`fn from_iter`)

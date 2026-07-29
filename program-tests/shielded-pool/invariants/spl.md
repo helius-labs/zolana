@@ -217,8 +217,8 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
   - Severity: Critical (custody of all shielded tokens of the mint)
   - Suggested test: negative per remaining 7042 branch; harness: mollusk unit
 
-- [ ] **INV-CREATE-SPL-14: a pre-existing vault account blocks creation**
-  - No dedicated test found (the registry-side mirror is covered by `duplicate_spl_interface_registration_is_rejected_without_consuming_id`).
+- [x] **INV-CREATE-SPL-14: a pre-existing vault account blocks creation**
+  - Covered by: `program-tests/shielded-pool/tests/spl_interface/rejection.rs` `spl_interface_creation_rejects_a_pre_existing_vault_account` (the registry-side mirror is covered by `duplicate_spl_interface_registration_is_rejected_without_consuming_id`).
   - Kind: precondition
   - Statement: `create_spl_interface` returns Err whenever the vault account's `data_len` is not exactly 0 before creation (mirrors INV-CREATE-SPL-05 for the registry).
   - Location: `programs/shielded-pool/src/instructions/create_spl_interface/processor.rs:93-95` (`fn process_create_spl_interface`)

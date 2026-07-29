@@ -104,8 +104,8 @@ each selecting its asset by `asset_index` into `assets`.
   - Severity: Critical (settlement split)
   - Suggested test: negative; harness: mollusk unit
 
-- [ ] **INV-DEPOSIT-23: more than MAX_DEPOSIT_ASSETS declared assets is rejected**
-  - No direct on-chain test (builder-side only: `program-libs/interface/src/instruction/builders/deposit.rs`).
+- [x] **INV-DEPOSIT-23: more than MAX_DEPOSIT_ASSETS declared assets is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `deposit_batch_rejects_more_assets_than_any_layout_supports` (six declared groups → 7034)
   - Kind: precondition
   - Statement: an `assets` list longer than `MAX_DEPOSIT_ASSETS` (5) returns Err at account parsing; the `ArrayMap` insert guard is the second, defensive gate.
   - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:58-63`, `deposit/processor.rs:133-139`
@@ -113,8 +113,8 @@ each selecting its asset by `asset_index` into `assets`.
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [ ] **INV-DEPOSIT-24: an empty asset declaration is rejected**
-  - No dedicated test found.
+- [x] **INV-DEPOSIT-24: an empty asset declaration is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `deposit_batch_rejects_an_empty_assets_list` (zero declared groups → 7009)
   - Kind: precondition
   - Statement: a batch declaring zero asset groups returns Err before any settlement account is read.
   - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:58-60` (`fn validate_and_parse`)

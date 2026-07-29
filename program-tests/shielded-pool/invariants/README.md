@@ -77,9 +77,9 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 32
-- Critical (funds/double-spend/authority takeover): 86
-- High: 81
-- Medium: 66
+- Critical (funds/double-spend/authority takeover): 85
+- High: 80
+- Medium: 65
 - Not applicable post-PR164: 12 (P256 rails and the `P256SigningKey` owner tag, both-amounts gate, `cpi_authority` field, merge ciphertext/`merge_view_tag`; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
@@ -117,14 +117,14 @@ Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 
 Post-PR171 sync (2026-07-28):
 
-- Covered: 200 / 242
-- Partial: 30 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
-- Not covered: 0
+- Covered: 204 / 242
+- Partial: 25 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Not covered: 0 (INV-XC-30 is a pointer entry by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage)
 - Not applicable post-PR164: 12
 
 Per file (covered / partial+untested / not-applicable):
-transact 47/4/7, deposit 31/3/0, merge 22/6/4, tree 19/4/0,
-protocol-config 17/0/0, zone-config 18/2/0, spl 20/2/0, event 4/0/0,
+transact 48/3/7, deposit 33/1/0, merge 22/6/4, tree 19/4/0,
+protocol-config 17/0/0, zone-config 18/2/0, spl 21/1/0, event 4/0/0,
 cross-cutting 22/9/1.
 
 All added tests pass. Suites run green this pass:
@@ -157,7 +157,7 @@ closed this pass by `spp-test-validator/tests/lifecycle.rs`
 submitted with owner B's `user_record` fails with 7008, leaving the tree and the
 fixture's spendable set unchanged.
 
-30 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
+25 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
 count/delta assertion or the full-batch/localnet leg is missing. The notable ones:
 INV-MERGE-12/13/14 (real localnet merges pass but do not assert the exact +8/+1
 tree deltas or the event field-by-field), INV-BATCH-NULL-04/05/06 (the

@@ -1,3 +1,4 @@
+use solana_account::Account;
 use solana_instruction::{error::InstructionError, AccountMeta};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -76,6 +77,38 @@ fn spl_interface_creation_rejects_a_wrong_token_program() {
     // The program validates the token program account itself instead of
     // relying on the runtime's CPI-target check.
     Rejection::pool(ShieldedPoolError::UnsupportedSplTokenProgram).assert_litesvm(err);
+}
+
+/// INV-CREATE-SPL-14: a pre-existing vault account (non-empty data) blocks
+/// interface creation; creation must fail closed instead of reusing or
+/// overwriting whatever already sits at the canonical vault PDA.
+#[test]
+fn spl_interface_creation_rejects_a_pre_existing_vault_account() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
+    let mint = pool.rpc.create_mint().expect("mint");
+    let vault = pda::spl_asset_vault(&mint);
+    pool.rpc
+        .svm
+        .set_account(
+            vault,
+            Account {
+                lamports: 1_000_000,
+                data: vec![1u8; 8],
+                owner: pda::spl_token_program_id(),
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("seed occupied vault");
+
+    let err = pool
+        .rpc
+        .create_spl_interface(&pool.authority, &mint)
+        .expect_err("a pre-existing vault account must fail");
+    Rejection::pool(ShieldedPoolError::InvalidSplAssetRegistry).assert_litesvm(err);
 }
 
 #[test]

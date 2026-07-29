@@ -310,7 +310,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Suggested test: none (pointer entry; the firing conditions carry their own invariants)
 
 - [ ] **INV-XC-31: tree_error maps TreeError to exactly four pool errors**
-  - Partial coverage: pause/stale-root legs exercised everywhere (7013, 7015); the 7004 full-tree append leg has no test
+  - Partial coverage: pause/stale-root legs exercised everywhere (7013, 7015); the `From<TreeError>` 7004 full-tree append leg is covered by `program-tests/shielded-pool/tests/tree/contract.rs` `deposit_rejects_an_append_to_a_full_utxo_tree` (deposit path via `From<TreeError>`); only `tree_error`'s own 7004 leg (transact/merge output append) has no test
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, Deposit, ZoneDeposit, MergeTransact, ZoneMergeTransact (via `tree_error`); BatchUpdateNullifierTree (via `From<TreeError>`)
   - Statement: `tree_error` maps `Paused -> 7013`, `InvalidRootIndex -> 7015`, `TreeIsFull -> 7004` (a full UTXO tree on append), every other variant -> 7001. The `From<TreeError>` impl agrees on `Paused`/`TreeIsFull` but maps `InvalidRootIndex -> 7001` (the batch-update path has no stale-root reads, so the 7015 leg exists only in `tree_error`).
