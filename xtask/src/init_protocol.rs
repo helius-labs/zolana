@@ -591,9 +591,10 @@ fn send_protocol_config(
     let [protocol, tree, zone, _merge, forester] = roles;
     if let Some(upgrade_signer) = upgrade_signer {
         // Upgradeable deployment (devnet/mainnet): initialization is bound to
-        // the deploy upgrade authority (F-07). Create the config naming the
-        // upgrade authority, then rotate the protocol authority to the
-        // protocol vault (the incoming vault co-signs via the smart account).
+        // the deploy upgrade authority (INV-CREATE-PC-10). Create the config
+        // naming the upgrade authority, then rotate the protocol authority to
+        // the protocol vault (the incoming vault co-signs via the smart
+        // account).
         let rent = rpc
             .get_minimum_balance_for_rent_exemption(ProtocolConfig::SIZE)
             .context("rent for protocol_config")?;

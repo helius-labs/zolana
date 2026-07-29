@@ -19,7 +19,7 @@ use zolana_interface::{instruction::tag, pda};
 /// with tag 51 fails the on-chain forester-authority check but still leaves a
 /// successful transaction behind, and a genuine update can succeed without
 /// applying anything -- both used to be ingested as applied updates and then
-/// aborted the block at persist time (F-04).
+/// aborted the block at persist time (INV-BATCH-NULL-07).
 ///
 /// Authentication mirrors `rings_event_parser`: an `EMIT_EVENT` inner
 /// instruction is only trusted when its direct parent (reconstructed via

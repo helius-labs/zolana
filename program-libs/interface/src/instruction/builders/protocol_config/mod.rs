@@ -46,7 +46,7 @@ impl CreateProtocolConfig {
                 AccountMeta::new(pda::protocol_config(), false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 // The program reads its own loader state to bind initialization
-                // to the deploy upgrade authority (F-07).
+                // to the deploy upgrade authority (INV-CREATE-PC-10).
                 AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
                 AccountMeta::new_readonly(pda::program_data(), false),
             ],

@@ -58,7 +58,7 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
     .init(protocol_config)
 }
 
-/// Front-run protection (F-07): on an upgradeable deployment whose
+/// Front-run protection (INV-CREATE-PC-10): on an upgradeable deployment whose
 /// `ProgramData` names an upgrade authority, only that authority may pay for
 /// (and thereby name) the one-time protocol config. The deployment shape
 /// itself gates the check -- an attacker cannot influence the owner or
