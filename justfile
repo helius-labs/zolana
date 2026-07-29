@@ -25,6 +25,11 @@ spp-keys-dir := env_var_or_default("ZOLANA_SPP_KEYS_DIR", "prover/server/proving
 # this single var is the source of truth for the prover.
 export ZOLANA_PROVER_URL := localnet-prover-url
 
+# The shielded pool SBF links the BN254 batch syscalls, which a stock
+# solana-test-validator cannot load. Default to the pinned agave build when it
+# exists; an explicit ZOLANA_TEST_VALIDATOR_BIN always wins.
+export ZOLANA_TEST_VALIDATOR_BIN := env_var_or_default("ZOLANA_TEST_VALIDATOR_BIN", if path_exists(justfile_directory() / "../agave/target/release/solana-test-validator") == "true" { justfile_directory() / "../agave/target/release/solana-test-validator" } else { "" })
+
 default:
     @just --list
 
@@ -717,6 +722,26 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo run -p client-example --example deposit_transfer_withdraw
+
+# Batch payout client example (sdk-tests/client/examples/batch_transfer.rs).
+# Same environment as test-client-example. Shows plan_batch_transact and the
+# size-gated BatchTransact submission.
+test-client-batch-example: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo run -p client-example --example batch_transfer
 
 # Dynamic-swap example lifecycle tests
 # (sdk-tests/dynamic-swap/test/tests/{pair,escrow_flow,escrow_refund}.rs). Each

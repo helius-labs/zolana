@@ -57,7 +57,14 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
         );
         spawn_service(&surfpool, &args, "surfpool", &opts.log_dir)?
     } else {
-        let validator = find_binary(&[], &[], &["solana-test-validator"])?;
+        // The shielded pool binary links the BN254 batch syscalls. A stock
+        // validator rejects it at load, so allow a syscall-capable build
+        // (for example the pinned agave test validator) via env override.
+        let validator = find_binary(
+            &["ZOLANA_TEST_VALIDATOR_BIN"],
+            &[],
+            &["solana-test-validator"],
+        )?;
         let args = solana_validator_args(&opts)?;
         println!(
             "Starting solana-test-validator: {} {}",
