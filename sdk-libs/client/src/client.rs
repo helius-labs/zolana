@@ -287,6 +287,57 @@ impl<R: Rpc> ZolanaClient<R> {
         )
     }
 
+    /// Submit N pure-shielded transact entries: one `BatchTransact` transaction
+    /// when the batch fits a packet ([`crate::batch::plan_batch_transact`]),
+    /// otherwise N solo `Transact` transactions. `input_tree` is shared by all
+    /// entries; the output tree is the client's. Returns one signature per
+    /// submitted transaction.
+    pub fn send_batch_transact_sync(
+        &self,
+        payer: Pubkey,
+        signers: &[&solana_keypair::Keypair],
+        input_tree: Address,
+        entries: Vec<TransactIxData>,
+    ) -> Result<Vec<Signature>, ClientError> {
+        let entry_count = entries.len() as u32;
+        let plan = crate::batch::plan_batch_transact(
+            crate::batch::BatchTransactAccounts {
+                payer,
+                input_tree: Pubkey::new_from_array(input_tree.to_bytes()),
+                output_tree: Pubkey::new_from_array(self.output_tree.to_bytes()),
+                signers: Vec::new(),
+            },
+            entries,
+        )?;
+        let payer_address = Address::new_from_array(payer.to_bytes());
+        match plan {
+            crate::batch::BatchTransactPlan::Batched { instruction, .. } => {
+                // One RLC verify still scales with N on the apply side.
+                let cu_limit = (self.cu_limit)
+                    .saturating_mul(entry_count)
+                    .min(crate::batch::BATCH_TRANSACT_CU_LIMIT);
+                let instructions =
+                    submit_instructions(cu_limit, self.cu_price_micro_lamports, instruction);
+                let signature =
+                    self.rpc()
+                        .create_and_send_transaction(&instructions, payer_address, signers)?;
+                Ok(vec![signature])
+            }
+            crate::batch::BatchTransactPlan::Solo { instructions, .. } => instructions
+                .into_iter()
+                .map(|instruction| {
+                    let instructions = submit_instructions(
+                        self.cu_limit,
+                        self.cu_price_micro_lamports,
+                        instruction,
+                    );
+                    self.rpc()
+                        .create_and_send_transaction(&instructions, payer_address, signers)
+                })
+                .collect(),
+        }
+    }
+
     /// Wait until the transaction is confirmed on-chain and Photon has indexed it.
     pub fn confirm_private_transaction_sync(
         &self,

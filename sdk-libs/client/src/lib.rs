@@ -11,6 +11,7 @@
 //! - `solana-rpc`: concrete Solana RPC adapters
 //! - `client`: `indexer-api` + `solana-rpc`
 
+pub mod batch;
 #[cfg(feature = "indexer-api")]
 pub mod client;
 pub mod error;
@@ -22,6 +23,10 @@ pub mod rpc;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 
+pub use batch::{
+    plan_batch_transact, BatchTransactAccounts, BatchTransactPlan, BATCH_TRANSACT_CU_LIMIT,
+    PACKET_DATA_SIZE,
+};
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
 pub use error::ClientError;

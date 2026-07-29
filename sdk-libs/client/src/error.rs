@@ -40,6 +40,18 @@ pub enum ClientError {
     #[error("fee payer does not match the payer bound into the private transaction")]
     FeePayerMismatch,
 
+    #[error("batch transact requires at least one entry")]
+    BatchEmpty,
+
+    #[error("batch transact holds at most {max} entries, got {got}")]
+    BatchTooManyEntries { got: usize, max: usize },
+
+    #[error("batch entry {index} declares a different circuit than entry 0")]
+    BatchMixedCircuits { index: usize },
+
+    #[error("batch entry {index} carries interface transfers; the batch rail is pure shielded")]
+    BatchNotPureShielded { index: usize },
+
     #[error("native Solana transaction signing failed: {0}")]
     SolanaTransactionSigning(String),
 
