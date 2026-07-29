@@ -53,16 +53,13 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
     let TestEnv {
         client,
         tree,
-        mut maker,
-        maker_input: _,
+        maker,
+        maker_input,
         mut taker,
         spl_mint,
     } = setup()?;
     let swap_prover_client = SwapProverClient::new();
     {
-        // The fixture funds the maker's SPL note but only syncs the taker
-        // wallet; discover the maker's note before spending it.
-        sync_wallet(&mut maker.wallet, &maker.keypair, client.indexer())?;
         ensure_registered(
             client.rpc(),
             &maker.keypair.to_solana_keypair()?,
@@ -96,15 +93,10 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         };
         let order_output_utxo = order_utxo.output_utxo(taker_address.viewing_pubkey)?;
 
-        let maker_input_utxo = maker
-            .balance(spl_mint, Some(Filter::MinAmount(SOURCE_AMOUNT)))?
-            .utxos
-            .first()
-            .cloned()
-            .ok_or_else(|| anyhow!("no spendable utxo of {spl_mint} >= {SOURCE_AMOUNT}"))?;
-
-        let input_utxo = SppProofInputUtxo::new(maker_input_utxo, &maker.keypair);
-        let input_utxos = vec![input_utxo, SppProofInputUtxo::new_dummy()];
+        // The maker's SPL note is program-owned (signing = swap PDA, nullifier
+        // = order key), so the maker wallet can never discover it; the fixture
+        // retains it explicitly for exactly this spend (mirrors swap.rs).
+        let input_utxos = vec![maker_input, SppProofInputUtxo::new_dummy()];
 
         let order_utxo_asset = order_output_utxo.asset;
         let leftover =
