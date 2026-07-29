@@ -16,9 +16,8 @@ import {
   type TransactOutput,
 } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
-import { P256PublicKey, type SignatureType } from "../../keypair/public-key.js";
+import { P256PublicKey } from "../../keypair/public-key.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
-import { SigningKey } from "../../keypair/signing-key.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { Data } from "../data.js";
@@ -811,17 +810,8 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
-  // Each padded slot gets one throwaway-key view tag, shared between its dummy
-  // output and its dummy ciphertext. The tag's rail is sampled from this
-  // transaction's real recipients so a curve-membership test on the published
-  // tag cannot single out a dummy. Real recipients occupy the slots past the two
-  // sender change positions.
-  const recipientRails = prepared.outputs
-    .slice(SENDER_SLOT_COUNT)
-    .flatMap((output) =>
-      output.ownerAddress ? [output.ownerAddress.signingPublicKey.signatureType()] : [],
-    );
-  const senderRail = prepared.owner.signingPublicKey.signatureType();
+  // The circuit requires every dummy output tag to identify a real participant.
+  // Rust uses the first real input signer, which is this transfer's owner.
   const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
   const outputUtxos = [
     ...prepared.outputs,
@@ -829,7 +819,7 @@ function finalizeTransfer(
       createProofOutput({
         asset: ZERO_ADDRESS,
         amount: 0n,
-        ownerTag: dummyViewTag(dummyRail(recipientRails, senderRail)),
+        ownerTag: senderResolved,
       }),
     ),
   ];
@@ -894,7 +884,7 @@ function randomBytes(length: number): Uint8Array {
  * Encode each real output as its own confidential ciphertext, keyed to that
  * output's owner viewing key, at `slotIndex == output position`. Dummy outputs
  * yield `undefined`; the transfer builder fills those positions with a
- * length-matched random ciphertext under the padded tag.
+ * length-matched random ciphertext under the sender's tag.
  */
 export function encodeConfidentialSlots(
   outputs: readonly ProofOutputUtxo[],
@@ -926,36 +916,6 @@ export function encodeConfidentialSlots(
       ),
     };
   });
-}
-
-function dummyViewTag(rail: SignatureType): Bytes32 {
-  return SigningKey.generate(rail).publicKey().confidentialViewTag();
-}
-
-/**
- * The rail for a padded slot's dummy tag: a random draw from this transaction's
- * real recipient rails, so each dummy is distributed identically to a real
- * recipient. With no real recipients (a change-only transfer) there is no
- * distribution to match, so the dummy takes the sender's rail -- the only identity
- * in play. Drawing a rail the recipients do not use would let an observer flag the
- * off-distribution slots as dummies and recover the recipient count.
- */
-function dummyRail(
-  recipientRails: readonly SignatureType[],
-  senderRail: SignatureType,
-): SignatureType {
-  if (recipientRails.length === 0) return senderRail;
-  return recipientRails[randomIndex(recipientRails.length)] ?? senderRail;
-}
-
-/** A uniform index below `bound`, rejection-sampled so no value is favoured. */
-function randomIndex(bound: number): number {
-  const limit = Math.floor(0x1_0000_0000 / bound) * bound;
-  const draw = new Uint32Array(1);
-  do {
-    globalThis.crypto.getRandomValues(draw);
-  } while ((draw[0] ?? 0) >= limit);
-  return (draw[0] ?? 0) % bound;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { Address, Bytes31, Bytes32 } from "../../src/interface/index.js";
+import type { Address, Bytes16, Bytes31, Bytes32 } from "../../src/interface/index.js";
 import {
   NullifierKey,
   ShieldedKeypair,
@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AssetRegistry,
+  ConfidentialTransfer,
   Data,
   ProofInputUtxo,
   SOL_MINT,
@@ -118,6 +119,19 @@ function keyMaterial(): Readonly<{
   };
 }
 
+function ed25519Material(): Readonly<{
+  keypair: ShieldedKeypair;
+  nullifier: NullifierKey;
+}> {
+  const signing = SigningKey.fromEd25519Bytes(scalar(3));
+  const nullifier = NullifierKey.fromSecret(new Uint8Array(31).fill(5) as Bytes31);
+  const viewing = ViewingKey.fromBytes(scalar(4));
+  return {
+    keypair: ShieldedKeypair.fromKeys(signing, nullifier, viewing),
+    nullifier,
+  };
+}
+
 describe("transaction core", () => {
   it("copies and validates canonical data records", () => {
     const memo = Uint8Array.of(4);
@@ -219,6 +233,42 @@ describe("transaction core", () => {
     expect(dummy.isDummy()).toBe(true);
     expect(hex(dummy.hash())).toBe(DUMMY_ORACLE_HASH);
     expect(hex(dummy.nullifier())).toBe(DUMMY_ORACLE_NULLIFIER);
+  });
+
+  it("binds padded dummy output tags to the real input signer", () => {
+    const { keypair, nullifier } = ed25519Material();
+    const owner = keypair.shieldedAddress();
+    const input = new ProofInputUtxo({
+      utxo: new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 42n,
+        blinding: scalar(6),
+      }),
+      nullifierKey: nullifier,
+    });
+    const transfer = new ConfidentialTransfer(owner, [input], owner.solanaAddress()).withShape({
+      inputs: 1,
+      outputs: 8,
+    });
+    const prepared = transfer.prepare();
+    const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
+    const proofInputs = prepared.finalize({
+      txViewingPublicKey: tx.publicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      payload: [],
+    });
+    const senderTag = owner.confidentialViewTag();
+
+    expect(proofInputs.outputs).toHaveLength(8);
+    for (let index = prepared.outputs.length; index < proofInputs.outputs.length; index++) {
+      expect(proofInputs.outputs[index]?.ownerTag).toEqual(senderTag);
+      expect(proofInputs.externalData.resolvedOwnerTags[index]).toEqual(senderTag);
+      expect(proofInputs.externalData.outputs[index]?.ownerTag).toEqual({
+        kind: "inline",
+        value: senderTag,
+      });
+    }
   });
 
   it("rejects every field a zero-owner input must leave zero", () => {
