@@ -55,7 +55,7 @@ jobs:
               (subpath) => import(`@zolana/sdk/${subpath}`),
             ),
           );
-          if (!sdk.transfer || !instructions.getDepositInstruction) process.exit(1);
+          if (!sdk.transfer || !instructions.getDepositInstructionAsync) process.exit(1);
           await sdk.createZolanaClient({
             solanaRpcUrl: "http://127.0.0.1:8899",
             indexerUrl: "http://127.0.0.1:8784",
