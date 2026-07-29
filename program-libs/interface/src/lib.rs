@@ -1,6 +1,7 @@
 pub mod error;
 pub use zolana_event as event;
 pub mod instruction;
+pub mod loader_v3;
 pub mod merge_utils;
 pub mod pda;
 pub mod shape;

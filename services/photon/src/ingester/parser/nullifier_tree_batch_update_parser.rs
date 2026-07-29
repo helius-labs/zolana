@@ -101,6 +101,7 @@ fn event_parent(
         ))
     })?;
     let Some(event_height) = event_instruction.stack_height else {
+        statsd_count!("batch_event_missing_stack_height", 1);
         log::debug!("Dropping batch event instruction with no stack_height");
         return Ok(None);
     };
@@ -171,6 +172,18 @@ mod tests {
         encode_instruction, BatchUpdateNullifierTreeData, CompressedProof,
     };
 
+    /// `statsd_count!` panics when no global recorder is installed; unit tests
+    /// get a Nop one (idempotent across tests sharing the process).
+    fn install_nop_recorder() {
+        use cadence::{NopMetricSink, StatsdClient};
+        if !cadence_macros::is_global_default_set() {
+            cadence_macros::set_global_default(StatsdClient::from_sink(
+                "photon.test",
+                NopMetricSink,
+            ));
+        }
+    }
+
     fn batch_update_data(new_root: [u8; 32]) -> BatchUpdateNullifierTreeData {
         BatchUpdateNullifierTreeData {
             new_root,
@@ -205,6 +218,7 @@ mod tests {
     }
 
     fn tx_with_group(group: InstructionGroup) -> TransactionInfo {
+        install_nop_recorder();
         TransactionInfo {
             instruction_groups: vec![group],
             signature: Signature::from([8; 64]),

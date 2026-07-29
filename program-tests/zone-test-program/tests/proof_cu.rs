@@ -1,18 +1,11 @@
 //! Real-validator compute contracts for proof-bearing policy-zone operations.
 
-#![allow(dead_code)] // This focused binary composes a subset of the shared lifecycle fixture.
-
-mod actions;
-mod actor;
-mod harness;
-mod support;
-
 use anyhow::Result;
 use serial_test::serial;
-use zolana_test_utils::test_validator_asserts::assert_transaction_compute_units;
+use zolana_test_utils::{
+    test_validator_asserts::assert_transaction_compute_units, zone::ZoneHarness,
+};
 use zolana_transaction::SOL_MINT;
-
-use harness::ZoneHarness;
 
 // Local-validator baselines (measured 2026-07-22): EdDSA 2x3 = 162,830;
 // withdrawal = 165,260; zone-authority 1x1 = 150,839;

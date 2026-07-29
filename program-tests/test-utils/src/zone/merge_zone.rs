@@ -19,17 +19,15 @@ use zolana_keypair::{
     random_blinding,
 };
 use zolana_program_test::Rejection;
-use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, assert_merge_zone, fetch_account, wait_for_indexed_transaction,
-    wait_for_merkle_proof, wait_for_non_inclusion_proof, MergeZoneAssertArgs,
-};
 use zolana_transaction::{Data, SppProofOutputUtxo, Utxo};
 
-use zolana_test_utils::localnet::{pack_merge_proof, send_transaction, ZERO};
-
+use super::{MergeZoneRecord, ZoneHarness, SECOND_ZONE_TEST_PROGRAM_ID};
 use crate::{
-    support::{MergeZoneRecord, SECOND_ZONE_TEST_PROGRAM_ID},
-    ZoneHarness,
+    localnet::{pack_merge_proof, send_transaction, ZERO},
+    test_validator_asserts::{
+        assert_account_unchanged, assert_merge_zone, fetch_account, wait_for_indexed_transaction,
+        wait_for_merkle_proof, wait_for_non_inclusion_proof, MergeZoneAssertArgs,
+    },
 };
 
 impl ZoneHarness {
@@ -38,7 +36,7 @@ impl ZoneHarness {
     /// the zone's `zone_auth` PDA on the CPI into SPP. Records `last_merge` and
     /// tracks the merged output (consumed inputs marked spent) so
     /// `assert_merged_zone` matches the synced wallet.
-    pub(crate) fn merge_zone(
+    pub fn merge_zone(
         &mut self,
         name: &str,
         asset: Address,
@@ -52,7 +50,7 @@ impl ZoneHarness {
     /// The second transaction uses a distinct compute-budget instruction so it
     /// has a fresh signature while reusing the same (now queued) proof-bound
     /// input nullifiers.
-    pub(crate) fn merge_zone_replay_rejected(
+    pub fn merge_zone_replay_rejected(
         &mut self,
         name: &str,
         asset: Address,
@@ -62,7 +60,7 @@ impl ZoneHarness {
         Ok(())
     }
 
-    pub(crate) fn merge_zone_foreign_program_rejected(
+    pub fn merge_zone_foreign_program_rejected(
         &mut self,
         name: &str,
         asset: Address,
@@ -81,7 +79,7 @@ impl ZoneHarness {
     /// recomputes `external_data_hash` with the zone-merge tag, so the proof
     /// no longer matches and the instruction fails on-chain with
     /// `TransactProofVerificationFailed` (7008), leaving the tree untouched.
-    pub(crate) fn merge_transact_proof_replayed_as_zone_rejected(
+    pub fn merge_transact_proof_replayed_as_zone_rejected(
         &mut self,
         name: &str,
         asset: Address,
@@ -344,7 +342,7 @@ impl ZoneHarness {
     /// nullifier-presence check ran at the action (`merge_zone`); here we re-confirm
     /// the indexer serves an inclusion proof for the appended output recorded for
     /// `name`.
-    pub(crate) fn assert_merged_zone(&mut self, name: &str) -> Result<()> {
+    pub fn assert_merged_zone(&mut self, name: &str) -> Result<()> {
         let output_hash = {
             let record = self
                 .last_merge
@@ -363,12 +361,7 @@ impl ZoneHarness {
     /// merge verifier to reject it. Builds the same instruction the happy path does
     /// (real inputs, padded dummies, a real output and ciphertext) but replaces the
     /// proof bytes with zeros, so only proof verification fails.
-    pub(crate) fn merge_zone_bad_proof(
-        &mut self,
-        name: &str,
-        asset: Address,
-        count: usize,
-    ) -> Result<()> {
+    pub fn merge_zone_bad_proof(&mut self, name: &str, asset: Address, count: usize) -> Result<()> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }

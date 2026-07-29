@@ -1,9 +1,17 @@
-//! Localnet/indexer handles, per-actor state, and policy-zone lifecycle setup.
+//! Policy-zone lifecycle fixture: the [`ZoneHarness`] and its action
+//! implementations.
 //!
 //! The validator/prover/indexer bring-up, actor management, and SPL asset
-//! registration are shared with the spp suite in
-//! `zolana_test_utils::harness::LocalnetHarness`; this struct embeds it and adds
-//! the zone-config state only the policy-zone lifecycle needs.
+//! registration live in [`crate::harness::LocalnetHarness`]; this struct embeds
+//! it and adds the zone-config state only the policy-zone lifecycle needs. Both
+//! `zone-test-program` test binaries (`zone_lifecycle` and `proof_cu`) consume
+//! this module, so each composes exactly the fixture surface it uses.
+
+pub(crate) mod merge_zone;
+mod zone_authority_transact;
+mod zone_config;
+mod zone_deposit;
+mod zone_transact;
 
 use std::ops::{Deref, DerefMut};
 
@@ -19,16 +27,34 @@ use zolana_interface::{
 };
 use zolana_keypair::PublicKey;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
-use zolana_test_utils::{
-    harness::{BootstrapConfig, LocalnetHarness},
-    localnet::{send_transaction, ZERO},
-};
 use zolana_transaction::{
     serialization::confidential::Confidential, Data, LocalWalletAuthority, ShieldedTransaction,
     Utxo, WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 
-use crate::support::{MergeZoneRecord, SECOND_ZONE_TEST_PROGRAM_ID};
+use crate::{
+    harness::{BootstrapConfig, LocalnetHarness},
+    localnet::{send_transaction, ZERO},
+};
+
+/// A second zone fixture program id (deployed from the same
+/// `zone_test_program.so`), used to prove configs are per-program.
+pub(crate) const SECOND_ZONE_TEST_PROGRAM_ID: [u8; 32] = [42u8; 32];
+
+/// What the consolidated-output assert needs after a `merge_zone`: the actor that
+/// owns the appended output and the output's hash (for the inclusion-proof check).
+pub(crate) struct MergeZoneRecord {
+    pub(crate) actor: String,
+    pub(crate) output_hash: [u8; 32],
+}
+
+/// The extra account snapshots an SPL zone-deposit assert needs.
+pub(crate) use crate::harness::SplDepositAccounts as SplZoneDepositAccounts;
+
+/// What a zone deposit records so the separate assertion can verify
+/// it with `assert_zone_deposit` (which needs the sent data and the pre-deposit
+/// account snapshots). `spl` is `Some` for token zone deposits.
+pub(crate) type ZoneDepositRecord = crate::harness::DepositRecord<ZoneAssetDeposit>;
 
 pub struct ZoneHarness {
     pub(crate) base: LocalnetHarness<ZoneAssetDeposit>,
@@ -64,7 +90,7 @@ impl DerefMut for ZoneHarness {
 }
 
 impl ZoneHarness {
-    pub(crate) fn new() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         let zone_program_id = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID).to_string();
         let second_zone_program_id =
             Pubkey::new_from_array(SECOND_ZONE_TEST_PROGRAM_ID).to_string();
@@ -97,13 +123,13 @@ impl ZoneHarness {
     /// into SPP. Stores the resulting `zone_auth` PDA in `self.zone_config`. The
     /// caller owns the authority keypair and is responsible for setting
     /// `self.zone_authority` if it wants to track it.
-    pub(crate) fn create_zone_config(&mut self, authority: &Address, enabled: bool) -> Result<()> {
+    pub fn create_zone_config(&mut self, authority: &Address, enabled: bool) -> Result<()> {
         let zone_auth = self.create_zone_config_for(self.zone_program_id, authority, enabled)?;
         self.zone_config = Some(zone_auth);
         Ok(())
     }
 
-    pub(crate) fn create_zone_config_for(
+    pub fn create_zone_config_for(
         &mut self,
         program_id: Pubkey,
         authority: &Address,
@@ -133,7 +159,7 @@ impl ZoneHarness {
 
     /// Sync an actor's wallet from every indexed transaction (decryption), and make
     /// newly decrypted, unspent UTXOs spendable. No assertions.
-    pub(crate) fn sync(&mut self, name: &str) -> Result<()> {
+    pub fn sync(&mut self, name: &str) -> Result<()> {
         self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
         let actor = self.actor_mut(name);
@@ -161,7 +187,7 @@ impl ZoneHarness {
     /// Full-struct assert that the actor's synced wallet holds exactly the UTXOs it
     /// is expected to have decrypted (with `spent` flags). Run `sync` first.
     #[track_caller]
-    pub(crate) fn assert_utxos(&self, name: &str) {
+    pub fn assert_utxos(&self, name: &str) {
         let actor = self.actor(name);
         let mut actual = actor.wallet.utxos.clone();
         let mut expected = actor.expected.clone();
@@ -179,7 +205,7 @@ impl ZoneHarness {
     /// `zone_program_id` is `Some(zone)` for a zone-owned output (its hash binds
     /// the zone), `None` for a default-pool output.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn build_expected(
+    pub fn build_expected(
         &self,
         name: &str,
         owner: PublicKey,

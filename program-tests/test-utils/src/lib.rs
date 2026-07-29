@@ -10,6 +10,7 @@
 
 pub mod backend;
 pub mod harness;
+pub mod lifecycle;
 pub mod litesvm_asserts;
 pub mod localnet;
 #[cfg(feature = "mollusk")]
@@ -20,3 +21,4 @@ pub mod spl;
 pub mod test_validator_asserts;
 pub mod transact;
 mod wallet_discovery;
+pub mod zone;

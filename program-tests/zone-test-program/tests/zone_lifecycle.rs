@@ -1,17 +1,11 @@
 //! Policy-zone lifecycle tests written as ordinary Rust programs.
 
-mod actions;
-mod actor;
-mod harness;
-mod support;
-
 use anyhow::Result;
 use serial_test::serial;
 use solana_address::Address;
 use zolana_client::Rpc;
+use zolana_test_utils::zone::ZoneHarness;
 use zolana_transaction::SOL_MINT;
-
-use harness::ZoneHarness;
 
 #[test]
 #[serial]

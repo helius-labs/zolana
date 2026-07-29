@@ -29,6 +29,9 @@ env:
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-D warnings"
   SBF_TOOLS_VERSION: v1.54
+  # Activate .config/nextest.toml's [profile.ci]: retries = 2 (flaky localnet /
+  # prover tests get two retries, reported FLAKY on pass) and fail-fast = false.
+  NEXTEST_PROFILE: ci
 
 jobs:
   fmt:

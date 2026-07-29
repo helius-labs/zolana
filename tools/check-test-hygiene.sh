@@ -17,6 +17,7 @@ require_paths() {
 
 require_paths \
   Cargo.toml justfile program-tests sdk-libs/client sdk-libs/client/tests \
+  sdk-libs/keypair/tests sdk-libs/transaction/tests \
   sdk-tests/zk-program-swap/test \
   program-tests/spp-test-validator program-tests/spp-test-validator/tests \
   program-tests/zone-test-program program-tests/zone-test-program/tests
@@ -65,8 +66,8 @@ report_matches \
 
 report_matches \
   "test fixtures use Harness naming; World is a removed scenario-framework remnant" \
-  '(LifecycleWorld|TransferWorld|MergeWorld|ZoneTransferWorld|ZoneAuthorityWorld|mod[[:space:]]+world)' -- \
-  program-tests/spp-test-validator program-tests/zone-test-program sdk-libs/client/tests
+  '(LifecycleWorld|TransferWorld|MergeWorld|ZoneTransferWorld|ZoneAuthorityWorld|mod[[:space:]]+world|_world[[:space:]]*:)' -- \
+  program-tests/spp-test-validator program-tests/zone-test-program ':(glob)sdk-libs/*/tests/**'
 
 # --- shielded-pool test-suite structural hygiene ---
 #

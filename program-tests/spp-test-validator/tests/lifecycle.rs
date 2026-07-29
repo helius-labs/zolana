@@ -1,17 +1,10 @@
 //! Local-validator lifecycle tests written as ordinary Rust programs.
 
-mod actions;
-mod actor;
-mod deposit_action;
-mod harness;
-
 use anyhow::{Context, Result};
 use serial_test::serial;
 use solana_address::Address;
+use zolana_test_utils::lifecycle::{randomized::Workload, LifecycleHarness};
 use zolana_transaction::SOL_MINT;
-
-use actions::randomized::Workload;
-use harness::LifecycleHarness;
 
 #[test]
 #[serial]

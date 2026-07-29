@@ -6,14 +6,14 @@ use zolana_keypair::{
 
 use crate::KeypairWorld;
 
-pub(crate) fn sha256_be_matches(_world: &mut KeypairWorld, input: String) {
+pub(crate) fn sha256_be_matches(input: String) {
     let got = sha256_be(input.as_bytes());
     let raw: [u8; 32] = Sha256::digest(input.as_bytes()).into();
     assert_eq!(got[0], 0);
     assert_eq!(&got[1..], &raw[1..]);
 }
 
-pub(crate) fn sha256_full_matches(_world: &mut KeypairWorld, input: String) {
+pub(crate) fn sha256_full_matches(input: String) {
     let got = sha256(input.as_bytes());
     let raw: [u8; 32] = Sha256::digest(input.as_bytes()).into();
     // Full digest, unlike sha256_be the most-significant byte is kept.
@@ -53,7 +53,7 @@ pub(crate) fn owner_hash_binds_nullifier(world: &mut KeypairWorld, name: String)
     assert_ne!(base, owner_hash(&signing_pubkey, &other).unwrap());
 }
 
-pub(crate) fn p256_ed25519_owner_hash_differ(_world: &mut KeypairWorld) {
+pub(crate) fn p256_ed25519_owner_hash_differ() {
     let nullifier_pubkey = [9u8; 32];
     let p256 = SigningKey::new().pubkey();
     let ed25519 = PublicKey::from_ed25519(&[7u8; 32]);

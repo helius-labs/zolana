@@ -16,8 +16,10 @@ bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
 mollusk-svm = { workspace = true, optional = true }
 num-bigint = { workspace = true }
+rand = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-instruction-error = { workspace = true }
 solana-keypair = { workspace = true }

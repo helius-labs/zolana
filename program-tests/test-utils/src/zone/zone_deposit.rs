@@ -17,20 +17,17 @@ use zolana_keypair::random_blinding;
 use zolana_program_test::{
     deposit_output_from_event, test_blinding, Rejection, ZONE_TEST_PROGRAM_ID,
 };
-use zolana_test_utils::{
+use zolana_transaction::{Data, LocalWalletAuthority, Utxo, Wallet, SOL_MINT};
+
+use super::{SplZoneDepositAccounts, ZoneDepositRecord, ZoneHarness};
+use crate::{
+    localnet::send_transaction,
     spl::mint_to,
     test_validator_asserts::{
         assert_account_unchanged, assert_zone_deposit, fetch_account, token_amount,
         ZoneDepositAssertArgs,
     },
 };
-use zolana_transaction::{Data, LocalWalletAuthority, Utxo, Wallet, SOL_MINT};
-
-use crate::{
-    actor::{SplZoneDepositAccounts, ZoneDepositRecord},
-    ZoneHarness,
-};
-use zolana_test_utils::localnet::send_transaction;
 
 impl ZoneHarness {
     /// Build the recipient-hidden, wallet-discoverable zone deposit data for `name`:
@@ -58,7 +55,7 @@ impl ZoneHarness {
         })
     }
 
-    pub(crate) fn shield_default_sol(&mut self, name: &str, amount: u64) -> Result<()> {
+    pub fn shield_default_sol(&mut self, name: &str, amount: u64) -> Result<()> {
         self.ensure_fresh_actor(name)?;
         let depositor = Keypair::new();
         self.rpc.airdrop(&depositor.pubkey(), 5_000_000_000)?;
@@ -85,7 +82,7 @@ impl ZoneHarness {
 
     /// Zone-shield SOL to a fresh recipient `name` through the fixture program.
     /// Requires a zone config to exist (creates an enabled one if absent).
-    pub(crate) fn zone_shield_sol(&mut self, name: &str, amount: u64) -> Result<()> {
+    pub fn zone_shield_sol(&mut self, name: &str, amount: u64) -> Result<()> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
@@ -134,7 +131,7 @@ impl ZoneHarness {
     /// Registers an SPL asset and a zone config if needed, funds the shared token
     /// account, snapshots the vault + token account, and records the SPL assert
     /// inputs.
-    pub(crate) fn zone_shield_spl(&mut self, name: &str, amount: u64) -> Result<()> {
+    pub fn zone_shield_spl(&mut self, name: &str, amount: u64) -> Result<()> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
@@ -188,7 +185,7 @@ impl ZoneHarness {
     /// Assert the most recent zone deposit (SOL or SPL): the indexed event matches
     /// the sent data, the leaf was appended, Photon's root tracks the tree, and a
     /// fresh recipient wallet discovers the zone-owned UTXO.
-    pub(crate) fn assert_zone_deposited(&self, name: &str, amount: u64) -> Result<()> {
+    pub fn assert_zone_deposited(&self, name: &str, amount: u64) -> Result<()> {
         let actor = self.actor(name);
         let record = actor
             .last_deposit
@@ -247,7 +244,7 @@ impl ZoneHarness {
     /// Attempt a zone proofless deposit sent straight to SPP with a non-PDA signer in
     /// the zone-config slot; SPP must reject it (the zone-auth signature can only come
     /// from the zone program's `invoke_signed`).
-    pub(crate) fn zone_shield_wrong_signer_rejected(&mut self) -> Result<()> {
+    pub fn zone_shield_wrong_signer_rejected(&mut self) -> Result<()> {
         let tree = self.tree;
         let tree_before = fetch_account(&self.rpc, &tree)?;
         let depositor = Keypair::new();

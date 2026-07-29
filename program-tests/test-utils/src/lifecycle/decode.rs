@@ -5,10 +5,10 @@ use solana_pubkey::Pubkey;
 use zolana_event::decode_event_instruction;
 use zolana_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID};
 
-use crate::LifecycleHarness;
+use super::LifecycleHarness;
 
 impl LifecycleHarness {
-    pub(crate) fn assert_last_event_decodes(&self) -> Result<()> {
+    pub fn assert_last_event_decodes(&self) -> Result<()> {
         let (signature, _) = self
             .last_transact
             .clone()

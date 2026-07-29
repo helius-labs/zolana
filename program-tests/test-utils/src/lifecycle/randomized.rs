@@ -28,10 +28,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::pda;
-use zolana_test_utils::test_validator_asserts::{fetch_account, token_amount};
 use zolana_transaction::SOL_MINT;
 
-use crate::{actor::Actor, LifecycleHarness};
+use super::{Actor, LifecycleHarness};
+use crate::test_validator_asserts::{fetch_account, token_amount};
 
 /// Maximum real inputs the 8-in/1-out merge circuit consolidates at once.
 const MAX_MERGE_INPUTS: usize = 8;
@@ -75,10 +75,10 @@ const ACTION_WEIGHTS: [(Action, u32); 8] = [
 ];
 
 /// Configuration for a randomized run.
-pub(crate) struct Workload {
-    pub(crate) target_txs: usize,
-    pub(crate) num_actors: usize,
-    pub(crate) num_spl: usize,
+pub struct Workload {
+    pub target_txs: usize,
+    pub num_actors: usize,
+    pub num_spl: usize,
 }
 
 /// Per-asset deposited totals (keyed by asset address bytes) and the SOL withdrawn
@@ -124,7 +124,7 @@ impl LifecycleHarness {
     /// (when its inputs are available) or fall back to a deposit that replenishes the
     /// missing asset. Each submitted transaction is fully asserted. Finishes with a
     /// per-actor sync+assert and an on-chain conservation check.
-    pub(crate) fn run_random_workload(&mut self, seed: u64, cfg: Workload) -> Result<()> {
+    pub fn run_random_workload(&mut self, seed: u64, cfg: Workload) -> Result<()> {
         println!("randomized workload seed: {seed}");
         if cfg.num_actors < 2 {
             return Err(anyhow!("randomized workload needs at least two actors"));

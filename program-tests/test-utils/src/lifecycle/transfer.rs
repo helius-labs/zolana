@@ -10,26 +10,27 @@ use zolana_client::{
 };
 use zolana_interface::instruction::Transact;
 use zolana_keypair::PublicKey;
-use zolana_test_utils::test_validator_asserts::{
-    wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
-};
 use zolana_transaction::{
     serialization::confidential::Confidential, Data, ShieldedTransaction, Utxo, WalletUtxo,
     SOL_MINT,
 };
 
-use zolana_test_utils::localnet::{
-    send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
+use super::LifecycleHarness;
+use crate::{
+    localnet::{
+        send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
+    },
+    test_validator_asserts::{
+        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    },
+    transact::pack_transact_proof,
 };
-use zolana_test_utils::transact::pack_transact_proof;
-
-use crate::LifecycleHarness;
 
 impl LifecycleHarness {
     /// Transfer `amount` of `asset` from `from` to `to`, consolidating two of
     /// `from`'s spendable UTXOs of `asset` into the (2, 3) shape. The single-input
     /// variant is `transfer_single`, which pads with a dummy input.
-    pub(crate) fn transfer_asset(
+    pub fn transfer_asset(
         &mut self,
         from: &str,
         to: &str,
@@ -57,7 +58,7 @@ impl LifecycleHarness {
     /// Transfer `amount` of the `spl_mint` SPL asset from `from` to `to`, spending
     /// one SOL UTXO and one SPL UTXO (the supported (2, 3) shape). The recipient
     /// gets SPL; `from` gets back an SPL change and a SOL change.
-    pub(crate) fn transfer_mixed(
+    pub fn transfer_mixed(
         &mut self,
         from: &str,
         to: &str,
@@ -89,7 +90,7 @@ impl LifecycleHarness {
     /// Transfer `amount` of `asset` from `from` to `to` spending a single UTXO. The
     /// client pads the inputs to the (2, 3) shape with a dummy, so this exercises the
     /// dummy-padding path. Picks a spendable UTXO of `asset` that covers `amount`.
-    pub(crate) fn transfer_single(
+    pub fn transfer_single(
         &mut self,
         from: &str,
         to: &str,
@@ -114,7 +115,7 @@ impl LifecycleHarness {
 
     /// Consolidate a single UTXO of `asset` with no recipient, so the only output is
     /// the sender's change for the full amount. Exercises the change-only output path.
-    pub(crate) fn consolidate(&mut self, from: &str, asset: Address) -> Result<Signature> {
+    pub fn consolidate(&mut self, from: &str, asset: Address) -> Result<Signature> {
         self.ensure_fresh_actor(from)?;
         let input = {
             let actor = self.actor_mut(from);
@@ -303,7 +304,7 @@ impl LifecycleHarness {
         Ok(sig)
     }
 
-    pub(crate) fn build_expected(
+    pub fn build_expected(
         &self,
         name: &str,
         owner: PublicKey,

@@ -140,7 +140,7 @@ pub(crate) fn sender_data_without_output(world: &mut TransactionWorld, name: Str
     );
 }
 
-pub(crate) fn ed25519_recipient_indexed(_world: &mut TransactionWorld) {
+pub(crate) fn ed25519_recipient_indexed() {
     let raw = [7u8; 32];
     let utxos = TransferPlaintextUtxos {
         type_prefix: TRANSFER_PLAINTEXT,

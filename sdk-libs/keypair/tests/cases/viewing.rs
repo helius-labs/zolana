@@ -46,7 +46,7 @@ pub(crate) fn tags_advance(world: &mut KeypairWorld, name: String) {
 /// derived deterministically from the owner's nullifier secret and that
 /// nullifier, so the owner recovers the output without a published merge view
 /// tag (removed with `merge_view_tag`).
-pub(crate) fn merge_tags_advance(_world: &mut KeypairWorld, _name: String) {
+pub(crate) fn merge_tags_advance(_name: String) {
     let nullifier_key = NullifierKey::from_secret(random_blinding()[1..].try_into().unwrap());
     let first_nullifier = random_blinding();
     let other_nullifier = random_blinding();
@@ -122,7 +122,7 @@ pub(crate) fn tx_key_deterministic(world: &mut KeypairWorld, name: String) {
     assert_ne!(k1.pubkey(), other.pubkey());
 }
 
-pub(crate) fn p_const_matches(_world: &mut KeypairWorld) {
+pub(crate) fn p_const_matches() {
     use p256::{
         elliptic_curve::{
             hash2curve::{ExpandMsgXmd, GroupDigest},

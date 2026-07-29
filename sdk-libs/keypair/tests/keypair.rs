@@ -49,8 +49,8 @@ pub fn scalar_bytes(n: u8) -> [u8; 32] {
 #[test]
 fn hash_and_owner_vectors_are_stable() {
     let mut world = KeypairWorld::default();
-    cases::hashing::sha256_be_matches(&mut world, "abc".into());
-    cases::hashing::sha256_full_matches(&mut world, "abc".into());
+    cases::hashing::sha256_be_matches("abc".into());
+    cases::hashing::sha256_full_matches("abc".into());
     cases::common::p256_signing_key_from_scalar(&mut world, "g".into(), 1);
     cases::hashing::pubkey_field_golden(
         &mut world,
@@ -62,7 +62,7 @@ fn hash_and_owner_vectors_are_stable() {
     cases::common::random_shielded_keypair(&mut world, "alice".into());
     cases::hashing::owner_hash_stable(&mut world, "alice".into());
     cases::hashing::owner_hash_binds_nullifier(&mut world, "alice".into());
-    cases::hashing::p256_ed25519_owner_hash_differ(&mut world);
+    cases::hashing::p256_ed25519_owner_hash_differ();
 }
 
 #[test]
@@ -73,9 +73,8 @@ fn nullifiers_bind_every_input_and_match_the_golden_vector() {
     cases::common::random_p256_signing_key(&mut world, "a".into());
     cases::common::random_p256_signing_key(&mut world, "b".into());
     cases::nullifier::distinct_nullifier_secrets(&mut world, "a".into(), "b".into());
-    cases::nullifier::nullifier_binds_inputs(&mut world);
+    cases::nullifier::nullifier_binds_inputs();
     cases::nullifier::nullifier_pubkey_golden(
-        &mut world,
         7,
         "2ece7cecb48850fb1762bea0a87c4f8290c40f90ac43b9dae85eed13b2e9af8c".into(),
     );
@@ -174,12 +173,12 @@ fn viewing_keys_and_tags_match_protocol_vectors() {
     cases::viewing::ecdh_symmetric(&mut world, "alice".into(), "bob".into());
     cases::viewing::viewing_roundtrip(&mut world, "alice".into());
     cases::viewing::tags_advance(&mut world, "alice".into());
-    cases::viewing::merge_tags_advance(&mut world, "alice".into());
+    cases::viewing::merge_tags_advance("alice".into());
     cases::viewing::shared_tag_symmetric(&mut world, "alice".into(), "bob".into(), 0);
     cases::viewing::shared_tag_per_index(&mut world, "alice".into(), "bob".into(), 0, 1);
     cases::viewing::bootstrap_tag(&mut world, "alice".into());
     cases::viewing::tx_key_deterministic(&mut world, "alice".into());
-    cases::viewing::p_const_matches(&mut world);
+    cases::viewing::p_const_matches();
     cases::common::viewing_key_from_scalar(&mut world, "k".into(), 1);
     cases::viewing::sender_view_tag_golden(
         &mut world,

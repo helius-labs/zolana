@@ -7,24 +7,20 @@ use solana_signer::Signer;
 use zolana_event::indexed_events_from_instruction_groups;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 use zolana_program_test::deposit_output_from_event;
-use zolana_test_utils::{
+use zolana_transaction::{Address, LocalWalletAuthority, Wallet, SOL_MINT};
+
+use super::{Deposit, DepositRecord, LifecycleHarness, SplDepositAccounts};
+use crate::{
     spl::mint_to,
     test_validator_asserts::{
         assert_deposit, assert_spl_deposit, fetch_account, DepositAssertArgs, SplDepositAssertArgs,
     },
 };
-use zolana_transaction::{Address, LocalWalletAuthority, Wallet, SOL_MINT};
-
-use crate::{
-    actor::{DepositRecord, SplDepositAccounts},
-    deposit_action::Deposit,
-    LifecycleHarness,
-};
 
 impl LifecycleHarness {
     /// Deposit SOL to an actor through the client SDK's `Deposit` action. Records
     /// the returned UTXO as spendable and the deposit details for the assert helper.
-    pub(crate) fn deposit_sol(&mut self, name: &str, amount: u64) -> Result<()> {
+    pub fn deposit_sol(&mut self, name: &str, amount: u64) -> Result<()> {
         self.ensure_fresh_actor(name)?;
         let payer = self.payer.insecure_clone();
         let tree = self.tree;
@@ -51,7 +47,7 @@ impl LifecycleHarness {
     }
 
     /// Deposit the first registered SPL asset to an actor.
-    pub(crate) fn deposit_spl(&mut self, name: &str, amount: u64) -> Result<()> {
+    pub fn deposit_spl(&mut self, name: &str, amount: u64) -> Result<()> {
         self.ensure_spl_asset()?;
         self.deposit_spl_at(name, 0, amount)
     }
@@ -60,12 +56,7 @@ impl LifecycleHarness {
     /// token account, snapshots the vault + token account, deposits via the action
     /// (which detects SPL from the token-account `sender`), and records the SPL assert
     /// inputs. The asset must already be registered (see `ensure_spl_assets`).
-    pub(crate) fn deposit_spl_at(
-        &mut self,
-        name: &str,
-        asset_index: usize,
-        amount: u64,
-    ) -> Result<()> {
+    pub fn deposit_spl_at(&mut self, name: &str, asset_index: usize, amount: u64) -> Result<()> {
         self.ensure_fresh_actor(name)?;
         let payer = self.payer.insecure_clone();
         let tree = self.tree;
@@ -112,7 +103,7 @@ impl LifecycleHarness {
     /// the indexed event against the sent data, the account movement on Solana, that
     /// Photon's root tracks the tree, and that a fresh wallet discovers the deposit
     /// by `sync`.
-    pub(crate) fn assert_deposited(&self, name: &str, amount: u64) -> Result<()> {
+    pub fn assert_deposited(&self, name: &str, amount: u64) -> Result<()> {
         let actor = self.actor(name);
         let record = actor
             .last_deposit

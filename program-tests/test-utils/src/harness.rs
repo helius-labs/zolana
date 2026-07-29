@@ -3,9 +3,10 @@
 //!
 //! [`LocalnetHarness`] carries the validator/indexer handles, the protocol
 //! smart-account state, the per-actor map, and the SPL asset registrations that
-//! both suites bootstrap identically. Each suite embeds it in its own harness
-//! struct (via `Deref`) and keeps its crate-specific state (zone config, merge
-//! records, rails) locally.
+//! both suites bootstrap identically. Each suite's own harness struct
+//! ([`crate::lifecycle::LifecycleHarness`], [`crate::zone::ZoneHarness`]) embeds
+//! it (via `Deref`) and adds its suite-specific state (zone config, merge
+//! records, rails).
 
 use std::collections::BTreeMap;
 

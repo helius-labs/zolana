@@ -13,7 +13,7 @@ use zolana_transaction::{
 
 use crate::TransactionWorld;
 
-pub(crate) fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _name: String) {
+pub(crate) fn recipient_plaintext_round_trips(_name: String) {
     for data in [
         Data::default(),
         Data::new(vec![
@@ -42,7 +42,7 @@ pub(crate) fn recipient_plaintext_round_trips(_world: &mut TransactionWorld, _na
     }
 }
 
-pub(crate) fn duplicate_data_records_rejected(_world: &mut TransactionWorld, _name: String) {
+pub(crate) fn duplicate_data_records_rejected(_name: String) {
     let pt = ConfidentialOutputPlaintext {
         asset_id: 2,
         amount: 42,
@@ -64,7 +64,7 @@ pub(crate) fn duplicate_data_records_rejected(_world: &mut TransactionWorld, _na
     );
 }
 
-pub(crate) fn out_of_order_data_records_rejected(_world: &mut TransactionWorld, _name: String) {
+pub(crate) fn out_of_order_data_records_rejected(_name: String) {
     let pt = ConfidentialOutputPlaintext {
         asset_id: 2,
         amount: 42,
@@ -108,7 +108,7 @@ pub(crate) fn sender_plaintext_round_trips(
     );
 }
 
-pub(crate) fn transfer_blob_round_trips(_world: &mut TransactionWorld) {
+pub(crate) fn transfer_blob_round_trips() {
     let blob = SplitEncryptedUtxos {
         type_prefix: SPLIT,
         tx_viewing_pk: ViewingKey::new().pubkey(),
@@ -127,7 +127,7 @@ pub(crate) fn transfer_blob_round_trips(_world: &mut TransactionWorld) {
     );
 }
 
-pub(crate) fn invalid_viewing_pubkey_rejected(_world: &mut TransactionWorld) {
+pub(crate) fn invalid_viewing_pubkey_rejected() {
     let blob = SplitEncryptedUtxos {
         type_prefix: SPLIT,
         tx_viewing_pk: ViewingKey::new().pubkey(),
@@ -164,7 +164,7 @@ pub(crate) fn split_bundle_round_trips(world: &mut TransactionWorld, name: Strin
     }
 }
 
-pub(crate) fn split_blob_round_trips(_world: &mut TransactionWorld) {
+pub(crate) fn split_blob_round_trips() {
     let blob = SplitEncryptedUtxos {
         type_prefix: SPLIT,
         tx_viewing_pk: ViewingKey::new().pubkey(),

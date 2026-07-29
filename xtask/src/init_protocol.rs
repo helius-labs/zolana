@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Result};
+use sha2::{Digest, Sha256};
 use solana_account::Account;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -13,6 +14,7 @@ use zolana_interface::{
         CreateAssetCounter, CreateProtocolConfig, CreateTree, UpdateProtocolConfig,
         UpdateProtocolConfigData,
     },
+    loader_v3::{parse_loader_v3_programdata_address, parse_loader_v3_upgrade_authority},
     pda,
     state::{tree_account_size, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
@@ -297,6 +299,119 @@ fn role_addrs(label: &'static str, seed: u128) -> RoleAddrs {
     }
 }
 
+/// The Squads `Settings` accounts the previous init run created at consecutive
+/// seeds: protocol, tree, zone, and merge are governed by the protocol
+/// authorities, forester by the forester authorities (mirrors
+/// `create_all_smart_accounts`).
+fn expected_role_members() -> [&'static [Pubkey]; 5] {
+    [
+        &authorities::PROTOCOL,
+        &authorities::PROTOCOL,
+        &authorities::PROTOCOL,
+        &authorities::PROTOCOL,
+        &authorities::FORESTER,
+    ]
+}
+
+/// Decode the signer (member) keys of a Squads smart-account `Settings`
+/// account. Layout (Anchor borsh, from the upstream program source
+/// Squads-Protocol/smart-account-program,
+/// `programs/squads_smart_account_program/src/state/settings.rs`):
+/// discriminator[8] | seed u128 | settings_authority | threshold u16 |
+/// time_lock u32 | transaction_index u64 | stale_transaction_index u64 |
+/// archival_authority Option<Pubkey> | archivable_after u64 | bump u8 |
+/// signers Vec<{ key, permissions mask u8 }> | (trailing fields unused here).
+/// Parsed sequentially because the borsh `Option` shifts the signers offset.
+fn settings_member_keys(data: &[u8]) -> Result<Vec<Pubkey>> {
+    fn take<'a>(data: &'a [u8], cursor: &mut usize, len: usize, field: &str) -> Result<&'a [u8]> {
+        let end = cursor
+            .checked_add(len)
+            .ok_or_else(|| anyhow!("settings account offset overflow at {field}"))?;
+        let bytes = data
+            .get(*cursor..end)
+            .ok_or_else(|| anyhow!("settings account truncated at {field}"))?;
+        *cursor = end;
+        Ok(bytes)
+    }
+
+    let mut cursor = 0;
+    let discriminator = take(data, &mut cursor, 8, "discriminator")?;
+    // Anchor account discriminator: sha256("account:Settings")[0..8].
+    let expected = Sha256::digest(b"account:Settings");
+    if discriminator != &expected[..8] {
+        bail!("settings account discriminator mismatch");
+    }
+    take(data, &mut cursor, 16, "seed")?;
+    take(data, &mut cursor, 32, "settings_authority")?;
+    take(data, &mut cursor, 2, "threshold")?;
+    take(data, &mut cursor, 4, "time_lock")?;
+    take(data, &mut cursor, 8, "transaction_index")?;
+    take(data, &mut cursor, 8, "stale_transaction_index")?;
+    match take(data, &mut cursor, 1, "archival_authority tag")? {
+        [0] => {}
+        [1] => {
+            take(data, &mut cursor, 32, "archival_authority")?;
+        }
+        [tag] => bail!("settings account has an unknown archival_authority tag {tag}"),
+        _ => unreachable!("one byte was read"),
+    }
+    take(data, &mut cursor, 8, "archivable_after")?;
+    take(data, &mut cursor, 1, "bump")?;
+    let signer_count = u32::from_le_bytes(
+        take(data, &mut cursor, 4, "signers length")?
+            .try_into()
+            .expect("4 bytes"),
+    );
+    let mut keys = Vec::with_capacity(signer_count.min(1024) as usize);
+    for _ in 0..signer_count {
+        let key = take(data, &mut cursor, 32, "signer key")?;
+        take(data, &mut cursor, 1, "signer permissions")?;
+        keys.push(Pubkey::new_from_array(key.try_into().expect("32 bytes")));
+    }
+    Ok(keys)
+}
+
+/// Guard the `--resume` seed arithmetic: the five settings accounts derived
+/// from `smart_account_index - 5` must be the ones the previous init run
+/// created, so each must be a Squads `Settings` account listing the expected
+/// role members (protocol/tree/zone/merge: the protocol authorities, so the
+/// `--protocol-signer` keypair among them; forester: the forester
+/// authorities).
+fn verify_resume_settings(rpc: &SolanaRpc, roles: &[RoleAddrs; 5]) -> Result<()> {
+    for (role, expected_members) in roles.iter().zip(expected_role_members()) {
+        let settings = rpc
+            .get_account(to_address(&role.settings))
+            .with_context(|| format!("fetching {} smart account settings", role.label))?
+            .filter(|account| account.owner == SMART_ACCOUNT_PROGRAM_ID);
+        let Some(settings) = settings else {
+            bail!(
+                "cannot resume authority rotation: {} smart account settings {} not found; \
+                 the smart accounts from the previous run could not be located",
+                role.label,
+                role.settings
+            );
+        };
+        let member_keys = settings_member_keys(&settings.data).with_context(|| {
+            format!(
+                "decoding {} smart account settings {}",
+                role.label, role.settings
+            )
+        })?;
+        for expected in expected_members {
+            if !member_keys.contains(expected) {
+                bail!(
+                    "cannot resume authority rotation: {} smart account settings {} does not \
+                     list expected member {expected}; the derived accounts do not match the \
+                     previous init run",
+                    role.label,
+                    role.settings
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn derive_roles(base_index: u128) -> [RoleAddrs; 5] {
     [
         role_addrs("protocol", base_index + 1),
@@ -496,12 +611,9 @@ fn read_deploy_upgrade_authority(rpc: &SolanaRpc) -> Result<Option<Pubkey>> {
     if program.owner != BPF_LOADER_UPGRADEABLE_PUBKEY {
         return Ok(None);
     }
-    // UpgradeableLoaderState::Program { programdata_address }: u32 tag 2 || address.
-    let data = program.data;
-    if data.len() != 36 || data[0..4] != 2u32.to_le_bytes() {
-        bail!("shielded-pool program account is not a loader-v3 Program state");
-    }
-    let program_data_address = Pubkey::new_from_array(data[4..36].try_into().expect("32 bytes"));
+    let program_data_address = parse_loader_v3_programdata_address(&program.data)
+        .map(Pubkey::new_from_array)
+        .ok_or_else(|| anyhow!("shielded-pool program account is not a loader-v3 Program state"))?;
     let program_data = rpc
         .get_account(to_address(&program_data_address))
         .context("fetching shielded-pool ProgramData account")?
@@ -509,31 +621,24 @@ fn read_deploy_upgrade_authority(rpc: &SolanaRpc) -> Result<Option<Pubkey>> {
     if program_data.owner != BPF_LOADER_UPGRADEABLE_PUBKEY {
         bail!("ProgramData account {program_data_address} is not loader-owned");
     }
-    parse_program_data_upgrade_authority(&program_data_address, &program_data.data)
+    read_program_data_upgrade_authority(&program_data_address, &program_data.data)
 }
 
-/// Parse the upgrade authority from a loader-v3 `ProgramData` account's data.
-/// Layout: u32 tag 3 || slot u64 le || u8 option tag || 32-byte authority,
-/// followed by the program binary at offset 45.
-fn parse_program_data_upgrade_authority(
+/// Map a loader-v3 `ProgramData` account's upgrade authority to the deploy
+/// authority: malformed state is an error, and a zeroed authority (the shape
+/// solana-test-validator `--bpf-program` deployments write, tag 1 || 32 zero
+/// bytes) maps to `None` because the on-chain initialization gate treats it
+/// as "no authority".
+fn read_program_data_upgrade_authority(
     program_data_address: &Pubkey,
     data: &[u8],
 ) -> Result<Option<Pubkey>> {
-    if data.len() < 13 || data[0..4] != 3u32.to_le_bytes() {
-        bail!("ProgramData account {program_data_address} is not a loader-v3 ProgramData state");
-    }
-    match data[12] {
-        0 => Ok(None),
-        1 if data.len() >= 45 => {
-            let authority = Pubkey::new_from_array(data[13..45].try_into().expect("32 bytes"));
-            // solana-test-validator `--bpf-program` deployments write a zeroed
-            // authority (tag 1 || 32 zero bytes); the on-chain initialization
-            // gate treats that as "no authority", so mirror it here.
-            Ok((authority != Pubkey::default()).then_some(authority))
-        }
-        1 => bail!("ProgramData account {program_data_address} is truncated"),
-        _ => bail!("ProgramData account {program_data_address} has an unknown authority tag"),
-    }
+    let authority = parse_loader_v3_upgrade_authority(data).ok_or_else(|| {
+        anyhow!("ProgramData account {program_data_address} is not a loader-v3 ProgramData state")
+    })?;
+    Ok(authority.and_then(|authority| {
+        (authority != [0u8; 32]).then_some(Pubkey::new_from_array(authority))
+    }))
 }
 
 fn send_protocol_config(
@@ -826,20 +931,7 @@ pub fn run(options: Options) -> Result<()> {
                 )
             })?;
         let roles = derive_roles(base_index);
-        for role in &roles {
-            let settings = rpc
-                .get_account(to_address(&role.settings))
-                .with_context(|| format!("fetching {} smart account settings", role.label))?
-                .filter(|account| account.owner == SMART_ACCOUNT_PROGRAM_ID);
-            if settings.is_none() {
-                bail!(
-                    "cannot resume authority rotation: {} smart account settings {} not found; \
-                     the smart accounts from the previous run could not be located",
-                    role.label,
-                    role.settings
-                );
-            }
-        }
+        verify_resume_settings(&rpc, &roles)?;
         println!(
             "resuming: protocol_config already created by the deploy upgrade authority; \
              running only the authority rotation"
@@ -935,9 +1027,9 @@ fn print_help() {
 mod tests {
     use super::*;
 
-    /// Real bincode layout of a loader-v3 `ProgramData` header:
-    /// u32 tag 3 || slot u64 le || u8 option tag || 32-byte authority,
-    /// followed by the program binary (ELF magic 0x7f 'E' 'L' 'F').
+    /// Minimal loader-v3 `ProgramData` header: u32 tag 3 || slot u64 le ||
+    /// u8 option tag || 32-byte authority. Full parser coverage (fixtures,
+    /// truncation, tags) lives in `zolana_interface::loader_v3`.
     fn program_data_fixture(option_tag: u8, authority: &[u8; 32]) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&3u32.to_le_bytes());
@@ -951,29 +1043,91 @@ mod tests {
     }
 
     #[test]
-    fn parses_program_data_upgrade_authority() {
-        let authority = Pubkey::new_from_array([0xAB; 32]);
+    fn zeroed_upgrade_authority_means_no_authority() {
+        // solana-test-validator `--bpf-program` deployments write option tag 1
+        // with a zeroed authority; the on-chain gate skips the check for it,
+        // and the call-site mapping mirrors that.
+        let data = program_data_fixture(1, &[0u8; 32]);
+        let parsed = read_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
+            .expect("valid ProgramData");
+        assert_eq!(parsed, None);
+    }
+
+    #[test]
+    fn set_upgrade_authority_round_trips() {
+        let authority = Pubkey::new_unique();
         let data = program_data_fixture(1, &authority.to_bytes());
-        let parsed = parse_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
+        let parsed = read_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
             .expect("valid ProgramData");
         assert_eq!(parsed, Some(authority));
     }
 
     #[test]
-    fn parses_program_data_without_upgrade_authority() {
-        let data = program_data_fixture(0, &[0u8; 32]);
-        let parsed = parse_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
-            .expect("valid ProgramData");
-        assert_eq!(parsed, None);
+    fn malformed_program_data_is_an_error() {
+        let parsed = read_program_data_upgrade_authority(&Pubkey::new_unique(), &[0u8; 4]);
+        assert!(parsed.is_err());
+    }
+
+    /// Squads `Settings` account bytes per the Anchor borsh layout
+    /// (`state/settings.rs` upstream), with `signer_count` members.
+    fn settings_fixture(archival_authority: Option<Pubkey>, signers: &[(Pubkey, u8)]) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&Sha256::digest(b"account:Settings")[..8]);
+        data.extend_from_slice(&1u128.to_le_bytes()); // seed
+        data.extend_from_slice(&[0u8; 32]); // settings_authority
+        data.extend_from_slice(&1u16.to_le_bytes()); // threshold
+        data.extend_from_slice(&0u32.to_le_bytes()); // time_lock
+        data.extend_from_slice(&0u64.to_le_bytes()); // transaction_index
+        data.extend_from_slice(&0u64.to_le_bytes()); // stale_transaction_index
+        match archival_authority {
+            Some(authority) => {
+                data.push(1);
+                data.extend_from_slice(&authority.to_bytes());
+            }
+            None => data.push(0),
+        }
+        data.extend_from_slice(&0u64.to_le_bytes()); // archivable_after
+        data.push(255); // bump
+        data.extend_from_slice(&(signers.len() as u32).to_le_bytes());
+        for (key, mask) in signers {
+            data.extend_from_slice(&key.to_bytes());
+            data.push(*mask);
+        }
+        data
     }
 
     #[test]
-    fn zeroed_upgrade_authority_means_no_authority() {
-        // solana-test-validator `--bpf-program` deployments write option tag 1
-        // with a zeroed authority; the on-chain gate skips the check for it.
-        let data = program_data_fixture(1, &[0u8; 32]);
-        let parsed = parse_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
-            .expect("valid ProgramData");
-        assert_eq!(parsed, None);
+    fn decodes_settings_member_keys() {
+        let members = [(Pubkey::new_unique(), 0b111), (Pubkey::new_unique(), 0b001)];
+        let data = settings_fixture(None, &members);
+        let keys = settings_member_keys(&data).expect("valid settings");
+        assert_eq!(keys, [members[0].0, members[1].0]);
+    }
+
+    #[test]
+    fn decodes_settings_with_archival_authority_set() {
+        // A set archival_authority occupies 32 bytes and shifts the signers.
+        let member = Pubkey::new_unique();
+        let data = settings_fixture(Some(Pubkey::new_unique()), &[(member, 0b111)]);
+        let keys = settings_member_keys(&data).expect("valid settings");
+        assert_eq!(keys, [member]);
+    }
+
+    #[test]
+    fn settings_decoder_fails_closed() {
+        let member = Pubkey::new_unique();
+        let data = settings_fixture(None, &[(member, 0b111)]);
+        // Truncated inside the signers vec.
+        assert!(settings_member_keys(&data[..data.len() - 10]).is_err());
+        // Wrong discriminator.
+        let mut bad_discriminator = data.clone();
+        *bad_discriminator.get_mut(7).expect("discriminator byte") ^= 0xff;
+        assert!(settings_member_keys(&bad_discriminator).is_err());
+        // Unknown archival_authority option tag (byte 78: after the 8-byte
+        // discriminator and the fixed seed/authority/threshold/lock/index
+        // fields).
+        let mut bad_tag = data;
+        *bad_tag.get_mut(78).expect("option tag byte") = 9;
+        assert!(settings_member_keys(&bad_tag).is_err());
     }
 }

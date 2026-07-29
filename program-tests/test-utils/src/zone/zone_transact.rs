@@ -21,19 +21,22 @@ use zolana_interface::{
     },
 };
 use zolana_program_test::Rejection;
-use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, assert_zone_transact, fetch_account, wait_for_indexed_transaction,
-    wait_for_merkle_proof, wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
-};
 use zolana_transaction::{
     instructions::transact::SettlementTarget, ShieldedTransaction, Utxo, SOL_MINT,
 };
 
-use crate::{harness::decode_output_blinding, ZoneHarness};
-use zolana_test_utils::localnet::{
-    send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
+use super::{decode_output_blinding, ZoneHarness};
+use crate::{
+    localnet::{
+        send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
+    },
+    test_validator_asserts::{
+        assert_account_unchanged, assert_zone_transact, fetch_account,
+        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+        ZoneTransactAssertArgs,
+    },
+    transact::pack_transact_proof,
 };
-use zolana_test_utils::transact::pack_transact_proof;
 
 /// Default eddsa signer account index for a Solana-owned input (the fee payer).
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
@@ -71,7 +74,7 @@ impl ZoneHarness {
     /// (the owner authorizes the spend with its ed25519 transaction signature),
     /// consolidating two of `from`'s spendable zone UTXOs of `asset` into the
     /// (2, 3) shape.
-    pub(crate) fn zone_transfer(
+    pub fn zone_transfer(
         &mut self,
         from: &str,
         to: &str,
@@ -85,7 +88,7 @@ impl ZoneHarness {
     /// Solana account: the public SOL amount leaves the pool while `from` keeps the
     /// change as a zone UTXO. Eddsa rail. Returns the withdrawal recipient so the
     /// caller can assert the lamports landed.
-    pub(crate) fn zone_withdraw(
+    pub fn zone_withdraw(
         &mut self,
         from: &str,
         asset: Address,
@@ -487,7 +490,7 @@ impl ZoneHarness {
     /// does (real inputs, padded dummies, decryptable outputs) but replaces the
     /// proof with `TransactProof::zeroed`, so only proof verification fails.
     /// Borrows (does not consume) the inputs: a rejected transfer spends nothing.
-    pub(crate) fn zone_transfer_bad_proof(
+    pub fn zone_transfer_bad_proof(
         &mut self,
         from: &str,
         to: &str,

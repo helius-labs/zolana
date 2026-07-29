@@ -17,16 +17,16 @@ use zolana_client::{
 use zolana_interface::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_test_utils::{
+use zolana_transaction::{instructions::transact::SettlementTarget, Utxo, SOL_MINT};
+
+use super::LifecycleHarness;
+use crate::{
     localnet::{send_transaction, SOL_CHANGE_POSITION, ZERO},
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
     transact::pack_transact_proof,
 };
-use zolana_transaction::{instructions::transact::SettlementTarget, Utxo, SOL_MINT};
-
-use crate::LifecycleHarness;
 
 impl LifecycleHarness {
     /// Withdraw `amount` lamports of SOL from `from` to a fresh external recipient
@@ -34,7 +34,7 @@ impl LifecycleHarness {
     /// shape). The chosen inputs must total more than `amount` so a SOL change UTXO
     /// is emitted back to the sender. Mirrors `execute_transfer`, but the public SOL
     /// leaves the pool to `recipient` and there is no recipient UTXO.
-    pub(crate) fn withdraw_sol(&mut self, from: &str, amount: u64) -> Result<Signature> {
+    pub fn withdraw_sol(&mut self, from: &str, amount: u64) -> Result<Signature> {
         self.ensure_fresh_actor(from)?;
 
         // Pick two spendable SOL UTXOs (the (2, 3) shape); their total must exceed

@@ -1,18 +1,11 @@
 //! Real-validator compute contracts for proof-bearing default-zone operations.
 
-#![allow(dead_code)] // This focused binary composes a subset of the shared lifecycle fixture.
-
-mod actions;
-mod actor;
-mod deposit_action;
-mod harness;
-
 use anyhow::Result;
 use serial_test::serial;
-use zolana_test_utils::test_validator_asserts::assert_transaction_compute_units;
+use zolana_test_utils::{
+    lifecycle::LifecycleHarness, test_validator_asserts::assert_transaction_compute_units,
+};
 use zolana_transaction::SOL_MINT;
-
-use harness::LifecycleHarness;
 
 // Local-validator baselines: transact 2x3 = 290,961; withdrawal = 294,026;
 // merge 8x1 = 326,407.

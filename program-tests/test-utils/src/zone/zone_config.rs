@@ -15,15 +15,15 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::{Rejection, ZONE_TEST_PROGRAM_ID};
-use zolana_test_utils::{
+
+use super::ZoneHarness;
+use crate::{
     localnet::send_transaction,
     test_validator_asserts::{
         assert_account_unchanged, assert_optional_account_unchanged, fetch_account,
         fetch_optional_account,
     },
 };
-
-use crate::ZoneHarness;
 
 /// The on-chain `ZoneConfig` state read back for a full-struct assert.
 #[derive(Debug, PartialEq, Eq)]
@@ -37,7 +37,7 @@ struct ZoneConfigState {
 impl ZoneHarness {
     /// Create an enabled zone config under a fresh authority keypair, tracking that
     /// keypair as `self.zone_authority` for the later update/rotate operations.
-    pub(crate) fn create_enabled_zone_config(&mut self) -> Result<()> {
+    pub fn create_enabled_zone_config(&mut self) -> Result<()> {
         let authority = Keypair::new();
         self.create_zone_config(
             &Address::new_from_array(authority.pubkey().to_bytes()),
@@ -71,7 +71,7 @@ impl ZoneHarness {
     }
 
     /// Full-struct assert of the freshly created, enabled zone config.
-    pub(crate) fn assert_zone_config(&self, enabled: bool) -> Result<()> {
+    pub fn assert_zone_config(&self, enabled: bool) -> Result<()> {
         let authority = self
             .zone_authority
             .as_ref()
@@ -91,7 +91,7 @@ impl ZoneHarness {
     }
 
     /// Update the enabled flag, signed by the current authority.
-    pub(crate) fn update_zone_config(&mut self, enabled: bool) -> Result<()> {
+    pub fn update_zone_config(&mut self, enabled: bool) -> Result<()> {
         let authority = self
             .zone_authority
             .as_ref()
@@ -111,7 +111,7 @@ impl ZoneHarness {
 
     /// Rotate the config owner to a fresh authority, signed by both the current and
     /// the new authority. The previous owner is kept for the negative path.
-    pub(crate) fn rotate_zone_config_owner(&mut self) -> Result<()> {
+    pub fn rotate_zone_config_owner(&mut self) -> Result<()> {
         let authority = self
             .zone_authority
             .as_ref()
@@ -139,7 +139,7 @@ impl ZoneHarness {
 
     /// Attempt an update signed by the previous (rotated-out) owner; must fail with
     /// `UnauthorizedCaller`.
-    pub(crate) fn old_owner_update_rejected(&mut self) -> Result<()> {
+    pub fn old_owner_update_rejected(&mut self) -> Result<()> {
         let stale = self
             .previous_zone_authority
             .as_ref()
@@ -167,7 +167,7 @@ impl ZoneHarness {
     /// Attempt to create a zone config with a bogus (non-PDA) zone authority account,
     /// sent straight to SPP; the canonical derivation check must reject it with
     /// `InvalidZoneConfig`.
-    pub(crate) fn create_invalid_zone_authority_rejected(&mut self) -> Result<()> {
+    pub fn create_invalid_zone_authority_rejected(&mut self) -> Result<()> {
         let payer = self.payer.insecure_clone();
         let mut ix = CreateZoneConfig {
             payer: payer.pubkey(),

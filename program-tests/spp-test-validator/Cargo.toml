@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-# Only the explicit `lifecycle` and `proof_cu` test targets build;
-# tests/{actor,localnet,harness}.rs are shared modules, not standalone binaries.
+# Only the explicit `lifecycle` and `proof_cu` test targets build; both consume
+# the shared fixture from `zolana-test-utils` (`lifecycle` module).
 autotests = false
 
 [dependencies]

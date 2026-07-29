@@ -16,10 +16,6 @@ use zolana_keypair::{
 };
 use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
-use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
-    wait_for_non_inclusion_proof,
-};
 use zolana_transaction::{Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo};
 use zolana_user_registry_interface::{
     instruction::{
@@ -29,9 +25,14 @@ use zolana_user_registry_interface::{
     user_record_pda,
 };
 
-use zolana_test_utils::localnet::{pack_merge_proof, send_transaction, ZERO};
-
-use crate::LifecycleHarness;
+use super::LifecycleHarness;
+use crate::{
+    localnet::{pack_merge_proof, send_transaction, ZERO},
+    test_validator_asserts::{
+        assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
+        wait_for_merkle_proof, wait_for_non_inclusion_proof,
+    },
+};
 
 /// What the consolidated-output assert needs after a merge: the actor that owns
 /// the appended output and the output's hash (for the inclusion-proof check).
@@ -45,11 +46,7 @@ impl LifecycleHarness {
     /// record into merging. Returns the registering Solana keypair so the merge helper
     /// can derive the `user_record` PDA the program reads. `enable_merge` gates the
     /// `set_merging_enabled` opt-in so the disabled path can be exercised.
-    pub(crate) fn register_merge_owner(
-        &mut self,
-        name: &str,
-        enable_merge: bool,
-    ) -> Result<Keypair> {
+    pub fn register_merge_owner(&mut self, name: &str, enable_merge: bool) -> Result<Keypair> {
         self.ensure_fresh_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
 
@@ -87,7 +84,7 @@ impl LifecycleHarness {
     /// UTXOs into one consolidated output, run by the configured merge authority for
     /// the registered owner `owner_solana`. Returns the transaction send result so
     /// the caller can assert success or the `MergeDisabled` failure.
-    pub(crate) fn merge(
+    pub fn merge(
         &mut self,
         name: &str,
         owner_solana: &Keypair,
@@ -336,7 +333,7 @@ impl LifecycleHarness {
     /// output by its bootstrap view tag and marks the consumed inputs spent, and the
     /// synced wallet must match the tracked expected set. Also confirms the indexer
     /// serves an inclusion proof for the appended output.
-    pub(crate) fn assert_merged(&mut self, name: &str) -> Result<()> {
+    pub fn assert_merged(&mut self, name: &str) -> Result<()> {
         let output_hash = {
             let record = self
                 .last_merge
@@ -368,7 +365,7 @@ impl LifecycleHarness {
 
     /// Attempt a merge expecting it to fail with `MergeDisabled`; the owner is
     /// registered but never enabled merging.
-    pub(crate) fn merge_expect_disabled(
+    pub fn merge_expect_disabled(
         &mut self,
         name: &str,
         owner_solana: &Keypair,
@@ -405,7 +402,7 @@ impl LifecycleHarness {
     /// public-input hash no longer matches the proof and verification fails.
     /// Asserts the exact `TransactProofVerificationFailed` rejection with the
     /// tree account and the fixture's spendable set left unchanged.
-    pub(crate) fn merge_expect_foreign_record_rejected(
+    pub fn merge_expect_foreign_record_rejected(
         &mut self,
         name: &str,
         record_owner: &Keypair,

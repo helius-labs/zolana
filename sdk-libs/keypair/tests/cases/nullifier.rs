@@ -15,7 +15,7 @@ pub(crate) fn distinct_nullifier_secrets(world: &mut KeypairWorld, a: String, b:
     assert_ne!(na.secret(), nb.secret());
 }
 
-pub(crate) fn nullifier_binds_inputs(_world: &mut KeypairWorld) {
+pub(crate) fn nullifier_binds_inputs() {
     let nk = NullifierKey::from_secret([9u8; BLINDING_LEN]);
     let h1 = [1u8; 32];
     let h2 = [2u8; 32];
@@ -29,7 +29,7 @@ pub(crate) fn nullifier_binds_inputs(_world: &mut KeypairWorld) {
     assert_ne!(base, other.nullifier(&h1, &b1).unwrap());
 }
 
-pub(crate) fn nullifier_pubkey_golden(_world: &mut KeypairWorld, fill: u8, expected: String) {
+pub(crate) fn nullifier_pubkey_golden(fill: u8, expected: String) {
     let nk = NullifierKey::from_secret([fill; BLINDING_LEN]);
     assert_eq!(hex::encode(nk.pubkey().unwrap()), expected);
 }

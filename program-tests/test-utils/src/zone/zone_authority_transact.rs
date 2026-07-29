@@ -20,28 +20,27 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::sha256_be, random_blinding, random_salt, ViewingKey};
 use zolana_program_test::Rejection;
-use zolana_test_utils::test_validator_asserts::{
-    assert_account_unchanged, assert_zone_transact, fetch_account, wait_for_indexed_transaction,
-    wait_for_merkle_proof, wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
-};
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
     Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
 };
 
-use zolana_test_utils::localnet::{send_transaction, ZERO};
-use zolana_test_utils::transact::pack_transact_proof;
-
-use crate::ZoneHarness;
+use super::ZoneHarness;
+use crate::{
+    localnet::{send_transaction, ZERO},
+    test_validator_asserts::{
+        assert_account_unchanged, assert_zone_transact, fetch_account,
+        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
+        ZoneTransactAssertArgs,
+    },
+    transact::pack_transact_proof,
+};
 
 /// The eddsa signer index for every input on the authority rail. The authority
 /// rail skips the per-owner spend-signature check on-chain
 /// (`prepare_proof_inputs::<_, true>` does not run `check_input_signers`), so this
 /// index is never read; it stays at the default 0.
 const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
-/// Output-tree slot every input is placed at (`tree_index` 0).
-#[allow(dead_code)]
-const DEFAULT_TREE_INDEX: u8 = 0;
 
 impl ZoneHarness {
     /// Run a zone-authority permanent-delegate transfer over one of `name`'s
@@ -52,7 +51,7 @@ impl ZoneHarness {
     /// with `recipient`'s confidential view tag, so Photon indexes the transaction
     /// under it and the recipient's `Wallet::sync` targets the slot. Requires a zone
     /// config with `zone_authority_transact_is_enabled = true`.
-    pub(crate) fn zone_authority_transfer(
+    pub fn zone_authority_transfer(
         &mut self,
         name: &str,
         recipient: &str,
@@ -371,11 +370,7 @@ impl ZoneHarness {
     /// Attempt a zone-authority transfer after disabling the flag; SPP must reject it
     /// with `ZoneAuthorityTransactDisabled`. The build (prove) still runs, since the
     /// disabled check happens on-chain while parsing accounts.
-    pub(crate) fn zone_authority_transfer_disabled(
-        &mut self,
-        name: &str,
-        asset: Address,
-    ) -> Result<()> {
+    pub fn zone_authority_transfer_disabled(&mut self, name: &str, asset: Address) -> Result<()> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
@@ -419,11 +414,7 @@ impl ZoneHarness {
 
     /// Attempt a zone-authority transfer whose proof bytes were corrupted; SPP must
     /// reject it with `TransactProofVerificationFailed`.
-    pub(crate) fn zone_authority_transfer_bad_proof(
-        &mut self,
-        name: &str,
-        asset: Address,
-    ) -> Result<()> {
+    pub fn zone_authority_transfer_bad_proof(&mut self, name: &str, asset: Address) -> Result<()> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }

@@ -1,15 +1,15 @@
 //! Wallet synchronization and explicit UTXO assertions.
 
 use anyhow::Result;
-use zolana_test_utils::localnet::ZERO;
 use zolana_transaction::{Address, LocalWalletAuthority, Utxo, DEFAULT_TAG_WINDOW};
 
-use crate::LifecycleHarness;
+use super::LifecycleHarness;
+use crate::localnet::ZERO;
 
 impl LifecycleHarness {
     /// Sync an actor's wallet from every indexed transfer (decryption), and make
     /// newly decrypted, unspent UTXOs spendable. No assertions.
-    pub(crate) fn sync(&mut self, name: &str) -> Result<()> {
+    pub fn sync(&mut self, name: &str) -> Result<()> {
         self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
         // Actors may exist before assets are registered, so refresh the wallet's
@@ -40,7 +40,7 @@ impl LifecycleHarness {
 
     /// Full-struct assert that the actor's synced wallet holds exactly the UTXOs it
     /// is expected to have decrypted (with `spent` flags). Run `sync` first.
-    pub(crate) fn assert_utxos(&self, name: &str) -> Result<()> {
+    pub fn assert_utxos(&self, name: &str) -> Result<()> {
         let actor = self.actor(name);
         let mut actual = actor.wallet.utxos.clone();
         let mut expected = actor.expected.clone();
@@ -54,7 +54,7 @@ impl LifecycleHarness {
     }
 
     /// Sync and assert the actor decrypts nothing (view-tag isolation).
-    pub(crate) fn assert_no_utxos(&mut self, name: &str) -> Result<()> {
+    pub fn assert_no_utxos(&mut self, name: &str) -> Result<()> {
         self.ensure_fresh_actor(name)?;
         let indexed = self.indexed.clone();
         let assets = self.assets.clone();

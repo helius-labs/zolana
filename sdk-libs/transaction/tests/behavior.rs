@@ -68,16 +68,15 @@ fn add_keypairs(world: &mut TransactionWorld, names: &[&str]) {
 
 #[test]
 fn asset_registry_and_blinding_rules_are_explicit() {
-    let mut world = TransactionWorld::default();
-    cases::asset::sol_resolves(&mut world);
-    cases::asset::spl_resolves_both_ways(&mut world);
-    cases::asset::unknown_asset_id(&mut world);
-    cases::asset::unknown_mint(&mut world);
-    cases::asset::sol_reserved(&mut world);
-    cases::asset::duplicate_asset_id(&mut world);
-    cases::asset::duplicate_mint(&mut world);
-    cases::blinding::blindings_deterministic(&mut world);
-    cases::blinding::blinding_top_byte_dropped(&mut world);
+    cases::asset::sol_resolves();
+    cases::asset::spl_resolves_both_ways();
+    cases::asset::unknown_asset_id();
+    cases::asset::unknown_mint();
+    cases::asset::sol_reserved();
+    cases::asset::duplicate_asset_id();
+    cases::asset::duplicate_mint();
+    cases::blinding::blindings_deterministic();
+    cases::blinding::blinding_top_byte_dropped();
 }
 
 #[test]
@@ -93,21 +92,21 @@ fn plaintext_transfers_are_canonical_and_indexed_by_owner() {
     cases::plaintext_transfer::output_amounts(&mut world, 100, 50, 40, 10);
     cases::plaintext_transfer::rejects_bad_discriminator(&mut world);
     cases::plaintext_transfer::sender_data_without_output(&mut world, "alice".into());
-    cases::plaintext_transfer::ed25519_recipient_indexed(&mut world);
+    cases::plaintext_transfer::ed25519_recipient_indexed();
 }
 
 #[test]
 fn serialized_payloads_round_trip_and_reject_noncanonical_data() {
     let mut world = TransactionWorld::default();
     add_keypairs(&mut world, &["alice", "sender", "owner"]);
-    cases::serialization::recipient_plaintext_round_trips(&mut world, "alice".into());
-    cases::serialization::duplicate_data_records_rejected(&mut world, "alice".into());
-    cases::serialization::out_of_order_data_records_rejected(&mut world, "alice".into());
+    cases::serialization::recipient_plaintext_round_trips("alice".into());
+    cases::serialization::duplicate_data_records_rejected("alice".into());
+    cases::serialization::out_of_order_data_records_rejected("alice".into());
     cases::serialization::sender_plaintext_round_trips(&mut world, "sender".into(), "alice".into());
-    cases::serialization::transfer_blob_round_trips(&mut world);
-    cases::serialization::invalid_viewing_pubkey_rejected(&mut world);
+    cases::serialization::transfer_blob_round_trips();
+    cases::serialization::invalid_viewing_pubkey_rejected();
     cases::serialization::split_bundle_round_trips(&mut world, "owner".into());
-    cases::serialization::split_blob_round_trips(&mut world);
+    cases::serialization::split_blob_round_trips();
 }
 
 #[test]
