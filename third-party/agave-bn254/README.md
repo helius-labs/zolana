@@ -10,12 +10,12 @@ agave checkout:
 
 ## Required setup
 
+Clone the fork as a sibling of the zolana checkout:
+
 ```bash
-# sibling to the zolana checkout
 cd ..
-git clone <agave-remote> agave
+git clone --branch helius/bn254-b1-zolana-pin https://github.com/Atamanov/agave.git agave
 cd agave
-git checkout helius/bn254-b1-zolana-pin
 git rev-parse HEAD   # expect 7090028bb328e63b5207e35cfcea864728fea0b7
 ```
 
@@ -24,6 +24,20 @@ commit making the fold SBF-safe for these path deps: `VerifyingKey::trust()`
 (shape + digest only, for compile-time constant keys where curve checks are
 unavailable; hosts keep `validate()`), `hashv`-based transcript and vk digests,
 and host-free `Fr` parsing.
+
+## Localnet validator
+
+The shielded pool SBF links the batch syscalls, so a stock
+`solana-test-validator` rejects it at ELF load. Build the validator from the
+same checkout:
+
+```bash
+cd ../agave
+cargo build --release --bin solana-test-validator
+```
+
+The zolana justfile picks up `../agave/target/release/solana-test-validator`
+when it exists. Set `ZOLANA_TEST_VALIDATOR_BIN` to use another build.
 
 If agave moves, update the pin here and re-check the symlinks; drift shows up
 as compile errors in `solana-bn254-groth16-batch`, not at runtime.
