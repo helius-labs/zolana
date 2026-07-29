@@ -4,7 +4,6 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = path.resolve(packageRoot, "../..");
@@ -104,21 +103,6 @@ if (mode === "--build") {
     actual.wasmSha256 !== expected.wasmSha256 ||
     actual.wasmBytes !== expected.wasmBytes
   ) {
-    if (mode === "--verify" && process.env.CI) {
-      const committed = await readFile(assetPath);
-      const xor = Buffer.alloc(Math.max(bytes.length, committed.length));
-      for (let index = 0; index < xor.length; index++) {
-        xor[index] = (bytes[index] ?? 0) ^ (committed[index] ?? 0);
-      }
-      const encoded = gzipSync(xor, { level: 9 }).toString("base64");
-      const chunks = encoded.match(/.{1,30000}/g) ?? [];
-      console.error(`POSEIDON_WASM_ACTUAL=${JSON.stringify(actual)}`);
-      console.error(`POSEIDON_WASM_XOR_BYTES=${xor.length}`);
-      console.error(`POSEIDON_WASM_XOR_CHUNK_COUNT=${chunks.length}`);
-      for (const [index, chunk] of chunks.entries()) {
-        console.error(`POSEIDON_WASM_XOR_CHUNK_${index}=${chunk}`);
-      }
-    }
     throw new Error(
       mode === "--verify"
         ? "the compiled Poseidon WASM differs from the committed asset"
