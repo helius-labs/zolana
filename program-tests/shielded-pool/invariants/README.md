@@ -5,7 +5,9 @@ live in the per-instruction files; `docs/spec.md` remains the protocol source
 of truth.
 
 Legend: PR164 = the circuit/protocol update, merged via PR171 (#171);
-"post-PR164" below refers to that update.
+"post-PR164" below refers to that update. The P256 rail is being restored
+via PR172: the P256-related N/A entries and INV-XC-32 ("retired wire formats
+fail closed") must be re-activated / re-scoped when it lands.
 
 | File | Covers |
 |---|---|
