@@ -26,8 +26,6 @@ test-sbf = []
 
 [dependencies]
 pinocchio = { workspace = true, features = ["cpi"] }
-solana-instruction = { workspace = true }
-solana-pubkey = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
