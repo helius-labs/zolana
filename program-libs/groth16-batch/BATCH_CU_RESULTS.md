@@ -19,10 +19,14 @@ simulation: the CU is measured, the packet does not exist yet.
 
 | Use case | Legacy CU | Batch CU | Delta | Saved | Batch tx bytes | Packet | Gate |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| BatchTransact N=2 vs 2x Transact, (1,1) compact | 307296 | 265492 | 41804 | 13.6% | 947 | 1232 | **recommend** (≥10%) |
-| BatchTransact N=2 vs 2x Transact, (2,3) wallet shaped | 336219 | 294688 | 41531 | 12.4% | 1837 | 4096 size simulation | **recommend** (≥10%) |
-| BatchTransact N=4 vs 4x Transact, (2,3) wallet shaped | 674015 | 527840 | 146175 | 21.7% | 3393 | 4096 size simulation | **recommend** (≥10%) |
-| NullifierTreeMany N=2 vs 2x single, zkp batch 10 | 198110 | 153481 | 44629 | 22.5% | n/a | 1232 | **recommend** (≥10%) |
+| BatchTransact N=2 vs 2x Transact, (1,1) compact | 307602 | 265827 | 41775 | 13.6% | 947 | 1232 | **recommend** (≥10%) |
+| BatchTransact N=2 vs 2x Transact, (2,3) wallet shaped | 336537 | 295004 | 41533 | 12.3% | 1837 | 4096 size simulation | **recommend** (≥10%) |
+| BatchTransact N=4 vs 4x Transact, (2,3) wallet shaped | 674651 | 528452 | 146199 | 21.7% | 3393 | 4096 size simulation | **recommend** (≥10%) |
+| NullifierTreeMany N=2 vs 2x single, zkp batch 10 | 198126 | 153499 | 44627 | 22.5% | n/a | 1232 | **recommend** (≥10%) |
+| Two-phase N=8 vs 8x Transact, total with enqueues | 1233588 | 892955 | 340633 | 27.6% | n/a | 1232 | **recommend** (≥10%) |
+| Two-phase N=8, hot path (execute plus applies) | 1233588 | 750369 | 483219 | 39.2% | n/a | 1232 | **recommend** (≥10%) |
+| Two-phase N=16 vs 16x Transact, total with enqueues | 2468036 | 1720717 | 747319 | 30.3% | n/a | 1232 | **recommend** (≥10%) |
+| Two-phase N=16, hot path (execute plus applies) | 2468036 | 1436520 | 1031516 | 41.8% | n/a | 1232 | **recommend** (≥10%) |
 
 Regenerate: `just bench-batch-dual`.
 

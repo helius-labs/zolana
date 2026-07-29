@@ -34,11 +34,12 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{CircuitId, TransactIxData},
-        BatchTransact, BatchUpdateNullifierTree, BatchUpdateNullifierTreeData,
-        BatchUpdateNullifierTreeMany, CompressedProof, CreateTree, Transact,
+        ApplyBatch, BatchTransact, BatchUpdateNullifierTree, BatchUpdateNullifierTreeData,
+        BatchUpdateNullifierTreeMany, CloseBatchQueue, CompressedProof, CreateBatchQueue,
+        CreateTree, EnqueueTransact, ExecuteBatchVerify, Transact,
     },
     pda,
-    state::address_tree_params,
+    state::{address_tree_params, batch_queue},
     N_PUBLIC_SLOTS,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
@@ -93,6 +94,8 @@ fn program_test_batch() -> Option<ZolanaProgramTest> {
 /// consumed CU (includes the compute-budget instruction itself in every leg, so
 /// leg deltas are comparable).
 fn run_cu(rpc: &mut ZolanaProgramTest, ixs: &[Instruction], signers: &[&Keypair]) -> u64 {
+    // A fresh blockhash keeps repeated identical messages distinct.
+    rpc.svm.expire_blockhash();
     let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let mut all = vec![compute];
     all.extend_from_slice(ixs);
@@ -659,6 +662,246 @@ fn run_transact_dual(shape: EntryShape, n: usize, label: &str) -> Option<DualRow
     })
 }
 
+// --- two-phase operator queue -----------------------------------------------
+
+/// Create the queue account and initialize it for the compact (1,1) shape.
+/// Returns the queue address and the create CU.
+fn create_queue(env: &mut Env2, spender: &Keypair) -> (Pubkey, u64) {
+    let queue = Keypair::new_from_array([111u8; 32]);
+    let rent = env
+        .rpc
+        .get_minimum_balance_for_rent_exemption(batch_queue::QUEUE_ACCOUNT_SIZE)
+        .expect("rent");
+    let create_account = system_create_account_ix(
+        &spender.pubkey(),
+        &queue.pubkey(),
+        rent,
+        batch_queue::QUEUE_ACCOUNT_SIZE as u64,
+        &pda::shielded_pool_program_id(),
+    );
+    let init = CreateBatchQueue {
+        payer: spender.pubkey(),
+        operator: spender.pubkey(),
+        queue: queue.pubkey(),
+        circuit: (1, 1, N_PUBLIC_SLOTS as u8),
+    }
+    .instruction();
+    let cu = run_cu_signed(
+        &mut env.rpc,
+        &[create_account, init],
+        &[spender, &queue],
+    );
+    (queue.pubkey(), cu)
+}
+
+/// Alias so helper signatures stay short.
+type Env2 = TwoPhaseEnv;
+struct TwoPhaseEnv {
+    rpc: ZolanaProgramTest,
+    tree: Pubkey,
+}
+
+fn boot_two_phase_env(spender: &Keypair, n: usize) -> Option<TwoPhaseEnv> {
+    let (rpc, tree) = boot_transact_env(spender, n)?;
+    Some(TwoPhaseEnv { rpc, tree })
+}
+
+/// `run_cu` with explicit signer set (the queue keypair co-signs creation).
+fn run_cu_signed(rpc: &mut ZolanaProgramTest, ixs: &[Instruction], signers: &[&Keypair]) -> u64 {
+    run_cu(rpc, ixs, signers)
+}
+
+/// `run_cu` plus a 256 KB heap frame: the fold at N=8 and above exceeds the
+/// default 32 KB program heap.
+fn run_cu_heap(rpc: &mut ZolanaProgramTest, ixs: &[Instruction], signers: &[&Keypair]) -> u64 {
+    rpc.svm.expire_blockhash();
+    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    let heap = ComputeBudgetInstruction::request_heap_frame(256 * 1024);
+    let mut all = vec![compute, heap];
+    all.extend_from_slice(ixs);
+    let payer = signers.first().expect("fee payer").pubkey();
+    let message = Message::new(&all, Some(&payer));
+    let tx = Transaction::new(signers, message, rpc.svm.latest_blockhash());
+    let meta = rpc
+        .svm
+        .send_transaction(tx)
+        .unwrap_or_else(|e| panic!("dual leg tx failed: {e:?}"));
+    meta.compute_units_consumed
+}
+
+fn send_expect_err(rpc: &mut ZolanaProgramTest, ixs: &[Instruction], signers: &[&Keypair]) {
+    rpc.svm.expire_blockhash();
+    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    let mut all = vec![compute];
+    all.extend_from_slice(ixs);
+    let payer = signers.first().expect("fee payer").pubkey();
+    let message = Message::new(&all, Some(&payer));
+    let tx = Transaction::new(signers, message, rpc.svm.latest_blockhash());
+    assert!(
+        rpc.svm.send_transaction(tx).is_err(),
+        "transaction must fail"
+    );
+}
+
+/// Run the full two-phase flow for prebuilt entries. Returns (total CU
+/// including create and enqueues, hot-path CU of execute plus applies).
+fn run_two_phase(
+    env: &mut TwoPhaseEnv,
+    spender: &Keypair,
+    entries: &[TransactIxData],
+) -> (u64, u64) {
+    let (queue, mut total) = create_queue(env, spender);
+    for entry in entries {
+        let enqueue = EnqueueTransact {
+            operator: spender.pubkey(),
+            queue,
+            entry_signers: vec![],
+            data: entry.clone(),
+        }
+        .instruction();
+        total += run_cu(&mut env.rpc, &[enqueue], &[spender]);
+    }
+    let execute = ExecuteBatchVerify {
+        operator: spender.pubkey(),
+        queue,
+        input_tree: env.tree,
+        output_tree: env.tree,
+    }
+    .instruction();
+    let mut hot = run_cu_heap(&mut env.rpc, &[execute], &[spender]);
+    let apply_calls = entries.len().div_ceil(4);
+    for _ in 0..apply_calls {
+        let apply = ApplyBatch {
+            operator: spender.pubkey(),
+            queue,
+            input_tree: env.tree,
+            output_tree: env.tree,
+        }
+        .instruction();
+        hot += run_cu(&mut env.rpc, &[apply], &[spender]);
+    }
+    total += hot;
+    let close = CloseBatchQueue {
+        operator: spender.pubkey(),
+        queue,
+        rent_recipient: spender.pubkey(),
+    }
+    .instruction();
+    total += run_cu(&mut env.rpc, &[close], &[spender]);
+    assert!(
+        env.rpc.svm.get_account(&queue).map_or(0, |a| a.lamports) == 0,
+        "queue rent returned"
+    );
+    (total, hot)
+}
+
+/// Two-phase lifecycle: authorization at enqueue, stage gating, apply parity
+/// with the solo state transitions, and close.
+#[test]
+fn two_phase_lifecycle_n2() {
+    let spender = Keypair::new_from_array([77u8; 32]);
+    let Some(mut env) = boot_two_phase_env(&spender, 2) else {
+        return;
+    };
+    let entries = build_entries(&env.rpc, &env.tree, &spender, 2, EntryShape::Compact11);
+    let (queue, _) = create_queue(&mut env, &spender);
+
+    // Apply before execute must fail.
+    let premature = ApplyBatch {
+        operator: spender.pubkey(),
+        queue,
+        input_tree: env.tree,
+        output_tree: env.tree,
+    }
+    .instruction();
+    send_expect_err(&mut env.rpc, &[premature], &[&spender]);
+
+    // An entry whose signer index points past the account list must fail:
+    // the named input owner is not present to authorize the spend.
+    let mut unsigned_entry = entries[0].clone();
+    for input in &mut unsigned_entry.inputs {
+        input.eddsa_signer_index = 7;
+    }
+    let unauthorized = EnqueueTransact {
+        operator: spender.pubkey(),
+        queue,
+        entry_signers: vec![],
+        data: unsigned_entry,
+    }
+    .instruction();
+    send_expect_err(&mut env.rpc, &[unauthorized], &[&spender]);
+
+    for entry in &entries {
+        let enqueue = EnqueueTransact {
+            operator: spender.pubkey(),
+            queue,
+            entry_signers: vec![],
+            data: entry.clone(),
+        }
+        .instruction();
+        run_cu(&mut env.rpc, &[enqueue], &[&spender]);
+    }
+    let (out_before, null_before) = tree_indices(&env.rpc, &env.tree);
+    let execute = ExecuteBatchVerify {
+        operator: spender.pubkey(),
+        queue,
+        input_tree: env.tree,
+        output_tree: env.tree,
+    }
+    .instruction();
+    run_cu(&mut env.rpc, &[execute], &[&spender]);
+    let apply = ApplyBatch {
+        operator: spender.pubkey(),
+        queue,
+        input_tree: env.tree,
+        output_tree: env.tree,
+    }
+    .instruction();
+    run_cu(&mut env.rpc, &[apply], &[&spender]);
+
+    let (out_after, null_after) = tree_indices(&env.rpc, &env.tree);
+    assert_eq!(out_after, out_before + 2, "both outputs appended");
+    assert_eq!(null_after, null_before + 2, "both nullifiers queued");
+
+    let close = CloseBatchQueue {
+        operator: spender.pubkey(),
+        queue,
+        rent_recipient: spender.pubkey(),
+    }
+    .instruction();
+    run_cu(&mut env.rpc, &[close], &[&spender]);
+}
+
+/// Two-phase dual: N solo transactions against create, enqueue, execute, and
+/// apply. `hot` is execute plus applies, the contended-account cost.
+fn run_two_phase_dual(n: usize) -> (DualRow, DualRow) {
+    let spender = Keypair::new_from_array([77u8; 32]);
+    let (mut legacy_rpc, tree) = boot_transact_env(&spender, n).expect("legacy env");
+    let entries = build_entries(&legacy_rpc, &tree, &spender, n, EntryShape::Compact11);
+    let mut legacy = 0u64;
+    for entry in &entries {
+        let solo = solo_transact_ix(&tree, &spender, entry.clone());
+        legacy += run_cu(&mut legacy_rpc, &[solo], &[&spender]);
+    }
+
+    let mut env = boot_two_phase_env(&spender, n).expect("two-phase env");
+    let (total, hot) = run_two_phase(&mut env, &spender, &entries);
+    (
+        DualRow {
+            label: format!("Two-phase N={n} vs {n}x Transact, total with enqueues"),
+            legacy,
+            batch: total,
+            batch_tx_bytes: None,
+        },
+        DualRow {
+            label: format!("Two-phase N={n}, hot path (execute plus applies)"),
+            legacy,
+            batch: hot,
+            batch_tx_bytes: None,
+        },
+    )
+}
+
 /// The 10% gate: identical state and proofs per dual, CU from the VM.
 #[test]
 #[ignore = "dual CU; needs SBF + prover. Run via just bench-batch-dual"]
@@ -717,6 +960,12 @@ fn dual_cu_same_vk_full_path() {
         batch_tx_bytes: None,
     });
 
+    for n in [8usize, 16] {
+        let (total, hot) = run_two_phase_dual(n);
+        rows.push(total);
+        rows.push(hot);
+    }
+
     write_results(&rows);
 }
 
@@ -771,3 +1020,4 @@ fn write_results(rows: &[DualRow]) {
     fs::write(RESULTS_PATH, &md).expect("write BATCH_CU_RESULTS.md");
     println!("{md}");
 }
+
