@@ -32,12 +32,12 @@ entries in a single cascade.
 
 The shape reports two functions:
 
-- `apply_cached_changelog_updates` (~36,429 CU): the 120-entry cascade, ~304 CU
+- `apply_cached_tree_updates` (~33,063 CU): the 120-entry cascade, ~275 CU
   per applied zkp batch. Each apply advances `next_index`, appends a root to the
   root-history ring, marks the zkp batch inserted, and zeroes a slice of the
   previous batch's bloom filter. The cascade re-verifies no proofs; the submit
   path already did.
-- `bench_batch_address_update` net (~96,293 CU): the index-0 submit path,
+- `bench_batch_address_update` net (~96,034 CU): the index-0 submit path,
   dominated by the single Groth16 proof verification (alt_bn128 pairing).
 
 Total is ~132,722 CU, well under the 1.4M per-transaction limit, so a backlog of

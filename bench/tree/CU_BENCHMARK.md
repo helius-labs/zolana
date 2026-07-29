@@ -26,47 +26,48 @@ Regenerate with `just bench-tree`.
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_batch_address_update` |    126,664 |    126,664 |
+| `apply_cached_tree_updates`  |     33,063 |     33,063 |
+| `bench_batch_address_update` |    129,097 |     96,034 |
 
 ## 2. Deserialize
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_deserialize`          |         48 |         48 |
+| `bench_deserialize`          |         66 |         66 |
 
 ## 3. Nullifier insert x1
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |        588 |        588 |
+| `bench_nullifier_insert`     |        877 |        877 |
 
 ## 4. Nullifier insert x10
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |     13,341 |     13,341 |
+| `bench_nullifier_insert`     |     16,240 |     16,240 |
 
 ## 5. Tree init
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_init`                 |        757 |        757 |
+| `bench_init`                 |        244 |        244 |
 
 ## 6. Utxo append x1
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_append`               |     27,881 |     27,881 |
+| `bench_append`               |     27,849 |     27,849 |
 
 ## 7. Utxo append x10
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_append`               |    278,552 |    278,552 |
+| `bench_append`               |    278,241 |    278,241 |
 
 ## 8. Utxo append Batch x10
 
 | Function                     |   Total CU |     Net CU |
 | ---------------------------- | ---------- | ---------- |
-| `bench_append_batch`         |     34,646 |     34,646 |
+| `bench_append_batch`         |     34,405 |     34,405 |
 
