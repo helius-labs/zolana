@@ -55,6 +55,9 @@ pub struct RunOptions {
     /// Cap on zkp-batches submitted across the whole invocation (all ready when
     /// `None`).
     pub max_batches: Option<u64>,
+    /// Ready updates submitted per transaction. Two or more fold through
+    /// `BatchUpdateNullifierTreeMany`. Four fit a 1232-byte packet.
+    pub max_updates_per_tx: u64,
     /// Keep polling for newly-ready batches after draining instead of exiting.
     pub watch: bool,
     /// Seconds between polls in `--watch` mode.
@@ -164,6 +167,7 @@ pub fn run(opts: RunOptions) -> Result<()> {
             opts.account_index,
             opts.tree,
             remaining,
+            opts.max_updates_per_tx,
         )?;
         let submitted = match outcome {
             DrainOutcome::Drained(submitted) => submitted,
@@ -363,6 +367,7 @@ fn drain_once(
     account_index: u8,
     tree: Pubkey,
     limit: Option<u64>,
+    max_updates_per_tx: u64,
 ) -> Result<DrainOutcome> {
     let snapshot = read_snapshot(rpc_url, tree)?;
     if snapshot.ready == 0 {
@@ -395,7 +400,7 @@ fn drain_once(
     let cap = limit
         .map(|limit| limit.min(snapshot.ready))
         .unwrap_or(snapshot.ready);
-    let mut submitted = 0u64;
+    let mut updates = Vec::with_capacity(cap as usize);
     for i in 0..cap {
         let zkp_index = snapshot.already_applied + i;
         let batch_next_index = snapshot.next_index + i * snapshot.zkp_batch_size;
@@ -435,33 +440,51 @@ fn drain_once(
         let compressed = ProofCompressed::try_from(proof)
             .map_err(|err| anyhow!("compress proof for zkp-batch {zkp_index}: {err:?}"))?;
 
+        updates.push(BatchUpdateNullifierTreeData {
+            new_root,
+            old_root,
+            // `zkp_index` is bounded by the batch's `num_zkp_batches`
+            // (= batch_size / zkp_batch_size), well within `u16`, so the
+            // cast cannot truncate.
+            zkp_batch_index: zkp_index as u16,
+            compressed_proof: CompressedProof {
+                a: compressed.a,
+                b: compressed.b,
+                c: compressed.c,
+            },
+        });
+    }
+
+    // Chunks apply in order. Each chunk's first old root matches the tree
+    // because the previous chunk confirmed before this one is sent.
+    let mut submitted = 0u64;
+    for chunk in updates.chunks(chunk_size(max_updates_per_tx)) {
+        let first = chunk.first().expect("chunks are non-empty").zkp_batch_index;
+        let count = chunk.len() as u64;
         let signature = batch_update_nullifier_tree_once(ForestParams {
             rpc_url,
             member,
             settings,
             account_index,
             pool_tree: tree,
-            batch_update: BatchUpdateNullifierTreeData {
-                new_root,
-                old_root,
-                // `zkp_index` is bounded by the batch's `num_zkp_batches`
-                // (= batch_size / zkp_batch_size), well within `u16`, so the
-                // cast cannot truncate.
-                zkp_batch_index: zkp_index as u16,
-                compressed_proof: CompressedProof {
-                    a: compressed.a,
-                    b: compressed.b,
-                    c: compressed.c,
-                },
-            },
+            batch_updates: chunk.to_vec(),
         })
-        .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;
-
-        tracing::info!(%signature, zkp_index, new_root = %hex::encode(new_root), "submitted nullifier batch update");
-        submitted += 1;
+        .map_err(|err| anyhow!("submit zkp-batches {first}..{}: {err}", first as u64 + count))?;
+        tracing::info!(
+            %signature,
+            first_zkp_index = first,
+            count,
+            "submitted nullifier updates"
+        );
+        submitted += count;
     }
 
     Ok(DrainOutcome::Drained(submitted))
+}
+
+/// A zero cap means one update per transaction.
+fn chunk_size(max_updates_per_tx: u64) -> usize {
+    usize::try_from(max_updates_per_tx.max(1)).unwrap_or(1)
 }
 
 /// Preflight: validate the tree-read / photon / reconstruct / root-match path
@@ -600,6 +623,14 @@ fn forester_keypair() -> Result<Keypair> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn chunk_size_floors_at_one() {
+        assert_eq!(super::chunk_size(0), 1);
+        assert_eq!(super::chunk_size(1), 1);
+        assert_eq!(super::chunk_size(4), 4);
+    }
+
+
     use super::*;
     use zolana_batched_merkle_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 

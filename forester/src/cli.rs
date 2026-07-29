@@ -43,6 +43,10 @@ pub enum Commands {
         /// Stop after submitting at most N zkp-batches (default: all ready).
         #[arg(long)]
         max_batches: Option<u64>,
+        /// Ready updates per transaction. Two or more fold through one
+        /// `BatchUpdateNullifierTreeMany`. Four fit a 1232-byte packet.
+        #[arg(long, default_value_t = 4)]
+        max_updates_per_tx: u64,
         /// After draining, keep polling for newly-ready batches instead of
         /// exiting.
         #[arg(long)]
