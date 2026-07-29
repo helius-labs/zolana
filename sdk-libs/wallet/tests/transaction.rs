@@ -253,9 +253,7 @@ fn decrypt(
             continue;
         };
         let blob = match output_data {
-            OutputDataEncoding::Encrypted(blob)
-            | OutputDataEncoding::VerifiablyEncrypted(blob)
-            | OutputDataEncoding::Plaintext(blob) => blob,
+            OutputDataEncoding::Encrypted(blob) | OutputDataEncoding::Plaintext(blob) => blob,
         };
         let Some((_scheme, body)) = blob.split_first() else {
             continue;
@@ -539,9 +537,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
         let data = ciphertexts.get(slot_index).unwrap();
         let output_data = OutputDataEncoding::try_from_slice(data).unwrap();
         let blob = match output_data {
-            OutputDataEncoding::Encrypted(blob)
-            | OutputDataEncoding::VerifiablyEncrypted(blob)
-            | OutputDataEncoding::Plaintext(blob) => blob,
+            OutputDataEncoding::Encrypted(blob) | OutputDataEncoding::Plaintext(blob) => blob,
         };
         let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
         body.to_vec()

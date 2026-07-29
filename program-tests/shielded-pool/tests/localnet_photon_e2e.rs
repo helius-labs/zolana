@@ -1031,9 +1031,7 @@ fn nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer() -> Te
                 .output_data()
                 .ok_or_else(|| anyhow!("output slot {slot_index} is not decodable output data"))?
             {
-                OutputDataEncoding::Encrypted(blob)
-                | OutputDataEncoding::VerifiablyEncrypted(blob)
-                | OutputDataEncoding::Plaintext(blob) => blob,
+                OutputDataEncoding::Encrypted(blob) | OutputDataEncoding::Plaintext(blob) => blob,
             };
             let (_scheme, body) = blob
                 .split_first()
@@ -1712,9 +1710,7 @@ fn shield_encrypted_transfer_recovered_by_decryption_for(expected_rail: SpendRai
         .output_data()
         .ok_or_else(|| anyhow!("recipient slot is not decodable output data"))?
     {
-        OutputDataEncoding::Encrypted(blob)
-        | OutputDataEncoding::VerifiablyEncrypted(blob)
-        | OutputDataEncoding::Plaintext(blob) => blob,
+        OutputDataEncoding::Encrypted(blob) | OutputDataEncoding::Plaintext(blob) => blob,
     };
     let (_scheme, recipient_ciphertext) = recipient_blob
         .split_first()

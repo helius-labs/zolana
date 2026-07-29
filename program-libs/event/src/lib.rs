@@ -7,8 +7,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
 pub use proofless::{
-    encode_output_data, encode_output_data_ref, encode_verifiably_encrypted, OutputDataEncoding,
-    ProoflessOutput, ProoflessOutputRef, PLAINTEXT_OUTPUT_FIXED_LEN,
+    encode_output_data, encode_output_data_ref, OutputDataEncoding, ProoflessOutput,
+    ProoflessOutputRef, PLAINTEXT_OUTPUT_FIXED_LEN,
 };
 
 /// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing

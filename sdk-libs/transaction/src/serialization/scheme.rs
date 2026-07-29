@@ -8,7 +8,6 @@ pub enum EncryptedScheme {
     AnonymousSender = 2,
     Confidential = 3,
     Split = 5,
-    Merge = 6,
     PlaintextTransfer = 7,
 }
 
@@ -20,7 +19,6 @@ impl EncryptedScheme {
             2 => Ok(Self::AnonymousSender),
             3 => Ok(Self::Confidential),
             5 => Ok(Self::Split),
-            6 => Ok(Self::Merge),
             7 => Ok(Self::PlaintextTransfer),
             other => Err(TransactionError::BadDiscriminator(other)),
         }

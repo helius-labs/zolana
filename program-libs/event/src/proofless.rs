@@ -39,13 +39,11 @@ pub struct ProoflessOutputRef<'a> {
 pub enum OutputDataEncoding {
     Plaintext(Vec<u8>),
     Encrypted(Vec<u8>),
-    VerifiablyEncrypted(Vec<u8>),
 }
 
 impl OutputDataEncoding {
     pub const PLAINTEXT_TAG: u8 = 0;
     pub const ENCRYPTED_TAG: u8 = 1;
-    pub const VERIFIABLY_ENCRYPTED_TAG: u8 = 2;
 }
 
 /// Enum tag byte.
@@ -97,9 +95,4 @@ pub fn encode_output_data_ref(data: ProoflessOutputRef<'_>) -> Vec<u8> {
         .expect("length placeholder written above")
         .copy_from_slice(&body_len.to_le_bytes());
     out
-}
-
-pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
-    borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob))
-        .expect("shielded-pool output data serialization is infallible")
 }
