@@ -793,6 +793,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
+name = "batch-payout-program"
+version = "0.1.0"
+dependencies = [
+ "pinocchio 0.11.2",
+ "pinocchio-system",
+ "zolana-interface",
+]
+
+[[package]]
+name = "batch-payout-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "batch-payout-program",
+ "groth16-solana",
+ "num-bigint 0.4.8",
+ "solana-compute-budget-interface",
+ "solana-instruction 3.4.0",
+ "solana-keypair",
+ "solana-message 3.1.0",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-transaction",
+ "zolana-client",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-merkle-tree",
+ "zolana-program-test",
+ "zolana-transaction",
+ "zolana-tree",
+]
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

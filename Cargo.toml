@@ -34,6 +34,8 @@ members = [
     "sdk-libs/transaction",
     "sdk-libs/wallet",
     "services/photon",
+    "sdk-tests/batch-payout/program",
+    "sdk-tests/batch-payout/test",
     "sdk-tests/client",
     "sdk-tests/dynamic-swap/program",
     "sdk-tests/dynamic-swap/prover",

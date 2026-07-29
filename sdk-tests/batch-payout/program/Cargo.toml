@@ -1,0 +1,26 @@
+[package]
+name = "batch-payout-program"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+name = "batch_payout_program"
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+bpf-entrypoint = []
+no-entrypoint = []
+
+[dependencies]
+pinocchio = { workspace = true, features = ["cpi"] }
+pinocchio-system = { workspace = true }
+zolana-interface = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]
