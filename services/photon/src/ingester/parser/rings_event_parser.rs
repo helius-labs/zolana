@@ -258,7 +258,9 @@ fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> 
     // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
     // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
     // drops those transactions from the index (they never get a rings_transactions
-    // row).
+    // row). BATCH_UPDATE_NULLIFIER_TREE deliberately stays out: its
+    // BatchAddressAppend events are not GeneralEvents and are ingested by
+    // `nullifier_tree_batch_update_parser` instead.
     instruction.program_id == rings_program_id
         && matches!(
             instruction.data.first().copied(),

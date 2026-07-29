@@ -83,6 +83,7 @@ bincode = { workspace = true }
 s3 = { workspace = true }
 jsonwebtoken = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
+zolana-batched-merkle-tree = { workspace = true }
 zolana-indexer-api = { workspace = true, features = ["openapi"] }
 zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["tree"] }
 zolana-tree = { workspace = true }

@@ -4126,6 +4126,7 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "yellowstone-grpc-proto",
+ "zolana-batched-merkle-tree",
  "zolana-event",
  "zolana-indexer-api",
  "zolana-interface",
