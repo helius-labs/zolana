@@ -51,10 +51,6 @@ pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
     pub maker: TestWallet,
-    // Read by the cancel and plain-take flows; the verifiable-encryption take
-    // builds its own maker-wallet input instead, so per-binary dead-code
-    // analysis flags this field in that binary.
-    #[allow(dead_code)]
     pub maker_input: SppProofInputUtxo,
     pub taker: TestWallet,
     pub spl_mint: Address,
@@ -323,7 +319,7 @@ pub fn setup() -> Result<TestEnv> {
         Address::new_from_array(tree.to_bytes()),
     );
 
-    Ok(TestEnv {
+    let env = TestEnv {
         client,
         tree,
         maker: TestWallet {
@@ -336,7 +332,13 @@ pub fn setup() -> Result<TestEnv> {
             keypair: taker_shielded_keypair,
         },
         spl_mint,
-    })
+    };
+
+    // Guard the fixture: the retained order-authority input the make flows
+    // spend must be exactly the note the maker deposit just funded.
+    debug_assert_eq!(env.maker_input.utxo.asset, spl_mint);
+    debug_assert_eq!(env.maker_input.utxo.amount, MAKER_SHIELD_SPL);
+    Ok(env)
 }
 
 // Submit a single (large) swap instruction as a v0 transaction behind a throwaway

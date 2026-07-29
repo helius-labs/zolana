@@ -18,11 +18,13 @@ failure-output = "immediate-final"
 # List slow tests in the final status line so regressions in test time show up.
 final-status-level = "slow"
 
-# CI: don't stop at the first failure (collect the full picture), and retry a
-# failed test up to twice to absorb localnet/prover flakiness before failing the
-# job. A test that only passes on retry is reported as FLAKY.
+# CI: don't stop at the first failure (collect the full picture). The profile
+# itself is retry-free so deterministic suites are never masked by a retry that
+# passes; only the validator/localnet override group below retries (twice) to
+# absorb localnet/prover flakiness. A test that only passes on retry is
+# reported as FLAKY.
 [profile.ci]
-retries = 2
+retries = 0
 fail-fast = false
 failure-output = "immediate-final"
 final-status-level = "slow"
@@ -37,7 +39,9 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 serial-validator = { max-threads = 1 }
 
 # Assign every validator/localnet-spawning test to that group. Applied to both
-# profiles (nextest does not inherit overrides across profiles).
+# profiles (nextest does not inherit overrides across profiles); only the ci
+# override retries, since these are the suites exposed to localnet/prover
+# flakiness.
 [[profile.default.overrides]]
 filter = "package(spp-test-validator) | package(zone-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | (package(shielded-pool-tests) & test(/localnet/))"
 test-group = "serial-validator"
@@ -45,3 +49,4 @@ test-group = "serial-validator"
 [[profile.ci.overrides]]
 filter = "package(spp-test-validator) | package(zone-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | (package(shielded-pool-tests) & test(/localnet/))"
 test-group = "serial-validator"
+retries = 2

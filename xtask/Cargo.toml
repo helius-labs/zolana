@@ -27,6 +27,7 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
 zolana-interface = { workspace = true }
+zolana-smart-account-client = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-user-registry-interface = { workspace = true }

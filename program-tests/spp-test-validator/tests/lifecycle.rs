@@ -1,10 +1,75 @@
 //! Local-validator lifecycle tests written as ordinary Rust programs.
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serial_test::serial;
 use solana_address::Address;
-use zolana_test_utils::lifecycle::{randomized::Workload, LifecycleHarness};
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
+use zolana_client::{Rpc, SolanaRpc};
+use zolana_smart_account_client::{settings::settings_member_keys, SMART_ACCOUNT_PROGRAM_ID};
+use zolana_test_utils::{
+    harness::{BootstrapConfig, LocalnetHarness},
+    lifecycle::{randomized::Workload, LifecycleHarness},
+    localnet::{start_shielded_pool_localnet, DEFAULT_RPC_URL},
+};
 use zolana_transaction::SOL_MINT;
+
+/// Pin the shared Squads `Settings` decoder
+/// (`zolana_smart_account_client::settings::settings_member_keys`) against
+/// REAL accounts: the bootstrap creates the five standard smart accounts on a
+/// validator running the mainnet-dumped program binary, then each settings
+/// account is fetched from the validator and decoded, and the decoded member
+/// keys must equal exactly the keys the account was created with. This
+/// settles the decoder's two exposure points against the real program: the
+/// legacy Anchor discriminator `sha256("account:Settings")[..8]` (the pinned
+/// anchor-lang 1.1 default) and the `archivable_after` field position (a
+/// wrong position would shift the signers vec and break the member keys).
+///
+/// Only the validator is needed (no prover, indexer, or tree), so this boots
+/// the stack directly instead of going through `LifecycleHarness::new`.
+#[test]
+#[serial]
+fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
+    start_shielded_pool_localnet("spp-settings", &[]);
+    let rpc_url = std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
+    let mut rpc = SolanaRpc::new(rpc_url);
+    let config = BootstrapConfig {
+        label: "spp-settings",
+        extra_programs: Vec::new(),
+        zone_creation_is_permissionless: false,
+        fund_merge_vault: false,
+    };
+    let setup = LocalnetHarness::<()>::setup_protocol_accounts(&mut rpc, &config)?;
+
+    let expected: [(Pubkey, Pubkey); 5] = [
+        (setup.accounts.protocol_settings, setup.authority.pubkey()),
+        (setup.accounts.tree_settings, setup.tree_key.pubkey()),
+        (setup.accounts.zone_settings, setup.zone_key.pubkey()),
+        (setup.accounts.merge_settings, setup.merge_key.pubkey()),
+        (
+            setup.accounts.forester_settings,
+            setup.forester_key.pubkey(),
+        ),
+    ];
+    for (settings_key, member) in expected {
+        let account = rpc
+            .get_account(Address::new_from_array(settings_key.to_bytes()))
+            .with_context(|| format!("fetching settings account {settings_key}"))?
+            .ok_or_else(|| anyhow!("settings account {settings_key} not found"))?;
+        assert_eq!(
+            account.owner, SMART_ACCOUNT_PROGRAM_ID,
+            "settings account {settings_key} owner"
+        );
+        let members = settings_member_keys(&account.data)
+            .with_context(|| format!("decoding settings account {settings_key}"))?;
+        assert_eq!(
+            members,
+            [member],
+            "settings account {settings_key} must list exactly its creation member"
+        );
+    }
+    Ok(())
+}
 
 #[test]
 #[serial]

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Result};
-use sha2::{Digest, Sha256};
 use solana_account::Account;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -19,6 +18,7 @@ use zolana_interface::{
     state::{tree_account_size, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_smart_account_client::{roles::Role, settings::settings_member_keys};
 use zolana_test_utils::smart_account::{
     create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
     Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
@@ -288,21 +288,10 @@ pub(crate) fn read_program_config(rpc: &SolanaRpc) -> Result<ProgramConfig> {
     parse_program_config(&account).with_context(|| format!("parsing ProgramConfig {pc_pda}"))
 }
 
-fn role_addrs(label: &'static str, seed: u128) -> RoleAddrs {
-    let (settings, _) = settings_pda(seed);
-    let (vault, _) = smart_account_pda(&settings, 0);
-    RoleAddrs {
-        label,
-        seed,
-        settings,
-        vault,
-    }
-}
-
 /// The Squads `Settings` accounts the previous init run created at consecutive
-/// seeds: protocol, tree, zone, and merge are governed by the protocol
-/// authorities, forester by the forester authorities (mirrors
-/// `create_all_smart_accounts`).
+/// seeds, in [`Role::ALL`] creation order: protocol, tree, zone, and merge are
+/// governed by the protocol authorities, forester by the forester authorities
+/// (mirrors `create_all_smart_accounts`).
 fn expected_role_members() -> [&'static [Pubkey]; 5] {
     [
         &authorities::PROTOCOL,
@@ -311,64 +300,6 @@ fn expected_role_members() -> [&'static [Pubkey]; 5] {
         &authorities::PROTOCOL,
         &authorities::FORESTER,
     ]
-}
-
-/// Decode the signer (member) keys of a Squads smart-account `Settings`
-/// account. Layout (Anchor borsh, from the upstream program source
-/// Squads-Protocol/smart-account-program,
-/// `programs/squads_smart_account_program/src/state/settings.rs`):
-/// discriminator[8] | seed u128 | settings_authority | threshold u16 |
-/// time_lock u32 | transaction_index u64 | stale_transaction_index u64 |
-/// archival_authority Option<Pubkey> | archivable_after u64 | bump u8 |
-/// signers Vec<{ key, permissions mask u8 }> | (trailing fields unused here).
-/// Parsed sequentially because the borsh `Option` shifts the signers offset.
-fn settings_member_keys(data: &[u8]) -> Result<Vec<Pubkey>> {
-    fn take<'a>(data: &'a [u8], cursor: &mut usize, len: usize, field: &str) -> Result<&'a [u8]> {
-        let end = cursor
-            .checked_add(len)
-            .ok_or_else(|| anyhow!("settings account offset overflow at {field}"))?;
-        let bytes = data
-            .get(*cursor..end)
-            .ok_or_else(|| anyhow!("settings account truncated at {field}"))?;
-        *cursor = end;
-        Ok(bytes)
-    }
-
-    let mut cursor = 0;
-    let discriminator = take(data, &mut cursor, 8, "discriminator")?;
-    // Anchor account discriminator: sha256("account:Settings")[0..8].
-    let expected = Sha256::digest(b"account:Settings");
-    if discriminator != &expected[..8] {
-        bail!("settings account discriminator mismatch");
-    }
-    take(data, &mut cursor, 16, "seed")?;
-    take(data, &mut cursor, 32, "settings_authority")?;
-    take(data, &mut cursor, 2, "threshold")?;
-    take(data, &mut cursor, 4, "time_lock")?;
-    take(data, &mut cursor, 8, "transaction_index")?;
-    take(data, &mut cursor, 8, "stale_transaction_index")?;
-    match take(data, &mut cursor, 1, "archival_authority tag")? {
-        [0] => {}
-        [1] => {
-            take(data, &mut cursor, 32, "archival_authority")?;
-        }
-        [tag] => bail!("settings account has an unknown archival_authority tag {tag}"),
-        _ => unreachable!("one byte was read"),
-    }
-    take(data, &mut cursor, 8, "archivable_after")?;
-    take(data, &mut cursor, 1, "bump")?;
-    let signer_count = u32::from_le_bytes(
-        take(data, &mut cursor, 4, "signers length")?
-            .try_into()
-            .expect("4 bytes"),
-    );
-    let mut keys = Vec::with_capacity(signer_count.min(1024) as usize);
-    for _ in 0..signer_count {
-        let key = take(data, &mut cursor, 32, "signer key")?;
-        take(data, &mut cursor, 1, "signer permissions")?;
-        keys.push(Pubkey::new_from_array(key.try_into().expect("32 bytes")));
-    }
-    Ok(keys)
 }
 
 /// Guard the `--resume` seed arithmetic: the five settings accounts derived
@@ -412,14 +343,20 @@ fn verify_resume_settings(rpc: &SolanaRpc, roles: &[RoleAddrs; 5]) -> Result<()>
     Ok(())
 }
 
+/// Derive the five role accounts at the shared role table's seed offsets above
+/// `base_index` (`zolana_smart_account_client::roles`: protocol, tree, zone,
+/// merge, forester at +1..=+5).
 fn derive_roles(base_index: u128) -> [RoleAddrs; 5] {
-    [
-        role_addrs("protocol", base_index + 1),
-        role_addrs("tree", base_index + 2),
-        role_addrs("zone", base_index + 3),
-        role_addrs("merge", base_index + 4),
-        role_addrs("forester", base_index + 5),
-    ]
+    Role::ALL.map(|role| {
+        let (settings, _) = role.settings_pda(base_index);
+        let (vault, _) = role.vault_pda(base_index);
+        RoleAddrs {
+            label: role.label(),
+            seed: role.seed(base_index),
+            settings,
+            vault,
+        }
+    })
 }
 
 fn current_index(rpc: &SolanaRpc) -> Result<u128> {
@@ -1066,68 +1003,5 @@ mod tests {
     fn malformed_program_data_is_an_error() {
         let parsed = read_program_data_upgrade_authority(&Pubkey::new_unique(), &[0u8; 4]);
         assert!(parsed.is_err());
-    }
-
-    /// Squads `Settings` account bytes per the Anchor borsh layout
-    /// (`state/settings.rs` upstream), with `signer_count` members.
-    fn settings_fixture(archival_authority: Option<Pubkey>, signers: &[(Pubkey, u8)]) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(&Sha256::digest(b"account:Settings")[..8]);
-        data.extend_from_slice(&1u128.to_le_bytes()); // seed
-        data.extend_from_slice(&[0u8; 32]); // settings_authority
-        data.extend_from_slice(&1u16.to_le_bytes()); // threshold
-        data.extend_from_slice(&0u32.to_le_bytes()); // time_lock
-        data.extend_from_slice(&0u64.to_le_bytes()); // transaction_index
-        data.extend_from_slice(&0u64.to_le_bytes()); // stale_transaction_index
-        match archival_authority {
-            Some(authority) => {
-                data.push(1);
-                data.extend_from_slice(&authority.to_bytes());
-            }
-            None => data.push(0),
-        }
-        data.extend_from_slice(&0u64.to_le_bytes()); // archivable_after
-        data.push(255); // bump
-        data.extend_from_slice(&(signers.len() as u32).to_le_bytes());
-        for (key, mask) in signers {
-            data.extend_from_slice(&key.to_bytes());
-            data.push(*mask);
-        }
-        data
-    }
-
-    #[test]
-    fn decodes_settings_member_keys() {
-        let members = [(Pubkey::new_unique(), 0b111), (Pubkey::new_unique(), 0b001)];
-        let data = settings_fixture(None, &members);
-        let keys = settings_member_keys(&data).expect("valid settings");
-        assert_eq!(keys, [members[0].0, members[1].0]);
-    }
-
-    #[test]
-    fn decodes_settings_with_archival_authority_set() {
-        // A set archival_authority occupies 32 bytes and shifts the signers.
-        let member = Pubkey::new_unique();
-        let data = settings_fixture(Some(Pubkey::new_unique()), &[(member, 0b111)]);
-        let keys = settings_member_keys(&data).expect("valid settings");
-        assert_eq!(keys, [member]);
-    }
-
-    #[test]
-    fn settings_decoder_fails_closed() {
-        let member = Pubkey::new_unique();
-        let data = settings_fixture(None, &[(member, 0b111)]);
-        // Truncated inside the signers vec.
-        assert!(settings_member_keys(&data[..data.len() - 10]).is_err());
-        // Wrong discriminator.
-        let mut bad_discriminator = data.clone();
-        *bad_discriminator.get_mut(7).expect("discriminator byte") ^= 0xff;
-        assert!(settings_member_keys(&bad_discriminator).is_err());
-        // Unknown archival_authority option tag (byte 78: after the 8-byte
-        // discriminator and the fixed seed/authority/threshold/lock/index
-        // fields).
-        let mut bad_tag = data;
-        *bad_tag.get_mut(78).expect("option tag byte") = 9;
-        assert!(settings_member_keys(&bad_tag).is_err());
     }
 }

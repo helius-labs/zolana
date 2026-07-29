@@ -172,8 +172,10 @@ mod tests {
         encode_instruction, BatchUpdateNullifierTreeData, CompressedProof,
     };
 
-    /// `statsd_count!` panics when no global recorder is installed; unit tests
-    /// get a Nop one (idempotent across tests sharing the process).
+    /// `statsd_count!` panics when no global recorder is installed; every test
+    /// whose fixture carries an `EMIT_EVENT` instruction (the only paths that
+    /// count metrics) installs a Nop one up front. Idempotent across tests
+    /// sharing the process.
     fn install_nop_recorder() {
         use cadence::{NopMetricSink, StatsdClient};
         if !cadence_macros::is_global_default_set() {
@@ -218,7 +220,6 @@ mod tests {
     }
 
     fn tx_with_group(group: InstructionGroup) -> TransactionInfo {
-        install_nop_recorder();
         TransactionInfo {
             instruction_groups: vec![group],
             signature: Signature::from([8; 64]),
@@ -255,6 +256,7 @@ mod tests {
     /// record exactly one update with the event's tree and final root.
     #[test]
     fn parses_batch_update_from_emitted_event() {
+        install_nop_recorder();
         let tree = Pubkey::new_from_array([7; 32]);
         let new_root = [9; 32];
         let event = batch_append_event(tree, new_root);
@@ -283,6 +285,7 @@ mod tests {
     /// `new_root` is recorded with the event values.
     #[test]
     fn records_event_root_not_instruction_root() {
+        install_nop_recorder();
         let tree = Pubkey::new_from_array([7; 32]);
         let event = batch_append_event(tree, [42; 32]);
         let tx = tx_with_group(InstructionGroup {
@@ -303,6 +306,7 @@ mod tests {
     /// authenticated and must be dropped.
     #[test]
     fn drops_event_with_foreign_parent() {
+        install_nop_recorder();
         let attacker = Pubkey::new_from_array([6; 32]);
         let event = batch_append_event(Pubkey::new_from_array([7; 32]), [66; 32]);
         let tx = tx_with_group(InstructionGroup {
@@ -322,6 +326,7 @@ mod tests {
     /// (e.g. TRANSACT) is not a nullifier-tree batch update.
     #[test]
     fn drops_event_under_non_batch_update_parent() {
+        install_nop_recorder();
         let event = batch_append_event(Pubkey::new_from_array([7; 32]), [66; 32]);
         let tx = tx_with_group(InstructionGroup {
             outer_instruction: Instruction {
@@ -403,6 +408,7 @@ mod tests {
     /// instruction and record the update.
     #[test]
     fn parses_zone_rail_event_nested_at_height_three() {
+        install_nop_recorder();
         let zone_program = Pubkey::new_from_array([6; 32]);
         let tree = Pubkey::new_from_array([7; 32]);
         let new_root = [9; 32];
@@ -435,6 +441,7 @@ mod tests {
     /// valid tag-51 parents in one transaction: both recorded, in order.
     #[test]
     fn records_multiple_events_in_order() {
+        install_nop_recorder();
         let tree_a = Pubkey::new_from_array([7; 32]);
         let tree_b = Pubkey::new_from_array([5; 32]);
         let root_a = [9; 32];
@@ -475,6 +482,7 @@ mod tests {
     /// (no parent can be reconstructed) and must be dropped.
     #[test]
     fn drops_event_without_stack_height() {
+        install_nop_recorder();
         let tree = Pubkey::new_from_array([7; 32]);
         let new_root = [9; 32];
         let event = batch_append_event(tree, new_root);

@@ -4,8 +4,11 @@
 //! `create_smart_account_ix` / `execute_sync_ix` builders) lives in
 //! `zolana-smart-account-client` and is re-exported here so existing test
 //! imports keep working. This module adds the localnet `ProgramConfig` fixture
-//! and the standard protocol/forester/tree/zone account layout the SPP tests
-//! share.
+//! and the standard five-role account layout the SPP tests share, built on the
+//! shared role table (`zolana_smart_account_client::roles`): the localnet
+//! fixture `ProgramConfig` starts at index 0, so the roles sit at seeds
+//! 1..=5 in `Role::ALL` creation order (protocol, tree, zone, merge,
+//! forester) — the same table `xtask init-protocol` deploys with.
 
 use std::{fs, path::Path};
 
@@ -13,8 +16,9 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 pub use zolana_smart_account_client::{
-    create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
-    treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
+    create_smart_account_ix, execute_sync_ix, program_config_pda, roles::Role,
+    settings::settings_member_keys, settings_pda, smart_account_pda, treasury_pda, Permissions,
+    SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
 };
 
 // Anchor account discriminator: sha256("account:ProgramConfig")[0..8]
@@ -68,16 +72,20 @@ pub struct StandardSigners {
     pub zone: Pubkey,
 }
 
+/// Derive the five standard role accounts from the shared role table
+/// (`zolana_smart_account_client::roles`) above the localnet fixture's base
+/// index 0: protocol/tree/zone/merge/forester at seeds 1..=5, the same table
+/// `xtask init-protocol` deploys with.
 pub fn standard_accounts() -> StandardAccounts {
-    let (protocol_settings, _) = settings_pda(1);
+    let (protocol_settings, _) = Role::Protocol.settings_pda(0);
     let (protocol_vault, _) = smart_account_pda(&protocol_settings, 0);
-    let (forester_settings, _) = settings_pda(2);
+    let (forester_settings, _) = Role::Forester.settings_pda(0);
     let (forester_vault, _) = smart_account_pda(&forester_settings, 0);
-    let (merge_settings, _) = settings_pda(3);
+    let (merge_settings, _) = Role::Merge.settings_pda(0);
     let (merge_vault, _) = smart_account_pda(&merge_settings, 0);
-    let (tree_settings, _) = settings_pda(4);
+    let (tree_settings, _) = Role::Tree.settings_pda(0);
     let (tree_vault, _) = smart_account_pda(&tree_settings, 0);
-    let (zone_settings, _) = settings_pda(5);
+    let (zone_settings, _) = Role::Zone.settings_pda(0);
     let (zone_vault, _) = smart_account_pda(&zone_settings, 0);
 
     StandardAccounts {
@@ -95,21 +103,24 @@ pub fn standard_accounts() -> StandardAccounts {
 }
 
 impl StandardAccounts {
+    /// The create instructions for the five role accounts, in `Role::ALL`
+    /// creation order: the protocol account is autonomous (`None` settings
+    /// authority), the rest are controlled by the protocol vault.
     pub fn create_ixs(&self, creator: &Pubkey, signers: StandardSigners) -> Vec<Instruction> {
         let treasury = treasury_pda();
         [
-            (1, None, signers.protocol),
-            (2, Some(self.protocol_vault), signers.forester),
-            (3, Some(self.protocol_vault), signers.merge),
-            (4, Some(self.protocol_vault), signers.tree),
-            (5, Some(self.protocol_vault), signers.zone),
+            (Role::Protocol, None, signers.protocol),
+            (Role::Tree, Some(self.protocol_vault), signers.tree),
+            (Role::Zone, Some(self.protocol_vault), signers.zone),
+            (Role::Merge, Some(self.protocol_vault), signers.merge),
+            (Role::Forester, Some(self.protocol_vault), signers.forester),
         ]
         .into_iter()
-        .map(|(seed, settings_authority, signer)| {
+        .map(|(role, settings_authority, signer)| {
             create_smart_account_ix(
                 creator,
                 &treasury,
-                seed,
+                role.seed(0),
                 settings_authority,
                 &[SmartAccountSigner {
                     key: signer,

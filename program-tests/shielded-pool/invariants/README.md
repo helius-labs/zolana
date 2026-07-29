@@ -119,8 +119,12 @@ Post-PR171 sync (2026-07-28):
 
 - Covered: 204 / 242
 - Partial: 25 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
-- Not covered: 0 (INV-XC-30 is a pointer entry by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage)
+- Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 9 partial+untested below)
+- Not covered: 0
 - Not applicable post-PR164: 12
+
+(204 + 25 + 1 + 12 = 242. The per-file partial+untested column sums to 26
+because it includes the pointer.)
 
 Per file (covered / partial+untested / not-applicable):
 transact 48/3/7, deposit 33/1/0, merge 22/6/4, tree 19/4/0,

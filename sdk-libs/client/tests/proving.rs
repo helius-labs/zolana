@@ -234,9 +234,7 @@ impl OutputAssertions<'_> {
                 continue;
             };
             let blob = match output_data {
-                OutputDataEncoding::Encrypted(blob)
-                | OutputDataEncoding::VerifiablyEncrypted(blob)
-                | OutputDataEncoding::Plaintext(blob) => blob,
+                OutputDataEncoding::Encrypted(blob) | OutputDataEncoding::Plaintext(blob) => blob,
             };
             let (_scheme, body) = blob.split_first().expect("scheme byte plus body");
             let Ok(plaintext) = Confidential::decrypt_with_tx_key(

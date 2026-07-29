@@ -157,9 +157,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         .output_data()
         .ok_or_else(|| anyhow!("recipient slot is not decodable output data"))?
     {
-        OutputDataEncoding::Encrypted(blob)
-        | OutputDataEncoding::VerifiablyEncrypted(blob)
-        | OutputDataEncoding::Plaintext(blob) => blob,
+        OutputDataEncoding::Encrypted(blob) | OutputDataEncoding::Plaintext(blob) => blob,
     };
     let (_scheme, recipient_ciphertext) = recipient_blob
         .split_first()
