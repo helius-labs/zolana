@@ -24,3 +24,7 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 [[example]]
 name = "deposit_transfer_withdraw"
 path = "examples/deposit_transfer_withdraw.rs"
+
+[[example]]
+name = "batch_transfer"
+path = "examples/batch_transfer.rs"
