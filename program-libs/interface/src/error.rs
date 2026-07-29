@@ -16,6 +16,7 @@ pub enum InterfaceError {
     /// mapping reports `InvalidProtocolConfig` (7012) rather than the
     /// SPL-registry code.
     InvalidProtocolConfigData,
+    AlreadyInitialized,
 }
 
 /// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
@@ -121,6 +122,8 @@ pub enum ShieldedPoolError {
     NullifierTreeTooFullForMerge = 7044,
     #[error("transact interface transfers for one asset must not net to zero")]
     ZeroNetInterfaceTransferAmount = 7045,
+    #[error("SPL asset counter is already initialized")]
+    SplAssetCounterAlreadyInitialized = 7046,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -136,6 +139,9 @@ impl From<InterfaceError> for ShieldedPoolError {
             InterfaceError::Unauthorized => ShieldedPoolError::UnauthorizedCaller,
             InterfaceError::InvalidAccountData => ShieldedPoolError::InvalidSplAssetRegistry,
             InterfaceError::InvalidProtocolConfigData => ShieldedPoolError::InvalidProtocolConfig,
+            InterfaceError::AlreadyInitialized => {
+                ShieldedPoolError::SplAssetCounterAlreadyInitialized
+            }
         }
     }
 }
@@ -205,6 +211,7 @@ mod tests {
                 UnsupportedToken2022Extension => 7043,
                 NullifierTreeTooFullForMerge => 7044,
                 ZeroNetInterfaceTransferAmount => 7045,
+                SplAssetCounterAlreadyInitialized => 7046,
             }
         }
 

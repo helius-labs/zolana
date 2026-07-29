@@ -9,3 +9,6 @@ edition = "2021"
 borsh = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true, features = ["borsh"] }
+
+[dev-dependencies]
+sha2 = { workspace = true }
