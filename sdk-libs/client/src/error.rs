@@ -52,6 +52,12 @@ pub enum ClientError {
     #[error("batch entry {index} carries interface transfers; the batch rail is pure shielded")]
     BatchNotPureShielded { index: usize },
 
+    #[error("batch entry {index} spends from a different tree than entry 0")]
+    BatchMixedTrees { index: usize },
+
+    #[error("batch entry {index} selects a UTXO already spent by an earlier entry")]
+    BatchInputOverlap { index: usize },
+
     #[error("native Solana transaction signing failed: {0}")]
     SolanaTransactionSigning(String),
 

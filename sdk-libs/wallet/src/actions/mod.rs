@@ -20,6 +20,10 @@ pub use transaction::{
     sign_private_transaction_sync,
 };
 pub use transaction::{
+    build_batch_private_transaction_sync, create_batch_transfer_sync, BatchRecipient,
+    BatchSubmission, BatchTransferParams,
+};
+pub use transaction::{
     create_merge, create_split, create_transfer, create_transfer_sync, create_withdrawal,
     CreatedMerge, CreatedSplit, CreatedTransfer, CreatedWithdrawal, MergeParams, ResolvedAddress,
     SplitParams, TransferParams, TransferRecipient, UnsignedPrivateTransaction, WithdrawalLeg,

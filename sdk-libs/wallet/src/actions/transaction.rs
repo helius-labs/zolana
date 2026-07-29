@@ -10,7 +10,7 @@ use zolana_interface::{
     shape::Shape,
     MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair};
+use zolana_keypair::{hash::sha256_be, shielded::ShieldedAddress, viewing_key::ViewTag, ShieldedKeypair};
 use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
@@ -171,6 +171,108 @@ pub struct WithdrawalParams<'a> {
     pub wallet: &'a Wallet,
     pub payer: Address,
     pub legs: Vec<WithdrawalLeg>,
+}
+
+/// One recipient leg of a batch transfer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BatchRecipient {
+    pub recipient: Pubkey,
+    pub asset: Address,
+    pub amount: u64,
+}
+
+pub struct BatchTransferParams<'a, R> {
+    pub rpc: &'a R,
+    pub wallet: &'a Wallet,
+    pub payer: Address,
+    pub recipients: Vec<BatchRecipient>,
+}
+
+/// N independent pure-shielded transfers destined for one `BatchTransact`
+/// submission. Every recipient must resolve to a registered shielded address
+/// (public withdrawals carry settlement legs and cannot ride the batch rail),
+/// all entries must spend from one tree, and no UTXO may be selected twice —
+/// selection is not batch-aware, so the wallet needs a disjoint spendable UTXO
+/// set per entry (split first when one UTXO covers everything).
+pub fn create_batch_transfer_sync<R: Rpc>(
+    request: BatchTransferParams<'_, R>,
+) -> Result<Vec<UnsignedPrivateTransaction>, ClientError> {
+    let mut entries = Vec::with_capacity(request.recipients.len());
+    let mut spent = BTreeSet::new();
+    let mut tree = None;
+    for (index, leg) in request.recipients.iter().enumerate() {
+        let created = create_transfer_sync(TransferParams {
+            rpc: request.rpc,
+            wallet: request.wallet,
+            payer: request.payer,
+            recipient: leg.recipient,
+            asset: leg.asset,
+            amount: leg.amount,
+        })?;
+        if created.recipient.is_public_withdrawal() {
+            return Err(ClientError::BatchNotPureShielded { index });
+        }
+        let entry = created.transaction;
+        match tree {
+            None => tree = Some(entry.tree),
+            Some(t) if t == entry.tree => {}
+            Some(_) => return Err(ClientError::BatchMixedTrees { index }),
+        }
+        for input in &entry.inputs {
+            if !spent.insert(input.utxo_hash) {
+                return Err(ClientError::BatchInputOverlap { index });
+            }
+        }
+        entries.push(entry);
+    }
+    Ok(entries)
+}
+
+/// The transaction(s) produced for a batch: one when batched, N solo when the
+/// batch did not fit a packet.
+pub struct BatchSubmission {
+    pub transactions: Vec<SolanaTransaction>,
+    pub batched: bool,
+}
+
+/// Sign and prove N pure-shielded entries, then wrap them per the size plan:
+/// one `BatchTransact` transaction when it fits a packet, else one solo
+/// `Transact` transaction per entry. User approval runs per entry in this
+/// version; a single batch-level approval summary needs a wallet-authority
+/// extension.
+pub fn build_batch_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
+    entries: Vec<UnsignedPrivateTransaction>,
+    wallet: &Wallet,
+    authority: &A,
+    client: &ZolanaClient<R>,
+    fee_payer: Pubkey,
+) -> Result<BatchSubmission, ClientError> {
+    if entries.is_empty() {
+        return Err(ClientError::BatchEmpty);
+    }
+    let input_tree = entries[0].tree;
+    let expected_payer_hash = sha256_be(&fee_payer.to_bytes());
+    let mut proved = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.into_iter().enumerate() {
+        if !entry.settlement_transfers.is_empty() {
+            return Err(ClientError::BatchNotPureShielded { index });
+        }
+        if entry.tree != input_tree {
+            return Err(ClientError::BatchMixedTrees { index });
+        }
+        let signed = sign_shielded_transaction_sync(entry, wallet, authority)?;
+        if signed.transaction.payer_pubkey_hash != expected_payer_hash {
+            return Err(ClientError::FeePayerMismatch);
+        }
+        proved.push(client.prove_signed_entry_sync(&signed)?);
+    }
+    let (blockhash, _) = client.rpc().get_latest_blockhash()?;
+    let (transactions, batched) =
+        client.build_batch_submission_unsigned_sync(fee_payer, input_tree, proved, blockhash)?;
+    Ok(BatchSubmission {
+        transactions,
+        batched,
+    })
 }
 
 pub async fn create_transfer<R: AsyncRpc>(

@@ -218,6 +218,28 @@ impl<R: Rpc> ZolanaClient<R> {
         recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
+        let transact_data = self.prove_signed_entry_sync(signed)?;
+        build_unsigned_solana_transaction(
+            self.cu_limit,
+            self.cu_price_micro_lamports,
+            fee_payer,
+            TransactTrees {
+                input_tree: signed.input_tree,
+                output_tree: self.output_tree,
+            },
+            signed.settlement_transfers.clone(),
+            transact_data,
+            recent_blockhash,
+        )
+    }
+
+    /// Fetch witnesses, assemble, and prove one signed entry into instruction
+    /// data without wrapping it in a transaction. Shared by the solo submission
+    /// path and batch assembly.
+    pub fn prove_signed_entry_sync(
+        &self,
+        signed: &SignedPrivateTransaction,
+    ) -> Result<TransactIxData, ClientError> {
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs = fetch_spend_proofs(
             self.blocking_indexer(),
@@ -235,18 +257,50 @@ impl<R: Rpc> ZolanaClient<R> {
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.blocking_prover().prove_transfer(inputs)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-        build_unsigned_solana_transaction(
-            self.cu_limit,
-            self.cu_price_micro_lamports,
-            fee_payer,
-            TransactTrees {
-                input_tree: signed.input_tree,
-                output_tree: self.output_tree,
+        Ok(assembled.with_proof(proof))
+    }
+
+    /// Plan and build the unsigned transaction(s) for N proved pure-shielded
+    /// entries sharing `input_tree`: one `BatchTransact` transaction when the
+    /// batch fits a packet, else one solo `Transact` transaction per entry.
+    /// Returns the transactions and whether they were batched.
+    pub fn build_batch_submission_unsigned_sync(
+        &self,
+        fee_payer: Pubkey,
+        input_tree: Address,
+        entries: Vec<TransactIxData>,
+        recent_blockhash: Hash,
+    ) -> Result<(Vec<SolanaTransaction>, bool), ClientError> {
+        let entry_count = entries.len() as u32;
+        let plan = crate::batch::plan_batch_transact(
+            crate::batch::BatchTransactAccounts {
+                payer: fee_payer,
+                input_tree: Pubkey::new_from_array(input_tree.to_bytes()),
+                output_tree: Pubkey::new_from_array(self.output_tree.to_bytes()),
+                signers: Vec::new(),
             },
-            signed.settlement_transfers.clone(),
-            assembled.with_proof(proof),
-            recent_blockhash,
-        )
+            entries,
+        )?;
+        let batched = plan.is_batched();
+        let cu_limit = if batched {
+            self.cu_limit
+                .saturating_mul(entry_count)
+                .min(crate::batch::BATCH_TRANSACT_CU_LIMIT)
+        } else {
+            self.cu_limit
+        };
+        let transactions = plan
+            .into_instructions()
+            .into_iter()
+            .map(|instruction| {
+                let instructions =
+                    submit_instructions(cu_limit, self.cu_price_micro_lamports, instruction);
+                let mut message = Message::new(&instructions, Some(&fee_payer));
+                message.recent_blockhash = recent_blockhash;
+                SolanaTransaction::new_unsigned(message)
+            })
+            .collect();
+        Ok((transactions, batched))
     }
 
     #[cfg(test)]
