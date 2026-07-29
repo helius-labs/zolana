@@ -11353,6 +11353,7 @@ dependencies = [
  "borsh",
  "bytemuck",
  "groth16-solana",
+ "proptest",
  "solana-address 2.6.1",
  "solana-instruction 3.4.0",
  "solana-program-error 3.0.1",
