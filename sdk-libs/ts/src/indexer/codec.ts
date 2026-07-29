@@ -5,15 +5,12 @@ import type {
   GetMerkleProofsResponse,
   GetNonInclusionProofsRequest,
   GetNonInclusionProofsResponse,
-  GetNullifierQueueElementsRequest,
-  GetNullifierQueueElementsResponse,
   GetRingsByTagsRequest,
   GetShieldedTransactionsByTagsResponse,
   IndexedShieldedTransaction,
   IndexerContext,
   MerkleProof,
   NonInclusionProof,
-  NullifierQueueElement,
   RingsMessage,
   RingsOutputContext,
   RingsOutputSlot,
@@ -96,7 +93,7 @@ function wireInteger(value: unknown, path: string, minimum: bigint, maximum: big
 /**
  * Wire form of a field whose value nothing in the protocol caps below
  * `Number.MAX_SAFE_INTEGER`: a Solana slot or block time, or a monotonic tree
- * or queue sequence.
+ * sequence.
  *
  * Photon writes a JSON number, which stays valid. A JSON number that has
  * already lost precision is refused rather than silently truncated, so an
@@ -190,10 +187,6 @@ function toWireInteger(value: bigint, path: string, minimum: bigint, maximum: bi
 
 function toU64(value: bigint, path: string): number {
   return toWireInteger(value, path, 0n, U64_MAX);
-}
-
-function toI64(value: bigint, path: string): number {
-  return toWireInteger(value, path, I64_MIN, I64_MAX);
 }
 
 function optional<T>(
@@ -335,15 +328,7 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
   };
 }
 
-function queueElement(value: unknown, path: string): NullifierQueueElement {
-  const record = object(value, path, ["seq", "value"]);
-  return {
-    seq: unboundedU64(record["seq"], `${path}.seq`),
-    value: checkedHash(record["value"], `${path}.value`),
-  };
-}
-
-export function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
+function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
   const record = object(value, "$", ["tags", "cursor", "limit"]);
   const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
   const pageLimit =
@@ -410,10 +395,6 @@ function encodeLeavesRequest(
   return { tree_account: value.treeAccount, leaves: [...value.leaves] };
 }
 
-export function decodeMerkleProofsRequest(value: unknown): GetMerkleProofsRequest {
-  return decodeLeavesRequest(value);
-}
-
 export function encodeMerkleProofsRequest(value: GetMerkleProofsRequest): WireObject {
   return encodeLeavesRequest(value);
 }
@@ -426,10 +407,6 @@ export function decodeMerkleProofsResponse(value: unknown): GetMerkleProofsRespo
   };
 }
 
-export function decodeNonInclusionProofsRequest(value: unknown): GetNonInclusionProofsRequest {
-  return decodeLeavesRequest(value);
-}
-
 export function encodeNonInclusionProofsRequest(value: GetNonInclusionProofsRequest): WireObject {
   return encodeLeavesRequest(value);
 }
@@ -440,153 +417,4 @@ export function decodeNonInclusionProofsResponse(value: unknown): GetNonInclusio
     context: context(record["context"], "$.context"),
     proofs: array(record["proofs"], "$.proofs", nonInclusionProof),
   };
-}
-
-export function decodeNullifierQueueRequest(value: unknown): GetNullifierQueueElementsRequest {
-  const record = object(value, "$", ["tree_account", "start_seq", "limit"]);
-  const startSeq =
-    record["start_seq"] === undefined ? 0n : unboundedU64(record["start_seq"], "$.start_seq");
-  return {
-    treeAccount: checkedAddress(record["tree_account"], "$.tree_account"),
-    startSeq,
-    limit: checkedPageLimit(record["limit"], "$.limit"),
-  };
-}
-
-export function encodeNullifierQueueRequest(value: GetNullifierQueueElementsRequest): WireObject {
-  const wire = {
-    tree_account: value.treeAccount,
-    start_seq: toU64(value.startSeq ?? 0n, "$.start_seq"),
-    limit: toU64(value.limit, "$.limit"),
-  };
-  decodeNullifierQueueRequest(wire);
-  return wire;
-}
-
-export function decodeNullifierQueueResponse(value: unknown): GetNullifierQueueElementsResponse {
-  const record = object(value, "$", ["context", "elements"]);
-  return {
-    context: context(record["context"], "$.context"),
-    elements: array(record["elements"], "$.elements", queueElement),
-  };
-}
-
-function wireContext(value: IndexerContext): WireObject {
-  return { block_time: toI64(value.blockTime, "$.context.blockTime") };
-}
-
-function wireOutputContext(value: RingsOutputContext): WireObject {
-  return {
-    hash: value.hash,
-    tree: value.tree,
-    leaf_index: toU64(value.leafIndex, "$.outputContext.leafIndex"),
-  };
-}
-
-function wireOutputSlot(value: RingsOutputSlot): WireObject {
-  return {
-    view_tag: value.viewTag,
-    output_context: wireOutputContext(value.outputContext),
-    payload: value.payload,
-  };
-}
-
-function wireMerkleContext(value: MerkleProof["merkleContext"]): WireObject {
-  return {
-    tree_type: value.treeType,
-    tree: value.tree,
-  };
-}
-
-function wireMerkleProof(value: MerkleProof): WireObject {
-  return {
-    leaf: value.leaf,
-    merkle_context: wireMerkleContext(value.merkleContext),
-    path: [...value.path],
-    leaf_index: toU64(value.leafIndex, "$.proof.leafIndex"),
-    root: value.root,
-    root_seq: toU64(value.rootSeq, "$.proof.rootSeq"),
-    root_index: value.rootIndex,
-  };
-}
-
-export function encodeEncryptedUtxosResponse(value: GetEncryptedUtxosByTagsResponse): WireObject {
-  const wire = {
-    context: wireContext(value.context),
-    matches: value.matches.map((match) => ({
-      slot: toU64(match.slot, "$.matches.slot"),
-      tx_signature: match.txSignature,
-      output_slot: wireOutputSlot(match.outputSlot),
-      tx_viewing_pk: match.txViewingPk ?? null,
-      salt: match.salt ?? null,
-    })),
-    next_cursor: value.nextCursor ?? null,
-  };
-  decodeEncryptedUtxosResponse(wire);
-  return wire;
-}
-
-export function encodeShieldedTransactionsResponse(
-  value: GetShieldedTransactionsByTagsResponse,
-): WireObject {
-  const wire = {
-    context: wireContext(value.context),
-    transactions: value.transactions.map((transaction) => ({
-      slot: toU64(transaction.slot, "$.transactions.slot"),
-      tx_signature: transaction.txSignature,
-      tx_viewing_pk: transaction.txViewingPk ?? null,
-      salt: transaction.salt ?? null,
-      output_slots: transaction.outputSlots.map(wireOutputSlot),
-      messages: transaction.messages.map((item) => ({
-        view_tag: item.viewTag,
-        payload: item.payload,
-      })),
-      nullifiers: [...transaction.nullifiers],
-      proofless: transaction.proofless,
-    })),
-    next_cursor: value.nextCursor ?? null,
-  };
-  decodeShieldedTransactionsResponse(wire);
-  return wire;
-}
-
-export function encodeMerkleProofsResponse(value: GetMerkleProofsResponse): WireObject {
-  const wire = {
-    context: wireContext(value.context),
-    proofs: value.proofs.map(wireMerkleProof),
-  };
-  decodeMerkleProofsResponse(wire);
-  return wire;
-}
-
-export function encodeNonInclusionProofsResponse(value: GetNonInclusionProofsResponse): WireObject {
-  const wire = {
-    context: wireContext(value.context),
-    proofs: value.proofs.map((proof) => ({
-      leaf: proof.leaf,
-      merkle_context: wireMerkleContext(proof.merkleContext),
-      path: [...proof.path],
-      low_element: proof.lowElement,
-      low_element_index: toU64(proof.lowElementIndex, "$.proof.lowElementIndex"),
-      high_element: proof.highElement,
-      high_element_index: toU64(proof.highElementIndex, "$.proof.highElementIndex"),
-      root: proof.root,
-      root_seq: toU64(proof.rootSeq, "$.proof.rootSeq"),
-      root_index: proof.rootIndex,
-    })),
-  };
-  decodeNonInclusionProofsResponse(wire);
-  return wire;
-}
-
-export function encodeNullifierQueueResponse(value: GetNullifierQueueElementsResponse): WireObject {
-  const wire = {
-    context: wireContext(value.context),
-    elements: value.elements.map((element) => ({
-      seq: toU64(element.seq, "$.elements.seq"),
-      value: element.value,
-    })),
-  };
-  decodeNullifierQueueResponse(wire);
-  return wire;
 }

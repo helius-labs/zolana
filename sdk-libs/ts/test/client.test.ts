@@ -62,6 +62,43 @@ describe("ZolanaClient", () => {
     ).toThrow(ClientError);
   });
 
+  it.each([
+    "http://localhost:8784",
+    "http://sdk.localhost:8784",
+    "http://127.0.0.2:8784",
+    "http://[::1]:8784",
+    "https://service.example.com",
+  ])("allows secure or loopback service URL %s", (serviceUrl) => {
+    expect(
+      () =>
+        new ZolanaClient({
+          solanaRpcUrl: "http://127.0.0.1:8899",
+          indexerUrl: serviceUrl,
+          proverUrl: serviceUrl,
+        }),
+    ).not.toThrow();
+  });
+
+  it("rejects plaintext non-loopback indexer and prover URLs", () => {
+    for (const field of ["indexerUrl", "proverUrl"] as const) {
+      let error: unknown;
+      try {
+        new ZolanaClient({
+          solanaRpcUrl: "http://127.0.0.1:8899",
+          indexerUrl: "https://indexer.example.com",
+          proverUrl: "https://prover.example.com",
+          [field]: `http://${field}.example.com`,
+        });
+      } catch (cause) {
+        error = cause;
+      }
+      expect(error).toMatchObject({
+        code: "CLIENT_INVALID_CONFIG",
+        details: { field },
+      });
+    }
+  });
+
   it("preserves unsupported RPC methods for feature fallbacks", async () => {
     await expect(
       runKitRpc("getProgramAccounts", undefined, async () => {

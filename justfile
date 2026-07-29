@@ -99,8 +99,12 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
     rm -rf "$workdir"
     mkdir -p "$workdir"
     export ZOLANA_CONFIG_DIR="$PWD/$workdir"
-    export ZOLANA_PHOTON_BIN="$PWD/{{photon-bin}}"
-    export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
+    photon_bin="{{photon-bin}}"
+    [[ "$photon_bin" = /* ]] || photon_bin="$PWD/$photon_bin"
+    keys_dir="{{spp-keys-dir}}"
+    [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
+    export ZOLANA_PHOTON_BIN="$photon_bin"
+    export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
     cleanup
     sleep 2
 
@@ -117,11 +121,21 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
       --tree-keypair "$workdir/tree.json" --airdrop-lamports 20000000000 \
       | sed -n 's/^ok tree //p')"
     test -n "$tree"
+    mint_output="$("$bin" dev pool test-mint --keypair "$workdir/authority.json" \
+      --authority-path "$workdir/authority.json" --amount 1000000)"
+    mint="$(sed -n 's/^ok test_mint mint=\([^ ]*\).*/\1/p' <<<"$mint_output")"
+    token_account="$(sed -n 's/^ok test_mint .* token_account=\([^ ]*\).*/\1/p' <<<"$mint_output")"
+    test -n "$mint"
+    test -n "$token_account"
 
     ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
       ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
-      ZOLANA_TREE="$tree" npm run test:ts:e2e
+      ZOLANA_TREE="$tree" \
+      ZOLANA_TEST_MINT="$mint" \
+      ZOLANA_TEST_TOKEN_ACCOUNT="$token_account" \
+      ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" \
+      ZOLANA_ZONE_PROGRAM_ID="$ZONE_TEST_PROGRAM_ID" npm run test:ts:e2e
 
 test-ts-all: test-ts test-ts-e2e
 

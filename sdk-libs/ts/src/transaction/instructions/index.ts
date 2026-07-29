@@ -6,9 +6,7 @@ export {
   PreparedMerge,
   PreparedMergeZone,
   PreparedSplit,
-  prepareZoneAuthority,
 } from "./builders.js";
-export type { PreparedZoneAuthority } from "./builders.js";
 export {
   BN254_MODULUS_DEC,
   ConfidentialTransfer,
@@ -41,5 +39,3 @@ export type {
   Shape,
   WithdrawalTarget,
 } from "./transact.js";
-export { ProofInputUtxo, createProofOutput } from "../utxo.js";
-export type { ProofOutputInit, ProofOutputUtxo } from "../utxo.js";

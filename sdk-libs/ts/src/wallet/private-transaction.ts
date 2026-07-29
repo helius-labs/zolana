@@ -1,28 +1,22 @@
 import { signTransactionWithSigners } from "@solana/kit";
 
 import { isTransactionSignOnlySigner } from "../client/kit.js";
-import {
-  ClientError,
-  type SignedPrivateTransaction,
-  type TransactionSignOnlySigner,
-  type ZolanaRpc,
-} from "../client/index.js";
-import type { Address, Bytes32, RequestContext, Transaction } from "../interface/index.js";
-import type { ShieldedAddress } from "../keypair/index.js";
-import {
-  ConfidentialTransfer,
-  ProofInputUtxo,
-  type Data,
-  type SppProofInputs,
-  type Utxo,
-  type Wallet,
-} from "../transaction/index.js";
-import { ConfidentialSplit } from "../transaction/instructions/index.js";
+import type { ZolanaClient } from "../client/client.js";
+import type { SignedPrivateTransaction } from "../client/client.js";
+import { ClientError } from "../client/error.js";
+import type { TransactionSignOnlySigner } from "../client/kit.js";
+import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
+import type { ShieldedAddress } from "../keypair/shielded.js";
+import type { Data } from "../transaction/data.js";
+import { ConfidentialSplit } from "../transaction/instructions/builders.js";
+import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
+import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
+import type { Wallet } from "../transaction/wallet/state.js";
 
 import { UnsignedPrivateTransaction } from "./actions.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
-import type { WalletAuthority } from "./wallet-authority.js";
+import type { WalletAuthority } from "../transaction/wallet/authority.js";
 
 function sameOptionalHash(left: Bytes32 | undefined, right: Bytes32 | undefined): boolean {
   if (left === undefined || right === undefined) return left === right;
@@ -188,7 +182,7 @@ export async function buildPrivateTransaction(
     transaction: UnsignedPrivateTransaction;
     wallet: Wallet;
     authority: WalletAuthority;
-    client: ZolanaRpc;
+    client: Pick<ZolanaClient, "finishSubmissionUnsigned">;
     feePayer: Address;
   }>,
   context?: RequestContext,
@@ -213,7 +207,7 @@ export async function signPrivateTransaction(
     transaction: UnsignedPrivateTransaction;
     wallet: Wallet;
     authority: WalletAuthority;
-    client: ZolanaRpc;
+    client: Pick<ZolanaClient, "finishSubmissionUnsigned">;
     feePayer: TransactionSignOnlySigner;
   }>,
   context?: RequestContext,

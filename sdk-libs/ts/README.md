@@ -10,8 +10,8 @@ npm install @zolana/sdk @solana/kit
 
 ## Client and wallet flow
 
-`ZolanaClient` implements the single public `ZolanaRpc` surface. It routes
-Solana, indexer, and proving operations to their respective services; `solanaRpc` and
+`ZolanaClient` is the single public client. It routes Solana, indexer, and
+proving operations to their respective services; `solanaRpc` and
 `solanaRpcSubscriptions` expose the underlying Kit clients only when an
 application needs a standard Solana method directly.
 
@@ -121,3 +121,5 @@ Serialized state contains private note plaintext and must be encrypted at rest.
 
 `createZolanaClient` initializes the shipped Poseidon WASM once. Applications
 that only use cryptographic primitives can call `initializePoseidon()` directly.
+Indexer and prover endpoints must use HTTPS; HTTP is accepted only for loopback
+hosts during local development.

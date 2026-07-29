@@ -1,10 +1,7 @@
-import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/index.js";
-import {
-  P256PublicKey,
-  type NullifierKey,
-  type ShieldedPublicKey,
-  type ViewingKeyLike,
-} from "../../keypair/index.js";
+import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
+import type { NullifierKey } from "../../keypair/nullifier-key.js";
+import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
+import type { ViewingKeyLike } from "../../keypair/shielded.js";
 
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";

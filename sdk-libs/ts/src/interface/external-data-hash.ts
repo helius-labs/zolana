@@ -1,4 +1,4 @@
-import type { Address, Bytes32, MessageData, ResolvedOutput } from "./index.js";
+import type { Address, Bytes32, MessageData, ResolvedOutput } from "./types.js";
 import {
   addressBytes,
   copyBytes,

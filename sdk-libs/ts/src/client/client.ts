@@ -22,23 +22,21 @@ import {
   transactInstruction,
   type MergeTransactInstructionData,
 } from "../interface/instructions/index.js";
-import { checkedTransactionSize, DEFAULT_TREE_ADDRESS } from "../interface/index.js";
+import { DEFAULT_TREE_ADDRESS } from "../interface/program.js";
+import { checkedTransactionSize } from "../interface/transaction-size.js";
 import type {
   Bytes32,
   RequestContext,
   TransactInstructionData,
   TransactWithdrawal,
-} from "../interface/index.js";
-import type { NullifierKey, P256PublicKey, ShieldedPublicKey } from "../keypair/index.js";
-import {
-  PreparedMerge,
-  PreparedMergeZone,
-  SppProofInputs,
-  type InputUtxoContext,
-} from "../transaction/index.js";
+} from "../interface/types.js";
+import type { NullifierKey } from "../keypair/nullifier-key.js";
+import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
+import { PreparedMerge, PreparedMergeZone } from "../transaction/instructions/builders.js";
+import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
 
 import { ClientError, fromClientCause, isClientError } from "./error.js";
-import { sha256Bytes } from "./internal.js";
+import { checkedServiceUrl, sha256Bytes } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
   buildUnsignedTransaction as buildKitUnsignedTransaction,
@@ -112,10 +110,6 @@ export interface ProvedMergeZone extends ProvedMerge {
   readonly zoneProgramId: Address;
 }
 
-export type ZolanaRpc = {
-  readonly [Member in keyof ZolanaClient]: ZolanaClient[Member];
-};
-
 export class ZolanaClient {
   readonly tree: Address;
   readonly solanaRpc: SolanaRpc;
@@ -149,8 +143,8 @@ export class ZolanaClient {
         ? {}
         : { solanaRpcSubscriptionsUrl: input.solanaRpcSubscriptionsUrl }),
     });
-    const indexerUrl = checkedHttpUrl(input.indexerUrl, "indexerUrl");
-    const proverUrl = checkedHttpUrl(input.proverUrl, "proverUrl");
+    const indexerUrl = checkedServiceUrl(input.indexerUrl, "indexerUrl");
+    const proverUrl = checkedServiceUrl(input.proverUrl, "proverUrl");
     let indexer: ZolanaIndexer;
     try {
       indexer = new ZolanaIndexer(
@@ -449,7 +443,7 @@ export class ZolanaClient {
     input: Readonly<{
       prepared: PreparedMerge;
       material: MergeMaterialInput;
-      indexer?: Pick<ZolanaRpc, "getInputMerkleProofs">;
+      indexer?: Pick<ZolanaClient, "getInputMerkleProofs">;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMerge> {
@@ -485,7 +479,7 @@ export class ZolanaClient {
     input: Readonly<{
       prepared: PreparedMergeZone;
       material: MergeMaterialInput;
-      indexer?: Pick<ZolanaRpc, "getInputMerkleProofs">;
+      indexer?: Pick<ZolanaClient, "getInputMerkleProofs">;
     }>,
     context?: RequestContext,
   ): Promise<ProvedMergeZone> {
@@ -934,24 +928,6 @@ function privateOutputTags(transaction: SppProofInputs): readonly Bytes32[] {
     unique.set(Array.from(copy, (byte) => byte.toString(16).padStart(2, "0")).join(""), copy);
   }
   return Object.freeze([...unique.values()]);
-}
-
-function checkedHttpUrl(value: string | URL, field: string): URL {
-  let url: URL;
-  try {
-    url = new URL(value instanceof URL ? value.href : value);
-  } catch {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field } });
-  }
-  if (
-    (url.protocol !== "http:" && url.protocol !== "https:") ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.hash !== ""
-  ) {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field } });
-  }
-  return url;
 }
 
 function isCommitment(value: unknown): value is Commitment {

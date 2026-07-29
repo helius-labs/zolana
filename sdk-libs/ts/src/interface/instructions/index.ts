@@ -6,8 +6,10 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
+} from "../program.js";
+import type { AddressTreeParams } from "../program.js";
+import {
   type Address,
-  type AddressTreeParams,
   type MergeTransactInstructionData,
   type ZoneDepositInstructionData,
   type Bytes31,
@@ -16,7 +18,7 @@ import {
   type DepositSplAccounts,
   type TransactInstructionData,
   type TransactWithdrawal,
-} from "../index.js";
+} from "../types.js";
 import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
   protocolConfigAddress,
@@ -27,19 +29,19 @@ import {
   zoneAuthAddress,
 } from "../pda/index.js";
 import {
-  addressTreeParamsCodec,
-  createZoneConfigDataCodec,
-  depositInstructionDataCodec,
-  mergeTransactInstructionDataCodec,
-  mergeZoneInstructionDataCodec,
-  transactInstructionDataCodec,
-  updateZoneConfigDataCodec,
-  updateZoneConfigOwnerDataCodec,
-  zoneDepositInstructionDataCodec,
+  encodeAddressTreeParams,
+  encodeCreateZoneConfigData,
+  encodeDepositInstructionData,
+  encodeMergeTransactInstructionData,
+  encodeMergeZoneInstructionData,
+  encodeTransactInstructionData,
+  encodeUpdateZoneConfigData,
+  encodeUpdateZoneConfigOwnerData,
+  encodeZoneDepositInstructionData,
 } from "../codecs/index.js";
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
-export type { MergeTransactInstructionData } from "../index.js";
+export type { MergeTransactInstructionData } from "../types.js";
 
 type Meta = NonNullable<Instruction["accounts"]>[number];
 
@@ -89,10 +91,6 @@ function tagged(tag: number, payload?: Uint8Array): Uint8Array {
 /// proof needs witness generation and gnark proving rather than the hashing that
 /// compiles. Publishing the builder advertised the last step of a pipeline whose
 /// earlier steps are missing.
-///
-/// `batchUpdateNullifierTreeDataCodec` stays. Reading such an instruction out of
-/// a transaction needs nothing we cannot do, so a TypeScript tool that finds one
-/// can still decode it.
 
 export async function createAssetCounterInstruction(
   input: Readonly<{ authority: SignerAccount }>,
@@ -146,7 +144,7 @@ export async function createTreeInstruction(
   const payload =
     input.nullifierTreeParams === undefined
       ? undefined
-      : addressTreeParamsCodec.encode(input.nullifierTreeParams);
+      : encodeAddressTreeParams(input.nullifierTreeParams);
   return instruction(tagged(InstructionTag.createTree, payload), [
     meta(input.authority, true, false),
     meta(await protocolConfigAddress(), false, false),
@@ -191,7 +189,7 @@ export function depositInstruction(
   }>,
 ): Instruction {
   return instruction(
-    tagged(InstructionTag.deposit, depositInstructionDataCodec.encode(input.data)),
+    tagged(InstructionTag.deposit, encodeDepositInstructionData(input.data)),
     depositAccounts(input.tree, input.depositor, input.spl),
   );
 }
@@ -241,7 +239,7 @@ export function transactInstruction(
   }>,
 ): Instruction {
   return instruction(
-    tagged(InstructionTag.transact, transactInstructionDataCodec.encode(input.data)),
+    tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
     transactAccounts(input.payer, input.tree, input.withdrawal),
   );
 }
@@ -347,7 +345,7 @@ export async function createZoneConfigInstruction(
     zoneAuthAddress(input.programId),
     protocolConfigAddress(),
   ]);
-  const payload = createZoneConfigDataCodec.encode(input);
+  const payload = encodeCreateZoneConfigData(input);
   return instruction(tagged(InstructionTag.createZoneConfig, payload), [
     meta(input.payer, true, true),
     meta(protocolConfig, false, false),
@@ -363,10 +361,10 @@ export function updateZoneConfigInstruction(
     zoneAuthorityTransactIsEnabled: boolean;
   }>,
 ): Instruction {
-  return instruction(
-    tagged(InstructionTag.updateZoneConfig, updateZoneConfigDataCodec.encode(input)),
-    [meta(input.authority, true, false), meta(input.zoneConfig, false, true)],
-  );
+  return instruction(tagged(InstructionTag.updateZoneConfig, encodeUpdateZoneConfigData(input)), [
+    meta(input.authority, true, false),
+    meta(input.zoneConfig, false, true),
+  ]);
 }
 
 export function updateZoneConfigOwnerInstruction(
@@ -379,7 +377,7 @@ export function updateZoneConfigOwnerInstruction(
   return instruction(
     tagged(
       InstructionTag.updateZoneConfigOwner,
-      updateZoneConfigOwnerDataCodec.encode({ newAuthority: accountAddress(input.newAuthority) }),
+      encodeUpdateZoneConfigOwnerData({ newAuthority: accountAddress(input.newAuthority) }),
     ),
     [
       meta(input.authority, true, false),
@@ -409,7 +407,7 @@ export async function zoneDepositInstruction(
   const [zoneAuthority] = await zoneAuthAddress(input.zoneProgramId);
   const data: ZoneDepositInstructionData = input;
   return instruction(
-    tagged(InstructionTag.zoneDeposit, zoneDepositInstructionDataCodec.encode(data)),
+    tagged(InstructionTag.zoneDeposit, encodeZoneDepositInstructionData(data)),
     depositAccounts(input.tree, input.depositor, input.spl, {
       address: zoneAuthority,
       signer: input.cpi === true,
@@ -430,7 +428,7 @@ type ZoneTransactInput = Readonly<{
 async function buildZoneTransact(tag: number, input: ZoneTransactInput): Promise<Instruction> {
   const [zoneAuthority] = await zoneAuthAddress(input.zoneProgramId);
   return instruction(
-    tagged(tag, transactInstructionDataCodec.encode(input.data)),
+    tagged(tag, encodeTransactInstructionData(input.data)),
     transactAccounts(input.payer, input.tree, input.withdrawal, {
       address: zoneAuthority,
       signer: input.cpi === true,
@@ -474,7 +472,7 @@ export function mergeTransactInstruction(
   }>,
 ): Instruction {
   return instruction(
-    tagged(InstructionTag.mergeTransact, mergeTransactInstructionDataCodec.encode(input.data)),
+    tagged(InstructionTag.mergeTransact, encodeMergeTransactInstructionData(input.data)),
     [
       meta(input.tree, false, true),
       meta(input.payer, true, true),
@@ -499,7 +497,7 @@ export async function mergeZoneInstruction(
   return instruction(
     tagged(
       InstructionTag.zoneMergeTransact,
-      mergeZoneInstructionDataCodec.encode({
+      encodeMergeZoneInstructionData({
         mergeViewTag: input.mergeViewTag,
         merge: input.data,
       }),

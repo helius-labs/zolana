@@ -1,5 +1,5 @@
 import { p256 } from "@noble/curves/nist.js";
-import { ownerPkFieldCompressed, pkFieldCompressed } from "../interface/index.js";
+import { ownerPkFieldCompressed, pkFieldCompressed } from "../interface/merge-utils.js";
 
 import { type Bytes32, type Bytes33, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
 import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "./constants.js";

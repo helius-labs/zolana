@@ -1,4 +1,4 @@
-import type { Bytes32, Bytes64, Bytes128, TransactProof } from "../../interface/index.js";
+import type { Bytes32, Bytes64, Bytes128, TransactProof } from "../../interface/types.js";
 import { bn254 } from "@noble/curves/bn254.js";
 
 import { ClientError } from "../error.js";

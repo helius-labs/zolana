@@ -1,6 +1,6 @@
 import { address } from "@solana/kit";
 
-import type { Address, Bytes32 } from "../../interface/index.js";
+import type { Address, Bytes32 } from "../../interface/types.js";
 
 import { TransactionError } from "../error.js";
 import { checked, decodeAddress, equal, hashField } from "../internal.js";

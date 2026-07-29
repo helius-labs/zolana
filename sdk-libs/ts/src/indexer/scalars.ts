@@ -7,7 +7,7 @@ import {
   getBase64Encoder,
 } from "@solana/kit";
 
-import type { Address, Bytes32, Signature } from "../interface/index.js";
+import type { Address, Bytes32, Signature } from "../interface/types.js";
 
 import type { Base64String, Hash, Limit } from "./types.js";
 

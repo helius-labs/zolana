@@ -13,7 +13,6 @@ import {
   Data,
   ProofInputUtxo,
   SOL_MINT,
-  TRANSACTION_ERROR_CODES,
   TransactionError,
   Utxo,
   Wallet,
@@ -22,7 +21,6 @@ import {
   deriveBlinding,
   ownerUtxoHash,
   resolveShape,
-  unknownTransactionError,
 } from "../../src/transaction/index.js";
 import { encodeData } from "../../src/transaction/serialization/index.js";
 
@@ -422,15 +420,16 @@ describe("transaction core", () => {
   });
 
   it("keeps transaction diagnostics closed and redacted", () => {
-    expect(TRANSACTION_ERROR_CODES).toContain("TRANSACTION_UNKNOWN_VARIANT");
-    const error = unknownTransactionError("FutureVariant", {
+    const error = new TransactionError("TRANSACTION_DESERIALIZE", {
+      variant: "FutureVariant",
       index: 2,
       secretKey: "hidden",
       payload: { value: 7, nonce: "hidden" },
     });
     expect(error.details).toEqual({
       variant: "FutureVariant",
-      payload: { index: 2, payload: { value: 7 } },
+      index: 2,
+      payload: { value: 7 },
     });
     expect(JSON.stringify(error)).not.toContain("hidden");
   });

@@ -44,6 +44,7 @@ describe("transport configuration", () => {
     expect(String(injected.mock.calls[0]?.[0])).toBe(
       "https://rpc.example.test/root/get_merkle_proofs?tenant=one&api-key=test-key",
     );
+    expect(injected.mock.calls[0]?.[1]?.redirect).toBe("error");
   });
 
   it("copies URL configuration before use", async () => {

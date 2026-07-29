@@ -1,6 +1,6 @@
 import { getBase64Encoder } from "@solana/kit";
 
-import type { Bytes32 } from "../interface/index.js";
+import type { Bytes32 } from "../interface/types.js";
 
 import { WalletError } from "./error.js";
 

@@ -1,7 +1,13 @@
-import type { RequestContext } from "../../interface/index.js";
+import type { RequestContext } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
-import { composeSignal, requestError, sleep, type ComposedSignal } from "../internal.js";
+import {
+  checkedServiceUrl,
+  composeSignal,
+  requestError,
+  sleep,
+  type ComposedSignal,
+} from "../internal.js";
 import { circuitUtxo } from "./assembly.js";
 import { parseProof } from "./proof.js";
 import type {
@@ -11,7 +17,6 @@ import type {
   ProverInputs,
   TransferInput,
   TransferP256Inputs,
-  ZoneProverInputs,
   TransferOutput,
 } from "./types.js";
 
@@ -55,20 +60,7 @@ export class ProverClient {
     if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
-    let url: URL;
-    try {
-      url = new URL(input.url instanceof URL ? input.url.href : input.url);
-    } catch {
-      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "url" } });
-    }
-    if (
-      (url.protocol !== "http:" && url.protocol !== "https:") ||
-      url.username !== "" ||
-      url.password !== "" ||
-      url.hash !== ""
-    ) {
-      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "url" } });
-    }
+    const url = checkedServiceUrl(input.url, "url");
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     const fetchImplementation = input.fetch ?? globalThis.fetch;
     if (typeof fetchImplementation !== "function") {
@@ -79,7 +71,7 @@ export class ProverClient {
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
   }
 
-  async prove(inputs: ProverInputs | ZoneProverInputs, context?: RequestContext): Promise<Proof> {
+  async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
     return this.#send(JSON.stringify(proverRequest(inputs)), committed(inputs), context);
   }
 
@@ -107,6 +99,7 @@ export class ProverClient {
               method: "POST",
               headers: { "content-type": "application/json" },
               body,
+              redirect: "error",
               signal: request.signal,
             });
           } catch {
@@ -190,7 +183,7 @@ export class ProverClient {
       let response: Response;
       try {
         try {
-          response = await this.#fetch(url, { signal: request.signal });
+          response = await this.#fetch(url, { redirect: "error", signal: request.signal });
         } catch {
           if (signal.signal.aborted) throw requestError("prove", signal);
           await waitOrTimeout();
@@ -261,28 +254,21 @@ function mergeProverRequest(
   });
 }
 
-/// The prover server's `circuitType` per rail. Rust reaches the same five
-/// strings through `to_json`, `to_json_p256`, `to_json_zone`, `to_json_p256_zone`
-/// and `to_json_zone_authority`, all of which share one request shape and differ
-/// only here and in the embedded `publicInputHash`.
+/// The prover server's `circuitType` for the two wallet-owned transfer rails.
 const CIRCUIT_TYPES = Object.freeze({
   transfer: "transfer-confidential",
   transferP256: "transfer-p256-confidential",
-  transferZone: "transfer-zone",
-  transferP256Zone: "transfer-p256-zone",
-  transferZoneAuthority: "transfer-zone-authority",
 } as const);
 
-/// The P256 rails carry a BSB22 commitment; the ed25519 rails, including the
-/// zone authority, are standard Groth16 with A, B, and C only.
-function committed(inputs: ProverInputs | ZoneProverInputs): inputs is Readonly<{
-  circuit: "transferP256" | "transferP256Zone";
+/// The P256 rail carries a BSB22 commitment; ed25519 uses standard Groth16.
+function committed(inputs: ProverInputs): inputs is Readonly<{
+  circuit: "transferP256";
   payload: TransferP256Inputs;
 }> {
-  return inputs.circuit === "transferP256" || inputs.circuit === "transferP256Zone";
+  return inputs.circuit === "transferP256";
 }
 
-function proverRequest(inputs: ProverInputs | ZoneProverInputs): Readonly<Record<string, unknown>> {
+function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
   const payload = inputs.payload;
   const head = {
     circuitType: CIRCUIT_TYPES[inputs.circuit],
@@ -300,7 +286,7 @@ function proverRequest(inputs: ProverInputs | ZoneProverInputs): Readonly<Record
     payerPubkeyHash: hex(payload.payerPublicKeyHash),
   };
   // The key order follows the Rust request structs so the two serializers
-  // produce the same bytes, not merely the same object. On the P256 rails the
+  // produce the same bytes, not merely the same object. On the P256 rail the
   // signature fields sit between `externalDataHash` and `privateTxHash`, and
   // `p256SigningPkField` between `payerPubkeyHash` and `publicInputHash`.
   if (!committed(inputs)) {

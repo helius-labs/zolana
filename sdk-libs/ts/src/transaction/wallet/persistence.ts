@@ -5,13 +5,10 @@ import {
   getBase64Encoder,
 } from "@solana/kit";
 
-import type { Address, Bytes31, Bytes32, Bytes33, Signature } from "../../interface/index.js";
-import {
-  P256PublicKey,
-  ShieldedAddress,
-  ShieldedPublicKey,
-  type Bytes34,
-} from "../../keypair/index.js";
+import type { Address, Bytes31, Bytes32, Bytes33, Signature } from "../../interface/types.js";
+import type { Bytes34 } from "../../keypair/bytes.js";
+import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { ShieldedAddress } from "../../keypair/shielded.js";
 
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";

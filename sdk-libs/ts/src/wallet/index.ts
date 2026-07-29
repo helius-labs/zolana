@@ -14,7 +14,7 @@ export {
   type SyncWalletAuthority,
   type WalletAuthority,
   type WalletSyncMaterial,
-} from "./wallet-authority.js";
+} from "../transaction/wallet/authority.js";
 export {
   Deposit,
   buildDepositTransaction,
@@ -88,6 +88,7 @@ export {
   resolveRegisteredAddress,
   resolvedAddressFromRecord,
   senderViewingPublicKey,
+  setMergingEnabled,
   validateRegisteredKeypair,
   type ResolvedAddress,
   type StrictRegistration,

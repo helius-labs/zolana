@@ -1,11 +1,8 @@
-import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "../../interface/index.js";
-import {
-  P256PublicKey,
-  ShieldedPublicKey,
-  type Bytes34,
-  type ViewingKey,
-  type ViewingKeyLike,
-} from "../../keypair/index.js";
+import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "../../interface/types.js";
+import type { Bytes34 } from "../../keypair/bytes.js";
+import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import type { ViewingKeyLike } from "../../keypair/shielded.js";
+import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";

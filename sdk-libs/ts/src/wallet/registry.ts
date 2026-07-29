@@ -8,10 +8,11 @@ import {
 } from "@solana/kit";
 
 import { buildUnsignedTransaction } from "../client/kit.js";
-import type { RpcAccount, ZolanaRpc } from "../client/index.js";
-import { checkedTransactionSize } from "../interface/index.js";
+import type { ZolanaClient } from "../client/client.js";
+import type { RpcAccount } from "../client/rpc.js";
+import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
+import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
-  USER_REGISTRY_PROGRAM_ID,
   type Address,
   type Bytes32,
   type Bytes33,
@@ -19,21 +20,18 @@ import {
   type RequestContext,
   type Signature,
   type Transaction,
-} from "../interface/index.js";
-import {
-  P256PublicKey,
-  ShieldedAddress,
-  ShieldedPublicKey,
-  type ShieldedKeypair,
-} from "../keypair/index.js";
+} from "../interface/types.js";
+import { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
+import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { concat, equalBytes } from "./internal.js";
 
-type AccountReader = Pick<ZolanaRpc, "getAccount">;
+type AccountReader = Pick<ZolanaClient, "getAccount">;
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
+const SET_MERGING_ENABLED = 4;
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
 
@@ -57,12 +55,11 @@ export interface UserRecord {
   readonly viewingPublicKey: Bytes33;
   readonly syncDelegate?: Bytes32;
   readonly entries: readonly SyncDelegateEntry[];
+  readonly mergingEnabled: boolean;
   readonly bump: number;
 }
 
-interface DecodedUserRecord extends UserRecord {
-  readonly mergingEnabled: boolean;
-}
+type DecodedUserRecord = UserRecord;
 
 /**
  * The viewing key a sender must encrypt to. While a sync delegate is active the
@@ -270,6 +267,7 @@ export async function fetchUserRecord(
       viewingPublicKey: record.viewingPublicKey,
       ...(record.syncDelegate === undefined ? {} : { syncDelegate: record.syncDelegate }),
       entries: record.entries,
+      mergingEnabled: record.mergingEnabled,
       bump: record.bump,
     });
   } catch (cause) {
@@ -406,7 +404,7 @@ export type StrictRegistration =
  */
 export async function ensureRegistered(
   input: Readonly<{
-    client: ZolanaRpc;
+    client: Pick<ZolanaClient, "getAccount" | "signAndSendInstructions">;
     funding: TransactionSigner;
     keypair: ShieldedKeypair;
   }>,
@@ -439,7 +437,7 @@ export async function ensureRegistered(
  */
 export async function registerIfAbsent(
   input: Readonly<{
-    client: ZolanaRpc;
+    client: Pick<ZolanaClient, "getAccount" | "signAndSendInstructions">;
     funding: TransactionSigner;
     keypair: ShieldedKeypair;
   }>,
@@ -467,8 +465,47 @@ export async function registerIfAbsent(
   }
 }
 
+export async function setMergingEnabled(
+  input: Readonly<{
+    client: Pick<ZolanaClient, "signAndSendInstructions">;
+    owner: TransactionSigner;
+    enabled: boolean;
+  }>,
+  context?: RequestContext,
+): Promise<Signature> {
+  try {
+    const recordAddress = await internalUserRecordAddress(input.owner.address);
+    return await input.client.signAndSendInstructions(
+      {
+        feePayer: input.owner,
+        instructions: [
+          {
+            programAddress: USER_REGISTRY_PROGRAM_ID,
+            accounts: [
+              { address: recordAddress, role: AccountRole.WRITABLE },
+              {
+                address: input.owner.address,
+                role: AccountRole.READONLY_SIGNER,
+                signer: input.owner,
+              } as NonNullable<Instruction["accounts"]>[number],
+            ],
+            data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
+          },
+        ],
+      },
+      context,
+    );
+  } catch (cause) {
+    throw wrapWalletError("WALLET_SET_MERGING_ENABLED", cause);
+  }
+}
+
 export async function buildRegistrationTransaction(
-  input: Readonly<{ client: ZolanaRpc; owner: Address; address: ShieldedAddress }>,
+  input: Readonly<{
+    client: Pick<ZolanaClient, "getAccount" | "getLatestBlockhash">;
+    owner: Address;
+    address: ShieldedAddress;
+  }>,
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {

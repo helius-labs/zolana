@@ -3,15 +3,12 @@ import type {
   Bytes32,
   TransactInstructionData,
   TransactProof,
-} from "../../interface/index.js";
-import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/index.js";
-import {
-  ProofInputUtxo,
-  SOL_MINT,
-  SppProofInputs,
-  TransactionError,
-  type ProofOutputUtxo,
-} from "../../transaction/index.js";
+} from "../../interface/types.js";
+import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { TransactionError } from "../../transaction/error.js";
+import { SppProofInputs } from "../../transaction/instructions/transact.js";
+import { ProofInputUtxo, type ProofOutputUtxo } from "../../transaction/utxo.js";
+import { SOL_MINT } from "../../transaction/wallet/asset.js";
 
 import { ClientError, fromClientCause } from "../error.js";
 import {

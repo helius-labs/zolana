@@ -1,5 +1,5 @@
 import { ZolanaApi } from "../api/index.js";
-import { base64String, hash, hashBytes, limit } from "../indexer/index.js";
+import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse as WireGetEncryptedUtxosByTagsResponse,
@@ -8,10 +8,10 @@ import type {
   MerkleProof as WireMerkleProof,
   NonInclusionProof as WireNonInclusionProof,
   RingsOutputSlot as WireOutputSlot,
-} from "../indexer/index.js";
-import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../interface/index.js";
-import { P256PublicKey } from "../keypair/index.js";
-import type { IndexedShieldedTransaction } from "../transaction/instructions/index.js";
+} from "../indexer/types.js";
+import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../interface/types.js";
+import { P256PublicKey } from "../keypair/public-key.js";
+import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
 import { ClientError, isClientError } from "./error.js";
 import { decodeBase64 } from "./internal.js";

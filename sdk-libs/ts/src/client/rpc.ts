@@ -1,8 +1,8 @@
 import type { Address, Signature } from "@solana/kit";
 
-import type { Bytes16, Bytes32 } from "../interface/index.js";
-import type { P256PublicKey } from "../keypair/index.js";
-import type { IndexedShieldedTransaction } from "../transaction/instructions/index.js";
+import type { Bytes16, Bytes32 } from "../interface/types.js";
+import type { P256PublicKey } from "../keypair/public-key.js";
+import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
 export {
   DEFAULT_INDEXER_POLL_CONFIG as DEFAULT_INDEXER_POLL,

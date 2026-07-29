@@ -1,16 +1,25 @@
-import type { Address, Bytes32, RequestContext } from "../../interface/index.js";
+import type {
+  Address,
+  Bytes32,
+  MergeTransactInstructionData,
+  RequestContext,
+} from "../../interface/types.js";
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
-import type { MergeTransactInstructionData } from "../../interface/instructions/index.js";
-import { NullifierKey, P256PublicKey, ShieldedPublicKey } from "../../keypair/index.js";
+import { NullifierKey } from "../../keypair/nullifier-key.js";
+import { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
 import { encryptVerifiable, mergePublicContribution } from "../../keypair/merge/index.js";
-import { MERGE_INPUTS, PreparedMerge, PreparedMergeZone } from "../../transaction/index.js";
+import {
+  MERGE_INPUTS,
+  PreparedMerge,
+  PreparedMergeZone,
+} from "../../transaction/instructions/builders.js";
 import {
   EncryptedScheme,
   encodeMerge,
   encodeOutputData,
-} from "../../transaction/serialization/index.js";
+} from "../../transaction/serialization/codecs.js";
 
-import type { ZolanaRpc } from "../client.js";
+import type { ZolanaClient } from "../client.js";
 import { ClientError, fromClientCause } from "../error.js";
 import {
   addressBytes,
@@ -72,7 +81,7 @@ export interface MergeAssembly {
 export async function assembleMerge(
   prepared: PreparedMerge,
   material: MergeMaterialInput,
-  indexer: Pick<ZolanaRpc, "getInputMerkleProofs">,
+  indexer: Pick<ZolanaClient, "getInputMerkleProofs">,
   tree: Address,
   context?: RequestContext,
 ): Promise<MergeAssembly> {
@@ -107,7 +116,7 @@ export function assembleMergeWithProofs(
 export async function assembleMergeZone(
   prepared: PreparedMergeZone,
   material: MergeMaterialInput,
-  indexer: Pick<ZolanaRpc, "getInputMerkleProofs">,
+  indexer: Pick<ZolanaClient, "getInputMerkleProofs">,
   tree: Address,
   context?: RequestContext,
 ): Promise<MergeAssembly> {

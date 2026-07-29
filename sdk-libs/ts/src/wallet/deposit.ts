@@ -1,10 +1,10 @@
 import type { TransactionSigner } from "@solana/kit";
 
 import { buildUnsignedTransaction } from "../client/kit.js";
-import type { ZolanaRpc } from "../client/index.js";
+import type { ZolanaClient } from "../client/client.js";
+import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
+import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
-  SPL_TOKEN_PROGRAM_ID,
-  checkedTransactionSize,
   type Address,
   type Bytes31,
   type Bytes32,
@@ -13,15 +13,17 @@ import {
   type RequestContext,
   type Signature,
   type Transaction,
-} from "../interface/index.js";
+} from "../interface/types.js";
 import {
   associatedTokenAddress,
   splAssetRegistryAddress,
   splAssetVaultAddress,
 } from "../interface/pda/index.js";
 import { depositInstruction } from "../interface/instructions/index.js";
-import { randomBlinding, type ShieldedAddress } from "../keypair/index.js";
-import { SOL_MINT, ownerUtxoHash } from "../transaction/index.js";
+import { randomBlinding } from "../keypair/bytes.js";
+import type { ShieldedAddress } from "../keypair/shielded.js";
+import { ownerUtxoHash } from "../transaction/utxo.js";
+import { SOL_MINT } from "../transaction/wallet/asset.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 
@@ -41,7 +43,10 @@ export interface DepositParams {
 }
 
 export interface DepositActionParams {
-  readonly client: ZolanaRpc;
+  readonly client: Pick<
+    ZolanaClient,
+    "tree" | "signAndSendInstructions" | "confirmPrivateTransaction"
+  >;
   readonly feePayer: TransactionSigner;
   readonly depositor?: TransactionSigner;
   readonly tree?: Address;
@@ -159,7 +164,7 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
  */
 export async function submitDeposit(
   input: Readonly<{
-    client: ZolanaRpc;
+    client: Pick<ZolanaClient, "signAndSendInstructions">;
     payer: TransactionSigner;
     tree: Address;
     depositor: TransactionSigner;
@@ -218,7 +223,7 @@ export async function deposit(
 
 export async function buildDepositTransaction(
   input: Readonly<{
-    client: ZolanaRpc;
+    client: Pick<ZolanaClient, "getLatestBlockhash">;
     payer: Address;
     tree: Address;
     depositor: Address;

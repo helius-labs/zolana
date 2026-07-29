@@ -1,4 +1,4 @@
-import type { Address, Signature } from "../interface/index.js";
+import type { Address, Signature } from "../interface/types.js";
 
 export type Base64String = string & { readonly __base64: unique symbol };
 export type Hash = string & { readonly __hash32Base58: unique symbol };
@@ -103,20 +103,4 @@ export interface NonInclusionProof {
 export interface GetNonInclusionProofsResponse {
   readonly context: IndexerContext;
   readonly proofs: readonly NonInclusionProof[];
-}
-
-export interface GetNullifierQueueElementsRequest {
-  readonly treeAccount: Address;
-  readonly startSeq?: bigint;
-  readonly limit: Limit;
-}
-
-export interface NullifierQueueElement {
-  readonly seq: bigint;
-  readonly value: Hash;
-}
-
-export interface GetNullifierQueueElementsResponse {
-  readonly context: IndexerContext;
-  readonly elements: readonly NullifierQueueElement[];
 }

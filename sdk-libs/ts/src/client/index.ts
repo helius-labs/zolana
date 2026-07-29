@@ -6,7 +6,6 @@ export type {
   SignedPrivateTransaction,
   SubmittedPrivateTransaction,
   ZolanaClientConfig,
-  ZolanaRpc,
 } from "./client.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {

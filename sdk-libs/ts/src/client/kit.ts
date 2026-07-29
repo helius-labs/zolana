@@ -16,7 +16,7 @@ import {
   isTransactionPartialSigner,
   isTransactionSendingSigner,
   pipe,
-  sendAndConfirmTransactionFactory,
+  sendTransactionWithoutConfirmingFactory,
   setTransactionMessageFeePayer,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
@@ -36,8 +36,13 @@ import {
   type TransactionPartialSigner,
   type TransactionSigner,
 } from "@solana/kit";
+import {
+  createBlockHeightExceedencePromiseFactory,
+  createRecentSignatureConfirmationPromiseFactory,
+  waitForRecentTransactionConfirmation,
+} from "@solana/transaction-confirmation";
 
-import type { RequestContext } from "../interface/index.js";
+import type { RequestContext } from "../interface/types.js";
 
 import { ClientError, isClientError } from "./error.js";
 import { composeSignal, type ComposedSignal } from "./internal.js";
@@ -146,7 +151,6 @@ export async function signAndSendInstructions(
     return signature;
   }
   const transaction = await signMessage(message, context);
-  input.onReadyToSubmit?.();
   await sendAndConfirmTransaction(client, transaction, input, context);
   return getSignatureFromTransaction(transaction);
 }
@@ -154,7 +158,7 @@ export async function signAndSendInstructions(
 export async function sendAndConfirmTransaction(
   client: SolanaTransactionClient,
   transaction: Transaction,
-  input: Readonly<{ skipPreflight?: boolean }> = {},
+  input: Readonly<{ skipPreflight?: boolean; onReadyToSubmit?: () => void }> = {},
   context?: RequestContext,
 ): Promise<Signature> {
   try {
@@ -164,16 +168,32 @@ export async function sendAndConfirmTransaction(
   } catch (cause) {
     throw new ClientError("CLIENT_INVALID_TRANSACTION", { cause });
   }
-  await runKitRpc("sendTransaction", context, (abortSignal) =>
-    sendAndConfirmTransactionFactory({
-      rpc: client.solanaRpc,
-      rpcSubscriptions: client.solanaRpcSubscriptions,
-    })(transaction, {
-      abortSignal,
+  const signal = composeSignal(context, "sendTransaction");
+  try {
+    await sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc })(transaction, {
+      abortSignal: signal.signal,
       commitment: client.commitment,
       ...(input.skipPreflight === undefined ? {} : { skipPreflight: input.skipPreflight }),
-    }),
-  );
+    });
+    input.onReadyToSubmit?.();
+    await waitForRecentTransactionConfirmation({
+      abortSignal: signal.signal,
+      commitment: client.commitment,
+      transaction,
+      getBlockHeightExceedencePromise: createBlockHeightExceedencePromiseFactory({
+        rpc: client.solanaRpc,
+        rpcSubscriptions: client.solanaRpcSubscriptions,
+      }),
+      getRecentSignatureConfirmationPromise: createRecentSignatureConfirmationPromiseFactory({
+        rpc: client.solanaRpc,
+        rpcSubscriptions: client.solanaRpcSubscriptions,
+      }),
+    });
+  } catch (cause) {
+    throw operationError("sendTransaction", signal, cause);
+  } finally {
+    signal.cleanup();
+  }
   return getSignatureFromTransaction(transaction);
 }
 

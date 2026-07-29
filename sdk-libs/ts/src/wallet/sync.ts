@@ -6,41 +6,43 @@ import {
 } from "@solana/kit";
 
 import { runKitRpc } from "../client/kit.js";
+import type { ZolanaClient } from "../client/client.js";
+import { ClientError } from "../client/error.js";
 import {
-  ClientError,
   DEFAULT_INDEXER_POLL_CONFIG,
   type IndexerPollConfig,
   type IndexerRpcConfig,
-  type ZolanaRpc,
-} from "../client/index.js";
+} from "../client/retry.js";
+import { decodeSplAssetRegistry } from "../interface/accounts.js";
+import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
+import { StateDiscriminator } from "../interface/state.js";
+import type { Address, Bytes32, RequestContext } from "../interface/types.js";
+import type { ViewingKeyLike } from "../keypair/shielded.js";
+import { TransactionError } from "../transaction/error.js";
+import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
+import { EncryptedScheme, decodeOutputData } from "../transaction/serialization/codecs.js";
+import type { WalletSyncMaterial } from "../transaction/wallet/authority.js";
 import {
-  SHIELDED_POOL_PROGRAM_ID,
-  StateDiscriminator,
-  decodeSplAssetRegistry,
-} from "../interface/index.js";
-import type { Address, Bytes32, RequestContext } from "../interface/index.js";
-import type { ViewingKeyLike } from "../keypair/index.js";
-import {
-  EncryptedScheme,
-  TransactionError,
-  decryptTransactions,
   type AssetBalance,
   type PrivateTransaction,
   type SyncReport,
   type ViewingKeyEntry,
   type Wallet,
-  type WalletSyncMaterial,
-} from "../transaction/index.js";
-import type { IndexedShieldedTransaction } from "../transaction/instructions/index.js";
-import { decodeOutputData } from "../transaction/serialization/index.js";
+} from "../transaction/wallet/state.js";
+import { decryptTransactions } from "../transaction/wallet/sync.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
-import type { WalletAuthority } from "./wallet-authority.js";
+import type { WalletAuthority } from "../transaction/wallet/authority.js";
 
 const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
+
+type SyncClient = Pick<
+  ZolanaClient,
+  "solanaRpc" | "commitment" | "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags"
+>;
 
 export interface SyncWalletConfig {
   readonly tagWindow?: bigint;
@@ -64,11 +66,11 @@ export interface SyncWalletReport extends SyncReport {
 export type {
   CounterpartyCounter,
   ViewingKeyEntry as ViewingKeyCounters,
-} from "../transaction/index.js";
+} from "../transaction/wallet/state.js";
 
 export async function backfillAssetRegistry(
   wallet: Wallet,
-  registryRpc: ZolanaRpc,
+  registryRpc: Pick<ZolanaClient, "solanaRpc" | "commitment">,
   context?: RequestContext,
 ): Promise<number> {
   let accounts;
@@ -314,7 +316,7 @@ function compareDeposits(
 }
 
 interface CollectInput {
-  readonly indexer: Pick<ZolanaRpc, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags">;
+  readonly indexer: Pick<ZolanaClient, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags">;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
   readonly rpcConfig: IndexerRpcConfig;
@@ -390,7 +392,7 @@ export async function syncWallet(
   input: Readonly<{
     wallet: Wallet;
     authority: WalletAuthority;
-    client: ZolanaRpc;
+    client: SyncClient;
     config?: SyncWalletConfig;
   }>,
   context?: RequestContext,

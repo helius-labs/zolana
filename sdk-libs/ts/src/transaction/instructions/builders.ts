@@ -1,14 +1,8 @@
-import { address } from "@solana/kit";
-
-import type { Address, Bytes31, Bytes32 } from "../../interface/index.js";
-import {
-  ShieldedKeypair,
-  randomSalt,
-  type NullifierKey,
-  type P256PublicKey,
-  type ShieldedAddress,
-  type ShieldedPublicKey,
-} from "../../keypair/index.js";
+import type { Address, Bytes16, Bytes31, Bytes32 } from "../../interface/types.js";
+import { randomSalt } from "../../keypair/bytes.js";
+import type { NullifierKey } from "../../keypair/nullifier-key.js";
+import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
+import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 
 import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
@@ -21,13 +15,7 @@ import {
   type ProofOutputUtxo,
 } from "../utxo.js";
 import { type AssetRegistry } from "../wallet/asset.js";
-import {
-  SppProofInputs,
-  createExternalData,
-  exactShape,
-  type InputUtxoContext,
-  type Shape,
-} from "./transact.js";
+import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
 
 /** Padded input count of both merge rails, the counterpart of Rust `MERGE_INPUTS`. */
 export const MERGE_INPUTS = 8;
@@ -545,7 +533,7 @@ export class PreparedSplit {
   finalize(
     input: Readonly<{
       txViewingPublicKey: P256PublicKey;
-      salt: import("../../interface/index.js").Bytes16;
+      salt: Bytes16;
       payload: Readonly<{ viewTag: Bytes32; data: Uint8Array }>;
     }>,
   ): SppProofInputs {
@@ -568,65 +556,4 @@ export class PreparedSplit {
       }),
     });
   }
-}
-
-// The all-zero address: no zone at all, never a zone the authority may act for.
-const UNPINNED_ZONE = address("11111111111111111111111111111111");
-
-export interface PreparedZoneAuthority {
-  readonly inputs: readonly ProofInputUtxo[];
-  readonly outputs: readonly ProofOutputUtxo[];
-  readonly publicAmounts: Readonly<{ sol?: bigint; spl?: bigint }>;
-  readonly zoneProgramId: Address;
-  readonly payerPublicKeyHash: Bytes32;
-  readonly shape: Shape;
-  inputUtxoHashes(): readonly InputUtxoContext[];
-}
-
-export function prepareZoneAuthority(
-  input: Readonly<{
-    inputs: readonly ProofInputUtxo[];
-    outputs: readonly ProofOutputUtxo[];
-    zoneProgramId: Address;
-    payerPublicKeyHash: Bytes32;
-    publicAmounts?: Readonly<{ sol?: bigint; spl?: bigint }>;
-  }>,
-): PreparedZoneAuthority {
-  // The UTXO owners do not authorize this spend; the zone's `zone_config` PDA
-  // does, and only the zone program can sign for it. The zone binding is what
-  // keeps the authority inside its own policy zone, so the zone is pinned
-  // nonzero and every real UTXO carries exactly it, with no exemption for the
-  // default zone. The public leg is not bound: settlement and nullification
-  // share one instruction, so a leg in either direction is safe and allowed.
-  if (input.zoneProgramId === UNPINNED_ZONE) {
-    throw new TransactionError("TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID");
-  }
-  for (const [index, spend] of input.inputs.entries()) {
-    if (!spend.isDummy() && spend.utxo.zoneProgramId !== input.zoneProgramId) {
-      throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH", { index });
-    }
-  }
-  for (const [index, output] of input.outputs.entries()) {
-    if (!output.isDummy() && output.zoneProgramId !== input.zoneProgramId) {
-      throw new TransactionError("TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH", { index });
-    }
-  }
-  // The padded slot counts must name a proving system that exists, exactly as
-  // `SppProofInputs` requires of an owner-signed transact.
-  const shape = exactShape(input.inputs.length, input.outputs.length);
-  return Object.freeze({
-    ...input,
-    shape,
-    publicAmounts: input.publicAmounts ?? {},
-    inputUtxoHashes: (): readonly InputUtxoContext[] =>
-      input.inputs
-        .filter((spend) => !spend.isDummy())
-        .map((spend, index) =>
-          Object.freeze({
-            index,
-            utxoHash: spend.hash(),
-            nullifier: spend.nullifier(),
-          }),
-        ),
-  });
 }

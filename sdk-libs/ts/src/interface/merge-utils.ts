@@ -1,8 +1,8 @@
-import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
+import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/core.js";
 
 import { InterfaceError } from "./errors.js";
 import { copyBytes } from "./internal.js";
-import type { Bytes32 } from "./index.js";
+import type { Bytes32 } from "./types.js";
 
 const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;

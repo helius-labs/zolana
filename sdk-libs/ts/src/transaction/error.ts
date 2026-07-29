@@ -1,7 +1,6 @@
-import { KeypairError } from "../keypair/index.js";
+import { KeypairError } from "../keypair/error.js";
 
 export const TRANSACTION_ERROR_CODES = Object.freeze([
-  "TRANSACTION_AUTHORITY",
   "TRANSACTION_BAD_DISCRIMINATOR",
   "TRANSACTION_DATA_WITHOUT_OUTPUT",
   "TRANSACTION_DESERIALIZE",
@@ -12,7 +11,6 @@ export const TRANSACTION_ERROR_CODES = Object.freeze([
   "TRANSACTION_DUPLICATE_OUTPUT",
   "TRANSACTION_ED25519_PAYER_MISMATCH",
   "TRANSACTION_EXCESS_OUTPUT_SLOTS",
-  "TRANSACTION_HASH",
   "TRANSACTION_INPUT_OWNER_MISMATCH",
   "TRANSACTION_INPUT_RESERVED",
   "TRANSACTION_INSUFFICIENT_BALANCE",
@@ -35,10 +33,8 @@ export const TRANSACTION_ERROR_CODES = Object.freeze([
   "TRANSACTION_MERGE_INPUT_RAIL_MISMATCH",
   "TRANSACTION_MERGE_INPUT_ZONE_MISMATCH",
   "TRANSACTION_MISSING_CURRENT_VIEWING_KEY",
-  "TRANSACTION_MISSING_ENCRYPTION_CONTEXT",
   "TRANSACTION_MISSING_OUTPUT",
   "TRANSACTION_MISSING_PUBLIC_SPL_ASSET",
-  "TRANSACTION_MISSING_ZONE_AUTHORITY_PROGRAM_ID",
   "TRANSACTION_MISSING_ZONE_PROGRAM_ID",
   "TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS",
   "TRANSACTION_NON_CANONICAL_DATA_ORDER",
@@ -53,7 +49,6 @@ export const TRANSACTION_ERROR_CODES = Object.freeze([
   "TRANSACTION_OUTPUT_OWNER_MISMATCH",
   "TRANSACTION_OUTPUT_SLOT_OVERFLOW",
   "TRANSACTION_OUTPUT_ZONE_MISMATCH",
-  "TRANSACTION_P256",
   "TRANSACTION_POSEIDON",
   "TRANSACTION_PUBLIC_SOL_ALREADY_SET",
   "TRANSACTION_PUBLIC_SPL_ALREADY_SET",
@@ -78,14 +73,10 @@ export const TRANSACTION_ERROR_CODES = Object.freeze([
   "TRANSACTION_UNKNOWN_ASSET",
   "TRANSACTION_UNKNOWN_ASSET_FIELD",
   "TRANSACTION_UNKNOWN_MINT",
-  "TRANSACTION_UNKNOWN_VARIANT",
-  "TRANSACTION_UNSUPPORTED_OUTPUT_DATA",
   "TRANSACTION_UNSUPPORTED_SHAPE",
   "TRANSACTION_WALLET_AUTHORITY_MISMATCH",
   "TRANSACTION_WITHDRAWAL_ALREADY_SET",
   "TRANSACTION_WITHDRAWAL_ASSET_MISMATCH",
-  "TRANSACTION_ZONE_AUTHORITY_INPUT_ZONE_MISMATCH",
-  "TRANSACTION_ZONE_AUTHORITY_OUTPUT_ZONE_MISMATCH",
   "TRANSACTION_ZONE_HASHES_ALREADY_SET",
 ] as const);
 
@@ -102,7 +93,6 @@ export type TransactionErrorDetails = Readonly<Record<string, TransactionErrorVa
 export type TransactionErrorCause =
   | Readonly<{ category: "transaction"; code: TransactionErrorCode }>
   | Readonly<{ category: "keypair"; code: string }>
-  | Readonly<{ category: "authority"; code?: string }>
   | Readonly<{ category: "external"; code?: string }>;
 
 export class TransactionError extends Error {
@@ -132,21 +122,6 @@ export function transactionError(
   return new TransactionError(code, details, cause);
 }
 
-export function unknownTransactionError(
-  variant: string,
-  payload?: Readonly<Record<string, unknown>>,
-): TransactionError {
-  return new TransactionError("TRANSACTION_UNKNOWN_VARIANT", { variant, payload });
-}
-
-export function authorityError(cause: unknown, code?: string): TransactionError {
-  return new TransactionError("TRANSACTION_AUTHORITY", code === undefined ? undefined : { code }, {
-    category: "authority",
-    ...(code === undefined ? {} : { code }),
-    cause,
-  });
-}
-
 function safeCause(cause: unknown): TransactionErrorCause | undefined {
   if (cause instanceof TransactionError) {
     return Object.freeze({ category: "transaction", code: cause.code });
@@ -173,9 +148,9 @@ function safeCause(cause: unknown): TransactionErrorCause | undefined {
 
 function isCauseCategory(
   value: unknown,
-): value is Readonly<{ category: "authority" | "external"; code?: string }> {
+): value is Readonly<{ category: "external"; code?: string }> {
   if (typeof value !== "object" || value === null || !("category" in value)) return false;
-  return value.category === "authority" || value.category === "external";
+  return value.category === "external";
 }
 
 function safeDetails(

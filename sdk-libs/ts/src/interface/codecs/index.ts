@@ -1,30 +1,25 @@
-import {
-  type Address,
-  type AddressTreeParams,
-  type BatchUpdateNullifierTreeData,
-  type Bytes16,
-  type Bytes31,
-  type Bytes32,
-  type Bytes33,
-  type Bytes64,
-  type CreateZoneConfigData,
-  type DepositInstructionData,
-  type MergeTransactInstructionData,
-  type MergeZoneInstructionData,
-  type UpdateZoneConfigData,
-  type UpdateZoneConfigOwnerData,
-  type ZoneDepositInstructionData,
-  type InputUtxo,
-  type OwnerTag,
-  type ProtocolConfigAccount,
-  type SplAssetCounterAccount,
-  type SplAssetRegistryAccount,
-  type TransactInstructionData,
-  type TransactOutput,
-  type TransactProof,
-  type ZoneConfigAccount,
-} from "../index.js";
+import type {
+  Address,
+  Bytes32,
+  CreateZoneConfigData,
+  DepositInstructionData,
+  InputUtxo,
+  MergeTransactInstructionData,
+  MergeZoneInstructionData,
+  OwnerTag,
+  ProtocolConfigAccount,
+  SplAssetCounterAccount,
+  SplAssetRegistryAccount,
+  TransactInstructionData,
+  TransactOutput,
+  TransactProof,
+  UpdateZoneConfigData,
+  UpdateZoneConfigOwnerData,
+  ZoneConfigAccount,
+  ZoneDepositInstructionData,
+} from "../types.js";
 import { MERGE_ENCRYPTED_UTXO_LENGTH, MERGE_INPUT_COUNT } from "../constants.js";
+import type { AddressTreeParams } from "../program.js";
 import { StateDiscriminator } from "../state.js";
 import {
   Reader,
@@ -37,44 +32,22 @@ import {
   unsignedBigint,
 } from "../internal.js";
 
-export interface Codec<T> {
-  encode(value: T): Uint8Array;
-  decode(bytes: Uint8Array): T;
-}
-
-function strictCodec<T>(
-  write: (writer: Writer, value: T) => void,
-  read: (reader: Reader) => T,
+function encoded<T>(
+  value: T,
+  write: (writer: Writer, input: T) => void,
   size?: number,
-): Codec<T> {
-  return {
-    encode(value) {
-      const writer = new Writer();
-      write(writer, value);
-      const bytes = writer.finish();
-      if (size !== undefined && bytes.length !== size) {
-        fail("INTERFACE_INVALID_LENGTH", { expected: size, actual: bytes.length });
-      }
-      return bytes;
-    },
-    decode(bytes) {
-      if (size !== undefined && bytes.length !== size) {
-        fail("INTERFACE_INVALID_LENGTH", { expected: size, actual: bytes.length });
-      }
-      const reader = new Reader(copyBytes(bytes));
-      const value = read(reader);
-      reader.done();
-      return value;
-    },
-  };
+): Uint8Array {
+  const writer = new Writer();
+  write(writer, value);
+  const bytes = writer.finish();
+  if (size !== undefined && bytes.length !== size) {
+    fail("INTERFACE_INVALID_LENGTH", { expected: size, actual: bytes.length });
+  }
+  return bytes;
 }
 
 function byteVector(writer: Writer, value: Uint8Array, name: string): void {
   writer.u16(value.length, `${name}.length`).bytes(value);
-}
-
-function readByteVector(reader: Reader, name: string): Uint8Array {
-  return reader.bytes(reader.u16(`${name}.length`), name);
 }
 
 function writeDepositData(writer: Writer, value: DepositInstructionData): void {
@@ -92,38 +65,9 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
     });
 }
 
-function readDepositData(reader: Reader): DepositInstructionData {
-  const value: DepositInstructionData = {
-    viewTag: reader.bytes(32, "viewTag") as Bytes32,
-    owner: reader.bytes(32, "owner") as Bytes32,
-    blinding: reader.bytes(31, "blinding") as Bytes31,
-    amount: reader.u64("amount"),
-  };
-  const utxoData = reader.option("utxoData", (input) => ({
-    dataHash: input.bytes(32, "utxoData.dataHash") as Bytes32,
-    data: readByteVector(input, "utxoData.data"),
-  }));
-  const memo = reader.option("memo", (input) => readByteVector(input, "memo"));
-  return {
-    ...value,
-    ...(utxoData === undefined ? {} : { utxoData }),
-    ...(memo === undefined ? {} : { memo }),
-  };
+export function encodeDepositInstructionData(value: DepositInstructionData): Uint8Array {
+  return encoded(value, writeDepositData);
 }
-
-export const depositInstructionDataCodec: Codec<DepositInstructionData> = {
-  encode(value) {
-    const writer = new Writer();
-    writeDepositData(writer, value);
-    return writer.finish();
-  },
-  decode(bytes) {
-    const reader = new Reader(copyBytes(bytes));
-    const value = readDepositData(reader);
-    reader.done();
-    return value;
-  },
-};
 
 function writeZoneDepositData(writer: Writer, value: ZoneDepositInstructionData): void {
   writer
@@ -143,74 +87,23 @@ function writeZoneDepositData(writer: Writer, value: ZoneDepositInstructionData)
     });
 }
 
-function readZoneDepositData(reader: Reader): ZoneDepositInstructionData {
-  const viewTag = reader.bytes(32, "viewTag") as Bytes32;
-  const owner = reader.bytes(32, "owner") as Bytes32;
-  const blinding = reader.bytes(31, "blinding") as Bytes31;
-  const amount = reader.u64("amount");
-  const zoneDataHash = reader.bytes(32, "zoneDataHash") as Bytes32;
-  const zoneData = readByteVector(reader, "zoneData");
-  const utxoData = reader.option("utxoData", (input) => ({
-    dataHash: input.bytes(32, "utxoData.dataHash") as Bytes32,
-    data: readByteVector(input, "utxoData.data"),
-  }));
-  const memo = reader.option("memo", (input) => readByteVector(input, "memo"));
-  return {
-    viewTag,
-    owner,
-    blinding,
-    amount,
-    zoneDataHash,
-    zoneData,
-    ...(utxoData === undefined ? {} : { utxoData }),
-    ...(memo === undefined ? {} : { memo }),
-  };
+export function encodeZoneDepositInstructionData(value: ZoneDepositInstructionData): Uint8Array {
+  return encoded(value, writeZoneDepositData);
 }
 
-export const zoneDepositInstructionDataCodec = strictCodec(
-  writeZoneDepositData,
-  readZoneDepositData,
-);
-
-export const batchUpdateNullifierTreeDataCodec = strictCodec<BatchUpdateNullifierTreeData>(
-  (writer, value) => {
-    writer
-      .bytes(value.newRoot, 32, "newRoot")
-      .bytes(value.oldRoot, 32, "oldRoot")
-      .u16(value.zkpBatchIndex, "zkpBatchIndex")
-      .bytes(value.compressedProof.a, 32, "compressedProof.a")
-      .bytes(value.compressedProof.b, 64, "compressedProof.b")
-      .bytes(value.compressedProof.c, 32, "compressedProof.c");
-  },
-  (reader) => ({
-    newRoot: reader.bytes(32, "newRoot") as Bytes32,
-    oldRoot: reader.bytes(32, "oldRoot") as Bytes32,
-    zkpBatchIndex: reader.u16("zkpBatchIndex"),
-    compressedProof: {
-      a: reader.bytes(32, "compressedProof.a") as Bytes32,
-      b: reader.bytes(64, "compressedProof.b") as Bytes64,
-      c: reader.bytes(32, "compressedProof.c") as Bytes32,
+export function encodeAddressTreeParams(value: AddressTreeParams): Uint8Array {
+  return encoded(
+    value,
+    (writer, input) => {
+      writer
+        .u64(input.inputQueueBatchSize, "inputQueueBatchSize")
+        .u64(input.inputQueueZkpBatchSize, "inputQueueZkpBatchSize")
+        .u32(input.rootHistoryCapacity, "rootHistoryCapacity")
+        .u32(input.height, "height");
     },
-  }),
-  194,
-);
-
-export const addressTreeParamsCodec = strictCodec<AddressTreeParams>(
-  (writer, value) => {
-    writer
-      .u64(value.inputQueueBatchSize, "inputQueueBatchSize")
-      .u64(value.inputQueueZkpBatchSize, "inputQueueZkpBatchSize")
-      .u32(value.rootHistoryCapacity, "rootHistoryCapacity")
-      .u32(value.height, "height");
-  },
-  (reader) => ({
-    inputQueueBatchSize: reader.u64("inputQueueBatchSize"),
-    inputQueueZkpBatchSize: reader.u64("inputQueueZkpBatchSize"),
-    rootHistoryCapacity: reader.u32("rootHistoryCapacity"),
-    height: reader.u32("height"),
-  }),
-  24,
-);
+    24,
+  );
+}
 
 function writeProof(writer: Writer, proof: TransactProof): void {
   if (proof.rail === "eddsa") {
@@ -230,25 +123,6 @@ function writeProof(writer: Writer, proof: TransactProof): void {
     .bytes(proof.commitmentPok, 32, "proof.commitmentPok");
 }
 
-function readProof(reader: Reader): TransactProof {
-  const rail = reader.u8("proof.rail");
-  const a = reader.bytes(32, "proof.a") as Bytes32;
-  const b = reader.bytes(64, "proof.b") as Bytes64;
-  const c = reader.bytes(32, "proof.c") as Bytes32;
-  if (rail === 0) return { rail: "eddsa", a, b, c };
-  if (rail === 1) {
-    return {
-      rail: "p256",
-      a,
-      b,
-      c,
-      commitment: reader.bytes(32, "proof.commitment") as Bytes32,
-      commitmentPok: reader.bytes(32, "proof.commitmentPok") as Bytes32,
-    };
-  }
-  fail("INTERFACE_CODEC", { name: "proof.rail", actual: rail });
-}
-
 function writeInput(writer: Writer, value: InputUtxo): void {
   writer
     .bytes(value.nullifierHash, 32, "input.nullifierHash")
@@ -256,16 +130,6 @@ function writeInput(writer: Writer, value: InputUtxo): void {
     .u16(value.utxoTreeRootIndex, "input.utxoTreeRootIndex")
     .u8(value.treeIndex, "input.treeIndex")
     .u8(value.eddsaSignerIndex, "input.eddsaSignerIndex");
-}
-
-function readInput(reader: Reader): InputUtxo {
-  return {
-    nullifierHash: reader.bytes(32, "input.nullifierHash") as Bytes32,
-    nullifierTreeRootIndex: reader.u16("input.nullifierTreeRootIndex"),
-    utxoTreeRootIndex: reader.u16("input.utxoTreeRootIndex"),
-    treeIndex: reader.u8("input.treeIndex"),
-    eddsaSignerIndex: reader.u8("input.eddsaSignerIndex"),
-  };
 }
 
 function writeOwnerTag(writer: Writer, value: OwnerTag): void {
@@ -284,33 +148,12 @@ function writeOwnerTag(writer: Writer, value: OwnerTag): void {
   }
 }
 
-function readOwnerTag(reader: Reader): OwnerTag {
-  const kind = reader.u8("ownerTag.kind");
-  if (kind === 0) {
-    return { kind: "inline", value: reader.bytes(32, "ownerTag.value") as Bytes32 };
-  }
-  if (kind === 1) return { kind: "account", index: reader.u8("ownerTag.index") };
-  if (kind === 2) return { kind: "p256SigningKey" };
-  fail("INTERFACE_CODEC", { name: "ownerTag.kind", actual: kind });
-}
-
 function writeOutput(writer: Writer, value: TransactOutput): void {
   writer.bytes(value.utxoHash, 32, "output.utxoHash");
   writeOwnerTag(writer, value.ownerTag);
   writer.option(value.data, (output, data) => {
     byteVector(output, data, "output.data");
   });
-}
-
-function readOutput(reader: Reader): TransactOutput {
-  const utxoHash = reader.bytes(32, "output.utxoHash") as Bytes32;
-  const ownerTag = readOwnerTag(reader);
-  const data = reader.option("output.data", (input) => readByteVector(input, "output.data"));
-  return {
-    utxoHash,
-    ownerTag,
-    ...(data === undefined ? {} : { data }),
-  };
 }
 
 function writeTransactData(writer: Writer, value: TransactInstructionData): void {
@@ -338,66 +181,12 @@ function writeTransactData(writer: Writer, value: TransactInstructionData): void
   }
 }
 
-function readTransactData(reader: Reader): TransactInstructionData {
-  const expiryUnixTs = reader.u64("expiryUnixTs");
-  const relayerFee = reader.u16("relayerFee");
-  const privateTxHash = reader.bytes(32, "privateTxHash") as Bytes32;
-  const p256SigningPkX = reader.option(
-    "p256SigningPkX",
-    (input) => input.bytes(32, "p256SigningPkX") as Bytes32,
-  );
-  const txViewingPk = reader.bytes(33, "txViewingPk") as Bytes33;
-  const salt = reader.bytes(16, "salt") as Bytes16;
-  const proof = readProof(reader);
-  const inputs = Array.from({ length: reader.u8("inputs.length") }, () => readInput(reader));
-  const publicSolAmount = reader.option("publicSolAmount", (input) => input.i64("publicSolAmount"));
-  const publicSplAmount = reader.option("publicSplAmount", (input) => input.i64("publicSplAmount"));
-  const dataHash = reader.option("dataHash", (input) => input.bytes(32, "dataHash") as Bytes32);
-  const zoneDataHash = reader.option(
-    "zoneDataHash",
-    (input) => input.bytes(32, "zoneDataHash") as Bytes32,
-  );
-  const outputs = Array.from({ length: reader.u8("outputs.length") }, () => readOutput(reader));
-  const messages = Array.from({ length: reader.u8("messages.length") }, () => ({
-    viewTag: reader.bytes(32, "message.viewTag") as Bytes32,
-    data: readByteVector(reader, "message.data"),
-  }));
-  return {
-    proof,
-    expiryUnixTs,
-    relayerFee,
-    privateTxHash,
-    txViewingPk,
-    salt,
-    inputs,
-    outputs,
-    messages,
-    ...(p256SigningPkX === undefined ? {} : { p256SigningPkX }),
-    ...(publicSolAmount === undefined ? {} : { publicSolAmount }),
-    ...(publicSplAmount === undefined ? {} : { publicSplAmount }),
-    ...(dataHash === undefined ? {} : { dataHash }),
-    ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
-  };
+export function encodeTransactInstructionData(value: TransactInstructionData): Uint8Array {
+  return encoded(value, writeTransactData);
 }
 
-export const transactInstructionDataCodec: Codec<TransactInstructionData> = {
-  encode(value) {
-    const writer = new Writer();
-    writeTransactData(writer, value);
-    return writer.finish();
-  },
-  decode(bytes) {
-    const reader = new Reader(copyBytes(bytes));
-    const value = readTransactData(reader);
-    reader.done();
-    return value;
-  },
-};
-
-// Neither merge codec checks the `encryptedUtxo` type prefix, matching Rust,
-// whose decoders read and write any first byte. The prefix is not part of the
-// layout: the shielded-pool program is what rejects a non-canonical value, with
-// `InvalidMergeOutputScheme`.
+// The merge encoder deliberately does not check the encrypted UTXO type prefix,
+// matching Rust. The shielded-pool program rejects a non-canonical value.
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
   if (
     value.nullifiers.length !== MERGE_INPUT_COUNT ||
@@ -435,69 +224,22 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .bool(value.eddsaOwner, "eddsaOwner");
 }
 
-function readFixedList<T>(reader: Reader, name: string, read: (input: Reader) => T): readonly T[] {
-  const length = reader.u8(`${name}.length`);
-  if (length !== MERGE_INPUT_COUNT) {
-    fail("INTERFACE_INVALID_LENGTH", { name, expected: MERGE_INPUT_COUNT, actual: length });
-  }
-  return Array.from({ length }, () => read(reader));
+export function encodeMergeTransactInstructionData(
+  value: MergeTransactInstructionData,
+): Uint8Array {
+  return encoded(value, writeMergeData, 668);
 }
 
-function readMergeData(reader: Reader): MergeTransactInstructionData {
-  const expiryUnixTs = reader.u64("expiryUnixTs");
-  const proof = {
-    a: reader.bytes(32, "proof.a") as Bytes32,
-    b: reader.bytes(64, "proof.b") as Bytes64,
-    c: reader.bytes(32, "proof.c") as Bytes32,
-    commitment: reader.bytes(32, "proof.commitment") as Bytes32,
-    commitmentPok: reader.bytes(32, "proof.commitmentPok") as Bytes32,
-  };
-  const outputUtxoHash = reader.bytes(32, "outputUtxoHash") as Bytes32;
-  const nullifiers = readFixedList(reader, "nullifiers", (input) =>
-    input.bytes(32, "nullifier"),
-  ) as readonly Bytes32[];
-  const utxoTreeRootIndexes = readFixedList(reader, "utxoTreeRootIndexes", (input) =>
-    input.u16("utxoTreeRootIndex"),
+export function encodeMergeZoneInstructionData(value: MergeZoneInstructionData): Uint8Array {
+  return encoded(
+    value,
+    (writer, input) => {
+      writer.bytes(input.mergeViewTag, 32, "mergeViewTag");
+      writeMergeData(writer, input.merge);
+    },
+    700,
   );
-  const nullifierTreeRootIndexes = readFixedList(reader, "nullifierTreeRootIndexes", (input) =>
-    input.u16("nullifierTreeRootIndex"),
-  );
-  const privateTxHash = reader.bytes(32, "privateTxHash") as Bytes32;
-  const encryptedLength = reader.u16("encryptedUtxo.length");
-  if (encryptedLength !== MERGE_ENCRYPTED_UTXO_LENGTH) {
-    fail("INTERFACE_INVALID_LENGTH", {
-      name: "encryptedUtxo",
-      expected: MERGE_ENCRYPTED_UTXO_LENGTH,
-      actual: encryptedLength,
-    });
-  }
-  const encryptedUtxo = reader.bytes(encryptedLength, "encryptedUtxo");
-  return {
-    expiryUnixTs,
-    proof,
-    outputUtxoHash,
-    nullifiers,
-    utxoTreeRootIndexes,
-    nullifierTreeRootIndexes,
-    privateTxHash,
-    encryptedUtxo,
-    eddsaOwner: reader.bool("eddsaOwner"),
-  };
 }
-
-export const mergeTransactInstructionDataCodec = strictCodec(writeMergeData, readMergeData, 668);
-
-export const mergeZoneInstructionDataCodec = strictCodec<MergeZoneInstructionData>(
-  (writer, value) => {
-    writer.bytes(value.mergeViewTag, 32, "mergeViewTag");
-    writeMergeData(writer, value.merge);
-  },
-  (reader) => ({
-    mergeViewTag: reader.bytes(32, "mergeViewTag") as Bytes32,
-    merge: readMergeData(reader),
-  }),
-  700,
-);
 
 export function mergeExternalDataHash(
   input: Readonly<{
@@ -526,92 +268,60 @@ export function mergeExternalDataHash(
   return digest as Bytes32;
 }
 
-export const createZoneConfigDataCodec = strictCodec<CreateZoneConfigData>(
-  (writer, value) =>
-    writer
-      .bytes(addressBytes(value.programId, "programId"))
-      .bytes(addressBytes(value.authority, "authority"))
-      .bool(value.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled"),
-  (reader) => ({
-    programId: encodeBase58(reader.bytes(32, "programId")),
-    authority: encodeBase58(reader.bytes(32, "authority")),
-    zoneAuthorityTransactIsEnabled: reader.bool("zoneAuthorityTransactIsEnabled"),
-  }),
-  65,
-);
-
-export const updateZoneConfigOwnerDataCodec = strictCodec<UpdateZoneConfigOwnerData>(
-  (writer, value) => writer.bytes(addressBytes(value.newAuthority, "newAuthority")),
-  (reader) => ({ newAuthority: encodeBase58(reader.bytes(32, "newAuthority")) }),
-  32,
-);
-
-export const updateZoneConfigDataCodec = strictCodec<UpdateZoneConfigData>(
-  (writer, value) =>
-    writer.bool(value.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled"),
-  (reader) => ({
-    zoneAuthorityTransactIsEnabled: reader.bool("zoneAuthorityTransactIsEnabled"),
-  }),
-  1,
-);
-
-function accountCodec<T>(
-  size: number,
-  discriminator: number,
-  encode: (writer: Writer, value: T) => void,
-  decode: (reader: Reader) => T,
-): Codec<T> {
-  return {
-    encode(value) {
-      const writer = new Writer().u8(discriminator, "discriminator");
-      encode(writer, value);
-      const bytes = writer.finish();
-      if (bytes.length !== size) {
-        fail("INTERFACE_INVALID_ACCOUNT_DATA", { expected: size, actual: bytes.length });
-      }
-      return bytes;
-    },
-    decode(bytes) {
-      if (bytes.length !== size) {
-        fail("INTERFACE_INVALID_ACCOUNT_DATA", { expected: size, actual: bytes.length });
-      }
-      const reader = new Reader(copyBytes(bytes));
-      const actual = reader.u8("discriminator");
-      if (actual !== discriminator) {
-        fail("INTERFACE_INVALID_DISCRIMINATOR", {
-          expected: discriminator,
-          actual,
-        });
-      }
-      const value = decode(reader);
-      reader.done();
-      return value;
-    },
-  };
+export function encodeCreateZoneConfigData(value: CreateZoneConfigData): Uint8Array {
+  return encoded(
+    value,
+    (writer, input) =>
+      writer
+        .bytes(addressBytes(input.programId, "programId"))
+        .bytes(addressBytes(input.authority, "authority"))
+        .bool(input.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled"),
+    65,
+  );
 }
 
-function writeAddress(writer: Writer, value: Address, name: string): void {
-  writer.bytes(addressBytes(value, name), 32, name);
+export function encodeUpdateZoneConfigOwnerData(value: UpdateZoneConfigOwnerData): Uint8Array {
+  return encoded(
+    value,
+    (writer, input) => writer.bytes(addressBytes(input.newAuthority, "newAuthority")),
+    32,
+  );
+}
+
+export function encodeUpdateZoneConfigData(value: UpdateZoneConfigData): Uint8Array {
+  return encoded(
+    value,
+    (writer, input) =>
+      writer.bool(input.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled"),
+    1,
+  );
+}
+
+function decodeAccount<T>(
+  bytes: Uint8Array,
+  size: number,
+  discriminator: number,
+  decode: (reader: Reader) => T,
+): T {
+  if (bytes.length !== size) {
+    fail("INTERFACE_INVALID_ACCOUNT_DATA", { expected: size, actual: bytes.length });
+  }
+  const reader = new Reader(copyBytes(bytes));
+  const actual = reader.u8("discriminator");
+  if (actual !== discriminator) {
+    fail("INTERFACE_INVALID_DISCRIMINATOR", { expected: discriminator, actual });
+  }
+  const value = decode(reader);
+  reader.done();
+  return value;
 }
 
 function readAddress(reader: Reader, name: string): Address {
   return encodeBase58(reader.bytes(32, name));
 }
 
-export const protocolConfigAccountCodec: Codec<ProtocolConfigAccount> = accountCodec(
-  132,
-  StateDiscriminator.protocolConfig,
-  (writer, value) => {
-    writeAddress(writer, value.authority, "authority");
-    writeAddress(writer, value.treeCreationAuthority, "treeCreationAuthority");
-    writeAddress(writer, value.foresterAuthority, "foresterAuthority");
-    writeAddress(writer, value.zoneCreationAuthority, "zoneCreationAuthority");
-    writer
-      .bool(value.treeCreationIsPermissionless, "treeCreationIsPermissionless")
-      .bool(value.zoneCreationIsPermissionless, "zoneCreationIsPermissionless")
-      .bool(value.splInterfaceCreationIsPermissionless, "splInterfaceCreationIsPermissionless");
-  },
-  (reader) => ({
+export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAccount {
+  return decodeAccount(bytes, 132, StateDiscriminator.protocolConfig, (reader) => ({
     authority: readAddress(reader, "authority"),
     treeCreationAuthority: readAddress(reader, "treeCreationAuthority"),
     foresterAuthority: readAddress(reader, "foresterAuthority"),
@@ -621,47 +331,28 @@ export const protocolConfigAccountCodec: Codec<ProtocolConfigAccount> = accountC
     splInterfaceCreationIsPermissionless: reader.nonzeroBool(
       "splInterfaceCreationIsPermissionless",
     ),
-  }),
-);
+  }));
+}
 
-export const splAssetCounterAccountCodec: Codec<SplAssetCounterAccount> = accountCodec(
-  16,
-  StateDiscriminator.splAssetCounter,
-  (writer, value) => writer.bytes(new Uint8Array(7)).u64(value.nextId, "nextId"),
-  (reader) => {
+export function decodeSplAssetCounterAccount(bytes: Uint8Array): SplAssetCounterAccount {
+  return decodeAccount(bytes, 16, StateDiscriminator.splAssetCounter, (reader) => {
     reader.bytes(7, "reserved");
     return { nextId: reader.u64("nextId") };
-  },
-);
+  });
+}
 
-export const splAssetRegistryAccountCodec: Codec<SplAssetRegistryAccount> = accountCodec(
-  48,
-  StateDiscriminator.splAssetRegistry,
-  (writer, value) => {
-    writer.bytes(new Uint8Array(7));
-    writeAddress(writer, value.mint, "mint");
-    writer.u64(value.assetId, "assetId");
-  },
-  (reader) => {
+export function decodeSplAssetRegistryAccount(bytes: Uint8Array): SplAssetRegistryAccount {
+  return decodeAccount(bytes, 48, StateDiscriminator.splAssetRegistry, (reader) => {
     reader.bytes(7, "reserved");
     return { mint: readAddress(reader, "mint"), assetId: reader.u64("assetId") };
-  },
-);
+  });
+}
 
-export const zoneConfigAccountCodec: Codec<ZoneConfigAccount> = accountCodec(
-  67,
-  StateDiscriminator.zoneConfig,
-  (writer, value) => {
-    writeAddress(writer, value.authority, "authority");
-    writeAddress(writer, value.programId, "programId");
-    writer
-      .bool(value.zoneAuthorityTransactIsEnabled, "zoneAuthorityTransactIsEnabled")
-      .u8(value.bump, "bump");
-  },
-  (reader) => ({
+export function decodeZoneConfigAccount(bytes: Uint8Array): ZoneConfigAccount {
+  return decodeAccount(bytes, 67, StateDiscriminator.zoneConfig, (reader) => ({
     authority: readAddress(reader, "authority"),
     programId: readAddress(reader, "programId"),
     zoneAuthorityTransactIsEnabled: reader.nonzeroBool("zoneAuthorityTransactIsEnabled"),
     bump: reader.u8("bump"),
-  }),
-);
+  }));
+}

@@ -1,5 +1,5 @@
 import { sha256 } from "@noble/hashes/sha2.js";
-import { pack33 as interfacePack33 } from "../interface/index.js";
+import { pack33 as interfacePack33 } from "../interface/merge-utils.js";
 
 import { type Bytes32 } from "./bytes.js";
 import { wrapKeypairError } from "./error.js";

@@ -1,7 +1,9 @@
 import { address } from "@solana/kit";
 
-import type { Address, Bytes31, Bytes32 } from "../interface/index.js";
-import { NullifierKey, ShieldedPublicKey, type ShieldedAddress } from "../keypair/index.js";
+import type { Address, Bytes31, Bytes32 } from "../interface/types.js";
+import { NullifierKey } from "../keypair/nullifier-key.js";
+import { ShieldedPublicKey } from "../keypair/public-key.js";
+import type { ShieldedAddress } from "../keypair/shielded.js";
 
 import { Data, type DataRecord } from "./data.js";
 import { TransactionError } from "./error.js";

@@ -1,4 +1,4 @@
-import { ciphertextHash } from "../../interface/index.js";
+import { ciphertextHash } from "../../interface/merge-utils.js";
 
 import { type Bytes32, checkedBytes, copyBytes } from "../bytes.js";
 import { wrapKeypairError } from "../error.js";

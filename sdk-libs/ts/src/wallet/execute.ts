@@ -1,11 +1,14 @@
 import type { Address, Instruction, Signature } from "@solana/kit";
 
 import { isTransactionSignOnlySigner } from "../client/kit.js";
-import type { TransactionSignOnlySigner } from "../client/index.js";
-import { type Bytes32, type RequestContext, type TransactWithdrawal } from "../interface/index.js";
+import type { ZolanaClient } from "../client/client.js";
+import type { SubmittedPrivateTransaction } from "../client/client.js";
+import type { TransactionSignOnlySigner } from "../client/kit.js";
+import type { Bytes32, RequestContext, TransactWithdrawal } from "../interface/types.js";
 import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
-import type { SubmittedPrivateTransaction, ZolanaRpc } from "../client/index.js";
-import { SOL_MINT, type Wallet, type WalletAuthority } from "../transaction/index.js";
+import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import { SOL_MINT } from "../transaction/wallet/asset.js";
+import type { Wallet } from "../transaction/wallet/state.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import {
@@ -19,7 +22,7 @@ import {
 import { preparePrivateTransaction } from "./private-transaction.js";
 
 export interface PrivateActionParams {
-  readonly client: ZolanaRpc;
+  readonly client: Pick<ZolanaClient, "submitPrivateTransaction" | "confirmPrivateTransaction">;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
   readonly feePayer: TransactionSignOnlySigner;
@@ -28,6 +31,7 @@ export interface PrivateActionParams {
 }
 
 export interface TransferActionParams extends PrivateActionParams {
+  readonly client: PrivateActionParams["client"] & Pick<ZolanaClient, "getAccount">;
   readonly recipient: TransferDestination;
   readonly asset?: Address;
   readonly amount: bigint;

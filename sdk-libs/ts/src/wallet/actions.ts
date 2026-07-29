@@ -1,18 +1,19 @@
-import type { ZolanaRpc } from "../client/index.js";
+import type { ZolanaClient } from "../client/client.js";
+import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import {
-  SPL_TOKEN_PROGRAM_ID,
   type Address,
   type Bytes32,
   type RequestContext,
   type TransactWithdrawal,
-} from "../interface/index.js";
+} from "../interface/types.js";
 import {
   associatedTokenAddress,
   shieldedPoolCpiAuthorityAddress,
   splAssetVaultAddress,
 } from "../interface/pda/index.js";
-import { ShieldedAddress } from "../keypair/index.js";
-import { SOL_MINT, type Wallet, type WalletUtxo } from "../transaction/index.js";
+import { ShieldedAddress } from "../keypair/shielded.js";
+import { SOL_MINT } from "../transaction/wallet/asset.js";
+import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
@@ -104,7 +105,7 @@ export class UnsignedPrivateTransaction {
 }
 
 export interface TransferParams {
-  readonly client?: Pick<ZolanaRpc, "getAccount">;
+  readonly client?: Pick<ZolanaClient, "getAccount">;
   readonly wallet: Wallet;
   readonly payer: Address;
   readonly recipient: TransferDestination;

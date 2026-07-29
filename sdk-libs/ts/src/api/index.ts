@@ -1,21 +1,18 @@
-import type { RequestContext } from "../interface/index.js";
+import type { RequestContext } from "../interface/types.js";
 import type {
   GetEncryptedUtxosByTagsResponse,
   GetMerkleProofsRequest,
   GetMerkleProofsResponse,
   GetNonInclusionProofsRequest,
   GetNonInclusionProofsResponse,
-  GetNullifierQueueElementsRequest,
-  GetNullifierQueueElementsResponse,
   GetRingsByTagsRequest,
   GetShieldedTransactionsByTagsResponse,
-  IndexerSchemaError,
-} from "../indexer/index.js";
+} from "../indexer/types.js";
+import type { IndexerSchemaError } from "../indexer/scalars.js";
 import {
   getEncryptedUtxosByTagsMethod,
   getMerkleProofsMethod,
   getNonInclusionProofsMethod,
-  getNullifierQueueElementsMethod,
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
 } from "../indexer/methods/index.js";
@@ -106,13 +103,6 @@ export class ZolanaApi {
     return this.#call(getNonInclusionProofsMethod, request, context);
   }
 
-  getNullifierQueueElements(
-    request: GetNullifierQueueElementsRequest,
-    context?: RequestContext,
-  ): Promise<GetNullifierQueueElementsResponse> {
-    return this.#call(getNullifierQueueElementsMethod, request, context);
-  }
-
   async #call<Request, Response>(
     descriptor: MethodDescriptor<Request, Response>,
     request: Request,
@@ -166,6 +156,7 @@ export class ZolanaApi {
         body: prepared.body,
         headers: { "content-type": "application/json" },
         method: "POST",
+        redirect: "error",
         signal: composed.signal,
       });
     } catch {
@@ -594,7 +585,7 @@ function hasControlCharacter(value: string): boolean {
 
 function safeSchemaPath(path: string): string | undefined {
   const knownField =
-    "(?:block_time|context|elements|hash|high_element|high_element_index|leaf|leaf_index|leaves|limit|low_element|low_element_index|matches|merkle_context|next_cursor|nullifiers|output_context|output_slot|output_slots|path|payload|proofless|proofs|root|root_index|root_seq|salt|seq|slot|start_seq|tags|transactions|tree|tree_account|tree_type|tx_signature|tx_viewing_pk|value|view_tag)";
+    "(?:block_time|context|hash|high_element|high_element_index|leaf|leaf_index|leaves|limit|low_element|low_element_index|matches|merkle_context|next_cursor|nullifiers|output_context|output_slot|output_slots|path|payload|proofless|proofs|root|root_index|root_seq|salt|slot|tags|transactions|tree|tree_account|tree_type|tx_signature|tx_viewing_pk|view_tag)";
   const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
   return path.length <= 256 && pattern.test(path) ? path : undefined;
 }

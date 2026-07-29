@@ -89,3 +89,11 @@ export function randomBytes(length: number): Uint8Array {
   globalThis.crypto.getRandomValues(bytes);
   return bytes;
 }
+
+export function randomBlinding(): Bytes31 {
+  return randomBytes(31) as Bytes31;
+}
+
+export function randomSalt(): Bytes16 {
+  return randomBytes(16) as Bytes16;
+}

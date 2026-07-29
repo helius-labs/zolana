@@ -1,7 +1,7 @@
 import { getTransactionSize } from "@solana/kit";
 
 import { InterfaceError } from "./errors.js";
-import type { Transaction } from "./index.js";
+import type { Transaction } from "./types.js";
 import type { Shape } from "./shape.js";
 
 /** Solana's `PACKET_DATA_SIZE`: the serialized transaction a validator accepts. */

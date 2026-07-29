@@ -1,12 +1,9 @@
-import type { Address, Bytes16, Bytes32, MessageData } from "../../interface/index.js";
-import {
-  randomSalt,
-  type NullifierKey,
-  type P256PublicKey,
-  type ShieldedAddress,
-  type ShieldedKeypair,
-  type ViewingKey,
-} from "../../keypair/index.js";
+import type { Address, Bytes16, Bytes32, MessageData } from "../../interface/types.js";
+import { randomSalt } from "../../keypair/bytes.js";
+import type { NullifierKey } from "../../keypair/nullifier-key.js";
+import type { P256PublicKey } from "../../keypair/public-key.js";
+import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
+import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import {
   EncryptedScheme,

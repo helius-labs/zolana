@@ -1,5 +1,5 @@
-import { AccountRole, address, type TransactionSigner } from "@solana/kit";
-import { describe, expect, it } from "vitest";
+import { AccountRole, address, type Signature, type TransactionSigner } from "@solana/kit";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_TREE_ADDRESS,
@@ -9,8 +9,9 @@ import {
   USER_REGISTRY_PROGRAM_ID,
   Wallet,
   createZolanaClient,
-  type ZolanaRpc,
+  setMergingEnabled,
 } from "../src/index.js";
+import type { ZolanaClient } from "../src/client/client.js";
 import {
   getProtocolConfigAddress,
   getSplAssetRegistryAddress,
@@ -21,6 +22,7 @@ import { InstructionTag, type Bytes31, type Bytes32 } from "../src/interface/ind
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const ZONE = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
+const SIGNATURE = "1".repeat(64) as Signature;
 
 describe("public package surface", () => {
   it("creates the one configured client and initializes protocol crypto", async () => {
@@ -29,11 +31,10 @@ describe("public package surface", () => {
       indexerUrl: "http://127.0.0.1:8784",
       proverUrl: "http://127.0.0.1:3001",
     });
-    const rpc: ZolanaRpc = client;
     expect(client.tree).toBe(DEFAULT_TREE_ADDRESS);
     expect(client.commitment).toBe("confirmed");
     expect(client.solanaRpc).toBeDefined();
-    expect(rpc.proveTransact).toBeTypeOf("function");
+    expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
   });
 
@@ -44,6 +45,30 @@ describe("public package surface", () => {
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
     expect(SHIELDED_POOL_PROGRAM_ID).toBe("sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA");
     expect(USER_REGISTRY_PROGRAM_ID).toBe("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
+  });
+
+  it("builds the merging opt-in with the owner signer", async () => {
+    const owner = { address: OWNER } as TransactionSigner;
+    const signAndSendInstructions = vi.fn(
+      async (_request: Parameters<ZolanaClient["signAndSendInstructions"]>[0]) => SIGNATURE,
+    );
+
+    await expect(
+      setMergingEnabled({
+        client: { signAndSendInstructions },
+        owner,
+        enabled: true,
+      }),
+    ).resolves.toBe(SIGNATURE);
+    const request = signAndSendInstructions.mock.calls[0]?.[0];
+    expect(request?.instructions[0]).toMatchObject({
+      programAddress: USER_REGISTRY_PROGRAM_ID,
+      data: Uint8Array.of(4, 1),
+      accounts: [
+        { role: AccountRole.WRITABLE },
+        { address: OWNER, role: AccountRole.READONLY_SIGNER, signer: owner },
+      ],
+    });
   });
 });
 

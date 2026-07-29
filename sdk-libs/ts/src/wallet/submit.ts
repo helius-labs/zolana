@@ -3,27 +3,19 @@ import { getAddressEncoder, signTransactionWithSigners, type TransactionSigner }
 export type { TransactionSigner } from "@solana/kit";
 
 import { isTransactionSignOnlySigner } from "../client/kit.js";
-import type { TransactionSignOnlySigner, ZolanaRpc } from "../client/index.js";
-import type { Address, Bytes32, RequestContext, Signature } from "../interface/index.js";
+import type { ZolanaClient } from "../client/client.js";
+import type { TransactionSignOnlySigner } from "../client/kit.js";
+import type { Address, Bytes32, RequestContext, Signature } from "../interface/types.js";
 import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
 import { associatedTokenAddress } from "../interface/pda/index.js";
-import type {
-  NullifierKey,
-  P256PublicKey,
-  ShieldedKeypair,
-  ShieldedPublicKey,
-} from "../keypair/index.js";
-import { ShieldedAddress } from "../keypair/index.js";
-import {
-  ProofInputUtxo,
-  SOL_MINT,
-  type PreparedMerge,
-  type Wallet,
-  type WalletAuthority,
-  type WalletSyncMaterial,
-  type WalletUtxo,
-} from "../transaction/index.js";
-import { Merge } from "../transaction/instructions/index.js";
+import type { NullifierKey } from "../keypair/nullifier-key.js";
+import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
+import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
+import { Merge, type PreparedMerge } from "../transaction/instructions/builders.js";
+import { ProofInputUtxo } from "../transaction/utxo.js";
+import type { WalletAuthority, WalletSyncMaterial } from "../transaction/wallet/authority.js";
+import { SOL_MINT } from "../transaction/wallet/asset.js";
+import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey, equalBytes } from "./internal.js";
@@ -33,7 +25,7 @@ const addressEncoder = getAddressEncoder();
 
 export async function createAssociatedTokenAccount(
   input: Readonly<{
-    client: ZolanaRpc;
+    client: Pick<ZolanaClient, "signAndSendInstructions">;
     payer: TransactionSigner;
     owner: Address;
     mint: Address;
@@ -186,12 +178,18 @@ export class MergeMaterial {
   }
 }
 
-/**
- * `client` is the single `ZolanaRpc`: it both sends the transaction and owns the
- * prover connection, so no prover URL is passed separately here.
- */
+type MergeSubmissionClient = Pick<
+  ZolanaClient,
+  | "tree"
+  | "getAccount"
+  | "getInputMerkleProofs"
+  | "proveMerge"
+  | "finishMergeSubmissionUnsigned"
+  | "sendTransaction"
+>;
+
 export interface SubmitMergeTransaction {
-  readonly client: ZolanaRpc;
+  readonly client: MergeSubmissionClient;
   readonly owner: Address;
   readonly payer: TransactionSignOnlySigner;
   readonly material: MergeMaterial;
@@ -208,7 +206,7 @@ export interface SubmittedMerge {
 }
 
 export interface MergeActionParams {
-  readonly client: ZolanaRpc;
+  readonly client: MergeSubmissionClient & Pick<ZolanaClient, "confirmPrivateTransaction">;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
   readonly feePayer: TransactionSignOnlySigner;
@@ -264,9 +262,9 @@ function validateMergeSubmission(
  * proof is paid for.
  */
 function treeCheckedIndexer(
-  indexer: Pick<ZolanaRpc, "getInputMerkleProofs">,
+  indexer: Pick<ZolanaClient, "getInputMerkleProofs">,
   submitTree: Address,
-): Pick<ZolanaRpc, "getInputMerkleProofs"> {
+): Pick<ZolanaClient, "getInputMerkleProofs"> {
   return {
     getInputMerkleProofs: async (commitments, config, context) => {
       const proofs = await indexer.getInputMerkleProofs(commitments, config, context);

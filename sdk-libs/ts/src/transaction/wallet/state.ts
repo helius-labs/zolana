@@ -1,5 +1,6 @@
-import type { Address, Bytes32, Signature } from "../../interface/index.js";
-import type { P256PublicKey, ShieldedAddress } from "../../keypair/index.js";
+import type { Address, Bytes32, Signature } from "../../interface/types.js";
+import type { P256PublicKey } from "../../keypair/public-key.js";
+import type { ShieldedAddress } from "../../keypair/shielded.js";
 
 import { TransactionError } from "../error.js";
 import { copy } from "../internal.js";

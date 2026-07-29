@@ -1,27 +1,25 @@
 import { address } from "@solana/kit";
 
+import { externalDataHash as interfaceExternalDataHash } from "../../interface/external-data-hash.js";
 import {
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
-  externalDataHash as interfaceExternalDataHash,
   selectSppShape,
+  type Shape,
   validateSppShape,
+} from "../../interface/shape.js";
+import {
   type Address,
   type Bytes16,
   type Bytes32,
   type OwnerTag,
-  type Shape,
   type Signature,
   type TransactOutput,
-} from "../../interface/index.js";
-import {
-  P256PublicKey,
-  ShieldedKeypair,
-  SigningKey,
-  ViewingKey,
-  randomSalt,
-  type ShieldedAddress,
-  type SignatureType,
-} from "../../keypair/index.js";
+} from "../../interface/types.js";
+import { randomSalt } from "../../keypair/bytes.js";
+import { P256PublicKey, type SignatureType } from "../../keypair/public-key.js";
+import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
+import { SigningKey } from "../../keypair/signing-key.js";
+import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { Data } from "../data.js";
 import { TransactionError } from "../error.js";

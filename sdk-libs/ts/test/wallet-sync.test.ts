@@ -1,15 +1,15 @@
-import { address, getBase64Decoder, type Signature } from "@solana/kit";
+import { address, getAddressEncoder, getBase64Decoder, type Signature } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ZolanaClient } from "../src/client/index.js";
 import { ShieldedKeypair, ViewingKey } from "../src/keypair/index.js";
-import { splAssetRegistryAccountCodec } from "../src/interface/codecs/index.js";
 import {
   SHIELDED_POOL_PROGRAM_ID,
   type Bytes16,
   type Bytes31,
   type Bytes32,
 } from "../src/interface/index.js";
+import { StateDiscriminator } from "../src/interface/state.js";
 import {
   Data,
   LocalWalletAuthority,
@@ -121,7 +121,10 @@ describe("wallet sync", () => {
     });
     expect(() => wallet.balance(SPL_MINT)).toThrowError("TRANSACTION_UNKNOWN_MINT");
 
-    const accountData = splAssetRegistryAccountCodec.encode({ mint: SPL_MINT, assetId: 2n });
+    const accountData = new Uint8Array(48);
+    accountData[0] = StateDiscriminator.splAssetRegistry;
+    accountData.set(getAddressEncoder().encode(SPL_MINT), 8);
+    new DataView(accountData.buffer).setBigUint64(40, 2n, true);
     const send = vi.fn(async () => [
       {
         account: {

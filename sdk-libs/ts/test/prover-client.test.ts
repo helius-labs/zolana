@@ -66,8 +66,10 @@ describe("queued prover polling", () => {
 
   it("applies maxWaitMs to a status request that never answers", async () => {
     let request = 0;
+    const redirects: (RequestRedirect | undefined)[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit): Promise<Response> => {
       request++;
+      redirects.push(init?.redirect);
       if (request === 1) {
         return new Response(JSON.stringify({ job_id: "job-hang" }), {
           status: 202,
@@ -95,14 +97,17 @@ describe("queued prover polling", () => {
     await assertion;
     expect(rejected).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(2);
+    expect(redirects).toEqual(["error", "error"]);
   });
 });
 
 describe("prover request routing", () => {
   it("routes merge variants through their canonical circuit types", async () => {
     const bodies: unknown[] = [];
+    const redirects: (RequestRedirect | undefined)[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body)));
+      redirects.push(init?.redirect);
       return new Response(JSON.stringify(COMMITTED_PROOF), {
         headers: { "content-type": "application/json" },
       });
@@ -113,5 +118,6 @@ describe("prover request routing", () => {
     await prover.proveMergeZone(mergeInputs());
 
     expect(bodies).toMatchObject([{ circuitType: "merge" }, { circuitType: "merge-zone" }]);
+    expect(redirects).toEqual(["error", "error"]);
   });
 });

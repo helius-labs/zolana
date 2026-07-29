@@ -1,7 +1,7 @@
 /**
- * One code per `zolana_keypair::error::KeypairError` variant, plus the two
- * TypeScript-only codes below. Rust encodes lengths and rails in its types, so
- * a JavaScript caller can reach malformed shapes Rust cannot express.
+ * Errors reachable through the TypeScript key APIs, plus the two
+ * TypeScript-only shape errors below. Rust encodes lengths in its types, so a
+ * JavaScript caller can reach malformed inputs Rust cannot express.
  *
  * A TypeScript-only code is justified at a boundary only when the input it
  * describes cannot be expressed in Rust. Where Rust accepts the same input and
@@ -14,7 +14,6 @@ export type KeypairErrorCode =
   | "KEYPAIR_INVALID_SECRET_KEY"
   | "KEYPAIR_ZERO_SCALAR"
   | "KEYPAIR_INVALID_SIGNATURE_TYPE"
-  | "KEYPAIR_NOT_ED25519"
   | "KEYPAIR_HKDF"
   | "KEYPAIR_POSEIDON"
   | "KEYPAIR_FIELD_ELEMENT_TOO_LONG"
@@ -31,7 +30,6 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_INVALID_SECRET_KEY: "InvalidSecretKey",
     KEYPAIR_ZERO_SCALAR: "ZeroScalar",
     KEYPAIR_INVALID_SIGNATURE_TYPE: "InvalidSignatureType",
-    KEYPAIR_NOT_ED25519: "NotEd25519",
     KEYPAIR_HKDF: "Hkdf",
     KEYPAIR_POSEIDON: "Poseidon",
     KEYPAIR_FIELD_ELEMENT_TOO_LONG: "FieldElementTooLong",

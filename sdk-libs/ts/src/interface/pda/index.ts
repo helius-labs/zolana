@@ -11,7 +11,7 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
-} from "../index.js";
+} from "../program.js";
 
 const encoder = new TextEncoder();
 const addressEncoder = getAddressEncoder();
