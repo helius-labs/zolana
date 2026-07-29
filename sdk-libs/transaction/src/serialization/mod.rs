@@ -105,6 +105,7 @@ pub trait UtxoSerialization {
             EncryptedScheme::Proofless | EncryptedScheme::PlaintextTransfer => {
                 OutputDataEncoding::Plaintext(blob)
             }
+            EncryptedScheme::Merge => OutputDataEncoding::VerifiablyEncrypted(blob),
             _ => OutputDataEncoding::Encrypted(blob),
         };
         let data = borsh::to_vec(&output_data)

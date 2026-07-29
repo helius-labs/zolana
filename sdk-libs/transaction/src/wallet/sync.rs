@@ -61,7 +61,9 @@ impl TxIndex {
             for (slot_index, slot) in tx.output_slots.iter().enumerate() {
                 let blob = match slot.output_data() {
                     Some(
-                        OutputDataEncoding::Encrypted(blob) | OutputDataEncoding::Plaintext(blob),
+                        OutputDataEncoding::Encrypted(blob)
+                        | OutputDataEncoding::VerifiablyEncrypted(blob)
+                        | OutputDataEncoding::Plaintext(blob),
                     ) => blob,
                     None => continue,
                 };
@@ -694,6 +696,13 @@ impl SyncCtx<'_> {
                         self.report.undecryptable_candidates += 1;
                     }
                 }
+            }
+            OutputDataEncoding::VerifiablyEncrypted(blob) => {
+                // Merge outputs no longer carry verifiable encryption; the only
+                // remaining VerifiablyEncrypted payloads are legacy merge
+                // ciphertexts, which are undecodable here.
+                let _ = blob;
+                self.report.undecryptable_candidates += 1;
             }
         }
         Ok(outcome)

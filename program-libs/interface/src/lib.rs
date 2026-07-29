@@ -54,19 +54,6 @@ pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
 /// resolve test all reference one value and cannot drift.
 pub const DEFAULT_TREE_ADDRESS: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
 
-/// The upgradeable BPF loader. `create_protocol_config` binds one-time protocol
-/// initialization to the program's deploy upgrade authority: when the program
-/// account is owned by this loader and its `ProgramData` names an upgrade
-/// authority, only that authority may create the protocol config (front-run
-/// protection). Non-upgradeable deployments (localnet `--bpf-program`) and an
-/// unset authority (test harnesses, immutable programs) skip the check.
-pub const BPF_LOADER_UPGRADEABLE_ID: [u8; 32] =
-    pubkey_array!("BPFLoaderUpgradeab1e11111111111111111111111");
-
-/// [`BPF_LOADER_UPGRADEABLE_ID`] as a `Pubkey`, used by instruction builders.
-pub const BPF_LOADER_UPGRADEABLE_PUBKEY: solana_pubkey::Pubkey =
-    solana_pubkey::Pubkey::new_from_array(BPF_LOADER_UPGRADEABLE_ID);
-
 /// Seed for the native SOL interface account used by public SOL settlement.
 pub const SOL_INTERFACE_PDA_SEED: &[u8] = b"sol_interface";
 pub const DEFAULT_SOL_INTERFACE_INDEX_SEED: &[u8] = &[0];

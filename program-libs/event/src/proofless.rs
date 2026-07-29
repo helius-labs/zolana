@@ -79,6 +79,7 @@ pub struct EncryptedZoneDepositOutputRef<'a> {
 pub enum OutputDataEncoding {
     Plaintext(Vec<u8>),
     Encrypted(Vec<u8>),
+    VerifiablyEncrypted(Vec<u8>),
 }
 
 /// Scheme byte inside [`OutputDataEncoding::Encrypted`] for owner-hidden
@@ -88,6 +89,7 @@ pub const ENCRYPTED_ZONE_DEPOSIT_SCHEME: u8 = 8;
 impl OutputDataEncoding {
     pub const PLAINTEXT_TAG: u8 = 0;
     pub const ENCRYPTED_TAG: u8 = 1;
+    pub const VERIFIABLY_ENCRYPTED_TAG: u8 = 2;
 }
 
 /// First byte of the encrypted payload for the confidential encryption scheme.

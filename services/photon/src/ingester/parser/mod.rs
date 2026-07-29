@@ -40,8 +40,16 @@ where
         state_updates.push(rings_state_update);
     }
 
-    if let Some(state_update) = parse_nullifier_tree_batch_update(tx)? {
-        state_updates.push(state_update);
+    for instruction_group in &tx.instruction_groups {
+        for instruction in std::iter::once(&instruction_group.outer_instruction)
+            .chain(instruction_group.inner_instructions.iter())
+        {
+            if let Some(state_update) = parse_nullifier_tree_batch_update(instruction, tx)? {
+                if state_update != StateUpdate::default() {
+                    state_updates.push(state_update);
+                }
+            }
+        }
     }
 
     let mut state_update = StateUpdate::merge_updates(state_updates);

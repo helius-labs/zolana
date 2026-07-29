@@ -157,9 +157,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         // applied zkp batch. See `BatchAddressAppendEvent` for how the per-batch
         // values are derived from each root's position.
         let mut event: Option<BatchAddressAppendEvent> = None;
-        // Exit the loop with `break`, not an early `return`: the
-        // `light_program_profiler::profile` end marker runs on the tail path
-        // only, so early returns would hide this function from CU reports.
         loop {
             // 1. Read the pending zkp batch's cached update; stop if missing or
             //    empty.
@@ -178,7 +175,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 .and_then(|updates| updates.get(zkp_batch_index))
             {
                 Some(cached_update) if cached_update.is_occupied() => *cached_update,
-                _ => break,
+                _ => return Ok(event),
             };
 
             // 2. Stop unless the update's old root matches the account tree root.
@@ -202,7 +199,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                     pending_batch_index,
                     zkp_batch_index
                 );
-                break;
+                return Ok(event);
             }
 
             // 3. Apply: advance the tree and mark the zkp batch inserted.
@@ -252,7 +249,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             event.num_update += 1;
             event.new_root = cached_update.new_root;
         }
-        Ok(event)
     }
 
     /// Reset the cached update at `[pending_batch_index][zkp_batch_index]` to empty (`occupied = 0`),

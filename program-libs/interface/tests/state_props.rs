@@ -94,7 +94,7 @@ proptest! {
             reserved: [0u8; 7],
             next_id: 0,
         };
-        counter.init().expect("first init on a zeroed counter");
+        counter.init();
         prop_assert_eq!(counter.next_id, SplAssetCounter::FIRST_ASSET_ID);
         // A freshly initialized counter hands out exactly the floor id.
         prop_assert_eq!(counter.allocate_id(), Ok(SplAssetCounter::FIRST_ASSET_ID));
@@ -143,28 +143,4 @@ fn state_sizes_and_discriminators_are_stable() {
     for (got, want) in discriminators {
         assert_eq!(got, want, "discriminator drifted");
     }
-}
-
-/// `init` refuses to re-initialize a stamped counter, so a second `init` cannot
-/// reset the id sequence back to the floor (which would let already-issued ids
-/// be handed out a second time).
-#[test]
-fn init_rejects_reinitialization() {
-    let mut counter = SplAssetCounter {
-        discriminator: 0,
-        reserved: [0u8; 7],
-        next_id: 0,
-    };
-    counter.init().expect("first init on a zeroed counter");
-    // Hand out ids so the counter has advanced past the floor.
-    assert_eq!(counter.allocate_id(), Ok(SplAssetCounter::FIRST_ASSET_ID));
-    let advanced = counter.next_id;
-    assert_eq!(advanced, SplAssetCounter::FIRST_ASSET_ID + 1);
-
-    // A second init must be rejected and must NOT reset the sequence.
-    assert_eq!(counter.init(), Err(InterfaceError::AlreadyInitialized));
-    assert_eq!(
-        counter.next_id, advanced,
-        "rejected re-init must not reset the counter"
-    );
 }

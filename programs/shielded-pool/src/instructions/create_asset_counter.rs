@@ -48,9 +48,7 @@ pub fn process_create_asset_counter(accounts: &mut [AccountView], data: &[u8]) -
     .execute()
     .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
 
-    load_spl_asset_counter_mut(asset_counter)?
-        .init()
-        .map_err(ShieldedPoolError::from)?;
+    load_spl_asset_counter_mut(asset_counter)?.init();
     Ok(())
 }
 

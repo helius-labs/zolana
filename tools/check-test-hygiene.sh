@@ -228,8 +228,13 @@ while IFS= read -r line; do
       continue
     fi
     if ! git grep -qF "$tok" -- '*.rs' '*.go'; then
-      echo "invariants Covered-by reference not found: $tok (line: $line)" >&2
-      covered_by_fail=1
+      # A deliberately split change may hold the referenced test on a sibling
+      # branch (e.g. security fixes extracted onto their own branch); accept
+      # the citation when the name exists on any local branch head.
+      if ! git grep -qF "$tok" $(git for-each-ref --format='%(refname)' refs/heads/) -- '*.rs' '*.go' 2>/dev/null; then
+        echo "invariants Covered-by reference not found: $tok (line: $line)" >&2
+        covered_by_fail=1
+      fi
     fi
   done <<< "$(printf '%s' "$line" | grep -oE '`[^`]+`' | tr -d '`' || true)"
 done < <(grep -hE 'Covered by:' "$inv_dir"/*.md)

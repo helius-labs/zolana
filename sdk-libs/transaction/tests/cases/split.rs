@@ -82,6 +82,7 @@ pub(crate) fn decode_split(
     let output_data = zolana_event::OutputDataEncoding::try_from_slice(payload).unwrap();
     let blob = match output_data {
         zolana_event::OutputDataEncoding::Encrypted(blob)
+        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
         | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
     };
     let body = blob.get(1..).expect("scheme byte");

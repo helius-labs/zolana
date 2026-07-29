@@ -185,6 +185,7 @@ fn decrypt(c: &mut Criterion) {
         .expect("recipient slot");
     let recipient_body = match recipient_slot.output_data().expect("recipient output data") {
         zolana_event::OutputDataEncoding::Encrypted(blob)
+        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
         | zolana_event::OutputDataEncoding::Plaintext(blob) => blob
             .get(1..)
             .map(<[u8]>::to_vec)
