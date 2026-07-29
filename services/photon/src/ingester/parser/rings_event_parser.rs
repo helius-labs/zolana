@@ -256,9 +256,10 @@ fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> 
     // `emit_general_event`, directly or via process_transact_core /
     // process_merge_core. Self-emitting instructions: TRANSACT, ZONE_TRANSACT,
     // ZONE_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, ZONE_MERGE_TRANSACT
-    // (merge core); DEPOSIT, ZONE_DEPOSIT (deposit); BATCH_TRANSACT (one
-    // EMIT_EVENT per batch entry). Missing a tag here silently drops those
-    // transactions from the index (they never get a rings_transactions row).
+    // (merge core); DEPOSIT, ZONE_DEPOSIT (deposit); BATCH_TRANSACT and
+    // APPLY_BATCH (one EMIT_EVENT per batch entry). Missing a tag here silently
+    // drops those transactions from the index (they never get a rings_transactions
+    // row).
     instruction.program_id == rings_program_id
         && matches!(
             instruction.data.first().copied(),
@@ -271,6 +272,7 @@ fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> 
                     | tag::DEPOSIT
                     | tag::ZONE_DEPOSIT
                     | tag::BATCH_TRANSACT
+                    | tag::APPLY_BATCH
             )
         )
 }
@@ -334,6 +336,21 @@ mod tests {
         assert!(sites
             .iter()
             .all(|site| site.source_instruction_tag == tag::BATCH_TRANSACT));
+    }
+
+    #[test]
+    fn accepts_apply_batch_event_per_entry() {
+        let groups = [InstructionGroup {
+            outer: ix(spp(), tag::APPLY_BATCH, 1),
+            inner: vec![ix(spp(), tag::EMIT_EVENT, 2), ix(spp(), tag::EMIT_EVENT, 2)],
+        }];
+
+        let sites = event_sites(&groups);
+
+        assert_eq!(sites.len(), 2);
+        assert!(sites
+            .iter()
+            .all(|site| site.source_instruction_tag == tag::APPLY_BATCH));
     }
 
     #[test]
