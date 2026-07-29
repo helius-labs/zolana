@@ -54,8 +54,8 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
-    encode_event_instruction, encode_output_data, encode_verifiably_encrypted, EventKind,
-    GeneralEvent, Input, OutputUtxo, ProoflessOutput, SplTransfer,
+    encode_event_instruction, encode_output_data, EventKind, GeneralEvent, Input,
+    OutputDataEncoding, OutputUtxo, ProoflessOutput, SplTransfer,
 };
 use zolana_indexer_api::{
     GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
@@ -161,9 +161,9 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
     assert_eq!(
         rings_tx.outputs,
         vec![
-            expected_output(0, 2, 8, 18, encode_verifiably_encrypted(vec![1, 2, 3]),),
-            expected_output(1, 3, 9, 19, encode_verifiably_encrypted(vec![4, 5, 6]),),
-            expected_output(2, 4, 10, 20, encode_verifiably_encrypted(vec![7, 8, 9]),),
+            expected_output(0, 2, 8, 18, encode_encrypted(vec![1, 2, 3]),),
+            expected_output(1, 3, 9, 19, encode_encrypted(vec![4, 5, 6]),),
+            expected_output(2, 4, 10, 20, encode_encrypted(vec![7, 8, 9]),),
         ]
     );
 }
@@ -1611,9 +1611,9 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
         GeneralEvent {
             inputs: vec![test_input(4, 25), test_input(5, 26)],
             outputs: vec![
-                test_output(8, 18, encode_verifiably_encrypted(vec![1, 2, 3])),
-                test_output(9, 19, encode_verifiably_encrypted(vec![4, 5, 6])),
-                test_output(10, 20, encode_verifiably_encrypted(vec![7, 8, 9])),
+                test_output(8, 18, encode_encrypted(vec![1, 2, 3])),
+                test_output(9, 19, encode_encrypted(vec![4, 5, 6])),
+                test_output(10, 20, encode_encrypted(vec![7, 8, 9])),
             ],
             messages: Vec::new(),
             tx_viewing_pk: [5; 33],
@@ -1724,4 +1724,8 @@ fn batch_update_transaction_info(tree: Pubkey) -> TransactionInfo {
         signature: Signature::from([7; 64]),
         error: None,
     }
+}
+
+fn encode_encrypted(blob: Vec<u8>) -> Vec<u8> {
+    borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap()
 }
