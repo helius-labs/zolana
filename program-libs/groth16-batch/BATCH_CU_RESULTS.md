@@ -7,17 +7,22 @@ Fold-only syscall numbers: [`FOLD_CU.md`](./FOLD_CU.md) (`just bench-batch-fold-
 ## Same-vk multi, full path (measured)
 
 One transaction per leg: N solo instructions vs one batch instruction, CU
-read from the VM. Transact entries use the (1,1) confidential eddsa shape
-(N=2 with complete bodies fits 1232; (2,3) does not). Nullifier updates use
-zkp batch 10 (`batch_address-append_40_10.key`).
+read from the VM. Wallet-shaped entries use the (2,3) circuit with
+synthetic ciphertexts sized to the measured 773-byte wallet entry.
+Nullifier updates use zkp batch 10 (`batch_address-append_40_10.key`).
 
 Batch CU moves a few units between runs because proof bytes are
 random. Treat deltas under 100 CU as the same measurement.
 
-| Use case | Legacy CU | Batch CU | Delta | Saved | Gate |
-| --- | ---: | ---: | ---: | ---: | --- |
-| BatchTransact N=2 vs 2x Transact (1,1) | 307296 | 265491 | 41805 | 13.6% | **recommend** (≥10%) |
-| NullifierTreeMany N=2 vs 2x single (zkp=10) | 198110 | 153446 | 44664 | 22.5% | **recommend** (≥10%) |
+Rows whose batch transaction exceeds 1232 bytes are a 4096 size
+simulation: the CU is measured, the packet does not exist yet.
+
+| Use case | Legacy CU | Batch CU | Delta | Saved | Batch tx bytes | Packet | Gate |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| BatchTransact N=2 vs 2x Transact, (1,1) compact | 307296 | 265492 | 41804 | 13.6% | 947 | 1232 | **recommend** (≥10%) |
+| BatchTransact N=2 vs 2x Transact, (2,3) wallet shaped | 336219 | 294688 | 41531 | 12.4% | 1837 | 4096 size simulation | **recommend** (≥10%) |
+| BatchTransact N=4 vs 4x Transact, (2,3) wallet shaped | 674015 | 527840 | 146175 | 21.7% | 3393 | 4096 size simulation | **recommend** (≥10%) |
+| NullifierTreeMany N=2 vs 2x single, zkp batch 10 | 198110 | 153481 | 44629 | 22.5% | n/a | 1232 | **recommend** (≥10%) |
 
 Regenerate: `just bench-batch-dual`.
 

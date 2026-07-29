@@ -25,8 +25,9 @@ instructions when it does not. Callers never do worse than solo submission.
 - Standard wallet transfers do not fit at N=2. Every wallet-built output
   carries a length-matched ciphertext. A (2,3) transfer entry measures
   773 bytes and the N=2 batch probe 1831 bytes
-  (`just test-client-batch-example`), so the plan falls back to solo. Larger
-  packets change this.
+  (`just test-client-batch-example`), so the plan falls back to solo. Under a
+  4096-byte packet the wallet shape saves a measured 12.4% at N=2 and 21.7% at
+  N=4 ([measured.md](./measured.md)).
 - The program caps a batch at `MAX_BATCH_TRANSACT` (4) entries.
 
 ## Batch payout through the client SDK

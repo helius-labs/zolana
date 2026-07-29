@@ -35,10 +35,14 @@ interface transfer fails with `InvalidTransactShape`.
 | 2 | 741 | 715 | 1232 |
 | 4 | 1201 | 1175 | 1232 |
 
-Complete bodies are larger. A wallet (2,3) entry with ciphertexts measures 773
-bytes, so the N=2 batch does not fit the 1232-byte packet and the plan API
+Complete bodies are larger. A wallet (2,3) entry with ciphertexts measures
+773 bytes, so the N=2 batch does not fit the 1232-byte packet and the plan API
 falls back to solo. Compact (1,1) entries without inline ciphertexts fit at
 N=2. See [examples.md](./examples.md).
+
+Under a 4096-byte packet the wallet shape batches: measured savings are 12.4%
+at N=2 (1837-byte transaction) and 21.7% at N=4 (3393 bytes). These rows are a
+size simulation until packets grow.
 
 ### CU (measured full path)
 

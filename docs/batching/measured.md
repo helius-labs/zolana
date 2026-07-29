@@ -21,14 +21,17 @@ are not a full-path claim.
 One transaction per leg: N solo instructions against one batch instruction, CU
 read from the VM on the SBF program with proofs.
 
-| Use case | Legacy CU | Batch CU | Delta | Saved | Status |
-| --- | ---: | ---: | ---: | ---: | --- |
-| BatchTransact N=2 against 2 solo Transact, (1,1) entries | 307296 | 265553 | 41743 | 13.6% | recommended |
-| NullifierTreeMany N=2 against 2 solo updates, zkp batch 10 | 198110 | 153484 | 44626 | 22.5% | recommended |
+| Use case | Legacy CU | Batch CU | Saved | Batch tx bytes | Packet | Status |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| BatchTransact N=2, (1,1) compact | 307296 | 265492 | 13.6% | 947 | 1232 | recommended |
+| BatchTransact N=2, (2,3) wallet shaped | 336219 | 294688 | 12.4% | 1837 | 4096 size simulation | recommended when packets grow |
+| BatchTransact N=4, (2,3) wallet shaped | 674015 | 527840 | 21.7% | 3393 | 4096 size simulation | recommended when packets grow |
+| NullifierTreeMany N=2, zkp batch 10 | 198110 | 153481 | 22.5% | n/a | 1232 | recommended |
 
-Shape notes: the transact entries use (1,1) because a (2,3) N=2 batch exceeds
-the 1232-byte packet. The nullifier updates use zkp batch 10
-(`batch_address-append_40_10.key`).
+Wallet-shaped entries use the (2,3) circuit with synthetic ciphertexts sized
+to the measured 773-byte wallet entry. Their rows are a 4096 size simulation:
+the CU is measured, the packet does not exist yet. The nullifier updates use
+zkp batch 10 (`batch_address-append_40_10.key`).
 
 ### Mixed-key k=2, app plus SPP: no boost
 

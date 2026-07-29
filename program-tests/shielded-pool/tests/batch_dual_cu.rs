@@ -4,9 +4,10 @@
 //! proofs.
 //!
 //! The ignored dual writes `program-libs/groth16-batch/BATCH_CU_RESULTS.md`
-//! (run via `just bench-batch-dual`). Entries use the (1,1) confidential eddsa
-//! shape: with complete bodies a (2,3) BatchTransact N=2 already exceeds the
-//! 1232-byte packet, while (1,1) N=2 fits.
+//! (run via `just bench-batch-dual`). It measures compact (1,1) entries, which
+//! fit the 1232-byte packet at N=2, and wallet-shaped (2,3) entries with
+//! synthetic ciphertexts, which need larger packets and are labeled as a 4096
+//! size simulation.
 #![cfg(not(feature = "localnet"))]
 
 #[path = "common/setup.rs"]
@@ -47,11 +48,24 @@ use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_
 use zolana_tree::TreeAccount;
 
 use crate::transact_common::{
-    build_transfer_prover_inputs, eddsa_input_utxo, external_data_hash, fe, inline_outputs,
-    new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer_vk,
-    public_input_hash, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-    start_prover, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
+    output_owner_pk_hashes, prove_and_verify_transfer_vk, public_input_hash, real_output,
+    set_output_owner_tags, sol_public_slots, spend_input, start_prover, transfer_output,
+    SpendInputArgs, TransferProverInputsArgs,
 };
+
+/// Entry shapes for the duals. `Wallet23` mirrors a wallet transfer: the (2,3)
+/// circuit with one dummy input, two dummy outputs, and synthetic ciphertexts
+/// sized so one entry matches the measured 773-byte wallet entry.
+#[derive(Clone, Copy, PartialEq)]
+enum EntryShape {
+    Compact11,
+    Wallet23,
+}
+
+/// Per-output synthetic ciphertext bytes for `Wallet23`.
+const WALLET_CIPHERTEXT_BYTES: usize = 90;
 
 const TRANSFER_AMOUNT: u64 = 1_000_000;
 /// Nullifier-many legs pin the 40_10 address-append proving key.
@@ -161,9 +175,18 @@ fn entry_utxo(spender: &Keypair, i: usize) -> (Utxo, NullifierKey, [u8; 32]) {
     (utxo, nullifier_key, owner_field)
 }
 
-/// Build `n` independent (1,1) transact bodies with proofs, each spending
-/// deposit `i` against the post-deposit root (history index `n`).
-fn build_entries(rpc: &ZolanaProgramTest, tree: &Pubkey, spender: &Keypair, n: usize) -> Vec<TransactIxData> {
+/// Build `n` independent transact bodies with proofs, each spending deposit
+/// `i` against the post-deposit root (history index `n`). `Wallet23` entries
+/// pad to the (2,3) circuit with one dummy input and two dummy outputs and
+/// carry synthetic ciphertexts, mirroring the transfer flow in
+/// `tests/transact/transact.rs`.
+fn build_entries(
+    rpc: &ZolanaProgramTest,
+    tree: &Pubkey,
+    spender: &Keypair,
+    n: usize,
+    shape: EntryShape,
+) -> Vec<TransactIxData> {
     let spender_bytes = spender.pubkey().to_bytes();
     let zero = [0u8; 32];
     let roots = tree_roots(rpc, tree, n as u16);
@@ -185,9 +208,11 @@ fn build_entries(rpc: &ZolanaProgramTest, tree: &Pubkey, spender: &Keypair, n: u
     let owner = PublicKey::from_ed25519(&spender_bytes);
     let owner_pk_hash = hash_bytes(&spender_bytes).expect("owner pk hash");
     let payer_pubkey_hash = Sha256BE::hash(&spender_bytes).expect("payer hash");
-    let vk = CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8)
-        .verifying_key()
-        .expect("1x1 verifying key");
+    let circuit = match shape {
+        EntryShape::Compact11 => CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
+        EntryShape::Wallet23 => CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+    };
+    let vk = circuit.verifying_key().expect("verifying key");
 
     let mut entries = Vec::with_capacity(n);
     for (i, (utxo, nullifier_key, owner_field, utxo_hash)) in prepared.iter().enumerate() {
@@ -201,7 +226,7 @@ fn build_entries(rpc: &ZolanaProgramTest, tree: &Pubkey, spender: &Keypair, n: u
         let non_inclusion = nf_tree
             .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
             .expect("non-inclusion proof");
-        let input = spend_input(SpendInputArgs {
+        let real_input = spend_input(SpendInputArgs {
             utxo,
             owner_field,
             state_path: &state_path,
@@ -226,36 +251,70 @@ fn build_entries(rpc: &ZolanaProgramTest, tree: &Pubkey, spender: &Keypair, n: u
         );
         let output_hash = output.hash().expect("output hash");
 
-        let mut ix_data = new_transact_ix_data(
-            vec![eddsa_input_utxo(nullifier, n as u16)],
-            Vec::new(),
-            inline_outputs(&[output_hash], &[spender_bytes]),
+        // Per-shape padding: extra nullifiers, output hashes, and witnesses.
+        let mut prover_inputs_vec = vec![real_input];
+        let mut nullifiers = vec![nullifier];
+        let mut output_hashes = vec![output_hash];
+        let mut witness_outputs = vec![transfer_output(&output).expect("witness output")];
+        let mut output_nullifier_pks = vec![output_nullifier_pk];
+        if shape == EntryShape::Wallet23 {
+            let (dummy_spend, dummy_nullifier) =
+                dummy_input(&[140 + i as u8; 31], &nf_tree, roots, &owner_pk_hash)
+                    .expect("dummy input");
+            prover_inputs_vec.push(dummy_spend);
+            nullifiers.push(dummy_nullifier);
+            for blinding in [[150 + i as u8; 31], [160 + i as u8; 31]] {
+                let (witness, hash) = dummy_transfer_output(&blinding).expect("dummy output");
+                witness_outputs.push(witness);
+                output_hashes.push(hash);
+                output_nullifier_pks.push(zero);
+            }
+        }
+
+        let mut ix_outputs = inline_outputs(
+            &output_hashes,
+            &vec![spender_bytes; output_hashes.len()],
         );
+        if shape == EntryShape::Wallet23 {
+            for output in &mut ix_outputs {
+                output.data = Some(vec![7u8; WALLET_CIPHERTEXT_BYTES]);
+            }
+        }
+        let inputs = nullifiers
+            .iter()
+            .map(|nf| eddsa_input_utxo(*nf, n as u16))
+            .collect();
+        let mut ix_data = new_transact_ix_data(inputs, Vec::new(), ix_outputs);
         let owner_pk_hashes =
             output_owner_pk_hashes(&ix_data.outputs).expect("output owner pk hashes");
-        let mut witness_outputs = vec![transfer_output(&output).expect("witness output")];
-        set_output_owner_tags(&mut witness_outputs, &owner_pk_hashes, &[output_nullifier_pk]);
+        set_output_owner_tags(&mut witness_outputs, &owner_pk_hashes, &output_nullifier_pks);
 
         let external_data_hash = external_data_hash(&ix_data, &[]).expect("external data hash");
-        let private_tx = PrivateTxHash::new(&[*utxo_hash], &[output_hash], &external_data_hash)
+        // Dummy slots contribute zero to the private hash.
+        let mut private_inputs = vec![*utxo_hash];
+        let mut private_outputs = vec![output_hash];
+        private_inputs.resize(nullifiers.len(), zero);
+        private_outputs.resize(output_hashes.len(), zero);
+        let private_tx = PrivateTxHash::new(&private_inputs, &private_outputs, &external_data_hash)
             .hash()
             .expect("private tx hash");
         let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
+        let input_owner_pk_hashes = vec![owner_pk_hash; nullifiers.len()];
         let public_hash = public_input_hash(
-            &[nullifier],
-            &[output_hash],
-            &[utxo_root],
-            &[nullifier_root],
+            &nullifiers,
+            &output_hashes,
+            &vec![utxo_root; nullifiers.len()],
+            &vec![nullifier_root; nullifiers.len()],
             &private_tx,
             &external_data_hash,
             &public_slot_assets,
             &public_slot_amounts,
             &payer_pubkey_hash,
-            &[owner_pk_hash],
+            &input_owner_pk_hashes,
             &owner_pk_hashes,
         );
         let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-            inputs: vec![input],
+            inputs: prover_inputs_vec,
             outputs: witness_outputs,
             external_data_hash,
             private_tx_hash: private_tx,
@@ -508,7 +567,7 @@ fn batch_transact_executes_n2() {
     let Some((mut rpc, tree)) = boot_transact_env(&spender, 2) else {
         return;
     };
-    let entries = build_entries(&rpc, &tree, &spender, 2);
+    let entries = build_entries(&rpc, &tree, &spender, 2, EntryShape::Compact11);
     let (out_before, null_before) = tree_indices(&rpc, &tree);
 
     let ix = BatchTransact {
@@ -551,26 +610,36 @@ fn nullifier_tree_many_executes_n2() {
     );
 }
 
-/// The ≥10% gate: identical state and proofs, N solo instructions in one
-/// transaction vs one batch instruction in one transaction, CU from the VM.
-#[test]
-#[ignore = "dual CU; needs SBF + prover. Run via just bench-batch-dual"]
-fn dual_cu_same_vk_full_path() {
-    // BatchTransact N=2 vs 2x Transact. Proofs are built once: the batch path
-    // rebinds entries as solo Transact, and both envs boot identical state.
+/// Serialized size of an unsigned legacy transaction carrying the compute ix
+/// plus `ix`, matching the client probe.
+fn probe_tx_bytes(payer: &Pubkey, ix: Instruction) -> usize {
+    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    let message = Message::new(&[compute, ix], Some(payer));
+    let signatures = usize::from(message.header.num_required_signatures);
+    1 + 64 * signatures + message.serialize().len()
+}
+
+struct DualRow {
+    label: String,
+    legacy: u64,
+    batch: u64,
+    batch_tx_bytes: Option<usize>,
+}
+
+/// One transact dual: N solo instructions in one transaction against one
+/// batch instruction, on two identically booted environments.
+fn run_transact_dual(shape: EntryShape, n: usize, label: &str) -> Option<DualRow> {
     let spender = Keypair::new_from_array([77u8; 32]);
-    let Some((mut legacy_rpc, tree)) = boot_transact_env(&spender, 2) else {
-        return;
-    };
-    let entries = build_entries(&legacy_rpc, &tree, &spender, 2);
+    let (mut legacy_rpc, tree) = boot_transact_env(&spender, n)?;
+    let entries = build_entries(&legacy_rpc, &tree, &spender, n, shape);
     let solo_ixs: Vec<Instruction> = entries
         .iter()
         .cloned()
         .map(|data| solo_transact_ix(&tree, &spender, data))
         .collect();
-    let transact_legacy = run_cu(&mut legacy_rpc, &solo_ixs, &[&spender]);
+    let legacy = run_cu(&mut legacy_rpc, &solo_ixs, &[&spender]);
 
-    let (mut batch_rpc, batch_tree) = boot_transact_env(&spender, 2).expect("batch env");
+    let (mut batch_rpc, batch_tree) = boot_transact_env(&spender, n).expect("batch env");
     assert_eq!(tree, batch_tree, "deterministic tree address");
     let batch_ix = BatchTransact {
         payer: spender.pubkey(),
@@ -580,7 +649,45 @@ fn dual_cu_same_vk_full_path() {
         entries,
     }
     .instruction();
-    let transact_batch = run_cu(&mut batch_rpc, &[batch_ix], &[&spender]);
+    let batch_tx_bytes = probe_tx_bytes(&spender.pubkey(), batch_ix.clone());
+    let batch = run_cu(&mut batch_rpc, &[batch_ix], &[&spender]);
+    Some(DualRow {
+        label: label.to_string(),
+        legacy,
+        batch,
+        batch_tx_bytes: Some(batch_tx_bytes),
+    })
+}
+
+/// The 10% gate: identical state and proofs per dual, CU from the VM.
+#[test]
+#[ignore = "dual CU; needs SBF + prover. Run via just bench-batch-dual"]
+fn dual_cu_same_vk_full_path() {
+    let mut rows = Vec::new();
+    let Some(compact) = run_transact_dual(
+        EntryShape::Compact11,
+        2,
+        "BatchTransact N=2 vs 2x Transact, (1,1) compact",
+    ) else {
+        return;
+    };
+    rows.push(compact);
+    rows.push(
+        run_transact_dual(
+            EntryShape::Wallet23,
+            2,
+            "BatchTransact N=2 vs 2x Transact, (2,3) wallet shaped",
+        )
+        .expect("wallet dual n=2"),
+    );
+    rows.push(
+        run_transact_dual(
+            EntryShape::Wallet23,
+            4,
+            "BatchTransact N=4 vs 4x Transact, (2,3) wallet shaped",
+        )
+        .expect("wallet dual n=4"),
+    );
 
     // NullifierTreeMany N=2 vs 2x single updates.
     let (mut legacy_rpc, authority, tree, queued) = boot_nullifier_env(2).expect("legacy env");
@@ -603,50 +710,51 @@ fn dual_cu_same_vk_full_path() {
     .instruction();
     let nullifier_batch = run_cu(&mut batch_rpc, &[many_ix], &[&authority]);
     assert_eq!(nullifier_root(&batch_rpc, &tree), expected_root);
+    rows.push(DualRow {
+        label: "NullifierTreeMany N=2 vs 2x single, zkp batch 10".to_string(),
+        legacy: nullifier_legacy,
+        batch: nullifier_batch,
+        batch_tx_bytes: None,
+    });
 
-    write_results(
-        transact_legacy,
-        transact_batch,
-        nullifier_legacy,
-        nullifier_batch,
-    );
+    write_results(&rows);
 }
 
-fn write_results(transact_legacy: u64, transact_batch: u64, null_legacy: u64, null_batch: u64) {
-    let row = |name: &str, legacy: u64, batch: u64| {
-        let delta = legacy as i64 - batch as i64;
-        let pct = delta as f64 * 100.0 / legacy as f64;
-        let verdict = if pct >= 10.0 {
-            "**recommend** (≥10%)"
-        } else {
-            "atomic multi-apply only (<10%)"
-        };
-        format!("| {name} | {legacy} | {batch} | {delta} | {pct:.1}% | {verdict} |\n")
-    };
+fn write_results(rows: &[DualRow]) {
     let mut md = String::from(
         "# Batch dual CU (LiteSVM + agave batch syscalls)\n\n\
          Policy: ship / recommend only if full-path savings ≥ **10%**. See `docs/batching/`.\n\n\
          Fold-only syscall numbers: [`FOLD_CU.md`](./FOLD_CU.md) (`just bench-batch-fold-cu`).\n\n\
          ## Same-vk multi, full path (measured)\n\n\
          One transaction per leg: N solo instructions vs one batch instruction, CU\n\
-         read from the VM. Transact entries use the (1,1) confidential eddsa shape\n\
-         (N=2 with complete bodies fits 1232; (2,3) does not). Nullifier updates use\n\
-         zkp batch 10 (`batch_address-append_40_10.key`).\n\n\
+         read from the VM. Wallet-shaped entries use the (2,3) circuit with\n\
+         synthetic ciphertexts sized to the measured 773-byte wallet entry.\n\
+         Nullifier updates use zkp batch 10 (`batch_address-append_40_10.key`).\n\n\
          Batch CU moves a few units between runs because proof bytes are\n\
          random. Treat deltas under 100 CU as the same measurement.\n\n\
-         | Use case | Legacy CU | Batch CU | Delta | Saved | Gate |\n\
-         | --- | ---: | ---: | ---: | ---: | --- |\n",
+         Rows whose batch transaction exceeds 1232 bytes are a 4096 size\n\
+         simulation: the CU is measured, the packet does not exist yet.\n\n\
+         | Use case | Legacy CU | Batch CU | Delta | Saved | Batch tx bytes | Packet | Gate |\n\
+         | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |\n",
     );
-    md.push_str(&row(
-        "BatchTransact N=2 vs 2x Transact (1,1)",
-        transact_legacy,
-        transact_batch,
-    ));
-    md.push_str(&row(
-        "NullifierTreeMany N=2 vs 2x single (zkp=10)",
-        null_legacy,
-        null_batch,
-    ));
+    for entry in rows {
+        let delta = entry.legacy as i64 - entry.batch as i64;
+        let pct = delta as f64 * 100.0 / entry.legacy as f64;
+        let verdict = if pct >= 10.0 {
+            "**recommend** (≥10%)"
+        } else {
+            "atomic multi-apply only (<10%)"
+        };
+        let (bytes, packet) = match entry.batch_tx_bytes {
+            Some(bytes) if bytes <= 1232 => (bytes.to_string(), "1232".to_string()),
+            Some(bytes) => (bytes.to_string(), "4096 size simulation".to_string()),
+            None => ("n/a".to_string(), "1232".to_string()),
+        };
+        md.push_str(&format!(
+            "| {} | {} | {} | {delta} | {pct:.1}% | {bytes} | {packet} | {verdict} |\n",
+            entry.label, entry.legacy, entry.batch
+        ));
+    }
     md.push_str(
         "\nRegenerate: `just bench-batch-dual`.\n\n\
          ## Mixed-key k=2 app plus SPP, no boost (twins removed)\n\n\
