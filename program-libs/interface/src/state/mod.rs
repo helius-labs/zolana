@@ -1,3 +1,4 @@
+pub mod batch_queue;
 pub mod discriminator;
 pub mod protocol_config;
 pub mod spl_asset_counter;

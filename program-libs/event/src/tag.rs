@@ -28,6 +28,11 @@ pub const CREATE_ASSET_COUNTER: u8 = 16;
 pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 51;
 pub const BATCH_UPDATE_NULLIFIER_TREE_MANY: u8 = 52;
 pub const BATCH_TRANSACT: u8 = 53;
+pub const CREATE_BATCH_QUEUE: u8 = 54;
+pub const ENQUEUE_TRANSACT: u8 = 55;
+pub const EXECUTE_BATCH_VERIFY: u8 = 56;
+pub const APPLY_BATCH: u8 = 57;
+pub const CLOSE_BATCH_QUEUE: u8 = 58;
 
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +45,11 @@ pub enum InstructionTag {
     BatchUpdateNullifierTree = BATCH_UPDATE_NULLIFIER_TREE,
     BatchUpdateNullifierTreeMany = BATCH_UPDATE_NULLIFIER_TREE_MANY,
     BatchTransact = BATCH_TRANSACT,
+    CreateBatchQueue = CREATE_BATCH_QUEUE,
+    EnqueueTransact = ENQUEUE_TRANSACT,
+    ExecuteBatchVerify = EXECUTE_BATCH_VERIFY,
+    ApplyBatch = APPLY_BATCH,
+    CloseBatchQueue = CLOSE_BATCH_QUEUE,
     Deposit = DEPOSIT,
     CreateSplInterface = CREATE_SPL_INTERFACE,
     CreateProtocolConfig = CREATE_PROTOCOL_CONFIG,
@@ -67,6 +77,11 @@ impl TryFrom<u8> for InstructionTag {
             BATCH_UPDATE_NULLIFIER_TREE => Ok(Self::BatchUpdateNullifierTree),
             BATCH_UPDATE_NULLIFIER_TREE_MANY => Ok(Self::BatchUpdateNullifierTreeMany),
             BATCH_TRANSACT => Ok(Self::BatchTransact),
+            CREATE_BATCH_QUEUE => Ok(Self::CreateBatchQueue),
+            ENQUEUE_TRANSACT => Ok(Self::EnqueueTransact),
+            EXECUTE_BATCH_VERIFY => Ok(Self::ExecuteBatchVerify),
+            APPLY_BATCH => Ok(Self::ApplyBatch),
+            CLOSE_BATCH_QUEUE => Ok(Self::CloseBatchQueue),
             DEPOSIT => Ok(Self::Deposit),
             CREATE_SPL_INTERFACE => Ok(Self::CreateSplInterface),
             CREATE_PROTOCOL_CONFIG => Ok(Self::CreateProtocolConfig),

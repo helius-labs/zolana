@@ -17,7 +17,7 @@ use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
     groth16::{negate_g1_be, Groth16Verifyingkey},
 };
-use solana_bn254_batch_syscall::{PodG1Point, PodG2Point, PodScalar};
+pub use solana_bn254_batch_syscall::{PodG1Point, PodG2Point, PodScalar};
 
 /// Compressed wire proof (`a` already negated). Standard rail only.
 #[derive(Clone, Copy, Debug)]

@@ -5,6 +5,10 @@ use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, 
 use zolana_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
+    batch_queue::{
+        process_apply_batch_ix, process_close_batch_queue_ix, process_create_batch_queue_ix,
+        process_enqueue_transact_ix, process_execute_batch_verify_ix,
+    },
     batch_update_nullifier_tree::{
         process_batch_update_nullifier_tree, process_batch_update_nullifier_tree_many,
     },
@@ -57,6 +61,11 @@ pub fn process_instruction(
         | InstructionTag::ZoneTransact
         | InstructionTag::ZoneAuthorityTransact => process_transact_ix(accounts, payload, ix_tag),
         InstructionTag::BatchTransact => process_batch_transact_ix(accounts, payload),
+        InstructionTag::CreateBatchQueue => process_create_batch_queue_ix(accounts, payload),
+        InstructionTag::EnqueueTransact => process_enqueue_transact_ix(accounts, payload),
+        InstructionTag::ExecuteBatchVerify => process_execute_batch_verify_ix(accounts),
+        InstructionTag::ApplyBatch => process_apply_batch_ix(accounts),
+        InstructionTag::CloseBatchQueue => process_close_batch_queue_ix(accounts),
         InstructionTag::CreateTree => process_create_tree(accounts, payload),
         InstructionTag::BatchUpdateNullifierTree => {
             process_batch_update_nullifier_tree(accounts, payload)

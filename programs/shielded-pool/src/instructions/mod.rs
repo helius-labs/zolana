@@ -1,3 +1,4 @@
+pub mod batch_queue;
 pub mod batch_update_nullifier_tree;
 pub mod create_asset_counter;
 pub mod create_spl_interface;

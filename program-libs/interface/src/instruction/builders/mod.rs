@@ -1,3 +1,4 @@
+mod batch_queue;
 mod batch_transact;
 mod batch_update_nullifier_tree;
 mod batch_update_nullifier_tree_many;
@@ -15,6 +16,9 @@ mod zone_config;
 mod zone_deposit;
 mod zone_transact;
 
+pub use batch_queue::{
+    ApplyBatch, CloseBatchQueue, CreateBatchQueue, EnqueueTransact, ExecuteBatchVerify,
+};
 pub use batch_transact::BatchTransact;
 pub use batch_update_nullifier_tree::BatchUpdateNullifierTree;
 pub use batch_update_nullifier_tree_many::BatchUpdateNullifierTreeMany;
