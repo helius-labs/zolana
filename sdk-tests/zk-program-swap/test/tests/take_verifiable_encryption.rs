@@ -53,13 +53,16 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
     let TestEnv {
         client,
         tree,
-        maker,
+        mut maker,
         maker_input: _,
         mut taker,
         spl_mint,
     } = setup()?;
     let swap_prover_client = SwapProverClient::new();
     {
+        // The fixture funds the maker's SPL note but only syncs the taker
+        // wallet; discover the maker's note before spending it.
+        sync_wallet(&mut maker.wallet, &maker.keypair, client.indexer())?;
         ensure_registered(
             client.rpc(),
             &maker.keypair.to_solana_keypair()?,

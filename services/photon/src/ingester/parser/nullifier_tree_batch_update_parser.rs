@@ -102,7 +102,11 @@ fn event_parent(
     })?;
     let Some(event_height) = event_instruction.stack_height else {
         statsd_count!("batch_event_missing_stack_height", 1);
-        log::debug!("Dropping batch event instruction with no stack_height");
+        log::warn!(
+            "Dropping batch event with no stack_height in tx with parent program {}: \
+             genuine batch updates are lost if the RPC source omits stack heights",
+            group.outer_instruction.program_id
+        );
         return Ok(None);
     };
     let Some(parent_height) = event_height.checked_sub(1) else {
