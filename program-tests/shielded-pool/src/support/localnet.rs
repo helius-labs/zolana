@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::{Rpc, SolanaRpc, TransferInput, TransferOutput};
+use zolana_client::{PublicInputs, PublicMovements, Rpc, SolanaRpc, TransferInput, TransferOutput};
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
@@ -25,9 +25,9 @@ use zolana_program_test::{
     IndexedTransaction, TestIndexer,
 };
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash,
+    build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
     inline_outputs, new_transact_ix_data, output_owner_pk_hashes, prove_and_verify_transfer,
-    public_input_hash, set_output_owner_tags, sol_public_slots, TransferProverInputsArgs,
+    set_output_owner_tags, sol_public_slots, TransferProverInputsArgs,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
@@ -320,19 +320,24 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
     )
     .hash()?;
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(args.public_sol_amount);
-    let public_input = public_input_hash(
-        &nullifiers,
-        &args.output_hashes,
-        &utxo_roots,
-        &nullifier_roots,
-        &private_tx,
-        &external_hash,
-        &public_slot_assets,
-        &public_slot_amounts,
-        &args.payer_pubkey_hash,
-        &[args.input_owner_pk_hash, args.input_owner_pk_hash],
-        &owner_pk_hashes,
-    );
+    let public_input = PublicInputs {
+        nullifiers: &nullifiers,
+        output_hashes: &args.output_hashes,
+        utxo_roots: &utxo_roots,
+        nullifier_tree_roots: &nullifier_roots,
+        private_tx: &private_tx,
+        external_data_hash: &external_hash,
+        public_movements: &PublicMovements {
+            assets: public_slot_assets,
+            amounts: public_slot_amounts,
+        },
+        zone_program_id: &[0u8; 32],
+        payer_pubkey_hash: &args.payer_pubkey_hash,
+        allow_dummy_inputs: &fe(1),
+        input_owner_pk_hashes: &[args.input_owner_pk_hash, args.input_owner_pk_hash],
+        output_owner_pk_hashes: &owner_pk_hashes,
+    }
+    .hash()?;
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: args.spend_inputs,
         outputs: args.outputs,

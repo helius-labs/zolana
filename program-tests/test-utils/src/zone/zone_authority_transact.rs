@@ -117,15 +117,7 @@ impl ZoneHarness {
         // Track the re-owned zone UTXO in the recipient's expected set (locating its
         // on-chain output context in the indexed transaction) so `assert_utxos`
         // cross-checks the synced wallet after the re-own.
-        let expected = self.build_expected(
-            recipient,
-            reowned_utxo.owner,
-            reowned_utxo.asset,
-            reowned_utxo.amount,
-            reowned_utxo.blinding,
-            reowned_utxo.zone_program_id,
-            &indexed,
-        )?;
+        let expected = self.build_expected(recipient, reowned_utxo, &indexed)?;
         self.actor_mut(recipient).expected.push(expected);
         self.indexed.push(indexed);
         self.sync(recipient)?;

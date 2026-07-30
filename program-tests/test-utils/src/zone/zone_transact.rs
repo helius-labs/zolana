@@ -22,7 +22,7 @@ use zolana_interface::{
 };
 use zolana_program_test::Rejection;
 use zolana_transaction::{
-    instructions::transact::SettlementTarget, ShieldedTransaction, Utxo, SOL_MINT,
+    instructions::transact::SettlementTarget, Data, ShieldedTransaction, Utxo, SOL_MINT,
 };
 
 use super::{decode_output_blinding, ZoneHarness};
@@ -416,15 +416,18 @@ impl ZoneHarness {
             let to_keypair = self.actor(to).keypair.clone();
             let recipient_utxo = self.build_expected(
                 to,
-                to_keypair.signing_pubkey(),
-                send_asset,
-                amount,
-                decode_output_blinding(
-                    &from_keypair.viewing_key,
-                    indexed,
-                    RECIPIENT_POSITION_BASE as u32,
-                )?,
-                None,
+                Utxo {
+                    owner: to_keypair.signing_pubkey(),
+                    asset: send_asset,
+                    amount,
+                    blinding: decode_output_blinding(
+                        &from_keypair.viewing_key,
+                        indexed,
+                        RECIPIENT_POSITION_BASE as u32,
+                    )?,
+                    zone_program_id: None,
+                    data: Data::default(),
+                },
                 indexed,
             )?;
             discovered.recipient = Some(recipient_utxo.output_context.hash);
@@ -471,11 +474,18 @@ impl ZoneHarness {
             if change > 0 {
                 let change_utxo = self.build_expected(
                     from,
-                    from_keypair.signing_pubkey(),
-                    change_asset,
-                    change,
-                    decode_output_blinding(&from_keypair.viewing_key, indexed, position as u32)?,
-                    None,
+                    Utxo {
+                        owner: from_keypair.signing_pubkey(),
+                        asset: change_asset,
+                        amount: change,
+                        blinding: decode_output_blinding(
+                            &from_keypair.viewing_key,
+                            indexed,
+                            position as u32,
+                        )?,
+                        zone_program_id: None,
+                        data: Data::default(),
+                    },
                     indexed,
                 )?;
                 discovered.change.push(change_utxo.output_context.hash);

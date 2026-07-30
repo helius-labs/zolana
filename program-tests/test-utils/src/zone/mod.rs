@@ -25,11 +25,10 @@ use zolana_interface::{
     instruction::{encode_instruction, tag, CreateZoneConfigData, ZoneAssetDeposit},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::PublicKey;
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
 use zolana_transaction::{
-    serialization::confidential::Confidential, Data, LocalWalletAuthority, ShieldedTransaction,
-    Utxo, WalletUtxo, DEFAULT_TAG_WINDOW,
+    serialization::confidential::Confidential, LocalWalletAuthority, ShieldedTransaction, Utxo,
+    WalletUtxo, DEFAULT_TAG_WINDOW,
 };
 
 use crate::{
@@ -199,32 +198,19 @@ impl ZoneHarness {
         );
     }
 
-    /// Build the `WalletUtxo` an actor should hold for a known
-    /// `(owner, asset, amount, blinding)`, locating its on-chain output context in
-    /// the indexed transaction so `assert_utxos` cross-checks the synced wallet.
-    /// `zone_program_id` is `Some(zone)` for a zone-owned output (its hash binds
-    /// the zone), `None` for a default-pool output.
-    #[allow(clippy::too_many_arguments)]
+    /// Build the `WalletUtxo` an actor should hold for a known output `utxo`,
+    /// locating its on-chain output context in the indexed transaction so
+    /// `assert_utxos` cross-checks the synced wallet. A zone-owned output's
+    /// `zone_program_id` binds the zone into the hash; a default-pool output
+    /// carries `None`.
     pub fn build_expected(
         &self,
         name: &str,
-        owner: PublicKey,
-        asset: Address,
-        amount: u64,
-        blinding: [u8; 32],
-        zone_program_id: Option<Address>,
+        utxo: Utxo,
         tx: &ShieldedTransaction,
     ) -> Result<WalletUtxo> {
         let keypair = &self.actor(name).keypair;
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let utxo = Utxo {
-            owner,
-            asset,
-            amount,
-            blinding,
-            zone_program_id,
-            data: Data::default(),
-        };
         let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
         let output_context = tx
             .output_slots

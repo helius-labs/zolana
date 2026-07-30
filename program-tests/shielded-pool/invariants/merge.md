@@ -97,7 +97,7 @@ nullifiers.
 ### Proof Binding
 
 - [x] **INV-MERGE-08: the proof binds the owner's registered signing key**
-  - Covered by: `program-tests/spp-test-validator/tests/lifecycle.rs` `merge_rejects_a_proof_bound_to_a_foreign_user_record` (a proof bound to owner A submitted with owner B's `user_record` fails with 7008; the substitution changes the bound `signing_pk_field` and the event tag, both derived from the record)
+  - Covered by: `program-tests/spp-test-validator/tests/lifecycle.rs` `merge_rejects_a_proof_bound_to_a_foreign_user_record` (a proof bound to owner A submitted with owner B's `user_record` fails with 7008; the substitution changes the bound signing_pk_field and the event tag, both derived from the record)
   - Kind: postcondition
   - Statement: the merge public-input hash folds `signing_pk_field` derived exactly from the registry record, so a proof built for a different owner than the supplied `user_record` fails verification.
   - Location: `programs/shielded-pool/src/instructions/merge/account.rs:58-89` (`fn load_user_record`), `merge/verify.rs:84-115` (`fn public_input_hash`, `Registry` arm)
@@ -287,7 +287,7 @@ nullifiers.
 ### Nullifier Integrity
 
 - [x] **INV-ZONE-MERGE-12: merge_zone queues exactly the proof-bound input nullifiers**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` shape tests; compile-level absence of the `merge_view_tag` field in `MergeZoneIxData` (`program-libs/interface/src/instruction/instruction_data/merge_zone.rs`)
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` shape tests; compile-level absence of the removed merge_view_tag field in `MergeZoneIxData` (`program-libs/interface/src/instruction/instruction_data/merge_zone.rs`)
   - Kind: postcondition
   - Statement: after a successful `zone_merge_transact`, exactly the proof's 8 input nullifiers are queued and nothing else: the single-use `merge_view_tag` field no longer exists, the emitted output is indexed by the first input nullifier, and `output_zone_data_hash` is proof-bound (eliminates the unvalidated-tag queue-poisoning class, F-02/F-09).
   - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:57-69` (`fn process_merge_zone_ix`), `programs/shielded-pool/src/instructions/merge/verify.rs:23-27, 102-110` (`MergeOwnerBinding::Zone`)

@@ -26,7 +26,9 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_client::STATE_TREE_HEIGHT;
-use zolana_client::{prover::field::be, ProverClient, TransferOutput};
+use zolana_client::{
+    prover::field::be, ProverClient, PublicInputs, PublicMovements, TransferOutput,
+};
 use zolana_hasher::Poseidon;
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice, primitives::hash_bytes, sha256::Sha256BE, Hasher,
@@ -49,9 +51,8 @@ use zolana_program_test::{test_blinding, Rejection};
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, public_input_hash,
-    resolve_outputs, set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs,
-    TransferProverInputsArgs,
+    output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, resolve_outputs,
+    set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs, TransferProverInputsArgs,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -165,19 +166,25 @@ fn build_valid_transact_ix_for_owner(
 
     let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
-    let public_input_hash = public_input_hash(
-        &[nullifier, dummy_nullifier],
-        &output_hashes,
-        &[utxo_root, utxo_root],
-        &[nullifier_root, nullifier_root],
-        &private_tx,
-        &external_data_hash,
-        &public_slot_assets,
-        &public_slot_amounts,
-        &payer_pubkey_hash,
-        &[owner_pk_hash, owner_pk_hash],
-        &owner_pk_hashes,
-    );
+    let public_input_hash = PublicInputs {
+        nullifiers: &[nullifier, dummy_nullifier],
+        output_hashes: &output_hashes,
+        utxo_roots: &[utxo_root, utxo_root],
+        nullifier_tree_roots: &[nullifier_root, nullifier_root],
+        private_tx: &private_tx,
+        external_data_hash: &external_data_hash,
+        public_movements: &PublicMovements {
+            assets: public_slot_assets,
+            amounts: public_slot_amounts,
+        },
+        zone_program_id: &zero,
+        payer_pubkey_hash: &payer_pubkey_hash,
+        allow_dummy_inputs: &fe(1),
+        input_owner_pk_hashes: &[owner_pk_hash, owner_pk_hash],
+        output_owner_pk_hashes: &owner_pk_hashes,
+    }
+    .hash()
+    .expect("public input hash");
 
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![real_input, dummy_input_1],

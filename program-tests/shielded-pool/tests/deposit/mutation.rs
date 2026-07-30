@@ -221,7 +221,11 @@ proptest! {
     ) {
         let (mollusk, program_id) = setup_mollusk();
         for data in cases {
-            prop_assume!(data.first() != Some(&tag::EMIT_EVENT));
+            // Only this byte string is skipped (not the whole generated case):
+            // EMIT_EVENT is a no-validation no-op by design, pinned positively below.
+            if data.first() == Some(&tag::EMIT_EVENT) {
+                continue;
+            }
             let instruction = Instruction {
                 program_id,
                 accounts: Vec::new(),

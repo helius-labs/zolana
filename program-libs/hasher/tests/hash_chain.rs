@@ -1,7 +1,10 @@
 #![cfg(feature = "poseidon")]
 
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_two_inputs_hash_chain},
+    hash_chain::{
+        create_hash_chain_from_slice, create_hash_chain_from_slice_ref,
+        create_two_inputs_hash_chain,
+    },
     HasherError,
 };
 
@@ -145,4 +148,24 @@ fn test_create_two_inputs_hash_chain() {
             "Invalid input length for hashes_second test failed"
         );
     }
+}
+
+/// `create_hash_chain_from_slice_ref` is the borrowed-slice entry point used by
+/// the on-chain public-input assembly (`transact/verify.rs`): it must agree
+/// with the canonical slice variant on the same inputs, and both must match
+/// the pinned digest.
+#[test]
+fn slice_ref_matches_the_slice_variant_and_the_kat() {
+    let inputs: [[u8; 32]; 2] = [[4u8; 32], [5u8; 32]];
+    // Same KAT as `test_create_hash_chain_from_slice` for these inputs.
+    let hard_coded_expected_hash = [
+        13, 250, 206, 124, 182, 159, 160, 87, 57, 23, 80, 155, 25, 43, 40, 136, 228, 255, 201, 1,
+        22, 168, 211, 220, 176, 187, 23, 176, 46, 198, 140, 211,
+    ];
+
+    let refs: Vec<&[u8; 32]> = inputs.iter().collect();
+    let via_ref = create_hash_chain_from_slice_ref(&refs).unwrap();
+
+    assert_eq!(via_ref, create_hash_chain_from_slice(&inputs).unwrap());
+    assert_eq!(via_ref, hard_coded_expected_hash);
 }

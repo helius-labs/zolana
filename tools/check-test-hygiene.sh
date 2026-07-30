@@ -42,13 +42,16 @@ report_matches() {
 report_matches \
   "legacy scenario-test terminology or dependencies are not allowed" \
   '(cucumber|gherkin|(^|[^[:alnum:]_])bdd([^[:alnum:]_]|$))' -- \
-  Cargo.toml ':(glob)**/Cargo.toml' justfile program-tests sdk-libs/client/tests \
+  Cargo.toml ':(glob)**/Cargo.toml' justfile program-tests \
+  sdk-libs/client/tests sdk-libs/keypair/tests sdk-libs/transaction/tests \
   sdk-tests/zk-program-swap/test
 
-if find program-tests sdk-libs/client/tests sdk-tests/zk-program-swap/test -type f \
+if find program-tests sdk-libs/client/tests sdk-libs/keypair/tests \
+  sdk-libs/transaction/tests sdk-tests/zk-program-swap/test -type f \
   \( -path '*/features/*' -o -path '*/steps/*' -o -name '*.feature' \) -print \
   | grep -q .; then
-  find program-tests sdk-libs/client/tests sdk-tests/zk-program-swap/test -type f \
+  find program-tests sdk-libs/client/tests sdk-libs/keypair/tests \
+    sdk-libs/transaction/tests sdk-tests/zk-program-swap/test -type f \
     \( -path '*/features/*' -o -path '*/steps/*' -o -name '*.feature' \) -print
   echo "legacy scenario-test files are not allowed" >&2
   failed=1
@@ -108,7 +111,11 @@ while IFS= read -r leaf; do
   fi
   base=$(basename "$leaf")
   stem=${base%.rs}
-  if grep -rqE "(#\[path = \"[^\"]*${base}\"\]|^[[:space:]]*mod[[:space:]]+${stem};)" "$sp_dir/tests"; then
+  # The inclusion reference must live in the leaf's own directory or its parent
+  # (the `<domain>.rs` sibling that declares the leaf's module): a same-stem
+  # module in a sibling directory does not include this leaf.
+  if grep -rqE "(#\[path = \"[^\"]*${base}\"\]|^[[:space:]]*mod[[:space:]]+${stem};)" \
+    "$(dirname "$leaf")" "$(dirname "$(dirname "$leaf")")" 2>/dev/null; then
     continue
   fi
   echo "orphan shielded-pool test leaf (neither a [[test]] nor included by one): $leaf" >&2
@@ -189,7 +196,17 @@ claim_na=$(readme_number x 's/^- Not applicable post-PR164: ([0-9]+).*/\1/p')
 [ "$claim_na" = "$sum_na" ] || tally_mismatch "Not applicable" "$claim_na" "$sum_na"
 claim_partial=$(readme_number x 's/^- Partial: ([0-9]+).*/\1/p')
 claim_pointer=$(readme_number x 's/^- Pointer: ([0-9]+).*/\1/p')
-computed_partial=$(( sum_total - sum_tick - sum_na - ${claim_pointer:-0} ))
+# The pointer count comes from the ledger (entries marked "pointer entry"),
+# not from the README claim; Partial is computed from the ledger and both
+# are diffed against the README, never one from the other.
+ledger_pointer=0
+for name in $inv_files; do
+  n=$(grep -c "pointer entry" "$inv_dir/$name.md" || true)
+  ledger_pointer=$(( ledger_pointer + n ))
+done
+[ "${claim_pointer:-0}" = "$ledger_pointer" ] || \
+  tally_mismatch "Pointer" "${claim_pointer:-0}" "$ledger_pointer"
+computed_partial=$(( sum_total - sum_tick - sum_na - ledger_pointer ))
 [ "$claim_partial" = "$computed_partial" ] || \
   tally_mismatch "Partial" "$claim_partial" "$computed_partial"
 
@@ -204,8 +221,9 @@ for sev in Critical High Medium; do
 done
 
 # (f) Covered-by citations. Tokens after a repo-relative file path must exist
-# in that file; other identifier tokens must exist somewhere in *.rs/*.go.
+# in that file; other identifier tokens must be a real function somewhere.
 covered_by_fail=0
+covered_lines=$(grep -hE 'Covered by:' "$inv_dir"/*.md || true)
 while IFS= read -r line; do
   current_file=""
   while IFS= read -r tok; do
@@ -227,12 +245,14 @@ while IFS= read -r line; do
     if [ -n "$current_file" ] && grep -qF "$tok" "$current_file"; then
       continue
     fi
-    if ! git grep -qF "$tok" -- '*.rs' '*.go'; then
+    # Not a bare substring: the name must be a real function somewhere
+    # (a test fn or a cited impl fn), not a constant or a comment mention.
+    if ! git grep -qE "fn ${tok}\(|func ${tok}\(" -- '*.rs' '*.go'; then
       echo "invariants Covered-by reference not found: $tok (line: $line)" >&2
       covered_by_fail=1
     fi
   done <<< "$(printf '%s' "$line" | grep -oE '`[^`]+`' | tr -d '`' || true)"
-done < <(grep -hE 'Covered by:' "$inv_dir"/*.md)
+done <<< "$covered_lines"
 if (( covered_by_fail )); then
   failed=1
 fi

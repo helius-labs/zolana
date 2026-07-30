@@ -30,6 +30,24 @@ use crate::{
     },
 };
 
+/// Behavioral switches for [`ZoneHarness::merge_zone_inner`]: the happy path
+/// uses the defaults; each rejection scenario flips exactly the flags it needs.
+#[derive(Default)]
+struct MergeZoneOptions {
+    /// After a successful merge, replay the exact SPP instruction and assert
+    /// the nullifier-tree rejection.
+    assert_replay: bool,
+    /// Submit through this zone program instead of the harness's own (the
+    /// foreign-program rejection).
+    submit_zone: Option<solana_pubkey::Pubkey>,
+    /// Expect SPP to reject the transaction on proof verification (7008),
+    /// leaving the tree untouched.
+    expect_proof_rejection: bool,
+    /// Build the proof on the default merge rail (tag 12) and submit it
+    /// unchanged through `merge_zone` (tag 13).
+    prove_for_default_merge: bool,
+}
+
 impl ZoneHarness {
     /// Build, prove, and submit a `merge_zone` of `count` of `name`'s spendable
     /// `asset` zone UTXOs into one consolidated output. The fixture program signs
@@ -42,7 +60,7 @@ impl ZoneHarness {
         asset: Address,
         count: usize,
     ) -> Result<solana_signature::Signature> {
-        self.merge_zone_inner(name, asset, count, false, None, false, false)?
+        self.merge_zone_inner(name, asset, count, MergeZoneOptions::default())?
             .ok_or_else(|| anyhow!("zone merge unexpectedly rejected"))
     }
 
@@ -56,7 +74,15 @@ impl ZoneHarness {
         asset: Address,
         count: usize,
     ) -> Result<()> {
-        self.merge_zone_inner(name, asset, count, true, None, false, false)?;
+        self.merge_zone_inner(
+            name,
+            asset,
+            count,
+            MergeZoneOptions {
+                assert_replay: true,
+                ..Default::default()
+            },
+        )?;
         Ok(())
     }
 
@@ -69,7 +95,16 @@ impl ZoneHarness {
         let foreign = solana_pubkey::Pubkey::new_from_array(SECOND_ZONE_TEST_PROGRAM_ID);
         let authority = self.payer.pubkey().to_bytes().into();
         self.create_zone_config_for(foreign, &authority, true)?;
-        self.merge_zone_inner(name, asset, count, false, Some(foreign), true, false)?;
+        self.merge_zone_inner(
+            name,
+            asset,
+            count,
+            MergeZoneOptions {
+                submit_zone: Some(foreign),
+                expect_proof_rejection: true,
+                ..Default::default()
+            },
+        )?;
         Ok(())
     }
 
@@ -85,21 +120,32 @@ impl ZoneHarness {
         asset: Address,
         count: usize,
     ) -> Result<()> {
-        self.merge_zone_inner(name, asset, count, false, None, true, true)?;
+        self.merge_zone_inner(
+            name,
+            asset,
+            count,
+            MergeZoneOptions {
+                expect_proof_rejection: true,
+                prove_for_default_merge: true,
+                ..Default::default()
+            },
+        )?;
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn merge_zone_inner(
         &mut self,
         name: &str,
         asset: Address,
         count: usize,
-        assert_replay: bool,
-        submit_zone: Option<solana_pubkey::Pubkey>,
-        expect_proof_rejection: bool,
-        prove_for_default_merge: bool,
+        options: MergeZoneOptions,
     ) -> Result<Option<solana_signature::Signature>> {
+        let MergeZoneOptions {
+            assert_replay,
+            submit_zone,
+            expect_proof_rejection,
+            prove_for_default_merge,
+        } = options;
         // The default-merge rail exists alongside the zone rail:
         // `merge_transact` (instruction tag 12) and `zone_merge_transact`
         // (tag 13) share the on-chain merge verifier, and each binds its own

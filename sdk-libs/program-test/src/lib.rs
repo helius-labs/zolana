@@ -181,9 +181,12 @@ impl ZolanaProgramTest {
     }
 
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<(), ProgramTestError> {
-        // LiteSVM rejects byte-identical transactions as AlreadyProcessed. Advance
-        // the blockhash so repeated setup/actions exercise the program again.
-        self.svm.expire_blockhash();
+        // Deliberately does NOT expire the blockhash: LiteSVM accepts only the
+        // single current latest_blockhash, so expiring here would invalidate any
+        // transaction signed before the airdrop (`BlockhashNotFound`). Freshness
+        // against AlreadyProcessed dedup lives in the signing path
+        // (`create_and_send_transaction` expires immediately before fetching the
+        // blockhash for a new transaction).
         self.svm
             .airdrop(pubkey, lamports)
             .map(|_| ())

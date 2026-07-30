@@ -1,6 +1,7 @@
-//! Shared `transact` proof-wiring helpers: witness construction, public-input
-//! hashing mirrors, and prover round-trips used by the shielded-pool proof
-//! tests and the validator lifecycle harnesses.
+//! Shared `transact` proof-wiring helpers: witness construction, prover
+//! round-trips used by the shielded-pool proof tests and the validator
+//! lifecycle harnesses. The public-input hash is NOT re-assembled here: callers
+//! use the canonical `zolana_client::PublicInputs::hash()`.
 
 use anyhow::{anyhow, Context, Result};
 use groth16_solana::groth16::Groth16Verifier;
@@ -12,10 +13,10 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
     prover::field::{be, right_align_slice},
-    spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient, TransferInput,
-    TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs,
+    PublicMovements, TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
 use zolana_interface::{
@@ -70,49 +71,6 @@ pub fn fe(value: u64) -> [u8; 32] {
 /// Build the compressed proof carried by a `transact` instruction.
 pub fn pack_transact_proof(proof: &Proof) -> Result<TransactProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
-}
-
-/// Mirror of the confidential `TransactProof::public_input_hash` on the eddsa
-/// rail. The common chain is followed by
-/// `HashChain(output_owner_pk_hashes)`. Mirrors the client
-/// `PublicInputs::hash()` exactly. Public movement slots interleave as
-/// `(asset, amount)` and idle slots are `(0, 0)`.
-#[allow(clippy::too_many_arguments)]
-pub fn public_input_hash(
-    nullifiers: &[[u8; 32]],
-    output_hashes: &[[u8; 32]],
-    utxo_roots: &[[u8; 32]],
-    nullifier_tree_roots: &[[u8; 32]],
-    private_tx: &[u8; 32],
-    external_data_hash: &[u8; 32],
-    public_slot_assets: &[[u8; 32]; N_PUBLIC_SLOTS],
-    public_slot_amounts: &[[u8; 32]; N_PUBLIC_SLOTS],
-    payer_pubkey_hash: &[u8; 32],
-    input_owner_pk_hashes: &[[u8; 32]],
-    output_owner_pk_hashes: &[[u8; 32]],
-) -> [u8; 32] {
-    let zero = [0u8; 32];
-    let one = fe(1);
-    let mut chain = vec![
-        create_hash_chain_from_slice(nullifiers).expect("nullifier chain"),
-        create_hash_chain_from_slice(output_hashes).expect("output chain"),
-        create_hash_chain_from_slice(utxo_roots).expect("utxo root chain"),
-        create_hash_chain_from_slice(nullifier_tree_roots).expect("nullifier root chain"),
-        *private_tx,
-        *external_data_hash,
-    ];
-    for (asset, amount) in public_slot_assets.iter().zip(public_slot_amounts.iter()) {
-        chain.push(*asset);
-        chain.push(*amount);
-    }
-    chain.extend_from_slice(&[
-        zero,
-        *payer_pubkey_hash,
-        one,
-        create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
-        create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
-    ]);
-    create_hash_chain_from_slice(&chain).expect("public input hash")
 }
 
 pub type PublicSlots = ([[u8; 32]; N_PUBLIC_SLOTS], [[u8; 32]; N_PUBLIC_SLOTS]);
@@ -701,19 +659,25 @@ pub fn build_spl_withdrawal(
     let input_owner_hashes = [owner_pk_hash, owner_pk_hash];
     let (public_slot_assets, public_slot_amounts) =
         spl_public_slots(public_spl_field, &mint_bytes).expect("public SPL slots");
-    let public_hash = public_input_hash(
-        &[nullifier, dummy_nullifier],
-        &output_hashes,
-        &[utxo_root, utxo_root],
-        &[nullifier_root, nullifier_root],
-        &private_tx,
-        &external_hash,
-        &public_slot_assets,
-        &public_slot_amounts,
-        &payer_hash,
-        &input_owner_hashes,
-        &output_owner_hashes,
-    );
+    let public_hash = PublicInputs {
+        nullifiers: &[nullifier, dummy_nullifier],
+        output_hashes: &output_hashes,
+        utxo_roots: &[utxo_root, utxo_root],
+        nullifier_tree_roots: &[nullifier_root, nullifier_root],
+        private_tx: &private_tx,
+        external_data_hash: &external_hash,
+        public_movements: &PublicMovements {
+            assets: public_slot_assets,
+            amounts: public_slot_amounts,
+        },
+        zone_program_id: &zero,
+        payer_pubkey_hash: &payer_hash,
+        allow_dummy_inputs: &fe(1),
+        input_owner_pk_hashes: &input_owner_hashes,
+        output_owner_pk_hashes: &output_owner_hashes,
+    }
+    .hash()
+    .expect("public input hash");
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![spend, withdraw_dummy_input],
         outputs,

@@ -19,10 +19,21 @@ use zolana_test_utils::mollusk::{
 
 use crate::support::runtime;
 
-const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy");
+/// The SBF deploy directory: `$CARGO_TARGET_DIR/deploy` when the target dir is
+/// overridden, else the workspace default.
+fn sbf_dir() -> String {
+    match std::env::var("CARGO_TARGET_DIR") {
+        Ok(dir) => format!("{dir}/deploy"),
+        Err(_) => concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy").to_string(),
+    }
+}
 
 pub fn setup_mollusk() -> (Mollusk, Pubkey) {
-    mollusk_with_program(SBF_DIR, SHIELDED_POOL_PROGRAM_ID, "shielded_pool_program")
+    mollusk_with_program(
+        &sbf_dir(),
+        SHIELDED_POOL_PROGRAM_ID,
+        "shielded_pool_program",
+    )
 }
 
 fn snapshot(

@@ -9,7 +9,7 @@ use super::*;
 /// separately built forester binary (`cargo build -p forester`). It is
 /// `#[ignore]`d because Cargo does not build another package's binary for this
 /// test target, and is run explicitly:
-///   cargo test -p shielded-pool-tests --features localnet --test localnet_photon_e2e \
+///   cargo test -p shielded-pool-tests --features localnet --test localnet_photon \
 ///     forester_dry_run_reconstructs_from_photon -- --ignored --nocapture
 #[test]
 #[ignore]

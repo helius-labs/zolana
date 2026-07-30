@@ -11,7 +11,8 @@ use zolana_program_test::{TransactionOutcome, ZolanaProgramTest};
 // transaction at the enforced budget (which would make the ceiling
 // unfalsifiable).
 const CREATE_PROTOCOL_CONFIG_CU_CEILING: u64 = 15_000; // observed 5_538
-                                                       // Worst of the seven protocol-config updates below (observed 179-240).
+
+// Worst of the seven protocol-config updates below (observed 179-240).
 const CONFIG_UPDATE_CU_CEILING: u64 = 750;
 const CREATE_TREE_CU_CEILING: u64 = 1_800; // observed 581
 const PAUSE_TREE_CU_CEILING: u64 = 800; // observed 250-251
