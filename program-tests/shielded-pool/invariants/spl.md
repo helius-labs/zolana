@@ -69,8 +69,8 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
   - Severity: High
   - Suggested test: positive; harness: mollusk unit
 
-- [x] **INV-CREATE-AC-07: re-initialization is impossible**
-  - Covered by: the state_props init_rejects_reinitialization case on the security/spp-config-init-gate branch (program-libs/interface/tests/state_props.rs, landing before this branch)
+- [~] **INV-CREATE-AC-07: re-initialization is impossible**
+  - Cross-branch coverage: the init guard and its tests live on the security/spp-config-init-gate branch, landing before this one — the `init_rejects_reinitialization` case in that branch's `program-libs/interface/tests/state_props.rs` (on THIS branch the guard is reverted out: `init()` takes no error path)
   - Kind: precondition
   - Statement: `create_asset_counter` on a counter whose discriminator byte is not 0 returns Err and leaves `next_id` unchanged (a second init cannot reset the id sequence).
   - Location: `program-libs/interface/src/state/spl_asset_counter.rs:35-37` (`fn init`)
@@ -208,14 +208,14 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
 
 ### Token-2022 Support
 
-- [ ] **INV-CREATE-SPL-13: Token-2022 mints are supported with an extension allow-list**
-  - Partial coverage: `program-tests/shielded-pool/tests/spl_interface/validation.rs` (`accepts_safe_token_2022_mint_extensions`, `sizes_vault_for_transfer_fee_accounts`, `accepts_confidential_token_extensions`, `rejects_unsupported_token_2022_extensions` → 7043), `program-tests/shielded-pool/tests/spl_interface/functional.rs` `token_2022_interface_and_proofless_deposit_settle` (positive), `spl_interface/rejection.rs` `spl_interface_creation_rejects_a_mint_not_owned_by_the_token_program` (7042, mint-ownership branch); the remaining 7042 branches (wrong SPL Token mint layout, uninitialized mint, malformed Token-2022 mint state) have no dedicated negative test
+- [x] **INV-CREATE-SPL-13: Token-2022 mints are supported with an extension allow-list**
+  - Covered by: `program-tests/shielded-pool/tests/spl_interface/validation.rs` (`accepts_safe_token_2022_mint_extensions`, `sizes_vault_for_transfer_fee_accounts`, `accepts_confidential_token_extensions`, `rejects_unsupported_token_2022_extensions` → 7043), `program-tests/shielded-pool/tests/spl_interface/functional.rs` `token_2022_interface_and_proofless_deposit_settle` (positive), `spl_interface/rejection.rs` `spl_interface_creation_rejects_a_mint_not_owned_by_the_token_program` (7042 mint-ownership branch), `spl_interface_creation_rejects_an_spl_token_mint_with_a_wrong_length` and `spl_interface_creation_rejects_an_uninitialized_spl_token_mint` (7042 SPL-Token layout/flag), `spl_interface_creation_rejects_a_truncated_token_2022_mint` (7042 Token-2022 unpack), `spl_interface_creation_rejects_an_uninitialized_token_2022_mint` (7042 Token-2022 uninitialized — the :54-55 re-check is shadowed by the pod unpack's own check, documented in the test), `spl_interface_creation_rejects_a_token_2022_mint_with_malformed_tlv_data` (7042 extension-types query)
   - Kind: precondition
   - Statement: the `token_program` account must be the SPL Token or Token-2022 program (else 7041); the mint must be owned by that program and initialized — the exact 82-byte layout with the initialized flag set for SPL Token, `PodStateWithExtensions<PodMint>` with `is_initialized` for Token-2022 (else 7042); every mint extension must be in the 13-entry allow-list (`is_allowed_mint_extension`, else 7043); the vault is then allocated at `try_calculate_account_len` of the mint's required account extensions (see INV-CREATE-SPL-10).
   - Location: `programs/shielded-pool/src/instructions/create_spl_interface/validate.rs:22-89` (`fn validate_token_mint_for_interface`, `fn is_allowed_mint_extension`), `create_spl_interface/processor.rs:38, 99`
   - Error: `ShieldedPoolError::UnsupportedSplTokenProgram = 7041` / `ShieldedPoolError::InvalidSplTokenMint = 7042` / `ShieldedPoolError::UnsupportedToken2022Extension = 7043`
   - Severity: Critical (custody of all shielded tokens of the mint)
-  - Suggested test: negative per remaining 7042 branch; harness: mollusk unit
+  - Suggested test: none remaining (every reachable 7042 branch is pinned; the mint-borrow-failure branch at :39 is unfixable from outside an instruction and the `try_calculate_account_len` failure at :66 is unreachable after the :60 allow-list filter — both documented in the rejection suite)
 
 - [x] **INV-CREATE-SPL-14: a pre-existing vault account blocks creation**
   - Covered by: `program-tests/shielded-pool/tests/spl_interface/rejection.rs` `spl_interface_creation_rejects_a_pre_existing_vault_account` (the registry-side mirror is covered by `duplicate_spl_interface_registration_is_rejected_without_consuming_id`).

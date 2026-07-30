@@ -148,8 +148,8 @@ require_paths "$inv_dir" "$inv_readme"
 
 inv_files="transact deposit merge tree protocol-config zone-config spl event cross-cutting"
 
-# Per file: total entries, ticked entries, N/A entries (block contains the
-# marker). Prints "total ticked na".
+# Per file: total entries, ticked [x], companion [~], N/A entries (block
+# contains the marker). Prints "total ticked comp na".
 inv_tally() {
   awk '
     function flush() { if (seen && block ~ /Not applicable post-PR164/) na++ }
@@ -158,8 +158,12 @@ inv_tally() {
       if ($0 ~ /^- \[x\]/) tick++
       next
     }
+    /^- \[~\] \*\*INV-/ {
+      flush(); total++; comp++; seen=1; block=""
+      next
+    }
     { block = block $0 "\n" }
-    END { flush(); printf "%d %d %d\n", total+0, tick+0, na+0 }
+    END { flush(); printf "%d %d %d %d\n", total+0, tick+0, comp+0, na+0 }
   ' "$inv_dir/$1.md"
 }
 
@@ -168,21 +172,22 @@ tally_mismatch() {
   failed=1
 }
 
-sum_total=0; sum_tick=0; sum_na=0
+sum_total=0; sum_tick=0; sum_comp=0; sum_na=0
 for name in $inv_files; do
-  read -r total tick na <<< "$(inv_tally "$name")"
-  partial=$(( total - tick - na ))
+  read -r total tick comp na <<< "$(inv_tally "$name")"
+  partial=$(( total - tick - comp - na ))
   sum_total=$(( sum_total + total ))
   sum_tick=$(( sum_tick + tick ))
+  sum_comp=$(( sum_comp + comp ))
   sum_na=$(( sum_na + na ))
-  # README per-file cell: "name C/P/N"
-  claim=$(grep -oE "${name} [0-9]+/[0-9]+/[0-9]+" "$inv_readme" | head -1 | awk '{print $2}' | tr '/' ' ')
+  # README per-file cell: "name C/P/COMP/N"
+  claim=$(grep -oE "${name} [0-9]+/[0-9]+/[0-9]+/[0-9]+" "$inv_readme" | head -1 | awk '{print $2}' | tr '/' ' ')
   if [ -z "$claim" ]; then
-    tally_mismatch "$name" "no per-file cell" "$total/$partial/$na"
+    tally_mismatch "$name" "no per-file cell" "$total/$partial/$comp/$na"
   else
-    read -r c p n <<< "$claim"
-    [ "$c" = "$tick" ] && [ "$p" = "$partial" ] && [ "$n" = "$na" ] || \
-      tally_mismatch "$name" "$c/$p/$n" "$tick/$partial/$na"
+    read -r c p m n <<< "$claim"
+    [ "$c" = "$tick" ] && [ "$p" = "$partial" ] && [ "$m" = "$comp" ] && [ "$n" = "$na" ] || \
+      tally_mismatch "$name" "$c/$p/$m/$n" "$tick/$partial/$comp/$na"
   fi
 done
 
@@ -192,6 +197,8 @@ claim_total=$(readme_number x 's/^- Total invariants: ([0-9]+).*/\1/p')
 [ "$claim_total" = "$sum_total" ] || tally_mismatch "Total invariants" "$claim_total" "$sum_total"
 claim_covered=$(readme_number x 's/^- Covered: ([0-9]+) \/ ([0-9]+).*/\1/p')
 [ "$claim_covered" = "$sum_tick" ] || tally_mismatch "Covered" "$claim_covered" "$sum_tick"
+claim_companion=$(readme_number x 's/^- Covered on companion security branches.*: ([0-9]+).*/\1/p')
+[ "$claim_companion" = "$sum_comp" ] || tally_mismatch "Companion" "$claim_companion" "$sum_comp"
 claim_na=$(readme_number x 's/^- Not applicable post-PR164: ([0-9]+).*/\1/p')
 [ "$claim_na" = "$sum_na" ] || tally_mismatch "Not applicable" "$claim_na" "$sum_na"
 claim_partial=$(readme_number x 's/^- Partial: ([0-9]+).*/\1/p')
@@ -206,7 +213,7 @@ for name in $inv_files; do
 done
 [ "${claim_pointer:-0}" = "$ledger_pointer" ] || \
   tally_mismatch "Pointer" "${claim_pointer:-0}" "$ledger_pointer"
-computed_partial=$(( sum_total - sum_tick - sum_na - ledger_pointer ))
+computed_partial=$(( sum_total - sum_tick - sum_comp - sum_na - ledger_pointer ))
 [ "$claim_partial" = "$computed_partial" ] || \
   tally_mismatch "Partial" "$claim_partial" "$computed_partial"
 
@@ -220,11 +227,25 @@ for sev in Critical High Medium; do
   [ "$claim" = "$computed" ] || tally_mismatch "Severity $sev" "$claim" "$computed"
 done
 
-# (f) Covered-by citations. Tokens after a repo-relative file path must exist
-# in that file; other identifier tokens must be a real function somewhere.
+# (f) Covered-by citations. A `Covered by:` line must carry at least one
+# backticked token (otherwise the citation is invisible to this check);
+# tokens after a repo-relative file path must exist in that file; other
+# identifier tokens must be a real function somewhere. `Cross-branch
+# coverage:` lines are the explicit companion-branch label and skip this
+# check entirely.
 covered_by_fail=0
-covered_lines=$(grep -hE 'Covered by:' "$inv_dir"/*.md || true)
+bad_citations=""
+covered_lines=$(grep -hE 'Covered by:|Cross-branch coverage:' "$inv_dir"/*.md || true)
 while IFS= read -r line; do
+  case "$line" in
+    *Cross-branch\ coverage:*) continue ;;  # explicit companion-branch label
+  esac
+  tokens=$(printf '%s' "$line" | grep -oE '`[^`]+`' | tr -d '`' || true)
+  if [ -z "$tokens" ]; then
+    echo "invariants Covered-by line has no backticked citation: $line" >&2
+    covered_by_fail=1
+    continue
+  fi
   current_file=""
   while IFS= read -r tok; do
     [ -z "$tok" ] && continue
@@ -248,11 +269,14 @@ while IFS= read -r line; do
     # Not a bare substring: the name must be a real function somewhere
     # (a test fn or a cited impl fn), not a constant or a comment mention.
     if ! git grep -qE "fn ${tok}\(|func ${tok}\(" -- '*.rs' '*.go'; then
-      echo "invariants Covered-by reference not found: $tok (line: $line)" >&2
+      bad_citations="${bad_citations}  $tok (line: $line)\n"
       covered_by_fail=1
     fi
-  done <<< "$(printf '%s' "$line" | grep -oE '`[^`]+`' | tr -d '`' || true)"
+  done <<< "$tokens"
 done <<< "$covered_lines"
+if [ -n "$bad_citations" ]; then
+  printf "invariants Covered-by references not found:\n$bad_citations" >&2
+fi
 if (( covered_by_fail )); then
   failed=1
 fi

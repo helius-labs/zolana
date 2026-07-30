@@ -138,6 +138,187 @@ fn spl_interface_creation_rejects_a_mint_not_owned_by_the_token_program() {
     );
 }
 
+/// Installs a raw account standing in for a mint, owned by `token_program`,
+/// so the mint validation in `create_spl_interface` can be exercised
+/// byte-for-byte instead of going through the token program's initializer.
+fn install_raw_mint(rpc: &mut ZolanaProgramTest, token_program: Pubkey, data: Vec<u8>) -> Pubkey {
+    let mint = Pubkey::new_unique();
+    let lamports = rpc.svm.minimum_balance_for_rent_exemption(data.len());
+    rpc.svm
+        .set_account(
+            mint,
+            Account {
+                lamports,
+                data,
+                owner: token_program,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .expect("install raw mint");
+    mint
+}
+
+// Offset of `is_initialized` in the 82-byte (Pod)Mint layout: 36-byte COption
+// mint authority + 8-byte supply + 1-byte decimals.
+const MINT_IS_INITIALIZED_OFFSET: usize = 45;
+
+#[test]
+fn spl_interface_creation_rejects_an_spl_token_mint_with_a_wrong_length() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
+    // Owned by the SPL Token program with the initialized flag set but 81
+    // bytes instead of the 82-byte mint layout: ownership and the borrow
+    // pass, so the length check is the branch that fails.
+    let mut data = vec![0u8; 81];
+    data[MINT_IS_INITIALIZED_OFFSET] = 1;
+    let mint = install_raw_mint(&mut pool.rpc, pda::spl_token_program_id(), data);
+
+    let err = pool
+        .rpc
+        .create_spl_interface(&pool.authority, &mint)
+        .expect_err("a wrong-length mint must fail");
+    Rejection::pool(ShieldedPoolError::InvalidSplTokenMint).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("creation attempt trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
+    assert!(
+        pool.rpc
+            .account_data(&pda::spl_asset_registry(&mint))
+            .is_none(),
+        "rejected creation must not allocate the registry"
+    );
+}
+
+#[test]
+fn spl_interface_creation_rejects_an_uninitialized_spl_token_mint() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
+    // Exactly 82 zeroed bytes owned by the SPL Token program: ownership and
+    // the length check pass, so the initialized-flag check is the branch
+    // that fails.
+    let mint = install_raw_mint(&mut pool.rpc, pda::spl_token_program_id(), vec![0u8; 82]);
+
+    let err = pool
+        .rpc
+        .create_spl_interface(&pool.authority, &mint)
+        .expect_err("an uninitialized mint must fail");
+    Rejection::pool(ShieldedPoolError::InvalidSplTokenMint).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("creation attempt trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
+    assert!(
+        pool.rpc
+            .account_data(&pda::spl_asset_registry(&mint))
+            .is_none(),
+        "rejected creation must not allocate the registry"
+    );
+}
+
+#[test]
+fn spl_interface_creation_rejects_a_truncated_token_2022_mint() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
+    let token_program = ZolanaProgramTest::token_2022_program_id();
+    // 41 garbage bytes owned by Token-2022: ownership passes, the SPL Token
+    // branch is skipped, and `PodStateWithExtensions::<PodMint>::unpack`
+    // rejects the buffer for being shorter than the base state.
+    let mint = install_raw_mint(&mut pool.rpc, token_program, vec![0xAA; 41]);
+
+    let err = pool
+        .rpc
+        .create_spl_interface_with_program(&pool.authority, &mint, token_program)
+        .expect_err("a truncated Token-2022 mint must fail");
+    Rejection::pool(ShieldedPoolError::InvalidSplTokenMint).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("creation attempt trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
+    assert!(
+        pool.rpc
+            .account_data(&pda::spl_asset_registry(&mint))
+            .is_none(),
+        "rejected creation must not allocate the registry"
+    );
+}
+
+#[test]
+fn spl_interface_creation_rejects_an_uninitialized_token_2022_mint() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
+    let token_program = ZolanaProgramTest::token_2022_program_id();
+    // A full 82-byte PodMint with `is_initialized` clear. The pod
+    // `PodStateWithExtensions::unpack` performs the initialized check
+    // internally (ProgramError::UninitializedAccount), so the rejection
+    // surfaces through the unpack error mapping; the explicit re-check in
+    // the program is defense in depth for the same condition.
+    let mint = install_raw_mint(&mut pool.rpc, token_program, vec![0u8; 82]);
+
+    let err = pool
+        .rpc
+        .create_spl_interface_with_program(&pool.authority, &mint, token_program)
+        .expect_err("an uninitialized Token-2022 mint must fail");
+    Rejection::pool(ShieldedPoolError::InvalidSplTokenMint).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("creation attempt trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
+    assert!(
+        pool.rpc
+            .account_data(&pda::spl_asset_registry(&mint))
+            .is_none(),
+        "rejected creation must not allocate the registry"
+    );
+}
+
+#[test]
+fn spl_interface_creation_rejects_a_token_2022_mint_with_malformed_tlv_data() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .ensure_asset_counter(&pool.authority)
+        .expect("asset counter");
+    let token_program = ZolanaProgramTest::token_2022_program_id();
+    // An initialized base mint (82 bytes) + zero padding up to the
+    // AccountType slot (165) + AccountType::Mint, followed by a single TLV
+    // entry whose declared value length blows past the end of the account.
+    // Base unpack, the initialized check, and the padding/account-type
+    // checks all pass, so the `get_extension_types` walk is the branch that
+    // fails. The entry type is the allowed TransferFeeConfig so only the
+    // malformed length can be the defect.
+    let mut data = vec![0u8; 170];
+    data[MINT_IS_INITIALIZED_OFFSET] = 1;
+    data[165] = 1; // AccountType::Mint
+    data[166..168].copy_from_slice(&1u16.to_le_bytes()); // ExtensionType::TransferFeeConfig
+    data[168..170].copy_from_slice(&u16::MAX.to_le_bytes()); // declared value length
+    let mint = install_raw_mint(&mut pool.rpc, token_program, data);
+
+    let err = pool
+        .rpc
+        .create_spl_interface_with_program(&pool.authority, &mint, token_program)
+        .expect_err("a mint with malformed TLV data must fail");
+    Rejection::pool(ShieldedPoolError::InvalidSplTokenMint).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("creation attempt trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
+    assert!(
+        pool.rpc
+            .account_data(&pda::spl_asset_registry(&mint))
+            .is_none(),
+        "rejected creation must not allocate the registry"
+    );
+}
+
 #[test]
 fn spl_interface_creation_rejects_a_wrong_system_program() {
     let mut pool = Pool::initialized();

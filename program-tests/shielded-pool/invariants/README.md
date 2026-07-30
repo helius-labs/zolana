@@ -9,6 +9,11 @@ Legend: PR164 = the circuit/protocol update, merged via PR171 (#171);
 via PR172: the P256-related N/A entries and INV-XC-32 ("retired wire formats
 fail closed") must be re-activated / re-scoped when it lands.
 
+Marker legend: `- [x]` covered by tests on this branch; `- [ ]` partial or
+uncovered; `- [~]` covered on a companion security branch (#175/#176) that
+lands before this one (behavior and tests are reverted out of this branch
+and return with that merge).
+
 | File | Covers |
 |---|---|
 | `transact.md` | Transact, ZoneTransact, ZoneAuthorityTransact |
@@ -119,19 +124,21 @@ Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 
 Post-PR171 sync (2026-07-28):
 
-- Covered: 207 / 242
-- Partial: 22 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Covered: 205 / 242
+- Covered on companion security branches (#175, #176): 3 (the `- [~]` entries:
+  INV-CREATE-PC-10, INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests
+  land with those branches)
+- Partial: 21 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
-- Not applicable post-PR164: 12
 
-(207 + 22 + 1 + 12 = 242. The per-file partial+untested column sums to 23
+(205 + 3 + 21 + 1 + 12 = 242. The per-file partial+untested column sums to 23
 because it includes the pointer.)
 
-Per file (covered / partial+untested / not-applicable):
-transact 48/3/7, deposit 33/1/0, merge 22/6/4, tree 19/4/0,
-protocol-config 17/0/0, zone-config 18/2/0, spl 21/1/0, event 4/0/0,
-cross-cutting 25/6/1.
+Per file (covered / partial+untested / companion / not-applicable):
+transact 48/3/0/7, deposit 33/1/0/0, merge 22/6/0/4, tree 18/4/1/0,
+protocol-config 16/0/1/0, zone-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
+cross-cutting 25/6/0/1.
 
 All added tests pass. Suites run green this pass:
 `shielded-pool-tests` (216 hermetic) and `--features proofs` (incl. the new
@@ -163,7 +170,7 @@ closed this pass by `spp-test-validator/tests/lifecycle.rs`
 submitted with owner B's `user_record` fails with 7008, leaving the tree and the
 fixture's spendable set unchanged.
 
-22 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
+21 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
 count/delta assertion or the full-batch/localnet leg is missing. The notable ones:
 INV-MERGE-12/13/14 (real localnet merges pass but do not assert the exact +8/+1
 tree deltas or the event field-by-field), INV-BATCH-NULL-04/05/06 (the
