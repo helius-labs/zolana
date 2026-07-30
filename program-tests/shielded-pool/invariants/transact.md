@@ -164,8 +164,14 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical (fund theft)
   - Suggested test: negative; harness: mollusk unit
 
-- [ ] **INV-TRANSACT-14: SPL withdrawal requires the canonical CPI authority**
-  - Not applicable post-PR164 (`cpi_authority` is no longer instruction data: the SPL withdrawal account group carries the canonical authority PDA by construction and the vault's token-owner field must equal it -- the binding is now covered by INV-TRANSACT-15's canonical-vault/ownership checks). The covering `spl_withdrawal_rejects_a_wrong_cpi_authority` test was removed with the field.
+- [x] **INV-TRANSACT-14: SPL settlement requires the canonical cpi_authority account**
+  - Covered by: `program-tests/shielded-pool/tests/transact/settlement.rs` `spl_withdrawal_rejects_a_wrong_cpi_authority_account`
+  - Kind: precondition
+  - Statement: on every SPL settlement leg (`SplDeposit` / `SplWithdrawal`), the account at the `cpi_authority` slot (first of the SPL account group) must be the canonical `SHIELDED_POOL_CPI_AUTHORITY` PDA; any other address returns Err. The check is defense-in-depth: `settle_spl_withdrawal` derives its signer from the hardcoded seed, and INV-TRANSACT-15 independently pins the vault's token-owner field to the same authority. (The retired piece is the `cpi_authority` INSTRUCTION-DATA field, which PR164 removed; the account slot and its validation remain live.)
+  - Location: `programs/shielded-pool/src/instructions/settlement/validate.rs:77-83` (`fn validate_cpi_authority`), called from `transact/account.rs:78,84` on both SPL legs
+  - Error: `ShieldedPoolError::InvalidSettlementAccounts = 7009`
+  - Severity: Medium (defense-in-depth)
+  - Suggested test: none remaining (negative exists)
 
 - [x] **INV-TRANSACT-15: SPL vault must be the canonical per-mint vault PDA**
   - Covered by: `program-tests/shielded-pool/tests/transact/settlement.rs` `spl_withdrawal_rejects_a_non_canonical_vault`, `spl_withdrawal_rejects_a_vault_user_mint_mismatch`, `spl_withdrawal_rejects_a_vault_not_owned_by_the_cpi_authority`

@@ -281,6 +281,38 @@ if (( covered_by_fail )); then
   failed=1
 fi
 
+# (g) N/A claims of removal must hold. When a `Not applicable post-PR164`
+# note claims a backticked symbol removed (the removal verb within ~70 chars
+# after the token), that symbol must not appear in `programs/shielded-pool/src`
+# code (comment lines do not count). Only snake_case and `::`-path tokens are
+# checked (fields/functions/variant paths): bare CamelCase tokens are type
+# names that legitimately exist (e.g. `OwnerTag`, `TransactProof`). Catches a
+# stale N/A that outlived the code it describes (see INV-TRANSACT-14).
+na_fail=0
+na_notes=$(grep -h "Not applicable post-PR164" "$inv_dir"/*.md || true)
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  while IFS= read -r tok; do
+    [ -z "$tok" ] && continue
+    case "$tok" in
+      *\**) continue ;;  # glob families (e.g. MERGE_ENCRYPTED_UTXO_*)
+    esac
+    [[ "$tok" =~ ^[a-z_][a-z0-9_]*$ || "$tok" =~ :: ]] || continue
+    after=${line#*\`$tok\`}
+    window=${after:0:70}
+    printf '%s' "$window" | grep -qiE 'removed|deleted|retired|no longer|gone' || continue
+    hits=$(git grep -nF "$tok" -- programs/shielded-pool/src | awk -F: '$3 !~ /^ *\/\//' || true)
+    if [ -n "$hits" ]; then
+      echo "invariants N/A note claims '$tok' was removed, but it exists in programs/shielded-pool/src:" >&2
+      printf '%s\n' "$hits" >&2
+      na_fail=1
+    fi
+  done <<< "$(printf '%s' "$line" | grep -oE '`[^`]+`' | tr -d '`' || true)"
+done <<< "$na_notes"
+if (( na_fail )); then
+  failed=1
+fi
+
 if (( failed )); then
   exit 1
 fi

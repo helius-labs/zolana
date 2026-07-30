@@ -10,9 +10,11 @@
 //!   byte.
 //!
 //! Removed with the old public-amount fields: the C-01 both-amounts case
-//! (multiple interface-transfer legs are now legal and settle independently)
-//! and the wrong-`cpi_authority` case (the CPI authority is canonical and no
-//! longer instruction data).
+//! (multiple interface-transfer legs are now legal and settle independently).
+//! The `cpi_authority` instruction-data FIELD was removed too, but the
+//! cpi_authority ACCOUNT slot is still validated against the canonical PDA —
+//! its negative lives in `spl_withdrawal_rejects_a_wrong_cpi_authority_account`
+//! (INV-TRANSACT-14).
 
 use shielded_pool_tests::support::fixtures::Pool;
 
@@ -277,6 +279,37 @@ fn token_account_bytes(mint: &Pubkey, owner: &Pubkey, state: u8, len: usize) -> 
         *byte = state;
     }
     data
+}
+
+#[test]
+fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
+    let mut env = SplWithdrawalEnv::boot();
+    // INV-TRANSACT-14: substitute a non-canonical account at the cpi_authority
+    // slot (the first account of the SPL-withdrawal group, hardcoded by the
+    // builder); the slot is validated against `SHIELDED_POOL_CPI_AUTHORITY`
+    // before any vault check runs.
+    let ix_data = spl_withdrawal_leg(sol_withdrawal_ix_data(), 1_000, &env.mint);
+    let mut ix = Transact {
+        payer: env.attacker.pubkey(),
+        input_tree: env.tree.pubkey(),
+        output_tree: env.tree.pubkey(),
+        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
+            env.valid_withdrawal(),
+        )],
+        data: ix_data,
+    }
+    .instruction();
+    ix.accounts.get_mut(3).expect("cpi_authority meta").pubkey = Pubkey::new_unique();
+
+    let error = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect_err("a non-canonical cpi_authority account must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(error);
+    env.rpc
+        .last_transaction_trace()
+        .expect("cpi_authority rejection trace")
+        .assert_rolled_back_except(&[env.attacker.pubkey()]);
 }
 
 #[test]
