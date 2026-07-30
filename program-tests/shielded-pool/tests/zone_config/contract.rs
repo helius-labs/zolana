@@ -146,6 +146,11 @@ fn zone_config_creation_rejects_an_unsigned_payer() {
         backend.rpc.account_data(&zone_config_address()).is_none(),
         "rejected create must not allocate the config"
     );
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -169,6 +174,11 @@ fn zone_config_creation_rejects_a_wrong_system_program() {
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("wrong system program must fail");
     Rejection::new(InstructionError::IncorrectProgramId).assert_litesvm(err);
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -191,6 +201,11 @@ fn zone_config_creation_rejects_a_truncated_payload() {
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("truncated payload must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -248,6 +263,11 @@ fn zone_config_creation_rejects_double_initialization() {
         config_after_create,
         "rejected re-init must leave the config untouched"
     );
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -302,6 +322,11 @@ fn zone_owner_rotation_rejects_a_non_authority_signer() {
         backend.authority.pubkey().to_bytes(),
         "rejected rotation must not change the authority"
     );
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -361,6 +386,11 @@ fn zone_owner_rotation_rejects_a_truncated_payload() {
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority, &next])
         .expect_err("truncated payload must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -384,6 +414,11 @@ fn zone_config_update_rejects_a_truncated_payload() {
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("truncated payload must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -416,6 +451,11 @@ fn zone_owner_burn_freezes_the_toggle_for_the_old_authority() {
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("rotation to the default address must fail");
     Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 
     // The practical burn: rotate to a signing key whose secret is then
     // discarded. Afterwards the old authority can neither toggle nor rotate.
@@ -429,12 +469,22 @@ fn zone_owner_burn_freezes_the_toggle_for_the_old_authority() {
         .update_zone_config(&backend.authority, &zone_config, true)
         .expect_err("old authority toggle must fail after the burn");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
     let next = Keypair::new();
     let err = backend
         .rpc
         .update_zone_config_owner(&backend.authority, &zone_config, &next)
         .expect_err("old authority rotation must fail after the burn");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
     // The enabled flag stays exactly in its last state.
     let config = read_zone_config(&backend, &zone_config);
     assert_eq!(config.zone_authority_transact_is_enabled, 0);

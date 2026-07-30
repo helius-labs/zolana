@@ -174,7 +174,7 @@ now states H=32 and lists tag 51.
 ### Forester Reimbursement
 
 - [x] **INV-BATCH-NULL-08: forester reimbursement preserves the tree's rent floor**
-  - Covered by: `programs/shielded-pool/src/instructions/shared.rs` units `reimbursement_moves_funded_lamports_and_preserves_rent`, `reimbursement_cannot_spend_tree_rent` (7027 leg)
+  - Covered by: `program-tests/shielded-pool/tests/tree/contract.rs` `reimbursement_moves_funded_lamports_and_preserves_rent`, `reimbursement_cannot_spend_tree_rent` (7027 leg), `reimbursement_recipient_balance_overflow_is_invalid_forester_fee` (7026 leg)
   - Kind: postcondition
   - Statement: when an update applies N batches, the tree's lamports decrease by exactly N × `FORESTER_REIMBURSEMENT_LAMPORTS` and the `reimbursement_recipient` gains exactly that amount; the transfer fails with 7027 unless the tree keeps at least its rent-exempt minimum, with 7026 on amount overflow, and with 7001 when tree == recipient; an update that applies zero batches (no event produced) skips reimbursement entirely.
   - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:49-52`, `shared.rs:107-143` (`fn reimburse_forester`)

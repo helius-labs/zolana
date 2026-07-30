@@ -70,6 +70,11 @@ fn asset_counter_rejects_a_non_protocol_authority() {
             .is_none(),
         "rejected create must not allocate the counter"
     );
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -93,6 +98,11 @@ fn asset_counter_creation_rejects_an_unsigned_authority() {
             .is_none(),
         "rejected create must not allocate the counter"
     );
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -109,6 +119,11 @@ fn asset_counter_creation_rejects_a_wrong_system_program() {
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
         .expect_err("wrong system program must fail");
     Rejection::new(InstructionError::IncorrectProgramId).assert_litesvm(err);
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -132,6 +147,11 @@ fn asset_counter_creation_rejects_trailing_instruction_bytes() {
             .is_none(),
         "rejected create must not allocate the counter"
     );
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -245,4 +265,9 @@ fn asset_counter_rejects_double_initialization() {
         counter_after_create,
         "rejected re-init must leave the counter untouched"
     );
+    backend
+        .rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[backend.rpc.payer.pubkey()]);
 }

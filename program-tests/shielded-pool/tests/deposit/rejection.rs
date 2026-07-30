@@ -383,6 +383,10 @@ fn paused_tree_rejects_zone_deposit() {
         .zone_deposit(&tree, &depositor, &data)
         .expect_err("paused tree zone deposit must fail");
     Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -411,6 +415,10 @@ fn zone_deposit_rejects_a_signer_that_is_not_the_zone_authority() {
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
         .expect_err("wrong zone signer must fail");
     Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -442,6 +450,10 @@ fn zone_deposit_rejects_an_unsigned_zone_config() {
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
         .expect_err("unsigned zone config must fail");
     Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -474,6 +486,10 @@ fn zone_deposit_rejects_malformed_payload_exactly() {
         .create_and_send_default_payer_transaction(&[truncated], &[&depositor])
         .expect_err("truncated zone deposit payload must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 
     let mut trailing = ix;
     trailing.data.push(0);
@@ -482,6 +498,10 @@ fn zone_deposit_rejects_malformed_payload_exactly() {
         .create_and_send_default_payer_transaction(&[trailing], &[&depositor])
         .expect_err("trailing zone deposit payload byte must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
+    pool.rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 }
 
 /// SPP-shaped zone SOL deposit instruction (as a zone program would CPI it,

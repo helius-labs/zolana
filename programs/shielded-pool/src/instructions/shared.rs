@@ -19,7 +19,7 @@ pub(crate) fn bool_field(value: bool) -> [u8; 32] {
     field
 }
 
-pub(crate) fn tree_error(error: TreeError) -> ProgramError {
+pub fn tree_error(error: TreeError) -> ProgramError {
     match error {
         TreeError::Paused => ShieldedPoolError::TreePaused.into(),
         TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
@@ -96,7 +96,10 @@ pub fn collect_forester_fee(
     .invoke()
 }
 
-fn forester_fee_amount(inserted_elements: u64, zkp_batch_size: u64) -> Result<u64, ProgramError> {
+pub fn forester_fee_amount(
+    inserted_elements: u64,
+    zkp_batch_size: u64,
+) -> Result<u64, ProgramError> {
     forester_fee_per_queue_element(zkp_batch_size)
         .and_then(|fee| fee.checked_mul(inserted_elements))
         .ok_or_else(|| ShieldedPoolError::InvalidForesterFee.into())
@@ -122,7 +125,7 @@ pub fn reimburse_forester(
     reimburse_forester_with_rent_minimum(tree, recipient, amount, rent_minimum)
 }
 
-fn reimburse_forester_with_rent_minimum(
+pub fn reimburse_forester_with_rent_minimum(
     tree: &mut AccountView,
     recipient: &mut AccountView,
     amount: u64,
@@ -232,60 +235,4 @@ pub fn verify_pda(
     _program_id: &Address,
 ) -> Result<u8, ProgramError> {
     unimplemented!("verify_pda requires Solana runtime syscalls")
-}
-
-#[cfg(test)]
-mod tests {
-    use zolana_account_checks::account_info::test_account_info::get_account_view;
-
-    use super::*;
-
-    #[test]
-    fn per_tree_fee_scales_with_inserted_elements() {
-        assert_eq!(forester_fee_amount(3, 250).unwrap(), 60);
-    }
-
-    #[test]
-    fn reimbursement_moves_funded_lamports_and_preserves_rent() {
-        let mut tree = get_account_view(
-            [1; 32],
-            crate::ID.to_bytes(),
-            false,
-            true,
-            false,
-            vec![0; 10],
-        );
-        let mut recipient = get_account_view([2; 32], [0; 32], false, true, false, vec![]);
-        tree.set_lamports(6_500);
-        recipient.set_lamports(1_000);
-
-        reimburse_forester_with_rent_minimum(&mut tree, &mut recipient, 5_000, 1_500).unwrap();
-
-        assert_eq!(tree.lamports(), 1_500);
-        assert_eq!(recipient.lamports(), 6_000);
-    }
-
-    #[test]
-    fn reimbursement_cannot_spend_tree_rent() {
-        let mut tree = get_account_view(
-            [1; 32],
-            crate::ID.to_bytes(),
-            false,
-            true,
-            false,
-            vec![0; 10],
-        );
-        let mut recipient = get_account_view([2; 32], [0; 32], false, true, false, vec![]);
-        tree.set_lamports(6_499);
-
-        let error = reimburse_forester_with_rent_minimum(&mut tree, &mut recipient, 5_000, 1_500)
-            .unwrap_err();
-
-        assert_eq!(
-            error,
-            ProgramError::Custom(ShieldedPoolError::InsufficientForesterFeeBalance as u32)
-        );
-        assert_eq!(tree.lamports(), 6_499);
-        assert_eq!(recipient.lamports(), 1_000);
-    }
 }

@@ -299,6 +299,9 @@ fn merge_zone_rejects_an_unsigned_zone_config() {
         zolana_account_checks::AccountError::InvalidSigner,
     ))
     .assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -478,6 +481,9 @@ fn merge_zone_rejects_a_zone_config_with_a_wrong_owner() {
         .create_and_send_default_payer_transaction(&[ix], &[&impostor])
         .expect_err("a zone config with a wrong owner must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -493,6 +499,9 @@ fn merge_zone_rejects_a_zone_config_with_a_wrong_discriminator() {
         .create_and_send_default_payer_transaction(&[ix], &[&fake])
         .expect_err("a zone config with a wrong discriminator must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -522,6 +531,9 @@ fn merge_zone_rejects_an_unsigned_payer() {
         zolana_account_checks::AccountError::InvalidSigner,
     ))
     .assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -537,6 +549,9 @@ fn merge_zone_rejects_a_wrong_input_count_shape_exactly() {
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a 7-input zone merge must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
 #[test]
@@ -567,4 +582,35 @@ fn merge_zone_rejects_a_paused_tree() {
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a zone merge against a paused tree must be rejected");
     Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
+}
+
+mod program_unit {
+    use pinocchio::error::ProgramError;
+    use shielded_pool_program::{testing::MergeTransactAccounts, ID};
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+
+    use super::*;
+
+    #[test]
+    fn rejects_invalid_system_program_with_specific_error() {
+        let mut accounts = [
+            get_account_view([1; 32], ID.to_bytes(), false, true, false, vec![]),
+            get_account_view([2; 32], ID.to_bytes(), false, true, false, vec![]),
+            get_account_view([3; 32], [0; 32], true, true, false, vec![]),
+            get_account_view([4; 32], [0; 32], false, false, false, vec![]),
+            get_account_view([5; 32], [0; 32], false, false, true, vec![]),
+        ];
+
+        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts) {
+            Ok(_) => panic!("invalid System Program must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            ProgramError::Custom(ShieldedPoolError::InvalidSystemProgram as u32)
+        );
+    }
 }

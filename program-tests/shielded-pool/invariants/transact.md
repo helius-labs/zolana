@@ -127,7 +127,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Not applicable post-PR164 (the `public_sol_amount`/`public_spl_amount` fields were replaced by an ordered `interface_transfers` list; multiple legs -- including SOL and SPL legs in one instruction -- are legal and settle independently per leg, so the both-present guard is unnecessary). The covering `both_public_amounts_are_rejected` test was removed with the fields.
 
 - [x] **INV-TRANSACT-34: circuit selector family must match the dispatched tag**
-  - Covered by: `programs/shielded-pool/tests/validate_circuit.rs` `selector_family_must_match_instruction`
+  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
   - Statement: before any account is read, `Transact` accepts only `CircuitId::ConfidentialEddsa`, `ZoneTransact` only `ZoneEddsa`, `ZoneAuthorityTransact` only `ZoneAuthority`; any other selector returns Err. The untrusted selector is validated before it may drive account parsing, proof-input layout, or key selection.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
@@ -136,7 +136,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative per (tag, selector family) pair; harness: mollusk unit
 
 - [x] **INV-TRANSACT-35: selector shape must equal the payload shape and be supported**
-  - Covered by: `programs/shielded-pool/tests/validate_circuit.rs` `selector_dimensions_and_signer_indices_are_fail_closed`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_overrunning_eddsa_signer_index`, `program-libs/interface/src/verifying_keys/circuit.rs` `supported_shapes_are_fail_closed`
+  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_and_signer_indices_are_fail_closed`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_overrunning_eddsa_signer_index`, `program-libs/interface/src/verifying_keys/circuit.rs` `supported_shapes_are_fail_closed`
   - Kind: precondition
   - Statement: the instruction returns Err unless `circuit.num_inputs() == inputs.len()`, `circuit.num_outputs() == outputs.len()`, `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and no input carries the retired P256 sentinel `eddsa_signer_index == 255`.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:152-163` (`fn validate_circuit_type`); supported-shape table `program-libs/interface/src/verifying_keys/circuit.rs:73-96`
@@ -224,7 +224,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative at the slot boundary and at the u64 magnitude boundary; harness: mollusk unit
 
 - [x] **INV-TRANSACT-38: public-slot aggregation semantics**
-  - Covered by: `program-tests/shielded-pool/tests/transact/mixed_interface_transfers.rs` `two_sol_withdrawals_share_one_public_asset_slot`, `three_distinct_assets_support_opposite_public_directions`, `full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification`, `reordered_same_asset_account_groups_fail_closed`; pinned by `programs/shielded-pool/src/instructions/transact/verify.rs` `field_derivation_vector_pins_the_shared_encodings`
+  - Covered by: `program-tests/shielded-pool/tests/transact/mixed_interface_transfers.rs` `two_sol_withdrawals_share_one_public_asset_slot`, `three_distinct_assets_support_opposite_public_directions`, `full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification`, `reordered_same_asset_account_groups_fail_closed`; pinned by `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `field_derivation_vector_pins_the_shared_encodings`
   - Kind: state
   - Statement: legs aggregate by first-seen asset into the circuit's fixed slots, deposits positive and withdrawals negative; an assigned slot stays occupied even when its net returns to zero; the asset field is `SOL_ASSET_FIELD` for SOL legs and `hash_bytes(mint)` for SPL legs; settlement then executes per leg (not per slot) after proof verification.
   - Location: `programs/shielded-pool/src/instructions/transact/interface_transfer.rs:19-75` (`fn process_interface_transfers`)
@@ -270,7 +270,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:133-204` (`fn public_input_hash`), `verify.rs:62-75` (`fn fill_output_owner_pk_hashes`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (output redirection)
-  - Suggested test: negative + golden vector (exists: `verify.rs` `circuit_vector_tests`); harness: mollusk unit + `cargo test -p`
+  - Suggested test: negative + golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: mollusk unit + `cargo test -p`
 
 ### Success Postconditions
 
@@ -323,13 +323,13 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: positive both directions; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-TRANSACT-42: forester fee is collected from the payer per queued input**
-  - Covered by: `programs/shielded-pool/src/instructions/shared.rs` unit `per_tree_fee_scales_with_inserted_elements`; exercised economically in `program-tests/spp-test-validator/tests/actions/merge.rs` (no exact on-chain delta assertion)
+  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (exact on-chain deltas: tree gains 40, payer loses 5_000+40); overflow legs `program-tests/shielded-pool/tests/tree/contract.rs` `forester_fee_overflow_is_invalid_forester_fee`, `reimbursement_recipient_balance_overflow_is_invalid_forester_fee` (7026)
   - Kind: postcondition
   - Statement: after proof verification, the payer transfers exactly `forester_fee_per_queue_element(zkp_batch_size) * inputs.len()` lamports to the input tree via one System-Program CPI; a fee-computation overflow returns 7026; a zero fee skips the CPI; the tree must be writable and program-owned else 7001.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:121-126` (`fn process_transact_ix`), `shared.rs:77-103` (`fn collect_forester_fee`)
   - Error: `ShieldedPoolError::InvalidForesterFee = 7026`
   - Severity: High (fund movement)
-  - Suggested test: positive with exact lamport delta; harness: program-tests integration (`cargo test-sbf`)
+  - Suggested test: none remaining (exact deltas and both reachable 7026 overflow legs are pinned; the applied-batches multiplication cannot overflow from a u32 — type-bound pinned in `applied_batches_cannot_overflow_by_type_bound`)
 
 - [x] **INV-TRANSACT-44: SPL deposit settles only if the vault gains exactly the nominal amount**
   - Covered by: `program-tests/shielded-pool/tests/spl_interface/rejection.rs` `transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount`
@@ -430,12 +430,12 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-ZONE-TRANSACT-05: zone variant folds no output-owner public inputs**
-  - Covered by: `programs/shielded-pool/src/instructions/transact/verify.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
+  - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
   - Statement: the `zone_transact` public-input hash chain contains the 6-element base, the interleaved public movement slots, then `zone_program_id`, `payer_pubkey_hash`, `allow_dummy_inputs`, `hash_chain(input_owner_pk_hashes)`, and `hash_chain(output_owner_pk_hashes)` (ZoneEddsa binds output owners; ZoneAuthority omits both owner chains).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:192-202` (`fn public_input_hash`)
   - Severity: High
-  - Suggested test: golden vector (exists: `circuit_vector_tests`); harness: `cargo test -p zolana-shielded-pool`
+  - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
 - [ ] **INV-ZONE-TRANSACT-06: P256-owned zone inputs fold the zero sentinel**
   - Not applicable post-PR164 (the P256 zone-transfer rail was removed; the covering `p256_zone_transfer_updates_recipient_wallet` test was deleted with it).
@@ -493,12 +493,12 @@ covers the whole group) and referenced from the coverage matrix.
   - Not applicable post-PR164 (`TransactProof` is a single plain Groth16 struct -- there is no committed/P256 encoding to mismatch, and `MismatchedTransactProofRail` no longer exists). The covering `zone_authority_transact_rejects_a_p256_proof_encoding` test was removed with the rail.
 
 - [x] **INV-ZONE-AUTH-06: authority variant folds no input-owner public inputs**
-  - Covered by: `programs/shielded-pool/src/instructions/transact/verify.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
+  - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
   - Statement: the `zone_authority_transact` public-input hash chain contains the 6-element base, the interleaved public movement slots, then `zone_program_id`, `payer_pubkey_hash`, and `allow_dummy_inputs` (no input-owner chain, no output-owner chain).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:192-202` (`fn public_input_hash`, authority selector omits both owner chains)
   - Severity: High
-  - Suggested test: golden vector (exists: `circuit_vector_tests`); harness: `cargo test -p zolana-shielded-pool`
+  - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
 - [x] **INV-ZONE-AUTH-07: zone_program_id binds the signing zone**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `zone_authority_transact_rejects_a_proof_bound_to_a_different_zone`

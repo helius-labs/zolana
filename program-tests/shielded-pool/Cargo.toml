@@ -30,7 +30,9 @@ solana-transaction = { workspace = true }
 spl-token-2022-interface = { workspace = true }
 solana-system-interface = { workspace = true }
 spl-token = { workspace = true }
-zolana-account-checks = { workspace = true }
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+pinocchio = { workspace = true }
+shielded-pool-program = { workspace = true, features = ["test-sbf"] }
 zolana-interface = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
@@ -225,3 +227,19 @@ required-features = ["localnet"]
 name = "bench_cu"
 path = "tests/bench/cu.rs"
 required-features = ["proofs"]
+
+[[test]]
+name = "transact_circuit_vectors"
+path = "tests/transact/circuit_vectors.rs"
+
+[[test]]
+name = "transact_validate_circuit"
+path = "tests/transact/validate_circuit.rs"
+
+[[test]]
+name = "spl_interface_validation"
+path = "tests/spl_interface/validation.rs"
+
+[[test]]
+name = "dispatch_validation"
+path = "tests/dispatch/validation.rs"

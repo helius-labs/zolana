@@ -1,5 +1,20 @@
 pub mod instructions;
 
+/// Test-only re-exports for the program-tests crate (`test-sbf` is never
+/// enabled for the shipped .so): the smallest surface the moved unit tests
+/// need, nothing more.
+#[cfg(feature = "test-sbf")]
+pub mod testing {
+    pub use crate::instructions::hash::solana_pk_hash;
+    pub use crate::instructions::merge::account::MergeTransactAccounts;
+    pub use crate::instructions::shared::{
+        forester_fee_amount, reimburse_forester_with_rent_minimum, tree_error,
+    };
+    pub use crate::instructions::transact::verify::{
+        amount_field, TransactProof, TransactProofInputs,
+    };
+}
+
 use light_program_profiler::profile;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_interface::instruction::tag::InstructionTag;

@@ -6,7 +6,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 ## Dispatch
 
 - [x] **INV-XC-01: wrong program id is rejected**
-  - Covered by: `programs/shielded-pool/tests/instruction_validation.rs` `rejects_the_wrong_program_before_dispatch`
+  - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `rejects_the_wrong_program_before_dispatch`
   - Kind: precondition
   - Affects: all 18 instructions
   - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA`.
@@ -16,7 +16,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-XC-02: empty instruction data is rejected**
-  - Covered by: `programs/shielded-pool/tests/instruction_validation.rs` `rejects_empty_unknown_and_malformed_instruction_data_exactly`
+  - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `rejects_empty_unknown_and_malformed_instruction_data_exactly`
   - Kind: precondition
   - Affects: all 18 instructions
   - Statement: `process_instruction` returns Err for the zero-length instruction data (no tag byte).
@@ -26,7 +26,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-XC-03: every unknown tag is rejected**
-  - Covered by: `programs/shielded-pool/tests/instruction_validation.rs` `every_first_byte_dispatches_or_is_rejected_exactly` (full 256-byte sweep)
+  - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `every_first_byte_dispatches_or_is_rejected_exactly` (full 256-byte sweep)
   - Kind: precondition
   - Affects: all 18 instructions
   - Statement: for every first byte outside the set {0..16, 51}, `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
@@ -37,15 +37,15 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 
 ## Atomicity / Rollback
 
-- [ ] **INV-XC-04: every failing instruction leaves every account unchanged**
-  - Partial coverage: `program-tests/shielded-pool/tests/deposit/rejection.rs` `sol_deposit_rejects_foreign_tree_atomically` and peers (rollback asserted for Transact, Deposit, Merge, CreateTree, PauseTree, and SPL paths; the zone variants, ZoneDeposit, ZoneMerge, CreateAssetCounter, and zone-config updates lack account-equality assertions)
+- [x] **INV-XC-04: every failing instruction leaves every account unchanged**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `expect_ix_rejection` (asserts `last_transaction_trace().assert_rolled_back_except(&[payer])` on every Transact, ZoneTransact, and ZoneAuthorityTransact rejection, including `zone_transact_rejects_an_unsigned_zone_config` and `zone_authority_transact_rejects_an_unsigned_zone_config`); `program-tests/shielded-pool/tests/deposit/rejection.rs` `sol_deposit_rejects_foreign_tree_atomically` (Deposit) and `paused_tree_rejects_zone_deposit`, `zone_deposit_rejects_a_signer_that_is_not_the_zone_authority`, `zone_deposit_rejects_an_unsigned_zone_config`, `zone_deposit_rejects_malformed_payload_exactly` (ZoneDeposit); `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_dummy_inputs_after_capacity_threshold` (MergeTransact) and all six `merge_zone_rejects_*` tests (ZoneMergeTransact); `program-tests/shielded-pool/tests/spl_interface/contract.rs` `asset_counter_rejects_a_non_protocol_authority` and peers (CreateAssetCounter); `program-tests/shielded-pool/tests/zone_config/contract.rs` rejection tests (CreateZoneConfig, UpdateZoneConfig, UpdateZoneConfigOwner); `program-tests/shielded-pool/tests/admin/rejection.rs` (CreateTree, PauseTree); `program-tests/shielded-pool/tests/spl_interface/rejection.rs` (CreateSplInterface and SPL deposit paths); `program-tests/shielded-pool/tests/nullifier/batch.rs` (BatchUpdateNullifierTree); `program-tests/shielded-pool/tests/protocol_config/contract.rs` (UpdateProtocolConfig)
   - Kind: rollback
   - Affects: all 18 instructions
   - Statement: when any shielded-pool instruction returns Err, every account's data and lamports after the transaction equal their values before it (SVM transaction rollback; the program never communicates partial state outside the transaction).
   - Location: `programs/shielded-pool/src/lib.rs:33-76` (`fn process_instruction`); runtime guarantee relied on because tree writes precede proof verification (see INV-XC-05)
   - Severity: Critical
   - Suggested test: negative per instruction (assert full account equality after Err); harness: mollusk unit / litesvm
-  - Note: this is the per-instruction "rollback" cell of the coverage matrix; each instruction needs at least one failing-path test asserting account equality.
+  - Note: this is the per-instruction "rollback" cell of the coverage matrix; each instruction has at least one failing-path test asserting `last_transaction_trace().assert_rolled_back_except(&[fee_payer])` (full pre/post account equality outside the fee payer) or explicit per-account equality. No legs remain partial.
 
 - [x] **INV-XC-05: a failing proof leaves the trees unchanged**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly`
@@ -119,10 +119,10 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: postcondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact
   - Statement: every element of the recomputed public-input hash chain (nullifiers, output hashes, roots, `private_tx_hash`, `external_data_hash`, public amounts, mint, zone program id, payer hash, owner fields) enters the chain exactly once, and changing any single element after proving makes verification return Err; the on-chain assembly is pinned to the Go circuit ordering by golden vectors.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:133-204` (`fn public_input_hash`), `merge/verify.rs:84-115`; vectors `transact/verify.rs:238-621` (`mod circuit_vector_tests`)
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:133-204` (`fn public_input_hash`), `merge/verify.rs:84-115`; vectors `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical
-  - Suggested test: property (per-field bit-flip loop) + golden vectors (exist); harness: `cargo test -p zolana-shielded-pool` + program-tests integration
+  - Suggested test: property (per-field bit-flip loop) + golden vectors (exist); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors` + program-tests integration
 
 - [ ] **INV-XC-12: proof encoding and rail must match the selected circuit**
   - Not applicable post-PR164 (the P256 rail and the `TransactProof::P256` encoding were removed; `TransactProof` is a single plain Groth16 struct, so no encoding/rail mismatch class remains). The covering `transact_rejects_a_p256_proof_on_the_eddsa_rail` test was removed with the rail.
@@ -200,13 +200,13 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - INSUFFICIENT_INFO: the exact conservation formula lives in the Go circuits (`prover/server/circuits/spp_transaction`, `spp_merge`), outside the analyzed Rust source; on the Rust side only the binding (INV-XC-11) is testable.
 
 - [x] **INV-XC-20: signed public amounts encode as BN254 field elements**
-  - Covered by: `programs/shielded-pool/src/instructions/transact/verify.rs` `field_derivation_vector_pins_the_shared_encodings`
+  - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `field_derivation_vector_pins_the_shared_encodings`
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
   - Statement: the public-amount public inputs are exactly `Fr::from(amount)` big-endian (negative amounts reduce modulo the BN254 scalar field); slots are aggregated `i128` per asset with unused slots exactly zero; the encoding is pinned by the committed field-derivation vector including negative values.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:207-221` (`fn amount_field`), vector test at 526-620
   - Severity: High
-  - Suggested test: golden vector (exists); harness: `cargo test -p zolana-shielded-pool`
+  - Suggested test: golden vector (exists); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
 ## Lamports and PDAs
 
@@ -286,20 +286,20 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-28: error codes are stable**
   - Kind: state
   - Affects: all instructions
-  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7045 — 42 variants; 7020/7021/7023/7024 retired), pinned one-by-one.
+  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7044 — 41 variants; 7020/7021/7023/7024 retired; 7045 `SplAssetCounterAlreadyInitialized` lands with the security/spp-config-init-gate branch), pinned one-by-one with a compiler-exhaustive variant match and a count assert.
   - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
   - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
   - Covered by: `program-libs/interface/src/error.rs` `error_codes_are_stable`
 
-- [ ] **INV-XC-29: InterfaceError and TreeError conversions are fixed**
-  - Partial coverage: `program-tests/shielded-pool/tests/admin/rejection.rs` `pause_tree_rejects_wrong_config_owner_exactly` (the 7012/7013/7001 mappings are exercised through instruction paths; no dedicated conversion-table test)
+- [x] **INV-XC-29: InterfaceError and TreeError conversions are fixed**
+  - Covered by: `program-libs/interface/tests/error_conversions.rs` `interface_error_conversions_are_stable`, `tree_error_conversions_are_stable` (full per-variant tables incl. the catch-all enumeration)
   - Kind: state
   - Affects: all instructions using loaders or trees
-  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012, AlreadyInitialized -> 7045; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001.
+  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001. (The `AlreadyInitialized -> 7045` `SplAssetCounterAlreadyInitialized` row lands with the security/spp-config-init-gate branch, like the other forward references in this ledger.)
   - Location: `program-libs/interface/src/error.rs:128-151` (`impl From<InterfaceError>`, `impl From<TreeError>`)
   - Severity: Medium
-  - Suggested test: positive (table test); harness: `cargo test -p zolana-interface`
+  - Suggested test: none remaining (table test exists)
 
 - [ ] **INV-XC-30: formerly-"unreachable" error variants are both reachable**
   - Kind: state
@@ -309,8 +309,8 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Severity: Medium (error-surface hygiene)
   - Suggested test: none (pointer entry; the firing conditions carry their own invariants)
 
-- [ ] **INV-XC-31: tree_error maps TreeError to exactly four pool errors**
-  - Partial coverage: pause/stale-root legs exercised everywhere (7013, 7015); the `From<TreeError>` 7004 full-tree append leg is covered by `program-tests/shielded-pool/tests/tree/contract.rs` `deposit_rejects_an_append_to_a_full_utxo_tree` (deposit path via `From<TreeError>`); only `tree_error`'s own 7004 leg (transact/merge output append) has no test
+- [x] **INV-XC-31: tree_error maps TreeError to exactly four pool errors**
+  - Covered by: `program-tests/shielded-pool/tests/tree/contract.rs` `tree_error_table_is_stable` (full per-variant table incl. every catch-all variant), `deposit_rejects_an_append_to_a_full_utxo_tree` (7004 full-tree append leg, deposit path via `From<TreeError>`), `program-libs/interface/tests/error_conversions.rs` `tree_error_conversions_are_stable` (the interface `From<TreeError>` table)
   - Kind: state
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact, Deposit, ZoneDeposit, MergeTransact, ZoneMergeTransact (via `tree_error`); BatchUpdateNullifierTree (via `From<TreeError>`)
   - Statement: `tree_error` maps `Paused -> 7013`, `InvalidRootIndex -> 7015`, `TreeIsFull -> 7004` (a full UTXO tree on append), every other variant -> 7001. The `From<TreeError>` impl agrees on `Paused`/`TreeIsFull` but maps `InvalidRootIndex -> 7001` (the batch-update path has no stale-root reads, so the 7015 leg exists only in `tree_error`).

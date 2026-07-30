@@ -63,7 +63,7 @@ nullifiers.
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-MERGE-18: merge account layout — two trees, signer payer, system program**
-  - Covered by: `programs/shielded-pool/src/instructions/merge/account.rs` unit `rejects_invalid_system_program_with_specific_error`
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `rejects_invalid_system_program_with_specific_error`
   - Kind: precondition
   - Statement: the `merge_transact` account layout is `input_tree` (writable), `output_tree` (writable), `payer` (signer), `user_record`, `system_program`; the `zone_merge_transact` layout is `input_tree`, `output_tree`, `zone_config` (signer), `payer` (signer), `system_program`; the trailing system-program account must be the system program (it is kept in the account keys so the forester-fee Transfer CPI resolves).
   - Location: `programs/shielded-pool/src/instructions/merge/account.rs:19-36` (`fn validate_and_parse`), `merge_zone/account.rs:22-39`
@@ -153,7 +153,7 @@ nullifiers.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:131-136` (`fn process_merge_core`), `shared.rs:77-103` (`fn collect_forester_fee`)
   - Error: `ShieldedPoolError::InvalidForesterFee = 7026`
   - Severity: High (fund movement)
-  - Suggested test: positive (exact lamport deltas); harness: program-tests integration (`cargo test-sbf`)
+  - Suggested test: none remaining (exact deltas pinned; 7026 overflow legs covered by `program-tests/shielded-pool/tests/tree/contract.rs` `forester_fee_overflow_is_invalid_forester_fee`, `reimbursement_recipient_balance_overflow_is_invalid_forester_fee`)
 
 ### Frame Conditions
 

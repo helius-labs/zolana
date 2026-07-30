@@ -281,11 +281,12 @@ fn zone_transact_rejects_an_unsigned_zone_config() {
     // config is even loaded (so the account does not need to exist).
     ix.accounts.get_mut(3).expect("zone config meta").is_signer = false;
 
-    let error = env
-        .rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("unsigned zone config must be rejected");
-    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(error);
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[],
+        Rejection::custom(u32::from(AccountError::InvalidSigner)),
+    );
 }
 
 #[test]
@@ -566,11 +567,12 @@ fn zone_authority_transact_rejects_an_unsigned_zone_config() {
     .cpi_instruction();
     ix.accounts.get_mut(3).expect("zone config meta").is_signer = false;
 
-    let error = env
-        .rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("unsigned zone config must be rejected");
-    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(error);
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[],
+        Rejection::custom(u32::from(AccountError::InvalidSigner)),
+    );
 }
 
 #[test]
