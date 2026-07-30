@@ -6,11 +6,7 @@ export {
   decodeSplAssetRegistry,
   decodeZoneConfig,
 } from "./accounts.js";
-export {
-  MERGE_ENCRYPTED_UTXO_LENGTH,
-  MERGE_ENCRYPTED_UTXO_TYPE_PREFIX,
-  MERGE_INPUT_COUNT,
-} from "./constants.js";
+export { MERGE_INPUT_COUNT } from "./constants.js";
 export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";
 export type {
   DecodedShieldedPoolError,
@@ -31,10 +27,10 @@ export {
   DEFAULT_TREE_ADDRESS,
   DUMMY_DOMAIN,
   InstructionTag,
-  P256_PROOF_LENGTH,
   SHIELDED_POOL_CPI_AUTHORITY,
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
+  SPL_TOKEN_2022_PROGRAM_ID,
   SPL_TOKEN_PROGRAM_ID,
   USER_REGISTRY_PROGRAM_ID,
   UTXO_DOMAIN,

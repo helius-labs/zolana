@@ -101,14 +101,25 @@ export async function createAssetCounterInstruction(
 }
 
 export function createAssociatedTokenAccountInstruction(
-  input: Readonly<{ payer: TransactionSigner; owner: Address; mint: Address }>,
+  input: Readonly<{
+    payer: TransactionSigner;
+    owner: Address;
+    mint: Address;
+    tokenProgram?: Address | null;
+  }>,
 ): Promise<Instruction> {
-  return getCreateAssociatedTokenIdempotentInstructionAsync(input);
+  return getCreateAssociatedTokenIdempotentInstructionAsync({
+    payer: input.payer,
+    owner: input.owner,
+    mint: input.mint,
+    tokenProgram: input.tokenProgram ?? SPL_TOKEN_PROGRAM_ID,
+  });
 }
 
 export async function createSplInterfaceInstruction(
-  input: Readonly<{ authority: SignerAccount; mint: Address }>,
+  input: Readonly<{ authority: SignerAccount; mint: Address; tokenProgram?: Address | null }>,
 ): Promise<Instruction> {
+  const tokenProgram = input.tokenProgram ?? SPL_TOKEN_PROGRAM_ID;
   const [protocolConfig, assetCounter, registry, vault] = await Promise.all([
     protocolConfigAddress(),
     splAssetCounterAddress(),
@@ -123,7 +134,7 @@ export async function createSplInterfaceInstruction(
     meta(input.mint, false, false),
     meta(vault, false, true),
     meta(SYSTEM_PROGRAM, false, false),
-    meta(SPL_TOKEN_PROGRAM_ID, false, false),
+    meta(tokenProgram, false, false),
   ]);
 }
 

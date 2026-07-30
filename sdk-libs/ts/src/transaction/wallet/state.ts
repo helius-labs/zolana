@@ -216,6 +216,7 @@ export class Wallet {
    * Conservatively reserve inputs once Solana accepts a submitted transaction.
    * Sync later confirms the same state from indexed nullifiers; until then these
    * notes must not be selected again for a competing proof.
+   * @internal
    */
   _markSubmitted(outputHashes: readonly Bytes32[]): void {
     const submitted = new Set(outputHashes.map(hex));
@@ -231,6 +232,7 @@ export class Wallet {
    * Atomically reserves a set of inputs before any authority or prover await.
    * Reservations are process-local and become ordinary spent flags only when
    * the submission path reaches its final send boundary.
+   * @internal
    */
   _reserveSubmission(outputHashes: readonly Bytes32[]): symbol {
     const token = Symbol("wallet submission");
@@ -249,17 +251,20 @@ export class Wallet {
     return token;
   }
 
+  /** @internal */
   _canSpendReserved(outputHash: Bytes32, token?: symbol): boolean {
     const reservation = this.#reservations.get(hex(outputHash));
     return reservation === undefined || reservation === token;
   }
 
+  /** @internal */
   _releaseSubmission(token: symbol): void {
     for (const [hash, reservation] of this.#reservations) {
       if (reservation === token) this.#reservations.delete(hash);
     }
   }
 
+  /** @internal */
   _commitSubmission(token: symbol): void {
     const submitted: Bytes32[] = [];
     for (const entry of this.#utxos) {
@@ -307,6 +312,7 @@ export class Wallet {
       );
   }
 
+  /** @internal */
   _state(): Readonly<{
     utxos: readonly WalletUtxo[];
     transactions: readonly PrivateTransaction[];
@@ -324,6 +330,7 @@ export class Wallet {
   /**
    * Omitting `viewingKeyHistory` leaves the scan position untouched, and
    * omitting `lastSynced` leaves the sync timestamp untouched.
+   * @internal
    */
   _replace(
     input: Readonly<{

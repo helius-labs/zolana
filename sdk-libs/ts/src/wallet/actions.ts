@@ -84,18 +84,22 @@ export class UnsignedPrivateTransaction {
     return this.#inputs.length;
   }
 
+  /** @internal */
   _inputs(): readonly UnsignedSpendInput[] {
     return this.#inputs;
   }
 
+  /** @internal */
   _action(): PrivateAction {
     return this.#action;
   }
 
+  /** @internal */
   _withdrawal(): TransactWithdrawal | undefined {
     return this.#withdrawal;
   }
 
+  /** @internal */
   _summary(): string {
     return this.#summary;
   }
@@ -118,6 +122,7 @@ export interface WithdrawalParams {
   readonly recipient: Address;
   readonly asset: Address;
   readonly amount: bigint;
+  readonly splTokenProgram?: Address | null;
 }
 
 export type TransferRecipient =
@@ -237,6 +242,7 @@ function selectInputs(
 async function withdrawal(
   recipient: Address,
   asset: Address,
+  splTokenProgram?: Address | null,
 ): Promise<
   Readonly<{
     target: Extract<PrivateAction, { kind: "withdrawal" }>["target"];
@@ -249,8 +255,9 @@ async function withdrawal(
       accounts: { kind: "sol", recipient },
     };
   }
+  const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
   const [userTokenAccount, [splTokenInterface, vaultBump]] = await Promise.all([
-    associatedTokenAddress(recipient, asset),
+    associatedTokenAddress(recipient, asset, tokenProgram),
     splAssetVaultPda(asset),
   ]);
   return {
@@ -260,7 +267,7 @@ async function withdrawal(
       mint: asset,
       splTokenInterface,
       userTokenAccount,
-      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+      tokenProgram,
     },
   };
 }
@@ -272,7 +279,7 @@ export async function createWithdrawal(params: WithdrawalParams): Promise<Create
   }
   const tree = spendTree(params.wallet, params.asset, plain);
   const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
-  const resolved = await withdrawal(params.recipient, params.asset);
+  const resolved = await withdrawal(params.recipient, params.asset, params.splTokenProgram);
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
       payer: params.payer,

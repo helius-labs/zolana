@@ -1,4 +1,10 @@
-import { AccountRole, address, type Signature, type TransactionSigner } from "@solana/kit";
+import {
+  AccountRole,
+  address,
+  getAddressEncoder,
+  type Signature,
+  type TransactionSigner,
+} from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -6,15 +12,28 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   ShieldedKeypair,
   SOL_MINT,
+  SPL_TOKEN_2022_PROGRAM_ID,
+  SPL_TOKEN_PROGRAM_ID,
   USER_REGISTRY_PROGRAM_ID,
   Wallet,
   createZolanaClient,
+  ensureRegistered,
   setMergingEnabled,
 } from "../src/index.js";
 import type { ZolanaClient } from "../src/client/client.js";
-import { getProtocolConfigAddress, getSplAssetRegistryAddress } from "../src/addresses.js";
-import { getCreateTreeInstructionAsync, getDepositInstructionAsync } from "../src/instructions.js";
+import {
+  getAssociatedTokenAddress,
+  getProtocolConfigAddress,
+  getSplAssetRegistryAddress,
+} from "../src/addresses.js";
+import {
+  getCreateAssociatedTokenAccountInstructionAsync,
+  getCreateSplInterfaceInstructionAsync,
+  getCreateTreeInstructionAsync,
+  getDepositInstructionAsync,
+} from "../src/instructions.js";
 import { InstructionTag, type Bytes32 } from "../src/interface/index.js";
+import { internalUserRecordPda } from "../src/wallet/registry.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const SIGNATURE = "1".repeat(64) as Signature;
@@ -87,6 +106,43 @@ describe("public package surface", () => {
       ],
     });
   });
+
+  it("keeps the owner read-only when updating registry keys", async () => {
+    const current = ShieldedKeypair.generate().shieldedAddress();
+    const replacement = ShieldedKeypair.generate();
+    const pda = await internalUserRecordPda(OWNER);
+    const data = Uint8Array.of(
+      1,
+      ...getAddressEncoder().encode(OWNER),
+      pda.bump,
+      0,
+      ...current.nullifierPublicKey,
+      ...current.viewingPublicKey.toBytes(),
+      0,
+    );
+    const owner = { address: OWNER } as TransactionSigner;
+    const signAndSendInstructions = vi.fn(
+      async (_request: Parameters<ZolanaClient["signAndSendInstructions"]>[0]) => SIGNATURE,
+    );
+
+    await ensureRegistered({
+      client: {
+        getAccount: vi.fn(async () => ({ owner: USER_REGISTRY_PROGRAM_ID, data, lamports: 1n })),
+        signAndSendInstructions,
+      },
+      funding: owner,
+      keypair: replacement,
+    });
+
+    const instruction = signAndSendInstructions.mock.calls[0]?.[0].instructions[0];
+    expect(instruction?.data?.[0]).toBe(2);
+    expect(instruction).toMatchObject({
+      accounts: [
+        { role: AccountRole.WRITABLE },
+        { address: OWNER, role: AccountRole.READONLY_SIGNER },
+      ],
+    });
+  });
 });
 
 describe("address and instruction builders", () => {
@@ -132,5 +188,39 @@ describe("address and instruction builders", () => {
     expect(instruction.data?.[0]).toBe(InstructionTag.deposit);
     expect(instruction.accounts).toHaveLength(5);
     expect(instruction.programAddress).toBe(SHIELDED_POOL_PROGRAM_ID);
+  });
+
+  it("threads Token-2022 through SPL interface and ATA builders", async () => {
+    const authority = { address: OWNER } as TransactionSigner;
+    const [legacyAta, token2022Ata, createInterface, createAta] = await Promise.all([
+      getAssociatedTokenAddress(OWNER, DEFAULT_TREE_ADDRESS),
+      getAssociatedTokenAddress(OWNER, DEFAULT_TREE_ADDRESS, SPL_TOKEN_2022_PROGRAM_ID),
+      getCreateSplInterfaceInstructionAsync({
+        authority,
+        mint: DEFAULT_TREE_ADDRESS,
+        tokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
+      }),
+      getCreateAssociatedTokenAccountInstructionAsync({
+        payer: authority,
+        owner: OWNER,
+        mint: DEFAULT_TREE_ADDRESS,
+        tokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
+      }),
+    ]);
+
+    expect(legacyAta).not.toBe(token2022Ata);
+    expect(createInterface.accounts?.at(-1)?.address).toBe(SPL_TOKEN_2022_PROGRAM_ID);
+    expect(
+      createAta.accounts?.some((account) => account.address === SPL_TOKEN_2022_PROGRAM_ID),
+    ).toBe(true);
+    expect(
+      (
+        await getCreateSplInterfaceInstructionAsync({
+          authority,
+          mint: DEFAULT_TREE_ADDRESS,
+          tokenProgram: null,
+        })
+      ).accounts?.at(-1)?.address,
+    ).toBe(SPL_TOKEN_PROGRAM_ID);
   });
 });

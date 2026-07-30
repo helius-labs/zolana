@@ -29,15 +29,21 @@ export async function createAssociatedTokenAccount(
     payer: TransactionSigner;
     owner: Address;
     mint: Address;
+    tokenProgram?: Address | null;
   }>,
   context?: RequestContext,
 ): Promise<Readonly<{ signature: Signature; address: Address }>> {
   try {
-    const associatedAccount = await associatedTokenAddress(input.owner, input.mint);
+    const associatedAccount = await associatedTokenAddress(
+      input.owner,
+      input.mint,
+      input.tokenProgram,
+    );
     const instruction = await createAssociatedTokenAccountInstruction({
       payer: input.payer,
       owner: input.owner,
       mint: input.mint,
+      ...(input.tokenProgram === undefined ? {} : { tokenProgram: input.tokenProgram }),
     });
     const signature = await input.client.signAndSendInstructions(
       { feePayer: input.payer, instructions: [instruction] },
@@ -197,7 +203,6 @@ export interface SubmitMergeTransaction {
   readonly tree: Address;
   readonly prepared: PreparedMerge;
   readonly skipPreflight?: boolean;
-  readonly onReadyToSubmit?: () => void;
 }
 
 export interface SubmittedMerge {
@@ -336,7 +341,6 @@ export async function submitMergeTransaction(
       transaction,
       context?.signal === undefined ? undefined : { abortSignal: context.signal },
     );
-    request.onReadyToSubmit?.();
     const signature = await client.sendTransaction(
       signed,
       request.skipPreflight === undefined ? {} : { skipPreflight: request.skipPreflight },
@@ -386,17 +390,11 @@ export async function merge(
           tree: created.tree,
           prepared: created.prepared,
           ...(input.skipPreflight === undefined ? {} : { skipPreflight: input.skipPreflight }),
-          onReadyToSubmit: () => {
-            input.wallet._commitSubmission(reservation);
-            committed = true;
-          },
         },
         context,
       );
-      if (!committed) {
-        input.wallet._commitSubmission(reservation);
-        committed = true;
-      }
+      input.wallet._commitSubmission(reservation);
+      committed = true;
       if (input.waitForIndexer !== false) {
         await input.client.confirmPrivateTransaction(submitted.signature, context);
       }

@@ -30,65 +30,42 @@ describe("proof compression", () => {
     expect(compressProof(proof).b).toEqual(G2.slice(0, 64));
   });
 
-  it("ports both frozen gnark proof rails without dropping commitments", () => {
-    expect(compressProof(parseProof({ proof: ZERO_PROOF }, false)).toTransactProof()).toEqual({
-      rail: "eddsa",
+  it("ports the standard Groth16 proof without protocol-specific fields", () => {
+    expect(compressProof(parseProof({ proof: ZERO_PROOF })).toTransactProof()).toEqual({
       a: new Uint8Array(32),
       b: new Uint8Array(64),
       c: new Uint8Array(32),
-    });
-    expect(
-      compressProof(
-        parseProof(
-          {
-            ...ZERO_PROOF,
-            proof_commitment: ZERO_POINT,
-            proof_commitment_pok: ZERO_POINT,
-          },
-          true,
-        ),
-      ).toTransactProof(),
-    ).toEqual({
-      rail: "p256",
-      a: new Uint8Array(32),
-      b: new Uint8Array(64),
-      c: new Uint8Array(32),
-      commitment: new Uint8Array(32),
-      commitmentPok: new Uint8Array(32),
     });
   });
 
-  it("rejects rail confusion, partial commitments, and malformed points", () => {
-    expect(() => parseProof(ZERO_PROOF, true)).toThrow(
-      expect.objectContaining({ code: "CLIENT_PROOF_RAIL_MISMATCH" }),
-    );
-    expect(() => parseProof({ ...ZERO_PROOF, proof_commitment: ZERO_POINT }, true)).toThrow(
+  it("rejects stale commitments and malformed points", () => {
+    expect(() => parseProof({ ...ZERO_PROOF, proof_commitment: ZERO_POINT })).toThrow(
       expect.objectContaining({ code: "CLIENT_PROOF_PARSE" }),
     );
-    expect(() => parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x1"] }, false)).toThrow(
+    expect(() => parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x1"] })).toThrow(
       expect.objectContaining({ code: "CLIENT_PROOF_POINT" }),
     );
-    expect(() => parseProof({ ...ZERO_PROOF, ar: ["0xzz", "0x0"] }, false)).toThrow(
+    expect(() => parseProof({ ...ZERO_PROOF, ar: ["0xzz", "0x0"] })).toThrow(
       expect.objectContaining({ code: "CLIENT_PROOF_PARSE" }),
     );
   });
 
   it("matches Rust's permissive gnark JSON parsing", () => {
-    const withUnknownFields = parseProof({ ...ZERO_PROOF, curve: "bn254", commitments: 0 }, false);
-    const withEmptyCommitments = parseProof(
-      { ...ZERO_PROOF, proof_commitment: [], proof_commitment_pok: [] },
-      false,
-    );
-    const bareCoordinates = parseProof({ ...ZERO_PROOF, ar: ["1", "2"] }, false);
-    const prefixedCoordinates = parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x2"] }, false);
+    const withUnknownFields = parseProof({ ...ZERO_PROOF, curve: "bn254", commitments: 0 });
+    const withEmptyCommitments = parseProof({
+      ...ZERO_PROOF,
+      proof_commitment: [],
+      proof_commitment_pok: [],
+    });
+    const bareCoordinates = parseProof({ ...ZERO_PROOF, ar: ["1", "2"] });
+    const prefixedCoordinates = parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x2"] });
 
-    expect(withUnknownFields.commitment).toBeUndefined();
-    expect(withEmptyCommitments.commitment).toBeUndefined();
+    expect(withUnknownFields).toEqual(withEmptyCommitments);
     expect(bareCoordinates.a).toEqual(prefixedCoordinates.a);
   });
 
   it("negates proof A over the BN254 base field before compression", () => {
-    const proof = parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x2"], krs: ["0x1", "0x2"] }, false);
+    const proof = parseProof({ ...ZERO_PROOF, ar: ["0x1", "0x2"], krs: ["0x1", "0x2"] });
     const compressed = compressProof(proof);
 
     expect(compressed.a[0]).toBe(0x80);

@@ -4,6 +4,7 @@ import {
   ClientError,
   SOL_MINT,
   ShieldedKeypair,
+  SPL_TOKEN_2022_PROGRAM_ID,
   Wallet,
   createZolanaClient,
   deposit,
@@ -402,6 +403,68 @@ describe.sequential("live SDK lifecycle", () => {
     });
   }, 900_000);
 
+  it("creates and transfers a plain Token-2022 asset", async () => {
+    const alice = await actor(94);
+    const bob = await actor(95);
+    const publicRecipient = await actor(96);
+    await fund(harness.client, alice, bob);
+    await register(harness.client, bob);
+
+    expect(
+      await getAssociatedTokenAddress(
+        harness.testAuthority.address,
+        harness.token2022Mint,
+        SPL_TOKEN_2022_PROGRAM_ID,
+      ),
+    ).toBe(harness.testToken2022Account);
+
+    await deposit({
+      client: harness.client,
+      feePayer: harness.testAuthority,
+      depositor: harness.testAuthority,
+      recipient: alice.keypair.shieldedAddress(),
+      asset: harness.token2022Mint,
+      amount: 200_000n,
+      splTokenAccount: harness.testToken2022Account,
+      splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
+    });
+    await sync(harness.client, alice);
+
+    await transfer({
+      client: harness.client,
+      wallet: alice.wallet,
+      authority: alice.authority,
+      feePayer: alice.signer,
+      recipient: bob.signer.address,
+      asset: harness.token2022Mint,
+      amount: 75_000n,
+    });
+    await sync(harness.client, alice);
+    await sync(harness.client, bob);
+    expect(alice.wallet.balance(harness.token2022Mint).amount).toBe(125_000n);
+    expect(bob.wallet.balance(harness.token2022Mint).amount).toBe(75_000n);
+
+    const recipientAta = await getAssociatedTokenAddress(
+      publicRecipient.signer.address,
+      harness.token2022Mint,
+      SPL_TOKEN_2022_PROGRAM_ID,
+    );
+    expect(await harness.client.getAccount(recipientAta)).toBeUndefined();
+    await withdraw({
+      client: harness.client,
+      wallet: bob.wallet,
+      authority: bob.authority,
+      feePayer: bob.signer,
+      recipient: publicRecipient.signer.address,
+      asset: harness.token2022Mint,
+      amount: 25_000n,
+      splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
+    });
+    await sync(harness.client, bob);
+    expect(await tokenBalance(harness.client, recipientAta)).toBe(25_000n);
+    expect(bob.wallet.balance(harness.token2022Mint).amount).toBe(50_000n);
+  }, 900_000);
+
   it("covers a real 1x8 split and merges all eight notes back to one", async () => {
     const owner = await actor(101);
     await fund(harness.client, owner);
@@ -440,6 +503,31 @@ describe.sequential("live SDK lifecycle", () => {
       (await fetchUserRecordChecked({ rpc: harness.client, owner: owner.signer.address }))
         .mergingEnabled,
     ).toBe(true);
+    const failingSendClient = new Proxy(harness.client, {
+      get(target, property) {
+        if (property === "sendTransaction") {
+          return async () => {
+            throw new ClientError("CLIENT_RPC", {
+              details: { method: "sendTransaction", reason: "injected failure" },
+            });
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await expect(
+      merge({
+        client: failingSendClient,
+        wallet: owner.wallet,
+        authority: owner.authority,
+        feePayer: owner.signer,
+        waitForIndexer: false,
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_SUBMIT_MERGE" });
+    expect(unspent(owner)).toHaveLength(8);
+    expect(unspent(owner).every((entry) => !entry.spent)).toBe(true);
+
     const mergeResult = await merge({
       client: harness.client,
       wallet: owner.wallet,

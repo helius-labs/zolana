@@ -71,14 +71,14 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(proverRequest(inputs)), false, context);
+    return this.#send(JSON.stringify(proverRequest(inputs)), context);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(mergeProverRequest(inputs)), false, context);
+    return this.#send(JSON.stringify(mergeProverRequest(inputs)), context);
   }
 
-  async #send(body: string, p256: boolean, context?: RequestContext): Promise<Proof> {
+  async #send(body: string, context?: RequestContext): Promise<Proof> {
     const signal = composeSignal(context, "prove");
     try {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -124,9 +124,9 @@ export class ProverClient {
             typeof value["job_id"] === "string" &&
             value["proof"] === undefined
           ) {
-            return await this.#poll(value["job_id"], p256, signal);
+            return await this.#poll(value["job_id"], signal);
           }
-          return parseProof(value, p256);
+          return parseProof(value);
         } finally {
           request.cleanup();
         }
@@ -142,7 +142,7 @@ export class ProverClient {
   /// Mirrors `poll_async`: request the status, then wait between attempts, with
   /// the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final, a 5xx or a
   /// transport failure is transient, and every other status has its body read.
-  async #poll(jobId: string, p256: boolean, signal: ComposedSignal): Promise<Proof> {
+  async #poll(jobId: string, signal: ComposedSignal): Promise<Proof> {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
     }
@@ -216,7 +216,7 @@ export class ProverClient {
           // sent a `result: null` back into the parser as the whole envelope,
           // where the missing proof read as malformed rather than as absent.
           const result = isObject(value) && "result" in value ? value["result"] : value;
-          return parseProof(result, p256);
+          return parseProof(result);
         }
         // queued / processing / pending / unknown: keep polling until the bound.
         await waitOrTimeout();

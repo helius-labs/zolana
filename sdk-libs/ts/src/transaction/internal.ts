@@ -2,7 +2,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { getAddressDecoder, getAddressEncoder, getBase58Encoder } from "@solana/kit";
 import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/core.js";
 
-import type { Address, Bytes16, Bytes31, Bytes32, Bytes33 } from "../interface/types.js";
+import type { Address, Bytes16, Bytes32, Bytes33 } from "../interface/types.js";
 export { hashField, sha256Be } from "../keypair/hash.js";
 
 import { TransactionError, type TransactionErrorCode } from "./error.js";
@@ -124,12 +124,6 @@ export function concat(...parts: readonly Uint8Array[]): Uint8Array {
     offset += part.length;
   }
   return result;
-}
-
-export function random31(): Bytes31 {
-  const output = new Uint8Array(31);
-  globalThis.crypto.getRandomValues(output);
-  return output as Bytes31;
 }
 
 export function random16(): Bytes16 {

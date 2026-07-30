@@ -228,10 +228,3 @@ export async function signPrivateTransaction(
 function reasonOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
-
-export function p256SignatureBytes(signature: Readonly<{ r: Bytes32; s: Bytes32 }>): Uint8Array {
-  const bytes = new Uint8Array(64);
-  bytes.set(signature.r);
-  bytes.set(signature.s, 32);
-  return bytes;
-}

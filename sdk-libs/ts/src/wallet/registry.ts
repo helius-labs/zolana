@@ -492,7 +492,10 @@ function registrationInstruction(
     programAddress: USER_REGISTRY_PROGRAM_ID,
     accounts: [
       { address: pda.address, role: AccountRole.WRITABLE },
-      { address: owner, role: AccountRole.WRITABLE_SIGNER },
+      {
+        address: owner,
+        role: existing === undefined ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER,
+      },
       ...(existing === undefined
         ? [{ address: SYSTEM_PROGRAM, role: AccountRole.READONLY as const }]
         : []),

@@ -2,7 +2,7 @@ import { address, type Address, type Signature, type TransactionSendingSigner } 
 import { describe, expect, it, vi } from "vitest";
 
 import type { TransactionSignOnlySigner, ZolanaClient } from "../src/client/index.js";
-import { type Bytes32 } from "../src/interface/index.js";
+import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { Data, LocalWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/wallet/asset.js";
@@ -282,10 +282,20 @@ describe("build, sign, send action wrappers", () => {
       recipient: RECIPIENT,
       asset: SPL_MINT,
       amount: 25n,
+      splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
 
     const request = submitPrivateTransaction.mock.calls[0]?.[0];
     expect(request?.setupInstructions).toHaveLength(1);
+    expect(
+      request?.setupInstructions?.[0]?.accounts?.some(
+        (account) => account.address === SPL_TOKEN_2022_PROGRAM_ID,
+      ),
+    ).toBe(true);
+    expect(request?.signed.withdrawal).toMatchObject({
+      kind: "spl",
+      tokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
+    });
   });
 
   it("reserves inputs before asynchronous proof submission", async () => {
@@ -392,6 +402,35 @@ describe("build, sign, send action wrappers", () => {
     expect(confirmPrivateTransaction).toHaveBeenCalledOnce();
     const call = signAndSendInstructions.mock.calls[0]?.[0];
     expect(call?.instructions).toHaveLength(1);
+  });
+
+  it("threads Token-2022 through an SPL deposit", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const signAndSendInstructions = vi.fn(
+      async (_input: Readonly<{ instructions: readonly unknown[] }>) => SIGNATURE,
+    );
+    const client = {
+      tree: TREE,
+      signAndSendInstructions,
+      confirmPrivateTransaction: vi.fn(async () => undefined),
+    } as unknown as ZolanaClient;
+
+    await deposit({
+      client,
+      feePayer: signer(),
+      recipient: keypair.shieldedAddress(),
+      asset: SPL_MINT,
+      amount: 42n,
+      splTokenAccount: RECIPIENT,
+      splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
+    });
+
+    const instruction = signAndSendInstructions.mock.calls[0]?.[0].instructions[0] as Readonly<{
+      accounts?: readonly Readonly<{ address: Address }>[];
+    }>;
+    expect(
+      instruction.accounts?.some((account) => account.address === SPL_TOKEN_2022_PROGRAM_ID),
+    ).toBe(true);
   });
 
   it("applies split defaults before one submit and confirmation", async () => {

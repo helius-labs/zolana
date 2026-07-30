@@ -126,6 +126,12 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
     token_account="$(sed -n 's/^ok test_mint .* token_account=\([^ ]*\).*/\1/p' <<<"$mint_output")"
     test -n "$mint"
     test -n "$token_account"
+    token_2022_output="$("$bin" dev pool test-mint --keypair "$workdir/authority.json" \
+      --authority-path "$workdir/authority.json" --token-program token2022 --amount 1000000)"
+    token_2022_mint="$(sed -n 's/^ok test_mint mint=\([^ ]*\).*/\1/p' <<<"$token_2022_output")"
+    token_2022_account="$(sed -n 's/^ok test_mint .* token_account=\([^ ]*\).*/\1/p' <<<"$token_2022_output")"
+    test -n "$token_2022_mint"
+    test -n "$token_2022_account"
 
     ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
       ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
@@ -133,6 +139,8 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
       ZOLANA_TREE="$tree" \
       ZOLANA_TEST_MINT="$mint" \
       ZOLANA_TEST_TOKEN_ACCOUNT="$token_account" \
+      ZOLANA_TEST_TOKEN_2022_MINT="$token_2022_mint" \
+      ZOLANA_TEST_TOKEN_2022_ACCOUNT="$token_2022_account" \
       ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" npm run test:ts:e2e
 
 test-ts-all: test-ts test-ts-e2e

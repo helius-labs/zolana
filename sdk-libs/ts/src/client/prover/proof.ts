@@ -3,7 +3,7 @@ import { bn254 } from "@noble/curves/bn254.js";
 
 import { ClientError } from "../error.js";
 import { bigintToBytes, bytesToBigInt, checkedBytes } from "../internal.js";
-import type { CompressedProof, P256Proof, Proof } from "./types.js";
+import type { CompressedProof, Proof } from "./types.js";
 
 const BN254_BASE_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_696_311_157_297_823_662_689_037_894_645_226_208_583n;
@@ -12,20 +12,7 @@ export function compressProof(proof: Proof): CompressedProof {
   const a = compressG1(checkedBytes(proof.a, 64, "proof.a"), "proof.a");
   const b = compressG2(checkedBytes(proof.b, 128, "proof.b"));
   const c = compressG1(checkedBytes(proof.c, 64, "proof.c"), "proof.c");
-  const commitment =
-    proof.commitment === undefined
-      ? undefined
-      : Object.freeze({
-          commitment: compressG1(
-            checkedBytes(proof.commitment.commitment, 64, "proof.commitment"),
-            "proof.commitment",
-          ),
-          commitmentPok: compressG1(
-            checkedBytes(proof.commitment.commitmentPok, 64, "proof.commitmentPok"),
-            "proof.commitmentPok",
-          ),
-        });
-  return compressedProof({ a, b, c, ...(commitment === undefined ? {} : { commitment }) });
+  return compressedProof({ a, b, c });
 }
 
 export function compressedProof(
@@ -33,51 +20,22 @@ export function compressedProof(
     a: Uint8Array;
     b: Uint8Array;
     c: Uint8Array;
-    commitment?: Readonly<{ commitment: Uint8Array; commitmentPok: Uint8Array }>;
   }>,
 ): CompressedProof {
   const a = checkedBytes(input.a, 32, "proof.a");
   const b = checkedBytes(input.b, 64, "proof.b");
   const c = checkedBytes(input.c, 32, "proof.c");
-  const commitment =
-    input.commitment === undefined
-      ? undefined
-      : Object.freeze({
-          commitment: checkedBytes(input.commitment.commitment, 32, "proof.commitment"),
-          commitmentPok: checkedBytes(input.commitment.commitmentPok, 32, "proof.commitmentPok"),
-        });
-  const p256Proof = (): P256Proof => {
-    if (commitment === undefined) {
-      throw new ClientError("CLIENT_PROOF_PARSE", {
-        details: { path: "$.proof.proof_commitment" },
-      });
-    }
-    return Object.freeze({
-      a: new Uint8Array(a) as Bytes32,
-      b: new Uint8Array(b) as Bytes64,
-      c: new Uint8Array(c) as Bytes32,
-      commitment: new Uint8Array(commitment.commitment) as Bytes32,
-      commitmentPok: new Uint8Array(commitment.commitmentPok) as Bytes32,
-    });
-  };
   return Object.freeze({
     a,
     b,
     c,
-    ...(commitment === undefined ? {} : { commitment }),
     toTransactProof(): TransactProof {
-      if (commitment === undefined) {
-        return Object.freeze({
-          rail: "eddsa",
-          a: new Uint8Array(a) as Bytes32,
-          b: new Uint8Array(b) as Bytes64,
-          c: new Uint8Array(c) as Bytes32,
-        });
-      }
-      return Object.freeze({ rail: "p256", ...p256Proof() });
+      return Object.freeze({
+        a: new Uint8Array(a) as Bytes32,
+        b: new Uint8Array(b) as Bytes64,
+        c: new Uint8Array(c) as Bytes32,
+      });
     },
-    toP256Proof: p256Proof,
-    toMergeProof: p256Proof,
   });
 }
 
@@ -85,7 +43,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function parseProof(value: unknown, requireCommitment: boolean): Proof {
+export function parseProof(value: unknown): Proof {
   // Rust unwraps before it validates: `proof_from_value` reads `proof` off
   // whatever it was handed, falling back to the whole value, and only then
   // separates a proof the server declined to send from one it sent badly. A null
@@ -104,22 +62,15 @@ export function parseProof(value: unknown, requireCommitment: boolean): Proof {
   const c = parseG1(proof["krs"], "$.proof.krs");
   const hasCommitment =
     present(proof["proof_commitment"]) || present(proof["proof_commitment_pok"]);
-  if (requireCommitment !== hasCommitment) {
-    throw new ClientError("CLIENT_PROOF_RAIL_MISMATCH", {
-      details: { expected: requireCommitment ? "p256" : "eddsa" },
+  if (hasCommitment) {
+    throw new ClientError("CLIENT_PROOF_PARSE", {
+      details: { path: "$.proof.proof_commitment", reason: "unsupported commitment proof" },
     });
   }
-  const commitment = hasCommitment
-    ? Object.freeze({
-        commitment: parseG1(proof["proof_commitment"], "$.proof.proof_commitment"),
-        commitmentPok: parseG1(proof["proof_commitment_pok"], "$.proof.proof_commitment_pok"),
-      })
-    : undefined;
   return Object.freeze({
     a: a as Bytes64,
     b,
     c,
-    ...(commitment === undefined ? {} : { commitment }),
   });
 }
 

@@ -37,6 +37,8 @@ export interface LiveHarness {
   readonly tree: Address;
   readonly mint: Address;
   readonly testTokenAccount: Address;
+  readonly token2022Mint: Address;
+  readonly testToken2022Account: Address;
   readonly testAuthority: KeyPairSigner;
 }
 
@@ -85,6 +87,8 @@ export async function liveHarness(): Promise<LiveHarness> {
   const tree = address(requiredEnv("ZOLANA_TREE"));
   const mint = address(requiredEnv("ZOLANA_TEST_MINT"));
   const testTokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_ACCOUNT"));
+  const token2022Mint = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_MINT"));
+  const testToken2022Account = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_ACCOUNT"));
   const testAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
   const client = await createZolanaClient({
     solanaRpcUrl: rpcUrl,
@@ -104,6 +108,8 @@ export async function liveHarness(): Promise<LiveHarness> {
     tree,
     mint,
     testTokenAccount,
+    token2022Mint,
+    testToken2022Account,
     testAuthority,
   };
 }

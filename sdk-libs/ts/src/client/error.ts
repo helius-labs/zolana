@@ -16,11 +16,9 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_SOLANA_TRANSACTION_SIGNING",
   "CLIENT_TREE_MISMATCH",
   "CLIENT_NO_INPUTS",
-  "CLIENT_MISSING_P256_SIGNATURE",
   "CLIENT_MERGE_SIGNING_KEY_MISMATCH",
   "CLIENT_MERGE_NULLIFIER_KEY_MISMATCH",
   "CLIENT_MERGE_TREE_MISMATCH",
-  "CLIENT_P256_SIGNATURE",
   "CLIENT_FIELD_TOO_LONG",
   "CLIENT_PROVER_SERVER",
   "CLIENT_PROOF_PARSE",
@@ -51,11 +49,9 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_SOLANA_TRANSACTION_SIGNING: Readonly<{ reason: string }>;
   readonly CLIENT_TREE_MISMATCH: Readonly<{ transactionTree: string; clientTree: string }>;
   readonly CLIENT_NO_INPUTS: NoDetails;
-  readonly CLIENT_MISSING_P256_SIGNATURE: NoDetails;
   readonly CLIENT_MERGE_SIGNING_KEY_MISMATCH: NoDetails;
   readonly CLIENT_MERGE_NULLIFIER_KEY_MISMATCH: NoDetails;
   readonly CLIENT_MERGE_TREE_MISMATCH: Readonly<{ proofTree: string; submitTree: string }>;
-  readonly CLIENT_P256_SIGNATURE: Readonly<{ reason: string }>;
   readonly CLIENT_FIELD_TOO_LONG:
     | Readonly<{
         field?: string;
@@ -120,7 +116,6 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_INVALID_INPUT_CONTEXT: Readonly<{ index?: number }> | undefined;
   readonly CLIENT_INVALID_PROOF_INPUTS: NoDetails;
   readonly CLIENT_INVALID_MERGE: NoDetails;
-  readonly CLIENT_MERGE_PROOF_COMMITMENT: NoDetails;
   readonly CLIENT_MERGE_OUTPUT_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_TRANSACTION: NoDetails;
   readonly CLIENT_TRANSACTION_ASSEMBLY: NoDetails;
@@ -145,13 +140,10 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_REQUEST: Readonly<{ method: string; retryable: boolean }>;
   readonly CLIENT_INVALID_POLL_CONFIG: Readonly<{ field: string; value?: string }>;
   readonly CLIENT_INVALID_INDEXER: Readonly<{ field: string }>;
-  readonly CLIENT_PROOF_RAIL_MISMATCH: Readonly<{ expected?: "p256" | "eddsa" }> | undefined;
   readonly CLIENT_PROOF_POINT: Readonly<{ field: string }>;
   readonly CLIENT_PROOF_TREE_MISMATCH: IndexDetails;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
-  readonly CLIENT_INVALID_MERGE_CIPHERTEXT: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_MATERIAL: NoDetails;
-  readonly CLIENT_MERGE_MATERIAL_VIEWING_KEY_MISMATCH: NoDetails;
   readonly CLIENT_INVALID_MERGE_SHAPE: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_PROVER_INPUT: NoDetails;
   readonly CLIENT_PROVER_REQUEST: Readonly<{ method: string; attempts: number }>;
@@ -188,7 +180,6 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INVALID_INPUT_CONTEXT",
   "CLIENT_INVALID_PROOF_INPUTS",
   "CLIENT_INVALID_MERGE",
-  "CLIENT_MERGE_PROOF_COMMITMENT",
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
   "CLIENT_TRANSACTION_ASSEMBLY",
@@ -203,13 +194,10 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_REQUEST",
   "CLIENT_INVALID_POLL_CONFIG",
   "CLIENT_INVALID_INDEXER",
-  "CLIENT_PROOF_RAIL_MISMATCH",
   "CLIENT_PROOF_POINT",
   "CLIENT_PROOF_TREE_MISMATCH",
   "CLIENT_INVALID_MERGE_OUTPUT",
-  "CLIENT_INVALID_MERGE_CIPHERTEXT",
   "CLIENT_INVALID_MERGE_MATERIAL",
-  "CLIENT_MERGE_MATERIAL_VIEWING_KEY_MISMATCH",
   "CLIENT_INVALID_MERGE_SHAPE",
   "CLIENT_PROVER_INPUT",
   "CLIENT_PROVER_REQUEST",
@@ -267,20 +255,17 @@ type DetailShape = Readonly<Record<string, FieldKind>>;
 const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_FEE_PAYER_MISMATCH",
   "CLIENT_NO_INPUTS",
-  "CLIENT_MISSING_P256_SIGNATURE",
   "CLIENT_MERGE_SIGNING_KEY_MISMATCH",
   "CLIENT_MERGE_NULLIFIER_KEY_MISMATCH",
   "CLIENT_MISSING_OUTPUT",
   "CLIENT_INVALID_PROOF_INPUTS",
   "CLIENT_INVALID_MERGE",
-  "CLIENT_MERGE_PROOF_COMMITMENT",
   "CLIENT_MERGE_OUTPUT_MISMATCH",
   "CLIENT_INVALID_TRANSACTION",
   "CLIENT_TRANSACTION_ASSEMBLY",
   "CLIENT_INVALID_P256_KEY",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_INVALID_MERGE_MATERIAL",
-  "CLIENT_MERGE_MATERIAL_VIEWING_KEY_MISMATCH",
   "CLIENT_PROVER_INPUT",
   "CLIENT_PROVER_RESPONSE_TOO_LARGE",
   "CLIENT_PROVER_TEXT",
@@ -296,7 +281,6 @@ const OPTIONAL_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_INVALID_INPUT_CONTEXT",
   "CLIENT_INVALID_BASE58",
   "CLIENT_ABORTED",
-  "CLIENT_PROOF_RAIL_MISMATCH",
 ]);
 
 const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
@@ -306,7 +290,6 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_SOLANA_TRANSACTION_SIGNING: { reason: "string" },
   CLIENT_TREE_MISMATCH: { transactionTree: "string", clientTree: "string" },
   CLIENT_MERGE_TREE_MISMATCH: { proofTree: "string", submitTree: "string" },
-  CLIENT_P256_SIGNATURE: { reason: "string" },
   CLIENT_FIELD_TOO_LONG: { field: "string", actual: "number", maximum: "number" },
   CLIENT_PROVER_SERVER: { method: "string", status: "number", reason: "string" },
   CLIENT_PROOF_PARSE: { path: "string", reason: "string" },
@@ -337,10 +320,8 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_REQUEST: { method: "string", retryable: "boolean" },
   CLIENT_INVALID_POLL_CONFIG: { field: "string", value: "string" },
   CLIENT_INVALID_INDEXER: { field: "string" },
-  CLIENT_PROOF_RAIL_MISMATCH: { expected: "string" },
   CLIENT_PROOF_POINT: { field: "string" },
   CLIENT_PROOF_TREE_MISMATCH: { index: "number" },
-  CLIENT_INVALID_MERGE_CIPHERTEXT: { expected: "number", actual: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
   CLIENT_PROVER_REQUEST: { method: "string", attempts: "number" },
   CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number" },
@@ -368,7 +349,6 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_INVALID_BASE58: [],
   CLIENT_ABORTED: [],
   CLIENT_INVALID_POLL_CONFIG: ["field"],
-  CLIENT_PROOF_RAIL_MISMATCH: [],
   CLIENT_PROVER_HTTP: ["method"],
   CLIENT_INVALID_RPC_RESPONSE: [],
 };

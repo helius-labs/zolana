@@ -28,6 +28,7 @@ export interface DepositParams {
   readonly asset: Address;
   readonly amount: bigint;
   readonly splTokenAccount?: Address;
+  readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
 }
 
@@ -43,6 +44,7 @@ export interface DepositActionParams {
   readonly asset?: Address;
   readonly amount: bigint;
   readonly splTokenAccount?: Address;
+  readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
   readonly waitForIndexer?: boolean;
 }
@@ -121,7 +123,7 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
         accounts: {
           mint: params.asset,
           userToken: params.splTokenAccount,
-          tokenProgram: SPL_TOKEN_PROGRAM_ID,
+          tokenProgram: params.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
         },
       };
     }
@@ -181,12 +183,14 @@ export async function deposit(
   const splTokenAccount =
     asset === SOL_MINT
       ? undefined
-      : (input.splTokenAccount ?? (await associatedTokenAddress(depositor.address, asset)));
+      : (input.splTokenAccount ??
+        (await associatedTokenAddress(depositor.address, asset, input.splTokenProgram)));
   const created = await createDeposit({
     recipient: input.recipient,
     asset,
     amount: input.amount,
     ...(splTokenAccount === undefined ? {} : { splTokenAccount }),
+    ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
     ...(input.memo === undefined ? {} : { memo: input.memo }),
   });
   const signature = await submitDeposit(

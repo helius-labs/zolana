@@ -96,7 +96,7 @@ Low-level builders follow the Solana program-client naming convention:
 ```ts
 import {
   getCreateTreeInstructionAsync,
-  getDepositInstruction,
+  getDepositInstructionAsync,
   getTransactInstruction,
 } from "@zolana/sdk/instructions";
 ```

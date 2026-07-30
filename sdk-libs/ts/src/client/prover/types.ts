@@ -81,37 +81,13 @@ export interface Proof {
   readonly a: Bytes64;
   readonly b: Bytes128;
   readonly c: Bytes64;
-  readonly commitment?: Readonly<{
-    readonly commitment: Bytes64;
-    readonly commitmentPok: Bytes64;
-  }>;
-}
-
-/// The P256-rail five-tuple, shared by `transact`'s P256 variant and
-/// `merge_transact` instruction data.
-export interface P256Proof {
-  readonly a: Bytes32;
-  readonly b: Bytes64;
-  readonly c: Bytes32;
-  readonly commitment: Bytes32;
-  readonly commitmentPok: Bytes32;
 }
 
 export interface CompressedProof {
   readonly a: Bytes32;
   readonly b: Bytes64;
   readonly c: Bytes32;
-  readonly commitment?: Readonly<{
-    readonly commitment: Bytes32;
-    readonly commitmentPok: Bytes32;
-  }>;
   toTransactProof(): TransactProof;
-  /// Throws when the proof carries no BSB22 commitment, which means it was
-  /// produced on the eddsa rail and cannot satisfy a P256 verifier.
-  toP256Proof(): P256Proof;
-  /// The merge circuit is the P256 BSB22 rail, so a merge proof without a
-  /// commitment is not a valid merge proof.
-  toMergeProof(): P256Proof;
 }
 
 export type { SpendProof };

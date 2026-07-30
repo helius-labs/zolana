@@ -54,12 +54,16 @@ export async function splAssetVaultAddress(mint: Address): Promise<Address> {
   return (await splAssetVaultPda(mint))[0];
 }
 
-export async function associatedTokenAddress(owner: Address, mint: Address): Promise<Address> {
+export async function associatedTokenAddress(
+  owner: Address,
+  mint: Address,
+  tokenProgram?: Address | null,
+): Promise<Address> {
   return (
     await findAssociatedTokenPda({
       owner,
       mint,
-      tokenProgram: SPL_TOKEN_PROGRAM_ID,
+      tokenProgram: tokenProgram ?? SPL_TOKEN_PROGRAM_ID,
     })
   )[0];
 }

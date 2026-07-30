@@ -41,6 +41,7 @@ export interface WithdrawalActionParams extends PrivateActionParams {
   readonly recipient: Address;
   readonly asset?: Address;
   readonly amount: bigint;
+  readonly splTokenProgram?: Address | null;
 }
 
 export interface SplitActionParams extends PrivateActionParams {
@@ -97,6 +98,7 @@ export async function withdraw(
       recipient: input.recipient,
       asset,
       amount: input.amount,
+      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
     });
     const setupInstructions =
       asset === SOL_MINT
@@ -106,6 +108,9 @@ export async function withdraw(
               payer: input.feePayer,
               owner: input.recipient,
               mint: asset,
+              ...(input.splTokenProgram === undefined
+                ? {}
+                : { tokenProgram: input.splTokenProgram }),
             }),
           ];
     const submitted = await submitPrivate(input, created.transaction, context, setupInstructions);
