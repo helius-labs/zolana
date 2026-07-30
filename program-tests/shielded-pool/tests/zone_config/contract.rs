@@ -445,7 +445,8 @@ fn zone_owner_burn_freezes_the_toggle_for_the_old_authority() {
 fn zone_config_creation_succeeds_for_a_prefunded_pda() {
     let mut backend = zone_backend();
     // An attacker donation to the target PDA must not block creation (the
-    // pinocchio helper falls back to allocate + assign + top-up).
+    // pinocchio helper falls back to allocate + assign + top-up; see
+    // spl_interface/contract.rs for the full rationale).
     let prefunded = zone_config_address();
     backend
         .rpc

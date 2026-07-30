@@ -102,8 +102,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         data: ix_data,
     }
     .instruction();
-    // The P256 rail's Groth16 proof carries an extra BSB22 Pedersen-PoK pairing,
-    // so verification exceeds the 200k default compute budget.
+    // Proof verification needs more than the 200k default compute budget.
     let compute_budget =
         solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
             1_400_000,

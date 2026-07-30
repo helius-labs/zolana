@@ -235,7 +235,7 @@ fn transact_rejects_an_unsupported_proof_shape() {
 #[test]
 fn transact_rejects_a_wrong_trailing_system_program_account() {
     let mut env = Pool::initialized();
-    // INV-TRANSACT: after the (here empty) settlement groups, the loader reads
+    // INV-TRANSACT-41: after the (here empty) settlement groups, the loader reads
     // one trailing system-program account for the forester-fee Transfer CPI; a
     // wrong key in that slot must be rejected at account parsing, before any
     // tree write or proof check.
@@ -276,9 +276,9 @@ fn zone_transact_rejects_an_unsigned_zone_config() {
         },
     }
     .cpi_instruction();
-    // The `zone_config` signature IS the zone authorization; without the zone
-    // program's `invoke_signed` the flag must be rejected before the config is
-    // even loaded (so the account does not need to exist).
+    // The `zone_config` signature IS the zone authorization (see
+    // merge/contract.rs): without it the flag must be rejected before the
+    // config is even loaded (so the account does not need to exist).
     ix.accounts.get_mut(3).expect("zone config meta").is_signer = false;
 
     let error = env

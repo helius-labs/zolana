@@ -259,9 +259,8 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
-    // Each real output's owner tag is its owner's `confidential_view_tag` so the
-    // program's `hash_bytes(resolved_owner_tag)` matches that owner's
-    // `owner_pk_field`.
+    // Real outputs tag by owner (`confidential_view_tag`; see
+    // `set_output_owner_tags`).
     let change_view_tag = shielded.utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
     let payer_bytes = cycle.payer.pubkey().to_bytes();

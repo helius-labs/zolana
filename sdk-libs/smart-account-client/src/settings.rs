@@ -182,7 +182,6 @@ mod tests {
         let data = settings_fixture(None, &[(member, 0b111)]);
         // Truncated inside the signers vec.
         assert!(settings_member_keys(&data[..data.len() - 10]).is_err());
-        // Wrong discriminator.
         let mut bad_discriminator = data.clone();
         *bad_discriminator.get_mut(7).expect("discriminator byte") ^= 0xff;
         assert_eq!(

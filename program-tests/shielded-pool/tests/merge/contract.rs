@@ -189,7 +189,7 @@ fn merge_rejects_an_expired_transaction() {
     let payer = rpc.payer.pubkey();
     let record = write_user_record(&mut rpc, payer, None, true);
 
-    // The merge dispatch has its own expiry gate, distinct from transact's.
+    // The merge dispatch shares transact's expiry gate (`check_not_expired`).
     // Pin the sysvar clock one second past the instruction's expiry.
     let mut data = merge_ix_data(true);
     data.expiry_unix_ts = 1_000;
@@ -289,7 +289,7 @@ fn merge_zone_rejects_an_unsigned_zone_config() {
     .cpi_instruction();
     // The `zone_config` signature IS the zone authorization; without the zone
     // program's `invoke_signed` the flag must be rejected before the config is
-    // even loaded.
+    // even loaded (so the account does not need to exist).
     ix.accounts.get_mut(2).expect("zone config meta").is_signer = false;
 
     let error = rpc

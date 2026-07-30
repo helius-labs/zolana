@@ -462,9 +462,8 @@ fn bench_transfer_shape(
         output_hashes.push(hash);
     }
 
-    // The real output's owner tag is its owner's confidential view tag, so the
-    // program's `hash_bytes(resolved_owner_tag)` equals the owner's pk field;
-    // the dummy slots reuse the payer's tag, as the participant gate requires.
+    // Real outputs tag by owner; dummy slots reuse the payer's tag (both rules
+    // on `set_output_owner_tags`).
     let owner_view_tag = owner.confidential_view_tag().expect("owner view tag");
     let mut view_tags = vec![owner_view_tag];
     view_tags.extend(std::iter::repeat_n(payer_bytes, n_outputs - 1));
@@ -622,8 +621,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    // Dummy outputs must name a transaction participant (AssertDummyTags), so
-    // they carry the payer's tag.
+    // Dummy slots carry the payer's tag (the AssertDummyTags rule; see
+    // `set_output_owner_tags`).
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![

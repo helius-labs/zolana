@@ -108,7 +108,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         .expect_err("proof bound to another mint must fail");
     // With mint B's canonical settlement accounts, validation passes and the
     // rejection is the proof binding: the public input carries
-    // `hash_field(mint B)` while the proof was built for mint A (INV-TRANSACT-21).
+    // `hash_bytes(mint B)` while the proof was built for mint A (INV-TRANSACT-21).
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
@@ -170,7 +170,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     // shield append (history index 1).
     let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 1);
 
-    // State inclusion proof (height 26) for leaf 0.
+    // State inclusion proof (height 32) for leaf 0.
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -415,13 +415,13 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     let (dummy_output_b, dummy_hash_b) = dummy_transfer_output(&[2u8; 31]).expect("dummy output");
     let output_hashes = [shielded_hash, dummy_hash_a, dummy_hash_b];
 
-    // The real output's owner tag is its owner's confidential view tag, so the
-    // program's `hash_field(resolved_owner_tag)` equals the owner's pk field.
+    // The real output tags by owner (`confidential_view_tag`; see
+    // `set_output_owner_tags`).
     let owner_view_tag = owner_public_key
         .confidential_view_tag()
         .expect("owner view tag");
-    // Dummy outputs must name a transaction participant (AssertDummyTags), so
-    // they share the real output's owner tag.
+    // Dummy slots share the real output's owner tag (the AssertDummyTags rule;
+    // see `set_output_owner_tags`).
     let view_tags = [owner_view_tag; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
@@ -604,8 +604,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let owner_pk_hash = owner.owner_proof_input_hash().expect("owner hash");
     let owner_hashes = [owner_pk_hash; 2];
 
-    // Two circuit-dummy inputs with derived nullifiers and non-inclusion
-    // witnesses (PR164 constrains dummies), bound to the payer's owner hash.
+    // Two circuit-dummy inputs (construction as above at :395).
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
     let (deposit_dummy_0, nullifier_0) =
         dummy_input(&[41u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 0");
@@ -620,8 +619,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let (dummy_b, dummy_hash_b) = dummy_transfer_output(&[2u8; 31]).expect("dummy output");
     let output_hashes = [shielded_hash, dummy_hash_a, dummy_hash_b];
     let owner_view_tag = owner.confidential_view_tag().expect("owner view tag");
-    // Dummy outputs must name a transaction participant (AssertDummyTags), so
-    // they share the real output's owner tag.
+    // Dummy slots share the real output's owner tag (the AssertDummyTags rule;
+    // see `set_output_owner_tags`).
     let view_tags = [owner_view_tag; 3];
     let mut data = new_transact_ix_data(
         vec![
@@ -932,10 +931,8 @@ fn phase_transfer_to_recipient(
     let (transfer_dummy_output, transfer_dummy_hash) =
         dummy_transfer_output(&[19u8; 31]).expect("transfer dummy output");
 
-    // Each real output's owner tag is its owner's `confidential_view_tag`, so the
-    // program's `hash_bytes(resolved_owner_tag)` equals that owner's
-    // `owner_pk_field` and the circuit's output owner binding holds. The dummy
-    // dummy slot reuses the sender's tag, as required by the participant gate.
+    // Real outputs tag by owner; the dummy slot reuses the sender's tag (both
+    // rules on `set_output_owner_tags`).
     let change_view_tag = payer_utxo
         .owner
         .confidential_view_tag()

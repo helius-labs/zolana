@@ -80,7 +80,6 @@ fn update_keys_clears_and_restores_the_p256_key() {
         .expect("serialize pre-update record")
         .len();
 
-    // Some -> None.
     rig.send(
         build_update_keys_ix(&owner.pubkey(), None, value.nullifier, value.viewing),
         &[&owner],

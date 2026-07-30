@@ -100,7 +100,7 @@ pub fn spl_public_slots(amount: [u8; 32], mint: &[u8; 32]) -> Result<PublicSlots
 
 /// Per-output owner `pk_field` the program reconstructs as
 /// `hash_bytes(resolved_owner_tag)`, one per output position. Mirrors the
-/// program's `resolve_output_owner_tags`: each output carries its own inline or
+/// program's `resolve_outputs`: each output carries its own inline or
 /// account-based owner tag.
 pub fn output_owner_pk_hashes(outputs: &[TransactOutput]) -> Result<Vec<[u8; 32]>> {
     outputs
@@ -159,6 +159,12 @@ pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
 /// matches), and `nullifier_pks[i]` is the real output's nullifier pubkey from
 /// which the circuit recomputes `owner_hash` (zero for a dummy, whose owner the
 /// circuit leaves unconstrained).
+///
+/// Two rules every caller relies on: a real output's owner tag is its owner's
+/// `confidential_view_tag` (so the program's `hash_bytes(resolved_owner_tag)`
+/// equals that owner's `owner_pk_field`), and PR164's `AssertDummyTags` gate
+/// requires every DUMMY output to name a transaction participant, so dummy
+/// slots reuse a real participant's tag rather than a fresh key's.
 pub fn set_output_owner_tags(
     outputs: &mut [TransferOutput],
     owner_pk_hashes: &[[u8; 32]],
@@ -587,8 +593,8 @@ pub fn build_spl_withdrawal(
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("UTXO hash");
     assert_eq!(event.utxo_hash, utxo_hash);
 
-    // The UTXO is leaf 0; its inclusion proof is against the root AFTER the
-    // shield append (history index 1).
+    // The UTXO is leaf 0; its inclusion proof binds the post-shield root
+    // (history index 1, as in transact/withdrawal.rs).
     let mut tree_data = pt.account_data(tree).expect("tree account");
     let tree_account = TreeAccount::from_bytes(&mut tree_data, tree.to_bytes()).expect("load tree");
     let utxo_root = tree_account.get_utxo_tree_root(1).expect("utxo root");
@@ -633,8 +639,8 @@ pub fn build_spl_withdrawal(
         .collect();
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
-    // Dummy outputs must name a transaction participant (AssertDummyTags), so
-    // they carry the payer's tag.
+    // Dummy slots carry the payer's tag (the AssertDummyTags rule; see
+    // `set_output_owner_tags`).
     let mut data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),

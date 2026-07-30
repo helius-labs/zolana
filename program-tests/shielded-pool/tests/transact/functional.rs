@@ -128,9 +128,8 @@ fn build_valid_transact_ix_for_owner(
     })
     .expect("real input");
 
-    // Three dummy outputs with distinct blindings. Dummy outputs must name a
-    // transaction participant (AssertDummyTags), so they carry the input
-    // owner's tag (ed25519 owners tag by their pubkey bytes).
+    // Three dummy outputs with distinct blindings; they carry the input
+    // owner's tag (the AssertDummyTags rule; see `set_output_owner_tags`).
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
         .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
@@ -537,8 +536,9 @@ fn transact_sends_valid_proof() {
     // nothing. The journaled snapshots must show the tree as the only account
     // whose data changed, every lamport balance unchanged, and the payer
     // debited exactly the transaction fee (one signature at LiteSVM's default
-    // rate) plus the forester reimbursement fee (2 nullifier insertions at 20
-    // lamports each), which is paid outside the program.
+    // rate) plus the forester fee (2 nullifier insertions at 20 lamports each),
+    // which the program collects into the input tree via one System-Program CPI
+    // (INV-TRANSACT-42).
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
     const FORESTER_FEE_LAMPORTS: u64 = 40;
     let trace = env
@@ -588,7 +588,7 @@ fn transact_sends_valid_proof() {
 }
 
 /// A tampered output owner tag (changed after proving, so
-/// `hash_field(resolved_owner_tag)` no longer matches the proof's committed
+/// `hash_bytes(resolved_owner_tag)` no longer matches the proof's committed
 /// output-owner chain) must be rejected: the program reconstructs the owner tags
 /// from the instruction's outputs and the resulting public input no longer
 /// matches the proof.
@@ -601,7 +601,7 @@ fn transact_rejects_tampered_output_owner_tag() {
     let mut transact_ix_data = build_valid_transact_ix(&mut env);
 
     // Flip a recipient output's owner tag. The proof committed to the original
-    // `hash_field(resolved_owner_tag)`, so the program's reconstruction now
+    // `hash_bytes(resolved_owner_tag)`, so the program's reconstruction now
     // disagrees.
     let tampered = transact_ix_data.outputs.get_mut(1).expect("second output");
     tampered.owner_tag = OwnerTag::Inline([0xAAu8; 32]);

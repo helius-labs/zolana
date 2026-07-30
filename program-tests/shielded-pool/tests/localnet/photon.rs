@@ -86,7 +86,7 @@ const BATCH_NULLIFIER_TREE_CU_LIMIT: u64 = 500_000;
 
 type TestResult<T = ()> = anyhow::Result<T>;
 
-// `#[path]` is required here: this file is the `localnet_photon_e2e` test-crate
+// `#[path]` is required here: this file is the `localnet_photon` test-crate
 // root, so an ordinary `mod cycle;` would resolve against `tests/localnet/`
 // rather than this binary's `photon/` submodule directory. These three modules
 // form one intentional execution suite (the Photon-backed SOL cycle).

@@ -67,7 +67,7 @@ fn untampered_transfer_is_discovered() {
 /// recipient's view tag) must not corrupt discovery: the tag-window scan
 /// skips it and the real output is still recovered with the right amount.
 /// Restores the base "extra recipient slot" scenario as a real forged-slot
-/// test; spec.md leaves surplus-slot tolerance open (Q-COV-5), so this pins
+/// test; spec.md leaves surplus-slot tolerance open, so this pins
 /// the implemented behavior.
 #[test]
 fn forged_trailing_output_slot_is_ignored() {

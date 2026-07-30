@@ -31,12 +31,10 @@ fn init_then_reload() {
         assert_eq!(tree.state(), INITIALIZED);
         assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
         assert_eq!(tree.utxo_tree().next_index(), 0);
-        // The nullifier tree is initialized with the supplied pubkey.
         assert_eq!(tree.nullifer_tree().pubkey().to_bytes(), pubkey);
 
         let empty_root = tree.utxo_tree().root();
         assert_ne!(empty_root, [0u8; 32]);
-        // History starts with the empty root at index 0.
         assert_eq!(tree.utxo_tree().current_root_index(), 0);
         assert_eq!(tree.utxo_tree().root_by_index(0).unwrap(), empty_root);
 

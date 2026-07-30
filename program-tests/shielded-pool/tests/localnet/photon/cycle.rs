@@ -290,12 +290,12 @@ fn phase_shielded_transfer(
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
-    // Each real output's owner tag is its owner's `confidential_view_tag` so the
-    // program's `hash_field(resolved_owner_tag)` matches that owner's
-    // `owner_pk_field`.
+    // Real outputs tag by owner (`confidential_view_tag`; see
+    // `set_output_owner_tags`).
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
-    // Dummy outputs must name a transaction participant (AssertDummyTags).
+    // Dummy slots reuse a participant's tag (the AssertDummyTags rule; see
+    // `set_output_owner_tags`).
     let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![
             payer_spend_input,
@@ -477,7 +477,8 @@ fn phase_unshield(
     let (withdraw_outputs, withdraw_output_hashes) =
         dummy_witness_outputs(&[[1u8; 31], [2u8; 31], [3u8; 31]])?;
 
-    // Dummy outputs must name a transaction participant (AssertDummyTags).
+    // Dummy slots reuse a participant's tag (the AssertDummyTags rule; see
+    // `set_output_owner_tags`).
     let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![
             recipient_spend_input,

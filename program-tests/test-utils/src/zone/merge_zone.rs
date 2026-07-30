@@ -44,7 +44,8 @@ struct MergeZoneOptions {
     /// leaving the tree untouched.
     expect_proof_rejection: bool,
     /// Build the proof on the default merge rail (tag 12) and submit it
-    /// unchanged through `merge_zone` (tag 13).
+    /// unchanged through `merge_zone` (tag 13); see
+    /// [`Self::merge_transact_proof_replayed_as_zone_rejected`].
     prove_for_default_merge: bool,
 }
 
@@ -146,14 +147,8 @@ impl ZoneHarness {
             expect_proof_rejection,
             prove_for_default_merge,
         } = options;
-        // The default-merge rail exists alongside the zone rail:
-        // `merge_transact` (instruction tag 12) and `zone_merge_transact`
-        // (tag 13) share the on-chain merge verifier, and each binds its own
-        // tag into the proof's `external_data_hash`. With
-        // `prove_for_default_merge` set, the proof is built and proven on the
-        // default rail (tag 12) and then replayed unchanged through
-        // `merge_zone` (tag 13), where the recomputed external hash no longer
-        // matches and verification fails on-chain.
+        // Cross-rail replay mechanics: see the canonical rationale on
+        // [`Self::merge_transact_proof_replayed_as_zone_rejected`].
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
         }
@@ -254,11 +249,11 @@ impl ZoneHarness {
 
         let expiry_unix_ts = u64::MAX;
 
-        // Both rails share the 8-in/1-out merge witness; they differ only in
-        // the instruction tag bound into `external_data_hash` and the zone
-        // binding in the public inputs. For the cross-rail replay the proof is
-        // built by the default `MergeProver` (tag 12), then wrapped in the
-        // `merge_zone` instruction data (tag 13) unchanged.
+        // Both rails share the 8-in/1-out merge witness (see
+        // [`Self::merge_transact_proof_replayed_as_zone_rejected`]). For the
+        // cross-rail replay the proof is built by the default `MergeProver`
+        // (tag 12), then wrapped in the `merge_zone` instruction data
+        // (tag 13) unchanged.
         let (data, output_hash, input_nullifiers) = if prove_for_default_merge {
             let result = MergeProver {
                 inputs: spend_inputs,

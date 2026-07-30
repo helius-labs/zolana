@@ -98,7 +98,8 @@ fn spl_interface_creation_succeeds_for_prefunded_pdas() {
         .expect("asset counter");
     let mint = pool.rpc.create_mint().expect("mint");
     // An attacker donation to either target PDA must not block creation (the
-    // pinocchio helper falls back to allocate + assign + top-up).
+    // pinocchio helper falls back to allocate + assign + top-up; see
+    // spl_interface/contract.rs for the full rationale).
     pool.rpc
         .airdrop(&pda::spl_asset_registry(&mint), 1_000_000)
         .expect("prefund registry PDA");
