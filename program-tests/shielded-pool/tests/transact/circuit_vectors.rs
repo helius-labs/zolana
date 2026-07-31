@@ -18,7 +18,10 @@ use serde_json::Value;
 use shielded_pool_program::testing::{
     amount_field, solana_pk_hash, TransactProof, TransactProofInputs,
 };
-use zolana_hasher::{hash_chain::create_hash_chain_from_slice, primitives::hash_bytes};
+use zolana_hasher::{
+    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    primitives::hash_bytes,
+};
 use zolana_interface::{
     instruction::instruction_data::transact::{
         CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
@@ -69,7 +72,9 @@ fn fe_list(vector: &Value, key: &str) -> Vec<[u8; 32]> {
 
 /// Test-local clone of the Go `protocol.PublicInputHash` ordering
 /// (public_inputs.go), built from the program's own primitives.
-/// `public_slot_amounts` are the already-encoded field elements.
+/// `public_slot_amounts` are the already-encoded field elements and
+/// `signer_pk_hashes` is the payer-first run already zero-padded to the
+/// variant's width (a one-element run right-folds to itself).
 struct GoAssembly<'a> {
     nullifiers: &'a [[u8; 32]],
     output_hashes: &'a [[u8; 32]],
@@ -80,11 +85,9 @@ struct GoAssembly<'a> {
     public_slot_assets: &'a [[u8; 32]],
     public_slot_amounts: &'a [[u8; 32]],
     zone_program_id: [u8; 32],
-    payer_pubkey_hash: [u8; 32],
+    signer_pk_hashes: &'a [[u8; 32]],
     allow_dummy_inputs: [u8; 32],
-    input_owner_pk_hashes: &'a [[u8; 32]],
-    confidential: Option<&'a [[u8; 32]]>,
-    zone_authority: bool,
+    output_owner_pk_hashes: Option<&'a [[u8; 32]]>,
 }
 
 impl GoAssembly<'_> {
@@ -107,15 +110,10 @@ impl GoAssembly<'_> {
         }
         fields.extend_from_slice(&[
             self.zone_program_id,
-            self.payer_pubkey_hash,
+            create_right_hash_chain_from_slice(self.signer_pk_hashes).expect("signer chain"),
             self.allow_dummy_inputs,
         ]);
-        if !self.zone_authority {
-            fields.push(
-                create_hash_chain_from_slice(self.input_owner_pk_hashes).expect("owner chain"),
-            );
-        }
-        if let Some(output_owner_pk_hashes) = self.confidential {
+        if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             fields.push(
                 create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
             );
@@ -136,7 +134,7 @@ pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
     let nullifier_tree_roots = fe_list(&vector, "nullifier_tree_roots");
     let public_slot_assets = fe_list(&vector, "public_assets");
     let public_slot_amounts = fe_list(&vector, "public_amounts");
-    let input_owner_pk_hashes = fe_list(&vector, "input_owner_pk_hashes");
+    let signer_pk_hashes = fe_list(&vector, "signer_pk_hashes");
     let output_owner_pk_hashes = fe_list(&vector, "output_owner_pk_hashes");
     let assembled = GoAssembly {
         nullifiers: &nullifiers,
@@ -148,11 +146,9 @@ pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
         public_slot_assets: &public_slot_assets,
         public_slot_amounts: &public_slot_amounts,
         zone_program_id: fe_at(&vector, "zone_program_id"),
-        payer_pubkey_hash: fe_at(&vector, "payer_pubkey_hash"),
+        signer_pk_hashes: &signer_pk_hashes,
         allow_dummy_inputs: fe_at(&vector, "allow_dummy_inputs"),
-        input_owner_pk_hashes: &input_owner_pk_hashes,
-        confidential: Some(&output_owner_pk_hashes),
-        zone_authority: false,
+        output_owner_pk_hashes: Some(&output_owner_pk_hashes),
     }
     .hash();
     assert_eq!(assembled, fe_at(&vector, "public_input_hash"));
@@ -179,7 +175,6 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
                 nullifier_hash: small_fe(tag),
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
-                eddsa_signer_index: 0,
             })
             .collect(),
         interface_transfers: vec![],
@@ -196,23 +191,22 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
     }
 }
 
-fn derived_inputs() -> TransactProofInputs {
-    let mut derived = TransactProofInputs {
-        external_data_hash: small_fe(0x62),
-        zone_program_id: small_fe(0x64),
-        payer_pubkey_hash: small_fe(0x65),
-        allow_dummy_inputs: small_fe(1),
-        public_slot_amounts: [801, -901, 0],
-        ..TransactProofInputs::default()
-    };
+fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
+    let mut derived =
+        TransactProofInputs::new(CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8));
+    derived.external_data_hash = small_fe(0x62);
+    derived.zone_program_id = small_fe(0x64);
+    derived.allow_dummy_inputs = small_fe(1);
+    derived.public_slot_amounts = [801, -901, 0];
+    derived.unique_owner_signer_count = unique_signers;
     for (index, root) in derived.utxo_roots.iter_mut().enumerate() {
         *root = small_fe(0x20 + index as u8);
     }
     for (index, root) in derived.nullifier_tree_roots.iter_mut().enumerate() {
         *root = small_fe(0x30 + index as u8);
     }
-    for (index, owner) in derived.input_owner_pk_hashes.iter_mut().enumerate() {
-        *owner = small_fe(0x40 + index as u8);
+    for (index, signer) in derived.signer_pk_hashes.iter_mut().enumerate() {
+        *signer = small_fe(0x40 + index as u8);
     }
     for (index, owner) in derived.output_owner_pk_hashes.iter_mut().enumerate() {
         *owner = small_fe(0x70 + index as u8);
@@ -223,21 +217,22 @@ fn derived_inputs() -> TransactProofInputs {
     derived
 }
 
-/// The real (private) `public_input_hash` agrees with the vector-pinned Go
-/// ordering for every circuit selector, with the public movement slots
-/// interleaved as `(asset, amount)` and the owner-chain appendix selected
-/// by the variant.
+/// The real `public_input_hash` agrees with the vector-pinned Go ordering for
+/// every circuit selector, with the public transfer slots interleaved as
+/// `(asset, amount)`, the payer-first signer run right-folded at the variant's
+/// width (input-signing rails: `n_in + 1`; the authority rail: a bare payer
+/// element), and the output-owner-chain appendix selected by the variant.
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
-    for (circuit, zone_authority, confidential) in [
-        (CircuitId::ConfidentialEddsa(2, 3, 3), false, true),
-        (CircuitId::ZoneEddsa(2, 3, 3), false, true),
-        (CircuitId::ZoneAuthority(2, 3, 3), true, false),
+    for (circuit, signer_width, unique_signers, binds_output_owners) in [
+        (CircuitId::ConfidentialEddsa(2, 3, 3), 3usize, 2u8, true),
+        (CircuitId::ZoneEddsa(2, 3, 3), 3, 2, true),
+        (CircuitId::ZoneAuthority(2, 3, 3), 1, 1, false),
     ] {
         let owned = ix_data(circuit);
         let bytes = owned.serialize().expect("serialize transact ix");
         let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
-        let derived = derived_inputs();
+        let derived = derived_inputs(unique_signers);
         let proof = TransactProof::new(&ix, &derived);
 
         let nullifiers: Vec<[u8; 32]> = owned
@@ -255,6 +250,14 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             .iter()
             .map(|amount| amount_field(*amount).expect("slot amount field"))
             .collect();
+        // The program right-folds the unique signer prefix with zero padding
+        // out to the variant width; mirror that padded run here.
+        let mut signer_run: Vec<[u8; 32]> = derived
+            .signer_pk_hashes
+            .get(..usize::from(unique_signers))
+            .expect("unique signers")
+            .to_vec();
+        signer_run.resize(signer_width, [0u8; 32]);
         let clone = GoAssembly {
             nullifiers: &nullifiers,
             output_hashes: &output_hashes,
@@ -271,19 +274,14 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
                 .expect("slot assets"),
             public_slot_amounts: &slot_amount_fields,
             zone_program_id: derived.zone_program_id,
-            payer_pubkey_hash: derived.payer_pubkey_hash,
+            signer_pk_hashes: &signer_run,
             allow_dummy_inputs: derived.allow_dummy_inputs,
-            input_owner_pk_hashes: derived
-                .input_owner_pk_hashes
-                .get(..2)
-                .expect("input owners"),
-            confidential: confidential.then_some(
+            output_owner_pk_hashes: binds_output_owners.then_some(
                 derived
                     .output_owner_pk_hashes
                     .get(..3)
                     .expect("output owners"),
             ),
-            zone_authority,
         };
         assert_eq!(
             proof.public_input_hash().expect("assembly"),

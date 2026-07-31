@@ -74,7 +74,6 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
             nullifier_hash: [1u8; 32],
             nullifier_tree_root_index: 0,
             utxo_tree_root_index: 0,
-            eddsa_signer_index: 0,
         }],
         interface_transfers: Vec::new(),
         data_hash: None,

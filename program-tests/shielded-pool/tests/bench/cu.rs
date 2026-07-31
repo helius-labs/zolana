@@ -517,7 +517,7 @@ fn bench_transfer_shape(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash,
     });
     let proof = ProverClient::local()
@@ -675,7 +675,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash,
     });
     transact_ix_data.proof =

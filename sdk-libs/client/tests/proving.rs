@@ -3,7 +3,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_client::{
-    ConfidentialTransfer, NonInclusionProof, ProverVariant, PublicMovements, Rpc, SppProofInputUtxo,
+    ConfidentialTransfer, NonInclusionProof, ProverVariant, PublicTransfers, Rpc, SppProofInputUtxo,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
@@ -157,7 +157,7 @@ impl TransferHarness {
                 .circuit;
         output_assertions.assert_outputs(
             &prover.outputs,
-            &prover.public_movements,
+            &prover.public_transfers,
             &prover.external_data,
         );
         prove_and_verify_eddsa(&prover.build().expect("build"));
@@ -180,7 +180,7 @@ impl OutputAssertions<'_> {
     fn assert_outputs(
         &self,
         outputs: &[SppProofOutputUtxo],
-        public_movements: &PublicMovements,
+        public_transfers: &PublicTransfers,
         external_data: &ExternalData,
     ) {
         let plan = self.plan;
@@ -330,8 +330,8 @@ impl OutputAssertions<'_> {
             None => {}
         }
         assert_eq!(
-            public_movements,
-            &PublicMovements {
+            public_transfers,
+            &PublicTransfers {
                 assets: expected_assets,
                 amounts: expected_amounts,
             }

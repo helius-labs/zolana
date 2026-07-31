@@ -7,15 +7,15 @@ use zolana_interface::{
     instruction::{AssetDeposit, Deposit, UtxoData},
     pda,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
+use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey};
 use zolana_program_test::{test_blinding, DepositOutput, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_zone_deposit, DepositAssertArgs, SolDepositOracle,
     ZoneDepositAssertArgs,
 };
 use zolana_transaction::{
-    owner_utxo_hash, AssetRegistry, Data, LocalWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW,
-    SOL_MINT,
+    owner_utxo_hash, serialization::ZoneDepositPlaintext, AssetRegistry, Data, LocalWalletAuthority,
+    Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
 use shielded_pool_tests::support::{
@@ -389,26 +389,41 @@ fn zone_deposit_event_carries_the_zone_data_preimage_verbatim() {
         .rpc
         .zone_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
     data.zone_data_hash = [6u8; 32];
-    data.zone_data = vec![11, 22, 33, 44, 55];
+    // The zone_data preimage travels inside the owner-hidden encrypted
+    // envelope, so the event must carry the ciphertext verbatim and the
+    // plaintext must round-trip back to the exact zone_data bytes.
+    let viewing_key = ViewingKey::new();
+    let zone_data = vec![11, 22, 33, 44, 55];
+    data.encrypted = ZoneDepositPlaintext {
+        blinding: [4u8; 32],
+        utxo_data: None,
+        memo: None,
+        zone_data: zone_data.clone(),
+    }
+    .encrypt(&viewing_key.pubkey())
+    .expect("encrypt zone deposit plaintext");
 
     let event = pool
         .rpc
         .zone_deposit(&tree, &depositor, &data)
         .expect("zone SOL deposit");
     assert_eq!(
-        event.output.zone_data,
-        Some(data.zone_data.clone()),
-        "emitted ProoflessOutput carries the zone_data preimage verbatim"
+        event.output.encrypted.ciphertext, data.encrypted.ciphertext,
+        "emitted output carries the encrypted envelope verbatim"
+    );
+    let plaintext = ZoneDepositPlaintext::decrypt(&event.output.encrypted, &viewing_key)
+        .expect("decrypt zone deposit plaintext");
+    assert_eq!(
+        plaintext.zone_data, zone_data,
+        "zone_data preimage round-trips verbatim"
     );
     assert_eq!(
-        event.output.zone_data_hash,
-        Some(data.zone_data_hash),
-        "emitted ProoflessOutput carries the instruction's zone_data_hash"
+        event.output.zone_data_hash, data.zone_data_hash,
+        "emitted output carries the instruction's zone_data_hash"
     );
     assert_eq!(
-        event.output.zone_program_id,
-        Some(ZONE_TEST_PROGRAM_ID),
-        "emitted ProoflessOutput carries the signing zone's program id"
+        event.output.zone_program_id, ZONE_TEST_PROGRAM_ID,
+        "emitted output carries the signing zone's program id"
     );
 }
 

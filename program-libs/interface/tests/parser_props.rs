@@ -12,7 +12,10 @@
 use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::{
-    deposit::{DepositEntry, DepositIxData, UtxoData, ZoneDepositEntry, ZoneDepositIxData},
+    deposit::{
+        DepositEntry, DepositIxData, EncryptedZoneDepositData, UtxoData, ZoneDepositEntry,
+        ZoneDepositIxData,
+    },
     merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
     merge_zone::{MergeZoneIxData, MergeZoneIxDataRef},
     transact::{
@@ -50,29 +53,27 @@ mod strategies {
         prop_oneof![
             any::<u64>().prop_map(|amount| InterfaceTransfer::SolDeposit { amount }),
             any::<u64>().prop_map(|amount| InterfaceTransfer::SolWithdrawal { amount }),
-            (any::<u64>(), any::<u8>()).prop_map(|(amount, vault_bump)| {
-                InterfaceTransfer::SplDeposit { amount, vault_bump }
+            (any::<u64>(), any::<u8>()).prop_map(|(amount, spl_interface_bump)| {
+                InterfaceTransfer::SplDeposit {
+                    amount,
+                    spl_interface_bump,
+                }
             }),
-            (any::<u64>(), any::<u8>()).prop_map(|(amount, vault_bump)| {
-                InterfaceTransfer::SplWithdrawal { amount, vault_bump }
+            (any::<u64>(), any::<u8>()).prop_map(|(amount, spl_interface_bump)| {
+                InterfaceTransfer::SplWithdrawal {
+                    amount,
+                    spl_interface_bump,
+                }
             }),
         ]
     }
 
     pub fn input_utxo() -> impl Strategy<Value = InputUtxo> {
-        (any::<[u8; 32]>(), any::<u16>(), any::<u16>(), any::<u8>()).prop_map(
-            |(
+        (any::<[u8; 32]>(), any::<u16>(), any::<u16>()).prop_map(
+            |(nullifier_hash, nullifier_tree_root_index, utxo_tree_root_index)| InputUtxo {
                 nullifier_hash,
                 nullifier_tree_root_index,
                 utxo_tree_root_index,
-                eddsa_signer_index,
-            )| {
-                InputUtxo {
-                    nullifier_hash,
-                    nullifier_tree_root_index,
-                    utxo_tree_root_index,
-                    eddsa_signer_index,
-                }
             },
         )
     }
@@ -362,9 +363,17 @@ proptest! {
         let zone_deposit = ZoneDepositIxData {
             assets: vec![],
             deposits: vec![ZoneDepositEntry {
-                deposit: entry,
+                asset_index: 0,
+                view_tag,
+                owner_utxo_hash: owner,
+                amount,
+                data_hash: utxo_data.map(|data| data.data_hash),
                 zone_data_hash,
-                zone_data,
+                encrypted: EncryptedZoneDepositData {
+                    tx_viewing_pk: [blinding[0]; 33],
+                    salt: [blinding[1]; 16],
+                    ciphertext: zone_data,
+                },
             }],
         };
         let deposit_bytes = deposit.serialize().expect("serialize deposit ix");

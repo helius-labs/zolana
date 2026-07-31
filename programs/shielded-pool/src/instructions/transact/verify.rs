@@ -31,7 +31,7 @@ pub const MAX_OUTPUTS: usize = 8;
 
 const MAX_OWNER_HASHES: usize = MAX_SIGNERS + MAX_OUTPUTS;
 
-pub(crate) type OwnerHashCache = ArrayMap<[u8; 32], [u8; 32], MAX_OWNER_HASHES>;
+pub type OwnerHashCache = ArrayMap<[u8; 32], [u8; 32], MAX_OWNER_HASHES>;
 
 const ASSIGNED_OUTPUT_OWNERS: u8 = 1 << 0;
 const ASSIGNED_OWNER_SIGNERS: u8 = 1 << 1;
@@ -48,21 +48,25 @@ const ALL_ASSIGNMENTS: u8 = ASSIGNED_OUTPUT_OWNERS
 
 #[derive(Debug)]
 pub struct TransactProofInputs {
-    pub(crate) utxo_roots: [[u8; 32]; MAX_INPUTS],
-    pub(crate) nullifier_tree_roots: [[u8; 32]; MAX_INPUTS],
-    pub(crate) signer_pk_hashes: [[u8; 32]; MAX_SIGNERS],
-    pub(crate) output_owner_pk_hashes: [[u8; 32]; MAX_OUTPUTS],
-    pub(crate) external_data_hash: [u8; 32],
-    pub(crate) public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
-    pub(crate) public_slot_amounts: [i128; N_PUBLIC_SLOTS],
-    pub(crate) zone_program_id: [u8; 32],
-    pub(crate) allow_dummy_inputs: [u8; 32],
-    unique_owner_signer_count: u8,
+    pub utxo_roots: [[u8; 32]; MAX_INPUTS],
+    pub nullifier_tree_roots: [[u8; 32]; MAX_INPUTS],
+    pub signer_pk_hashes: [[u8; 32]; MAX_SIGNERS],
+    pub output_owner_pk_hashes: [[u8; 32]; MAX_OUTPUTS],
+    pub external_data_hash: [u8; 32],
+    pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
+    pub public_slot_amounts: [i128; N_PUBLIC_SLOTS],
+    pub zone_program_id: [u8; 32],
+    pub allow_dummy_inputs: [u8; 32],
+    /// Number of unique entries at the head of `signer_pk_hashes` (payer
+    /// first); the remaining slots are zero padding. Public only so the moved
+    /// circuit-vector tests can pin the assembly; production code writes it
+    /// exclusively through `fill_owner_signer_hashes`.
+    pub unique_owner_signer_count: u8,
     assignments: u8,
 }
 
 impl TransactProofInputs {
-    pub(crate) fn new(circuit: CircuitId) -> Self {
+    pub fn new(circuit: CircuitId) -> Self {
         let mut assignments = 0;
         if matches!(circuit, CircuitId::ConfidentialEddsa(..)) {
             assignments |= ASSIGNED_ZONE_PROGRAM;
@@ -80,11 +84,6 @@ impl TransactProofInputs {
             unique_owner_signer_count: 0,
             assignments,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_for_tests() -> Self {
-        Self::new(CircuitId::ConfidentialEddsa(1, 1, 1))
     }
 
     pub(crate) fn assign_zone_program_id(&mut self, zone_program_id: [u8; 32]) {
@@ -114,7 +113,7 @@ impl TransactProofInputs {
         self.assignments |= ASSIGNED_EXTERNAL_DATA;
     }
 
-    pub(crate) fn ensure_complete(&self) -> Result<(), ProgramError> {
+    pub fn ensure_complete(&self) -> Result<(), ProgramError> {
         if self.assignments != ALL_ASSIGNMENTS {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
@@ -125,7 +124,7 @@ impl TransactProofInputs {
     // identities. The payer occupies slot zero and seeds `seen`, so an appended
     // payer is ignored.
     #[profile]
-    pub(crate) fn fill_owner_signer_hashes(
+    pub fn fill_owner_signer_hashes(
         &mut self,
         payer: &AccountView,
         owner_signers: &[AccountView],
@@ -157,7 +156,7 @@ impl TransactProofInputs {
     }
 
     #[profile]
-    pub(crate) fn fill_output_owner_pk_hashes(
+    pub fn fill_output_owner_pk_hashes(
         &mut self,
         mode: OutputOwnerMode,
         resolved_outputs: &[ResolvedOutput],
@@ -187,7 +186,7 @@ impl TransactProofInputs {
         Ok(())
     }
 
-    pub(crate) fn assign_public_amounts_and_assets(
+    pub fn assign_public_amounts_and_assets(
         &mut self,
         interface_transfers: &[InterfaceTransfer],
         settlements: &[Settlement<'_>],
@@ -330,7 +329,7 @@ impl<'a> TransactProof<'a> {
     }
 
     #[inline(never)]
-    fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
+    pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         let n_in = self.n_inputs();
         let n_out = self.n_outputs();
         let n_public_asset_slots = self.n_public_asset_slots();
@@ -421,7 +420,7 @@ impl<'a> TransactProof<'a> {
 // All-zero right-fold suffixes Z1..Z6, where Z1 = 0 and
 // Z(k) = Poseidon(0, Z(k-1)). These let the program hash only the populated
 // unique signer prefix while matching the circuit's fixed-width right-fold.
-const SIGNER_ZERO_SUFFIX_CHAINS: [[u8; 32]; MAX_SIGNERS] = [
+pub const SIGNER_ZERO_SUFFIX_CHAINS: [[u8; 32]; MAX_SIGNERS] = [
     [0u8; 32],
     [
         0x20, 0x98, 0xf5, 0xfb, 0x9e, 0x23, 0x9e, 0xab, 0x3c, 0xea, 0xc3, 0xf2, 0x7b, 0x81, 0xe4,
@@ -450,7 +449,7 @@ const SIGNER_ZERO_SUFFIX_CHAINS: [[u8; 32]; MAX_SIGNERS] = [
     ],
 ];
 
-fn fixed_signer_hash_chain(
+pub fn fixed_signer_hash_chain(
     unique_signer_pk_hashes: &[[u8; 32]],
     width: usize,
 ) -> Result<[u8; 32], ProgramError> {
@@ -474,7 +473,7 @@ fn fixed_signer_hash_chain(
     Ok(chain)
 }
 
-fn amount_field(amount: i128) -> Result<[u8; 32], ProgramError> {
+pub fn amount_field(amount: i128) -> Result<[u8; 32], ProgramError> {
     let magnitude = u64::try_from(amount.unsigned_abs())
         .map_err(|_| ShieldedPoolError::PublicAssetAmountOverflow)?;
     let value = Fr::from(magnitude);
@@ -488,187 +487,4 @@ fn amount_field(amount: i128) -> Result<[u8; 32], ProgramError> {
         target.copy_from_slice(&limb.to_be_bytes());
     }
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use zolana_account_checks::account_info::test_account_info::get_account_view;
-    use zolana_hasher::hash_chain::create_right_hash_chain_from_slice;
-
-    #[test]
-    fn incomplete_proof_inputs_are_rejected() {
-        let proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
-
-        assert_eq!(
-            proof_inputs.ensure_complete(),
-            Err(ProgramError::Custom(
-                ShieldedPoolError::InvalidTransactShape as u32
-            ))
-        );
-    }
-
-    #[test]
-    fn owner_signers_are_first_occurrence_deduplicated_with_payer_first() {
-        let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
-        let owner_signers = vec![
-            get_account_view([2; 32], [0; 32], true, false, false, vec![]),
-            get_account_view([1; 32], [0; 32], true, false, false, vec![]),
-            get_account_view([2; 32], [0; 32], true, false, false, vec![]),
-            get_account_view([3; 32], [0; 32], true, false, false, vec![]),
-        ];
-        let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
-        let mut owner_hashes = OwnerHashCache::new();
-
-        proof_inputs
-            .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
-            .unwrap();
-
-        assert_eq!(proof_inputs.unique_owner_signer_count, 3);
-        assert_eq!(
-            proof_inputs.signer_pk_hashes[0],
-            hash_bytes(&[1; 32]).unwrap()
-        );
-        assert_eq!(
-            proof_inputs.signer_pk_hashes[1],
-            hash_bytes(&[2; 32]).unwrap()
-        );
-        assert_eq!(
-            proof_inputs.signer_pk_hashes[2],
-            hash_bytes(&[3; 32]).unwrap()
-        );
-        assert_eq!(proof_inputs.signer_pk_hashes[3], [0; 32]);
-    }
-
-    #[test]
-    fn owner_hashes_are_reused_between_outputs_and_signers() {
-        let utxo_hashes = [[0u8; 32]; 3];
-        let outputs = [
-            ResolvedOutput {
-                utxo_hash: &utxo_hashes[0],
-                owner_tag: [1; 32],
-                data: None,
-            },
-            ResolvedOutput {
-                utxo_hash: &utxo_hashes[1],
-                owner_tag: [2; 32],
-                data: None,
-            },
-            ResolvedOutput {
-                utxo_hash: &utxo_hashes[2],
-                owner_tag: [1; 32],
-                data: None,
-            },
-        ];
-        let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
-        let owner_signers = [get_account_view(
-            [3; 32],
-            [0; 32],
-            true,
-            false,
-            false,
-            vec![],
-        )];
-        let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 3, 1));
-        let mut owner_hashes = OwnerHashCache::new();
-
-        proof_inputs
-            .fill_output_owner_pk_hashes(OutputOwnerMode::All, &outputs, &mut owner_hashes)
-            .unwrap();
-        assert_eq!(owner_hashes.len(), 2);
-
-        proof_inputs
-            .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
-            .unwrap();
-        assert_eq!(owner_hashes.len(), 3);
-        assert_eq!(
-            proof_inputs.output_owner_pk_hashes[0],
-            proof_inputs.signer_pk_hashes[0]
-        );
-        assert_eq!(
-            proof_inputs.output_owner_pk_hashes[0],
-            proof_inputs.output_owner_pk_hashes[2]
-        );
-    }
-
-    #[test]
-    fn confidential_marked_mode_hashes_only_marked_output_tags() {
-        let utxo_hashes = [[0u8; 32]; 3];
-        let confidential = [1, 2, 0, 0, 0, 3, 9];
-        let anonymous = [1, 2, 0, 0, 0, 2, 9];
-        let malformed_length = [1, 3, 0, 0, 0, 3, 9];
-        let outputs = [
-            ResolvedOutput {
-                utxo_hash: &utxo_hashes[0],
-                owner_tag: [1; 32],
-                data: Some(&confidential),
-            },
-            ResolvedOutput {
-                utxo_hash: &utxo_hashes[1],
-                owner_tag: [2; 32],
-                data: Some(&anonymous),
-            },
-            ResolvedOutput {
-                utxo_hash: &utxo_hashes[2],
-                owner_tag: [3; 32],
-                data: Some(&malformed_length),
-            },
-        ];
-        let mut proof_inputs = TransactProofInputs::new(CircuitId::ZoneEddsa(1, 3, 1));
-        let mut owner_hashes = OwnerHashCache::new();
-
-        proof_inputs
-            .fill_output_owner_pk_hashes(
-                OutputOwnerMode::ConfidentialMarked,
-                &outputs,
-                &mut owner_hashes,
-            )
-            .unwrap();
-
-        assert_eq!(
-            proof_inputs.output_owner_pk_hashes[0],
-            hash_bytes(&[1; 32]).unwrap()
-        );
-        assert_eq!(proof_inputs.output_owner_pk_hashes[1], [0; 32]);
-        assert_eq!(proof_inputs.output_owner_pk_hashes[2], [0; 32]);
-        assert_eq!(owner_hashes.len(), 1);
-    }
-
-    #[test]
-    fn zero_suffix_optimization_matches_fixed_width_right_fold() {
-        for width in 1..=MAX_SIGNERS {
-            for unique_count in 1..=width {
-                let mut signers = vec![[0u8; 32]; width];
-                for (index, signer) in signers.iter_mut().take(unique_count).enumerate() {
-                    signer[31] = (index + 1) as u8;
-                }
-                assert_eq!(
-                    fixed_signer_hash_chain(&signers[..unique_count], width).unwrap(),
-                    create_right_hash_chain_from_slice(&signers).unwrap(),
-                    "width={width}, unique_count={unique_count}",
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn zero_suffix_constants_cover_every_supported_width() {
-        for width in 1..=MAX_SIGNERS {
-            let zeros = vec![[0u8; 32]; width];
-            assert_eq!(
-                SIGNER_ZERO_SUFFIX_CHAINS[width - 1],
-                create_right_hash_chain_from_slice(&zeros).unwrap(),
-            );
-        }
-    }
-
-    #[test]
-    fn fixed_signer_hash_chain_rejects_empty_signer_prefix() {
-        assert_eq!(
-            fixed_signer_hash_chain(&[], 1),
-            Err(ProgramError::Custom(
-                ShieldedPoolError::InvalidTransactShape as u32
-            )),
-        );
-    }
 }

@@ -67,7 +67,7 @@ fn sol_withdrawal_ix_data() -> TransactIxData {
 fn spl_withdrawal_leg(mut ix_data: TransactIxData, amount: u64, mint: &Pubkey) -> TransactIxData {
     ix_data.interface_transfers = vec![InterfaceTransfer::SplWithdrawal {
         amount,
-        vault_bump: pda::spl_asset_vault_with_bump(mint).1,
+        spl_interface_bump: pda::spl_interface_with_bump(mint).1,
     }];
     ix_data
 }
@@ -85,17 +85,16 @@ fn sol_withdrawal_rejects_an_unsigned_payer_meta() {
     let recipient = Pubkey::new_unique();
     let sol_vault_before = rpc.svm.get_balance(&pda::sol_interface()).unwrap_or(0);
 
-    // Bind the input owners to the signed fee payer inserted at index 5, so
-    // the input-signer checks pass and the unsigned SPP payer meta itself is
-    // what `validate_and_parse` rejects.
-    let mut ix_data = sol_withdrawal_ix_data();
-    for input in &mut ix_data.inputs {
-        input.eddsa_signer_index = 5;
-    }
+    // Bind the input owners to the signed fee payer passed as an owner signer
+    // (the builder appends it after the system program, at index 5), so the
+    // input-signer checks pass and the unsigned SPP payer meta itself is what
+    // `validate_and_parse` rejects.
+    let ix_data = sol_withdrawal_ix_data();
     let mut ix = Transact {
         payer: spp_payer,
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: vec![fee_payer],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
@@ -103,8 +102,6 @@ fn sol_withdrawal_rejects_an_unsigned_payer_meta() {
     }
     .instruction();
     ix.accounts.get_mut(0).expect("payer meta").is_signer = false;
-    ix.accounts
-        .insert(5, AccountMeta::new_readonly(fee_payer, true));
 
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -197,7 +194,7 @@ impl SplWithdrawalEnv {
     fn valid_withdrawal(&self) -> TransactSplWithdrawalAccounts {
         TransactSplWithdrawalAccounts {
             mint: self.mint,
-            vault: self.vault,
+            spl_interface: self.vault,
             user_token_account: self.attacker_ata,
             token_program: ZolanaProgramTest::token_program_id(),
         }

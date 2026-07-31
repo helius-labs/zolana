@@ -38,9 +38,6 @@ use crate::{
     transact::pack_transact_proof,
 };
 
-/// Default eddsa signer account index for a Solana-owned input (the fee payer).
-const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
-
 /// The output hashes a zone transfer produced, so the caller can confirm
 /// `Wallet::sync` rediscovers each one.
 #[derive(Default)]
@@ -296,6 +293,7 @@ impl ZoneHarness {
             input_tree: self.tree,
             output_tree: self.tree,
             zone_program_id: self.zone_program_id,
+            owner_signers: Vec::new(),
             interface_transfer_accounts,
             data: data.clone(),
         }
@@ -337,8 +335,8 @@ impl ZoneHarness {
             inputs: spend_inputs,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
-            public_movements: proof_inputs.public_movements()?,
-            payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+            public_transfers: proof_inputs.public_transfers()?,
+            signer_pk_hashes: proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?,
             allow_dummy_inputs: true,
             zone_program_id: Some(zone),
             shape: Some(shape),
@@ -551,8 +549,8 @@ impl ZoneHarness {
             inputs: self.zone_spend_inputs(&proof_inputs.input_utxos)?,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
-            public_movements: proof_inputs.public_movements()?,
-            payer_pubkey_hash: proof_inputs.payer_pubkey_hash,
+            public_transfers: proof_inputs.public_transfers()?,
+            signer_pk_hashes: proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?,
             allow_dummy_inputs: true,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
@@ -571,6 +569,7 @@ impl ZoneHarness {
             input_tree: self.tree,
             output_tree: self.tree,
             zone_program_id: self.zone_program_id,
+            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data,
         }
@@ -599,9 +598,10 @@ impl ZoneHarness {
 
 /// Assemble the `TransactIxData` from the signed transaction's external data and
 /// the prover result, mirroring `client::prover::transact::witness::assemble`. Each
-/// padded input carries its nullifier hash, root indices, and signer index; dummies
-/// inherit the first real input's signer. `external_data` fields flow through
-/// unchanged (already rebound to `ZONE_TRANSACT`).
+/// padded input carries its nullifier hash and root indices; authorization comes
+/// from the leading signer run in the accounts array (payer first), not from any
+/// per-input field. `external_data` fields flow through unchanged (already
+/// rebound to `ZONE_TRANSACT`).
 fn assemble_ix_data(
     proof_inputs: &SppProofInputs,
     nullifiers: &[[u8; 32]],
@@ -618,22 +618,6 @@ fn assemble_ix_data(
         ));
     }
 
-    // Per-input signer index: every real input is eddsa-owned and authorizes
-    // with signer index 0 (the fee payer); dummies inherit the first real
-    // input's signer.
-    let real_signer_indices = vec![
-        DEFAULT_EDDSA_SIGNER_INDEX;
-        proof_inputs
-            .input_utxos
-            .iter()
-            .filter(|spend| !spend.is_dummy())
-            .count()
-    ];
-    let dummy_signer = real_signer_indices
-        .first()
-        .copied()
-        .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
-
     let mut inputs = Vec::with_capacity(n_inputs);
     for i in 0..n_inputs {
         let nullifier_hash = *nullifiers
@@ -642,12 +626,10 @@ fn assemble_ix_data(
         let &(utxo_tree_root_index, nullifier_tree_root_index) = root_indices
             .get(i)
             .ok_or_else(|| anyhow!("missing root index {i}"))?;
-        let eddsa_signer_index = real_signer_indices.get(i).copied().unwrap_or(dummy_signer);
         inputs.push(InputUtxo {
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-            eddsa_signer_index,
         });
     }
 

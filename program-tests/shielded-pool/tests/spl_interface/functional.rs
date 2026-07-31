@@ -104,7 +104,7 @@ fn spl_interface_creation_succeeds_for_prefunded_pdas() {
         .airdrop(&pda::spl_asset_registry(&mint), 1_000_000)
         .expect("prefund registry PDA");
     pool.rpc
-        .airdrop(&pda::spl_asset_vault(&mint), 1_000_000)
+        .airdrop(&pda::spl_interface(&mint), 1_000_000)
         .expect("prefund vault PDA");
 
     let (registry, vault) = pool

@@ -8,8 +8,8 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        tag, AssetDeposit, DepositAsset, DepositAssetKind, DepositEntry, ZoneAssetDeposit,
-        ZoneDeposit,
+        tag, AssetDeposit, DepositAsset, DepositAssetKind, DepositEntry, EncryptedZoneDepositData,
+        ZoneAssetDeposit, ZoneDeposit,
     },
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -79,7 +79,7 @@ fn raw_entry(amount: u64) -> DepositEntry {
 
 fn spl_asset_kind(mint: &Pubkey) -> DepositAssetKind {
     DepositAssetKind::Spl {
-        vault_bump: pda::spl_asset_vault_with_bump(mint).1,
+        spl_interface_bump: pda::spl_interface_with_bump(mint).1,
     }
 }
 
@@ -518,17 +518,17 @@ fn mollusk_zone_deposit_fixture() -> (
         depositor: Pubkey::new_unique(),
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
         deposits: vec![ZoneAssetDeposit {
-            deposit: AssetDeposit {
-                asset: DepositAsset::Sol,
-                view_tag: [1u8; 32],
-                owner: [2u8; 32],
-                blinding: [3u8; 32],
-                amount: 1_000_000,
-                utxo_data: None,
-                memo: None,
-            },
+            asset: DepositAsset::Sol,
+            view_tag: [1u8; 32],
+            owner_utxo_hash: [2u8; 32],
+            amount: 1_000_000,
+            data_hash: None,
             zone_data_hash: [0u8; 32],
-            zone_data: Vec::new(),
+            encrypted: EncryptedZoneDepositData {
+                tx_viewing_pk: [0u8; 33],
+                salt: [0u8; 16],
+                ciphertext: Vec::new(),
+            },
         }],
     }
     .cpi_instruction()

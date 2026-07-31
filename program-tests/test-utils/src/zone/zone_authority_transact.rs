@@ -6,7 +6,7 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, PublicMovements, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
+    ProverClient, PublicTransfers, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -18,7 +18,7 @@ use zolana_interface::{
         TransactIxData, ZoneAuthorityTransact,
     },
 };
-use zolana_keypair::{hash::sha256_be, random_blinding, random_salt, ViewingKey};
+use zolana_keypair::{random_blinding, random_salt, ViewingKey};
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
@@ -35,12 +35,6 @@ use crate::{
     },
     transact::pack_transact_proof,
 };
-
-/// The eddsa signer index for every input on the authority rail. The authority
-/// rail skips the per-owner spend-signature check on-chain
-/// (`prepare_proof_inputs::<_, true>` does not run `check_input_signers`), so this
-/// index is never read; it stays at the default 0.
-const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 
 impl ZoneHarness {
     /// Run a zone-authority permanent-delegate transfer over one of `name`'s
@@ -277,8 +271,8 @@ impl ZoneHarness {
             inputs: vec![spend_input],
             outputs: vec![output],
             external_data: external_data.clone(),
-            public_movements: PublicMovements::default(),
-            payer_pubkey_hash: sha256_be(&self.payer.pubkey().to_bytes()),
+            public_transfers: PublicTransfers::default(),
+            payer: Address::new_from_array(self.payer.pubkey().to_bytes()),
             allow_dummy_inputs: true,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(1, 1)),
@@ -288,8 +282,8 @@ impl ZoneHarness {
 
         // Assemble the instruction inputs from the one prover build: the nullifier and
         // root indices are computed once and shared with the proof, so the witness and
-        // the instruction commit to identical values. The authority rail reads no
-        // per-input signer, so `eddsa_signer_index` is the default 0.
+        // the instruction commit to identical values. The authority rail carries no
+        // per-input signer: the `zone_config` PDA signs on-chain instead.
         let nullifier_hash = *result
             .nullifiers
             .first()
@@ -302,7 +296,6 @@ impl ZoneHarness {
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-            eddsa_signer_index: DEFAULT_EDDSA_SIGNER_INDEX,
         }];
 
         let ix_data = TransactIxData {

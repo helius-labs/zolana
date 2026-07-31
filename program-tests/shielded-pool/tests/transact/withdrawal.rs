@@ -77,7 +77,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         .rpc
         .create_token_account(&other_mint, &payer.pubkey())
         .expect("create substitution token account");
-    let other_vault_bump = pda::spl_asset_vault_bump(&other_mint.to_bytes());
+    let other_vault_bump = pda::spl_interface_bump(&other_mint.to_bytes());
     let mut substituted_data = withdrawal.data.clone();
     // Fully canonical settlement accounts for `other_mint`: the leg must carry
     // other_mint's own canonical vault bump, otherwise the program's
@@ -85,7 +85,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
     // (which of the two bumps a random mint pair shares is nondeterministic).
     substituted_data.interface_transfers[0] = InterfaceTransfer::SplWithdrawal {
         amount: SPL_AMOUNT,
-        vault_bump: other_vault_bump,
+        spl_interface_bump: other_vault_bump,
     };
     let substituted = Transact {
         payer: payer.pubkey(),
@@ -94,7 +94,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint: other_mint,
-                vault: pda::spl_asset_vault(&other_mint),
+                vault: pda::spl_interface(&other_mint),
                 user_token_account: other_user_token,
                 token_program: zolana_program_test::ZolanaProgramTest::token_program_id(),
             },
@@ -299,7 +299,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash,
     });
     transact_ix_data.proof =
@@ -511,7 +511,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash,
     });
     transact_ix_data.proof =
@@ -594,7 +594,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     env.rpc
         .mint_to(&mint, &user_token, SPL_AMOUNT)
         .expect("mint tokens");
-    let vault = pda::spl_asset_vault(&mint);
+    let vault = pda::spl_interface(&mint);
 
     let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 0);
     let roots = (utxo_root, nullifier_root);
@@ -629,7 +629,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         ],
         vec![InterfaceTransfer::SplDeposit {
             amount: SPL_AMOUNT,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }],
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -712,8 +712,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
                 mint,
-                vault,
-                depositor: payer.pubkey(),
+                spl_interface: vault,
+                token_authority: payer.pubkey(),
                 user_token_account: user_token,
                 token_program: zolana_program_test::ZolanaProgramTest::token_program_id(),
             },
@@ -1003,7 +1003,7 @@ fn phase_transfer_to_recipient(
         private_tx_hash: transfer_private_tx,
         public_slot_assets: transfer_public_slot_assets,
         public_slot_amounts: transfer_public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash: transfer_public_input_hash,
     });
     transfer_ix_data.proof = prove_and_verify_transfer(

@@ -14,11 +14,11 @@ use solana_signer::Signer;
 use zolana_client::{
     prover::field::{be, right_align_slice},
     spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs,
-    PublicMovements, TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT,
+    PublicTransfers, TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT,
     STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::hash_bytes;
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -185,7 +185,6 @@ pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> 
         nullifier_hash,
         nullifier_tree_root_index: 0,
         utxo_tree_root_index,
-        eddsa_signer_index: 0,
     }
 }
 
@@ -254,13 +253,13 @@ pub fn external_data_hash_spl(
         ResolvedInterfaceTransfer::SplDeposit {
             amount: transfer.amount(),
             user_token_account: *user_spl_token_account,
-            vault: *spl_token_interface,
+            spl_interface: *spl_token_interface,
         }
     } else {
         ResolvedInterfaceTransfer::SplWithdrawal {
             amount: transfer.amount(),
             user_token_account: *user_spl_token_account,
-            vault: *spl_token_interface,
+            spl_interface: *spl_token_interface,
         }
     };
     external_data_hash(transact_ix_data, &[resolved])
@@ -305,12 +304,23 @@ pub struct TransferProverInputsArgs {
     pub private_tx_hash: [u8; 32],
     pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub public_slot_amounts: [[u8; 32]; N_PUBLIC_SLOTS],
-    pub payer_pubkey_hash: [u8; 32],
+    /// The signer run the proof binds: payer first, then unique owner signers,
+    /// zero-padded to the circuit width (`n_inputs + 1`).
+    pub signer_pk_hashes: Vec<[u8; 32]>,
     pub public_input_hash: [u8; 32],
 }
 
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
+    let mut signer_pk_hashes: Vec<BigUint> =
+        args.signer_pk_hashes.iter().map(be).collect();
+    signer_pk_hashes.resize(args.inputs.len() + 1, be(&zero));
+    // The default confidential rail publishes every output slot's owner tag.
+    let published_output_owner_pk_hashes = args
+        .outputs
+        .iter()
+        .map(|output| output.owner_pk_hash.clone())
+        .collect();
     TransferInputs {
         inputs: args.inputs,
         outputs: args.outputs,
@@ -319,8 +329,9 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_assets: args.public_slot_assets.map(|asset| be(&asset)),
         public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         zone_program_id: be(&zero),
-        payer_pubkey_hash: be(&args.payer_pubkey_hash),
+        signer_pk_hashes,
         allow_dummy_inputs: be(&fe(1)),
+        published_output_owner_pk_hashes,
         public_input_hash: be(&args.public_input_hash),
     }
 }
@@ -573,7 +584,7 @@ pub fn build_spl_withdrawal(
         .create_token_account(&mint, &payer.pubkey())
         .context("create user token account")?;
     pt.mint_to(&mint, &user_token, amount).context("mint SPL")?;
-    let vault = pda::spl_asset_vault(&mint);
+    let vault = pda::spl_interface(&mint);
 
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
@@ -648,7 +659,7 @@ pub fn build_spl_withdrawal(
         ],
         vec![InterfaceTransfer::SplWithdrawal {
             amount,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }],
         inline_outputs(&output_hashes, &[payer_bytes; 3]),
     );
@@ -660,9 +671,9 @@ pub fn build_spl_withdrawal(
         .hash()
         .expect("private transaction hash");
     let public_spl_field = public_sol_field(Some(-(amount as i64)));
-    let payer_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
     let mint_bytes = mint.to_bytes();
-    let input_owner_hashes = [owner_pk_hash, owner_pk_hash];
+    let signer_hashes = [payer_hash, zero, zero];
     let (public_slot_assets, public_slot_amounts) =
         spl_public_slots(public_spl_field, &mint_bytes).expect("public SPL slots");
     let public_hash = PublicInputs {
@@ -672,15 +683,14 @@ pub fn build_spl_withdrawal(
         nullifier_tree_roots: &[nullifier_root, nullifier_root],
         private_tx: &private_tx,
         external_data_hash: &external_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &payer_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &input_owner_hashes,
-        output_owner_pk_hashes: &output_owner_hashes,
+        signer_pk_hashes: &signer_hashes,
+        output_owner_pk_hashes: Some(&output_owner_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -691,7 +701,7 @@ pub fn build_spl_withdrawal(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash: payer_hash,
+        signer_pk_hashes: vec![payer_hash],
         public_input_hash: public_hash,
     });
     data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL withdrawal")
@@ -702,10 +712,11 @@ pub fn build_spl_withdrawal(
         payer: payer.pubkey(),
         input_tree: *tree,
         output_tree: *tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint,
-                vault,
+                spl_interface: vault,
                 user_token_account: user_token,
                 token_program: ZolanaProgramTest::token_program_id(),
             },

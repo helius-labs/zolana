@@ -8,7 +8,7 @@ pub(crate) mod hash;
 pub mod merge;
 pub mod merge_zone;
 pub mod protocol_config;
-pub(crate) mod settlement;
+pub mod settlement;
 pub(crate) mod shared;
 pub mod transact;
 pub(crate) mod verifier;

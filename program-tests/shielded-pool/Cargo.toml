@@ -117,6 +117,10 @@ name = "zone_config_contract"
 path = "tests/zone_config/contract.rs"
 
 [[test]]
+name = "zone_config_update_owner"
+path = "tests/zone_config/update_owner.rs"
+
+[[test]]
 name = "deposit_functional"
 path = "tests/deposit/functional.rs"
 
@@ -231,6 +235,14 @@ required-features = ["proofs"]
 [[test]]
 name = "transact_circuit_vectors"
 path = "tests/transact/circuit_vectors.rs"
+
+[[test]]
+name = "transact_signer_run"
+path = "tests/transact/signer_run.rs"
+
+[[test]]
+name = "transact_public_slots"
+path = "tests/transact/public_slots.rs"
 
 [[test]]
 name = "transact_validate_circuit"

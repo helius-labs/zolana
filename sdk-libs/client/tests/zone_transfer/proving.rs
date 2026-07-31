@@ -3,7 +3,7 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    InputUtxoContext, ProverClient, PublicMovements, Rpc, Shape, TransferSpendInput,
+    InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferSpendInput,
     ZoneTransferProver,
 };
 use zolana_interface::{
@@ -57,8 +57,8 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
         inputs,
         outputs,
         external_data: zone_external_data(n_out),
-        public_movements: zero_public_movements(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: PublicTransfers::default(),
+        signer_pk_hashes: vec![[0u8; 32]; n_in + 1],
         allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
@@ -87,8 +87,8 @@ fn eddsa_multi_real() -> ZoneTransferProver {
         inputs,
         outputs,
         external_data: zone_external_data(3),
-        public_movements: zero_public_movements(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: PublicTransfers::default(),
+        signer_pk_hashes: vec![[0u8; 32]; 4],
         allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(3, 3)),
@@ -251,10 +251,6 @@ fn zone_external_data(n_out: usize) -> ExternalData {
         resolved_owner_tags: vec![[0u8; 32]; n_out],
         messages: Vec::new(),
     }
-}
-
-fn zero_public_movements() -> PublicMovements {
-    PublicMovements::default()
 }
 
 /// Fixed test zone program id; every input/output UTXO carries it and the prover

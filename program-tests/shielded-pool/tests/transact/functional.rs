@@ -26,12 +26,14 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_client::STATE_TREE_HEIGHT;
+use shielded_pool_program::testing::MAX_SIGNERS;
 use zolana_client::{
-    prover::field::be, ProverClient, PublicInputs, PublicMovements, TransferOutput,
+    prover::field::be, ProverClient, PublicInputs, PublicTransfers, TransferOutput,
 };
 use zolana_hasher::Poseidon;
 use zolana_hasher::{
-    hash_chain::create_hash_chain_from_slice, primitives::hash_bytes, sha256::Sha256BE, Hasher,
+    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    primitives::hash_bytes,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -62,11 +64,7 @@ use zolana_tree::TreeAccount;
 /// PR164 requires at least one real input for the dummy-participant gate) plus
 /// one dummy input, and three dummy outputs, bound to the on-chain roots and
 /// the payer. Shared by the positive and negative scenarios.
-fn build_valid_transact_ix_for_owner(
-    env: &mut Pool,
-    input_owner: Pubkey,
-    eddsa_signer_index: u8,
-) -> TransactIxData {
+fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> TransactIxData {
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let input_owner_bytes = input_owner.to_bytes();
@@ -145,9 +143,6 @@ fn build_valid_transact_ix_for_owner(
         Vec::new(),
         inline_outputs(&output_hashes, &[input_owner_bytes; 3]),
     );
-    for input in &mut transact_ix_data.inputs {
-        input.eddsa_signer_index = eddsa_signer_index;
-    }
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
@@ -163,7 +158,15 @@ fn build_valid_transact_ix_for_owner(
             .hash()
             .expect("private tx hash");
 
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    // The signer run the proof binds: payer first, then the input owner when
+    // it differs from the payer, zero-padded to the circuit width.
+    let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
+    let owner_signer_hash = hash_bytes(&input_owner_bytes).expect("input owner hash");
+    let signer_hashes = if input_owner_bytes == payer_bytes {
+        [payer_hash, zero, zero]
+    } else {
+        [payer_hash, owner_signer_hash, zero]
+    };
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
@@ -172,15 +175,14 @@ fn build_valid_transact_ix_for_owner(
         nullifier_tree_roots: &[nullifier_root, nullifier_root],
         private_tx: &private_tx,
         external_data_hash: &external_data_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &payer_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &[owner_pk_hash, owner_pk_hash],
-        output_owner_pk_hashes: &owner_pk_hashes,
+        signer_pk_hashes: &signer_hashes,
+        output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -192,7 +194,7 @@ fn build_valid_transact_ix_for_owner(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash,
     });
     transact_ix_data.proof =
@@ -204,7 +206,7 @@ fn build_valid_transact_ix_for_owner(
 
 fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     let input_owner = env.rpc.payer.pubkey();
-    build_valid_transact_ix_for_owner(env, input_owner, 0)
+    build_valid_transact_ix_for_owner(env, input_owner)
 }
 
 /// Write a structurally valid zone config at a signer-controlled test address.
@@ -374,15 +376,16 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     .hash()
     .expect("private tx hash");
 
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
     // The program folds `hash_bytes` of the SIGNING config's stored program id
     // into the `zone_program_id` public-input element.
     let zone_field = hash_bytes(&zone_program.to_bytes()).expect("zone program field");
 
     // Public-input layout: the 6-element base chain, the interleaved public
-    // movement slots (all idle here), then zone/payer/dummy-policy, then the
-    // variant appendix (ZoneEddsa: input-owner chain + output-owner chain;
-    // ZoneAuthority: neither).
+    // transfer slots (all idle here), then zone/signer/dummy-policy, then the
+    // variant appendix (ZoneEddsa: the output-owner chain; ZoneAuthority:
+    // nothing — its signer element is the bare payer hash).
+    let signer_hashes = [payer_hash, zero, zero];
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let mut chain = vec![
         create_hash_chain_from_slice(&[nullifier, dummy_nullifier]).expect("nullifier chain"),
@@ -397,12 +400,14 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
         chain.push(*asset);
         chain.push(*amount);
     }
-    chain.extend_from_slice(&[zone_field, payer_pubkey_hash, fe(1)]);
-    if !IS_AUTHORITY {
+    if IS_AUTHORITY {
+        chain.extend_from_slice(&[zone_field, payer_hash, fe(1)]);
+    } else {
+        chain.push(zone_field);
         chain.push(
-            create_hash_chain_from_slice(&[owner_pk_hash, owner_pk_hash])
-                .expect("input owner chain"),
+            create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"),
         );
+        chain.push(fe(1));
         chain.push(create_hash_chain_from_slice(&owner_pk_hashes).expect("output owner chain"));
     }
     let public_input_hash = create_hash_chain_from_slice(&chain).expect("zone public input hash");
@@ -414,10 +419,16 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash,
     });
     prover_inputs.zone_program_id = be(&zone_field);
+    if IS_AUTHORITY {
+        // The authority rail proves no signatures: its witness carries only the
+        // bare payer hash and publishes no output-owner hashes.
+        prover_inputs.signer_pk_hashes = vec![be(&payer_hash)];
+        prover_inputs.published_output_owner_pk_hashes = Vec::new();
+    }
 
     let prover = ProverClient::local();
     let proof = if IS_AUTHORITY {
@@ -790,22 +801,21 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
     env.rpc
         .airdrop(&input_owner.pubkey(), 1_000_000)
         .expect("fund input owner account");
-    // The builder's base accounts are payer, input_tree, output_tree, and the
-    // SPP program. Insert the Ed25519 owner before the program (index 3) and
-    // bind both proof inputs to it.
-    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey(), 3);
+    // The builder appends owner signers after the SPP and System Program
+    // accounts (index 5). Bind both proof inputs to the input owner and flip
+    // its meta to unsigned.
+    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey());
     let mut ix = Transact {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: vec![input_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
     ix.accounts
-        .insert(3, AccountMeta::new_readonly(input_owner.pubkey(), true));
-    ix.accounts
-        .get_mut(3)
+        .get_mut(5)
         .expect("input owner account meta")
         .is_signer = false;
 
@@ -820,12 +830,11 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// INV-TRANSACT-05: the proof folds each eddsa input's owner as
-/// `Poseidon(pk_low, pk_high)` of the account at the input's signer index.
-/// Substituting a different account that DOES sign at that index passes the
-/// signer check, so the owner-hash binding is the only thing left to fail: the
-/// program folds the substitute's hash and the public input no longer matches
-/// the proof.
+/// INV-TRANSACT-05: the proof binds the signer run (payer first, then unique
+/// owner signers) as a fixed-width hash chain. Substituting a different account
+/// that DOES sign in the owner-signer slot passes the signer check, so the
+/// chain binding is the only thing left to fail: the program folds the
+/// substitute's hash and the public input no longer matches the proof.
 #[test]
 fn transact_rejects_a_substituted_input_signer() {
     let mut env = proof_env();
@@ -838,20 +847,18 @@ fn transact_rejects_a_substituted_input_signer() {
         .airdrop(&substitute_owner.pubkey(), 1_000_000)
         .expect("fund substitute owner account");
 
-    // Prove for `bound_owner` at raw account index 5 (after payer, input_tree,
-    // output_tree, the system-program placeholder, and the program account),
-    // then place the signing substitute there instead.
-    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, bound_owner.pubkey(), 5);
-    let mut ix = Transact {
+    // Prove for `bound_owner` in the owner-signer run, then place the signing
+    // substitute in that run instead.
+    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, bound_owner.pubkey());
+    let ix = Transact {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: vec![substitute_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
-    ix.accounts
-        .push(AccountMeta::new_readonly(substitute_owner.pubkey(), true));
 
     let error = env
         .rpc
@@ -867,11 +874,11 @@ fn transact_rejects_a_substituted_input_signer() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// INV-TRANSACT-20: the proof folds `payer_pubkey_hash = Sha256BE(payer)` of
-/// accounts[0]. Submitting the identical instruction with a different signing
-/// payer must fail proof verification. The inputs are bound to a separate
-/// owner signing from index 2, so the payer hash is the only public-input
-/// element that changes.
+/// INV-TRANSACT-20: the proof folds `hash_bytes(payer)` of accounts[0] as the
+/// first element of the signer chain. Submitting the identical instruction
+/// with a different signing payer must fail proof verification. The inputs are
+/// bound to a separate owner in the signer run, so the payer hash is the only
+/// public-input element that changes.
 #[test]
 fn transact_rejects_a_substituted_payer() {
     let mut env = proof_env();
@@ -889,17 +896,16 @@ fn transact_rejects_a_substituted_payer() {
 
     // The proof binds the default payer's pubkey hash; the substitute signs at
     // index 0 in its place, so the on-chain recompute disagrees.
-    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey(), 5);
-    let mut ix = Transact {
+    let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey());
+    let ix = Transact {
         payer: substitute_payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: vec![input_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
-    ix.accounts
-        .push(AccountMeta::new_readonly(input_owner.pubkey(), true));
 
     let error = env
         .rpc
@@ -1080,34 +1086,35 @@ fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
 }
 
 #[test]
-fn transact_rejects_overrunning_eddsa_signer_index() {
+fn transact_rejects_an_overrunning_owner_signer_run() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
-    let mut transact_ix_data = build_valid_transact_ix(&mut env);
-    transact_ix_data
-        .inputs
-        .get_mut(0)
-        .expect("first transact input")
-        .eddsa_signer_index = u8::MAX - 1;
+    let transact_ix_data = build_valid_transact_ix(&mut env);
+    // The signer run is payer-first and deduplicated into a fixed-width
+    // MAX_SIGNERS array; one more unique signer than fits must be rejected.
+    let extra_signers: Vec<Keypair> = (0..MAX_SIGNERS).map(|_| Keypair::new()).collect();
+    for signer in &extra_signers {
+        env.rpc
+            .airdrop(&signer.pubkey(), 1_000_000)
+            .expect("fund owner signer");
+    }
     let ix = Transact {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: extra_signers.iter().map(|signer| signer.pubkey()).collect(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
     .instruction();
 
+    let signer_refs: Vec<&Keypair> = extra_signers.iter().collect();
     let error = env
         .rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("out-of-range Ed25519 signer index must be rejected");
-    // The runtime still reports the legacy variant for the on-chain
-    // `ProgramError::NotEnoughAccountKeys`; `MissingAccount` is not wire-equivalent.
-    #[allow(deprecated)]
-    let expected = InstructionError::NotEnoughAccountKeys;
-    Rejection::new(expected).assert_litesvm(error);
+        .create_and_send_default_payer_transaction(&[ix], &signer_refs)
+        .expect_err("an owner-signer run wider than MAX_SIGNERS must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidTransactShape).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
         .expect("out-of-range signer transaction trace")

@@ -64,6 +64,7 @@ fn expect_rejection(env: &mut Pool, data: TransactIxData, expected: ShieldedPool
         payer: env.rpc.payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -151,6 +152,7 @@ fn zone_instruction(
             payer,
             input_tree: tree,
             output_tree: tree,
+            owner_signers: Vec::new(),
             zone_program_id,
             interface_transfer_accounts: Vec::new(),
             data,
@@ -247,6 +249,7 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
         payer: env.rpc.payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }
@@ -267,6 +270,7 @@ fn zone_transact_rejects_an_unsigned_zone_config() {
         payer: env.rpc.payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
         data: {
@@ -300,6 +304,7 @@ fn transact_rejects_a_non_writable_tree_meta() {
         payer: env.rpc.payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }
@@ -328,6 +333,7 @@ fn transact_rejects_a_tree_not_owned_by_the_program() {
         payer: env.rpc.payer.pubkey(),
         input_tree: impostor,
         output_tree: impostor,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }
@@ -369,6 +375,7 @@ fn transact_rejects_a_malformed_wincode_payload() {
         payer: env.rpc.payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }
@@ -432,6 +439,7 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
         payer: env.rpc.payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
     }

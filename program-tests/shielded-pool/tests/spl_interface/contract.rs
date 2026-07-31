@@ -38,9 +38,9 @@ fn asset_counter_assigns_distinct_canonical_interfaces() {
     assert_ne!(first_accounts, second_accounts);
     for address in [
         pda::spl_asset_registry(&first),
-        pda::spl_asset_vault(&first),
+        pda::spl_interface(&first),
         pda::spl_asset_registry(&second),
-        pda::spl_asset_vault(&second),
+        pda::spl_interface(&second),
     ] {
         assert!(
             backend.rpc.account_data(&address).is_some(),

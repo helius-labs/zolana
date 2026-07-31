@@ -89,7 +89,7 @@ fn spl_interface_creation_rejects_a_pre_existing_vault_account() {
         .ensure_asset_counter(&pool.authority)
         .expect("asset counter");
     let mint = pool.rpc.create_mint().expect("mint");
-    let vault = pda::spl_asset_vault(&mint);
+    let vault = pda::spl_interface(&mint);
     pool.rpc
         .svm
         .set_account(
@@ -419,7 +419,7 @@ fn spl_interface_creation_rejects_a_noncanonical_vault_pda() {
     Rejection::pool(ShieldedPoolError::InvalidPda).assert_litesvm(err);
     assert!(
         pool.rpc
-            .account_data(&pda::spl_asset_vault(&mint))
+            .account_data(&pda::spl_interface(&mint))
             .is_none(),
         "rejected creation must not allocate the vault"
     );

@@ -276,7 +276,7 @@ pub(crate) fn assemble_outputs(
     })
 }
 
-pub(crate) struct PublicInputs<'a> {
+pub struct PublicInputs<'a> {
     pub nullifiers: &'a [[u8; 32]],
     pub output_hashes: &'a [[u8; 32]],
     pub utxo_roots: &'a [[u8; 32]],
@@ -295,7 +295,7 @@ pub(crate) struct PublicInputs<'a> {
 }
 
 impl PublicInputs<'_> {
-    pub(crate) fn hash(&self) -> Result<[u8; 32], ClientError> {
+    pub fn hash(&self) -> Result<[u8; 32], ClientError> {
         self.hash_with_after_private_tx(&[])
     }
 

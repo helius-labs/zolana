@@ -339,7 +339,7 @@ fn prove_spend(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash: public_hash,
     });
     ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "multi-leg transact")
@@ -500,15 +500,15 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         .expect("second recipient token account");
     let vault_before = env.rpc.token_balance(&vault).expect("vault balance");
     let mint_field = zolana_hasher::primitives::hash_bytes(&mint.to_bytes()).expect("mint field");
-    let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
+    let spl_interface_bump = pda::spl_interface_with_bump(&mint).1;
     let interface_transfers = vec![
         InterfaceTransfer::SplWithdrawal {
             amount: first_amount,
-            vault_bump,
+            spl_interface_bump,
         },
         InterfaceTransfer::SplWithdrawal {
             amount: second_amount,
-            vault_bump,
+            spl_interface_bump,
         },
     ];
     let resolved_transfers = [
@@ -537,7 +537,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
     let spl_transfer = |user_token_account| {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             mint,
-            vault,
+            spl_interface: vault,
             user_token_account,
             token_program,
         })
@@ -640,14 +640,14 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let interface_transfers = vec![
         InterfaceTransfer::SplWithdrawal {
             amount: SPL_SPLIT_TOTAL,
-            vault_bump: pda::spl_asset_vault_with_bump(&withdraw_mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&withdraw_mint).1,
         },
         InterfaceTransfer::SolDeposit {
             amount: sol_deposit_amount,
         },
         InterfaceTransfer::SplDeposit {
             amount: spl_deposit_amount,
-            vault_bump: pda::spl_asset_vault_with_bump(&deposit_mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&deposit_mint).1,
         },
     ];
     let resolved_transfers = [
@@ -685,7 +685,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let spl_withdrawal = |vault, user_token_account| {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             mint: withdraw_mint,
-            vault,
+            spl_interface: vault,
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
@@ -693,8 +693,8 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let spl_deposit = |vault, user_token_account| {
         TransactInterfaceTransferAccounts::SplDeposit(TransactSplDepositAccounts {
             mint: deposit_mint,
-            vault,
-            depositor: payer.pubkey(),
+            spl_interface: vault,
+            token_authority: payer.pubkey(),
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
