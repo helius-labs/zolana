@@ -21,9 +21,9 @@ pub fn sol_deposit_accounts(
     vec![
         AccountMeta::new(tree, false),
         AccountMeta::new(depositor, true),
+        AccountMeta::new_readonly(rpc.program_id, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
         AccountMeta::new(pda::sol_interface(), false),
-        AccountMeta::new_readonly(rpc.program_id, false),
     ]
 }
 
@@ -66,19 +66,18 @@ pub fn sol_group_accounts() -> Vec<AccountMeta> {
 }
 
 /// Settlement account metas for one SPL asset group, in the program's parse
-/// order (token program, mint, funding token account, vault, registry).
+/// order (token program, mint, funding token account, interface vault).
 pub fn spl_group_accounts(mint: Pubkey, user_token: Pubkey) -> Vec<AccountMeta> {
     vec![
         AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
         AccountMeta::new_readonly(mint, false),
         AccountMeta::new(user_token, false),
         AccountMeta::new(pda::spl_interface(&mint), false),
-        AccountMeta::new_readonly(pda::spl_asset_registry(&mint), false),
     ]
 }
 
-/// Full SPL `deposit` account metas (tree, depositor, then the SPL asset
-/// group and the program itself) for hand-built deposit instructions.
+/// Full SPL `deposit` account metas (tree, depositor, the program itself,
+/// then the SPL asset group) for hand-built deposit instructions.
 pub fn spl_accounts(
     tree: Pubkey,
     depositor: Pubkey,
@@ -88,12 +87,11 @@ pub fn spl_accounts(
     vec![
         AccountMeta::new(tree, false),
         AccountMeta::new(depositor, true),
+        AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
         AccountMeta::new_readonly(mint, false),
         AccountMeta::new(user_token, false),
         AccountMeta::new(pda::spl_interface(&mint), false),
-        AccountMeta::new_readonly(pda::spl_asset_registry(&mint), false),
-        AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
     ]
 }
 
@@ -117,11 +115,11 @@ pub fn raw_deposit_batch(
     let mut accounts = vec![
         AccountMeta::new(tree, false),
         AccountMeta::new(depositor.pubkey(), true),
+        AccountMeta::new_readonly(rpc.program_id, false),
     ];
     for group in groups {
         accounts.extend(group);
     }
-    accounts.push(AccountMeta::new_readonly(rpc.program_id, false));
     let ix = Instruction {
         program_id: rpc.program_id,
         accounts,

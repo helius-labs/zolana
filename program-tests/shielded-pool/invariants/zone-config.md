@@ -110,7 +110,7 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-UPDATE-ZC-OWNER-02: the new authority is read only from the co-signing account**
-  - Covered by: `program-tests/shielded-pool/tests/zone_config/update_owner.rs` (`reads_new_owner_only_from_the_signer_account`, `rejects_unsigned_new_owner`), `program-tests/shielded-pool/tests/admin/rejection.rs` `zone_owner_rotation_rejects_a_mismatched_co_signer`
+  - Covered by: `program-tests/shielded-pool/tests/zone_config/update_owner.rs` (`reads_new_owner_only_from_the_signer_account`, `rejects_unsigned_new_owner`), `program-tests/shielded-pool/tests/admin/rejection.rs` `zone_owner_rotation_binds_the_new_owner_to_the_co_signing_account`
   - Kind: precondition
   - Statement: the new authority address comes ONLY from the third account, which must sign — there is no instruction-data field for it (PR172 removed the borsh payload, so the address can never be grafted from data the co-signer did not see); a missing or non-signing third account returns Err.
   - Location: `programs/shielded-pool/src/instructions/zone_config/update_owner.rs` (`fn process_update_zone_config_owner`)
@@ -121,7 +121,7 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 ### Instruction Data Validation
 
 - [x] **INV-UPDATE-ZC-OWNER-05: any non-empty payload is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/zone_config/update_owner.rs` `rejects_legacy_owner_payload`, `program-tests/shielded-pool/tests/zone_config/contract.rs` `zone_owner_rotation_rejects_a_truncated_payload`
+  - Covered by: `program-tests/shielded-pool/tests/zone_config/update_owner.rs` `rejects_legacy_owner_payload`, `program-tests/shielded-pool/tests/zone_config/contract.rs` `zone_owner_rotation_rejects_a_legacy_payload`
   - Kind: precondition
   - Statement: the instruction data is exactly the tag byte; ANY trailing payload (including the retired borsh `UpdateZoneConfigOwnerData` encoding carried by pre-PR172 clients) makes the instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/zone_config/update_owner.rs` (`fn process_update_zone_config_owner`)

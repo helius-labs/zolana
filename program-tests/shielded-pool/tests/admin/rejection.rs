@@ -12,7 +12,7 @@ use zolana_interface::{
         CreateZoneConfig, UpdateProtocolConfigData,
     },
     pda,
-    state::address_tree_params,
+    state::{address_tree_params, ZoneConfig},
 };
 use zolana_program_test::{system_create_account_ix, Rejection, Rpc, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::mollusk::{
@@ -601,7 +601,7 @@ fn zone_config_creation_rejects_an_unconfigured_payer_when_permissioned() {
 }
 
 #[test]
-fn zone_owner_rotation_rejects_a_mismatched_co_signer() {
+fn zone_owner_rotation_binds_the_new_owner_to_the_co_signing_account() {
     let mut pool = Pool::initialized();
     pool.rpc
         .load_zone_test_program()
@@ -619,14 +619,17 @@ fn zone_owner_rotation_rejects_a_mismatched_co_signer() {
         new_authority: next.pubkey().to_bytes().into(),
     }
     .instruction();
-    // A signer that is not the instruction's named new authority.
+    // PR172 removed the payload field: the new authority is read only from the
+    // co-signing account, so swapping in the impostor rotates to the impostor
+    // (there is no payload/account mismatch class left to reject).
     ix.accounts.get_mut(2).expect("new authority meta").pubkey = impostor.pubkey();
 
-    let err = pool
-        .rpc
+    pool.rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority, &impostor])
-        .expect_err("mismatched rotation co-signer must fail");
-    Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
+        .expect("rotation to the co-signing account succeeds");
+    let bytes = pool.rpc.account_data(&zone_config).expect("zone config");
+    let config: &ZoneConfig = bytemuck::from_bytes(&bytes);
+    assert_eq!(config.authority.to_bytes(), impostor.pubkey().to_bytes());
 }
 
 #[test]

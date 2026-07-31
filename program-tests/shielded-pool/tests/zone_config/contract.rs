@@ -366,7 +366,7 @@ fn zone_owner_rotation_changes_only_the_authority_field() {
 }
 
 #[test]
-fn zone_owner_rotation_rejects_a_truncated_payload() {
+fn zone_owner_rotation_rejects_a_legacy_payload() {
     let mut backend = zone_backend();
     let zone_config = backend
         .rpc
@@ -379,12 +379,14 @@ fn zone_owner_rotation_rejects_a_truncated_payload() {
         new_authority: next.pubkey().to_bytes().into(),
     }
     .instruction();
-    ix.data.truncate(16);
+    // PR172 removed the borsh payload: the instruction data is exactly the tag
+    // byte and ANY trailing bytes (a legacy encoding, or junk) are rejected.
+    ix.data.extend_from_slice(&[7u8; 16]);
 
     let err = backend
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority, &next])
-        .expect_err("truncated payload must fail");
+        .expect_err("a payload after the tag must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
     backend
         .rpc

@@ -159,7 +159,7 @@ fn zone_instruction(
         }
         .cpi_instruction()
     };
-    ix.accounts.get_mut(3).expect("zone config meta").pubkey = zone_config.pubkey();
+    ix.accounts.get_mut(5).expect("zone config meta").pubkey = zone_config.pubkey();
     ix
 }
 
@@ -237,9 +237,9 @@ fn transact_rejects_an_unsupported_proof_shape() {
 #[test]
 fn transact_rejects_a_wrong_trailing_system_program_account() {
     let mut env = Pool::initialized();
-    // INV-TRANSACT-41: after the (here empty) settlement groups, the loader reads
-    // one trailing system-program account for the forester-fee Transfer CPI; a
-    // wrong key in that slot must be rejected at account parsing, before any
+    // INV-TRANSACT-41: the loader reads the canonical system program as the
+    // last account of the fixed prefix (index 4, after the SPP program at 3);
+    // a wrong key in that slot must be rejected at account parsing, before any
     // tree write or proof check.
     let impostor = Pubkey::new_unique();
     env.rpc
@@ -254,7 +254,7 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
         data: transfer_ix_data(2, 3),
     }
     .instruction();
-    ix.accounts.get_mut(3).expect("system program meta").pubkey = impostor;
+    ix.accounts.get_mut(4).expect("system program meta").pubkey = impostor;
     expect_ix_rejection(
         &mut env,
         ix,
@@ -283,7 +283,7 @@ fn zone_transact_rejects_an_unsigned_zone_config() {
     // The `zone_config` signature IS the zone authorization (see
     // merge/contract.rs): without it the flag must be rejected before the
     // config is even loaded (so the account does not need to exist).
-    ix.accounts.get_mut(3).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(5).expect("zone config meta").is_signer = false;
 
     expect_ix_rejection(
         &mut env,
@@ -573,7 +573,7 @@ fn zone_authority_transact_rejects_an_unsigned_zone_config() {
         },
     }
     .cpi_instruction();
-    ix.accounts.get_mut(3).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(5).expect("zone config meta").is_signer = false;
 
     expect_ix_rejection(
         &mut env,

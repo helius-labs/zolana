@@ -5733,6 +5733,7 @@ dependencies = [
  "spl-token",
  "spl-token-2022-interface",
  "tokio",
+ "wincode 0.5.5",
  "zolana-account-checks",
  "zolana-client",
  "zolana-event",

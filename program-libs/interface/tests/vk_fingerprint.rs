@@ -38,9 +38,19 @@ fn absorb(preimage: &mut Vec<u8>, name: &str, vk: &Groth16Verifyingkey) {
 
 #[test]
 fn verifying_key_fingerprint_is_pinned() {
-    let keys: [(&str, &Groth16Verifyingkey); 26] = vks![
+    let keys: [(&str, &Groth16Verifyingkey); 36] = vks![
         merge_8_1,
         merge_zone_8_1,
+        transfer_p256_zone_1_1,
+        transfer_p256_zone_1_2,
+        transfer_p256_zone_1_8,
+        transfer_p256_zone_2_2,
+        transfer_p256_zone_2_3,
+        transfer_p256_zone_3_3,
+        transfer_p256_zone_4_3,
+        transfer_p256_zone_4_4,
+        transfer_p256_zone_5_3,
+        transfer_p256_zone_5_4,
         transfer_confidential_1_1,
         transfer_confidential_1_2,
         transfer_confidential_1_8,
@@ -77,7 +87,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00ebeec1337bc1cf4b957207bebe30c6af88d360b62732fd86ef2ad054d7143c",
+        fingerprint, "00e8b2716ed4bee43814992e86cdf94582d316c8757525ec25f4a7b01b802542",
         "verifying keys changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

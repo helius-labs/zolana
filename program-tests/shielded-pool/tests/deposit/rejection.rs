@@ -600,17 +600,24 @@ fn mollusk_deposit_rejects_truncated_data_exactly() {
 #[test]
 fn mollusk_deposit_rejects_every_account_privilege_downgrade() {
     let (mollusk, valid, accounts) = deposit_fixture();
-    // Metas: [0] tree, [1] depositor (signer), [2] system program, [3] SOL
-    // vault, [4] shielded-pool program. The signer and trailing-account cells
-    // have stable errors; the remaining downgrades shift the account shape, so
-    // only deterministic rejection is pinned.
-    let program_index = valid.accounts.len().saturating_sub(1);
+    // Metas: [0] tree, [1] depositor (signer), [2] shielded-pool program,
+    // [3] system program, [4] SOL interface vault (writable). The signer and
+    // fixed-privilege cells have stable errors; the remaining downgrades shift
+    // the account shape, so only deterministic rejection is pinned.
     sweep_account_matrix(&mollusk, &valid, &accounts, |mutation| match mutation {
         AccountMutation::Unsign { index: 1 } => {
             Expected::Err(ProgramError::Custom(u32::from(AccountError::InvalidSigner)))
         }
-        AccountMutation::Readonly { index: 4 } => Expected::Success,
-        AccountMutation::Remove { index } if index == program_index => Expected::Err(
+        AccountMutation::Readonly { index: 2 } | AccountMutation::Readonly { index: 3 } => {
+            Expected::Success
+        }
+        AccountMutation::Readonly { index: 4 } => Expected::Err(ProgramError::Custom(
+            ShieldedPoolError::InvalidSettlementAccounts as u32,
+        )),
+        AccountMutation::Remove { index: 2 } => Expected::Err(ProgramError::Custom(
+            ShieldedPoolError::InvalidSettlementAccounts as u32,
+        )),
+        AccountMutation::Remove { index } if index >= 3 => Expected::Err(
             ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
         ),
         _ => Expected::Rejected,
@@ -624,14 +631,14 @@ fn mollusk_deposit_rejects_wrong_program_account_exactly() {
     let mut wrong_program_ix = valid;
     *wrong_program_ix
         .accounts
-        .last_mut()
+        .get_mut(2)
         .expect("program account") = AccountMeta {
         pubkey: mollusk_pubkey(&wrong_program),
         is_signer: false,
         is_writable: false,
     };
     let mut wrong_program_accounts = accounts;
-    *wrong_program_accounts.last_mut().expect("program account") = (
+    *wrong_program_accounts.get_mut(2).expect("program account") = (
         mollusk_pubkey(&wrong_program),
         MolluskAccount {
             lamports: 1,

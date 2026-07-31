@@ -54,6 +54,7 @@ zolana-tree = { workspace = true }
 mollusk-svm = { workspace = true }
 
 [dev-dependencies]
+wincode = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 zolana-user-registry-interface = { workspace = true }

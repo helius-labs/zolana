@@ -5,6 +5,7 @@ use shielded_pool_tests::support::fixtures::{register_mint, Pool};
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -66,21 +67,36 @@ fn assert_rejected_without_sol_movement(
 ) {
     let mut pool = Pool::initialized();
     let payer = pool.rpc.payer.pubkey();
-    let interface_transfer_accounts = interface_transfers
+    let interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts> = interface_transfers
         .iter()
         .map(|_| {
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: payer })
         })
         .collect();
-    let ix = Transact {
-        payer,
-        input_tree: pool.tree.pubkey(),
-        output_tree: pool.tree.pubkey(),
-        owner_signers: Vec::new(),
-        interface_transfer_accounts,
-        data: ix_data(interface_transfers),
+    // The `Transact` builder's validating serializer rejects invalid legs
+    // client-side, so these on-chain validation tests serialize directly
+    // (wincode carries no validation) and lay out the accounts by hand.
+    let data = ix_data(interface_transfers);
+    let mut instruction_data = vec![zolana_interface::instruction::tag::TRANSACT];
+    instruction_data.extend_from_slice(
+        &wincode::serialize(&data).expect("wincode serialization is infallible"),
+    );
+    let mut accounts = vec![
+        AccountMeta::new(payer, true),
+        AccountMeta::new(pool.tree.pubkey(), false),
+        AccountMeta::new(pool.tree.pubkey(), false),
+        AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
+        AccountMeta::new_readonly(Pubkey::default(), false),
+    ];
+    for _ in &interface_transfer_accounts {
+        accounts.push(AccountMeta::new(pda::sol_interface(), false));
+        accounts.push(AccountMeta::new(payer, true));
     }
-    .instruction();
+    let ix = Instruction {
+        program_id: zolana_interface::PROGRAM_ID_PUBKEY,
+        accounts,
+        data: instruction_data,
+    };
 
     let sol_vault = pda::sol_interface();
     let vault_before = pool.rpc.svm.get_balance(&sol_vault).unwrap_or(0);
@@ -337,7 +353,9 @@ fn spl_deposit_requires_depositor_signature() {
         }]),
     }
     .instruction();
-    ix.accounts[5].is_signer = false;
+    // Accounts: [payer, trees, program, system, mint, spl_interface,
+    // token_authority(7), user_token, token_program].
+    ix.accounts[7].is_signer = false;
 
     expect_rejection(
         &mut pool.rpc,
@@ -346,10 +364,13 @@ fn spl_deposit_requires_depositor_signature() {
     );
 }
 
-/// Inserting an extra account meta before the vault shifts every settlement
-/// account one slot: the user token account lands in the `token_program`
-/// slot, so validation rejects its address as an unsupported SPL token
-/// program (`UnsupportedSplTokenProgram`) before any CPI runs.
+/// Grafting an extra account into the settlement group before the token
+/// program lands the stranger in the `token_program` slot, so validation
+/// rejects it as invalid settlement accounts before any CPI runs. The grafted
+/// account must be a fresh pubkey: the runtime deduplicates metas by address,
+/// so a repeated payer would collapse away the shift. (On the transact path an
+/// unsupported token program maps to 7009; `UnsupportedSplTokenProgram` = 7041
+/// is the create_spl_interface surface.)
 #[test]
 fn spl_withdrawal_rejects_a_shifted_token_program_account() {
     let mut pool = Pool::initialized();
@@ -380,13 +401,15 @@ fn spl_withdrawal_rejects_a_shifted_token_program_account() {
         }]),
     }
     .instruction();
+    // Accounts: [payer, trees, program, system, cpi_authority, mint,
+    // spl_interface, user_token, token_program(9)].
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(payer, false));
+        .insert(9, AccountMeta::new_readonly(Pubkey::new_unique(), false));
 
     expect_rejection(
         &mut pool.rpc,
         ix,
-        Rejection::pool(ShieldedPoolError::UnsupportedSplTokenProgram),
+        Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts),
     );
 }
 

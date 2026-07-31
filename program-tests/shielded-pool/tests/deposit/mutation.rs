@@ -51,9 +51,9 @@ fn truncated_instruction_data_is_rejected_exactly() {
 
 /// Removing any single account (from both the metas and the account set) is
 /// rejected with a stable per-index error: the tree or depositor slot loses
-/// its expected shape so the signer gate fires, a missing system program or
-/// SOL vault surfaces as invalid settlement accounts, and a missing program
-/// account is the account-iterator shortfall.
+/// its expected shape so the signer gate fires, a missing program account
+/// surfaces as invalid settlement accounts, and a missing system program or
+/// SOL vault is the account-iterator shortfall.
 #[test]
 fn removing_any_account_is_rejected_exactly() {
     let (mollusk, valid, accounts) = deposit_fixture();
@@ -64,7 +64,7 @@ fn removing_any_account_is_rejected_exactly() {
         shrunk.remove(index);
         let expected = match index {
             0 | 1 => account_error(AccountError::InvalidSigner),
-            2 | 3 => pool_error(ShieldedPoolError::InvalidSettlementAccounts),
+            2 => pool_error(ShieldedPoolError::InvalidSettlementAccounts),
             _ => account_error(AccountError::NotEnoughAccountKeys),
         };
         expect_err_exact(&mollusk, &instruction, &shrunk, expected);

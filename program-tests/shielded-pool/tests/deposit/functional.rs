@@ -118,11 +118,13 @@ fn sol_deposit_modifies_only_the_tree_and_the_settlement_pair() {
     let (mollusk, instruction, accounts) = deposit_fixture();
     let tree = instruction.accounts.first().expect("tree meta").pubkey;
     let depositor = instruction.accounts.get(1).expect("depositor meta").pubkey;
+    // Deposit accounts: [tree, depositor, program, system_program, sol_interface].
     let sol_interface = instruction
         .accounts
-        .get(3)
+        .get(4)
         .expect("sol_interface meta")
         .pubkey;
+    assert_eq!(sol_interface, pda::sol_interface());
 
     let result = mollusk.process_instruction(&instruction, &accounts);
     assert!(
