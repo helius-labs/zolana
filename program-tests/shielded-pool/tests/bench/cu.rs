@@ -12,10 +12,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, PublicInputs, PublicMovements, TransferOutput, STATE_TREE_HEIGHT,
+    ProverClient, PublicInputs, PublicTransfers, TransferOutput, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::hash_bytes;
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
@@ -488,7 +488,11 @@ fn bench_transfer_shape(
         PrivateTxHash::new(&vec![zero; n_inputs], &private_outputs, &external_data_hash)
             .hash()
             .expect("private tx hash");
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    // The signer run the proof binds: the payer owns every input here, so the
+    // unique run is just the payer hash, zero-padded to the n_inputs + 1
+    // circuit width. The program derives the same value with `hash_bytes`.
+    let mut signer_pk_hashes = vec![owner_hash];
+    signer_pk_hashes.extend(std::iter::repeat_n(zero, n_inputs));
 
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = PublicInputs {
@@ -498,15 +502,14 @@ fn bench_transfer_shape(
         nullifier_tree_roots: &vec![nullifier_root; n_inputs],
         private_tx: &private_tx,
         external_data_hash: &external_data_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &payer_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &vec![owner_hash; n_inputs],
-        output_owner_pk_hashes: &owner_pk_hashes,
+        signer_pk_hashes: &signer_pk_hashes,
+        output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -517,7 +520,7 @@ fn bench_transfer_shape(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        signer_pk_hashes: vec![payer_pubkey_hash],
+        signer_pk_hashes: signer_pk_hashes.clone(),
         public_input_hash,
     });
     let proof = ProverClient::local()
@@ -648,7 +651,9 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
             .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    // Both inputs are the payer's, so the unique signer run is one entry,
+    // zero-padded to the 2 + 1 circuit width.
+    let signer_pk_hashes = [owner_pk_hash, zero, zero];
 
     let public_input_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
@@ -657,15 +662,14 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         nullifier_tree_roots: &[nullifier_root, nullifier_root],
         private_tx: &private_tx,
         external_data_hash: &external_data_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &payer_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &[owner_pk_hash, owner_pk_hash],
-        output_owner_pk_hashes: &owner_pk_hashes,
+        signer_pk_hashes: &signer_pk_hashes,
+        output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -676,7 +680,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        signer_pk_hashes: vec![payer_pubkey_hash],
+        signer_pk_hashes: signer_pk_hashes.to_vec(),
         public_input_hash,
     });
     transact_ix_data.proof =
