@@ -617,9 +617,9 @@ fn mollusk_deposit_rejects_every_account_privilege_downgrade() {
         AccountMutation::Remove { index: 2 } => Expected::Err(ProgramError::Custom(
             ShieldedPoolError::InvalidSettlementAccounts as u32,
         )),
-        AccountMutation::Remove { index } if index >= 3 => Expected::Err(
-            ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
-        ),
+        AccountMutation::Remove { index } if index >= 3 => Expected::Err(ProgramError::Custom(
+            u32::from(AccountError::NotEnoughAccountKeys),
+        )),
         _ => Expected::Rejected,
     });
 }
