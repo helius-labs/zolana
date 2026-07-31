@@ -922,7 +922,7 @@ public_leg(Spl { is_deposit, amount, user_token_account, vault }) :=
 `fetch_tag(owner_tag)` is the 32-byte value the [`OwnerTag`](#transact) carries or references. The hash covers those bytes, not the tag encoding, so an `Account` reference is fail-closed: reordering the account list changes the hash and the proof no longer verifies. Count prefixes, per-datum length prefixes, and the strict `{0, 1}` presence byte (`None` differs from `Some(&[])`) keep the preimage injective.
 
 `resolved_public_legs` is produced by pairing each instruction-data
-[`PublicLeg`](#transact) with its account group in the same position. The leg
+[`InterfaceTransfer`](#transact) with its account group in the same position. The leg
 count and `{Sol = 0, Spl = 1}` tags make the variable-length sequence
 unambiguous. The account addresses in each entry bind the proof to its concrete
 recipient or token settlement. Reordering legs or account groups therefore
@@ -947,7 +947,7 @@ intermediary cannot replace either value while reusing the proof.
 | Check | Description |
 | --- | --- |
 | Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. |
-| UTXO Ownership | Each spent input UTXO binds to the public Ed25519 owner-key hash for its slot. SPP verifies that the account named by `eddsa_signer_index` is a transaction signer, and the circuit binds that signer to the input owner. See [UTXO Ownership Check](#utxo-ownership-check). |
+| UTXO Ownership | Each spent input UTXO binds to an Ed25519 owner-key hash from the signer run. SPP folds the payer-first, first-occurrence-deduplicated owner-signer accounts into a fixed-width public-input chain, and the circuit binds each input owner to a chain element. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
 | Nullifier secret binding (per input) | The input's `nullifier_pk` (see [Nullifier Key](#nullifier-key)) is recomputed from its `nullifier_secret` witness and enters the input's recomputed [owner hash](#shielded-address). |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
@@ -961,8 +961,8 @@ intermediary cannot replace either value while reusing the proof.
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
-1. Ed25519 Solana signer checked by SPP. For every input, SPP reads `eddsa_signer_index` from instruction data and verifies the named account is a transaction signer.
-2. The circuit receives the corresponding signer-key hashes as public inputs and binds each spent UTXO owner to its slot. The nullifier-secret binding is still checked by the proof.
+1. Ed25519 Solana signers checked by SPP. Authorization comes from the accounts array, not instruction data: the payer occupies signer slot 0, followed by the owner-signer accounts in first-occurrence order (a repeated account signs once). Every owner-signer account must be a transaction signer, and the unique run must fit the fixed `MAX_SIGNERS = MAX_INPUTS + 1` width.
+2. SPP folds the run — `hash_bytes` of each signer address, zero-padded to `n_inputs + 1` — into a right-folded public-input chain. The circuit binds each spent UTXO owner to a chain element. The nullifier-secret binding is still checked by the proof.
 
 <a id="circuit-variants"></a>
 **Circuit Combinations**
@@ -1193,7 +1193,7 @@ Usage by instruction:
 | update_protocol_config | Tag 7; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
 | pause_tree | Tag 8; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
 | create_zone_config | Tag 9; creates the zone's `zone_config` (the `zone_auth` PDA), which must sign its own creation; the payer must equal `protocol_config.zone_creation_authority` unless `zone_creation_is_permissionless`. See [Zone Accounts](#zone-accounts). |
-| update_zone_config_owner | Tag 10; rotates `zone_config.authority`. Signer must equal current `authority`. |
+| update_zone_config_owner | Tag 10; rotates `zone_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
 | update_zone_config | Tag 11; toggles `zone_config.zone_authority_transact_is_enabled`. Signer must equal current `authority`. Burning `authority` while disabled freezes `zone_authority_transact` off permanently. |
 | merge_transact | Tag 12; consolidates the 8 input slots of the fixed 8-in/1-out merge shape (same owner, same asset; dummy slots pad a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-zone; extension slots are zero. |
 | merge_zone | Tag 13; CPI from a zone program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `zone_program_id`) into one output UTXO that preserves `zone_program_id`. Mirrors `merge_transact` for policy-zone UTXOs. The zone program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
@@ -1210,15 +1210,18 @@ Usage by instruction:
 
 **Accounts**
 
-Public settlement groups follow `payer`, `input_tree`, and `output_tree` in
-`public_legs` order. A SOL group is `(sol_interface, recipient)`. An SPL deposit
-group is `(vault, authority, user_token_account, token_program)`, where
-`authority` MUST sign; an SPL withdrawal prepends the canonical
-`cpi_authority` PDA and does not require the recipient authority to sign. The
-canonical system program appears once after all groups when any SOL leg is
-present. The SPP program account remains last for the event self-CPI. The
-instruction-data leg count and tags determine the group layout; extra, missing,
-or reordered groups are rejected.
+The fixed prefix is `payer`, `input_tree`, `output_tree`, the SPP program
+account (for the event self-CPI), and the canonical system program. The
+**owner-signer run** follows: the ed25519 owners of the spent inputs in
+first-occurrence order, each read-only and signing (the payer already occupies
+signer slot 0, so an owner equal to the payer does not repeat). Public
+settlement groups come last, in `interface_transfers` order. A SOL group is
+`(sol_interface, recipient)`. An SPL deposit group is `(mint, spl_interface,
+token_authority, user_token_account, token_program)`, where `token_authority`
+MUST sign; an SPL withdrawal group is `(cpi_authority, mint, spl_interface,
+user_token_account, token_program)` and does not require the recipient
+authority to sign. The instruction-data leg count and tags determine the group
+layout; extra, missing, or reordered groups are rejected.
 
 The instruction encodes the ordered settlement-operation count as a `u8`, so
 255 is the encoding ceiling; Solana transaction size and account limits impose
@@ -1230,12 +1233,13 @@ aggregate into one proof slot.
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
-| 1 | payer |   | x | user, or an optional relayer (transfer/withdraw) |
+| 1 | payer |   | x | user, or an optional relayer (transfer/withdraw); signer-run slot 0 |
 | 2 | input_tree | x |   | supplies historical roots and receives input nullifiers |
 | 3 | output_tree | x |   | receives output UTXO commitments; may equal `input_tree` |
-| .. | public-leg groups |   |   | one group per `u8`-counted entry in `public_legs`, in order, using the layouts above |
-| .. | system_program |   |   | present once after all groups iff any leg is SOL |
-| n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
+| 4 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
+| 5 | system_program |   |   | canonical System Program |
+| .. | owner_signers |   | x | first-occurrence ed25519 input owners (read-only), at most `MAX_SIGNERS - 1` |
+| .. | public-leg groups |   |   | one group per `u8`-counted entry in `interface_transfers`, in order, using the layouts above |
 
 **Instruction data**
 
@@ -1249,9 +1253,9 @@ struct InputUtxo {
     nullifier_tree_root_index: u16,
     /// Index into the root cache of the input's UTXO tree.
     utxo_tree_root_index: u16,
-    /// Account index of the input's required Ed25519 signer.
-    eddsa_signer_index: u8,
 }
+// Spend authorization is not a per-input field: it comes from the
+// owner-signer run in the accounts array (see UTXO Ownership Check).
 
 /// Owner of an output as a 32-byte value: the published fetch tag and the
 /// preimage of the output's owner public input `hash_bytes_32(fetch_tag)`.
@@ -1279,13 +1283,16 @@ struct MessageData {
     data: Vec<u8>,
 }
 
-/// A full-width public movement. `is_deposit` selects the direction and
-/// `amount` is its unsigned magnitude. Zero is invalid. Order defines account groups,
-/// external-data-hash entries, settlement, and event movements; each resolved
-/// asset's first appearance defines its aggregated proof-slot order.
-enum PublicLeg {
-    Sol { is_deposit: bool, amount: u64 },
-    Spl { is_deposit: bool, amount: u64 },
+/// One public settlement leg. Zero amounts are invalid. Order defines account
+/// groups, external-data-hash entries, settlement, and event movements; each
+/// resolved asset's first appearance defines its aggregated proof-slot order.
+/// The SPL variants carry the canonical bump of the per-mint `spl_interface`
+/// PDA so the program need not re-derive it.
+enum InterfaceTransfer {
+    SolDeposit { amount: u64 },
+    SolWithdrawal { amount: u64 },
+    SplDeposit { amount: u64, spl_interface_bump: u8 },
+    SplWithdrawal { amount: u64, spl_interface_bump: u8 },
 }
 
 struct TransactIxData {
@@ -1300,9 +1307,10 @@ struct TransactIxData {
     /// [Circuit Combinations](#circuit-variants).
     circuit: CircuitId,
     inputs: Vec<InputUtxo>,
-    /// Zero or more non-zero full-width movements, with a u8 count on the wire.
-    /// Duplicate SOL legs and duplicate SPL legs for the same resolved mint are valid.
-    public_legs: Vec<PublicLeg>,
+    /// Zero or more settlement legs, with a u8 count on the wire. Legs for the
+    /// same resolved asset aggregate into one proof slot; a leg netting an
+    /// asset to zero is invalid.
+    interface_transfers: Vec<InterfaceTransfer>,
     /// `None` for default-zone `transact`; a zone or co-proof sets a tx-level
     /// digest of its inputs, hashed into `external_data_hash` (see
     /// [external_data_hash](#external_data_hash)). Not the per-UTXO fields of the
@@ -1375,8 +1383,9 @@ one proof slot does not remove their individual account metas.
 **Checks**
 
 1. `current_unix_ts <= expiry_unix_ts` (Solana `Clock.unix_timestamp`)
-2. `public_legs.len()` fits the wire-format `u8` count; every amount is non-zero
-   (`ZeroPublicLegAmount`). Duplicate settlement-leg assets are valid.
+2. `interface_transfers.len()` fits the wire-format `u8` count; every amount is
+   non-zero (`ZeroInterfaceTransferAmount`) and no asset's legs net to zero
+   (`ZeroNetInterfaceTransferAmount`). Duplicate settlement-leg assets are valid.
 3. Parse exactly one settlement account group per leg, in order, and validate its kind, custody account, mint, authority, and token program. Reordering a group changes `external_data_hash`.
 4. Aggregate each resolved asset in `i128`, adding deposits and subtracting withdrawals while preserving first-appearance order. Reject a final net magnitude above `u64::MAX`. Drop zero-net groups; reject more than `N_PUBLIC_SLOTS` remaining distinct assets. Pad the remaining pairwise-distinct `(asset, net_amount)` proof slots with `(0, 0)`.
 5. Each input's `utxo_tree_root_index` and `nullifier_tree_root_index` reference a non-stale root in `input_tree`.
@@ -2069,7 +2078,7 @@ Optional service; by default users submit transactions directly. When used, it
 signs and submits a Solana transaction on behalf of a user and pays the Solana
 transaction fee on the payer slot. Reimbursement is modeled without a dedicated
 fee field: the signed transaction includes two withdrawal-direction SOL
-[`PublicLeg`](#transact) entries, one withdrawing the user's proceeds to the user
+[`InterfaceTransfer`](#transact) entries, one withdrawing the user's proceeds to the user
 and one withdrawing the agreed payment to the relayer. Each leg resolves to its
 own recipient account and is covered by `external_data_hash`, while circuit
 conservation receives their checked sum as one SOL proof slot. Both settlement
