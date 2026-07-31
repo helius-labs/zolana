@@ -1,16 +1,15 @@
 //! High-level builder for the eddsa-rail zone-transfer proof. This is the
 //! ed25519-only (Solana) confidential rail bound to a zone program. It binds
-//! both input and output owner pk_field chains like
-//! [`TransferProver`](super::eddsa::TransferProver), and binds the zone program
+//! the public signer transcript and binds the zone program
 //! like [`ZoneAuthorityProver`](crate::prover::zone_authority::ZoneAuthorityProver).
 //!
-//! Unlike the zone-authority variant, owners are not anonymous: both owner-tag
-//! chains stay in the public-input preimage.
+//! Unlike the zone-authority variant, input owners are privately matched
+//! against the public Solana signer set. Output owner hashes remain private.
 
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, PublicMovements},
+    instructions::transact::{PrivateTxHash, PublicTransfers},
     utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
@@ -21,20 +20,20 @@ use crate::{
         field::be,
         resolve_shape,
         transact::assembly::{
-            assemble_inputs, assemble_outputs, OwnerMode, PublicInputs, TransferSpendInput,
+            assemble_inputs, assemble_outputs, confidential_marked_output_owner_pk_hashes,
+            OwnerMode, PublicInputs, TransferSpendInput,
         },
         Shape, TransferInputs,
     },
 };
 
-/// Confidential zone-bound transfer over the ed25519-only rail. Input and
-/// output owner pk_fields are included in the public-input hash.
+/// Confidential zone-bound transfer over the ed25519-only rail.
 pub struct ZoneTransferProver {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub public_movements: PublicMovements,
-    pub payer_pubkey_hash: [u8; 32],
+    pub public_transfers: PublicTransfers,
+    pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
@@ -54,11 +53,19 @@ pub struct ZoneTransferProofResult {
 
 impl ZoneTransferProver {
     pub fn build(self) -> Result<ZoneTransferProofResult, ClientError> {
-        resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        if self.signer_pk_hashes.len() != shape.n_inputs() + 1 {
+            return Err(ClientError::WitnessInputCountMismatch {
+                got: self.signer_pk_hashes.len(),
+                expected: shape.n_inputs() + 1,
+            });
+        }
 
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
+        let published_output_owner_pk_hashes =
+            confidential_marked_output_owner_pk_hashes(&self.external_data)?;
         let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
@@ -78,12 +85,11 @@ impl ZoneTransferProver {
             nullifier_tree_roots: &assembled_inputs.nullifier_tree_roots,
             private_tx: &private_tx,
             external_data_hash: &external_data_hash,
-            public_movements: &self.public_movements,
+            public_transfers: &self.public_transfers,
             zone_program_id: &zone_program_id,
-            payer_pubkey_hash: &self.payer_pubkey_hash,
             allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
-            input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
-            output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
+            signer_pk_hashes: &self.signer_pk_hashes,
+            output_owner_pk_hashes: Some(&published_output_owner_pk_hashes),
         }
         .hash()?;
 
@@ -92,11 +98,15 @@ impl ZoneTransferProver {
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
-            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
+            public_assets: self.public_transfers.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_transfers.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
-            payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            signer_pk_hashes: self.signer_pk_hashes.iter().map(be).collect(),
             allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
+            published_output_owner_pk_hashes: published_output_owner_pk_hashes
+                .iter()
+                .map(be)
+                .collect(),
             public_input_hash: be(&public_input),
         };
 

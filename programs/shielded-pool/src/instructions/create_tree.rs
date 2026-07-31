@@ -27,10 +27,6 @@ pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> Program
     drop(config);
     check_owner(crate::ID.as_array(), tree)?;
 
-    if tree.data_len() != TreeAccount::account_size() {
-        return Err(ShieldedPoolError::InvalidTreeAccounts.into());
-    }
-
     let tree_pubkey = tree.address().to_bytes();
     let mut tree_data = tree
         .try_borrow_mut()

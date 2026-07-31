@@ -7,7 +7,7 @@
 //! while the other two are padding. This gives the dummy owner-tag gate a real
 //! transaction signer and binds the proof to exactly what the program
 //! reconstructs on-chain: the `external_data` hash, payer pubkey hash,
-//! per-input owner hashes, tree roots, and nullifier/output hash chains.
+//! signer hash chain, tree roots, and nullifier/output hash chains.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced the
 //! `.so` binary; the test skips (does not fail) when it is missing.
@@ -25,7 +25,7 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
 use zolana_hasher::primitives::hash_bytes;
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::Poseidon;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -213,7 +213,7 @@ fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
     })
     .expect("real input");
     let (dummy_input, dummy_nullifier) =
-        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[31u8; 31], &nf_tree, roots).expect("dummy input");
     let nullifiers = [nullifier, dummy_nullifier];
 
     // Preserve the real input's value in output 0; outputs 1 and 2 are padding.
@@ -276,7 +276,7 @@ fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
     .expect("private tx hash");
 
     // Values the program reconstructs from accounts[0] (the payer).
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pk_hash = hash_bytes(&payer_bytes).expect("payer hash");
 
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = public_input_hash(
@@ -288,7 +288,7 @@ fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
         &external_data_hash,
         &public_slot_assets,
         &public_slot_amounts,
-        &payer_pubkey_hash,
+        &payer_pk_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
     );
@@ -300,7 +300,7 @@ fn build_valid_transact_ix(env: &mut TransactEnv) -> TransactIxData {
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        payer_pk_hash,
         public_input_hash,
     });
     transact_ix_data.proof =
@@ -320,13 +320,13 @@ fn transact_sends_valid_proof() {
     let transact_ix_data = build_valid_transact_ix(&mut env);
     let tree_balance_before = tree_lamports(&env.rpc, &env.tree.pubkey());
 
-    // Index 0 is the fee payer and the eddsa signer the inputs reference
-    // (`eddsa_signer_index = 0`); the builder also supplies the System Program
-    // for the single forester-fee CPI.
+    // The fee payer is the input owner signer; the builder also supplies the
+    // SPP and System Program accounts in the fixed prefix.
     let ix = Transact {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -365,6 +365,7 @@ fn transact_spends_from_input_tree_and_appends_to_output_tree() {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: output_tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -424,6 +425,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -473,6 +475,7 @@ fn transact_rejects_mismatched_circuit_selector() {
             payer,
             input_tree: env.tree.pubkey(),
             output_tree: env.tree.pubkey(),
+            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data,
         }
@@ -512,6 +515,7 @@ fn transact_rejects_tampered_output_view_tag() {
         payer,
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }

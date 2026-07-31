@@ -12,7 +12,7 @@ Established parties: `user`, `payer`, `owner`, `sender`, `recipient`,
 `forester_authority`, `zone_creation_authority`), `relayer`.
 
 - The transaction fee payer is `payer` (`builders/transact.rs`,
-  `payer_pubkey_hash`). Do not call it `issuer`, `caller`, or `maker` — those
+  `SppProofInputs::payer`). Do not call it `issuer`, `caller`, or `maker` — those
   imply an identity check; name an account after a check only if the program
   performs it.
 - The order creator is `user` in RFQ (matching `user_token_account` /
@@ -65,8 +65,8 @@ Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
 - The client-side proof-inputs struct is `SppProofInputs`; its UTXO
   collections are qualified as `input_utxos` / `output_utxos`, while
   `inputs` / `outputs` remain the pinned spellings for the processor and
-  instruction layers. Its remaining fields are `external_data` and
-  `payer_pubkey_hash`. Local bindings are `proof_inputs`, never `signed`.
+  instruction layers. Its remaining fields are `external_data` and `payer`.
+  Local bindings are `proof_inputs`, never `signed`.
 - The high-level padded-transfer builder is `Transfer` / `PreparedTransfer`,
   never `TxBuilder`; local bindings are `transfer`, not `tx`. Slot-based flows
   have no operation struct: they encode confidential output slots with
@@ -102,7 +102,7 @@ Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
 
 Reuse these exact spellings:
 `public_input_hash`, `private_tx_hash`, `external_data_hash`,
-`payer_pubkey_hash`, `data_hash`, `zone_data_hash`, `utxo_hash`,
+`signer_pk_hashes`, `data_hash`, `zone_data_hash`, `utxo_hash`,
 `owner_hash`, `owner_utxo_hash`, `nullifier_hash`, `hash_chain`
 (accumulator local `acc`). Hash primitives are named by algorithm:
 `poseidon`, `poseidon2`, `sha256`, `sha256_be`, `hash_bytes`.

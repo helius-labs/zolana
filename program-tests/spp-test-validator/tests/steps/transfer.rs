@@ -169,8 +169,8 @@ impl LifecycleWorld {
             .as_ref()
             .map(|k| k.signing_pubkey().confidential_view_tag())
             .transpose()?;
-        // Every actor pays and signs its own spend (the owner sits at signer index
-        // 0 / the fee payer); actors without a signer fall back to the global payer.
+        // Every eddsa actor pays and signs its own spend; actors without a native
+        // signer fall back to the global payer.
         let fee_payer = self
             .actor(from)
             .solana_signer
@@ -228,6 +228,7 @@ impl LifecycleWorld {
             payer: fee_payer.pubkey(),
             input_tree: self.tree,
             output_tree: self.tree,
+            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }

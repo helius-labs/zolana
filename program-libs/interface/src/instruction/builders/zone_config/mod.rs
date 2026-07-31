@@ -3,10 +3,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
 
 use crate::{
-    instruction::{
-        encode_instruction, tag, CreateZoneConfigData, UpdateZoneConfigData,
-        UpdateZoneConfigOwnerData,
-    },
+    instruction::{encode_instruction, tag, CreateZoneConfigData, UpdateZoneConfigData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -59,12 +56,7 @@ impl UpdateZoneConfigOwner {
                 AccountMeta::new(self.zone_config, false),
                 AccountMeta::new_readonly(new_authority, true),
             ],
-            data: encode_instruction(
-                tag::UPDATE_ZONE_CONFIG_OWNER,
-                &UpdateZoneConfigOwnerData {
-                    new_authority: self.new_authority,
-                },
-            ),
+            data: vec![tag::UPDATE_ZONE_CONFIG_OWNER],
         }
     }
 }

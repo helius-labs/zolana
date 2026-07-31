@@ -4,7 +4,6 @@ use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{
     constants::{SALT_LEN, VIEW_TAG_LEN},
-    hash::sha256_be,
     random_salt,
     shielded::ShieldedAddress,
     viewing_key::random_blinding,
@@ -43,7 +42,7 @@ pub struct PreparedTransfer {
     pub outputs: Vec<SppProofOutputUtxo>,
     pub first_nullifier: [u8; 32],
     pub shape: Shape,
-    pub payer_pubkey_hash: [u8; 32],
+    pub payer: Address,
     pub interface_transfers: Vec<SettlementTransfer>,
 }
 
@@ -65,7 +64,7 @@ pub enum SettlementTarget {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PublicMovementRequest {
+pub struct PublicTransferRequest {
     pub asset: Address,
     pub is_deposit: bool,
     pub amount: u64,
@@ -76,8 +75,8 @@ pub struct ConfidentialTransfer {
     pub owner: ShieldedAddress,
     pub inputs: Vec<SppProofInputUtxo>,
     pub recipients: Vec<Recipient>,
-    pub public_movements: Vec<PublicMovementRequest>,
-    pub payer_pubkey_hash: [u8; 32],
+    pub public_transfers: Vec<PublicTransferRequest>,
+    pub payer: Address,
     pub blinding_seed: [u8; 32],
     pub shape: Option<Shape>,
 }
@@ -88,8 +87,8 @@ impl ConfidentialTransfer {
             owner,
             inputs,
             recipients: Vec::new(),
-            public_movements: Vec::new(),
-            payer_pubkey_hash: sha256_be(payer.as_array()),
+            public_transfers: Vec::new(),
+            payer,
             blinding_seed: random_blinding(),
             shape: None,
         }
@@ -150,7 +149,7 @@ impl ConfidentialTransfer {
             return Err(TransactionError::ZeroInterfaceTransferAmount);
         }
         validate_settlement_target(asset, target)?;
-        let next_len = self.public_movements.len().checked_add(1).ok_or(
+        let next_len = self.public_transfers.len().checked_add(1).ok_or(
             TransactionError::TooManyInterfaceTransfers {
                 got: usize::MAX,
                 max: zolana_interface::MAX_INTERFACE_TRANSFERS,
@@ -162,7 +161,7 @@ impl ConfidentialTransfer {
                 max: zolana_interface::MAX_INTERFACE_TRANSFERS,
             });
         }
-        self.public_movements.push(PublicMovementRequest {
+        self.public_transfers.push(PublicTransferRequest {
             asset,
             is_deposit,
             amount,
@@ -180,13 +179,25 @@ impl ConfidentialTransfer {
         keypair: &K,
         assets: &AssetRegistry,
     ) -> Result<SppProofInputs, TransactionError> {
-        self.assemble(keypair, assets)
+        self.assemble(keypair, assets, false)
+    }
+
+    /// Assemble a custom-zone P256 transfer. Unlike the default transact rail,
+    /// the sender's P256 owner tag is carried inline because ownership is proven
+    /// inside the ZoneP256 circuit rather than by a Solana signer account.
+    pub fn sign_zone_p256<K: ShieldedKeypairTrait + ViewingKeyTrait>(
+        self,
+        keypair: &K,
+        assets: &AssetRegistry,
+    ) -> Result<SppProofInputs, TransactionError> {
+        self.assemble(keypair, assets, true)
     }
 
     fn assemble<K: ShieldedKeypairTrait + ViewingKeyTrait>(
         self,
         keypair: &K,
         assets: &AssetRegistry,
+        allow_p256_sender: bool,
     ) -> Result<SppProofInputs, TransactionError> {
         let prepared = self.prepare()?;
         let transaction_viewing_key =
@@ -195,25 +206,25 @@ impl ConfidentialTransfer {
         let tx_viewing_pk = transaction_viewing_key.pubkey();
         let slots =
             encode_confidential_slots(&prepared.outputs, assets, &transaction_viewing_key, salt)?;
-        prepared.finalize(tx_viewing_pk, salt, slots)
+        prepared.finalize_inner(tx_viewing_pk, salt, slots, allow_p256_sender)
     }
 
     pub fn prepare(self) -> Result<PreparedTransfer, TransactionError> {
-        if self.public_movements.len() > zolana_interface::MAX_INTERFACE_TRANSFERS {
+        if self.public_transfers.len() > zolana_interface::MAX_INTERFACE_TRANSFERS {
             return Err(TransactionError::TooManyInterfaceTransfers {
-                got: self.public_movements.len(),
+                got: self.public_transfers.len(),
                 max: zolana_interface::MAX_INTERFACE_TRANSFERS,
             });
         }
         if self
-            .public_movements
+            .public_transfers
             .iter()
-            .any(|movement| movement.amount == 0)
+            .any(|transfer| transfer.amount == 0)
         {
             return Err(TransactionError::ZeroInterfaceTransferAmount);
         }
-        for movement in &self.public_movements {
-            validate_settlement_target(movement.asset, movement.target)?;
+        for transfer in &self.public_transfers {
+            validate_settlement_target(transfer.asset, transfer.target)?;
         }
         let spl_asset = self.spl_asset()?;
         let public_sol = self.public_amount(&SOL_MINT)?;
@@ -272,10 +283,10 @@ impl ConfidentialTransfer {
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
         let first_nullifier = first_nullifier(&self.inputs)?;
         let interface_transfers = self
-            .public_movements
+            .public_transfers
             .iter()
             .copied()
-            .map(PublicMovementRequest::settlement_transfer)
+            .map(PublicTransferRequest::settlement_transfer)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(PreparedTransfer {
@@ -284,7 +295,7 @@ impl ConfidentialTransfer {
             outputs,
             first_nullifier,
             shape,
-            payer_pubkey_hash: self.payer_pubkey_hash,
+            payer: self.payer,
             interface_transfers,
         })
     }
@@ -296,7 +307,7 @@ impl ConfidentialTransfer {
             .iter()
             .map(|spend| spend.utxo.asset)
             .chain(self.recipients.iter().map(|recipient| recipient.asset))
-            .chain(self.public_movements.iter().map(|movement| movement.asset));
+            .chain(self.public_transfers.iter().map(|transfer| transfer.asset));
         for asset in assets {
             if asset != SOL_MINT {
                 match found {
@@ -312,18 +323,18 @@ impl ConfidentialTransfer {
 
     fn public_amount(&self, asset: &Address) -> Result<i128, TransactionError> {
         let total = self
-            .public_movements
+            .public_transfers
             .iter()
-            .filter(|movement| &movement.asset == asset)
-            .try_fold(0i128, |total, movement| {
-                let amount = i128::from(movement.amount);
-                let signed = if movement.is_deposit { amount } else { -amount };
+            .filter(|transfer| &transfer.asset == asset)
+            .try_fold(0i128, |total, transfer| {
+                let amount = i128::from(transfer.amount);
+                let signed = if transfer.is_deposit { amount } else { -amount };
                 total
                     .checked_add(signed)
-                    .ok_or(TransactionError::PublicMovementOverflow { asset: *asset })
+                    .ok_or(TransactionError::PublicTransferOverflow { asset: *asset })
             })?;
         u64::try_from(total.unsigned_abs())
-            .map_err(|_| TransactionError::PublicMovementOverflow { asset: *asset })?;
+            .map_err(|_| TransactionError::PublicTransferOverflow { asset: *asset })?;
         Ok(total)
     }
 
@@ -359,7 +370,7 @@ impl ConfidentialTransfer {
     }
 }
 
-impl PublicMovementRequest {
+impl PublicTransferRequest {
     fn settlement_transfer(self) -> Result<SettlementTransfer, TransactionError> {
         validate_settlement_target(self.asset, self.target)?;
         match self.target {
@@ -404,12 +415,22 @@ impl PreparedTransfer {
         salt: [u8; SALT_LEN],
         slots: Vec<Option<MessageData>>,
     ) -> Result<SppProofInputs, TransactionError> {
+        self.finalize_inner(tx_viewing_pk, salt, slots, false)
+    }
+
+    fn finalize_inner(
+        self,
+        tx_viewing_pk: P256Pubkey,
+        salt: [u8; SALT_LEN],
+        slots: Vec<Option<MessageData>>,
+        allow_p256_sender: bool,
+    ) -> Result<SppProofInputs, TransactionError> {
         let PreparedTransfer {
             owner,
             mut inputs,
             mut outputs,
             shape,
-            payer_pubkey_hash,
+            payer,
             interface_transfers,
             ..
         } = self;
@@ -419,7 +440,7 @@ impl PreparedTransfer {
         // most compact form that resolves to it: `Account(0)` when the
         // Ed25519 owner is the fee payer, otherwise `Inline`.
         let (sender_tag, sender_resolved) =
-            sender_owner_tag(&owner.signing_pubkey, &payer_pubkey_hash)?;
+            sender_owner_tag(&owner.signing_pubkey, &payer, allow_p256_sender)?;
 
         // Dummy slots must name a participant already bound to real transaction
         // content. The transaction author is not necessarily an input owner and
@@ -515,7 +536,7 @@ impl PreparedTransfer {
             input_utxos: inputs,
             output_utxos: outputs,
             external_data,
-            payer_pubkey_hash,
+            payer,
         })
     }
 }
@@ -527,13 +548,15 @@ impl PreparedTransfer {
 /// rail.
 fn sender_owner_tag(
     owner_pubkey: &PublicKey,
-    payer_pubkey_hash: &[u8; 32],
+    payer: &Address,
+    allow_p256_sender: bool,
 ) -> Result<(OwnerTag, [u8; 32]), TransactionError> {
     let resolved = owner_pubkey.confidential_view_tag()?;
     let tag = match owner_pubkey.signature_type()? {
+        SignatureType::P256 if allow_p256_sender => OwnerTag::Inline(resolved),
         SignatureType::P256 => return Err(TransactionError::P256TransactUnsupported),
         SignatureType::Ed25519 => {
-            if sha256_be(&resolved) == *payer_pubkey_hash {
+            if resolved == payer.to_bytes() {
                 OwnerTag::Account(0)
             } else {
                 OwnerTag::Inline(resolved)
@@ -589,8 +612,8 @@ mod tests {
     fn sender_tag_is_account_zero_when_owner_is_payer() {
         let pk = SigningKey::from_ed25519(&[7u8; 32]).pubkey();
         let resolved = pk.confidential_view_tag().unwrap();
-        let payer_hash = sha256_be(&resolved);
-        let (tag, got_resolved) = sender_owner_tag(&pk, &payer_hash).unwrap();
+        let payer = Address::new_from_array(resolved);
+        let (tag, got_resolved) = sender_owner_tag(&pk, &payer, false).unwrap();
         assert_eq!(tag, OwnerTag::Account(0));
         assert_eq!(got_resolved, resolved);
     }
@@ -601,8 +624,8 @@ mod tests {
     fn sender_tag_is_inline_for_relayed_transfer() {
         let pk = SigningKey::from_ed25519(&[7u8; 32]).pubkey();
         let resolved = pk.confidential_view_tag().unwrap();
-        let unrelated_payer_hash = [0u8; 32];
-        let (tag, got_resolved) = sender_owner_tag(&pk, &unrelated_payer_hash).unwrap();
+        let unrelated_payer = Address::default();
+        let (tag, got_resolved) = sender_owner_tag(&pk, &unrelated_payer, false).unwrap();
         assert_eq!(tag, OwnerTag::Inline(resolved));
         assert_eq!(got_resolved, resolved);
     }
@@ -612,8 +635,18 @@ mod tests {
     fn sender_tag_rejects_p256_owner() {
         let pk = SigningKey::new().pubkey();
         assert_eq!(
-            sender_owner_tag(&pk, &[0u8; 32]),
+            sender_owner_tag(&pk, &Address::default(), false),
             Err(TransactionError::P256TransactUnsupported)
+        );
+    }
+
+    #[test]
+    fn zone_p256_sender_tag_is_inline() {
+        let pk = SigningKey::new().pubkey();
+        let resolved = pk.confidential_view_tag().unwrap();
+        assert_eq!(
+            sender_owner_tag(&pk, &Address::default(), true),
+            Ok((OwnerTag::Inline(resolved), resolved))
         );
     }
 
@@ -634,7 +667,7 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(
-            transfer.public_movements.len(),
+            transfer.public_transfers.len(),
             zolana_interface::MAX_INTERFACE_TRANSFERS
         );
         assert!(matches!(
@@ -698,8 +731,8 @@ mod tests {
             )
             .expect("full-u64 deposit is supported");
         assert_eq!(
-            transfer.public_movements.first(),
-            Some(&PublicMovementRequest {
+            transfer.public_transfers.first(),
+            Some(&PublicTransferRequest {
                 asset: SOL_MINT,
                 is_deposit: false,
                 amount: u64::MAX,
@@ -709,8 +742,8 @@ mod tests {
             })
         );
         assert_eq!(
-            transfer.public_movements.get(1),
-            Some(&PublicMovementRequest {
+            transfer.public_transfers.get(1),
+            Some(&PublicTransferRequest {
                 asset: SOL_MINT,
                 is_deposit: true,
                 amount: u64::MAX,

@@ -56,23 +56,23 @@ impl SplTransferCpi<'_> {
 #[inline(never)]
 #[profile]
 pub fn settle_spl_deposit(settlement: &SplDepositAccounts<'_>, amount: u64) -> ProgramResult {
-    let vault_amount_before = token_account_amount(settlement.vault)?;
+    let interface_amount_before = token_account_amount(settlement.spl_interface_account)?;
     SplTransferCpi {
-        token_program: settlement.token_program,
+        token_program: settlement.token_program_account,
         from: settlement.user_token_account,
         mint: settlement.mint_account,
-        to: settlement.vault,
-        authority: settlement.depositor,
+        to: settlement.spl_interface_account,
+        authority: settlement.token_authority_account,
         amount,
         decimals: settlement.decimals,
     }
     .invoke()?;
 
-    let vault_amount_after = token_account_amount(settlement.vault)?;
-    let expected_vault_amount = vault_amount_before
+    let interface_amount_after = token_account_amount(settlement.spl_interface_account)?;
+    let expected_interface_amount = interface_amount_before
         .checked_add(amount)
         .ok_or(ShieldedPoolError::PublicSettlementFailed)?;
-    if vault_amount_after != expected_vault_amount {
+    if interface_amount_after != expected_interface_amount {
         return Err(ShieldedPoolError::PublicSettlementFailed.into());
     }
 
@@ -89,11 +89,11 @@ pub fn settle_spl_withdrawal(settlement: &SplWithdrawalAccounts<'_>, amount: u64
     ];
     let signer = Signer::from(&seeds);
     SplTransferCpi {
-        token_program: settlement.token_program,
-        from: settlement.vault,
+        token_program: settlement.token_program_account,
+        from: settlement.spl_interface_account,
         mint: settlement.mint_account,
         to: settlement.user_token_account,
-        authority: settlement.cpi_authority,
+        authority: settlement.cpi_authority_account,
         amount,
         decimals: settlement.decimals,
     }

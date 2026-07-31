@@ -9,6 +9,7 @@
 //! 1. [`sync_wallet`]
 //! 2. [`create_transfer`] / [`create_withdrawal`]
 //! 3. [`sign_private_transaction`] -> locally signed native `Transaction`, or
+//!    [`sign_private_transaction_with_signers`] for additional native input owners, or
 //!    [`build_private_transaction`] -> unsigned native `Transaction` for an HSM/custodian
 //! 4. `rpc.send_transaction`
 //! 5. `zolana_client::ZolanaClient::confirm_private_transaction(signature)` for Photon indexing
@@ -29,7 +30,8 @@ pub use actions::{
     build_private_transaction_sync, create_associated_token_account,
     create_associated_token_account_with_program, create_deposit, create_merge, create_split,
     create_transfer, create_transfer_sync, create_withdrawal, sign_private_transaction,
-    sign_private_transaction_sync, submit_merge_transaction, CreatedMerge, CreatedSplit,
+    sign_private_transaction_sync, sign_private_transaction_sync_with_signers,
+    sign_private_transaction_with_signers, submit_merge_transaction, CreatedMerge, CreatedSplit,
     CreatedTransfer, CreatedWithdrawal, Deposit, DepositParams, MergeParams, ResolvedAddress,
     SplitParams, SubmitMergeTransaction, SubmittedMerge, TransferParams, TransferRecipient,
     UnsignedPrivateTransaction, WithdrawalLeg, WithdrawalParams,
@@ -38,10 +40,10 @@ pub use user_registry::{
     build_registration_transaction, build_registration_transaction_sync,
     decode_user_record_account, ensure_registered, fetch_user_record_checked,
     fetch_user_record_optional_checked, fetch_user_record_optional_checked_async,
-    is_wallet_registered, is_wallet_registered_sync, recipient_confidential_view_tag,
-    recipient_confidential_view_tag_sync, resolve_registered_address, resolved_address_from_record,
-    try_resolve_registered_address, try_resolve_registered_address_async,
-    validate_registered_keypair,
+    is_wallet_registered, is_wallet_registered_sync, p256_registration_proof_message,
+    recipient_confidential_view_tag, recipient_confidential_view_tag_sync,
+    resolve_registered_address, resolved_address_from_record, try_resolve_registered_address,
+    try_resolve_registered_address_async, validate_registered_keypair, P256KeyBindingProof,
 };
 pub use wallet_authority::{
     AnonymousRecipientSlot, ApprovalRequest, EncryptedEnvelope, EncryptedSplit, EncryptedTransfer,

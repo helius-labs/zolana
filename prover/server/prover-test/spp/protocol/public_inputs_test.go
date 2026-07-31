@@ -19,9 +19,8 @@ type publicInputHashVector struct {
 	PublicAssets        []string `json:"public_assets"`
 	PublicAmounts       []string `json:"public_amounts"`
 	ZoneProgramID       string   `json:"zone_program_id"`
-	PayerPubkeyHash     string   `json:"payer_pubkey_hash"`
 	AllowDummyInputs    string   `json:"allow_dummy_inputs"`
-	InputOwnerPkHashes  []string `json:"input_owner_pk_hashes"`
+	SignerPkHashes      []string `json:"signer_pk_hashes"`
 	OutputOwnerPkHashes []string `json:"output_owner_pk_hashes"`
 	PublicInputHash     string   `json:"public_input_hash"`
 }
@@ -40,10 +39,9 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 		PrivateTxHash:       parseField(t, vector.PrivateTxHash),
 		ExternalDataHash:    parseField(t, vector.ExternalDataHash),
 		ZoneProgramID:       parseField(t, vector.ZoneProgramID),
-		PayerPubkeyHash:     parseField(t, vector.PayerPubkeyHash),
 		AllowDummyInputs:    parseField(t, vector.AllowDummyInputs),
-		InputOwnerPkHashes:  parseFields(t, vector.InputOwnerPkHashes),
-		Confidential:        true,
+		SignerPkHashes:      parseFields(t, vector.SignerPkHashes),
+		BindOutputOwnerTags: true,
 		OutputOwnerPkHashes: parseFields(t, vector.OutputOwnerPkHashes),
 	}
 	for i := 0; i < NPublicSlots; i++ {
@@ -58,6 +56,88 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 	want := parseField(t, vector.PublicInputHash)
 	if got.Cmp(want) != 0 {
 		t.Fatalf("public input hash mismatch:\ngot  0x%s\nwant 0x%s", parse.FieldHex(got), parse.FieldHex(want))
+	}
+}
+
+func TestCustomZonePublicInputHashDoesNotBindPrivateOutputOwners(t *testing.T) {
+	vector := readPublicInputHashVector(t)
+	inputs := inputsFromVector(t, vector)
+	inputs.BindOutputOwnerTags = false
+
+	first, err := PublicInputHash(inputs)
+	if err != nil {
+		t.Fatalf("first public input hash: %v", err)
+	}
+	inputs.BindOutputOwnerTags = true
+	boundBefore, err := PublicInputHash(inputs)
+	if err != nil {
+		t.Fatalf("first bound public input hash: %v", err)
+	}
+
+	inputs.OutputOwnerPkHashes[0] = new(big.Int).Add(inputs.OutputOwnerPkHashes[0], big.NewInt(1))
+	inputs.BindOutputOwnerTags = false
+	second, err := PublicInputHash(inputs)
+	if err != nil {
+		t.Fatalf("second public input hash: %v", err)
+	}
+	if first.Cmp(second) != 0 {
+		t.Fatal("custom-zone public input hash changed with private output owner")
+	}
+
+	inputs.BindOutputOwnerTags = true
+	boundAfter, err := PublicInputHash(inputs)
+	if err != nil {
+		t.Fatalf("second bound public input hash: %v", err)
+	}
+	if boundBefore.Cmp(boundAfter) == 0 {
+		t.Fatal("default-zone public input hash did not change with public output owner")
+	}
+}
+
+func inputsFromVector(t *testing.T, vector publicInputHashVector) PublicInputs {
+	t.Helper()
+	inputs := PublicInputs{
+		Nullifiers:          parseFields(t, vector.Nullifiers),
+		OutputUtxoHashes:    parseFields(t, vector.OutputUtxoHashes),
+		UtxoTreeRoots:       parseFields(t, vector.UtxoTreeRoots),
+		NullifierTreeRoots:  parseFields(t, vector.NullifierTreeRoots),
+		PrivateTxHash:       parseField(t, vector.PrivateTxHash),
+		ExternalDataHash:    parseField(t, vector.ExternalDataHash),
+		ZoneProgramID:       parseField(t, vector.ZoneProgramID),
+		AllowDummyInputs:    parseField(t, vector.AllowDummyInputs),
+		SignerPkHashes:      parseFields(t, vector.SignerPkHashes),
+		OutputOwnerPkHashes: parseFields(t, vector.OutputOwnerPkHashes),
+	}
+	for i := 0; i < NPublicSlots; i++ {
+		inputs.PublicAssets[i] = parseField(t, vector.PublicAssets[i])
+		inputs.PublicAmounts[i] = parseField(t, vector.PublicAmounts[i])
+	}
+	return inputs
+}
+
+func TestRightHashChainFoldsFromThePaddedSuffix(t *testing.T) {
+	inputs := []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(0)}
+	got, err := RightHashChain(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	suffix, err := HashChain([]*big.Int{big.NewInt(2), big.NewInt(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := HashChain([]*big.Int{big.NewInt(1), suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cmp(want) != 0 {
+		t.Fatalf("right hash chain mismatch: got %s want %s", got, want)
+	}
+	left, err := HashChain(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cmp(left) == 0 {
+		t.Fatal("three-element right fold unexpectedly equals left fold")
 	}
 }
 

@@ -2,11 +2,12 @@
 
 use anyhow::{anyhow, Result};
 use groth16_solana::groth16::Groth16Verifier;
+use num_bigint::BigUint;
 use zolana_client::{
     prover::field::be, spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient,
     TransferInput, TransferInputs, TransferOutput,
 };
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice};
 use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     instruction::{
@@ -51,7 +52,7 @@ pub fn pack_proof(proof: &Proof) -> Result<TransactProof> {
 /// Mirror of the confidential `TransactProof::public_input_hash` on the eddsa
 /// rail. The common chain is followed by
 /// `HashChain(output_owner_pk_hashes)`. Mirrors the client
-/// `PublicInputs::hash()` exactly. Public movement slots interleave as
+/// `PublicInputs::hash()` exactly. Public transfer slots interleave as
 /// `(asset, amount)` and idle slots are `(0, 0)`.
 #[allow(clippy::too_many_arguments)]
 pub fn public_input_hash(
@@ -63,7 +64,7 @@ pub fn public_input_hash(
     external_data_hash: &[u8; 32],
     public_slot_assets: &[[u8; 32]; N_PUBLIC_SLOTS],
     public_slot_amounts: &[[u8; 32]; N_PUBLIC_SLOTS],
-    payer_pubkey_hash: &[u8; 32],
+    payer_pk_hash: &[u8; 32],
     input_owner_pk_hashes: &[[u8; 32]],
     output_owner_pk_hashes: &[[u8; 32]],
 ) -> [u8; 32] {
@@ -81,11 +82,22 @@ pub fn public_input_hash(
         chain.push(*asset);
         chain.push(*amount);
     }
+    let mut signer_pk_hashes = vec![[0u8; 32]; input_owner_pk_hashes.len() + 1];
+    signer_pk_hashes[0] = *payer_pk_hash;
+    let mut seen = vec![*payer_pk_hash];
+    let mut next = 1;
+    for owner in input_owner_pk_hashes {
+        if *owner == zero || seen.contains(owner) {
+            continue;
+        }
+        seen.push(*owner);
+        signer_pk_hashes[next] = *owner;
+        next += 1;
+    }
     chain.extend_from_slice(&[
         zero,
-        *payer_pubkey_hash,
+        create_right_hash_chain_from_slice(&signer_pk_hashes).expect("signer chain"),
         one,
-        create_hash_chain_from_slice(input_owner_pk_hashes).expect("input owner chain"),
         create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
     ]);
     create_hash_chain_from_slice(&chain).expect("public input hash")
@@ -193,7 +205,6 @@ pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> 
         nullifier_hash,
         nullifier_tree_root_index: 0,
         utxo_tree_root_index,
-        eddsa_signer_index: 0,
     }
 }
 
@@ -281,12 +292,32 @@ pub struct TransferProverInputsArgs {
     pub private_tx_hash: [u8; 32],
     pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub public_slot_amounts: [[u8; 32]; N_PUBLIC_SLOTS],
-    pub payer_pubkey_hash: [u8; 32],
+    pub payer_pk_hash: [u8; 32],
     pub public_input_hash: [u8; 32],
 }
 
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
+    let signer_count = args.inputs.len();
+    let payer_pk_hash = be(&args.payer_pk_hash);
+    let mut signer_pk_hashes = vec![BigUint::from(0u8); signer_count + 1];
+    signer_pk_hashes[0] = payer_pk_hash.clone();
+    let mut seen = vec![payer_pk_hash.clone()];
+    let mut next = 1;
+    for input in &args.inputs {
+        let owner = &input.owner_pk_hash;
+        if owner == &BigUint::from(0u8) || seen.contains(owner) {
+            continue;
+        }
+        seen.push(owner.clone());
+        signer_pk_hashes[next] = owner.clone();
+        next += 1;
+    }
+    let published_output_owner_pk_hashes = args
+        .outputs
+        .iter()
+        .map(|output| output.owner_pk_hash.clone())
+        .collect();
     TransferInputs {
         inputs: args.inputs,
         outputs: args.outputs,
@@ -295,8 +326,9 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_assets: args.public_slot_assets.map(|asset| be(&asset)),
         public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         zone_program_id: be(&zero),
-        payer_pubkey_hash: be(&args.payer_pubkey_hash),
+        signer_pk_hashes,
         allow_dummy_inputs: be(&fe(1)),
+        published_output_owner_pk_hashes,
         public_input_hash: be(&args.public_input_hash),
     }
 }

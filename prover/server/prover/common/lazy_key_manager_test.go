@@ -11,6 +11,7 @@ func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
 
 	tests := map[string]string{
 		"transfer zone eddsa": manager.determineTransferKeyPath(TransferZoneCircuitType, 2, 3),
+		"transfer zone p256":  manager.determineTransferKeyPath(TransferP256ZoneCircuitType, 2, 3),
 	}
 
 	expected := map[string]string{

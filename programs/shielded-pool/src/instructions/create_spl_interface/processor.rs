@@ -1,8 +1,6 @@
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{
-    error::ShieldedPoolError, state::SplAssetRegistry, SPL_ASSET_VAULT_PDA_SEED,
-};
+use zolana_interface::{error::ShieldedPoolError, state::SplAssetRegistry, SPL_INTERFACE_PDA_SEED};
 
 use super::{
     init::{RegistryInitParams, SplInterfaceInitParams},
@@ -87,7 +85,7 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
     {
         let spl_interface_bump = verify_pda(
             spl_interface.address(),
-            &[SPL_ASSET_VAULT_PDA_SEED, mint_key.as_ref()],
+            &[SPL_INTERFACE_PDA_SEED, mint_key.as_ref()],
             &crate::ID,
         )?;
         if spl_interface.data_len() != 0 {
@@ -98,7 +96,7 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
             new_account: &mut *spl_interface,
             space: validated_mint.token_account_len,
             owner: token_program.address(),
-            signer_seeds: [SPL_ASSET_VAULT_PDA_SEED, mint_key.as_ref()],
+            signer_seeds: [SPL_INTERFACE_PDA_SEED, mint_key.as_ref()],
             bump: spl_interface_bump,
         }
         .execute()

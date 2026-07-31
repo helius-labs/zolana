@@ -2,7 +2,6 @@ mod shared;
 
 use anyhow::{anyhow, Result};
 use shared::{send_cosigned_v0_with_lookup_table, setup, TestEnv, BUY_USDC, SELL_SOL};
-use solana_instruction::AccountMeta;
 use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc};
 use zolana_interface::instruction::Transact;
@@ -18,9 +17,9 @@ use zolana_transaction::{
 };
 use zolana_wallet::sync_wallet;
 
-// `Transact` appends the System Program and shielded-pool program after the
-// payer/tree accounts, so the additional taker signer lands at account index 5.
-const TAKER_SIGNER_INDEX: u8 = 5;
+// `Transact` places the shielded-pool and System Program accounts after the
+// payer/tree prefix, so the additional taker signer lands at account index 5,
+// before the settlement accounts.
 
 #[test]
 fn cosigned_rfq_settlement() -> Result<()> {
@@ -76,28 +75,22 @@ fn cosigned_rfq_settlement() -> Result<()> {
         maker_address.solana_address()?,
     );
 
-    let mut data = client
+    let data = client
         .prove_transact(
             Address::new_from_array(tree.to_bytes()),
             proof_inputs,
             Some(IndexerRpcConfig::wait()),
         )
         .map_err(|e| anyhow!("prove transact: {e:?}"))?;
-    data.inputs
-        .get_mut(1)
-        .ok_or_else(|| anyhow!("missing taker input"))?
-        .eddsa_signer_index = TAKER_SIGNER_INDEX;
-
-    let mut ix = Transact {
+    let ix = Transact {
         payer: maker_solana.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: vec![taker_solana.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data,
     }
     .instruction();
-    ix.accounts
-        .push(AccountMeta::new_readonly(taker_solana.pubkey(), true));
 
     let signature =
         send_cosigned_v0_with_lookup_table(client.rpc(), &maker_solana, &taker_solana, ix)?;

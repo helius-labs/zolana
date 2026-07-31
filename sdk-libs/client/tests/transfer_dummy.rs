@@ -21,9 +21,10 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, ProverClient, PublicMovements, Rpc, Shape, TransferProver,
+    spawn_prover, InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},
     verifying_keys::{
@@ -244,13 +245,15 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         inputs.push(dummy_input());
     }
     let outputs = (0..n_out).map(|_| dummy_output(owner_tag)).collect();
+    let mut signer_pk_hashes = vec![[0u8; 32]; n_in + 1];
+    signer_pk_hashes[1] = hash_bytes(&owner_tag).expect("owner signer hash");
 
     let prover = TransferProver {
         inputs,
         outputs,
         external_data: dummy_external_data(owner_tag, n_out),
-        public_movements: PublicMovements::default(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: PublicTransfers::default(),
+        signer_pk_hashes,
         allow_dummy_inputs: true,
         shape: Some(Shape::new(n_in, n_out)),
     };
@@ -317,8 +320,12 @@ fn dummy_transfer_2_3_proof_verifies() {
             dummy_output(owner_tag),
         ],
         external_data: dummy_external_data(owner_tag, 3),
-        public_movements: PublicMovements::default(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: PublicTransfers::default(),
+        signer_pk_hashes: vec![
+            [0u8; 32],
+            hash_bytes(&owner_tag).expect("owner signer hash"),
+            [0u8; 32],
+        ],
         allow_dummy_inputs: true,
         shape: Some(Shape::new(2, 3)),
     };

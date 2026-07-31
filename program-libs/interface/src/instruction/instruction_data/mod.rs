@@ -8,9 +8,9 @@ pub mod zone_config;
 
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
 pub use deposit::{
-    DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef, UtxoData,
-    UtxoDataRef, ZoneDepositEntry, ZoneDepositEntryRef, ZoneDepositIxData, ZoneDepositIxDataRef,
-    MAX_DEPOSIT_ASSETS,
+    DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef,
+    EncryptedZoneDepositData, EncryptedZoneDepositDataRef, UtxoData, UtxoDataRef, ZoneDepositEntry,
+    ZoneDepositEntryRef, ZoneDepositIxData, ZoneDepositIxDataRef, MAX_DEPOSIT_ASSETS,
 };
 pub use merge_transact::{
     MergeExternalDataHash, MergeProof, MergeProofRef, MergeTransactIxData, MergeTransactIxDataRef,
@@ -23,4 +23,4 @@ pub use transact::{
     OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData,
     TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
 };
-pub use zone_config::{CreateZoneConfigData, UpdateZoneConfigData, UpdateZoneConfigOwnerData};
+pub use zone_config::{CreateZoneConfigData, UpdateZoneConfigData};

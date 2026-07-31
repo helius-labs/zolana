@@ -40,3 +40,4 @@ pub const VIEW_TAG_LEN: usize = 32;
 pub(crate) const HPKE_PREFIX: &[u8] = b"TSPP/hpke/";
 
 pub(crate) const ENC_INFO_TRANSFER: &[u8] = b"TSPP/tx";
+pub(crate) const ENC_INFO_ZONE_DEPOSIT: &[u8] = b"TSPP/zone_deposit";

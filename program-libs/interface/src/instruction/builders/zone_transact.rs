@@ -14,16 +14,15 @@ use crate::{
 /// Builder for the `zone_transact` instruction, the confidential policy-zone analog
 /// of [`super::transact::Transact`]. The account layout mirrors the program
 /// loader (`ZoneTransactAccounts::validate_and_parse`): `payer`, `input_tree`,
-/// `output_tree`, the `ZoneConfig` account (the zone's `zone_auth` PDA), the
-/// optional public-amount accounts, then the program account last for the
-/// `emit_event` self-CPI. The zone identity is read from the `ZoneConfig`, so it
-/// is not part of the instruction data.
+/// `output_tree`, the SPP and System Program accounts, the `ZoneConfig` account
+/// (the zone's `zone_auth` PDA), owner signers, then optional settlement accounts.
 pub struct ZoneTransact {
     pub payer: Pubkey,
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
     /// Calling zone program; its `ZoneConfig` (canonical `zone_auth` PDA) signs.
     pub zone_program_id: Pubkey,
+    pub owner_signers: Vec<Pubkey>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     pub data: TransactIxData,
 }
@@ -57,15 +56,21 @@ impl ZoneTransact {
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.input_tree, false),
             AccountMeta::new(self.output_tree, false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(zone_config, auth_signer),
         ];
+        accounts.extend(
+            self.owner_signers
+                .iter()
+                .copied()
+                .map(|signer| AccountMeta::new_readonly(signer, true)),
+        );
         append_interface_transfer_accounts(
             &mut accounts,
             &self.data.interface_transfers,
             &self.interface_transfer_accounts,
         );
-        accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
-
         Instruction {
             program_id,
             accounts,
@@ -99,17 +104,19 @@ mod tests {
     }
 
     /// A pure shielded `zone_transact` lays out `payer`, `input_tree`,
-    /// `output_tree`, the `ZoneConfig` (canonical `zone_auth` PDA), the System
-    /// Program, and the program account, and tags the instruction data with
+    /// `output_tree`, SPP, System Program, the `ZoneConfig` (canonical
+    /// `zone_auth` PDA), then owner signers, and tags the instruction data with
     /// `ZONE_TRANSACT`.
     #[test]
     fn instruction_account_order_and_zone_config() {
         let zone_program_id = Pubkey::new_unique();
+        let owner_signer = Pubkey::new_unique();
         let builder = ZoneTransact {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
             zone_program_id,
+            owner_signers: vec![owner_signer],
             interface_transfer_accounts: Vec::new(),
             data: empty_data(),
         };
@@ -126,14 +133,16 @@ mod tests {
                 builder.payer,
                 builder.input_tree,
                 builder.output_tree,
-                zone_config,
+                PROGRAM_ID_PUBKEY,
                 Pubkey::default(),
-                PROGRAM_ID_PUBKEY
+                zone_config,
+                owner_signer,
             ]
         );
         // `.instruction()` targets the zone program, so the `zone_auth` PDA is not
         // a transaction-level signer.
-        assert!(!ix.accounts[3].is_signer);
+        assert!(!ix.accounts[5].is_signer);
+        assert!(ix.accounts[6].is_signer);
         assert!(ix.accounts[0].is_signer);
     }
 
@@ -146,13 +155,14 @@ mod tests {
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
             zone_program_id,
+            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: empty_data(),
         };
 
         let ix = builder.cpi_instruction();
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.accounts[3].pubkey, pda::zone_auth(&zone_program_id).0);
-        assert!(ix.accounts[3].is_signer);
+        assert_eq!(ix.accounts[5].pubkey, pda::zone_auth(&zone_program_id).0);
+        assert!(ix.accounts[5].is_signer);
     }
 }

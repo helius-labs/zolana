@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
+use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::OutputDataEncoding;
+use zolana_event::{EncryptedZoneDepositOutput, OutputDataEncoding};
 use zolana_keypair::{
-    viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey, ViewingKey,
+    hash::owner_hash, viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey,
+    ViewingKey,
 };
 
 use super::state::{
@@ -23,6 +25,7 @@ use crate::{
         plaintext::PlaintextTransfer,
         proofless::Proofless,
         split::Split,
+        zone_deposit::ZoneDepositPlaintext,
         DecodeCx, OwnerCx, UtxoSerialization,
     },
     utxo::Utxo,
@@ -75,7 +78,8 @@ impl TxIndex {
                     | EncryptedScheme::Confidential
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
-                    | EncryptedScheme::Merge => {
+                    | EncryptedScheme::Merge
+                    | EncryptedScheme::ZoneDeposit => {
                         recipient_sites
                             .entry(slot.view_tag)
                             .or_default()
@@ -556,6 +560,39 @@ impl SyncCtx<'_> {
                     return Ok(outcome);
                 };
                 match scheme {
+                    EncryptedScheme::ZoneDeposit => {
+                        let Ok(output) = EncryptedZoneDepositOutput::try_from_slice(body) else {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(outcome);
+                        };
+                        let Ok(plaintext) = ZoneDepositPlaintext::decrypt(&output.encrypted, key)
+                        else {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(outcome);
+                        };
+                        let owner = owner_hash(&self.owner, &self.nullifier_pk)?;
+                        let actual_owner_utxo_hash =
+                            crate::owner_utxo_hash(&owner, &plaintext.blinding)?;
+                        if actual_owner_utxo_hash != output.owner_utxo_hash {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(outcome);
+                        }
+                        let utxo = plaintext.into_utxo(
+                            self.owner,
+                            Address::new_from_array(output.asset),
+                            output.amount,
+                            Address::new_from_array(output.zone_program_id),
+                        );
+                        if self.store_recipient_utxos(
+                            vec![utxo.clone()],
+                            &output_context,
+                            output.data_hash,
+                            Some(output.zone_data_hash),
+                        )? {
+                            self.processed_slots.insert(site);
+                            self.record_deposit(tx, &output_context, &utxo);
+                        }
+                    }
                     EncryptedScheme::AnonymousRecipient => {
                         let Ok(plaintext) = AnonymousRecipient::decode(body, &cx) else {
                             self.report.undecryptable_candidates += 1;

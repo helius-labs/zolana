@@ -98,12 +98,6 @@ pub(crate) fn process_merge_core(
         )
         .map_err(tree_error)?;
         let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
-        // Merge proofs are currently built with `allow_dummy_inputs = true`.
-        // Keep the explicit capacity error instead of letting proof verification
-        // fail opaquely when the tree disables dummy inputs.
-        if !allow_dummy_inputs {
-            return Err(ShieldedPoolError::NullifierTreeTooFullForMerge.into());
-        }
         let mut derived = MergeProofInputs {
             utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
             nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],

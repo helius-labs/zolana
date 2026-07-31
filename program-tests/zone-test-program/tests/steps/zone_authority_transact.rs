@@ -9,8 +9,8 @@
 //! producing a new zone-owned output. Shape 1x1 is the minimal supported
 //! zone-authority shape. The zone client assembles its own `TransactIxData`
 //! (mirroring the client's `witness::assemble`); because `CircuitId::ZoneAuthority`
-//! skips per-owner spend signatures on-chain, every input's
-//! `eddsa_signer_index` stays at its canonical default of 0.
+//! skips per-owner spend signatures on-chain, no owner signer accounts are
+//! forwarded to SPP.
 //!
 //! View-tag discovery: the recipient slot's `view_tag` is the recipient actor's
 //! `signing_pubkey().confidential_view_tag()`, the exact tag the confidential
@@ -26,14 +26,14 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, PublicMovements, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
+    ProverClient, PublicTransfers, Shape, SpendProof, TransferSpendInput, ZoneAuthorityProver,
 };
 use zolana_interface::instruction::{
     instruction_data::transact::{CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof},
     tag::ZONE_AUTHORITY_TRANSACT,
     TransactIxData, ZoneAuthorityTransact,
 };
-use zolana_keypair::{hash::sha256_be, random_blinding, random_salt, ViewingKey};
+use zolana_keypair::{random_blinding, random_salt, ViewingKey};
 use zolana_test_utils::test_validator_asserts::{
     assert_zone_transact, fetch_account, wait_for_indexed_transaction, wait_for_merkle_proof,
     wait_for_non_inclusion_proof, ZoneTransactAssertArgs,
@@ -55,11 +55,6 @@ const ZONE_AUTHORITY_TRANSACT_DISABLED: u32 = 7022;
 /// not verify against the zone-authority verifying key).
 const TRANSACT_PROOF_VERIFICATION_FAILED: u32 = 7008;
 
-/// The eddsa signer index for every input on the authority rail. The authority
-/// rail skips the per-owner spend-signature check on-chain
-/// (`prepare_proof_inputs::<_, true>` does not run `check_input_signers`), so this
-/// index is never read; it stays at the default 0.
-const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 impl ZoneLifecycleWorld {
     /// Run a zone-authority permanent-delegate transfer over one of `name`'s
     /// zone-owned UTXOs: re-own its full value to the TRACKED actor `recipient` as a
@@ -295,8 +290,8 @@ impl ZoneLifecycleWorld {
             inputs: vec![spend_input],
             outputs: vec![output],
             external_data: external_data.clone(),
-            public_movements: PublicMovements::default(),
-            payer_pubkey_hash: sha256_be(&self.payer.pubkey().to_bytes()),
+            public_transfers: PublicTransfers::default(),
+            payer: Address::new_from_array(self.payer.pubkey().to_bytes()),
             allow_dummy_inputs: true,
             zone_program_id: Some(zone),
             shape: Some(Shape::new(1, 1)),
@@ -307,7 +302,7 @@ impl ZoneLifecycleWorld {
         // Assemble the instruction inputs from the one prover build: the nullifier and
         // root indices are computed once and shared with the proof, so the witness and
         // the instruction commit to identical values. The authority rail reads no
-        // per-input signer, so `eddsa_signer_index` is the default 0.
+        // owner signer accounts.
         let nullifier_hash = *result
             .nullifiers
             .first()
@@ -320,7 +315,6 @@ impl ZoneLifecycleWorld {
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-            eddsa_signer_index: DEFAULT_EDDSA_SIGNER_INDEX,
         }];
 
         let ix_data = TransactIxData {

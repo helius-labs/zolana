@@ -102,6 +102,8 @@ func runCli() {
 						common.TransferZoneCircuitType,
 						common.TransferZoneAuthorityCircuitType:
 						ps, err = transfereddsaonly.SetupTransferCircuit(circuit, nInputs, nOutputs)
+					case common.TransferP256ZoneCircuitType:
+						ps, err = transfereddsaonly.SetupP256Transfer(nInputs, nOutputs)
 					default:
 						return fmt.Errorf("invalid transfer circuit type %s", circuit)
 					}

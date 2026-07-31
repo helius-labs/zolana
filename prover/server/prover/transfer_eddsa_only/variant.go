@@ -18,8 +18,8 @@ const (
 	// pk_field tags; non-zone.
 	ConfidentialVariant Variant = iota
 	// ZoneVariant is the confidential policy-zone transfer (zone_transact):
-	// input and output owners bind to public tags and each real UTXO binds its
-	// zone_program_id.
+	// input and output owners remain private and each real UTXO binds its
+	// zone_program_id. Solana signer hashes still authorize private owner hashes.
 	ZoneVariant
 	// ZoneAuthorityVariant is the anonymous policy-zone transfer for
 	// zone_authority_transact: the zone authority controls its zone-owned UTXOs, so

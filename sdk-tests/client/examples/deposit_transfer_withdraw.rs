@@ -109,6 +109,7 @@ fn main() -> Result<()> {
             payer: alice_solana_keypair.pubkey(),
             input_tree: tree,
             output_tree: tree,
+            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: transfer_data,
         }
@@ -193,6 +194,7 @@ fn main() -> Result<()> {
             payer: alice_solana_keypair.pubkey(),
             input_tree: tree,
             output_tree: tree,
+            owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
                     recipient: alice_solana_keypair.pubkey(),

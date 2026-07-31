@@ -46,6 +46,17 @@ Feature: User registry program
     When "alice" tries to register again
     Then the transaction fails with "AccountAlreadyInitialized"
 
+  Scenario: A P256 key cannot be registered without proof of possession
+    Given owner "alice" with p256 keys
+    When "alice" tries to register without a P256 proof
+    Then the transaction fails with "MissingP256Proof"
+
+  Scenario: An owner cannot copy another owner's P256 key
+    Given owner "alice" with p256 keys
+    And owner "mallory" with p256 keys
+    When "mallory" tries to register "alice"'s P256 key using "mallory"'s proof
+    Then the transaction fails with "InvalidP256Proof"
+
   # === set_merge_service ===
 
   Scenario: Merge service defaults off and the owner can toggle it

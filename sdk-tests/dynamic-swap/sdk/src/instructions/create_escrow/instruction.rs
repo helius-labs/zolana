@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
@@ -34,20 +34,8 @@ impl CreateEscrow {
             tree,
             proof,
             created_at,
-            mut transact,
+            transact,
         } = self;
-
-        // SPP resolves each spent input's owner by position within the forwarded
-        // transact account tail: [authority(payer)=0, input_tree=1,
-        // output_tree=2, system_program=3, owner=4,
-        // escrow_authority=5, program=6].
-        // create_escrow's two inputs are the source UTXO (owned by `owner`) and
-        // maker_funding (owned by the escrow-authority PDA), so route each to
-        // its owner's slot.
-        const OWNER_POSITION: u8 = 4;
-        const ESCROW_AUTHORITY_POSITION: u8 = 5;
-        route_input(&mut transact, 0, OWNER_POSITION)?;
-        route_input(&mut transact, 1, ESCROW_AUTHORITY_POSITION)?;
 
         let ix_data = CreateEscrowIxData {
             proof,
@@ -66,14 +54,14 @@ impl CreateEscrow {
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
             // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
-            // System Program, the source owner, escrow authority, then SPP.
+            // SPP, System Program, the source owner, then escrow authority.
             AccountMeta::new(authority, true),
             AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
+            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(owner, true),
             AccountMeta::new_readonly(escrow_authority_pda(&pair), false),
-            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
 
         Ok(Instruction {
@@ -82,15 +70,4 @@ impl CreateEscrow {
             data: instruction_data,
         })
     }
-}
-
-/// Points `transact.inputs[input]`'s `eddsa_signer_index` at `position`, the
-/// slot of that input's owner within the forwarded SPP `transact` account tail.
-fn route_input(transact: &mut TransactIxData, input: usize, position: u8) -> Result<()> {
-    transact
-        .inputs
-        .get_mut(input)
-        .ok_or_else(|| anyhow!("transact input {input} out of range"))?
-        .eddsa_signer_index = position;
-    Ok(())
 }

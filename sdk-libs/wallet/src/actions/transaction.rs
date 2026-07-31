@@ -662,13 +662,30 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     client: &ZolanaClient<R>,
     fee_payer: &dyn Signer,
 ) -> Result<SolanaTransaction, ClientError> {
+    sign_private_transaction_with_signers(transaction, wallet, authority, client, fee_payer, &[])
+        .await
+}
+
+/// Build and sign a private transaction with the fee payer and any additional
+/// native Ed25519 input owners committed by the shielded proof.
+pub async fn sign_private_transaction_with_signers<A: WalletAuthority + ?Sized, R: AsyncRpc>(
+    transaction: UnsignedPrivateTransaction,
+    wallet: &Wallet,
+    authority: &A,
+    client: &ZolanaClient<R>,
+    fee_payer: &dyn Signer,
+    additional_native_signers: &[&dyn Signer],
+) -> Result<SolanaTransaction, ClientError> {
     let blockhash = client.rpc().get_latest_blockhash().await?.0;
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let mut native = client
         .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash)
         .await?;
+    let mut signers = Vec::with_capacity(1 + additional_native_signers.len());
+    signers.push(fee_payer);
+    signers.extend_from_slice(additional_native_signers);
     native
-        .try_sign(&[fee_payer], blockhash)
+        .try_sign(&signers, blockhash)
         .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
     Ok(native)
 }
@@ -692,12 +709,34 @@ pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     client: &ZolanaClient<R>,
     fee_payer: &dyn Signer,
 ) -> Result<SolanaTransaction, ClientError> {
+    sign_private_transaction_sync_with_signers(
+        transaction,
+        wallet,
+        authority,
+        client,
+        fee_payer,
+        &[],
+    )
+}
+
+/// Synchronous counterpart of [`sign_private_transaction_with_signers`].
+pub fn sign_private_transaction_sync_with_signers<A: SyncWalletAuthority + ?Sized, R: Rpc>(
+    transaction: UnsignedPrivateTransaction,
+    wallet: &Wallet,
+    authority: &A,
+    client: &ZolanaClient<R>,
+    fee_payer: &dyn Signer,
+    additional_native_signers: &[&dyn Signer],
+) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
     let (blockhash, _) = client.rpc().get_latest_blockhash()?;
     let mut native =
         client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey(), blockhash)?;
+    let mut signers = Vec::with_capacity(1 + additional_native_signers.len());
+    signers.push(fee_payer);
+    signers.extend_from_slice(additional_native_signers);
     native
-        .try_sign(&[fee_payer], blockhash)
+        .try_sign(&signers, blockhash)
         .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
     Ok(native)
 }
@@ -852,7 +891,7 @@ fn withdrawal_target(
     let token_program = spl_token_program.ok_or(ClientError::MissingSplTokenProgram { mint })?;
     let user_spl_token =
         pda::associated_token_address_with_program(&recipient, &mint, &token_program);
-    let vault = pda::spl_asset_vault(&mint);
+    let vault = pda::spl_interface(&mint);
     Ok((
         SettlementTarget::Spl {
             user_spl_token: Address::new_from_array(user_spl_token.to_bytes()),
@@ -860,7 +899,7 @@ fn withdrawal_target(
         },
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             mint,
-            vault,
+            spl_interface: vault,
             user_token_account: user_spl_token,
             token_program,
         }),
@@ -1293,7 +1332,7 @@ mod tests {
             &[TransactInterfaceTransferAccounts::SplWithdrawal(
                 TransactSplWithdrawalAccounts {
                     mint,
-                    vault: pda::spl_asset_vault(&mint),
+                    spl_interface: pda::spl_interface(&mint),
                     user_token_account: token_account,
                     token_program: pda::spl_token_program_id(),
                 }
@@ -1327,7 +1366,7 @@ mod tests {
             vec![TransactInterfaceTransferAccounts::SplWithdrawal(
                 TransactSplWithdrawalAccounts {
                     mint,
-                    vault: pda::spl_asset_vault(&mint),
+                    spl_interface: pda::spl_interface(&mint),
                     user_token_account: token_account,
                     token_program: pda::spl_token_program_id(),
                 }

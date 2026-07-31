@@ -11,7 +11,7 @@ use crate::ingester::{
 };
 use solana_pubkey::Pubkey;
 use zolana_event::{
-    decode_event_payload, decode_output_data, tag, InstructionGroup as RingsInstructionGroup,
+    decode_event_payload, tag, InstructionGroup as RingsInstructionGroup,
     ParsedInstruction as RingsInstruction,
 };
 use zolana_interface::pda;
@@ -54,10 +54,10 @@ pub fn parse_rings_events(
             .filter(|salt| salt.iter().any(|byte| *byte != 0))
             .map(|salt| salt.to_vec());
 
-        let proofless = event
-            .outputs
-            .iter()
-            .any(|output| decode_output_data(&output.data).is_ok());
+        let proofless = matches!(
+            event_site.source_instruction_tag,
+            tag::DEPOSIT | tag::ZONE_DEPOSIT
+        );
 
         let outputs = event
             .outputs

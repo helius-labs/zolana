@@ -8,7 +8,7 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicMovements, Rpc,
+    spawn_prover, InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicTransfers, Rpc,
     Shape, SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
 };
 use zolana_interface::{
@@ -160,9 +160,9 @@ fn boundary_prover() -> ZoneAuthorityProver {
             SppProofInputUtxo::new_dummy(),
         ],
         outputs: vec![dummy_output(), dummy_output()],
-        public_movements: PublicMovements::default(),
+        public_transfers: PublicTransfers::default(),
         external_data: zone_external_data(2),
-        payer_pubkey_hash: [0u8; 32],
+        payer: Address::default(),
         zone_program_id: Some(zone),
         shape: TxShape::IN2_OUT2,
     };
@@ -218,8 +218,8 @@ fn assemble_prover(
         inputs,
         outputs,
         external_data: zone_external_data(n_out),
-        public_movements: PublicMovements::default(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: PublicTransfers::default(),
+        payer: Address::default(),
         allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),

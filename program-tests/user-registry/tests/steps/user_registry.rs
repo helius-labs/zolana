@@ -8,10 +8,14 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use user_registry_tests::{
-    build_register_ix, build_set_merging_enabled_ix, build_update_keys_ix, fetch_user_record,
-    user_registry_program_id,
+    build_register_ix, build_register_ixs, build_set_merging_enabled_ix, build_update_keys_ix,
+    build_update_keys_ixs, fetch_user_record, user_registry_program_id,
 };
-use zolana_user_registry_interface::user_record_pda;
+use zolana_keypair::SigningKey;
+use zolana_user_registry_interface::{
+    instruction::{p256_key_binding_message, p256_verify_instruction},
+    user_record_pda,
+};
 
 #[derive(Default, World)]
 pub struct UserRegistryWorld {
@@ -20,6 +24,7 @@ pub struct UserRegistryWorld {
     pub owners: HashMap<String, Keypair>,
     pub strangers: HashMap<String, Keypair>,
     pub owner_p256: HashMap<String, [u8; 33]>,
+    pub owner_p256_signing: HashMap<String, SigningKey>,
     pub nullifier_pubkey: HashMap<String, [u8; 32]>,
     pub viewing_pubkey: HashMap<String, [u8; 33]>,
     pub last_error: Option<String>,
@@ -33,6 +38,14 @@ impl std::fmt::Debug for UserRegistryWorld {
 
 impl UserRegistryWorld {
     fn send(&mut self, signers: &[Keypair], ix: solana_instruction::Instruction) {
+        self.send_instructions(signers, &[ix]);
+    }
+
+    fn send_instructions(
+        &mut self,
+        signers: &[Keypair],
+        instructions: &[solana_instruction::Instruction],
+    ) {
         self.last_error = None;
         let payer = self.payer.as_ref().expect("payer").insecure_clone();
         let mut all = vec![payer];
@@ -42,7 +55,7 @@ impl UserRegistryWorld {
         // signatures and are not rejected as AlreadyProcessed.
         self.svm.as_mut().expect("rig").expire_blockhash();
         let blockhash = self.svm.as_mut().expect("rig").latest_blockhash();
-        let msg = Message::new(&[ix], Some(&payer_pubkey));
+        let msg = Message::new(instructions, Some(&payer_pubkey));
         let signer_refs: Vec<&Keypair> = all.iter().collect();
         let tx = Transaction::new(&signer_refs, msg, blockhash);
         if let Err(err) = self.svm.as_mut().expect("rig").send_transaction(tx) {
@@ -87,6 +100,12 @@ fn test_p256_pubkey(tag: u8) -> [u8; 33] {
     pubkey
 }
 
+fn test_p256_signing_key(tag: u8) -> SigningKey {
+    let mut secret = [0u8; 32];
+    secret[31] = tag.max(1);
+    SigningKey::from_bytes(&secret).expect("valid deterministic P256 key")
+}
+
 // === given ===
 
 #[given("a funded user registry test rig")]
@@ -118,9 +137,12 @@ fn fund_new_keypair(world: &mut UserRegistryWorld, lamports: u64) -> Keypair {
 fn given_owner_keys(world: &mut UserRegistryWorld, name: String) {
     let kp = fund_new_keypair(world, 5_000_000_000);
     world.owners.insert(name.clone(), kp);
-    world
-        .owner_p256
-        .insert(name.clone(), test_p256_pubkey(name.len() as u8));
+    let signing_key = test_p256_signing_key(name.len() as u8);
+    world.owner_p256.insert(
+        name.clone(),
+        *signing_key.pubkey().as_p256().unwrap().as_bytes(),
+    );
+    world.owner_p256_signing.insert(name.clone(), signing_key);
     world.nullifier_pubkey.insert(name.clone(), {
         let mut n = [0u8; 32];
         n[31] = 1;
@@ -152,14 +174,24 @@ fn given_prefunded_record(world: &mut UserRegistryWorld, name: String) {
 #[when(regex = r#"^"(.*)" registers on-chain$"#)]
 fn when_register(world: &mut UserRegistryWorld, name: String) {
     let owner = world.owners.get(&name).expect("owner").pubkey();
-    let ix = build_register_ix(
+    let owner_p256 = world.owner_p256[&name];
+    let message = zolana_user_registry_interface::instruction::p256_key_binding_message(
+        &user_record_pda(&owner).0,
         &owner,
-        Some(world.owner_p256[&name]),
+        &owner_p256,
+    );
+    let signature = world.owner_p256_signing[&name]
+        .sign_p256_message(&message)
+        .expect("P256 proof signature");
+    let ixs = build_register_ixs(
+        &owner,
+        Some(owner_p256),
         world.nullifier_pubkey[&name],
         world.viewing_pubkey[&name],
+        Some(signature),
     );
     let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
-    world.send(&[owner_kp], ix);
+    world.send_instructions(&[owner_kp], &ixs);
 }
 
 #[when(regex = r#""(.*)" registers on-chain without an owner p256 key"#)]
@@ -178,23 +210,36 @@ fn when_register_no_p256(world: &mut UserRegistryWorld, name: String) {
 #[when(regex = r#"^"(.*)" updates registry keys$"#)]
 fn when_update_keys(world: &mut UserRegistryWorld, name: String) {
     let owner = world.owners.get(&name).expect("owner").pubkey();
-    let updated_owner_p256 = test_p256_pubkey(0xF1);
+    let updated_signing_key = test_p256_signing_key(0xF1);
+    let updated_owner_p256 = *updated_signing_key.pubkey().as_p256().unwrap().as_bytes();
     let mut updated_nullifier = [0u8; 32];
     updated_nullifier[31] = 0xF2;
     let updated_viewing = test_p256_pubkey(0xF3);
     world.owner_p256.insert(name.clone(), updated_owner_p256);
     world
+        .owner_p256_signing
+        .insert(name.clone(), updated_signing_key);
+    world
         .nullifier_pubkey
         .insert(name.clone(), updated_nullifier);
     world.viewing_pubkey.insert(name.clone(), updated_viewing);
-    let ix = build_update_keys_ix(
+    let message = zolana_user_registry_interface::instruction::p256_key_binding_message(
+        &user_record_pda(&owner).0,
+        &owner,
+        &updated_owner_p256,
+    );
+    let signature = world.owner_p256_signing[&name]
+        .sign_p256_message(&message)
+        .expect("P256 proof signature");
+    let ixs = build_update_keys_ixs(
         &owner,
         Some(updated_owner_p256),
         updated_nullifier,
         updated_viewing,
+        Some(signature),
     );
     let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
-    world.send(&[owner_kp], ix);
+    world.send_instructions(&[owner_kp], &ixs);
 }
 
 #[when(regex = r#"^"(.*)" updates registry keys without an owner p256 key$"#)]
@@ -215,6 +260,52 @@ fn when_update_keys_no_p256(world: &mut UserRegistryWorld, name: String) {
 #[when(regex = r#""(.*)" tries to register again"#)]
 fn when_register_again(world: &mut UserRegistryWorld, name: String) {
     when_register(world, name);
+}
+
+#[when(regex = r#"^"(.*)" tries to register without a P256 proof$"#)]
+fn when_register_without_p256_proof(world: &mut UserRegistryWorld, name: String) {
+    let owner = world.owners.get(&name).expect("owner").pubkey();
+    let ix = build_register_ix(
+        &owner,
+        Some(world.owner_p256[&name]),
+        world.nullifier_pubkey[&name],
+        world.viewing_pubkey[&name],
+    );
+    let owner_kp = world.owners.get(&name).expect("owner").insecure_clone();
+    world.send(&[owner_kp], ix);
+}
+
+#[when(regex = r#"^"(.*)" tries to register "(.*)"'s P256 key using "(.*)"'s proof$"#)]
+fn when_register_copied_p256_key(
+    world: &mut UserRegistryWorld,
+    owner_name: String,
+    copied_from_name: String,
+    proof_name: String,
+) {
+    assert_eq!(
+        owner_name, proof_name,
+        "proof signer must be the registering owner"
+    );
+    let owner = world.owners.get(&owner_name).expect("owner").pubkey();
+    let copied_pubkey = world.owner_p256[&copied_from_name];
+    let proof_pubkey = world.owner_p256[&proof_name];
+    let proof_message = p256_key_binding_message(&user_record_pda(&owner).0, &owner, &proof_pubkey);
+    let proof_signature = world.owner_p256_signing[&proof_name]
+        .sign_p256_message(&proof_message)
+        .expect("P256 proof signature");
+    let proof_ix = p256_verify_instruction(&proof_message, &proof_signature, &proof_pubkey);
+    let registry_ix = build_register_ix(
+        &owner,
+        Some(copied_pubkey),
+        world.nullifier_pubkey[&owner_name],
+        world.viewing_pubkey[&owner_name],
+    );
+    let owner_kp = world
+        .owners
+        .get(&owner_name)
+        .expect("owner")
+        .insecure_clone();
+    world.send_instructions(&[owner_kp], &[proof_ix, registry_ix]);
 }
 
 // === set_merging_enabled ===

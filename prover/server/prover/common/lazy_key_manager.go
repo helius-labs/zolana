@@ -237,6 +237,8 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 		prefix = "transfer_confidential"
 	case TransferZoneCircuitType:
 		prefix = "transfer_zone"
+	case TransferP256ZoneCircuitType:
+		prefix = "transfer_p256_zone"
 	case TransferZoneAuthorityCircuitType:
 		prefix = "transfer_zone_authority"
 	case MergeCircuitType:

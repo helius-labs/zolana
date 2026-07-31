@@ -30,7 +30,7 @@ pub struct DepositResult {
 /// wallet-discoverable UTXO.
 ///
 /// The asset is inferred from `sender`: a system-owned account shields SOL; an
-/// SPL token account shields its mint, with the mint, vault and registry PDAs,
+/// SPL token account shields its mint, with the mint and SPL interface PDA,
 /// and owning token program all derived from it. The caller passes none of them.
 ///
 /// The recipient is identified by its public [`ShieldedAddress`] only, so a
@@ -41,7 +41,7 @@ pub struct Deposit<'a> {
     /// Public shielded identity the note becomes spendable by and discoverable for.
     pub recipient: &'a ShieldedAddress,
     /// Funding account: a SOL system account or an SPL token account. The asset
-    /// (and, for SPL, the mint/vault/registry/token-program) is detected from it.
+    /// (and, for SPL, the mint/interface/token-program) is detected from it.
     pub sender: Pubkey,
     /// Public amount to shield (lamports for SOL, base units for SPL).
     pub amount: u64,

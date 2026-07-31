@@ -9,7 +9,10 @@ use sha2::Sha256;
 use zeroize::Zeroizing;
 
 use crate::{
-    constants::{CTR_NONCE_LEN, ENC_INFO_TRANSFER, HPKE_PREFIX, P256_PUBKEY_LEN, SALT_LEN},
+    constants::{
+        CTR_NONCE_LEN, ENC_INFO_TRANSFER, ENC_INFO_ZONE_DEPOSIT, HPKE_PREFIX, P256_PUBKEY_LEN,
+        SALT_LEN,
+    },
     error::KeypairError,
     pubkey::P256Pubkey,
 };
@@ -77,16 +80,44 @@ pub(crate) fn encrypt_utxo(
     salt: &[u8; SALT_LEN],
     slot: u32,
 ) -> Result<Vec<u8>, KeypairError> {
-    let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_secret_key.public_key());
-    let dh = Zeroizing::new(ecdh_x(ephemeral_secret_key, recipient_pubkey)?);
-    let (key, nonce) = derive_key_nonce(
-        &dh,
-        &ephemeral_pubkey,
+    encrypt_payload(
+        ephemeral_secret_key,
         recipient_pubkey,
-        ENC_INFO_TRANSFER,
+        plaintext,
         salt,
         slot,
-    )?;
+        ENC_INFO_TRANSFER,
+    )
+}
+
+pub(crate) fn encrypt_zone_deposit(
+    ephemeral_secret_key: &SecretKey,
+    recipient_pubkey: &P256Pubkey,
+    plaintext: &[u8],
+    salt: &[u8; SALT_LEN],
+) -> Result<Vec<u8>, KeypairError> {
+    encrypt_payload(
+        ephemeral_secret_key,
+        recipient_pubkey,
+        plaintext,
+        salt,
+        0,
+        ENC_INFO_ZONE_DEPOSIT,
+    )
+}
+
+fn encrypt_payload(
+    ephemeral_secret_key: &SecretKey,
+    recipient_pubkey: &P256Pubkey,
+    plaintext: &[u8],
+    salt: &[u8; SALT_LEN],
+    slot: u32,
+    info: &[u8],
+) -> Result<Vec<u8>, KeypairError> {
+    let ephemeral_pubkey = P256Pubkey::from_p256(&ephemeral_secret_key.public_key());
+    let dh = Zeroizing::new(ecdh_x(ephemeral_secret_key, recipient_pubkey)?);
+    let (key, nonce) =
+        derive_key_nonce(&dh, &ephemeral_pubkey, recipient_pubkey, info, salt, slot)?;
     let mut buf = plaintext.to_vec();
     ctr_apply(&key, &nonce, &mut buf);
     Ok(buf)
@@ -99,16 +130,44 @@ pub(crate) fn decrypt_utxo(
     salt: &[u8; SALT_LEN],
     slot: u32,
 ) -> Result<Vec<u8>, KeypairError> {
-    let recipient_pubkey = P256Pubkey::from_p256(&viewing_secret_key.public_key());
-    let dh = Zeroizing::new(ecdh_x(viewing_secret_key, ephemeral_pubkey)?);
-    let (key, nonce) = derive_key_nonce(
-        &dh,
+    decrypt_payload(
+        viewing_secret_key,
         ephemeral_pubkey,
-        &recipient_pubkey,
-        ENC_INFO_TRANSFER,
+        ciphertext,
         salt,
         slot,
-    )?;
+        ENC_INFO_TRANSFER,
+    )
+}
+
+pub(crate) fn decrypt_zone_deposit(
+    viewing_secret_key: &SecretKey,
+    ephemeral_pubkey: &P256Pubkey,
+    ciphertext: &[u8],
+    salt: &[u8; SALT_LEN],
+) -> Result<Vec<u8>, KeypairError> {
+    decrypt_payload(
+        viewing_secret_key,
+        ephemeral_pubkey,
+        ciphertext,
+        salt,
+        0,
+        ENC_INFO_ZONE_DEPOSIT,
+    )
+}
+
+fn decrypt_payload(
+    viewing_secret_key: &SecretKey,
+    ephemeral_pubkey: &P256Pubkey,
+    ciphertext: &[u8],
+    salt: &[u8; SALT_LEN],
+    slot: u32,
+    info: &[u8],
+) -> Result<Vec<u8>, KeypairError> {
+    let recipient_pubkey = P256Pubkey::from_p256(&viewing_secret_key.public_key());
+    let dh = Zeroizing::new(ecdh_x(viewing_secret_key, ephemeral_pubkey)?);
+    let (key, nonce) =
+        derive_key_nonce(&dh, ephemeral_pubkey, &recipient_pubkey, info, salt, slot)?;
     let mut buf = ciphertext.to_vec();
     ctr_apply(&key, &nonce, &mut buf);
     Ok(buf)

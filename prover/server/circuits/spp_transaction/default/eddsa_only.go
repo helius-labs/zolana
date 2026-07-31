@@ -23,16 +23,16 @@ type DefaultZoneEddsaOnlyPublic struct {
 	ExternalDataHash    frontend.Variable
 	PublicAssets        [shared.NPublicSlots]frontend.Variable
 	PublicAmounts       [shared.NPublicSlots]frontend.Variable
-	PayerPubkeyHash     frontend.Variable
 	AllowDummyInputs    frontend.Variable
-	InputOwnerPkHashes  []frontend.Variable
-	OutputOwnerPkHashes []frontend.Variable
+	SignerPkHashes      []frontend.Variable // Payer followed by input owners.
+	OutputOwnerPkHashes []frontend.Variable // Output owners
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
 type DefaultZoneEddsaOnlyPrivate struct {
 	Inputs             []shared.Input
+	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
 	OutputNullifierPks []frontend.Variable
 }
@@ -54,11 +54,12 @@ func NewDefaultZoneEddsaOnlyCircuit(shape shared.Shape) (*DefaultZoneEddsaOnlyCi
 			OutputHashes:        make([]frontend.Variable, shape.NOutputs),
 			UtxoTreeRoots:       make([]frontend.Variable, shape.NInputs),
 			NullifierTreeRoots:  make([]frontend.Variable, shape.NInputs),
-			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
+			SignerPkHashes:      make([]frontend.Variable, shape.NInputs+1),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
 		Private: DefaultZoneEddsaOnlyPrivate{
 			Inputs:             shared.NewInputs(shape.NInputs),
+			InputOwnerPkHashes: make([]frontend.Variable, shape.NInputs),
 			Outputs:            make([]shared.UtxoCircuitFields, shape.NOutputs),
 			OutputNullifierPks: make([]frontend.Variable, shape.NOutputs),
 		},
@@ -79,11 +80,10 @@ func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,
 		ZoneProgramID:      frontend.Variable(0),
-		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
-			gadget.HashChain(api, c.Public.InputOwnerPkHashes),
 			gadget.HashChain(api, c.Public.OutputOwnerPkHashes),
 		},
 	}
@@ -92,7 +92,8 @@ func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	tx := c.newTransaction(api)
 	if err := tx.ValidateLayout(
-		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Public.InputOwnerPkHashes), Want: c.Shape.NInputs},
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.NInputs + 1},
+		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Public.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
 		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},
 	); err != nil {
@@ -103,7 +104,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	// Enforce confidentiality:
 	// 1. Input utxos pubkeys are part of public inputs.
 	// 2. Output UTXOs pubkeys are part of public input.
-	// 3. All dummy UTXO tags must name a real transaction participant.
+	// 3. All dummy UTXO tags must be a real transaction participant.
 	if err := shared.AssertOutputOwnerTags(
 		api,
 		tx.Outputs,
@@ -113,20 +114,26 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		return err
 	}
 
-	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Public.InputOwnerPkHashes)
+	authorized := shared.Signers(c.Public.SignerPkHashes)
+	inputOwners := shared.AuthorizedEddsaInputOwners(
+		api,
+		tx.Inputs,
+		c.Private.InputOwnerPkHashes,
+		authorized,
+	)
 	// If an output UTXO holds data the input must have signed a transaction.
-	outputPubkeyIsSigner := signers.ContainsEach(api, c.Public.OutputOwnerPkHashes)
+	outputPubkeyIsSigner := authorized.ContainsEach(api, c.Public.OutputOwnerPkHashes)
 	// Every dummy tag must name a real input signer or real output owner.
 	if err := shared.AssertDummyTags(
 		api,
 		tx.Inputs,
 		tx.Outputs,
-		c.Public.InputOwnerPkHashes,
+		nil,
 		c.Public.OutputOwnerPkHashes,
-		signers,
+		authorized,
 	); err != nil {
 		return err
 	}
 
-	return tx.Constrain(api, signers, outputPubkeyIsSigner)
+	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
 }

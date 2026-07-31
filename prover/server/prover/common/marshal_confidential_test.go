@@ -21,11 +21,8 @@ func (c *tinyCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// The confidentiality mode is not in the header (kept stable for existing
-// keys/VKs) and is read from the canonical file name; the RequiresP256 header
-// flag round-trips but no longer selects a circuit variant (the P256 rail is
-// removed). The keys are irrelevant here, so one trivial setup is reused
-// across the matrix.
+// The transfer variant is read from the canonical file name while the
+// RequiresP256 header flag round-trips.
 func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &tinyCircuit{})
 	if err != nil {
@@ -44,9 +41,7 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 	}{
 		{"transfer_zone_2_3.key", false, true, TransferZoneCircuitType},
 		{"transfer_confidential_2_3.key", false, true, TransferConfidentialCircuitType},
-		// Legacy P256 key files (the rail is removed) resolve to the Solana-only
-		// variants: the RequiresP256 header flag is ignored.
-		{"transfer_p256_zone_2_3.key", true, true, TransferZoneCircuitType},
+		{"transfer_p256_zone_2_3.key", true, true, TransferP256ZoneCircuitType},
 		{"transfer_p256_confidential_2_3.key", true, true, TransferConfidentialCircuitType},
 	}
 

@@ -18,13 +18,6 @@ pub struct Withdraw {
     pub spp_proof: TransactIxData,
 }
 
-/// The escrow utxo (input 0) is owned by the escrow-authority PDA appended
-/// readonly after the System Program; the timelock escrow program signs for it via
-/// `invoke_signed`. The signer index selects the account whose pubkey the SPP
-/// proof's input_owner_pk_hash must match; it is not itself a proof public
-/// input, so overriding it post-proof is safe.
-const ESCROW_AUTHORITY_SIGNER_INDEX: u8 = 4;
-
 impl Withdraw {
     pub fn instruction(self) -> Result<Instruction> {
         let Self {
@@ -33,11 +26,8 @@ impl Withdraw {
             tree,
             withdraw_proof,
             unlock_timestamp,
-            mut spp_proof,
+            spp_proof,
         } = self;
-        if let Some(escrow_input_utxo) = spp_proof.inputs.get_mut(0) {
-            escrow_input_utxo.eddsa_signer_index = ESCROW_AUTHORITY_SIGNER_INDEX;
-        }
 
         let serialized_ix = wincode::serialize(&WithdrawIxData {
             proof: withdraw_proof,
@@ -55,9 +45,9 @@ impl Withdraw {
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
+            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(escrow_authority_pda(), false),
-            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
         let mut instruction_data = vec![tag::WITHDRAW];
         instruction_data.extend_from_slice(&serialized_ix);

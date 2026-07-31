@@ -11,7 +11,7 @@ use solana_address::Address;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_transaction::{
     instructions::{
-        transact::{PrivateTxHash, PublicMovements},
+        transact::{PrivateTxHash, PublicTransfers},
         zone_authority::PreparedZoneAuthority,
     },
     utxo::program_id_proof_input_hash,
@@ -44,8 +44,8 @@ pub struct ZoneAuthorityProver {
     /// Transaction-level public data; its `instruction_discriminator` must be
     /// `ZONE_AUTHORITY_TRANSACT` (Tag 3) so `external_data_hash` matches on-chain.
     pub external_data: ExternalData,
-    pub public_movements: PublicMovements,
-    pub payer_pubkey_hash: [u8; 32],
+    pub public_transfers: PublicTransfers,
+    pub payer: Address,
     pub allow_dummy_inputs: bool,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit.
@@ -83,10 +83,11 @@ impl ZoneAuthorityProver {
         // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
         // zone field to this public input.
         let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
+        let payer_pk_hash = zolana_hasher::primitives::hash_bytes(self.payer.as_array())?;
 
         // Zone-authority public-input layout: input owner pk_fields stay private
         // (no owner chain) and there is no confidential appendix.
-        let slots = self.public_movements.interleaved();
+        let slots = self.public_transfers.interleaved();
         let mut elements = Vec::with_capacity(9 + slots.len());
         elements.extend([
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
@@ -99,7 +100,9 @@ impl ZoneAuthorityProver {
         elements.extend(slots);
         elements.extend([
             zone_program_id,
-            self.payer_pubkey_hash,
+            // The authority signer vector contains only the payer. A one-element
+            // right-fold is the element itself.
+            payer_pk_hash,
             crate::prover::transact::assembly::bool_field(self.allow_dummy_inputs),
         ]);
         let public_input = create_hash_chain_from_slice(&elements)?;
@@ -109,11 +112,12 @@ impl ZoneAuthorityProver {
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
-            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
+            public_assets: self.public_transfers.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_transfers.amounts.map(|amount| be(&amount)),
             zone_program_id: be(&zone_program_id),
-            payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            signer_pk_hashes: vec![be(&payer_pk_hash)],
             allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
+            published_output_owner_pk_hashes: Vec::new(),
             public_input_hash: be(&public_input),
         };
 
@@ -152,9 +156,9 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
         let PreparedZoneAuthority {
             inputs,
             outputs,
-            public_movements,
+            public_transfers,
             external_data,
-            payer_pubkey_hash,
+            payer,
             zone_program_id,
             shape,
         } = prepared;
@@ -165,8 +169,8 @@ impl TryFrom<ZoneAuthorityWitness> for ZoneAuthorityProver {
             inputs: spends,
             outputs,
             external_data,
-            public_movements,
-            payer_pubkey_hash,
+            public_transfers,
+            payer,
             allow_dummy_inputs: true,
             zone_program_id,
             shape: Some(shape),

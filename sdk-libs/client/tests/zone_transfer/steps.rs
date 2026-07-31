@@ -1,9 +1,6 @@
 //! Zone-transfer step definitions: build a zone-owned state transition over a
-//! chosen shape, prove it on the `zone_transact` circuit, and verify against the
-//! committed verifying key. The ed25519 rail (`ZoneTransferProver`) is vanilla
-//! Groth16; the P256 rail is removed (its SDK types remain as unimplemented
-//! placeholders). Every real input is zone-owned (`zone_program_id = ZONE`), as
-//! the strict zone binding requires.
+//! chosen shape, prove it on the Go prover server, and verify against the
+//! committed ed25519 or P256 verifying key.
 
 use std::sync::Once;
 
@@ -11,23 +8,28 @@ use cucumber::{given, then};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, ProverClient, PublicMovements, Rpc, Shape, TransferSpendInput,
-    ZoneTransferProver,
+    spawn_prover, InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferSpendInput,
+    ZoneTransferP256Prover, ZoneTransferProver,
 };
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{OwnerTag, TransactOutput},
         tag::ZONE_TRANSACT,
     },
     verifying_keys::{
-        transfer_zone_1_1, transfer_zone_1_2, transfer_zone_1_8, transfer_zone_2_2,
-        transfer_zone_2_3, transfer_zone_3_3, transfer_zone_4_3, transfer_zone_4_4,
-        transfer_zone_5_3, transfer_zone_5_4,
+        transfer_p256_zone_1_1, transfer_p256_zone_1_2, transfer_p256_zone_1_8,
+        transfer_p256_zone_2_2, transfer_p256_zone_2_3, transfer_p256_zone_3_3,
+        transfer_p256_zone_4_3, transfer_p256_zone_4_4, transfer_p256_zone_5_3,
+        transfer_p256_zone_5_4, transfer_zone_1_1, transfer_zone_1_2, transfer_zone_1_8,
+        transfer_zone_2_2, transfer_zone_2_3, transfer_zone_3_3, transfer_zone_4_3,
+        transfer_zone_4_4, transfer_zone_5_3, transfer_zone_5_4,
     },
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{
-    instructions::types::SppProofInputUtxo, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
+    instructions::{transact::SppProofInputs, types::SppProofInputUtxo},
+    Data, ExternalData, P256Signature, SppProofOutputUtxo, SyncWalletAuthority, Utxo, SOL_MINT,
 };
 
 use crate::{
@@ -55,6 +57,24 @@ fn given_eddsa_multi_real(world: &mut ZoneTransferWorld) {
     };
 }
 
+#[given(expr = "a {int}x{int} P256 zone transfer")]
+fn given_p256_shape(world: &mut ZoneTransferWorld, n_in: usize, n_out: usize) {
+    world.plan = Plan {
+        n_inputs: n_in,
+        n_outputs: n_out,
+        mode: Mode::P256,
+    };
+}
+
+#[given("a 2x2 P256 zone transfer with a Solana-owned input")]
+fn given_p256_mixed(world: &mut ZoneTransferWorld) {
+    world.plan = Plan {
+        n_inputs: 2,
+        n_outputs: 2,
+        mode: Mode::P256Mixed,
+    };
+}
+
 #[then("the zone-transfer proof verifies")]
 fn then_verifies(world: &mut ZoneTransferWorld) {
     start_prover();
@@ -62,6 +82,8 @@ fn then_verifies(world: &mut ZoneTransferWorld) {
     match mode {
         Mode::Eddsa => prove_and_verify_eddsa(eddsa_prover(n_in, n_out), n_in, n_out),
         Mode::EddsaMultiReal => prove_and_verify_eddsa(eddsa_multi_real(), n_in, n_out),
+        Mode::P256 => prove_and_verify_p256(p256_prover(n_in, n_out), n_in, n_out),
+        Mode::P256Mixed => prove_and_verify_p256(p256_mixed(), n_in, n_out),
     }
 }
 
@@ -77,12 +99,14 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
         inputs.push(dummy_input());
     }
     let outputs = (0..n_out).map(|_| dummy_output(&signer)).collect();
+    let mut signer_pk_hashes = vec![[0u8; 32]; n_in + 1];
+    signer_pk_hashes[1] = eddsa_signer_hash(&signer);
     ZoneTransferProver {
         inputs,
         outputs,
         external_data: zone_external_data(n_out),
-        public_movements: zero_public_movements(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: zero_public_transfers(),
+        signer_pk_hashes,
         allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
@@ -96,6 +120,12 @@ fn eddsa_multi_real() -> ZoneTransferProver {
     let mut indexer = TestIndexer::new();
     let first_signer = eddsa_keypair();
     let second_signer = eddsa_keypair();
+    let signer_pk_hashes = vec![
+        [0u8; 32],
+        eddsa_signer_hash(&first_signer),
+        eddsa_signer_hash(&second_signer),
+        [0u8; 32],
+    ];
     let mut inputs = build_real_inputs(
         &mut indexer,
         &[(first_signer.clone(), 100), (second_signer, 150)],
@@ -111,12 +141,68 @@ fn eddsa_multi_real() -> ZoneTransferProver {
         inputs,
         outputs,
         external_data: zone_external_data(3),
-        public_movements: zero_public_movements(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: zero_public_transfers(),
+        signer_pk_hashes,
         allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(3, 3)),
     }
+}
+
+fn p256_prover(n_in: usize, n_out: usize) -> ZoneTransferP256Prover {
+    let mut indexer = TestIndexer::new();
+    let signer = ShieldedKeypair::new().expect("P256 keypair");
+    let mut inputs = build_real_inputs(&mut indexer, &[(signer.clone(), 0)]);
+    for _ in 1..n_in {
+        inputs.push(dummy_input());
+    }
+    let outputs: Vec<_> = (0..n_out).map(|_| dummy_output(&signer)).collect();
+    let external_data = zone_external_data(n_out);
+    let authorization = p256_authorization(&signer, &inputs, &outputs, &external_data);
+    ZoneTransferP256Prover {
+        inputs,
+        outputs,
+        external_data,
+        public_transfers: zero_public_transfers(),
+        signer_pk_hashes: vec![[0u8; 32]; n_in + 1],
+        allow_dummy_inputs: true,
+        authorization,
+        zone_program_id: Some(zone_program()),
+        shape: Some(Shape::new(n_in, n_out)),
+    }
+}
+
+fn p256_mixed() -> ZoneTransferP256Prover {
+    let mut indexer = TestIndexer::new();
+    let p256_signer = ShieldedKeypair::new().expect("P256 keypair");
+    let eddsa_signer = eddsa_keypair();
+    let signer_pk_hashes = vec![[0u8; 32], eddsa_signer_hash(&eddsa_signer), [0u8; 32]];
+    let inputs = build_real_inputs(
+        &mut indexer,
+        &[(p256_signer.clone(), 100), (eddsa_signer, 150)],
+    );
+    let outputs = vec![real_output(&p256_signer, 250), dummy_output(&p256_signer)];
+    let external_data = zone_external_data(2);
+    let authorization = p256_authorization(&p256_signer, &inputs, &outputs, &external_data);
+    ZoneTransferP256Prover {
+        inputs,
+        outputs,
+        external_data,
+        public_transfers: zero_public_transfers(),
+        signer_pk_hashes,
+        allow_dummy_inputs: true,
+        authorization,
+        zone_program_id: Some(zone_program()),
+        shape: Some(Shape::new(2, 2)),
+    }
+}
+
+fn eddsa_signer_hash(keypair: &ShieldedKeypair) -> [u8; 32] {
+    let tag = keypair
+        .signing_pubkey()
+        .confidential_view_tag()
+        .expect("Ed25519 signer tag");
+    hash_bytes(&tag).expect("Ed25519 signer hash")
 }
 
 // ---- shared helpers -----------------------------------------------------------
@@ -138,6 +224,54 @@ fn prove_and_verify_eddsa(prover: ZoneTransferProver, n_in: usize, n_out: usize)
     verifier
         .verify()
         .expect("zone-transfer eddsa groth16 proof verifies");
+}
+
+fn prove_and_verify_p256(prover: ZoneTransferP256Prover, n_in: usize, n_out: usize) {
+    let result = prover.build().expect("build P256 zone-transfer witness");
+    let proof = ProverClient::local()
+        .prove_transfer_p256_zone(&result.inputs)
+        .expect("prove P256 zone-transfer");
+    let commitment = proof
+        .commitment
+        .expect("P256 zone-transfer proof must carry a BSB22 commitment");
+    let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
+    let mut verifier = Groth16Verifier::new_with_commitment(
+        &proof.a,
+        &proof.b,
+        &proof.c,
+        &commitment.commitment,
+        &commitment.commitment_pok,
+        &public_inputs,
+        p256_zone_vk(n_in, n_out),
+    )
+    .expect("construct P256 verifier");
+    verifier
+        .verify()
+        .expect("zone-transfer P256 groth16 proof verifies");
+}
+
+fn p256_authorization(
+    signer: &ShieldedKeypair,
+    inputs: &[TransferSpendInput],
+    outputs: &[SppProofOutputUtxo],
+    external_data: &ExternalData,
+) -> P256Signature {
+    let proof_inputs = SppProofInputs {
+        input_utxos: inputs
+            .iter()
+            .map(|input| SppProofInputUtxo {
+                utxo: input.utxo.clone(),
+                nullifier_key: input.nullifier_key.clone(),
+                data_hash: input.data_hash,
+                zone_data_hash: input.zone_data_hash,
+            })
+            .collect(),
+        output_utxos: outputs.to_vec(),
+        external_data: external_data.clone(),
+        payer: Address::default(),
+    };
+    let message_hash = proof_inputs.message_hash().expect("P256 message hash");
+    SyncWalletAuthority::sign_p256(signer, &message_hash).expect("sign P256 message")
 }
 
 /// Build the real (proof-backed) inputs for `specs` (owner keypair + amount),
@@ -195,8 +329,8 @@ fn build_real_inputs(
 }
 
 /// A real zone-owned recipient output: the recipient owns it via its
-/// `owner_hash`, which the confidential zone circuit binds to the public owner
-/// tag, and the shared zone program.
+/// private `owner_hash`, which the confidential zone circuit authorizes against
+/// the signer set, and the shared zone program.
 fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
     SppProofOutputUtxo {
         owner_address: Some(recipient.shielded_address().expect("shielded address")),
@@ -277,8 +411,8 @@ fn zone_external_data(n_out: usize) -> ExternalData {
     }
 }
 
-fn zero_public_movements() -> PublicMovements {
-    PublicMovements::default()
+fn zero_public_transfers() -> PublicTransfers {
+    PublicTransfers::default()
 }
 
 /// Fixed test zone program id; every input/output UTXO carries it and the prover
@@ -306,6 +440,22 @@ fn eddsa_zone_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'sta
         (5, 4) => &transfer_zone_5_4::VERIFYINGKEY,
         (1, 8) => &transfer_zone_1_8::VERIFYINGKEY,
         _ => panic!("unsupported zone-transfer shape {n_in}x{n_out}"),
+    }
+}
+
+fn p256_zone_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
+    match (n_in, n_out) {
+        (1, 1) => &transfer_p256_zone_1_1::VERIFYINGKEY,
+        (1, 2) => &transfer_p256_zone_1_2::VERIFYINGKEY,
+        (2, 2) => &transfer_p256_zone_2_2::VERIFYINGKEY,
+        (2, 3) => &transfer_p256_zone_2_3::VERIFYINGKEY,
+        (3, 3) => &transfer_p256_zone_3_3::VERIFYINGKEY,
+        (4, 3) => &transfer_p256_zone_4_3::VERIFYINGKEY,
+        (4, 4) => &transfer_p256_zone_4_4::VERIFYINGKEY,
+        (5, 3) => &transfer_p256_zone_5_3::VERIFYINGKEY,
+        (5, 4) => &transfer_p256_zone_5_4::VERIFYINGKEY,
+        (1, 8) => &transfer_p256_zone_1_8::VERIFYINGKEY,
+        _ => panic!("unsupported P256 zone-transfer shape {n_in}x{n_out}"),
     }
 }
 

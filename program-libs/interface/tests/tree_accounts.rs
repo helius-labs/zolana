@@ -63,6 +63,7 @@ fn every_spend_builder_has_explicit_input_and_output_tree_slots() {
         payer,
         input_tree,
         output_tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialEddsa(0, 0, 3)),
     }
@@ -74,6 +75,7 @@ fn every_spend_builder_has_explicit_input_and_output_tree_slots() {
         input_tree,
         output_tree,
         zone_program_id,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ZoneEddsa(0, 0, 3)),
     }
@@ -120,6 +122,7 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
         payer: Pubkey::new_unique(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialEddsa(0, 0, 3)),
     }

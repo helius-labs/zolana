@@ -103,13 +103,41 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		return nil, err
 	}
 	shape := txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)}
+	wantSigners := int(p.NInputs) + 1
+	if p.Variant == ZoneAuthorityVariant {
+		wantSigners = 1
+	}
+	if len(p.SignerPkHashes) != wantSigners {
+		return nil, fmt.Errorf(
+			"spp: signer pk hash count mismatch: got %d want %d",
+			len(p.SignerPkHashes),
+			wantSigners,
+		)
+	}
+	signerPkHashes := make([]frontend.Variable, len(p.SignerPkHashes))
+	for i := range p.SignerPkHashes {
+		signerPkHashes[i] = p.SignerPkHashes[i]
+	}
+	wantPublishedOwners := len(p.Outputs)
+	if p.Variant == ZoneAuthorityVariant {
+		wantPublishedOwners = 0
+	}
+	if len(p.PublishedOutputOwnerPkHashes) != wantPublishedOwners {
+		return nil, fmt.Errorf(
+			"spp: published output owner pk hash count mismatch: got %d want %d",
+			len(p.PublishedOutputOwnerPkHashes),
+			wantPublishedOwners,
+		)
+	}
+	publishedOutputOwnerPkHashes := make([]frontend.Variable, len(p.PublishedOutputOwnerPkHashes))
+	for i := range p.PublishedOutputOwnerPkHashes {
+		publishedOutputOwnerPkHashes[i] = p.PublishedOutputOwnerPkHashes[i]
+	}
 
 	switch p.Variant {
 	case ConfidentialVariant:
-		outputOwnerPkHashes := make([]frontend.Variable, len(p.Outputs))
 		outputNullifierPks := make([]frontend.Variable, len(p.Outputs))
 		for i, out := range p.Outputs {
-			outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
 		return &defaultzone.DefaultZoneEddsaOnlyCircuit{
@@ -123,14 +151,14 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				ExternalDataHash:    p.ExternalDataHash,
 				PublicAssets:        core.publicAssets,
 				PublicAmounts:       core.publicAmounts,
-				PayerPubkeyHash:     p.PayerPubkeyHash,
 				AllowDummyInputs:    p.AllowDummyInputs,
-				InputOwnerPkHashes:  core.inputOwnerPkHashes,
-				OutputOwnerPkHashes: outputOwnerPkHashes,
+				SignerPkHashes:      signerPkHashes,
+				OutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 				PublicInputHash:     p.PublicInputHash,
 			},
 			Private: defaultzone.DefaultZoneEddsaOnlyPrivate{
 				Inputs:             core.inputs,
+				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
 				OutputNullifierPks: outputNullifierPks,
 			},
@@ -148,7 +176,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				PublicAssets:       core.publicAssets,
 				PublicAmounts:      core.publicAmounts,
 				ZoneProgramID:      p.ZoneProgramID,
-				PayerPubkeyHash:    p.PayerPubkeyHash,
+				SignerPkHashes:     signerPkHashes,
 				AllowDummyInputs:   p.AllowDummyInputs,
 				PublicInputHash:    p.PublicInputHash,
 			},
@@ -168,25 +196,26 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		return &customzone.CustomZoneEddsaOnlyCircuit{
 			Shape: shape,
 			Public: customzone.CustomZoneEddsaOnlyPublic{
-				Nullifiers:          core.nullifiers,
-				OutputHashes:        core.outputHashes,
-				UtxoTreeRoots:       core.utxoTreeRoots,
-				NullifierTreeRoots:  core.nullifierTreeRoots,
-				PrivateTxHash:       p.PrivateTxHash,
-				ExternalDataHash:    p.ExternalDataHash,
-				PublicAssets:        core.publicAssets,
-				PublicAmounts:       core.publicAmounts,
-				ZoneProgramID:       p.ZoneProgramID,
-				PayerPubkeyHash:     p.PayerPubkeyHash,
-				AllowDummyInputs:    p.AllowDummyInputs,
-				InputOwnerPkHashes:  core.inputOwnerPkHashes,
-				OutputOwnerPkHashes: outputOwnerPkHashes,
-				PublicInputHash:     p.PublicInputHash,
+				Nullifiers:                   core.nullifiers,
+				OutputHashes:                 core.outputHashes,
+				UtxoTreeRoots:                core.utxoTreeRoots,
+				NullifierTreeRoots:           core.nullifierTreeRoots,
+				PrivateTxHash:                p.PrivateTxHash,
+				ExternalDataHash:             p.ExternalDataHash,
+				PublicAssets:                 core.publicAssets,
+				PublicAmounts:                core.publicAmounts,
+				ZoneProgramID:                p.ZoneProgramID,
+				AllowDummyInputs:             p.AllowDummyInputs,
+				SignerPkHashes:               signerPkHashes,
+				PublishedOutputOwnerPkHashes: publishedOutputOwnerPkHashes,
+				PublicInputHash:              p.PublicInputHash,
 			},
 			Private: customzone.CustomZoneEddsaOnlyPrivate{
-				Inputs:             core.inputs,
-				Outputs:            core.outputs,
-				OutputNullifierPks: outputNullifierPks,
+				Inputs:              core.inputs,
+				InputOwnerPkHashes:  core.inputOwnerPkHashes,
+				Outputs:             core.outputs,
+				OutputOwnerPkHashes: outputOwnerPkHashes,
+				OutputNullifierPks:  outputNullifierPks,
 			},
 		}, nil
 	}

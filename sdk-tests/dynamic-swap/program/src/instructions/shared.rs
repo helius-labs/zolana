@@ -183,7 +183,7 @@ pub fn derive_authority_pda(_seed_label: &'static [u8], _pair: &Address) -> (Add
 #[profile]
 pub fn cpi_spp_transact(spp_accounts: &[AccountView], transact_bytes: &[u8]) -> ProgramResult {
     let spp_program_account = spp_accounts
-        .last()
+        .get(3)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
     if spp_program_account.address() != &spp_id {
@@ -233,7 +233,7 @@ pub fn cpi_spp_transact_signed_multi(
     pdas: &[(&[u8], Address, Address, u8)],
 ) -> ProgramResult {
     let spp_program_account = spp_accounts
-        .last()
+        .get(3)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
     if spp_program_account.address() != &spp_id {

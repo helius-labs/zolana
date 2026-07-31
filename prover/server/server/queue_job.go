@@ -542,6 +542,8 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		common.TransferZoneCircuitType,
 		common.TransferZoneAuthorityCircuitType:
 		proof, proofError = w.processTransferEddsaProof(job.Payload)
+	case common.TransferP256ZoneCircuitType:
+		proof, proofError = w.processTransferP256Proof(job.Payload)
 	case common.MergeCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
 	case common.MergeZoneCircuitType:
@@ -596,6 +598,22 @@ func (w *BaseQueueWorker) processTransferEddsaProof(payload json.RawMessage) (*c
 		return nil, fmt.Errorf("transfer-eddsa: %w", err)
 	}
 	return transfereddsaonly.ProveTransfer(ps, &params)
+}
+
+func (w *BaseQueueWorker) processTransferP256Proof(payload json.RawMessage) (*common.Proof, error) {
+	var params transfereddsaonly.P256TransferParameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal transfer-p256 params: %w", err)
+	}
+	ps, err := w.keyManager.GetTransferSystem(
+		common.TransferP256ZoneCircuitType,
+		params.NInputs,
+		params.NOutputs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("transfer-p256: %w", err)
+	}
+	return transfereddsaonly.ProveP256Transfer(ps, &params)
 }
 
 func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {

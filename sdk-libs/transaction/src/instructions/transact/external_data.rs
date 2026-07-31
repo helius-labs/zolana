@@ -14,7 +14,7 @@ use crate::{error::TransactionError, SOL_MINT};
 
 /// One ordered interface transfer, including the accounts committed by the
 /// canonical external-data hash. SPL legs retain their mint so proof public
-/// movements can be derived without inspecting private inputs or outputs.
+/// transfers can be derived without inspecting private inputs or outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SettlementTransfer {
     Sol {
@@ -68,11 +68,17 @@ impl SettlementTransfer {
                 amount,
                 ..
             } => {
-                let vault_bump = pda::spl_asset_vault_bump(mint.as_array());
+                let spl_interface_bump = pda::spl_interface_bump(mint.as_array());
                 if is_deposit {
-                    InterfaceTransfer::SplDeposit { amount, vault_bump }
+                    InterfaceTransfer::SplDeposit {
+                        amount,
+                        spl_interface_bump,
+                    }
                 } else {
-                    InterfaceTransfer::SplWithdrawal { amount, vault_bump }
+                    InterfaceTransfer::SplWithdrawal {
+                        amount,
+                        spl_interface_bump,
+                    }
                 }
             }
         }
@@ -108,13 +114,13 @@ impl SettlementTransfer {
                     ResolvedInterfaceTransfer::SplDeposit {
                         amount,
                         user_token_account: *user_spl_token.as_array(),
-                        vault: *spl_token_interface.as_array(),
+                        spl_interface: *spl_token_interface.as_array(),
                     }
                 } else {
                     ResolvedInterfaceTransfer::SplWithdrawal {
                         amount,
                         user_token_account: *user_spl_token.as_array(),
-                        vault: *spl_token_interface.as_array(),
+                        spl_interface: *spl_token_interface.as_array(),
                     }
                 }
             }

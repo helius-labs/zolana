@@ -1,6 +1,7 @@
 package customzone
 
 import (
+	"zolana/prover/circuits/gadget"
 	"zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
@@ -24,7 +25,7 @@ type CustomZoneAuthorityPublic struct {
 	PublicAssets       [shared.NPublicSlots]frontend.Variable
 	PublicAmounts      [shared.NPublicSlots]frontend.Variable
 	ZoneProgramID      frontend.Variable
-	PayerPubkeyHash    frontend.Variable
+	SignerPkHashes     []frontend.Variable
 	AllowDummyInputs   frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
@@ -53,6 +54,7 @@ func NewCustomZoneAuthorityCircuit(shape shared.Shape) (*CustomZoneAuthorityCirc
 			OutputHashes:       make([]frontend.Variable, shape.NOutputs),
 			UtxoTreeRoots:      make([]frontend.Variable, shape.NInputs),
 			NullifierTreeRoots: make([]frontend.Variable, shape.NInputs),
+			SignerPkHashes:     make([]frontend.Variable, 1),
 		},
 		Private: CustomZoneAuthorityPrivate{
 			Inputs:             shared.NewInputs(shape.NInputs),
@@ -62,7 +64,7 @@ func NewCustomZoneAuthorityCircuit(shape shared.Shape) (*CustomZoneAuthorityCirc
 	}, nil
 }
 
-func (c *CustomZoneAuthorityCircuit) transaction() shared.Transaction {
+func (c *CustomZoneAuthorityCircuit) transaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
 		Shape:              c.Shape,
 		Nullifiers:         c.Public.Nullifiers,
@@ -76,18 +78,24 @@ func (c *CustomZoneAuthorityCircuit) transaction() shared.Transaction {
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,
 		ZoneProgramID:      c.Public.ZoneProgramID,
-		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
 	}
 }
 
 func (c *CustomZoneAuthorityCircuit) Define(api frontend.API) error {
-	tx := c.transaction()
+	tx := c.transaction(api)
 	if err := tx.ValidateLayout(
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: 1},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 	); err != nil {
 		return err
+	}
+
+	// Zone authority cannot create addresses.
+	for _, input := range tx.Inputs {
+		api.AssertIsDifferent(input.Utxo.Domain, shared.AddressDomain)
 	}
 
 	shared.AssertZoneMember(api, tx.Inputs, tx.Outputs, c.Public.ZoneProgramID)

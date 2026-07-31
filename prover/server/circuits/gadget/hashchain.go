@@ -28,3 +28,22 @@ func HashChain(api frontend.API, inputs []frontend.Variable) frontend.Variable {
 
 	return abstractor.Call(api, HashChainGadget{Inputs: inputs})
 }
+
+// RightHashChain folds Poseidon from right to left:
+//
+//	h = inputs[len(inputs)-1]
+//	for i := len(inputs)-2; i >= 0; i--:
+//	    h = Poseidon(inputs[i], h)
+//
+// The signer transcript uses this direction so an on-chain verifier can start
+// from a precomputed all-zero suffix and hash only the populated prefix.
+func RightHashChain(api frontend.API, inputs []frontend.Variable) frontend.Variable {
+	if len(inputs) == 0 {
+		return frontend.Variable(0)
+	}
+	h := inputs[len(inputs)-1]
+	for i := len(inputs) - 2; i >= 0; i-- {
+		h = PoseidonHash(api, []frontend.Variable{inputs[i], h})
+	}
+	return h
+}

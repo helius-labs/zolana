@@ -1,7 +1,10 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_user_registry_interface::instruction::UpdateKeysData;
 
-use super::common::{check_record_pda_with_bump, read_record, write_record};
+use super::{
+    common::{check_record_pda_with_bump, read_record, write_record},
+    p256_proof::verify_p256_key_binding,
+};
 use crate::error::{fail, UserRegistryError};
 
 /// Updates the shielded keys stored in an existing user record.
@@ -25,6 +28,11 @@ pub fn process_update_keys(
     check_record_pda_with_bump(record, state.owner.as_array(), state.bump, program_id)?;
     if state.owner.as_array() != owner.address().as_array() {
         return Err(fail(UserRegistryError::OwnerMismatch));
+    }
+
+    if let Some(owner_p256) = &data.owner_p256 {
+        let instructions = tail.get(1).ok_or(ProgramError::NotEnoughAccountKeys)?;
+        verify_p256_key_binding(instructions, record.address(), owner.address(), owner_p256)?;
     }
 
     state.owner_p256 = data.owner_p256;

@@ -29,6 +29,20 @@ pub fn create_hash_chain_from_slice_ref(inputs: &[&[u8; 32]]) -> Result<[u8; 32]
     create_hash_chain(inputs.iter().copied())
 }
 
+/// Folds Poseidon from right to left. The fixed-width signer transcript uses
+/// this direction so the on-chain verifier can replace the zero-padded suffix
+/// with a precomputed chain value.
+pub fn create_right_hash_chain_from_slice(inputs: &[[u8; 32]]) -> Result<[u8; 32], HasherError> {
+    let Some((last, prefix)) = inputs.split_last() else {
+        return Ok([0u8; 32]);
+    };
+    let mut hash_chain = *last;
+    for input in prefix.iter().rev() {
+        hash_chain = Poseidon::hashv(&[input, &hash_chain])?;
+    }
+    Ok(hash_chain)
+}
+
 fn create_hash_chain<'a>(
     mut inputs: impl Iterator<Item = &'a [u8; 32]>,
 ) -> Result<[u8; 32], HasherError> {

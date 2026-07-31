@@ -97,6 +97,26 @@ pub enum ClientError {
     #[error("the P256 rail requires an owner signature but none was supplied")]
     MissingP256Signature,
 
+    #[error("a P256 registry key binding proof is required")]
+    MissingRegistryP256Proof,
+
+    #[error("a P256 registry key binding proof was supplied for an Ed25519 owner")]
+    UnexpectedRegistryP256Proof,
+
+    #[error("the P256 zone proof requires at least one real P256-owned input")]
+    P256ProofWithoutP256Input,
+
+    #[error(
+        "outputs and resolved owner tags must have equal lengths: {outputs} outputs, {owner_tags} owner tags"
+    )]
+    OutputOwnerTagCountMismatch { outputs: usize, owner_tags: usize },
+
+    #[error("P256 input {index} is not owned by the supplied authorization key")]
+    P256AuthorizationOwnerMismatch { index: usize },
+
+    #[error("invalid P256 authorization: {0}")]
+    InvalidP256Authorization(String),
+
     #[error("merge input {index} has a different signing rail than the owner; merge requires all inputs share one owner")]
     MergeInputRailMismatch { index: usize },
 

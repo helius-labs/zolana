@@ -22,14 +22,14 @@ pub const MAX_DEPOSIT_ASSETS: usize = 5;
 
 /// Kind of one settlement group, declaring how many accounts it consumes and how
 /// they are validated: `Sol` takes (`system_program`, `sol_interface`), `Spl`
-/// takes (`token_program`, `user_token`, `vault`, `registry`).
+/// takes (`token_program`, `mint`, `user_token`, `spl_interface`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
 pub enum DepositAssetKind {
     Sol,
     Spl {
-        /// Canonical bump of the initialized per-mint vault PDA.
-        vault_bump: u8,
+        /// Canonical bump of the initialized per-mint SPL interface PDA.
+        spl_interface_bump: u8,
     },
 }
 
@@ -110,17 +110,37 @@ pub struct DepositEntryRef<'a> {
     pub memo: Option<&'a [u8]>,
 }
 
+/// Self-contained recipient-encryption envelope for one zone-deposit output.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct EncryptedZoneDepositData {
+    pub tx_viewing_pk: [u8; 33],
+    pub salt: [u8; 16],
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+    pub ciphertext: Vec<u8>,
+}
+
 /// One output of a batched policy-zone deposit.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ZoneDepositEntry {
-    /// Common output and settlement-group fields.
-    pub deposit: DepositEntry,
+    /// Index into [`ZoneDepositIxData::assets`].
+    pub asset_index: u8,
+    /// Opaque indexing tag supplied by the zone. SPP does not derive or
+    /// validate it.
+    pub view_tag: [u8; 32],
+    /// `Poseidon(owner_hash, blinding)`. The owner hash and blinding preimage
+    /// are deliberately absent from the public instruction.
+    pub owner_utxo_hash: [u8; 32],
+    /// Deposited amount of the asset selected by `asset_index`.
+    pub amount: u64,
+    /// Hash of the encrypted application-data preimage, when present.
+    pub data_hash: Option<[u8; 32]>,
     /// Zone-defined data committed into `zone_hash`. The zone's `program_id` is
     /// NOT in instruction data: it is read from the `ZoneConfig` account (the
     /// signing `zone_auth` PDA) the zone forwards.
     pub zone_data_hash: [u8; 32],
-    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub zone_data: Vec<u8>,
+    /// Contains the encrypted blinding and private data preimages together with
+    /// the public key and salt needed by the recipient.
+    pub encrypted: EncryptedZoneDepositData,
 }
 
 /// Batched policy-zone analog of [`DepositIxData`] (spec: `zone_deposit`, tag
@@ -147,9 +167,20 @@ impl ZoneDepositIxData {
 /// Borrowed view of [`ZoneDepositEntry`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
 pub struct ZoneDepositEntryRef<'a> {
-    pub deposit: DepositEntryRef<'a>,
+    pub asset_index: u8,
+    pub view_tag: &'a [u8; 32],
+    pub owner_utxo_hash: &'a [u8; 32],
+    pub amount: u64,
+    pub data_hash: Option<&'a [u8; 32]>,
     pub zone_data_hash: &'a [u8; 32],
-    pub zone_data: &'a [u8],
+    pub encrypted: EncryptedZoneDepositDataRef<'a>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+pub struct EncryptedZoneDepositDataRef<'a> {
+    pub tx_viewing_pk: &'a [u8; 33],
+    pub salt: &'a [u8; 16],
+    pub ciphertext: &'a [u8],
 }
 
 /// Borrowed on-chain view of [`DepositIxData`]. Entry payloads alias the

@@ -252,10 +252,8 @@ impl ZoneLifecycleWorld {
 
     pub(crate) fn ensure_actor(&mut self, name: &str) -> Result<()> {
         if !self.actors.contains_key(name) {
-            // Eddsa-rail actor (the P256 rail is removed): its shielded identity
-            // derives from a fresh ed25519 signer, funded to pay the fees of the
-            // spends it authorizes (the eddsa rail reads the owner at signer
-            // index 0 / the fee payer).
+            // Default to an Eddsa-rail actor. P256 scenarios create their sender
+            // explicitly before any operation calls this fallback.
             let signer = Keypair::new();
             self.rpc.airdrop(&signer.pubkey(), ACTOR_FEE_FUNDING)?;
             let actor = Actor::eddsa(signer)?;
@@ -419,7 +417,7 @@ impl ZoneLifecycleWorld {
                 &[&payer, &authority],
             )?;
             let registry = pda::spl_asset_registry(&mint);
-            let vault = pda::spl_asset_vault(&mint);
+            let vault = pda::spl_interface(&mint);
 
             assert_create_spl_interface(
                 &self.rpc,

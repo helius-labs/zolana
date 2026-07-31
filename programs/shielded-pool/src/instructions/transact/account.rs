@@ -1,5 +1,5 @@
-use pinocchio::{error::ProgramError, AccountView};
-use zolana_account_checks::checks::check_signer;
+use arrayvec::ArrayVec;
+use pinocchio::{address::address_eq, error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -7,11 +7,12 @@ use zolana_interface::{
         instruction_data::transact::{InterfaceTransfer, TransactIxDataRef},
         validate_interface_transfers,
     },
+    MAX_INTERFACE_TRANSFERS,
 };
 
 use crate::instructions::settlement::{
-    validate_cpi_authority, validate_sol_settlement, validate_spl_settlement, Settlement,
-    SettlementAccountsSol, SplDepositAccounts, SplWithdrawalAccounts,
+    validate_sol_settlement, validate_spl_deposit_settlement, validate_spl_withdrawal_settlement,
+    Settlement, SettlementAccountsSol, SplDepositAccounts, SplWithdrawalAccounts,
 };
 use crate::instructions::zone_config::loader::load_zone_config;
 
@@ -19,110 +20,147 @@ pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
-    pub settlements: Vec<Settlement<'a>>,
+    pub owner_signers: &'a [AccountView],
+    pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
 }
 
 impl<'a> TransactAccounts<'a> {
+    /// 1. payer - mut signer
+    /// 2. input tree - mut
+    /// 3. output tree - mut
+    /// 4. self program - program id match
+    /// 5. system program - program id match
+    /// 6. N signers - signer
+    ///    6 + N: transfer settlement accounts -
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
-    ) -> Result<Self, ProgramError> {
+    ) -> Result<Box<Self>, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
 
         let payer: &AccountView = iter.next_signer("payer")?;
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
+        validate_program_prefix(&mut iter)?;
 
-        Self::from_iter(iter, ix, payer, input_tree, output_tree)
+        Self::from_iter(iter, ix, payer, input_tree, output_tree, true)
     }
 
     /// 1. Validate spl interface transfers.
     pub(crate) fn from_iter(
-        mut iter: AccountIterator<'a>,
+        iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
         payer: &'a AccountView,
         input_tree: &'a mut AccountView,
         output_tree: &'a mut AccountView,
-    ) -> Result<Self, ProgramError> {
-        // Check no zero amounts and less than 255.
+        allow_owner_signers: bool,
+    ) -> Result<Box<Self>, ProgramError> {
+        // Check non-zero amounts and the protocol transfer bound.
         validate_interface_transfers(&ix.interface_transfers)?;
 
-        let mut settlements = Vec::with_capacity(ix.interface_transfers.len());
+        let remaining = iter.remaining_unchecked_mut()?;
+        // 2. Search first account that is not signer.
+        let signer_count = remaining
+            .iter()
+            .position(|account| !account.is_signer())
+            .unwrap_or(remaining.len());
+        if signer_count > usize::from(ix.circuit.num_inputs())
+            || (!allow_owner_signers && signer_count != 0)
+        {
+            return Err(ShieldedPoolError::InvalidTransactShape.into());
+        }
+        let (owner_signers, settlement_accounts) = remaining.split_at_mut(signer_count);
+        // 3. Check transfer settlement accounts.
+        let mut iter = AccountIterator::new(settlement_accounts);
+        let mut settlements = ArrayVec::new();
         for transfer in &ix.interface_transfers {
             let settlement = match transfer {
-                InterfaceTransfer::SplDeposit { vault_bump, .. } => {
+                InterfaceTransfer::SplDeposit {
+                    spl_interface_bump, ..
+                } => {
                     let mint_account = iter.next_account("mint")?;
-                    let vault = iter.next_account("vault")?;
-                    let depositor = iter.next_account("depositor")?;
-                    check_signer(depositor).map_err(|_| ShieldedPoolError::SplDepositorMustSign)?;
+                    let spl_interface_account = iter.next_account("spl_interface")?;
+                    let token_authority = iter.next_account("token_authority")?;
                     let user_token_account = iter.next_account("user_token_account")?;
                     let token_program = iter.next_account("token_program")?;
-                    let mint_state = validate_spl_settlement(
+                    let mint_state = validate_spl_deposit_settlement(
                         mint_account,
-                        vault,
+                        spl_interface_account,
                         user_token_account,
                         token_program,
-                        *vault_bump,
+                        *spl_interface_bump,
+                        token_authority,
                     )?;
                     Settlement::SplDeposit(SplDepositAccounts {
                         mint_account,
                         decimals: mint_state.decimals,
-                        vault,
-                        depositor,
+                        spl_interface_account,
+                        token_authority_account: token_authority,
                         user_token_account,
-                        token_program,
+                        token_program_account: token_program,
                     })
                 }
-                InterfaceTransfer::SplWithdrawal { vault_bump, .. } => {
-                    let cpi_authority =
-                        validate_cpi_authority(iter.next_account("cpi_authority")?)?;
+                InterfaceTransfer::SplWithdrawal {
+                    spl_interface_bump, ..
+                } => {
+                    let cpi_authority = iter.next_non_mut("cpi_authority")?;
                     let mint_account = iter.next_account("mint")?;
-                    let vault = iter.next_account("vault")?;
+                    let spl_interface_account = iter.next_account("spl_interface")?;
                     let user_token_account = iter.next_account("user_token_account")?;
                     let token_program = iter.next_account("token_program")?;
-                    let mint_state = validate_spl_settlement(
-                        mint_account,
-                        vault,
-                        user_token_account,
-                        token_program,
-                        *vault_bump,
-                    )?;
-                    Settlement::SplWithdrawal(SplWithdrawalAccounts {
+                    let mint_state = validate_spl_withdrawal_settlement(
                         cpi_authority,
                         mint_account,
-                        decimals: mint_state.decimals,
-                        vault,
+                        spl_interface_account,
                         user_token_account,
                         token_program,
+                        *spl_interface_bump,
+                    )?;
+                    Settlement::SplWithdrawal(SplWithdrawalAccounts {
+                        cpi_authority_account: cpi_authority,
+                        mint_account,
+                        decimals: mint_state.decimals,
+                        spl_interface_account,
+                        user_token_account,
+                        token_program_account: token_program,
                     })
                 }
-                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => {
+                InterfaceTransfer::SolDeposit { .. } => {
                     let sol_interface = iter.next_account("sol_interface")?;
                     let recipient = iter.next_account("recipient")?;
                     let sol_interface_bump = validate_sol_settlement(sol_interface, recipient)?;
-                    Settlement::Sol(SettlementAccountsSol {
-                        sol_interface,
+                    Settlement::SolDeposit(SettlementAccountsSol {
+                        sol_interface_account: sol_interface,
                         sol_interface_bump,
-                        recipient,
+                        recipient_account: recipient,
+                    })
+                }
+                InterfaceTransfer::SolWithdrawal { .. } => {
+                    let sol_interface = iter.next_account("sol_interface")?;
+                    let recipient = iter.next_account("recipient")?;
+                    let sol_interface_bump = validate_sol_settlement(sol_interface, recipient)?;
+                    Settlement::SolWithdrawal(SettlementAccountsSol {
+                        sol_interface_account: sol_interface,
+                        sol_interface_bump,
+                        recipient_account: recipient,
                     })
                 }
             };
-            settlements.push(settlement);
+            settlements
+                .try_push(settlement)
+                .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
         }
-        // Keep the System Program in the transaction account keys even when no
-        // SOL transfer is present: the SVM resolves the forester-fee Transfer
-        // CPI callee against those keys.
-        let system_program = iter.next_account("system_program")?;
-        if !pinocchio_system::check_id(system_program.address()) {
-            return Err(ShieldedPoolError::InvalidSystemProgram.into());
+        if !iter.iterator_is_empty() {
+            return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
 
-        Ok(Self {
+        Ok(Box::new(Self {
             payer,
             input_tree,
             output_tree,
+            owner_signers,
             settlements,
-        })
+        }))
     }
 }
 
@@ -130,9 +168,9 @@ pub struct ZoneTransactAccounts;
 
 impl ZoneTransactAccounts {
     /// Parse the accounts shared by `zone_transact` and `zone_authority_transact`:
-    /// `payer`, `input_tree`, `output_tree`, the `ZoneConfig` account (the zone's
-    /// `zone_auth` PDA), then the cpi-signer / settlement accounts shared with
-    /// `transact`. Returns the parsed transact accounts and the zone's
+    /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `ZoneConfig`
+    /// account (the zone's `zone_auth` PDA), then owner signers and settlement
+    /// accounts. Returns the parsed transact accounts and the zone's
     /// `program_id`, read from the validated `ZoneConfig` (never re-derived; the
     /// create-time `zone_auth` derivation already bound it). `require_enabled`
     /// additionally requires
@@ -140,25 +178,46 @@ impl ZoneTransactAccounts {
     pub fn validate_and_parse<'a>(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
-        require_enabled: bool,
-    ) -> Result<(TransactAccounts<'a>, [u8; 32]), ProgramError> {
+        require_zone_authority_enabled: bool,
+    ) -> Result<(Box<TransactAccounts<'a>>, [u8; 32]), ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let payer: &AccountView = iter.next_signer("payer")?;
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
+        validate_program_prefix(&mut iter)?;
         // The `zone_config` must sign (only the zone program can sign for its
         // `zone_auth` PDA); validate owner / discriminator and read the bound zone
         // `program_id`.
         let zone_config = iter.next_signer("zone_config")?;
-        let (zone_program_id, enabled) = {
+        let (zone_program_id, zone_authority_is_enabled) = {
             let config = load_zone_config(zone_config)?;
             (config.program_id.to_bytes(), config.enabled())
         };
-        if require_enabled && !enabled {
+        if require_zone_authority_enabled && !zone_authority_is_enabled {
             return Err(ShieldedPoolError::ZoneAuthorityTransactDisabled.into());
         }
-        let transact_accounts =
-            TransactAccounts::from_iter(iter, ix, payer, input_tree, output_tree)?;
+        // Zone authority instruction does not require any signatures.
+        let allow_owner_signers = !require_zone_authority_enabled;
+        let transact_accounts = TransactAccounts::from_iter(
+            iter,
+            ix,
+            payer,
+            input_tree,
+            output_tree,
+            allow_owner_signers,
+        )?;
         Ok((transact_accounts, zone_program_id))
     }
+}
+
+fn validate_program_prefix(iter: &mut AccountIterator<'_>) -> Result<(), ProgramError> {
+    let shielded_pool_program = iter.next_account("shielded_pool_program")?;
+    if !address_eq(shielded_pool_program.address(), &crate::ID) {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+    let system_program = iter.next_account("system_program")?;
+    if !pinocchio_system::check_id(system_program.address()) {
+        return Err(ShieldedPoolError::InvalidSystemProgram.into());
+    }
+    Ok(())
 }

@@ -39,10 +39,10 @@ pub(crate) struct Actor {
     pub(crate) spendable: Vec<Utxo>,
     pub(crate) expected: Vec<WalletUtxo>,
     pub(crate) last_deposit: Option<DepositRecord>,
-    /// The ed25519 keypair that authorizes this actor's eddsa spends. The eddsa rail
-    /// reads the owner at signer index 0 (the fee payer), so an eddsa actor pays and
-    /// signs its own transfers/withdrawals with this key. `None` for P256 actors,
-    /// which prove ownership in the proof and let the global payer fund the spend.
+    /// The ed25519 keypair that authorizes this actor's eddsa spends. An eddsa
+    /// actor pays and signs its own transfers/withdrawals with this key. `None`
+    /// for P256 actors, which prove ownership in the proof and let the global
+    /// payer fund the spend.
     pub(crate) solana_signer: Option<Keypair>,
 }
 

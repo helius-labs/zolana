@@ -82,7 +82,7 @@ pub fn public_input_hash_spl(
     external_data_hash: &[u8; 32],
     spl_amount: &[u8; 32],
     mint: &[u8; 32],
-    payer_pubkey_hash: &[u8; 32],
+    payer_pk_hash: &[u8; 32],
     input_owner_pk_hashes: &[[u8; 32]],
     output_owner_pk_hashes: &[[u8; 32]],
 ) -> [u8; 32] {
@@ -96,7 +96,7 @@ pub fn public_input_hash_spl(
         external_data_hash,
         &assets,
         &amounts,
-        payer_pubkey_hash,
+        payer_pk_hash,
         input_owner_pk_hashes,
         output_owner_pk_hashes,
     )
@@ -131,13 +131,13 @@ pub fn external_data_hash_spl(
         ResolvedInterfaceTransfer::SplDeposit {
             amount: transfer.amount(),
             user_token_account: *user_spl_token_account,
-            vault: *spl_token_interface,
+            spl_interface: *spl_token_interface,
         }
     } else {
         ResolvedInterfaceTransfer::SplWithdrawal {
             amount: transfer.amount(),
             user_token_account: *user_spl_token_account,
-            vault: *spl_token_interface,
+            spl_interface: *spl_token_interface,
         }
     };
     external_data_hash(transact_ix_data, &[resolved])
@@ -177,7 +177,6 @@ pub fn dummy_input(
     blinding: &[u8; 31],
     nf_tree: &IndexedMerkleTree<Poseidon, usize>,
     roots: ([u8; 32], [u8; 32]),
-    owner_pk_hash: &[u8; 32],
 ) -> Result<(TransferInput, [u8; 32])> {
     let mut spend = SppProofInputUtxo::new_dummy();
     spend.utxo.blinding = expand_blinding(blinding);
@@ -197,7 +196,7 @@ pub fn dummy_input(
         utxo_tree_root: be(&utxo_root),
         nullifier_tree_root: be(&nullifier_root),
         nullifier: be(&nullifier),
-        owner_pk_hash: be(owner_pk_hash),
+        owner_pk_hash: be(&zero),
         nullifier_secret: be(&zero),
     };
     Ok((input, nullifier))
@@ -220,7 +219,6 @@ pub fn dummy_input_with_proof(
     blinding: &[u8; 31],
     non_inclusion: &zolana_client::NonInclusionProof,
     roots: ([u8; 32], [u8; 32]),
-    owner_pk_hash: &[u8; 32],
 ) -> Result<TransferInput> {
     let mut spend = SppProofInputUtxo::new_dummy();
     spend.utxo.blinding = expand_blinding(blinding);
@@ -239,7 +237,7 @@ pub fn dummy_input_with_proof(
         utxo_tree_root: be(&utxo_root),
         nullifier_tree_root: be(&nullifier_root),
         nullifier: be(&nullifier),
-        owner_pk_hash: be(owner_pk_hash),
+        owner_pk_hash: be(&zero),
         nullifier_secret: be(&zero),
     })
 }

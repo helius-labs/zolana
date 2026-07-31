@@ -21,10 +21,10 @@ pub use slots::{encode_confidential_slots, encrypt_transaction_data, EncryptedTr
 pub use split::{ConfidentialSplit, PreparedSplit};
 pub use spp_proof_inputs::{
     first_nullifier, get_transaction_viewing_key, inputs_require_p256, signed_magnitude_to_field,
-    signed_to_field, PublicMovements, SppProofInputs,
+    signed_to_field, PublicTransfers, SppProofInputs,
 };
 pub use transfer::{
-    ConfidentialTransfer, PreparedTransfer, PublicMovementRequest, Recipient, SettlementTarget,
+    ConfidentialTransfer, PreparedTransfer, PublicTransferRequest, Recipient, SettlementTarget,
     SENDER_SLOT_COUNT,
 };
 pub use types::{

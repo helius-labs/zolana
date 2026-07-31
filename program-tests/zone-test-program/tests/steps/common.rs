@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use cucumber::given;
+use zolana_keypair::ShieldedKeypair;
 
 use crate::{actor::Actor, ZoneLifecycleWorld};
 
@@ -13,6 +14,14 @@ impl ZoneLifecycleWorld {
     /// eddsa rail.
     pub(crate) fn make_eddsa_actor(&mut self, name: &str) -> Result<()> {
         let actor = Actor::eddsa(self.payer.insecure_clone())?;
+        self.actors.insert(name.to_string(), actor);
+        Ok(())
+    }
+
+    /// Create `name` with a P256 shielded signing key. Its Solana transaction is
+    /// paid by the shared payer; spend authorization is proved inside ZoneP256.
+    pub(crate) fn make_p256_actor(&mut self, name: &str) -> Result<()> {
+        let actor = Actor::with_keypair(ShieldedKeypair::new()?)?;
         self.actors.insert(name.to_string(), actor);
         Ok(())
     }
@@ -29,6 +38,11 @@ fn fresh_pool(_world: &mut ZoneLifecycleWorld) {
 #[given(expr = "{word} with shielded solana keypair")]
 fn shielded_solana_keypair(world: &mut ZoneLifecycleWorld, name: String) {
     world.make_eddsa_actor(&name).expect("create eddsa actor");
+}
+
+#[given(expr = "{word} with shielded P256 keypair")]
+fn shielded_p256_keypair(world: &mut ZoneLifecycleWorld, name: String) {
+    world.make_p256_actor(&name).expect("create P256 actor");
 }
 
 #[given(expr = "an SPL asset exists")]

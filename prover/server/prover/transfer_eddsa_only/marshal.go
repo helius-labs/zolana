@@ -45,19 +45,20 @@ type OutputParamsJSON struct {
 }
 
 type TransferParametersJSON struct {
-	CircuitType      common.CircuitType `json:"circuitType"`
-	NInputs          uint32             `json:"nInputs"`
-	NOutputs         uint32             `json:"nOutputs"`
-	Inputs           []InputParamsJSON  `json:"inputs"`
-	Outputs          []OutputParamsJSON `json:"outputs"`
-	ExternalDataHash string             `json:"externalDataHash"`
-	PrivateTxHash    string             `json:"privateTxHash"`
-	PublicAssets     []string           `json:"publicAssets"`
-	PublicAmounts    []string           `json:"publicAmounts"`
-	ZoneProgramID    string             `json:"zoneProgramId"`
-	PayerPubkeyHash  string             `json:"payerPubkeyHash"`
-	AllowDummyInputs string             `json:"allowDummyInputs"`
-	PublicInputHash  string             `json:"publicInputHash"`
+	CircuitType                  common.CircuitType `json:"circuitType"`
+	NInputs                      uint32             `json:"nInputs"`
+	NOutputs                     uint32             `json:"nOutputs"`
+	Inputs                       []InputParamsJSON  `json:"inputs"`
+	Outputs                      []OutputParamsJSON `json:"outputs"`
+	ExternalDataHash             string             `json:"externalDataHash"`
+	PrivateTxHash                string             `json:"privateTxHash"`
+	PublicAssets                 []string           `json:"publicAssets"`
+	PublicAmounts                []string           `json:"publicAmounts"`
+	ZoneProgramID                string             `json:"zoneProgramId"`
+	SignerPkHashes               []string           `json:"signerPkHashes"`
+	AllowDummyInputs             string             `json:"allowDummyInputs"`
+	PublishedOutputOwnerPkHashes []string           `json:"publishedOutputOwnerPkHashes"`
+	PublicInputHash              string             `json:"publicInputHash"`
 }
 
 func (p *TransferParameters) MarshalJSON() ([]byte, error) {
@@ -75,17 +76,18 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
 	circuitType := p.Variant.CircuitType()
 	paramsJson := TransferParametersJSON{
-		CircuitType:      circuitType,
-		NInputs:          p.NInputs,
-		NOutputs:         p.NOutputs,
-		ExternalDataHash: feHex(p.ExternalDataHash),
-		PrivateTxHash:    feHex(p.PrivateTxHash),
-		PublicAssets:     feHexSlice(p.PublicAssets),
-		PublicAmounts:    feHexSlice(p.PublicAmounts),
-		ZoneProgramID:    feHex(p.ZoneProgramID),
-		PayerPubkeyHash:  feHex(p.PayerPubkeyHash),
-		AllowDummyInputs: feHex(p.AllowDummyInputs),
-		PublicInputHash:  feHex(p.PublicInputHash),
+		CircuitType:                  circuitType,
+		NInputs:                      p.NInputs,
+		NOutputs:                     p.NOutputs,
+		ExternalDataHash:             feHex(p.ExternalDataHash),
+		PrivateTxHash:                feHex(p.PrivateTxHash),
+		PublicAssets:                 feHexSlice(p.PublicAssets),
+		PublicAmounts:                feHexSlice(p.PublicAmounts),
+		ZoneProgramID:                feHex(p.ZoneProgramID),
+		SignerPkHashes:               feHexSlice(p.SignerPkHashes),
+		AllowDummyInputs:             feHex(p.AllowDummyInputs),
+		PublishedOutputOwnerPkHashes: feHexSlice(p.PublishedOutputOwnerPkHashes),
+		PublicInputHash:              feHex(p.PublicInputHash),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -148,10 +150,13 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
 		return err
 	}
-	if p.PayerPubkeyHash, err = feFromHex(params.PayerPubkeyHash); err != nil {
+	if p.SignerPkHashes, err = feFromHexSlice(params.SignerPkHashes); err != nil {
 		return err
 	}
 	if p.AllowDummyInputs, err = feFromHex(params.AllowDummyInputs); err != nil {
+		return err
+	}
+	if p.PublishedOutputOwnerPkHashes, err = feFromHexSlice(params.PublishedOutputOwnerPkHashes); err != nil {
 		return err
 	}
 	if p.PublicInputHash, err = feFromHex(params.PublicInputHash); err != nil {

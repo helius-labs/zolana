@@ -6,7 +6,7 @@ mod steps;
 use cucumber::World;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-use zolana_program_test::{DepositOutput, ProgramTestError, ZolanaProgramTest};
+use zolana_program_test::{DepositOutput, ProgramTestError, ZolanaProgramTest, ZoneDepositOutput};
 use zolana_transaction::Wallet;
 
 #[derive(Default, World)]
@@ -28,6 +28,8 @@ pub struct ShieldedPoolWorld {
     rotated_authority: Option<Keypair>,
     last_proofless_view: Option<DepositOutput>,
     batch_outputs: Vec<DepositOutput>,
+    last_zone_deposit_view: Option<ZoneDepositOutput>,
+    zone_batch_outputs: Vec<ZoneDepositOutput>,
     last_error: Option<ProgramTestError>,
     sol_deposit: Option<SolDepositObservation>,
     state_roots: Vec<[u8; 32]>,

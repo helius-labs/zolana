@@ -4,6 +4,7 @@ use zolana_transaction::ProofInputUtxo;
 
 use crate::prover::inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -100,10 +101,58 @@ pub(crate) struct TransferInputsJson {
     pub public_amounts: Vec<String>,
     #[serde(rename = "zoneProgramId")]
     pub zone_program_id: String,
-    #[serde(rename = "payerPubkeyHash")]
-    pub payer_pubkey_hash: String,
+    #[serde(rename = "signerPkHashes")]
+    pub signer_pk_hashes: Vec<String>,
     #[serde(rename = "allowDummyInputs")]
     pub allow_dummy_inputs: String,
+    #[serde(rename = "publishedOutputOwnerPkHashes")]
+    pub published_output_owner_pk_hashes: Vec<String>,
+    #[serde(rename = "publicInputHash")]
+    pub public_input_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct TransferP256InputsJson {
+    #[serde(rename = "circuitType")]
+    pub circuit_type: String,
+    #[serde(rename = "nInputs")]
+    pub n_inputs: usize,
+    #[serde(rename = "nOutputs")]
+    pub n_outputs: usize,
+    #[serde(rename = "inputs")]
+    pub inputs: Vec<InputParamsJson>,
+    #[serde(rename = "outputs")]
+    pub outputs: Vec<OutputParamsJson>,
+    #[serde(rename = "externalDataHash")]
+    pub external_data_hash: String,
+    #[serde(rename = "privateTxHash")]
+    pub private_tx_hash: String,
+    #[serde(rename = "p256PubX")]
+    pub p256_pub_x: String,
+    #[serde(rename = "p256PubY")]
+    pub p256_pub_y: String,
+    #[serde(rename = "p256SigR")]
+    pub p256_sig_r: String,
+    #[serde(rename = "p256SigS")]
+    pub p256_sig_s: String,
+    #[serde(rename = "p256MessageHashLow")]
+    pub p256_message_hash_low: String,
+    #[serde(rename = "p256MessageHashHigh")]
+    pub p256_message_hash_high: String,
+    #[serde(rename = "defaultP256OwnerPkHash")]
+    pub default_p256_owner_pk_hash: String,
+    #[serde(rename = "publicAssets")]
+    pub public_assets: Vec<String>,
+    #[serde(rename = "publicAmounts")]
+    pub public_amounts: Vec<String>,
+    #[serde(rename = "zoneProgramId")]
+    pub zone_program_id: String,
+    #[serde(rename = "signerPkHashes")]
+    pub signer_pk_hashes: Vec<String>,
+    #[serde(rename = "allowDummyInputs")]
+    pub allow_dummy_inputs: String,
+    #[serde(rename = "publishedOutputOwnerPkHashes")]
+    pub published_output_owner_pk_hashes: Vec<String>,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -389,8 +438,17 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
             .map(big_uint_to_string)
             .collect(),
         zone_program_id: big_uint_to_string(&inputs.zone_program_id),
-        payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
+        signer_pk_hashes: inputs
+            .signer_pk_hashes
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        published_output_owner_pk_hashes: inputs
+            .published_output_owner_pk_hashes
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -412,6 +470,50 @@ pub(crate) fn to_json_zone_authority(inputs: &TransferInputs) -> String {
 /// Serialize the eddsa confidential policy-zone transfer witness.
 pub(crate) fn to_json_zone(inputs: &TransferInputs) -> String {
     transfer_inputs_json(inputs, "transfer-zone")
+}
+
+/// Serialize a custom-zone P256 transfer witness.
+pub(crate) fn to_json_p256_zone(inputs: &TransferP256Inputs) -> String {
+    let json = TransferP256InputsJson {
+        circuit_type: "transfer-p256-zone".to_string(),
+        n_inputs: inputs.inputs.len(),
+        n_outputs: inputs.outputs.len(),
+        inputs: inputs.inputs.iter().map(input_to_json).collect(),
+        outputs: inputs.outputs.iter().map(output_to_json).collect(),
+        external_data_hash: big_uint_to_string(&inputs.external_data_hash),
+        private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
+        p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
+        p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
+        p256_sig_r: big_uint_to_string(&inputs.p256_sig_r),
+        p256_sig_s: big_uint_to_string(&inputs.p256_sig_s),
+        p256_message_hash_low: big_uint_to_string(&inputs.p256_message_hash_low),
+        p256_message_hash_high: big_uint_to_string(&inputs.p256_message_hash_high),
+        default_p256_owner_pk_hash: big_uint_to_string(&inputs.default_p256_owner_pk_hash),
+        public_assets: inputs
+            .public_assets
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        public_amounts: inputs
+            .public_amounts
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        zone_program_id: big_uint_to_string(&inputs.zone_program_id),
+        signer_pk_hashes: inputs
+            .signer_pk_hashes
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        published_output_owner_pk_hashes: inputs
+            .published_output_owner_pk_hashes
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        public_input_hash: big_uint_to_string(&inputs.public_input_hash),
+    };
+    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
 
 #[cfg(test)]
@@ -436,6 +538,40 @@ mod merge_tests {
             zone_data_hash: [0u8; 32],
             zone_program_id: [0u8; 32],
         }
+    }
+
+    #[test]
+    fn to_json_p256_zone_shape() {
+        let inputs = TransferP256Inputs {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            external_data_hash: BigUint::from(1u8),
+            private_tx_hash: BigUint::from(2u8),
+            p256_pub_x: BigUint::from(3u8),
+            p256_pub_y: BigUint::from(4u8),
+            p256_sig_r: BigUint::from(5u8),
+            p256_sig_s: BigUint::from(6u8),
+            p256_message_hash_low: BigUint::from(7u8),
+            p256_message_hash_high: BigUint::from(8u8),
+            default_p256_owner_pk_hash: BigUint::from(13u8),
+            public_assets: core::array::from_fn(|_| BigUint::ZERO),
+            public_amounts: core::array::from_fn(|_| BigUint::ZERO),
+            zone_program_id: BigUint::from(9u8),
+            signer_pk_hashes: vec![BigUint::from(10u8), BigUint::from(12u8)],
+            allow_dummy_inputs: BigUint::from(1u8),
+            published_output_owner_pk_hashes: vec![BigUint::from(14u8)],
+            public_input_hash: BigUint::from(11u8),
+        };
+
+        let value: serde_json::Value =
+            serde_json::from_str(&to_json_p256_zone(&inputs)).expect("valid JSON");
+        assert_eq!(value["circuitType"], "transfer-p256-zone");
+        assert_eq!(value["p256PubX"], "0x3");
+        assert_eq!(value["p256MessageHashHigh"], "0x8");
+        assert_eq!(value["defaultP256OwnerPkHash"], "0xd");
+        assert_eq!(value["publishedOutputOwnerPkHashes"][0], "0xe");
+        assert_eq!(value["zoneProgramId"], "0x9");
+        assert!(value.get("p256SigningPkField").is_none());
     }
 
     // Guards the wire-format field names against the Go server
@@ -561,8 +697,9 @@ mod merge_tests {
             public_assets: core::array::from_fn(|_| BigUint::ZERO),
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             zone_program_id: BigUint::from(0x55u8),
-            payer_pubkey_hash: BigUint::from(8u8),
+            signer_pk_hashes: vec![BigUint::from(8u8)],
             allow_dummy_inputs: BigUint::from(1u8),
+            published_output_owner_pk_hashes: Vec::new(),
             public_input_hash: BigUint::from(9u8),
         };
 
@@ -579,8 +716,9 @@ mod merge_tests {
             "publicAssets",
             "publicAmounts",
             "zoneProgramId",
-            "payerPubkeyHash",
+            "signerPkHashes",
             "allowDummyInputs",
+            "publishedOutputOwnerPkHashes",
             "publicInputHash",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");

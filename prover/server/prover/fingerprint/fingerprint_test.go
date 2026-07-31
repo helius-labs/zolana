@@ -32,11 +32,10 @@ type fingerprint struct {
 	public      int
 }
 
-// Representative circuit per distinct constraint profile. The transfer
-// zone/zone-authority variants and the other transfer shapes share the same
-// gadget bodies as the two entries below, so a gadget-level change (the #113
-// class of break) trips at least these fingerprints. Keep this set small:
-// gnark compilation is expensive.
+// Representative circuit per distinct constraint profile. The other transfer
+// shapes share the same gadget bodies as the entries below, so a gadget-level
+// change (the #113 class of break) trips at least these fingerprints. Keep this
+// set small: gnark compilation is expensive.
 func compileFingerprints(t *testing.T) map[string]fingerprint {
 	t.Helper()
 	out := make(map[string]fingerprint)
@@ -57,6 +56,12 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	zone, err := eddsaprover.R1CSTransfer(2, 3, eddsaprover.ZoneVariant)
 	add("transfer_zone_2_3", zone, err)
 
+	zoneAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.ZoneAuthorityVariant)
+	add("transfer_zone_authority_2_2", zoneAuthority, err)
+
+	p256Zone, err := eddsaprover.R1CSP256Transfer(2, 3)
+	add("transfer_p256_zone_2_3", p256Zone, err)
+
 	merged, err := mergeprover.R1CSMerge()
 	add("merge_8_1", merged, err)
 
@@ -73,11 +78,13 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_confidential_2_3":  {constraints: 54025, public: 2},
-	"transfer_zone_2_3":          {constraints: 54094, public: 2},
-	"merge_8_1":                  {constraints: 180470, public: 2},
-	"merge_zone_8_1":             {constraints: 180740, public: 2},
-	"batch_address-append_40_10": {constraints: 423683, public: 2},
+	"transfer_confidential_2_3":   {constraints: 54031, public: 2},
+	"transfer_zone_2_3":           {constraints: 54136, public: 2},
+	"transfer_zone_authority_2_2": {constraints: 50574, public: 2},
+	"transfer_p256_zone_2_3":      {constraints: 245645, public: 2},
+	"merge_8_1":                   {constraints: 180470, public: 2},
+	"merge_zone_8_1":              {constraints: 180740, public: 2},
+	"batch_address-append_40_10":  {constraints: 423683, public: 2},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {

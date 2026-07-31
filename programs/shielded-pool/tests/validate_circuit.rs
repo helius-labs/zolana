@@ -4,8 +4,8 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
-            TransactProof,
+            Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
+            TransactOutput, TransactProof, ZoneP256ProofData,
         },
         tag::InstructionTag,
     },
@@ -16,7 +16,6 @@ fn validate(
     instruction: InstructionTag,
     actual_inputs: usize,
     actual_outputs: usize,
-    signer_index: u8,
 ) -> ProgramResult {
     let ix = TransactIxData {
         expiry_unix_ts: 0,
@@ -30,7 +29,6 @@ fn validate(
                 nullifier_hash: [0u8; 32],
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
-                eddsa_signer_index: signer_index,
             })
             .collect(),
         interface_transfers: Vec::new(),
@@ -52,10 +50,26 @@ fn validate(
 
 #[test]
 fn selector_family_must_match_instruction() {
+    let commitment = Bsb22Commitment {
+        commitment: [1u8; 32],
+        commitment_pok: [2u8; 32],
+    };
     for (circuit, instruction) in [
         (
             CircuitId::ConfidentialEddsa(2, 3, 3),
             InstructionTag::Transact,
+        ),
+        (
+            CircuitId::ZoneP256(
+                2,
+                3,
+                3,
+                ZoneP256ProofData {
+                    bsb22_commitment: commitment,
+                    default_owner_tag: None,
+                },
+            ),
+            InstructionTag::ZoneTransact,
         ),
         (CircuitId::ZoneEddsa(2, 3, 3), InstructionTag::ZoneTransact),
         (
@@ -64,7 +78,7 @@ fn selector_family_must_match_instruction() {
         ),
     ] {
         assert_eq!(
-            validate(circuit, instruction, 2, circuit.num_outputs() as usize, 0),
+            validate(circuit, instruction, 2, circuit.num_outputs() as usize),
             Ok(())
         );
     }
@@ -75,19 +89,18 @@ fn selector_family_must_match_instruction() {
             InstructionTag::Transact,
             2,
             3,
-            0,
         ),
         Err(ShieldedPoolError::MismatchedCircuitType.into())
     );
 }
 
 #[test]
-fn selector_dimensions_and_signer_indices_are_fail_closed() {
+fn selector_dimensions_are_fail_closed() {
     let valid = CircuitId::ConfidentialEddsa(2, 3, 3);
     let invalid_shape = Err(ShieldedPoolError::InvalidTransactShape.into());
 
     assert_eq!(
-        validate(valid, InstructionTag::Transact, 1, 3, 0),
+        validate(valid, InstructionTag::Transact, 1, 3),
         invalid_shape
     );
     assert_eq!(
@@ -96,7 +109,6 @@ fn selector_dimensions_and_signer_indices_are_fail_closed() {
             InstructionTag::Transact,
             2,
             3,
-            0,
         ),
         invalid_shape
     );
@@ -106,12 +118,20 @@ fn selector_dimensions_and_signer_indices_are_fail_closed() {
             InstructionTag::Transact,
             6,
             6,
-            0,
         ),
         invalid_shape
     );
-    assert_eq!(
-        validate(valid, InstructionTag::Transact, 2, 3, u8::MAX),
-        invalid_shape
+    let p256 = CircuitId::ZoneP256(
+        2,
+        3,
+        3,
+        ZoneP256ProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [1u8; 32],
+                commitment_pok: [2u8; 32],
+            },
+            default_owner_tag: None,
+        },
     );
+    assert_eq!(validate(p256, InstructionTag::ZoneTransact, 2, 3), Ok(()));
 }

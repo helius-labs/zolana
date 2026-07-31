@@ -15,6 +15,12 @@ pub enum UserRegistryError {
     InvalidRecordAccount,
     #[error("system program account mismatch")]
     InvalidSystemProgram,
+    #[error("instructions sysvar account mismatch")]
+    InvalidInstructionsSysvar,
+    #[error("missing P256 proof-of-possession instruction")]
+    MissingP256Proof,
+    #[error("invalid P256 proof-of-possession instruction")]
+    InvalidP256Proof,
 }
 
 impl UserRegistryError {
@@ -26,6 +32,9 @@ impl UserRegistryError {
             Self::OwnerMismatch => "OwnerMismatch",
             Self::InvalidRecordAccount => "InvalidRecordAccount",
             Self::InvalidSystemProgram => "InvalidSystemProgram",
+            Self::InvalidInstructionsSysvar => "InvalidInstructionsSysvar",
+            Self::MissingP256Proof => "MissingP256Proof",
+            Self::InvalidP256Proof => "InvalidP256Proof",
         }
     }
 }

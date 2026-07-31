@@ -19,7 +19,7 @@ use zolana_client::{
     prover::field::right_align, Rpc, SolanaRpc, TransferOutput, STATE_TREE_HEIGHT,
 };
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
@@ -136,7 +136,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         zone_program_id: None,
         data: Data::default(),
     };
-    let payer_owner_pk_hash = payer_utxo.owner.owner_proof_input_hash()?;
+    let payer_pk_hash = payer_utxo.owner.owner_proof_input_hash()?;
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
 
     let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
@@ -181,7 +181,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         non_inclusion: &payer_non_inclusion,
         roots: (shield_utxo_root, nullifier_root),
         nullifier: &payer_nullifier,
-        owner_pk_hash: &payer_owner_pk_hash,
+        owner_pk_hash: &payer_pk_hash,
         nullifier_key: &payer_nullifier_key,
     })?;
 
@@ -209,7 +209,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     let recipient_hash = recipient_output.hash()?;
     let transfer_roots = (shield_utxo_root, nullifier_root);
     let (transfer_dummy_input, transfer_dummy_nullifier) =
-        dummy_input(&[20u8; 31], &nf_tree, transfer_roots, &payer_owner_pk_hash)?;
+        dummy_input(&[20u8; 31], &nf_tree, transfer_roots)?;
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
@@ -249,7 +249,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &transfer_external_hash,
     )
     .hash()?;
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes)?;
+    let payer_pk_hash = zolana_hasher::primitives::hash_bytes(&payer_bytes)?;
     let (transfer_public_slot_assets, transfer_public_slot_amounts) = sol_public_slots(zero);
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
@@ -260,8 +260,8 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &transfer_external_hash,
         &transfer_public_slot_assets,
         &transfer_public_slot_amounts,
-        &payer_pubkey_hash,
-        &[payer_owner_pk_hash, payer_owner_pk_hash],
+        &payer_pk_hash,
+        &[payer_pk_hash, payer_pk_hash],
         &transfer_owner_pk_hashes,
     );
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
@@ -271,7 +271,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         private_tx_hash: transfer_private_tx,
         public_slot_assets: transfer_public_slot_assets,
         public_slot_amounts: transfer_public_slot_amounts,
-        payer_pubkey_hash,
+        payer_pk_hash,
         public_input_hash: transfer_public_input_hash,
     });
     transfer_ix_data.proof = prove_and_verify_transfer(
@@ -285,6 +285,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         payer: payer.pubkey(),
         input_tree: tree_pubkey,
         output_tree: tree_pubkey,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -348,7 +349,6 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         &[21u8; 31],
         &nf_tree,
         (transfer_utxo_root, transfer_nullifier_root),
-        &recipient_owner_pk_hash,
     )?;
     let withdraw_dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
@@ -397,7 +397,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
     .hash()?;
     let public_sol_field = public_sol_field(Some(-(TRANSFER_AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes)?;
+    let recipient_pubkey_hash = zolana_hasher::primitives::hash_bytes(&recipient_bytes)?;
     let withdraw_public_input_hash = public_input_hash(
         &[recipient_nullifier, withdraw_dummy_nullifier],
         &withdraw_output_hashes,
@@ -418,7 +418,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         private_tx_hash: withdraw_private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash: recipient_pubkey_hash,
+        payer_pk_hash: recipient_pubkey_hash,
         public_input_hash: withdraw_public_input_hash,
     });
     withdraw_ix_data.proof = prove_and_verify_transfer(
@@ -432,6 +432,7 @@ fn shield_transfer_unshield_sol_on_localnet_prints_signatures() -> TestResult {
         payer: recipient_owner.pubkey(),
         input_tree: tree_pubkey,
         output_tree: tree_pubkey,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: public_recipient,

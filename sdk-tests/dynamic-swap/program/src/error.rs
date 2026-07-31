@@ -16,7 +16,7 @@ pub enum DynamicSwapError {
     ProofVerificationFailed = 9002,
     #[error("instruction data is invalid")]
     InvalidInstructionData = 9003,
-    #[error("trailing account is not the shielded-pool program")]
+    #[error("shielded-pool program account is invalid")]
     InvalidShieldedPoolProgram = 9004,
     // 9005 retired (was MissingPoolAuthority): there is no pool_authority PDA any
     // more; the multi-PDA CPI's non-escrow-authority branch is now unreachable.

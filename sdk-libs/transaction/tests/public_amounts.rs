@@ -3,7 +3,7 @@ use zolana_interface::SOL_ASSET_FIELD;
 use zolana_transaction::{
     instructions::transact::{
         signed_magnitude_to_field, signed_to_field, spp_proof_inputs::asset_field, ExternalData,
-        PublicMovements, SettlementTransfer, SppProofInputs,
+        PublicTransfers, SettlementTransfer, SppProofInputs,
     },
     TransactionError, SOL_MINT,
 };
@@ -34,8 +34,8 @@ fn proof_inputs(interface_transfers: Vec<SettlementTransfer>) -> SppProofInputs 
 }
 
 #[test]
-fn zero_public_movements_match_the_field_encoding_of_zero() {
-    let default = PublicMovements::default();
+fn zero_public_transfers_match_the_field_encoding_of_zero() {
+    let default = PublicTransfers::default();
     for amount in default.amounts {
         assert_eq!(amount, signed_to_field(0));
     }
@@ -47,26 +47,26 @@ fn zero_public_movements_match_the_field_encoding_of_zero() {
 #[test]
 fn more_than_five_same_asset_legs_accumulate_into_one_slot() {
     let transfers = (1..=12).map(|seed| sol_transfer(false, 1, seed)).collect();
-    let movements = proof_inputs(transfers).public_movements().unwrap();
+    let transfers = proof_inputs(transfers).public_transfers().unwrap();
 
-    assert_eq!(movements.assets, [SOL_ASSET_FIELD, [0; 32], [0; 32]]);
-    assert_eq!(movements.amounts, [signed_to_field(-12), [0; 32], [0; 32]]);
+    assert_eq!(transfers.assets, [SOL_ASSET_FIELD, [0; 32], [0; 32]]);
+    assert_eq!(transfers.amounts, [signed_to_field(-12), [0; 32], [0; 32]]);
 }
 
 #[test]
 fn three_distinct_assets_fill_slots_in_first_appearance_order() {
     let first = Address::new_from_array([21; 32]);
     let second = Address::new_from_array([22; 32]);
-    let movements = proof_inputs(vec![
+    let transfers = proof_inputs(vec![
         spl_transfer(first, true, 4, 1),
         sol_transfer(false, 2, 2),
         spl_transfer(second, true, 9, 3),
     ])
-    .public_movements()
+    .public_transfers()
     .unwrap();
 
     assert_eq!(
-        movements.assets,
+        transfers.assets,
         [
             asset_field(&first).unwrap(),
             SOL_ASSET_FIELD,
@@ -74,11 +74,11 @@ fn three_distinct_assets_fill_slots_in_first_appearance_order() {
         ]
     );
     assert_eq!(
-        movements.amounts,
+        transfers.amounts,
         [signed_to_field(4), signed_to_field(-2), signed_to_field(9)]
     );
     assert_eq!(
-        movements.interleaved(),
+        transfers.interleaved(),
         [
             asset_field(&first).unwrap(),
             signed_to_field(4),
@@ -100,40 +100,52 @@ fn four_active_assets_are_rejected() {
     ];
 
     assert_eq!(
-        proof_inputs(transfers).public_movements(),
+        proof_inputs(transfers).public_transfers(),
         Err(TransactionError::TooManyPublicAssets { got: 4, max: 3 })
     );
 }
 
 #[test]
-fn mixed_directions_retain_the_zero_net_slot() {
+fn mixed_directions_reject_the_zero_net_slot() {
     let cancelled = Address::new_from_array([41; 32]);
     let active = Address::new_from_array([42; 32]);
-    let movements = proof_inputs(vec![
+    let result = proof_inputs(vec![
         spl_transfer(cancelled, true, u64::MAX, 1),
         spl_transfer(active, true, 7, 2),
         spl_transfer(cancelled, false, u64::MAX, 3),
         sol_transfer(false, 5, 4),
     ])
-    .public_movements()
-    .unwrap();
+    .public_transfers();
 
     assert_eq!(
-        movements.assets,
-        [
-            asset_field(&cancelled).unwrap(),
-            asset_field(&active).unwrap(),
-            SOL_ASSET_FIELD
-        ]
-    );
-    assert_eq!(
-        movements.amounts,
-        [[0; 32], signed_to_field(7), signed_to_field(-5)]
+        result,
+        Err(TransactionError::ZeroNetInterfaceTransferAmount { asset: cancelled })
     );
 }
 
 #[test]
-fn cancelled_asset_still_counts_toward_the_slot_limit() {
+fn intermediate_zero_net_is_order_independent() {
+    let zero_in_the_middle = proof_inputs(vec![
+        sol_transfer(true, 5, 1),
+        sol_transfer(false, 5, 2),
+        sol_transfer(true, 3, 3),
+    ])
+    .public_transfers()
+    .unwrap();
+    let zero_avoided = proof_inputs(vec![
+        sol_transfer(true, 5, 1),
+        sol_transfer(true, 3, 3),
+        sol_transfer(false, 5, 2),
+    ])
+    .public_transfers()
+    .unwrap();
+
+    assert_eq!(zero_in_the_middle, zero_avoided);
+    assert_eq!(zero_in_the_middle.amounts[0], signed_to_field(3));
+}
+
+#[test]
+fn cancelled_asset_is_rejected_before_the_slot_limit() {
     let cancelled = Address::new_from_array([43; 32]);
     let first = Address::new_from_array([44; 32]);
     let second = Address::new_from_array([45; 32]);
@@ -146,8 +158,8 @@ fn cancelled_asset_still_counts_toward_the_slot_limit() {
     ];
 
     assert_eq!(
-        proof_inputs(transfers).public_movements(),
-        Err(TransactionError::TooManyPublicAssets { got: 4, max: 3 })
+        proof_inputs(transfers).public_transfers(),
+        Err(TransactionError::ZeroNetInterfaceTransferAmount { asset: cancelled })
     );
 }
 
@@ -159,8 +171,8 @@ fn same_asset_sum_overflow_is_rejected() {
         spl_transfer(mint, true, 1, 2),
     ]);
     assert_eq!(
-        inputs.public_movements(),
-        Err(TransactionError::PublicMovementOverflow { asset: mint })
+        inputs.public_transfers(),
+        Err(TransactionError::PublicTransferOverflow { asset: mint })
     );
 }
 
@@ -174,18 +186,18 @@ fn transient_sum_above_u64_is_rejected_before_later_cancellation() {
     ]);
 
     assert_eq!(
-        inputs.public_movements(),
-        Err(TransactionError::PublicMovementOverflow { asset: mint })
+        inputs.public_transfers(),
+        Err(TransactionError::PublicTransferOverflow { asset: mint })
     );
 }
 
 #[test]
 fn full_u64_magnitude_is_encoded_for_each_direction() {
     let deposit = proof_inputs(vec![sol_transfer(true, u64::MAX, 1)])
-        .public_movements()
+        .public_transfers()
         .unwrap();
     let withdrawal = proof_inputs(vec![sol_transfer(false, u64::MAX, 1)])
-        .public_movements()
+        .public_transfers()
         .unwrap();
 
     assert_eq!(

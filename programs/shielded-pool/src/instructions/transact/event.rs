@@ -70,7 +70,7 @@ pub fn build_transact_event(
             is_deposit: transfer.is_deposit(),
             amount: transfer.amount(),
             asset: match settlement {
-                Settlement::Sol(_) => None,
+                Settlement::SolDeposit(_) | Settlement::SolWithdrawal(_) => None,
                 Settlement::SplDeposit(spl) => Some(spl.mint_account.address().to_bytes()),
                 Settlement::SplWithdrawal(spl) => Some(spl.mint_account.address().to_bytes()),
             },

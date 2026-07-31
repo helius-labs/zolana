@@ -414,7 +414,6 @@ fn tx_size(args: Vec<String>) {
                 nullifier_hash: [0u8; 32],
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
-                eddsa_signer_index: 255,
             })
             .collect();
         let outputs: Vec<TransactOutput> = outputs_spec
@@ -542,7 +541,7 @@ fn tx_size(args: Vec<String>) {
         let shield_data = build_ix_data(
             vec![InterfaceTransfer::SplDeposit {
                 amount: 1000,
-                vault_bump: 0,
+                spl_interface_bump: 0,
             }],
             n,
             proof,
@@ -762,7 +761,7 @@ fn tx_size(args: Vec<String>) {
         let interface_transfers = (0..leg_count)
             .map(|_| InterfaceTransfer::SplWithdrawal {
                 amount: 1,
-                vault_bump: 0,
+                spl_interface_bump: 0,
             })
             .collect::<Vec<_>>();
         let eddsa_data = build_ix_data(

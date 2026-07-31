@@ -12,10 +12,10 @@ use tokio::time::sleep as async_sleep;
 use crate::{
     error::ClientError,
     prover::{
-        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
+        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_zone, to_json_zone,
-            to_json_zone_authority,
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_zone,
+            to_json_p256_zone, to_json_zone, to_json_zone_authority,
         },
         proof::{proof_from_gnark_json, Proof},
     },
@@ -183,6 +183,14 @@ impl ProverClient {
     /// Prove an eddsa confidential policy-zone transfer (`transfer-zone`).
     pub fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.send(to_json_zone(inputs))
+    }
+
+    /// Prove a custom-zone P256 transfer.
+    pub fn prove_transfer_p256_zone(
+        &self,
+        inputs: &TransferP256Inputs,
+    ) -> Result<Proof, ClientError> {
+        self.send(to_json_p256_zone(inputs))
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -380,6 +388,13 @@ impl AsyncProverClient {
 
     pub async fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.send(to_json_zone(inputs)).await
+    }
+
+    pub async fn prove_transfer_p256_zone(
+        &self,
+        inputs: &TransferP256Inputs,
+    ) -> Result<Proof, ClientError> {
+        self.send(to_json_p256_zone(inputs)).await
     }
 
     pub async fn prove_batch_address_append(

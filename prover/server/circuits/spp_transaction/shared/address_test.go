@@ -36,6 +36,7 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 	in.Utxo.ZoneDataHash = spptest.Fe(0)
 	in.Utxo.ZoneProgramID = spptest.Fe(0)
 	in.OwnerPkHash = ownerPkHash
+	assignment.SignerPkHashes[0] = ownerPkHash
 	in.NullifierSecret = nullifierSecret
 	in.Nullifier = addressNullifier(t, in.Utxo, nullifierSecret)
 }
@@ -83,7 +84,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		// builder defaults to a nonzero zone id for the custom-zone circuits).
 		assignment.ZoneProgramID = spptest.Fe(0)
 	}
-	refreshPublicInputHashVariant(t, assignment, true, false)
+	refreshPublicInputHashVariant(t, assignment, confidential, false)
 }
 
 func addressOwnerPkHash(t testing.TB) *big.Int {

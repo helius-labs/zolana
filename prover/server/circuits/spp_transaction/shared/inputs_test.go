@@ -234,8 +234,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 	in.Utxo.Asset = spptest.Fe(0)
 	in.Utxo.Amount = spptest.Fe(0)
 	in.UtxoTreeRoot = spptest.Fe(0)
-	// Reuse the real output owner's tag. PayerPubkeyHash is a distinct SHA-256
-	// value, not an owner-tag fallback.
+	in.OwnerPkHash = spptest.Fe(0)
 	// A padding dummy derives its nullifier with nullifier_secret = 0, its
 	// blinding being the sole source of unpredictability (spec: SPP Proof).
 	in.NullifierSecret = spptest.Fe(0)

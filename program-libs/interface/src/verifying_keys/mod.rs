@@ -1,5 +1,5 @@
 mod circuit;
-pub use circuit::CircuitId;
+pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, ZoneP256ProofData};
 
 #[cfg(feature = "verifying-keys")]
 pub mod merge_8_1;
@@ -25,6 +25,26 @@ pub mod transfer_confidential_4_4;
 pub mod transfer_confidential_5_3;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_5_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_1_1;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_1_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_1_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_2_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_2_3;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_3_3;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_4_3;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_4_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_5_3;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_zone_5_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_zone_1_1;
 #[cfg(feature = "verifying-keys")]

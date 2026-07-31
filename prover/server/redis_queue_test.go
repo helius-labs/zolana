@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"zolana/prover/prover/common"
 	"zolana/prover/server"
 
+	bn254 "github.com/consensys/gnark-crypto/ecc/bn254"
+	groth16bn254 "github.com/consensys/gnark/backend/groth16/bn254"
 	"github.com/google/uuid"
 )
 
@@ -600,6 +603,62 @@ func TestJobResultStorage(t *testing.T) {
 	}
 }
 
+func TestQueuedCommittedProofResultRoundTrip(t *testing.T) {
+	rq := setupRedisQueue(t)
+	defer teardownRedisQueue(t, rq)
+
+	_, _, g1, g2 := bn254.Generators()
+	var commitment, commitmentPok bn254.G1Affine
+	commitment.ScalarMultiplication(&g1, big.NewInt(2))
+	commitmentPok.ScalarMultiplication(&g1, big.NewInt(3))
+	result := &common.ProofWithTiming{
+		Proof: &common.Proof{Proof: &groth16bn254.Proof{
+			Ar:            g1,
+			Bs:            g2,
+			Krs:           g1,
+			Commitments:   []bn254.G1Affine{commitment},
+			CommitmentPok: commitmentPok,
+		}},
+		ProofDurationMs: 42,
+	}
+
+	const jobID = "test-committed-proof-result"
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal committed proof result: %v", err)
+	}
+	if err := rq.EnqueueProof("zk_results_queue", &server.ProofJob{
+		ID:        jobID,
+		Type:      "result",
+		Payload:   payload,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("enqueue committed proof result: %v", err)
+	}
+
+	stored, err := rq.GetResult(jobID)
+	if err != nil {
+		t.Fatalf("get committed proof result: %v", err)
+	}
+	storedResult, ok := stored.(*common.ProofWithTiming)
+	if !ok {
+		t.Fatalf("stored result type = %T, want *common.ProofWithTiming", stored)
+	}
+	storedProof, ok := storedResult.Proof.Proof.(*groth16bn254.Proof)
+	if !ok {
+		t.Fatalf("stored proof type = %T, want *groth16bn254.Proof", storedResult.Proof.Proof)
+	}
+	if len(storedProof.Commitments) != 1 {
+		t.Fatalf("stored commitment count = %d, want 1", len(storedProof.Commitments))
+	}
+	if !storedProof.Commitments[0].Equal(&commitment) {
+		t.Fatal("stored proof commitment does not match")
+	}
+	if !storedProof.CommitmentPok.Equal(&commitmentPok) {
+		t.Fatal("stored proof commitment PoK does not match")
+	}
+}
+
 func TestResultCleanup(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
@@ -953,6 +1012,7 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 	// Transfer circuits queue too: they route to the shared transfer queue.
 	transferTests := []common.CircuitType{
 		common.TransferConfidentialCircuitType,
+		common.TransferP256ZoneCircuitType,
 	}
 
 	for _, circuitType := range transferTests {

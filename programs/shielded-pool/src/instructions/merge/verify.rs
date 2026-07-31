@@ -56,6 +56,7 @@ impl<'a> MergeProof<'a> {
             a: p.a,
             b: p.b,
             c: p.c,
+            commitment: None,
         };
         // The policy-zone merge (`merge_zone`) commits `zone_program_id`, so it uses
         // its own verifying key; the default-zone merge uses `merge_8_1`.

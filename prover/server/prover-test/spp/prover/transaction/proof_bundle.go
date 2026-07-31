@@ -166,7 +166,10 @@ func BuildProofBundle(ps *ProofSystem, request ProofBundleRequest) (*ProofBundle
 	if err != nil {
 		return nil, fmt.Errorf("spp: payer pubkey: %w", err)
 	}
-	payerHash := protocol.Sha256BEField(payerPubkey[:])
+	payerHash, err := protocol.SolanaPkField(payerPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("spp: payer pubkey hash: %w", err)
+	}
 	out := &ProofBundle{
 		Shape:          ps.Shape,
 		PayerPubkeyHex: parse.BytesHex(payerPubkey[:]),
@@ -189,7 +192,10 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 	if err != nil {
 		return nil, fmt.Errorf("spp: payer pubkey: %w", err)
 	}
-	payerHash := protocol.Sha256BEField(payerPubkey[:])
+	payerHash, err := protocol.SolanaPkField(payerPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("spp: payer pubkey hash: %w", err)
+	}
 	out := &ProofSigningPayloadBundle{
 		Shape:          ps.Shape,
 		PayerPubkeyHex: parse.BytesHex(payerPubkey[:]),

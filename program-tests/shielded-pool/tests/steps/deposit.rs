@@ -24,9 +24,9 @@ fn sol_accounts(
     vec![
         AccountMeta::new(*tree, false),
         AccountMeta::new(*depositor, true),
+        AccountMeta::new_readonly(program_test.program_id, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
         AccountMeta::new(pda::sol_interface(), false),
-        AccountMeta::new_readonly(program_test.program_id, false),
     ]
 }
 
@@ -118,7 +118,7 @@ fn shape_missing_program(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts.pop();
+    accounts.remove(2);
     send_raw(world, accounts);
 }
 
@@ -127,7 +127,7 @@ fn shape_wrong_vault(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts[3] = AccountMeta::new(Pubkey::new_unique(), false);
+    accounts[4] = AccountMeta::new(Pubkey::new_unique(), false);
     send_raw(world, accounts);
 }
 
@@ -136,7 +136,7 @@ fn shape_extra_account(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts.insert(4, AccountMeta::new_readonly(Pubkey::new_unique(), false));
+    accounts.push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
     send_raw(world, accounts);
 }
 
@@ -299,6 +299,6 @@ fn too_few_accounts(world: &mut ShieldedPoolWorld) {
     let tree = world.tree().pubkey();
     let dep = world.depositor().pubkey();
     let mut accounts = sol_accounts(world.rpc(), &tree, &dep);
-    accounts.drain(2..4);
+    accounts.truncate(3);
     send_raw(world, accounts);
 }
