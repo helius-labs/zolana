@@ -402,12 +402,13 @@ pub fn real_output(
 /// nullifier derived over the dummified utxo hash with secret 0, and a real
 /// non-inclusion witness for that nullifier from `nf_tree` (the circuit checks
 /// non-inclusion for every slot). Returns the input and its nullifier — SPP
-/// inserts dummy nullifiers exactly like real ones.
+/// inserts dummy nullifiers exactly like real ones. The dummy's `ownerPkHash`
+/// is pinned to zero: PR172's signer resolution (`AuthorizedEddsaInputOwners`)
+/// rejects any non-zero owner identity on a content-less slot.
 pub fn dummy_input(
     blinding: &[u8; 31],
     nf_tree: &IndexedMerkleTree<Poseidon, usize>,
     roots: ([u8; 32], [u8; 32]),
-    owner_pk_hash: &[u8; 32],
 ) -> Result<(TransferInput, [u8; 32])> {
     let mut spend = SppProofInputUtxo::new_dummy();
     spend.utxo.blinding = expand_blinding(blinding);
@@ -427,7 +428,7 @@ pub fn dummy_input(
         utxo_tree_root: be(&utxo_root),
         nullifier_tree_root: be(&nullifier_root),
         nullifier: be(&nullifier),
-        owner_pk_hash: be(owner_pk_hash),
+        owner_pk_hash: be(&zero),
         nullifier_secret: be(&zero),
     };
     Ok((input, nullifier))
@@ -448,7 +449,6 @@ pub fn dummy_input_with_proof(
     blinding: &[u8; 31],
     non_inclusion: &zolana_client::NonInclusionProof,
     roots: ([u8; 32], [u8; 32]),
-    owner_pk_hash: &[u8; 32],
 ) -> Result<TransferInput> {
     let mut spend = SppProofInputUtxo::new_dummy();
     spend.utxo.blinding = expand_blinding(blinding);
@@ -467,7 +467,7 @@ pub fn dummy_input_with_proof(
         utxo_tree_root: be(&utxo_root),
         nullifier_tree_root: be(&nullifier_root),
         nullifier: be(&nullifier),
-        owner_pk_hash: be(owner_pk_hash),
+        owner_pk_hash: be(&zero),
         nullifier_secret: be(&zero),
     })
 }
@@ -629,7 +629,7 @@ pub fn build_spl_withdrawal(
         .expect("non-inclusion proof");
     let roots = (utxo_root, nullifier_root);
     let (withdraw_dummy_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
     let spend = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,

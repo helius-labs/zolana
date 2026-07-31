@@ -736,7 +736,7 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo nextest run -p zone-test-program --test zone_lifecycle --test proof_cu --release
+      cargo nextest run -p zone-test-program --test zone_lifecycle --test p256_zone_lifecycle --test proof_cu --release
 
 # Run only real-validator CU ceilings for zone EdDSA/P256 transact,
 # zone-authority transact, and maximal 8x1 merge-zone.

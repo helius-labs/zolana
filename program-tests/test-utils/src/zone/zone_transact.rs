@@ -862,8 +862,11 @@ impl ZoneHarness {
     }
 
     /// Cross-rail grafting: a valid eddsa proof submitted under the ZoneP256
-    /// selector. No valid BSB22 commitment can exist for it, so the encoding
-    /// check fires before pairing (7007).
+    /// selector. No valid BSB22 commitment can exist for it — a zeroed one
+    /// decodes as the point at infinity, so it slips past the encoding check
+    /// and the graft fails at pairing verification instead (7008). Garbage
+    /// commitments still fail at encoding (7007, covered by the bad-commitment
+    /// tamper).
     pub fn eddsa_proof_under_p256_selector_rejected(
         &mut self,
         from: &str,
@@ -878,7 +881,7 @@ impl ZoneHarness {
             amount,
             ZoneRail::Eddsa,
             ProofTamper::EddsaProofUnderP256Selector,
-            ShieldedPoolError::InvalidTransactProofEncoding,
+            ShieldedPoolError::TransactProofVerificationFailed,
         )
     }
 

@@ -112,7 +112,7 @@ fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> Tra
 
     let roots = (utxo_root, nullifier_root);
     let (dummy_input_1, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
     let real_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -317,7 +317,7 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
 
     let roots = (utxo_root, nullifier_root);
     let (dummy_input_1, dummy_nullifier) =
-        dummy_input(&[12u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[12u8; 31], &nf_tree, roots).expect("dummy input");
     let real_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -403,10 +403,13 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     if IS_AUTHORITY {
         chain.extend_from_slice(&[zone_field, payer_hash, fe(1)]);
     } else {
+        // ZoneEddsa binds only CONFIDENTIAL-MARKED output owners; these outputs
+        // carry `data: None` (unmarked), so every published owner slot is 0.
+        let published_owners = vec![zero; n_outputs];
         chain.push(zone_field);
         chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
-        chain.push(create_hash_chain_from_slice(&owner_pk_hashes).expect("output owner chain"));
+        chain.push(create_hash_chain_from_slice(&published_owners).expect("output owner chain"));
     }
     let public_input_hash = create_hash_chain_from_slice(&chain).expect("zone public input hash");
 
@@ -426,6 +429,10 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
         // bare payer hash and publishes no output-owner hashes.
         prover_inputs.signer_pk_hashes = vec![be(&payer_hash)];
         prover_inputs.published_output_owner_pk_hashes = Vec::new();
+    } else {
+        // ZoneEddsa publishes only confidential-marked owner tags; these
+        // outputs are unmarked, so every published slot is 0.
+        prover_inputs.published_output_owner_pk_hashes = vec![be(&zero); n_outputs];
     }
 
     let prover = ProverClient::local();
@@ -807,7 +814,9 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
         .expect("fund input owner account");
     // The builder appends owner signers after the SPP and System Program
     // accounts (index 5). Bind both proof inputs to the input owner and flip
-    // its meta to unsigned.
+    // its meta to unsigned: the loader's signer-run scan ends at the first
+    // non-signer, so the flipped account becomes an unparsable leftover and
+    // the instruction fails closed with InvalidTransactShape.
     let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey());
     let mut ix = Transact {
         payer,
@@ -827,7 +836,7 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("unsigned Ed25519 input owner must be rejected");
-    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(error);
+    Rejection::pool(ShieldedPoolError::InvalidTransactShape).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
         .expect("unsigned owner transaction trace")
@@ -955,9 +964,10 @@ fn transact_rejects_replay_under_the_zone_transact_tag() {
 
     // A structurally valid ZoneConfig at a keypair address: `load_zone_config`
     // accepts it, and the keypair signs in place of a zone's `zone_auth` PDA.
+    // The zone loader reads it after the SPP + system-program prefix (index 5).
     let zone_config = write_signed_zone_config(&mut env, Pubkey::new_unique(), true);
     ix.accounts
-        .insert(3, AccountMeta::new_readonly(zone_config.pubkey(), true));
+        .insert(5, AccountMeta::new_readonly(zone_config.pubkey(), true));
 
     let error = env
         .rpc
@@ -1006,7 +1016,7 @@ fn zone_transact_rejects_a_proof_bound_to_a_different_zone() {
     let mut wrong_zone_ix = base_ix.clone();
     wrong_zone_ix
         .accounts
-        .insert(3, AccountMeta::new_readonly(config_b.pubkey(), true));
+        .insert(5, AccountMeta::new_readonly(config_b.pubkey(), true));
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[wrong_zone_ix], &[&config_b])
@@ -1024,7 +1034,7 @@ fn zone_transact_rejects_a_proof_bound_to_a_different_zone() {
     let config_a = write_signed_zone_config(&mut env, zone_a, true);
     base_ix
         .accounts
-        .insert(3, AccountMeta::new_readonly(config_a.pubkey(), true));
+        .insert(5, AccountMeta::new_readonly(config_a.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same zone proof with the bound zone's config succeeds");
@@ -1065,7 +1075,7 @@ fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
     let mut wrong_zone_ix = base_ix.clone();
     wrong_zone_ix
         .accounts
-        .insert(3, AccountMeta::new_readonly(config_b.pubkey(), true));
+        .insert(5, AccountMeta::new_readonly(config_b.pubkey(), true));
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[wrong_zone_ix], &[&config_b])
@@ -1083,7 +1093,7 @@ fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
     let config_a = write_signed_zone_config(&mut env, zone_a, true);
     base_ix
         .accounts
-        .insert(3, AccountMeta::new_readonly(config_a.pubkey(), true));
+        .insert(5, AccountMeta::new_readonly(config_a.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same zone-authority proof with the bound zone's config succeeds");

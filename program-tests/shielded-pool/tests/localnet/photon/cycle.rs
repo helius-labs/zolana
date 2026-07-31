@@ -258,7 +258,6 @@ fn phase_shielded_transfer(
     let payer_utxo = &shield.utxo;
     let payer_nullifier_pk = shield.nullifier_key.pubkey()?;
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
-    let payer_owner_pk_hash = payer_utxo.owner.owner_proof_input_hash()?;
     let payer_bytes = env.payer.pubkey().to_bytes();
 
     let recipient_bytes = env.recipient_owner.pubkey().to_bytes();
@@ -299,13 +298,8 @@ fn phase_shielded_transfer(
     let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![
             payer_spend_input,
-            dummy_input_with_proof(
-                &[20u8; 31],
-                &transfer_dummy_nf,
-                transfer_roots,
-                &payer_owner_pk_hash,
-            )
-            .map_err(|err| anyhow!("transfer dummy input: {err}"))?,
+            dummy_input_with_proof(&[20u8; 31], &transfer_dummy_nf, transfer_roots)
+                .map_err(|err| anyhow!("transfer dummy input: {err}"))?,
         ],
         root_index: payer_state_proof.root_index,
         output_hashes: vec![change_hash, recipient_hash, transfer_dummy_hash],
@@ -482,13 +476,8 @@ fn phase_unshield(
     let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![
             recipient_spend_input,
-            dummy_input_with_proof(
-                &[21u8; 31],
-                &withdraw_dummy_nf,
-                withdraw_roots,
-                &recipient_owner_pk_hash,
-            )
-            .map_err(|err| anyhow!("withdraw dummy input: {err}"))?,
+            dummy_input_with_proof(&[21u8; 31], &withdraw_dummy_nf, withdraw_roots)
+                .map_err(|err| anyhow!("withdraw dummy input: {err}"))?,
         ],
         root_index: recipient_state_proof.root_index,
         output_hashes: withdraw_output_hashes,

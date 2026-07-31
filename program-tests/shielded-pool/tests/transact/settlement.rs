@@ -134,8 +134,9 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
         data: sol_withdrawal_ix_data(),
     }
     .instruction();
-    // Swap the canonical SOL-custody PDA (index 3) for an attacker account.
-    ix.accounts.get_mut(3).expect("sol_interface meta").pubkey = Pubkey::new_unique();
+    // Swap the canonical SOL-custody PDA (first group account, index 5) for an
+    // attacker account.
+    ix.accounts.get_mut(5).expect("sol_interface meta").pubkey = Pubkey::new_unique();
 
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -298,7 +299,8 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
         data: ix_data,
     }
     .instruction();
-    ix.accounts.get_mut(3).expect("cpi_authority meta").pubkey = Pubkey::new_unique();
+    // The withdrawal group's cpi_authority is the first group account (index 5).
+    ix.accounts.get_mut(5).expect("cpi_authority meta").pubkey = Pubkey::new_unique();
 
     let error = env
         .rpc

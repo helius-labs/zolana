@@ -66,7 +66,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Kind: precondition + postcondition
   - Statement: authorization identities come from the accounts array, not instruction data: slot 0 is the payer (a duplicate payer in `owner_signers` is ignored), then the eddsa owner signers in first-occurrence order; the unique prefix must be non-empty and fit `MAX_SIGNERS = MAX_INPUTS + 1` slots (more unique signers returns 7006), and every owner-signer account must actually sign. The public input folds the run as a right-folded chain zero-padded to `n_inputs + 1` (a one-element run folds to itself), so the witness and the on-chain recompute agree on exactly one canonical encoding of any signer set.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`, `fn fixed_signer_hash_chain`, `SIGNER_ZERO_SUFFIX_CHAINS`)
-  - Error: `ShieldedPoolError::InvalidTransactShape = 7006` / account-checks signer error
+  - Error: `ShieldedPoolError::InvalidTransactShape = 7006` (an unsigned would-be owner signer ends the run at the loader's first-non-signer scan, leaving an unparsable account)
   - Severity: Critical (spend authorization)
   - Suggested test: unit (exists) + negative overflow + negative unsigned owner (exist); harness: `cargo test -p shielded-pool-tests --test transact_signer_run` + program-tests integration
 

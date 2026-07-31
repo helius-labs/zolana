@@ -85,7 +85,7 @@ fn build_spend_note(
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
         .expect("non inclusion proof");
     let (dummy_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
     let input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,

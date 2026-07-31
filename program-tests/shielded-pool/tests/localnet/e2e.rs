@@ -250,12 +250,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let change_hash = change_output.hash()?;
     let recipient_hash = recipient_output.hash()?;
     let transfer_roots = (shielded.utxo_root, shielded.nullifier_root);
-    let (transfer_dummy_input, _) = dummy_input(
-        &[20u8; 31],
-        &cycle.nf_tree,
-        transfer_roots,
-        &shielded.owner_pk_hash,
-    )?;
+    let (transfer_dummy_input, _) = dummy_input(&[20u8; 31], &cycle.nf_tree, transfer_roots)?;
     let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
@@ -376,7 +371,6 @@ fn phase_unshield(
         &[21u8; 31],
         &cycle.nf_tree,
         (transferred.utxo_root, transferred.nullifier_root),
-        &recipient_owner_pk_hash,
     )?;
     let (withdraw_outputs, withdraw_output_hashes) =
         dummy_witness_outputs(&[[1u8; 31], [2u8; 31], [3u8; 31]])?;

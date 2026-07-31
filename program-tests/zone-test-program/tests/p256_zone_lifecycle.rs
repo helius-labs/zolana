@@ -32,8 +32,10 @@ fn p256_zone_transfer_updates_recipient_wallet() -> Result<()> {
 
 /// Cross-rail grafting: a proof is only valid under the circuit selector it
 /// was built for. A P256 proof under the ZoneEddsa selector fails pairing
-/// (7008); an eddsa proof under ZoneP256 can carry no valid BSB22 commitment,
-/// so it fails the encoding check first (7007).
+/// (7008); an eddsa proof under ZoneP256 can carry no valid BSB22 commitment —
+/// a zeroed one decodes as the point at infinity, so it also fails at pairing
+/// (7008), while garbage bytes fail at encoding (7007, see the bad-commitment
+/// leg of the lifecycle test).
 #[test]
 #[serial]
 fn cross_rail_proof_grafting_is_rejected() -> Result<()> {

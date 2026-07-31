@@ -53,12 +53,16 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
         inputs.push(dummy_input());
     }
     let outputs = (0..n_out).map(|_| dummy_output(&signer)).collect();
+    // The authorized signer vector must contain every real input's owner
+    // pk-field (payer-first on-chain; any placement satisfies Contains).
+    let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
+    signer_pk_hashes.resize(n_in + 1, [0u8; 32]);
     ZoneTransferProver {
         inputs,
         outputs,
         external_data: zone_external_data(n_out),
         public_transfers: PublicTransfers::default(),
-        signer_pk_hashes: vec![[0u8; 32]; n_in + 1],
+        signer_pk_hashes,
         allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(n_in, n_out)),
@@ -74,7 +78,7 @@ fn eddsa_multi_real() -> ZoneTransferProver {
     let second_signer = eddsa_keypair();
     let mut inputs = build_real_inputs(
         &mut indexer,
-        &[(first_signer.clone(), 100), (second_signer, 150)],
+        &[(first_signer.clone(), 100), (second_signer.clone(), 150)],
     );
     inputs.push(dummy_input());
     let recipient = eddsa_keypair();
@@ -88,7 +92,12 @@ fn eddsa_multi_real() -> ZoneTransferProver {
         outputs,
         external_data: zone_external_data(3),
         public_transfers: PublicTransfers::default(),
-        signer_pk_hashes: vec![[0u8; 32]; 4],
+        signer_pk_hashes: vec![
+            owner_pk_hash(&first_signer),
+            owner_pk_hash(&second_signer),
+            [0u8; 32],
+            [0u8; 32],
+        ],
         allow_dummy_inputs: true,
         zone_program_id: Some(zone_program()),
         shape: Some(Shape::new(3, 3)),
@@ -96,6 +105,15 @@ fn eddsa_multi_real() -> ZoneTransferProver {
 }
 
 // ---- shared helpers -----------------------------------------------------------
+
+/// The owner pk-field the circuit checks each content-bearing input against
+/// (`hash_bytes` of the signing pubkey's confidential view tag).
+fn owner_pk_hash(keypair: &ShieldedKeypair) -> [u8; 32] {
+    keypair
+        .signing_pubkey()
+        .owner_proof_input_hash()
+        .expect("owner pk hash")
+}
 
 fn prove_and_verify_eddsa(prover: ZoneTransferProver, n_in: usize, n_out: usize) {
     let result = prover.build().expect("build zone-transfer witness");

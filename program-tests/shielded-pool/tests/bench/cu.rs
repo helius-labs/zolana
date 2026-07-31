@@ -443,8 +443,8 @@ fn bench_transfer_shape(
     let mut inputs = Vec::with_capacity(n_inputs);
     let mut nullifiers = Vec::with_capacity(n_inputs);
     for index in 0..n_inputs {
-        let (input, nullifier) = dummy_input(&[index as u8 + 31; 31], &nf_tree, roots, &owner_hash)
-            .expect("dummy input");
+        let (input, nullifier) =
+            dummy_input(&[index as u8 + 31; 31], &nf_tree, roots).expect("dummy input");
         inputs.push(input);
         nullifiers.push(nullifier);
     }
@@ -597,7 +597,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
 
     let roots = (utxo_root, nullifier_root);
     let (dummy_spend_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,

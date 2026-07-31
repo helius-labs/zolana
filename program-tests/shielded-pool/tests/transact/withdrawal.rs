@@ -193,7 +193,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
 
     let roots = (utxo_root, nullifier_root);
     let (dummy_spend_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
 
     // The real input spending the shielded UTXO (is_dummy = 0).
     let payer_spend_input = spend_input(SpendInputArgs {
@@ -394,15 +394,12 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     let roots = (utxo_root, nullifier_root);
 
     // Two circuit-dummy inputs with derived nullifiers and non-inclusion
-    // witnesses (PR164 constrains dummies), bound to the payer's owner hash.
-    let owner_pk_hash = PublicKey::from_ed25519(&payer_bytes)
-        .owner_proof_input_hash()
-        .expect("payer owner pk hash");
+    // witnesses (PR164 constrains dummies), owner identity pinned to zero.
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
     let (deposit_dummy_0, nullifier_0) =
-        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 0");
+        dummy_input(&[31u8; 31], &nf_tree, roots).expect("dummy input 0");
     let (deposit_dummy_1, nullifier_1) =
-        dummy_input(&[32u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 1");
+        dummy_input(&[32u8; 31], &nf_tree, roots).expect("dummy input 1");
     let nullifiers = [nullifier_0, nullifier_1];
 
     // The deposited value materializes as one real output owned by the payer's
@@ -602,14 +599,13 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let nullifier_key = NullifierKey::from_secret([25u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner = PublicKey::from_ed25519(&payer_bytes);
-    let owner_pk_hash = owner.owner_proof_input_hash().expect("owner hash");
 
     // Two circuit-dummy inputs (construction as above at :395).
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
     let (deposit_dummy_0, nullifier_0) =
-        dummy_input(&[41u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 0");
+        dummy_input(&[41u8; 31], &nf_tree, roots).expect("dummy input 0");
     let (deposit_dummy_1, nullifier_1) =
-        dummy_input(&[42u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input 1");
+        dummy_input(&[42u8; 31], &nf_tree, roots).expect("dummy input 1");
     let nullifiers = [nullifier_0, nullifier_1];
 
     let asset = solana_address::Address::new_from_array(mint.to_bytes());
@@ -886,7 +882,7 @@ fn phase_transfer_to_recipient(
         utxo: payer_utxo,
         nullifier_pk: payer_nullifier_pk,
         utxo_hash: payer_utxo_hash,
-        owner_pk_hash: payer_owner_pk_hash,
+        owner_pk_hash: _,
         nullifier: payer_nullifier,
         spend_input: payer_spend_input,
         mut state_tree,
@@ -924,8 +920,7 @@ fn phase_transfer_to_recipient(
     let recipient_hash = recipient_output.hash().expect("recipient output hash");
     let transfer_roots = (shield_utxo_root, nullifier_root);
     let (transfer_dummy_input, transfer_dummy_nullifier) =
-        dummy_input(&[20u8; 31], &nf_tree, transfer_roots, &payer_owner_pk_hash)
-            .expect("transfer dummy input");
+        dummy_input(&[20u8; 31], &nf_tree, transfer_roots).expect("transfer dummy input");
     // The transfer's third output is a dummy (`owner_hash = 0`): a real `utxo_hash`
     // the program appends and the proof commits, contributing `0` to private_tx_hash.
     let (transfer_dummy_output, transfer_dummy_hash) =
@@ -1132,7 +1127,6 @@ fn phase_withdraw_recipient_utxo(
         &[21u8; 31],
         &nf_tree,
         (transfer_utxo_root, transfer_nullifier_root),
-        &recipient_owner_pk_hash,
     )
     .expect("withdraw dummy input");
     // The withdrawal spends the full transferred amount; all three outputs are
