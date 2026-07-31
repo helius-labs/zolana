@@ -16,12 +16,12 @@ pub struct TakeVerifiableEncryption {
 }
 
 /// The order utxo (input 0) is owned by the order-authority PDA appended readonly
-/// after `tree`; the swap program signs for it via `invoke_signed`. The taker
-/// input is signed by the SPP payer (account index 0). The signer index
+/// after the system program; the swap program signs for it via `invoke_signed`.
+/// The taker input is signed by the SPP payer (account index 0). The signer index
 /// selects the account whose pubkey the SPP proof's input_owner_pk_hash must
 /// match; it is not itself a proof public input, so overriding it post-proof is
 /// safe.
-const ORDER_AUTHORITY_SIGNER_INDEX: u8 = 3;
+const ORDER_AUTHORITY_SIGNER_INDEX: u8 = 4;
 
 impl TakeVerifiableEncryption {
     pub fn instruction(self) -> Result<Instruction> {
@@ -41,9 +41,13 @@ impl TakeVerifiableEncryption {
         })
         .map_err(err)?;
 
+        // Same layout as `Make` / derived `Take`: the SPP transact CPI reads
+        // payer, input tree, output tree, system program — so the tree appears
+        // twice (input and output tree are the same account here).
         let accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
+            AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(order_authority_pda(), false),
