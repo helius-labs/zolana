@@ -29,7 +29,7 @@ use zolana_client::{
     SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, ZolanaIndexer,
 };
 use zolana_event::OutputDataEncoding;
-use zolana_hasher::{sha256::Sha256BE, Hasher};
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},

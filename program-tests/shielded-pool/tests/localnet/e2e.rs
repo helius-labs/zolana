@@ -9,7 +9,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{prover::field::right_align, SolanaRpc, STATE_TREE_HEIGHT};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
@@ -280,8 +280,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         private_tx_inputs: [shielded.utxo_hash, zero],
         private_tx_outputs: [change_hash, recipient_hash, zero],
         public_sol_amount: zero,
-        payer_pubkey_hash: Sha256BE::hash(&payer_bytes)?,
-        input_owner_pk_hash: shielded.owner_pk_hash,
+        payer_pubkey_hash: hash_bytes(&payer_bytes)?,
         label: "transfer",
     })?;
 
@@ -289,6 +288,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         payer: cycle.payer.pubkey(),
         input_tree: cycle.tree_pubkey,
         output_tree: cycle.tree_pubkey,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -399,8 +399,7 @@ fn phase_unshield(
         private_tx_inputs: [transferred_hash, zero],
         private_tx_outputs: [zero, zero, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
-        payer_pubkey_hash: Sha256BE::hash(&recipient_bytes)?,
-        input_owner_pk_hash: recipient_owner_pk_hash,
+        payer_pubkey_hash: hash_bytes(&recipient_bytes)?,
         label: "withdraw",
     })?;
 
@@ -408,6 +407,7 @@ fn phase_unshield(
         payer: cycle.recipient_owner.pubkey(),
         input_tree: cycle.tree_pubkey,
         output_tree: cycle.tree_pubkey,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: public_recipient,

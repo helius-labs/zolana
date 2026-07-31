@@ -165,7 +165,12 @@ impl LifecycleHarness {
             .transpose()?;
         // Every actor pays and signs its own spend (the owner sits at signer index
         // 0 / the fee payer).
-        let fee_payer = self.actor(from).solana_signer.as_ref().expect("lifecycle actors are eddsa-owned").insecure_clone();
+        let fee_payer = self
+            .actor(from)
+            .solana_signer
+            .as_ref()
+            .expect("lifecycle actors are eddsa-owned")
+            .insecure_clone();
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 

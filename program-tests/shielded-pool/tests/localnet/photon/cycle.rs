@@ -321,8 +321,7 @@ fn phase_shielded_transfer(
         private_tx_inputs: [payer_utxo_hash, zero],
         private_tx_outputs: [change_hash, recipient_hash, zero],
         public_sol_amount: zero,
-        payer_pubkey_hash: Sha256BE::hash(&payer_bytes)?,
-        input_owner_pk_hash: payer_owner_pk_hash,
+        payer_pubkey_hash: hash_bytes(&payer_bytes)?,
         label: "transfer",
     })?;
 
@@ -330,6 +329,7 @@ fn phase_shielded_transfer(
         payer: env.payer.pubkey(),
         input_tree: env.tree_pubkey,
         output_tree: env.tree_pubkey,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -505,8 +505,7 @@ fn phase_unshield(
         private_tx_inputs: [recipient_hash, zero],
         private_tx_outputs: [zero, zero, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
-        payer_pubkey_hash: Sha256BE::hash(&recipient_bytes)?,
-        input_owner_pk_hash: recipient_owner_pk_hash,
+        payer_pubkey_hash: hash_bytes(&recipient_bytes)?,
         label: "withdraw",
     })?;
 
@@ -514,6 +513,7 @@ fn phase_unshield(
         payer: env.recipient_owner.pubkey(),
         input_tree: env.tree_pubkey,
         output_tree: env.tree_pubkey,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: public_recipient,

@@ -9,9 +9,7 @@ use shielded_pool_program::testing::{
     SIGNER_ZERO_SUFFIX_CHAINS,
 };
 use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_hasher::{
-    hash_chain::create_right_hash_chain_from_slice, primitives::hash_bytes,
-};
+use zolana_hasher::{hash_chain::create_right_hash_chain_from_slice, primitives::hash_bytes};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{CircuitId, ResolvedOutput},

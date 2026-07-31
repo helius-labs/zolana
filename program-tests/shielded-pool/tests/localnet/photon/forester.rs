@@ -351,6 +351,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         payer: env.payer.pubkey(),
         input_tree: env.tree_pubkey,
         output_tree: env.tree_pubkey,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }

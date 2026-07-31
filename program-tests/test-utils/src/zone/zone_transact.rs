@@ -23,8 +23,8 @@ use zolana_interface::{
 };
 use zolana_program_test::Rejection;
 use zolana_transaction::{
-    instructions::transact::SettlementTarget, Data, ShieldedTransaction, SyncWalletAuthority,
-    Utxo, SOL_MINT,
+    instructions::transact::SettlementTarget, Data, ShieldedTransaction, SyncWalletAuthority, Utxo,
+    SOL_MINT,
 };
 
 use super::{decode_output_blinding, ZoneHarness};
@@ -97,28 +97,6 @@ struct ZoneTransferOperation<'a> {
     tamper: ProofTamper,
 }
 
-impl ZoneTransferOperation<'_> {
-    fn eddsa<'a>(
-        from: &'a str,
-        to: Option<&'a str>,
-        inputs: &'a [Utxo],
-        send_asset: Address,
-        amount: u64,
-        withdrawal: Option<Pubkey>,
-    ) -> ZoneTransferOperation<'a> {
-        ZoneTransferOperation {
-            from,
-            to,
-            inputs,
-            send_asset,
-            amount,
-            withdrawal,
-            rail: ZoneRail::Eddsa,
-            tamper: ProofTamper::None,
-        }
-    }
-}
-
 impl ZoneHarness {
     /// Zone-transfer `amount` of `asset` from `from` to `to` over the eddsa rail
     /// (the owner authorizes the spend with its ed25519 transaction signature),
@@ -162,8 +140,14 @@ impl ZoneHarness {
             return Err(anyhow!("only SOL zone withdrawals are supported"));
         }
         let recipient = Keypair::new().pubkey();
-        let sig =
-            self.execute_zone_transfer(from, None, asset, amount, Some(recipient), ZoneRail::Eddsa)?;
+        let sig = self.execute_zone_transfer(
+            from,
+            None,
+            asset,
+            amount,
+            Some(recipient),
+            ZoneRail::Eddsa,
+        )?;
         Ok((sig, recipient))
     }
 
@@ -767,14 +751,17 @@ impl ZoneHarness {
     /// (negative paths, where the spend never lands). `zone_only` selects the
     /// zone-owned set; `false` selects default-zone UTXOs (e.g. a default-zone
     /// P256 input, which exposes `default_owner_tag` on the wire).
-    fn peek_spendable_inputs(&self, from: &str, asset: Address, zone_only: bool) -> Result<Vec<Utxo>> {
+    fn peek_spendable_inputs(
+        &self,
+        from: &str,
+        asset: Address,
+        zone_only: bool,
+    ) -> Result<Vec<Utxo>> {
         let inputs: Vec<Utxo> = self
             .actor(from)
             .spendable
             .iter()
-            .filter(|utxo| {
-                utxo.asset == asset && (utxo.zone_program_id.is_some() == zone_only)
-            })
+            .filter(|utxo| utxo.asset == asset && (utxo.zone_program_id.is_some() == zone_only))
             .take(2)
             .cloned()
             .collect();
@@ -790,6 +777,7 @@ impl ZoneHarness {
     /// Run a tampered zone-transfer attempt and assert the exact rejection plus
     /// an untouched tree. The inputs are peeked, so `from`'s spendable set is
     /// unchanged for a later happy-path attempt.
+    #[allow(clippy::too_many_arguments)]
     fn expect_tampered_rejection(
         &mut self,
         from: &str,
@@ -992,6 +980,7 @@ impl ZoneHarness {
 /// from the leading signer run in the accounts array (payer first), not from any
 /// per-input field. `external_data` fields flow through unchanged (already
 /// rebound to `ZONE_TRANSACT`).
+#[allow(clippy::too_many_arguments)]
 fn assemble_ix_data(
     proof_inputs: &SppProofInputs,
     nullifiers: &[[u8; 32]],
@@ -1073,8 +1062,6 @@ fn hex32(bytes: &[u8; 32]) -> String {
 
 /// Split a committed P256 proof into the unchanged transact proof triple and
 /// the BSB22 payload carried by `CircuitId::ZoneP256`.
-fn p256_transact_proof(
-    proof: &zolana_client::Proof,
-) -> Result<(TransactProof, Bsb22Commitment)> {
+fn p256_transact_proof(proof: &zolana_client::Proof) -> Result<(TransactProof, Bsb22Commitment)> {
     Ok(ProofCompressed::try_from(*proof)?.into_zone_p256_transact_parts()?)
 }

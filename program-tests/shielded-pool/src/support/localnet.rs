@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_client::{PublicInputs, PublicMovements, Rpc, SolanaRpc, TransferInput, TransferOutput};
+use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput, TransferOutput};
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
@@ -269,9 +269,9 @@ pub struct SolTransferWitnessArgs {
     pub private_tx_outputs: [[u8; 32]; 3],
     /// Public SOL movement field (zero when no SOL enters or leaves).
     pub public_sol_amount: [u8; 32],
+    /// `hash_bytes` of the fee payer's address: the sole unique signer-run
+    /// element for these flows (owner == payer), zero-padded to width 3.
     pub payer_pubkey_hash: [u8; 32],
-    /// Owner pk hash shared by both input slots (a dummy names the same owner).
-    pub input_owner_pk_hash: [u8; 32],
     /// Label for hashing/prover error contexts ("transfer", "withdraw").
     pub label: &'static str,
 }
@@ -320,6 +320,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
     )
     .hash()?;
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(args.public_sol_amount);
+    let signer_hashes = [args.payer_pubkey_hash, [0u8; 32], [0u8; 32]];
     let public_input = PublicInputs {
         nullifiers: &nullifiers,
         output_hashes: &args.output_hashes,
@@ -327,15 +328,14 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         nullifier_tree_roots: &nullifier_roots,
         private_tx: &private_tx,
         external_data_hash: &external_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &[0u8; 32],
-        payer_pubkey_hash: &args.payer_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &[args.input_owner_pk_hash, args.input_owner_pk_hash],
-        output_owner_pk_hashes: &owner_pk_hashes,
+        signer_pk_hashes: &signer_hashes,
+        output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
     .hash()?;
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
@@ -345,7 +345,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash: args.payer_pubkey_hash,
+        signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash: public_input,
     });
     ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_input, args.label)?;

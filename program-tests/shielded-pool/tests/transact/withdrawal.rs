@@ -22,10 +22,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    PublicInputs, PublicMovements, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
+    PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
 };
 use zolana_event::{OutputDataEncoding, ProoflessOutput};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -91,10 +91,11 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint: other_mint,
-                vault: pda::spl_interface(&other_mint),
+                spl_interface: pda::spl_interface(&other_mint),
                 user_token_account: other_user_token,
                 token_program: zolana_program_test::ZolanaProgramTest::token_program_id(),
             },
@@ -270,7 +271,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
             .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pubkey_hash = hash_bytes(&payer_bytes).expect("payer hash");
 
     let public_input_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
@@ -279,15 +280,14 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         nullifier_tree_roots: &[nullifier_root, nullifier_root],
         private_tx: &private_tx,
         external_data_hash: &external_data_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &payer_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &[owner_pk_hash, owner_pk_hash],
-        output_owner_pk_hashes: &owner_pk_hashes,
+        signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
+        output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -314,6 +314,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
@@ -483,7 +484,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(AMOUNT as i64));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pubkey_hash = hash_bytes(&payer_bytes).expect("payer hash");
 
     let public_input_hash = PublicInputs {
         nullifiers: &nullifiers,
@@ -492,15 +493,14 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         nullifier_tree_roots: &[nullifier_root, nullifier_root],
         private_tx: &private_tx,
         external_data_hash: &external_data_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &payer_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &[owner_pk_hash, owner_pk_hash],
-        output_owner_pk_hashes: &owner_pk_hashes,
+        signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
+        output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -531,6 +531,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: depositor.pubkey(),
@@ -602,7 +603,6 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner = PublicKey::from_ed25519(&payer_bytes);
     let owner_pk_hash = owner.owner_proof_input_hash().expect("owner hash");
-    let owner_hashes = [owner_pk_hash; 2];
 
     // Two circuit-dummy inputs (construction as above at :395).
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
@@ -669,7 +669,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
             .hash()
             .expect("private transaction hash");
     let public_spl_field = public_sol_field(Some(SPL_AMOUNT as i64));
-    let payer_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
     let mint_bytes = mint.to_bytes();
     let (public_slot_assets, public_slot_amounts) =
         spl_public_slots(public_spl_field, &mint_bytes).expect("public SPL slots");
@@ -680,15 +680,14 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         nullifier_tree_roots: &[nullifier_root, nullifier_root],
         private_tx: &private_tx,
         external_data_hash: &external_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &payer_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &owner_hashes,
-        output_owner_pk_hashes: &output_owner_hashes,
+        signer_pk_hashes: &[payer_hash, zero, zero],
+        output_owner_pk_hashes: Some(&output_owner_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -699,7 +698,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash: payer_hash,
+        signer_pk_hashes: vec![payer_hash],
         public_input_hash: public_hash,
     });
     data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL deposit")
@@ -709,6 +708,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
                 mint,
@@ -975,7 +975,7 @@ fn phase_transfer_to_recipient(
     )
     .hash()
     .expect("transfer private tx hash");
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pubkey_hash = hash_bytes(&payer_bytes).expect("payer hash");
     let (transfer_public_slot_assets, transfer_public_slot_amounts) = sol_public_slots(zero);
     let transfer_public_input_hash = PublicInputs {
         nullifiers: &[payer_nullifier, transfer_dummy_nullifier],
@@ -984,15 +984,14 @@ fn phase_transfer_to_recipient(
         nullifier_tree_roots: &[nullifier_root, nullifier_root],
         private_tx: &transfer_private_tx,
         external_data_hash: &transfer_external_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: transfer_public_slot_assets,
             amounts: transfer_public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &payer_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &[payer_owner_pk_hash, payer_owner_pk_hash],
-        output_owner_pk_hashes: &transfer_owner_pk_hashes,
+        signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
+        output_owner_pk_hashes: Some(&transfer_owner_pk_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -1018,6 +1017,7 @@ fn phase_transfer_to_recipient(
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -1184,7 +1184,7 @@ fn phase_withdraw_recipient_utxo(
     .expect("withdraw private tx hash");
     let public_sol_field = public_sol_field(Some(-(TRANSFER_AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes).expect("recipient payer hash");
+    let recipient_pubkey_hash = hash_bytes(&recipient_bytes).expect("recipient payer hash");
     let withdraw_public_input_hash = PublicInputs {
         nullifiers: &[recipient_nullifier, withdraw_dummy_nullifier],
         output_hashes: &withdraw_output_hashes,
@@ -1192,15 +1192,14 @@ fn phase_withdraw_recipient_utxo(
         nullifier_tree_roots: &[transfer_nullifier_root, transfer_nullifier_root],
         private_tx: &withdraw_private_tx,
         external_data_hash: &withdraw_external_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &zero,
-        payer_pubkey_hash: &recipient_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &[recipient_owner_pk_hash, recipient_owner_pk_hash],
-        output_owner_pk_hashes: &withdraw_owner_pk_hashes,
+        signer_pk_hashes: &[recipient_pubkey_hash, zero, zero],
+        output_owner_pk_hashes: Some(&withdraw_owner_pk_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -1211,7 +1210,7 @@ fn phase_withdraw_recipient_utxo(
         private_tx_hash: withdraw_private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash: recipient_pubkey_hash,
+        signer_pk_hashes: vec![recipient_pubkey_hash],
         public_input_hash: withdraw_public_input_hash,
     });
     withdraw_ix_data.proof = prove_and_verify_transfer(
@@ -1226,6 +1225,7 @@ fn phase_withdraw_recipient_utxo(
         payer: recipient_owner.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: public_recipient,

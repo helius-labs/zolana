@@ -19,6 +19,7 @@ use shielded_pool_tests::support::transact::{
 use num_bigint::BigUint;
 
 use groth16_solana::groth16::Groth16Verifier;
+use shielded_pool_program::testing::MAX_SIGNERS;
 use solana_address::Address;
 use solana_instruction::{error::InstructionError, AccountMeta};
 use solana_keypair::Keypair;
@@ -26,7 +27,6 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
 use zolana_client::STATE_TREE_HEIGHT;
-use shielded_pool_program::testing::MAX_SIGNERS;
 use zolana_client::{
     prover::field::be, ProverClient, PublicInputs, PublicTransfers, TransferOutput,
 };
@@ -404,9 +404,7 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
         chain.extend_from_slice(&[zone_field, payer_hash, fe(1)]);
     } else {
         chain.push(zone_field);
-        chain.push(
-            create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"),
-        );
+        chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
         chain.push(create_hash_chain_from_slice(&owner_pk_hashes).expect("output owner chain"));
     }
@@ -486,6 +484,7 @@ fn transact_sends_valid_proof() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -621,6 +620,7 @@ fn transact_rejects_tampered_output_owner_tag() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -662,6 +662,7 @@ fn transact_rejects_tampered_public_amount() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
@@ -703,6 +704,7 @@ fn transact_rejects_tampered_private_transaction_hash() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -731,6 +733,7 @@ fn transact_rejects_tampered_external_data() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data,
     }
@@ -768,6 +771,7 @@ fn transact_rejects_out_of_field_output_hash() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -942,6 +946,7 @@ fn transact_rejects_replay_under_the_zone_transact_tag() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -990,6 +995,7 @@ fn zone_transact_rejects_a_proof_bound_to_a_different_zone() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -1047,6 +1053,7 @@ fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -1177,6 +1184,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         payer,
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }

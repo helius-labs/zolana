@@ -8,10 +8,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    PublicInputs, PublicMovements, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
+    PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
 };
 use zolana_event::{general_event_from_indexed, SplTransfer};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -46,7 +46,6 @@ struct SpendNote {
     nullifier: [u8; 32],
     dummy_nullifier: [u8; 32],
     roots: ([u8; 32], [u8; 32]),
-    owner_pk_hash: [u8; 32],
     nullifier_pk: [u8; 32],
 }
 
@@ -107,7 +106,6 @@ fn build_spend_note(
         nullifier,
         dummy_nullifier,
         roots,
-        owner_pk_hash,
         nullifier_pk,
     }
 }
@@ -312,7 +310,8 @@ fn prove_spend(
     .expect("private tx hash");
     let (public_slot_assets, public_slot_amounts) = public_slots(public_movements);
     let payer_pubkey_hash =
-        Sha256BE::hash(&env.rpc.payer.pubkey().to_bytes()).expect("payer pubkey hash");
+        hash_bytes(&env.rpc.payer.pubkey().to_bytes()).expect("payer pubkey hash");
+    let signer_hashes = [payer_pubkey_hash, [0u8; 32], [0u8; 32]];
     let public_hash = PublicInputs {
         nullifiers: &[note.nullifier, note.dummy_nullifier],
         output_hashes: &output_hashes,
@@ -320,15 +319,14 @@ fn prove_spend(
         nullifier_tree_roots: &[note.roots.1, note.roots.1],
         private_tx: &private_tx,
         external_data_hash: &external_hash,
-        public_movements: &PublicMovements {
+        public_transfers: &PublicTransfers {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
         zone_program_id: &[0u8; 32],
-        payer_pubkey_hash: &payer_pubkey_hash,
         allow_dummy_inputs: &fe(1),
-        input_owner_pk_hashes: &[note.owner_pk_hash, note.owner_pk_hash],
-        output_owner_pk_hashes: &output_owner_pk_hashes,
+        signer_pk_hashes: &signer_hashes,
+        output_owner_pk_hashes: Some(&output_owner_pk_hashes),
     }
     .hash()
     .expect("public input hash");
@@ -339,7 +337,7 @@ fn prove_spend(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        signer_pk_hashes: vec![payer_pubkey_hash],
+        signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash: public_hash,
     });
     ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "multi-leg transact")
@@ -398,6 +396,7 @@ fn sol_split_case(reorder_recipients: bool) {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: user }),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
@@ -515,12 +514,12 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         ResolvedInterfaceTransfer::SplWithdrawal {
             amount: first_amount,
             user_token_account: first_token.to_bytes(),
-            vault: vault.to_bytes(),
+            spl_interface: vault.to_bytes(),
         },
         ResolvedInterfaceTransfer::SplWithdrawal {
             amount: second_amount,
             user_token_account: second_token.to_bytes(),
-            vault: vault.to_bytes(),
+            spl_interface: vault.to_bytes(),
         },
     ];
     let data = prove_spend(
@@ -546,6 +545,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![spl_transfer(first_token), spl_transfer(second_token)],
         data,
     }
@@ -654,7 +654,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         ResolvedInterfaceTransfer::SplWithdrawal {
             amount: SPL_SPLIT_TOTAL,
             user_token_account: withdraw_token.to_bytes(),
-            vault: withdraw_vault.to_bytes(),
+            spl_interface: withdraw_vault.to_bytes(),
         },
         ResolvedInterfaceTransfer::SolDeposit {
             amount: sol_deposit_amount,
@@ -663,7 +663,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         ResolvedInterfaceTransfer::SplDeposit {
             amount: spl_deposit_amount,
             user_token_account: deposit_token.to_bytes(),
-            vault: deposit_vault.to_bytes(),
+            spl_interface: deposit_vault.to_bytes(),
         },
     ];
     let withdraw_field = zolana_hasher::primitives::hash_bytes(&withdraw_mint.to_bytes())
@@ -705,6 +705,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             spl_withdrawal(withdraw_vault, withdraw_token),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {

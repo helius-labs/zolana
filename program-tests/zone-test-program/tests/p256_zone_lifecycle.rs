@@ -22,9 +22,7 @@ fn p256_zone_transfer_updates_recipient_wallet() -> Result<()> {
         harness.zone_shield_sol("piper", 1_000_000_000)?;
     }
 
-    harness.zone_transfer_p256_bad_commitment_rejected(
-        "piper", "riley", SOL_MINT, 300_000_000,
-    )?;
+    harness.zone_transfer_p256_bad_commitment_rejected("piper", "riley", SOL_MINT, 300_000_000)?;
 
     harness.zone_transfer_p256("piper", "riley", SOL_MINT, 300_000_000)?;
     harness.sync("riley")?;
@@ -69,10 +67,16 @@ fn default_zone_p256_input_exposes_and_binds_owner_tag() -> Result<()> {
     }
 
     harness.zone_transfer_p256_wrong_default_owner_tag_rejected(
-        "piper", "riley", SOL_MINT, 300_000_000,
+        "piper",
+        "riley",
+        SOL_MINT,
+        300_000_000,
     )?;
     harness.zone_transfer_p256_default_input_exposes_owner_tag(
-        "piper", "riley", SOL_MINT, 300_000_000,
+        "piper",
+        "riley",
+        SOL_MINT,
+        300_000_000,
     )?;
     harness.sync("riley")?;
     Ok(())

@@ -19,7 +19,6 @@
 use shielded_pool_tests::support::fixtures::Pool;
 
 use solana_account::Account;
-use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -128,6 +127,7 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
         payer,
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
@@ -231,6 +231,7 @@ impl SplWithdrawalEnv {
             payer: self.attacker.pubkey(),
             input_tree: self.tree.pubkey(),
             output_tree: self.tree.pubkey(),
+            owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
                 spl,
             )],
@@ -290,6 +291,7 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
         payer: env.attacker.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             env.valid_withdrawal(),
         )],
@@ -322,7 +324,7 @@ fn spl_withdrawal_rejects_a_non_canonical_vault() {
         .create_token_account(&mint, &pda::shielded_pool_cpi_authority())
         .expect("decoy vault");
     let mut spl = env.valid_withdrawal();
-    spl.vault = decoy_vault;
+    spl.spl_interface = decoy_vault;
     env.expect_settlement_rejection(spl);
 }
 

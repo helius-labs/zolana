@@ -50,7 +50,12 @@ impl LifecycleHarness {
         // Every actor is eddsa-owned: it registers under its own ed25519 signing
         // key (so `record.owner` is the identity merge derives `signing_pk_field`
         // from) with no `owner_p256`.
-        let owner = self.actor(name).solana_signer.as_ref().expect("lifecycle actors are eddsa-owned").insecure_clone();
+        let owner = self
+            .actor(name)
+            .solana_signer
+            .as_ref()
+            .expect("lifecycle actors are eddsa-owned")
+            .insecure_clone();
         self.rpc.airdrop(&owner.pubkey(), 1_000_000_000)?;
 
         let register_data = RegisterData {

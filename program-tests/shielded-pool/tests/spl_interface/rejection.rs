@@ -418,9 +418,7 @@ fn spl_interface_creation_rejects_a_noncanonical_vault_pda() {
         .expect_err("noncanonical vault PDA must fail");
     Rejection::pool(ShieldedPoolError::InvalidPda).assert_litesvm(err);
     assert!(
-        pool.rpc
-            .account_data(&pda::spl_interface(&mint))
-            .is_none(),
+        pool.rpc.account_data(&pda::spl_interface(&mint)).is_none(),
         "rejected creation must not allocate the vault"
     );
 }

@@ -7,15 +7,17 @@ use zolana_interface::{
     instruction::{AssetDeposit, Deposit, UtxoData},
     pda,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey};
+use zolana_keypair::{
+    hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey,
+};
 use zolana_program_test::{test_blinding, DepositOutput, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_zone_deposit, DepositAssertArgs, SolDepositOracle,
     ZoneDepositAssertArgs,
 };
 use zolana_transaction::{
-    owner_utxo_hash, serialization::ZoneDepositPlaintext, AssetRegistry, Data, LocalWalletAuthority,
-    Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
+    owner_utxo_hash, serialization::ZoneDepositPlaintext, AssetRegistry, Data,
+    LocalWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
 use shielded_pool_tests::support::{

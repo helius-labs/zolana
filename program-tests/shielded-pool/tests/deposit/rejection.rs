@@ -8,7 +8,7 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        tag, AssetDeposit, DepositAsset, DepositAssetKind, DepositEntry, EncryptedZoneDepositData,
+        tag, DepositAsset, DepositAssetKind, DepositEntry, EncryptedZoneDepositData,
         ZoneAssetDeposit, ZoneDeposit,
     },
     pda, PROGRAM_ID_PUBKEY,

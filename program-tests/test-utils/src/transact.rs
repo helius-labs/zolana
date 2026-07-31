@@ -312,8 +312,7 @@ pub struct TransferProverInputsArgs {
 
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
-    let mut signer_pk_hashes: Vec<BigUint> =
-        args.signer_pk_hashes.iter().map(be).collect();
+    let mut signer_pk_hashes: Vec<BigUint> = args.signer_pk_hashes.iter().map(be).collect();
     signer_pk_hashes.resize(args.inputs.len() + 1, be(&zero));
     // The default confidential rail publishes every output slot's owner tag.
     let published_output_owner_pk_hashes = args
