@@ -4,18 +4,17 @@ use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
     report::{CuBenchmark, ReadmeConfig, SectionTable},
 };
-use mollusk_solana_account::Account as MolluskAccount;
-use mollusk_solana_instruction::{
-    AccountMeta as MolluskAccountMeta, Instruction as MolluskInstruction,
-};
-use mollusk_solana_pubkey::Pubkey as MolluskPubkey;
-use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
+use mollusk_svm::{result::Check, Mollusk};
 use num_bigint::BigUint;
+use solana_account::Account as MolluskAccount;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_instruction::Instruction;
+use solana_instruction::{
+    AccountMeta as MolluskAccountMeta, Instruction, Instruction as MolluskInstruction,
+};
 use solana_keypair::Keypair;
 use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
+use solana_pubkey::Pubkey as MolluskPubkey;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
@@ -336,8 +335,8 @@ fn bench_cu_escrow() {
 
     let mut mollusk = Mollusk::default();
     register_profiling_syscalls(&mut mollusk);
-    mollusk.add_program(&escrow_id, "timelock_escrow_program", &LOADER_V3);
-    mollusk.add_program(&spp_id, "shielded_pool_program", &LOADER_V3);
+    mollusk.add_program(&escrow_id, "timelock_escrow_program");
+    mollusk.add_program(&spp_id, "shielded_pool_program");
 
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Timelock Escrow -- CU Benchmark".into(),

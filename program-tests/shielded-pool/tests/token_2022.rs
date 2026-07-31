@@ -10,9 +10,7 @@ use spl_token_2022_interface::{
     pod::{PodAccount, PodMint},
 };
 use zolana_interface::{error::ShieldedPoolError, instruction::Deposit};
-use zolana_program_test::{
-    system_create_account_ix, test_blinding, ProgramTestError, ZolanaProgramTest,
-};
+use zolana_program_test::{system_create_account_ix, test_blinding, Rejection, ZolanaProgramTest};
 
 fn create_transfer_fee_mint(
     rpc: &mut ZolanaProgramTest,
@@ -172,16 +170,7 @@ fn transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("396 credited for a nominal 400 deposit must be rejected");
-    match error {
-        ProgramTestError::Litesvm(message) => assert!(
-            message.contains(&format!(
-                "Custom({})",
-                ShieldedPoolError::PublicSettlementFailed as u32
-            )),
-            "unexpected transaction error: {message}"
-        ),
-        other => panic!("unexpected deposit error: {other}"),
-    }
+    Rejection::pool(ShieldedPoolError::PublicSettlementFailed).assert_litesvm(error);
 
     // The failed instruction rolls back both the fee-bearing transfer and the
     // shielded-state append.

@@ -2,7 +2,7 @@ use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
     report::{CuBenchmark, ReadmeConfig},
 };
-use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
+use mollusk_svm::{result::Check, Mollusk};
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
@@ -47,7 +47,7 @@ fn bench_cu_bloom_filter() {
     let program_id = Pubkey::new_unique();
     let mut mollusk = Mollusk::default();
     register_profiling_syscalls(&mut mollusk);
-    mollusk.add_program(&program_id, "bloom_filter_bench", &LOADER_V3);
+    mollusk.add_program(&program_id, "bloom_filter_bench");
 
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Bloom Filter -- CU Benchmark".into(),
