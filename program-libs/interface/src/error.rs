@@ -113,6 +113,10 @@ pub enum ShieldedPoolError {
     InvalidSplTokenMint = 7042,
     #[error("Token-2022 mint extension is not supported")]
     UnsupportedToken2022Extension = 7043,
+    // Retired (PR172): the explicit capacity gate was removed; a merge past the
+    // dummy-input threshold now fails at proof verification (7008) because the
+    // on-chain `allow_dummy_inputs` flag flips to false. The variant stays so
+    // the wire-code table never reuses 7044.
     #[error("nullifier tree is too full to process a merge")]
     NullifierTreeTooFullForMerge = 7044,
     #[error("transact interface transfers for one asset must not net to zero")]

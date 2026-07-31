@@ -355,7 +355,10 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a merge past the capacity threshold must be rejected");
-    Rejection::pool(ShieldedPoolError::NullifierTreeTooFullForMerge).assert_litesvm(error);
+    // PR172 removed the explicit 7044 gate: the on-chain `allow_dummy_inputs`
+    // flag is false while the merge proof assumes true, so the capacity
+    // overflow now fails at proof verification.
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("capacity-gate transaction trace")
         .assert_rolled_back_except(&[payer]);

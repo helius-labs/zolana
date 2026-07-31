@@ -1,4 +1,4 @@
-//! P256 zone transact lifecycle, ported from the retired cucumber feature
+//! P256 zone transact lifecycle, ported from the retired scenario suite
 //! `features/p256_zone_lifecycle.feature`: a P256 owner zone-shields, proves
 //! the ZoneP256 rail through the Go prover server, and submits through the
 //! zone fixture program to the shielded pool. This runs alongside, and does

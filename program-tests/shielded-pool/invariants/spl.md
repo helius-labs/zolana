@@ -74,7 +74,7 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
   - Kind: precondition
   - Statement: `create_asset_counter` on a counter whose discriminator byte is not 0 returns Err and leaves `next_id` unchanged (a second init cannot reset the id sequence).
   - Location: `program-libs/interface/src/state/spl_asset_counter.rs:35-37` (`fn init`)
-  - Error: `ShieldedPoolError::SplAssetCounterAlreadyInitialized = 7045` (via `InterfaceError::AlreadyInitialized`, `program-libs/interface/src/error.rs:135-137`)
+  - Error: `ShieldedPoolError::SplAssetCounterAlreadyInitialized = 7046` (via `InterfaceError::AlreadyInitialized`, `program-libs/interface/src/error.rs`; 7045 is PR172's `ZeroNetInterfaceTransferAmount`)
   - Severity: Critical (asset-id reuse would alias distinct mints)
   - Suggested test: negative (call twice); harness: program-tests integration (`cargo test-sbf`)
 
@@ -124,7 +124,7 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
 - [x] **INV-CREATE-SPL-04: registry and vault addresses must be the canonical per-mint PDAs**
   - Covered by: `program-tests/shielded-pool/tests/spl_interface/rejection.rs` `spl_interface_creation_rejects_a_noncanonical_registry_pda`, `spl_interface_creation_rejects_a_noncanonical_vault_pda`
   - Kind: precondition
-  - Statement: `create_spl_interface` returns Err whenever the registry address differs from the `[b"spl_asset_registry", mint]` PDA or the vault address differs from the `[b"spl_asset_vault", mint]` PDA; both bumps are derived canonically.
+  - Statement: `create_spl_interface` returns Err whenever the registry address differs from the `[b"spl_asset_registry", mint]` PDA or the interface vault address differs from the `[b"spl_asset_vault", mint]` PDA (the seed string is unchanged for address stability; the code surface is renamed `spl_interface`); both bumps are derived canonically.
   - Location: `programs/shielded-pool/src/instructions/create_spl_interface/processor.rs:62-66, 88-92` (`fn process_create_spl_interface`)
   - Error: `ShieldedPoolError::InvalidPda = 7016`
   - Severity: Critical (vault identity)

@@ -55,14 +55,29 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-05: input owner hash binds the signer key**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_a_substituted_input_signer`
   - Kind: postcondition
-  - Statement: for every eddsa-owned input, the public-input element folded for that input is exactly `solana_pk_hash` of the signer account's address — `hash_bytes`, which packs the 32 bytes big-endian into 31-byte + 1-byte chunks and folds `Poseidon(chunk_0, chunk_1)`; substituting a different signer account changes the public-input hash and the proof no longer verifies.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:46-57` (`fn check_input_signers`), `programs/shielded-pool/src/instructions/hash.rs:20-22` (`fn solana_pk_hash`)
+  - Statement: the signer run — payer first, then first-occurrence-deduplicated eddsa owner signers — is folded into the public input as a fixed-width right-folded chain of `solana_pk_hash` values (`hash_bytes`, which packs the 32 bytes big-endian into 31-byte + 1-byte chunks and folds `Poseidon(chunk_0, chunk_1)`); the circuit checks each input's ownership against a chain element, so substituting a different signer account changes the chain and the proof no longer verifies.
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`, `fn fixed_signer_hash_chain`), `programs/shielded-pool/src/instructions/hash.rs` (`fn solana_pk_hash`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (spend authorization)
   - Suggested test: negative + property; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-TRANSACT-06: P256-owned inputs fold the shared signing-key field**
-  - Not applicable post-PR164 (the P256 transact ownership rail and the `p256_signing_pk_x` instruction field were removed; every input owner is ed25519 and is folded via `solana_pk_hash` under INV-TRANSACT-05). The covering `transact/p256.rs` suite was deleted with the rail.
+- [x] **INV-TRANSACT-45: the signer run is payer-first, deduplicated, and width-bounded**
+  - Covered by: `program-tests/shielded-pool/tests/transact/signer_run.rs` (`owner_signers_are_first_occurrence_deduplicated_with_payer_first`, `zero_suffix_optimization_matches_fixed_width_right_fold`, `zero_suffix_constants_cover_every_supported_width`, `fixed_signer_hash_chain_rejects_empty_signer_prefix`), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_an_overrunning_owner_signer_run`, `transact_rejects_unsigned_eddsa_input_owner`
+  - Kind: precondition + postcondition
+  - Statement: authorization identities come from the accounts array, not instruction data: slot 0 is the payer (a duplicate payer in `owner_signers` is ignored), then the eddsa owner signers in first-occurrence order; the unique prefix must be non-empty and fit `MAX_SIGNERS = MAX_INPUTS + 1` slots (more unique signers returns 7006), and every owner-signer account must actually sign. The public input folds the run as a right-folded chain zero-padded to `n_inputs + 1` (a one-element run folds to itself), so the witness and the on-chain recompute agree on exactly one canonical encoding of any signer set.
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`, `fn fixed_signer_hash_chain`, `SIGNER_ZERO_SUFFIX_CHAINS`)
+  - Error: `ShieldedPoolError::InvalidTransactShape = 7006` / account-checks signer error
+  - Severity: Critical (spend authorization)
+  - Suggested test: unit (exists) + negative overflow + negative unsigned owner (exist); harness: `cargo test -p shielded-pool-tests --test transact_signer_run` + program-tests integration
+
+- [x] **INV-TRANSACT-06: P256-owned inputs are authorized in-circuit (ZoneP256 only)**
+  - Covered by: `prover/server/circuits/spp_transaction/shared/custom_p256_test.go` (`TestCustomZoneP256Solves`, `TestCustomZoneP256KeepsZoneOnlyOwnerPrivate`, `TestCustomZoneP256AcceptsMixedOwners`), `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs`
+  - Kind: postcondition
+  - Statement: on the ZoneP256 rail there is no per-input signer element (and no shared `p256_signing_pk_x` instruction field): ownership is proved inside the circuit by a P256 signature over `Sha256(private_tx_hash)`, split low/high as public inputs; the owner's pubkey x-coordinate is exposed on the wire as `ZoneP256ProofData.default_owner_tag` ONLY when a real default-zone P256 input is present (zone-only P256 ownership stays private). The confidential (default-zone) transact rail has no P256 variant — that scope stays not applicable.
+  - Location: `sdk-libs/client/src/prover/transact/zone_p256.rs`, `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `is_p256()` appendix)
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
+  - Severity: Critical (spend authorization)
+  - Suggested test: positive per ownership layout (exists, Go) + on-chain owner-tag binding (exists); harness: `go test` + program-tests integration
 
 - [ ] **INV-TRANSACT-40: input/output tree split**
   - Partial coverage: all functional tests exercise the two-account layout; no test asserts distinct input/output trees.
@@ -120,8 +135,14 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [ ] **INV-TRANSACT-11: P256SigningKey tag without a P256 key is rejected**
-  - Not applicable post-PR164 (the `P256SigningKey` owner-tag variant and `p256_signing_pk_x` were removed; `OwnerTag` is `Inline`/`Account` only and `MissingP256SigningKey = 7024` is retired). The decode-level rejection of the retired discriminant is covered by INV-XC-32.
+- [x] **INV-TRANSACT-11: a ZoneP256 proof with an invalid BSB22 commitment is rejected before pairing**
+  - Covered by: `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs` `p256_zone_transfer_updates_recipient_wallet` (bad-commitment leg)
+  - Kind: precondition
+  - Statement: a `CircuitId::ZoneP256` selector whose embedded `ZoneP256ProofData.bsb22_commitment` does not verify against the proof returns the encoding error before any pairing work. (The pre-PR164 `P256SigningKey` owner-tag variant and `p256_signing_pk_x` field did NOT return; `OwnerTag` is `Inline`/`Account` only and `MissingP256SigningKey = 7024` stays retired — the decode-level rejection of the retired discriminant is covered by INV-XC-32.)
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn verify`, commitment leg)
+  - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007`
+  - Severity: Critical (spend authorization)
+  - Suggested test: negative (exists); harness: program-tests integration (`cargo test-sbf`)
 
 - [ ] **INV-TRANSACT-12: both public amounts set is rejected**
   - Not applicable post-PR164 (the `public_sol_amount`/`public_spl_amount` fields were replaced by an ordered `interface_transfers` list; multiple legs -- including SOL and SPL legs in one instruction -- are legal and settle independently per leg, so the both-present guard is unnecessary). The covering `both_public_amounts_are_rejected` test was removed with the fields.
@@ -136,16 +157,16 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative per (tag, selector family) pair; harness: mollusk unit
 
 - [x] **INV-TRANSACT-35: selector shape must equal the payload shape and be supported**
-  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_and_signer_indices_are_fail_closed`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_overrunning_eddsa_signer_index`, `program-libs/interface/src/verifying_keys/circuit.rs` `supported_shapes_are_fail_closed`
+  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_are_fail_closed`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_an_overrunning_owner_signer_run`, `program-libs/interface/src/verifying_keys/circuit.rs` `supported_shapes_are_fail_closed`
   - Kind: precondition
-  - Statement: the instruction returns Err unless `circuit.num_inputs() == inputs.len()`, `circuit.num_outputs() == outputs.len()`, `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and no input carries the retired P256 sentinel `eddsa_signer_index == 255`.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:152-163` (`fn validate_circuit_type`); supported-shape table `program-libs/interface/src/verifying_keys/circuit.rs:73-96`
+  - Statement: the instruction returns Err unless `circuit.num_inputs() == inputs.len()`, `circuit.num_outputs() == outputs.len()`, `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and the payer-first deduplicated signer run fits the fixed-width `MAX_SIGNERS` (`MAX_INPUTS + 1`) array. The retired per-input `eddsa_signer_index` field (and its 255 P256 sentinel) is deleted from the wire: fail-closed is the fixed-width `InputUtxo` decode plus the signer-run bound, not a field check.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:152-163` (`fn validate_circuit_type`); supported-shape table `program-libs/interface/src/verifying_keys/circuit.rs:73-96`; signer-run bound `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Critical
   - Suggested test: negative per dimension; harness: mollusk unit
 
 - [x] **INV-TRANSACT-36: interface-transfer wire limits**
-  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `interface_transfer_validation_accepts_many_transfers_up_to_limit`, `interface_transfer_count_rejects_256_during_serialization_and_hashing`; `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `zero_interface_transfer_is_rejected`
+  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `interface_transfer_validation_accepts_many_transfers_up_to_limit`, `interface_transfer_count_rejects_protocol_overflow_during_serialization_and_hashing`; `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `zero_interface_transfer_is_rejected`
   - Kind: precondition
   - Statement: more than `MAX_INTERFACE_TRANSFERS` (255) legs returns 7035; any leg with amount 0 returns 7036.
   - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:77-87` (`fn validate_interface_transfers`), called from `programs/shielded-pool/src/instructions/transact/account.rs:48`
@@ -248,14 +269,20 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical
   - Suggested test: negative + positive per shape; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-TRANSACT-19: P256 rail is selected exactly by a 255 signer index**
-  - Not applicable post-PR164 (the P256 rail and the 255 sentinel were removed; every transact verifies on the eddsa rail selected by `CircuitId`).
+- [x] **INV-TRANSACT-19: the proof rail is selected exactly by the CircuitId selector**
+  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`, `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
+  - Kind: precondition
+  - Statement: the proof rail (uncommitted eddsa vs BSB22-committed P256) is selected ONLY by the `CircuitId` discriminant in instruction data, validated against the dispatched tag before any account is read; there is no sentinel value anywhere in the payload that can reroute a proof to another rail. (Replaces the pre-PR164 255-signer-index selection model; the retired `eddsa_signer_index` field is deleted from the wire.)
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`), `program-libs/interface/src/verifying_keys/circuit.rs` (`CircuitId`)
+  - Error: `ShieldedPoolError::MismatchedCircuitType = 7039`
+  - Severity: Critical
+  - Suggested test: negative per (tag, selector) pair + cross-rail grafting (both exist); harness: mollusk unit + program-tests integration
 
 - [x] **INV-TRANSACT-20: payer address is bound into the public input hash**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_a_substituted_payer`
   - Kind: postcondition
-  - Statement: the `payer_pubkey_hash` public-input element is exactly `Sha256BE(payer address)`; a transaction proven for payer A submitted with payer B fails proof verification.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:114-115` (`fn process_transact_ix`), `verify.rs:194` (`fn public_input_hash`)
+  - Statement: the first signer-chain element is exactly `hash_bytes(payer address)`; a transaction proven for payer A submitted with payer B fails proof verification.
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`, payer occupies slot 0), `fn public_input_hash`
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (relayer front-running / fee theft)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
@@ -272,8 +299,8 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-22: confidential variant binds output owners**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag`
   - Kind: postcondition
-  - Statement: the `transact` public-input hash chain contains the 6-element base (nullifier chain, output chain, utxo-root chain, nullifier-root chain, `private_tx_hash`, `external_data_hash`), the interleaved public movement slots `(asset, amount)`, then `zone_program_id`, `payer_pubkey_hash`, `allow_dummy_inputs`, `hash_chain(input_owner_pk_hashes)`, and `hash_chain(output_owner_pk_hashes)`, where each output-owner element is `hash_bytes(resolved owner tag)`; changing any resolved output owner tag makes verification fail.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:133-204` (`fn public_input_hash`), `verify.rs:62-75` (`fn fill_output_owner_pk_hashes`)
+  - Statement: the `transact` public-input hash chain contains the base chain (nullifier chain, output chain, utxo-root chain, nullifier-root chain, `private_tx_hash`), `external_data_hash`, the interleaved public transfer slots `(asset, amount)`, then `zone_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`, where each output-owner element is `hash_bytes(resolved owner tag)`; changing any resolved output owner tag makes verification fail.
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `fn fill_output_owner_pk_hashes`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (output redirection)
   - Suggested test: negative + golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: mollusk unit + `cargo test -p`
@@ -438,13 +465,19 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-ZONE-TRANSACT-05: zone variant folds no output-owner public inputs**
   - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
-  - Statement: the `zone_transact` public-input hash chain contains the 6-element base, the interleaved public movement slots, then `zone_program_id`, `payer_pubkey_hash`, `allow_dummy_inputs`, `hash_chain(input_owner_pk_hashes)`, and `hash_chain(output_owner_pk_hashes)` (ZoneEddsa binds output owners; ZoneAuthority omits both owner chains).
+  - Statement: the `zone_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `zone_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`; the ZoneP256 selector additionally appends the P256 message hash and the default-owner-tag element after `private_tx_hash` (ZoneEddsa/ZoneP256 bind output owners; ZoneAuthority omits the owner chain and folds a bare payer element).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:192-202` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
-- [ ] **INV-ZONE-TRANSACT-06: P256-owned zone inputs fold the zero sentinel**
-  - Not applicable post-PR164 (the P256 zone-transfer rail was removed; the covering `p256_zone_transfer_updates_recipient_wallet` test was deleted with it).
+- [x] **INV-ZONE-TRANSACT-06: zone-only P256 ownership stays private on the wire**
+  - Covered by: `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs` `p256_zone_transfer_updates_recipient_wallet`, `default_zone_p256_input_exposes_and_binds_owner_tag`
+  - Kind: postcondition
+  - Statement: for a zone-owned P256 input the wire carries NO owner identifier — `ZoneP256ProofData.default_owner_tag` is `None` and the public input's owner-tag element is 0; ownership exists only inside the proof. Only a real DEFAULT-zone P256 input exposes the pubkey x-coordinate (`Some`), and that exposed tag is bound into the public input (a wrong tag fails pairing).
+  - Location: `sdk-libs/client/src/prover/transact/zone_p256.rs` (`has_default_p256_input`), `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `default_p256_owner_tag` leg)
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
+  - Severity: High (confidentiality + binding)
+  - Suggested test: positive private-by-default + positive exposed-and-bound + negative wrong tag (all exist); harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-ZONE-TRANSACT-07: enabled flag is not required for zone_transact**
   - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_transact_succeeds_while_zone_authority_transact_is_disabled`
@@ -495,13 +528,19 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [ ] **INV-ZONE-AUTH-05: zone-authority proofs must use the eddsa (uncommitted) encoding**
-  - Not applicable post-PR164 (`TransactProof` is a single plain Groth16 struct -- there is no committed/P256 encoding to mismatch, and `MismatchedTransactProofRail` no longer exists). The covering `zone_authority_transact_rejects_a_p256_proof_encoding` test was removed with the rail.
+- [x] **INV-ZONE-AUTH-05: zone-authority proofs must use the uncommitted (non-P256) encoding**
+  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
+  - Kind: precondition
+  - Statement: `zone_authority_transact` accepts only the `CircuitId::ZoneAuthority` selector; a BSB22-committed `ZoneP256` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
+  - Error: `ShieldedPoolError::MismatchedCircuitType = 7039`
+  - Severity: High
+  - Suggested test: negative per selector family (exists); harness: mollusk unit
 
 - [x] **INV-ZONE-AUTH-06: authority variant folds no input-owner public inputs**
   - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
-  - Statement: the `zone_authority_transact` public-input hash chain contains the 6-element base, the interleaved public movement slots, then `zone_program_id`, `payer_pubkey_hash`, and `allow_dummy_inputs` (no input-owner chain, no output-owner chain).
+  - Statement: the `zone_authority_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `zone_program_id`, the bare `hash_bytes(payer)` element (a one-element signer "chain"), and `allow_dummy_inputs` (no output-owner chain).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:192-202` (`fn public_input_hash`, authority selector omits both owner chains)
   - Severity: High
   - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`

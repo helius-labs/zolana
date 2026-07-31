@@ -5,9 +5,13 @@ live in the per-instruction files; `docs/spec.md` remains the protocol source
 of truth.
 
 Legend: PR164 = the circuit/protocol update, merged via PR171 (#171);
-"post-PR164" below refers to that update. The P256 rail is being restored
-via PR172: the P256-related N/A entries and INV-XC-32 ("retired wire formats
-fail closed") must be re-activated / re-scoped when it lands.
+"post-PR164" below refers to that update. PR172 (signer-run authorization,
+owner-hidden zone deposits, the ZoneP256 rail) has landed: the P256 N/A
+entries are re-activated in their ZoneP256 scope (INV-TRANSACT-06, -11,
+INV-ZONE-TRANSACT-06, INV-ZONE-AUTH-05, INV-XC-12), INV-XC-32 covers
+retired-and-new wire formats, and new entries pin the signer-run model
+(INV-TRANSACT-45), the ZoneP256ProofData payload (INV-XC-33), and the
+signer-account owner rotation hardening (INV-UPDATE-ZC-OWNER-02/-05).
 
 Marker legend: `- [x]` covered by tests on this branch; `- [ ]` partial or
 uncovered; `- [~]` covered on a companion security branch (#175/#176) that
@@ -74,8 +78,8 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 242
-  - transact.md: 58 (Transact 44, ZoneTransact 7, ZoneAuthorityTransact 7)
+- Total invariants: 244
+  - transact.md: 59 (Transact 45, ZoneTransact 7, ZoneAuthorityTransact 7)
   - deposit.md: 34 (Deposit 25, ZoneDeposit 9)
   - merge.md: 32 (MergeTransact 19, ZoneMergeTransact 13)
   - tree.md: 23 (CreateTree 9, BatchUpdateNullifierTree 9, PauseTree 5)
@@ -83,11 +87,11 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   - zone-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
-  - cross-cutting.md: 32
-- Critical (funds/double-spend/authority takeover): 85
-- High: 80
+  - cross-cutting.md: 33
+- Critical (funds/double-spend/authority takeover): 90
+- High: 83
 - Medium: 66
-- Not applicable post-PR164: 11 (P256 rails and the `P256SigningKey` owner tag, both-amounts gate, the `cpi_authority` instruction-data field (its account slot remains live, INV-TRANSACT-14), merge ciphertext/`merge_view_tag`; IDs retained, never renumbered)
+- Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
   after an audit found the first resolution had not actually landed):
@@ -122,9 +126,9 @@ Every invariant was mapped against the test suite (integration tests in
 Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 `Partial coverage:` line stating what is still missing.
 
-Post-PR171 sync (2026-07-28):
+Post-PR172 sync (2026-07-31):
 
-- Covered: 206 / 242
+- Covered: 214 / 244
 - Covered on companion security branches (#175, #176): 3 (the `- [~]` entries:
   INV-CREATE-PC-10, INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests
   land with those branches)
@@ -132,13 +136,13 @@ Post-PR171 sync (2026-07-28):
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(206 + 3 + 21 + 1 + 11 = 242. The per-file partial+untested column sums to 23
+(214 + 3 + 21 + 1 + 5 = 244. The per-file partial+untested column sums to 23
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 49/3/0/6, deposit 33/1/0/0, merge 22/6/0/4, tree 18/4/1/0,
+transact 55/3/0/1, deposit 33/1/0/0, merge 22/6/0/4, tree 18/4/1/0,
 protocol-config 16/0/1/0, zone-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
-cross-cutting 25/6/0/1.
+cross-cutting 27/6/0/0.
 
 All added tests pass. Suites run green this pass:
 `shielded-pool-tests` (216 hermetic) and `--features proofs` (incl. the new

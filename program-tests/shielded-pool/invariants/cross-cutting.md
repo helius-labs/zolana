@@ -124,8 +124,15 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Severity: Critical
   - Suggested test: property (per-field bit-flip loop) + golden vectors (exist); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors` + program-tests integration
 
-- [ ] **INV-XC-12: proof encoding and rail must match the selected circuit**
-  - Not applicable post-PR164 (the P256 rail and the `TransactProof::P256` encoding were removed; `TransactProof` is a single plain Groth16 struct, so no encoding/rail mismatch class remains). The covering `transact_rejects_a_p256_proof_on_the_eddsa_rail` test was removed with the rail.
+- [x] **INV-XC-12: proof encoding and rail must match the selected circuit**
+  - Covered by: `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
+  - Kind: precondition
+  - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
+  - Statement: a proof is only valid under the circuit selector family it was built for: a BSB22-committed P256 proof under the ZoneEddsa selector fails pairing against the eddsa verifying key (7008); an uncommitted eddsa proof under the ZoneP256 selector can carry no valid BSB22 commitment and fails the encoding check first (7007); a wrong selector FAMILY under any tag is rejected pre-account with 7039 (INV-TRANSACT-34).
+  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn verify`, selector-keyed verifying key + commitment leg), `transact/processor.rs:139-151` (`fn validate_circuit_type`)
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008` / `InvalidTransactProofEncoding = 7007` / `MismatchedCircuitType = 7039`
+  - Severity: Critical (cross-rail grafting)
+  - Suggested test: negative both graft directions (exists); harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-XC-13: undecompressable proof points are an encoding error, not a verification error**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_proof_points_that_fail_decompression`
@@ -286,7 +293,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-28: error codes are stable**
   - Kind: state
   - Affects: all instructions
-  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7044 — 41 variants; 7020/7021/7023/7024 retired; 7045 `SplAssetCounterAlreadyInitialized` lands with the security/spp-config-init-gate branch), pinned one-by-one with a compiler-exhaustive variant match and a count assert.
+  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7045 — 42 variants, incl. PR172's `ZeroNetInterfaceTransferAmount = 7045`; 7020/7021/7023/7024 retired; 7044 retired in place, kept for wire-code stability; 7046 `SplAssetCounterAlreadyInitialized` lands with the security/spp-config-init-gate branch), pinned one-by-one with a compiler-exhaustive variant match and a count assert.
   - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
   - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
@@ -296,7 +303,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/tests/error_conversions.rs` `interface_error_conversions_are_stable`, `tree_error_conversions_are_stable` (full per-variant tables incl. the catch-all enumeration)
   - Kind: state
   - Affects: all instructions using loaders or trees
-  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001. (The `AlreadyInitialized -> 7045` `SplAssetCounterAlreadyInitialized` row lands with the security/spp-config-init-gate branch, like the other forward references in this ledger.)
+  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001. (The `AlreadyInitialized -> 7046` `SplAssetCounterAlreadyInitialized` row lands with the security/spp-config-init-gate branch, like the other forward references in this ledger.)
   - Location: `program-libs/interface/src/error.rs:128-151` (`impl From<InterfaceError>`, `impl From<TreeError>`)
   - Severity: Medium
   - Suggested test: none remaining (table test exists)
@@ -318,12 +325,22 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Severity: Medium
   - Suggested test: positive (table test incl. the 7004 leg); harness: mollusk unit
 
-- [x] **INV-XC-32: retired wire formats fail closed at decode**
+- [x] **INV-XC-32: retired wire formats fail closed at decode, new wire formats are fixed-width**
   - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` units `rejects_retired_field_bearing_payload`, `rejects_retired_owner_tag_discriminant`
   - Kind: precondition
   - Affects: Transact, ZoneTransact, ZoneAuthorityTransact
-  - Statement: payloads carrying the retired `p256_signing_pk_x` field encoding or the retired `OwnerTag::P256SigningKey` discriminant fail deserialization (both owned and ref decoders); the removed P256 surface cannot be reintroduced by old clients.
-  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:574, 590` (decoder tests)
+  - Statement: payloads carrying the retired `p256_signing_pk_x` field encoding, the retired `OwnerTag::P256SigningKey` discriminant, or the retired per-input `eddsa_signer_index` byte fail deserialization (both owned and ref decoders) — the pre-PR172 P256 surface did NOT return and cannot be reintroduced by old clients. The NEW PR172 wire surface is fixed-width: `InputUtxo` is exactly 3 fields (nullifier, two root indices) and `ZoneP256ProofData` a statically-sized `(Bsb22Commitment, optional default_owner_tag)` adapter, so selector-bearing payloads decode allocation-free and any length drift fails closed.
+  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs` (decoder tests), `program-libs/interface/src/verifying_keys/circuit.rs` (`ZoneP256ProofData`, `FixedOptionOwnerTag`)
   - Error: decode error (`ProgramError::InvalidInstructionData` at dispatch)
   - Severity: Medium
   - Suggested test: negative (exists); harness: `cargo test -p zolana-interface`
+
+- [x] **INV-XC-33: ZoneP256ProofData is canonical and bound**
+  - Covered by: `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs` (`p256_zone_transfer_updates_recipient_wallet` bad-commitment leg, `default_zone_p256_input_exposes_and_binds_owner_tag` wrong-tag leg)
+  - Kind: precondition
+  - Affects: ZoneTransact (ZoneP256 selector)
+  - Statement: the proof-specific payload travels inside the `CircuitId::ZoneP256` selector, not in `TransactProof`/`TransactIxData`, so the non-P256 layouts need no proof-specific fields and every selector stays statically sized; the embedded BSB22 commitment must verify against the proof (7007 otherwise), and `default_owner_tag` — when `Some` — is `hash_bytes`-bound into the public input (a wrong tag fails pairing, 7008).
+  - Location: `program-libs/interface/src/verifying_keys/circuit.rs` (`ZoneP256ProofData`, `FixedOptionOwnerTag`), `programs/shielded-pool/src/instructions/transact/verify.rs` (commitment + `default_p256_owner_tag` legs)
+  - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` / `TransactProofVerificationFailed = 7008`
+  - Severity: High
+  - Suggested test: negative both legs (exist); harness: program-tests integration (`cargo test-sbf`)

@@ -109,25 +109,25 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
   - Severity: Critical (zone authority takeover)
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-UPDATE-ZC-OWNER-02: the new authority must co-sign**
-  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `zone_owner_rotation_rejects_a_mismatched_co_signer`
+- [x] **INV-UPDATE-ZC-OWNER-02: the new authority is read only from the co-signing account**
+  - Covered by: `program-tests/shielded-pool/tests/zone_config/update_owner.rs` (`reads_new_owner_only_from_the_signer_account`, `rejects_unsigned_new_owner`), `program-tests/shielded-pool/tests/admin/rejection.rs` `zone_owner_rotation_rejects_a_mismatched_co_signer`
   - Kind: precondition
-  - Statement: the third account must be a signer whose address equals exactly `data.new_authority`; a missing account, a non-signer, or a mismatch returns Err.
-  - Location: `programs/shielded-pool/src/instructions/zone_config/update_owner.rs:17-21` (`fn process_update_zone_config_owner`)
-  - Error: `ShieldedPoolError::InvalidInstructionData = 7000` (mismatch); account-checks error (missing/non-signer)
+  - Statement: the new authority address comes ONLY from the third account, which must sign — there is no instruction-data field for it (PR172 removed the borsh payload, so the address can never be grafted from data the co-signer did not see); a missing or non-signing third account returns Err.
+  - Location: `programs/shielded-pool/src/instructions/zone_config/update_owner.rs` (`fn process_update_zone_config_owner`)
+  - Error: account-checks signer error
   - Severity: High (prevents rotating to an unowned key)
-  - Suggested test: negative all three ways; harness: mollusk unit
+  - Suggested test: negative (exists); harness: `cargo test -p shielded-pool-tests --test zone_config_update_owner`
 
 ### Instruction Data Validation
 
-- [x] **INV-UPDATE-ZC-OWNER-05: malformed borsh payload is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/zone_config/contract.rs` `zone_owner_rotation_rejects_a_truncated_payload`
+- [x] **INV-UPDATE-ZC-OWNER-05: any non-empty payload is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/zone_config/update_owner.rs` `rejects_legacy_owner_payload`, `program-tests/shielded-pool/tests/zone_config/contract.rs` `zone_owner_rotation_rejects_a_truncated_payload`
   - Kind: precondition
-  - Statement: every payload that `UpdateZoneConfigOwnerData::try_from_slice` fails to parse makes the instruction return Err.
-  - Location: `programs/shielded-pool/src/instructions/zone_config/update_owner.rs:12-13` (`fn process_update_zone_config_owner`)
+  - Statement: the instruction data is exactly the tag byte; ANY trailing payload (including the retired borsh `UpdateZoneConfigOwnerData` encoding carried by pre-PR172 clients) makes the instruction return Err.
+  - Location: `programs/shielded-pool/src/instructions/zone_config/update_owner.rs` (`fn process_update_zone_config_owner`)
   - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
   - Severity: Medium
-  - Suggested test: negative + fuzz; harness: mollusk unit
+  - Suggested test: negative (exists); harness: `cargo test -p shielded-pool-tests --test zone_config_update_owner`
 
 ### Success Postconditions
 

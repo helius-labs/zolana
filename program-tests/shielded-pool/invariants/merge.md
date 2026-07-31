@@ -71,12 +71,12 @@ nullifiers.
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-MERGE-17: merge requires dummy-input capacity on the nullifier tree**
+- [x] **INV-MERGE-17: a merge past the dummy-input capacity threshold fails at proof verification**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_dummy_inputs_after_capacity_threshold`
-  - Kind: precondition
-  - Statement: when the input tree's `allow_dummy_inputs()` is false, `merge_transact`/`zone_merge_transact` return Err before any queue insertion or append (merge proofs are built with `allow_dummy_inputs = true`, so the explicit gate replaces an opaque 7008).
-  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs:100-106` (`fn process_merge_core`)
-  - Error: `ShieldedPoolError::NullifierTreeTooFullForMerge = 7044`
+  - Kind: postcondition
+  - Statement: when the input tree's `allow_dummy_inputs()` is false, the on-chain public input recomputes with the flag 0 while merge proofs are always built with `allow_dummy_inputs = true`, so `merge_transact`/`zone_merge_transact` fail pairing before any queue insertion or append. (PR172 removed the explicit gate; `NullifierTreeTooFullForMerge = 7044` is a retired variant kept only for wire-code stability — no program path returns it.)
+  - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_core`, `allow_dummy_inputs` leg)
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (availability)
   - Suggested test: negative (exists; crosses the threshold by moving the nullifier queue cursor in litesvm instead of a 250-queue localnet setup); harness: litesvm
 
