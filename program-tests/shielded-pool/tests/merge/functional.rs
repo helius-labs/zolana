@@ -40,7 +40,7 @@ use zolana_test_utils::transact::nullifier_tree;
 use zolana_transaction::{Data, SppProofOutputUtxo, Utxo, SOL_MINT};
 use zolana_user_registry_interface::{
     state::{UserRecord, NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN},
-    USER_REGISTRY_PROGRAM_ID,
+    user_record_pda, USER_REGISTRY_PROGRAM_ID,
 };
 
 /// Materialize a registry-owned `UserRecord` account directly in LiteSVM. The
@@ -58,9 +58,11 @@ fn write_user_record(
     if let Some(first) = viewing_pubkey.first_mut() {
         *first = 0x02;
     }
+    // The program pins the record to its canonical registry PDA and bump.
+    let (address, bump) = user_record_pda(&owner);
     let record = UserRecord {
-        owner,
-        bump: 0,
+        owner: solana_address::Address::new_from_array(owner.to_bytes()),
+        bump,
         owner_p256,
         nullifier_pubkey: [11u8; NULLIFIER_PUBKEY_LEN],
         viewing_pubkey,
@@ -73,7 +75,6 @@ fn write_user_record(
     // The registry requires the exact fixed record size; a `None` p256 key
     // serializes short, so zero-pad like the program's own writes do.
     data.resize(UserRecord::SIZE, 0);
-    let address = Pubkey::new_unique();
     rpc.svm
         .set_account(
             address,
