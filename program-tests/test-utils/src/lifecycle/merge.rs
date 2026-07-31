@@ -18,10 +18,7 @@ use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::{Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo};
 use zolana_user_registry_interface::{
-    instruction::{
-        p256_key_binding_message, p256_verify_instruction, register, set_merging_enabled,
-        RegisterData,
-    },
+    instruction::{register, set_merging_enabled, RegisterData},
     user_record_pda,
 };
 
@@ -53,7 +50,7 @@ impl LifecycleHarness {
         // Every actor is eddsa-owned: it registers under its own ed25519 signing
         // key (so `record.owner` is the identity merge derives `signing_pk_field`
         // from) with no `owner_p256`.
-        let owner = self.actor(name).solana_signer.insecure_clone();
+        let owner = self.actor(name).solana_signer.as_ref().expect("lifecycle actors are eddsa-owned").insecure_clone();
         self.rpc.airdrop(&owner.pubkey(), 1_000_000_000)?;
 
         let register_data = RegisterData {

@@ -56,6 +56,10 @@ name = "zone_lifecycle"
 path = "tests/zone_lifecycle.rs"
 
 [[test]]
+name = "p256_zone_lifecycle"
+path = "tests/p256_zone_lifecycle.rs"
+
+[[test]]
 name = "proof_cu"
 path = "tests/proof_cu.rs"
 

@@ -9,8 +9,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ConfidentialTransfer, ProverClient, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
-    TransferSpendInput, ZoneTransferProver,
+    ConfidentialTransfer, ProofCompressed, ProverClient, Shape, SpendProof, SppProofInputUtxo,
+    SppProofInputs, TransferSpendInput, ZoneTransferP256Prover, ZoneTransferProver,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -19,10 +19,12 @@ use zolana_interface::{
         tag::ZONE_TRANSACT,
         TransactInterfaceTransferAccounts, TransactSolTransferAccounts, ZoneTransact,
     },
+    verifying_keys::{Bsb22Commitment, ZoneP256ProofData},
 };
 use zolana_program_test::Rejection;
 use zolana_transaction::{
-    instructions::transact::SettlementTarget, Data, ShieldedTransaction, Utxo, SOL_MINT,
+    instructions::transact::SettlementTarget, Data, ShieldedTransaction, SyncWalletAuthority,
+    Utxo, SOL_MINT,
 };
 
 use super::{decode_output_blinding, ZoneHarness};
@@ -48,6 +50,33 @@ struct DiscoveredOutputs {
     change: Vec<[u8; 32]>,
 }
 
+/// The prover rail a zone transfer is proved on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ZoneRail {
+    /// Ownership authorized by the transaction signature (signer run).
+    #[default]
+    Eddsa,
+    /// Ownership authorized inside the proof (ZoneP256 + BSB22 commitment).
+    P256,
+}
+
+/// Cross-rail grafting and proof-data tampering for the negative cases. The
+/// prover always runs on `rail`; the tamper only changes what goes on the wire.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ProofTamper {
+    #[default]
+    None,
+    /// Corrupt the embedded BSB22 commitment (rejected before pairing, 7007).
+    BadCommitment,
+    /// A P256 proof submitted under the ZoneEddsa selector (pairing fails, 7008).
+    P256ProofUnderEddsaSelector,
+    /// An eddsa proof submitted under the ZoneP256 selector (no valid BSB22
+    /// commitment can exist for it, so encoding fails first, 7007).
+    EddsaProofUnderP256Selector,
+    /// A wrong `default_owner_tag` in the proof data (pairing fails, 7008).
+    BadDefaultOwnerTag,
+}
+
 /// A proved zone transfer, sent and indexed, ready to be asserted and tracked.
 struct SentZoneTransfer {
     data: TransactIxData,
@@ -64,6 +93,30 @@ struct ZoneTransferOperation<'a> {
     send_asset: Address,
     amount: u64,
     withdrawal: Option<Pubkey>,
+    rail: ZoneRail,
+    tamper: ProofTamper,
+}
+
+impl ZoneTransferOperation<'_> {
+    fn eddsa<'a>(
+        from: &'a str,
+        to: Option<&'a str>,
+        inputs: &'a [Utxo],
+        send_asset: Address,
+        amount: u64,
+        withdrawal: Option<Pubkey>,
+    ) -> ZoneTransferOperation<'a> {
+        ZoneTransferOperation {
+            from,
+            to,
+            inputs,
+            send_asset,
+            amount,
+            withdrawal,
+            rail: ZoneRail::Eddsa,
+            tamper: ProofTamper::None,
+        }
+    }
 }
 
 impl ZoneHarness {
@@ -78,7 +131,21 @@ impl ZoneHarness {
         asset: Address,
         amount: u64,
     ) -> Result<Signature> {
-        self.execute_zone_transfer(from, Some(to), asset, amount, None)
+        self.execute_zone_transfer(from, Some(to), asset, amount, None, ZoneRail::Eddsa)
+    }
+
+    /// Zone-transfer `amount` of `asset` from `from` to `to` over the P256 rail
+    /// (ownership proved inside the ZoneP256 proof; the harness payer funds the
+    /// transaction), consolidating two of `from`'s spendable zone UTXOs into the
+    /// (2, 3) shape.
+    pub fn zone_transfer_p256(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<Signature> {
+        self.execute_zone_transfer(from, Some(to), asset, amount, None, ZoneRail::P256)
     }
 
     /// Zone-withdraw `amount` of SOL from `from`'s zone UTXOs to a fresh external
@@ -95,7 +162,8 @@ impl ZoneHarness {
             return Err(anyhow!("only SOL zone withdrawals are supported"));
         }
         let recipient = Keypair::new().pubkey();
-        let sig = self.execute_zone_transfer(from, None, asset, amount, Some(recipient))?;
+        let sig =
+            self.execute_zone_transfer(from, None, asset, amount, Some(recipient), ZoneRail::Eddsa)?;
         Ok((sig, recipient))
     }
 
@@ -111,6 +179,7 @@ impl ZoneHarness {
         send_asset: Address,
         amount: u64,
         withdrawal: Option<Pubkey>,
+        rail: ZoneRail,
     ) -> Result<Signature> {
         if self.zone_config.is_none() {
             self.create_enabled_zone_config()?;
@@ -128,6 +197,8 @@ impl ZoneHarness {
             send_asset,
             amount,
             withdrawal,
+            rail,
+            tamper: ProofTamper::None,
         })?;
 
         let SentZoneTransfer {
@@ -222,6 +293,8 @@ impl ZoneHarness {
             send_asset,
             amount,
             withdrawal,
+            rail,
+            tamper,
         } = operation;
         let from_keypair = self.actor(from).keypair.clone();
         let to_keypair = to.map(|t| self.actor(t).keypair.clone());
@@ -235,9 +308,14 @@ impl ZoneHarness {
             .transpose()?;
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        // The eddsa rail's owner sits at signer index 0 (the fee payer), so the
-        // actor pays and signs its own spend.
-        let fee_payer = self.actor(from).solana_signer.insecure_clone();
+        // An eddsa actor pays and signs its own spend; a P256 actor falls back
+        // to the harness payer because ownership is proven inside the proof.
+        let fee_payer = self
+            .actor(from)
+            .solana_signer
+            .as_ref()
+            .map(|keypair| keypair.insecure_clone())
+            .unwrap_or_else(|| self.payer.insecure_clone());
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
 
         // The high-level builder produces a decryptable SppProofInputs (outputs,
@@ -270,14 +348,17 @@ impl ZoneHarness {
                 return Err(anyhow!("a zone transfer needs a recipient or a withdrawal"));
             }
         }
-        let mut proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
+        let mut proof_inputs = match rail {
+            ZoneRail::Eddsa => transfer.sign(&from_keypair, &self.assets)?,
+            ZoneRail::P256 => transfer.sign_zone_p256(&from_keypair, &self.assets)?,
+        };
         // Rebind the discriminator to ZONE_TRANSACT before anything commits to
         // external_data: it is folded into external_data_hash and private_tx_hash, so
         // the proof and the on-chain recompute must agree on it.
         proof_inputs.external_data.instruction_discriminator = ZONE_TRANSACT;
 
         let zone = Address::new_from_array(self.zone_program_id.to_bytes());
-        let data = self.prove_and_assemble(&proof_inputs, zone)?;
+        let data = self.prove_and_assemble(&proof_inputs, &from_keypair, zone, rail, tamper)?;
 
         let interface_transfer_accounts = withdrawal
             .map(|recipient| {
@@ -286,6 +367,11 @@ impl ZoneHarness {
                 )]
             })
             .unwrap_or_default();
+        let owner_signers = proof_inputs
+            .owner_signer_pubkeys()?
+            .iter()
+            .map(|address| Pubkey::new_from_array(address.to_bytes()))
+            .collect();
 
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = ZoneTransact {
@@ -293,7 +379,7 @@ impl ZoneHarness {
             input_tree: self.tree,
             output_tree: self.tree,
             zone_program_id: self.zone_program_id,
-            owner_signers: Vec::new(),
+            owner_signers,
             interface_transfer_accounts,
             data: data.clone(),
         }
@@ -321,35 +407,109 @@ impl ZoneHarness {
     }
 
     /// Drive the zone prover rail and fold the result into a `TransactIxData`,
-    /// mirroring `witness.rs::assemble`.
+    /// mirroring `witness.rs::assemble`. The prover always runs on `rail`;
+    /// `tamper` only changes what lands on the wire (grafted selector or
+    /// corrupted proof data).
     fn prove_and_assemble(
         &self,
         proof_inputs: &SppProofInputs,
+        signer: &zolana_keypair::ShieldedKeypair,
         zone: Address,
+        rail: ZoneRail,
+        tamper: ProofTamper,
     ) -> Result<TransactIxData> {
         let spend_inputs = self.zone_spend_inputs(&proof_inputs.input_utxos)?;
         let tx_shape = proof_inputs.check_shape()?;
         let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
+        let signer_pk_hashes = proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?;
 
-        let prover = ZoneTransferProver {
-            inputs: spend_inputs,
-            outputs: proof_inputs.output_utxos.clone(),
-            external_data: proof_inputs.external_data.clone(),
-            public_transfers: proof_inputs.public_transfers()?,
-            signer_pk_hashes: proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?,
-            allow_dummy_inputs: true,
-            zone_program_id: Some(zone),
-            shape: Some(shape),
-        };
-        let result = prover.build()?;
-        let proof = ProverClient::local().prove_transfer_zone(&result.inputs)?;
-        assemble_ix_data(
-            proof_inputs,
-            &result.nullifiers,
-            result.private_tx_hash,
-            &result.input_root_indices,
-            pack_transact_proof(&proof)?,
-        )
+        match rail {
+            ZoneRail::Eddsa => {
+                let prover = ZoneTransferProver {
+                    inputs: spend_inputs,
+                    outputs: proof_inputs.output_utxos.clone(),
+                    external_data: proof_inputs.external_data.clone(),
+                    public_transfers: proof_inputs.public_transfers()?,
+                    signer_pk_hashes,
+                    allow_dummy_inputs: true,
+                    zone_program_id: Some(zone),
+                    shape: Some(shape),
+                };
+                let result = prover.build()?;
+                let proof = ProverClient::local().prove_transfer_zone(&result.inputs)?;
+                let proof = pack_transact_proof(&proof)?;
+                if tamper == ProofTamper::EddsaProofUnderP256Selector {
+                    // No valid BSB22 commitment can exist for an eddsa proof; a
+                    // zeroed one is rejected at the encoding check.
+                    assemble_ix_data(
+                        proof_inputs,
+                        &result.nullifiers,
+                        result.private_tx_hash,
+                        &result.input_root_indices,
+                        ZoneRail::P256,
+                        proof,
+                        Some(Bsb22Commitment {
+                            commitment: [0u8; 32],
+                            commitment_pok: [0u8; 32],
+                        }),
+                        None,
+                    )
+                } else {
+                    assemble_ix_data(
+                        proof_inputs,
+                        &result.nullifiers,
+                        result.private_tx_hash,
+                        &result.input_root_indices,
+                        ZoneRail::Eddsa,
+                        proof,
+                        None,
+                        None,
+                    )
+                }
+            }
+            ZoneRail::P256 => {
+                let authorization =
+                    SyncWalletAuthority::sign_p256(signer, &proof_inputs.message_hash()?)?;
+                let prover = ZoneTransferP256Prover {
+                    inputs: spend_inputs,
+                    outputs: proof_inputs.output_utxos.clone(),
+                    external_data: proof_inputs.external_data.clone(),
+                    public_transfers: proof_inputs.public_transfers()?,
+                    signer_pk_hashes,
+                    allow_dummy_inputs: true,
+                    authorization,
+                    zone_program_id: Some(zone),
+                    shape: Some(shape),
+                };
+                let result = prover.build()?;
+                let proof = ProverClient::local().prove_transfer_p256_zone(&result.inputs)?;
+                let (proof, commitment) = p256_transact_proof(&proof)?;
+                let mut commitment = commitment;
+                if tamper == ProofTamper::BadCommitment {
+                    commitment.commitment = [u8::MAX; 32];
+                }
+                let wire_rail = if tamper == ProofTamper::P256ProofUnderEddsaSelector {
+                    ZoneRail::Eddsa
+                } else {
+                    ZoneRail::P256
+                };
+                let default_owner_tag = if tamper == ProofTamper::BadDefaultOwnerTag {
+                    result.default_owner_tag.map(|_| [u8::MAX; 32])
+                } else {
+                    result.default_owner_tag
+                };
+                assemble_ix_data(
+                    proof_inputs,
+                    &result.nullifiers,
+                    result.private_tx_hash,
+                    &result.input_root_indices,
+                    wire_rail,
+                    proof,
+                    Some(commitment),
+                    default_owner_tag,
+                )
+            }
+        }
     }
 
     /// Convert the builder's padded `SppProofInputUtxo` list into the prover's
@@ -528,7 +688,12 @@ impl ZoneHarness {
 
         let from_keypair = self.actor(from).keypair.clone();
         let to_address = self.actor(to).keypair.shielded_address()?;
-        let fee_payer = self.actor(from).solana_signer.insecure_clone();
+        let fee_payer = self
+            .actor(from)
+            .solana_signer
+            .as_ref()
+            .map(|keypair| keypair.insecure_clone())
+            .unwrap_or_else(|| self.payer.insecure_clone());
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
 
         let spends: Vec<SppProofInputUtxo> = inputs
@@ -561,7 +726,10 @@ impl ZoneHarness {
             &result.nullifiers,
             result.private_tx_hash,
             &result.input_root_indices,
+            ZoneRail::Eddsa,
             TransactProof::zeroed(),
+            None,
+            None,
         )?;
 
         let transfer_ix = ZoneTransact {
@@ -594,6 +762,228 @@ impl ZoneHarness {
             }
         }
     }
+
+    /// Clone two of `from`'s spendable UTXOs of `asset` without consuming them
+    /// (negative paths, where the spend never lands). `zone_only` selects the
+    /// zone-owned set; `false` selects default-zone UTXOs (e.g. a default-zone
+    /// P256 input, which exposes `default_owner_tag` on the wire).
+    fn peek_spendable_inputs(&self, from: &str, asset: Address, zone_only: bool) -> Result<Vec<Utxo>> {
+        let inputs: Vec<Utxo> = self
+            .actor(from)
+            .spendable
+            .iter()
+            .filter(|utxo| {
+                utxo.asset == asset && (utxo.zone_program_id.is_some() == zone_only)
+            })
+            .take(2)
+            .cloned()
+            .collect();
+        if inputs.len() != 2 {
+            return Err(anyhow!(
+                "{from} needs two spendable {} UTXOs of {asset}",
+                if zone_only { "zone" } else { "default-zone" }
+            ));
+        }
+        Ok(inputs)
+    }
+
+    /// Run a tampered zone-transfer attempt and assert the exact rejection plus
+    /// an untouched tree. The inputs are peeked, so `from`'s spendable set is
+    /// unchanged for a later happy-path attempt.
+    fn expect_tampered_rejection(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+        rail: ZoneRail,
+        tamper: ProofTamper,
+        expected: ShieldedPoolError,
+    ) -> Result<()> {
+        if self.zone_config.is_none() {
+            self.create_enabled_zone_config()?;
+        }
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
+        let inputs = self.peek_spendable_inputs(from, asset, true)?;
+        let tree_before = fetch_account(&self.rpc, &self.tree)?;
+        match self.send_zone_transfer(ZoneTransferOperation {
+            from,
+            to: Some(to),
+            inputs: &inputs,
+            send_asset: asset,
+            amount,
+            withdrawal: None,
+            rail,
+            tamper,
+        }) {
+            Ok(_) => Err(anyhow!(
+                "tampered zone transfer ({tamper:?}) unexpectedly succeeded"
+            )),
+            Err(error) => {
+                let client_error = error
+                    .downcast_ref::<zolana_client::ClientError>()
+                    .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
+                Rejection::pool(expected).at(1).assert_client(client_error);
+                assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Request a valid P256 proof, corrupt only its embedded BSB22 commitment,
+    /// and confirm SPP rejects the instruction at the encoding check, before
+    /// pairing verification (7007).
+    pub fn zone_transfer_p256_bad_commitment_rejected(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        self.expect_tampered_rejection(
+            from,
+            to,
+            asset,
+            amount,
+            ZoneRail::P256,
+            ProofTamper::BadCommitment,
+            ShieldedPoolError::InvalidTransactProofEncoding,
+        )
+    }
+
+    /// Cross-rail grafting: a valid P256 proof submitted under the ZoneEddsa
+    /// selector. The selector picks the eddsa verifying key, so pairing fails
+    /// (7008).
+    pub fn p256_proof_under_eddsa_selector_rejected(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        self.expect_tampered_rejection(
+            from,
+            to,
+            asset,
+            amount,
+            ZoneRail::P256,
+            ProofTamper::P256ProofUnderEddsaSelector,
+            ShieldedPoolError::TransactProofVerificationFailed,
+        )
+    }
+
+    /// Cross-rail grafting: a valid eddsa proof submitted under the ZoneP256
+    /// selector. No valid BSB22 commitment can exist for it, so the encoding
+    /// check fires before pairing (7007).
+    pub fn eddsa_proof_under_p256_selector_rejected(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        self.expect_tampered_rejection(
+            from,
+            to,
+            asset,
+            amount,
+            ZoneRail::Eddsa,
+            ProofTamper::EddsaProofUnderP256Selector,
+            ShieldedPoolError::InvalidTransactProofEncoding,
+        )
+    }
+
+    /// Zone-transfer over the P256 rail spending DEFAULT-zone P256 inputs: the
+    /// presence of a real default-zone P256 input exposes the owner's P256
+    /// pubkey x-coordinate as `default_owner_tag` on the wire. Asserts the tag
+    /// is present and equals `from`'s signing pubkey x-coordinate.
+    pub fn zone_transfer_p256_default_input_exposes_owner_tag(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<Signature> {
+        if self.zone_config.is_none() {
+            self.create_enabled_zone_config()?;
+        }
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
+        let inputs = self.peek_spendable_inputs(from, asset, false)?;
+        let sent = self.send_zone_transfer(ZoneTransferOperation {
+            from,
+            to: Some(to),
+            inputs: &inputs,
+            send_asset: asset,
+            amount,
+            withdrawal: None,
+            rail: ZoneRail::P256,
+            tamper: ProofTamper::None,
+        })?;
+        let CircuitId::ZoneP256(_, _, _, proof_data) = &sent.data.circuit else {
+            return Err(anyhow!("expected a ZoneP256 circuit selector"));
+        };
+        let expected_tag = self.actor(from).keypair.signing_pubkey().as_p256()?.x();
+        if proof_data.default_owner_tag != Some(expected_tag) {
+            return Err(anyhow!(
+                "default_owner_tag {:?} != signing pubkey x {}",
+                proof_data.default_owner_tag,
+                hex32(&expected_tag)
+            ));
+        }
+        // Consume the spent inputs only after the transfer landed.
+        let actor = self.actor_mut(from);
+        for input in &inputs {
+            if let Some(pos) = actor.spendable.iter().position(|u| u == input) {
+                actor.spendable.remove(pos);
+            }
+        }
+        Ok(sent.signature)
+    }
+
+    /// A real default-zone P256 input with a WRONG `default_owner_tag` in the
+    /// proof data: the tag is bound into the public input, so pairing fails
+    /// (7008).
+    pub fn zone_transfer_p256_wrong_default_owner_tag_rejected(
+        &mut self,
+        from: &str,
+        to: &str,
+        asset: Address,
+        amount: u64,
+    ) -> Result<()> {
+        if self.zone_config.is_none() {
+            self.create_enabled_zone_config()?;
+        }
+        self.ensure_fresh_actor(from)?;
+        self.ensure_fresh_actor(to)?;
+        let inputs = self.peek_spendable_inputs(from, asset, false)?;
+        let tree_before = fetch_account(&self.rpc, &self.tree)?;
+        match self.send_zone_transfer(ZoneTransferOperation {
+            from,
+            to: Some(to),
+            inputs: &inputs,
+            send_asset: asset,
+            amount,
+            withdrawal: None,
+            rail: ZoneRail::P256,
+            tamper: ProofTamper::BadDefaultOwnerTag,
+        }) {
+            Ok(_) => Err(anyhow!(
+                "P256 zone transfer with a wrong default_owner_tag unexpectedly succeeded"
+            )),
+            Err(error) => {
+                let client_error = error
+                    .downcast_ref::<zolana_client::ClientError>()
+                    .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
+                Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+                    .at(1)
+                    .assert_client(client_error);
+                assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Assemble the `TransactIxData` from the signed transaction's external data and
@@ -607,7 +997,10 @@ fn assemble_ix_data(
     nullifiers: &[[u8; 32]],
     private_tx_hash: [u8; 32],
     root_indices: &[(u16, u16)],
+    rail: ZoneRail,
     proof: TransactProof,
+    commitment: Option<Bsb22Commitment>,
+    default_owner_tag: Option<[u8; 32]>,
 ) -> Result<TransactIxData> {
     let n_inputs = proof_inputs.check_shape()?.n_inputs();
     if nullifiers.len() != n_inputs || root_indices.len() != n_inputs {
@@ -634,15 +1027,26 @@ fn assemble_ix_data(
     }
 
     let external = &proof_inputs.external_data;
+    let n_outputs = external.outputs.len() as u8;
+    let n_slots = zolana_interface::N_PUBLIC_SLOTS as u8;
+    let circuit = match rail {
+        ZoneRail::Eddsa => CircuitId::ZoneEddsa(n_inputs as u8, n_outputs, n_slots),
+        ZoneRail::P256 => CircuitId::ZoneP256(
+            n_inputs as u8,
+            n_outputs,
+            n_slots,
+            ZoneP256ProofData {
+                bsb22_commitment: commitment
+                    .ok_or_else(|| anyhow!("P256 proof is missing its BSB22 commitment"))?,
+                default_owner_tag,
+            },
+        ),
+    };
     Ok(TransactIxData {
         proof,
         expiry_unix_ts: external.expiry_unix_ts,
         private_tx_hash,
-        circuit: CircuitId::ZoneEddsa(
-            n_inputs as u8,
-            external.outputs.len() as u8,
-            zolana_interface::N_PUBLIC_SLOTS as u8,
-        ),
+        circuit,
         inputs,
         interface_transfers: external
             .interface_transfers
@@ -665,4 +1069,12 @@ fn hex32(bytes: &[u8; 32]) -> String {
         s.push_str(&format!("{b:02x}"));
     }
     s
+}
+
+/// Split a committed P256 proof into the unchanged transact proof triple and
+/// the BSB22 payload carried by `CircuitId::ZoneP256`.
+fn p256_transact_proof(
+    proof: &zolana_client::Proof,
+) -> Result<(TransactProof, Bsb22Commitment)> {
+    Ok(ProofCompressed::try_from(*proof)?.into_zone_p256_transact_parts()?)
 }

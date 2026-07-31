@@ -101,3 +101,19 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 
 	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
+
+// TestP256DummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31, P256 rail):
+// the ZoneP256 circuit runs the same shared non-inclusion binding -- a dummy
+// slot whose public Nullifier is NOT the circuit-derived value must not solve,
+// even with a valid P256 authorization and a consistent public input hash.
+func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	assignment := buildDummyInputShield(t, 125)
+	assignment.Inputs[0].Nullifier = spptest.Fe(0xF01)
+	owner := spptest.FixedP256Key(t, 11)
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	assert.SolvingFailed(circuit, asCustomZoneP256(assignment, authorization), test.WithCurves(ecc.BN254))
+}
