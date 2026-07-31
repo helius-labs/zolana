@@ -5,20 +5,24 @@
 //! `zolana-smart-account-client` and is re-exported here so existing test
 //! imports keep working. This module adds the localnet `ProgramConfig` fixture
 //! and the standard five-role account layout the SPP tests share, built on the
-//! shared role table (`zolana_smart_account_client::roles`): the localnet
-//! fixture `ProgramConfig` starts at index 0, so the roles sit at seeds
-//! 1..=5 in `Role::ALL` creation order (protocol, tree, zone, merge,
-//! forester) — the same table `xtask init-protocol` deploys with.
+//! role table in [`roles`]: the localnet fixture `ProgramConfig` starts at
+//! index 0, so the roles sit at seeds 1..=5 in `Role::ALL` creation order
+//! (protocol, tree, zone, merge, forester). `xtask init-protocol` deploys the
+//! same roles in the same order without sharing this table -- see [`roles`].
 
 use std::{fs, path::Path};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
+pub mod roles;
+pub mod settings;
+
+pub use roles::Role;
+pub use settings::settings_member_keys;
 pub use zolana_smart_account_client::{
-    create_smart_account_ix, execute_sync_ix, program_config_pda, roles::Role,
-    settings::settings_member_keys, settings_pda, smart_account_pda, treasury_pda, Permissions,
-    SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
+    create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
+    treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
 };
 
 // Anchor account discriminator: sha256("account:ProgramConfig")[0..8]

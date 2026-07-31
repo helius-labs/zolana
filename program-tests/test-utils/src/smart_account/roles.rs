@@ -1,10 +1,19 @@
 //! The role table for the five protocol authority smart accounts.
 //!
-//! `xtask init-protocol` creates the five Squads `Settings` accounts in one
-//! batch at consecutive seeds above the smart-account program's current
-//! `smart_account_index`; the localnet harnesses create the same batch above
-//! the fixture index 0. Both sides name accounts through this table, so a
-//! role's seed offset is defined exactly once:
+//! The localnet test harnesses create the five Squads `Settings` accounts in
+//! one batch at consecutive seeds above the fixture `smart_account_index` (0)
+//! and name them through this table.
+//!
+//! `xtask init-protocol` deploys the same five roles in the same order, but it
+//! does not use this table: it creates each account against the *live* index
+//! (`seed = smart_account_index + 1` per call), so the offsets below are
+//! implied by its call order rather than shared with it. The two agree today;
+//! deduplicating them means driving xtask's creation sequence from `Role::ALL`,
+//! which is deliberately left out of this change because `init_protocol.rs`
+//! has no tests and a wrong role order would misassign authorities on a live
+//! deployment.
+//!
+//! Seed offsets:
 //!
 //! | role     | seed offset |
 //! |----------|-------------|
@@ -14,16 +23,15 @@
 //! | merge    | +4          |
 //! | forester | +5          |
 //!
-//! This is the order `init-protocol` creates them (and therefore the order on
-//! any persistent deployment it initialized); the localnet harnesses were
+//! This is the order `init-protocol` creates them, and therefore the order on
+//! any persistent deployment it initialized; the localnet harnesses were
 //! migrated from their historical protocol/forester/merge/tree/zone order to
-//! match. The `--resume` recovery path derives the batch as
-//! `smart_account_index - 5` plus these offsets, so the table also pins what
-//! resume expects to find.
+//! match. xtask's `--resume` recovery path derives the batch as
+//! `smart_account_index - 5` plus the same offsets.
 
 use solana_pubkey::Pubkey;
 
-use crate::{settings_pda, smart_account_pda};
+use zolana_smart_account_client::{settings_pda, smart_account_pda};
 
 /// One of the five protocol authority smart accounts, in creation order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

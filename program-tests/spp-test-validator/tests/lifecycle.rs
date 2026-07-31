@@ -6,7 +6,8 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
-use zolana_smart_account_client::{settings::settings_member_keys, SMART_ACCOUNT_PROGRAM_ID};
+use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+use zolana_test_utils::smart_account::settings_member_keys;
 use zolana_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
     lifecycle::{randomized::Workload, LifecycleHarness},
@@ -15,7 +16,7 @@ use zolana_test_utils::{
 use zolana_transaction::SOL_MINT;
 
 /// Pin the shared Squads `Settings` decoder
-/// (`zolana_smart_account_client::settings::settings_member_keys`) against
+/// (`zolana_test_utils::smart_account::settings::settings_member_keys`) against
 /// REAL accounts: the bootstrap creates the five standard smart accounts on a
 /// validator running the mainnet-dumped program binary, then each settings
 /// account is fetched from the validator and decoded, and the decoded member

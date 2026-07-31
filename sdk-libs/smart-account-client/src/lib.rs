@@ -12,9 +12,6 @@ use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
-pub mod roles;
-pub mod settings;
-
 pub const SMART_ACCOUNT_PROGRAM_ID: Pubkey =
     solana_pubkey::pubkey!("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");
 
