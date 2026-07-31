@@ -45,14 +45,12 @@ fn register_rejects_duplicate_atomically() {
     let record_address = user_record_pda(&owner.pubkey()).0;
     let original = rig.svm.get_account(&record_address).expect("record");
 
+    // No `owner_p256`: the key binding check runs before the already-initialized
+    // check, so a P256 key here would fire `MissingP256Proof` and never reach the
+    // duplicate gate this test is about.
     assert_error(
         rig.send(
-            build_register_ix(
-                &owner.pubkey(),
-                Some(value.owner_p256),
-                value.nullifier,
-                value.viewing,
-            ),
+            build_register_ix(&owner.pubkey(), None, value.nullifier, value.viewing),
             &[&owner],
         ),
         InstructionError::AccountAlreadyInitialized,

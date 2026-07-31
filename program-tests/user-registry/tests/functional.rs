@@ -2,12 +2,12 @@ mod common;
 
 use solana_signer::Signer;
 use user_registry_tests::{
-    build_register_ix, build_set_merging_enabled_ix, build_update_keys_ix, test_p256_pubkey,
-    user_registry_program_id, UserRecord, UserRegistryTestRig,
+    build_register_ix, build_set_merging_enabled_ix, build_update_keys_ix, build_update_keys_ixs,
+    p256_binding_signature, user_registry_program_id, UserRecord, UserRegistryTestRig,
 };
 use zolana_user_registry_interface::user_record_pda;
 
-use common::{funded_keypair, keys, register};
+use common::{funded_keypair, keys, register, signing_key};
 
 #[test]
 fn register_initializes_the_complete_record() {
@@ -116,14 +116,16 @@ fn update_keys_clears_and_restores_the_p256_key() {
         "the vacated tail is zeroed (write_record fills before writing)"
     );
 
-    // None -> Some regrow with a fresh key.
-    let regrown_key = test_p256_pubkey(0xD1);
-    rig.send(
-        build_update_keys_ix(
+    // None -> Some regrow with a fresh key, which needs its own proof of possession.
+    let regrown = signing_key(0xD1);
+    let (regrown_key, regrown_signature) = p256_binding_signature(&owner.pubkey(), &regrown);
+    rig.send_all(
+        &build_update_keys_ixs(
             &owner.pubkey(),
             Some(regrown_key),
             value.nullifier,
             value.viewing,
+            Some(regrown_signature),
         ),
         &[&owner],
     )
@@ -160,13 +162,16 @@ fn update_keys_changes_only_the_static_keys() {
     .expect("enable merging");
     let before = rig.record(&owner.pubkey());
     let updated = keys(7);
+    let (updated_p256, updated_signature) =
+        p256_binding_signature(&owner.pubkey(), &signing_key(updated.tag));
 
-    rig.send(
-        build_update_keys_ix(
+    rig.send_all(
+        &build_update_keys_ixs(
             &owner.pubkey(),
-            Some(updated.owner_p256),
+            Some(updated_p256),
             updated.nullifier,
             updated.viewing,
+            Some(updated_signature),
         ),
         &[&owner],
     )
