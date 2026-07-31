@@ -1,19 +1,23 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
-use super::deposit::{AssetDeposit, DepositBuildError, DepositLayout};
+use super::deposit::{DepositAsset, DepositBuildError, DepositLayout};
 use crate::{
-    instruction::{tag, ZoneDepositEntry, ZoneDepositIxData},
+    instruction::{tag, EncryptedZoneDepositData, ZoneDepositEntry, ZoneDepositIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
-/// One output of a zone deposit batch. Settlement and common output fields are
-/// shared with regular deposits; zone policy data belongs to this output.
+/// One owner-hidden output of a zone deposit batch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ZoneAssetDeposit {
-    pub deposit: AssetDeposit,
+    pub asset: DepositAsset,
+    /// Opaque indexing tag. SPP copies it without validation.
+    pub view_tag: [u8; 32],
+    pub owner_utxo_hash: [u8; 32],
+    pub amount: u64,
+    pub data_hash: Option<[u8; 32]>,
     pub zone_data_hash: [u8; 32],
-    pub zone_data: Vec<u8>,
+    pub encrypted: EncryptedZoneDepositData,
 }
 
 /// Batched policy-zone deposit. The zone program authorizes the whole
@@ -48,17 +52,21 @@ impl ZoneDeposit {
     ) -> Result<Instruction, DepositBuildError> {
         let layout = DepositLayout::new(
             self.deposits.len(),
-            self.deposits.iter().map(|entry| entry.deposit.asset),
+            self.deposits.iter().map(|entry| entry.asset),
         )?;
         let deposits = self
             .deposits
             .into_iter()
             .map(|entry| {
-                let asset_index = layout.asset_index(entry.deposit.asset)?;
+                let asset_index = layout.asset_index(entry.asset)?;
                 Ok(ZoneDepositEntry {
-                    deposit: entry.deposit.into_entry(asset_index),
+                    asset_index,
+                    view_tag: entry.view_tag,
+                    owner_utxo_hash: entry.owner_utxo_hash,
+                    amount: entry.amount,
+                    data_hash: entry.data_hash,
                     zone_data_hash: entry.zone_data_hash,
-                    zone_data: entry.zone_data,
+                    encrypted: entry.encrypted,
                 })
             })
             .collect::<Result<Vec<_>, DepositBuildError>>()?;
@@ -81,9 +89,9 @@ impl ZoneDeposit {
             AccountMeta::new(self.tree, false),
             AccountMeta::new(self.depositor, true),
             AccountMeta::new_readonly(zone_config, auth_signer),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
         layout.extend_account_metas(&mut accounts);
-        accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Ok(Instruction {
             program_id,
@@ -100,23 +108,19 @@ mod tests {
         DepositAsset, DepositAssetKind, DepositSplAccounts, MAX_DEPOSIT_ASSETS,
     };
 
-    fn asset_deposit(asset: DepositAsset, seed: u8) -> AssetDeposit {
-        AssetDeposit {
-            asset,
-            view_tag: [seed; 32],
-            owner: [seed; 32],
-            blinding: [seed; 32],
-            amount: u64::from(seed),
-            utxo_data: None,
-            memo: None,
-        }
-    }
-
     fn zone_entry(asset: DepositAsset, seed: u8) -> ZoneAssetDeposit {
         ZoneAssetDeposit {
-            deposit: asset_deposit(asset, seed),
+            asset,
+            view_tag: [seed; 32],
+            owner_utxo_hash: [seed.wrapping_add(1); 32],
+            amount: u64::from(seed),
+            data_hash: None,
             zone_data_hash: [seed.wrapping_add(10); 32],
-            zone_data: vec![seed],
+            encrypted: EncryptedZoneDepositData {
+                tx_viewing_pk: [seed.wrapping_add(2); 33],
+                salt: [seed.wrapping_add(3); 16],
+                ciphertext: vec![seed],
+            },
         }
     }
 
@@ -159,14 +163,14 @@ mod tests {
             vec![
                 DepositAssetKind::Sol,
                 DepositAssetKind::Spl {
-                    vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+                    spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
                 },
             ]
         );
         assert_eq!(
             data.deposits
                 .iter()
-                .map(|entry| entry.deposit.asset_index)
+                .map(|entry| entry.asset_index)
                 .collect::<Vec<_>>(),
             vec![1, 0, 1]
         );
@@ -254,14 +258,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_and_oversized_zone_data() {
+    fn rejects_empty_and_oversized_ciphertext() {
         assert_eq!(
             builder(Vec::new()).instruction(),
             Err(DepositBuildError::EmptyBatch)
         );
 
         let mut entry = zone_entry(DepositAsset::Sol, 1);
-        entry.zone_data = vec![0; usize::from(u16::MAX) + 1];
+        entry.encrypted.ciphertext = vec![0; usize::from(u16::MAX) + 1];
         assert_eq!(
             builder(vec![entry]).instruction(),
             Err(DepositBuildError::Serialization)

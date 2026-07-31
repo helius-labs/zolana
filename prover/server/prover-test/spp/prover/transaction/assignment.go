@@ -162,25 +162,26 @@ func customZoneWitness(
 	}
 	return &customzone.CustomZoneEddsaOnlyCircuit{
 		Public: customzone.CustomZoneEddsaOnlyPublic{
-			Nullifiers:          fieldVariables(publicInputs.Nullifiers),
-			OutputHashes:        fieldVariables(publicInputs.OutputUtxoHashes),
-			UtxoTreeRoots:       fieldVariables(publicInputs.UtxoTreeRoots),
-			NullifierTreeRoots:  fieldVariables(publicInputs.NullifierTreeRoots),
-			PrivateTxHash:       publicInputs.PrivateTxHash,
-			ExternalDataHash:    publicInputs.ExternalDataHash,
-			PublicAssets:        publicAssets,
-			PublicAmounts:       publicAmounts,
-			ZoneProgramID:       publicInputs.ZoneProgramID,
-			PayerPubkeyHash:     publicInputs.PayerPubkeyHash,
-			AllowDummyInputs:    publicInputs.AllowDummyInputs,
-			InputOwnerPkHashes:  fieldVariables(publicInputs.InputOwnerPkHashes),
-			OutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
-			PublicInputHash:     publicInputHash,
+			Nullifiers:                   fieldVariables(publicInputs.Nullifiers),
+			OutputHashes:                 fieldVariables(publicInputs.OutputUtxoHashes),
+			UtxoTreeRoots:                fieldVariables(publicInputs.UtxoTreeRoots),
+			NullifierTreeRoots:           fieldVariables(publicInputs.NullifierTreeRoots),
+			PrivateTxHash:                publicInputs.PrivateTxHash,
+			ExternalDataHash:             publicInputs.ExternalDataHash,
+			PublicAssets:                 publicAssets,
+			PublicAmounts:                publicAmounts,
+			ZoneProgramID:                publicInputs.ZoneProgramID,
+			AllowDummyInputs:             publicInputs.AllowDummyInputs,
+			SignerPkHashes:               fieldVariables(publicInputs.SignerPkHashes),
+			PublishedOutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
+			PublicInputHash:              publicInputHash,
 		},
 		Private: customzone.CustomZoneEddsaOnlyPrivate{
-			Inputs:             inputs.inputs,
-			Outputs:            outputs.outputs,
-			OutputNullifierPks: fieldVariables(outputs.outputNullifierPks),
+			Inputs:              inputs.inputs,
+			InputOwnerPkHashes:  fieldVariables(inputs.inputOwnerPkHashes),
+			Outputs:             outputs.outputs,
+			OutputOwnerPkHashes: fieldVariables(outputs.outputOwnerPkHashes),
+			OutputNullifierPks:  fieldVariables(outputs.outputNullifierPks),
 		},
 	}
 }
@@ -266,8 +267,7 @@ func buildPublicInputs(
 	privateTxHash *big.Int,
 ) protocol.PublicInputs {
 	// Padding must reuse an owner identity already bound to real transaction
-	// content. PayerPubkeyHash is SHA-256 over the payer address and is not in
-	// the owner-tag hash domain.
+	// content.
 	var participantTag *big.Int
 	for _, ownerPkHash := range inputs.inputOwnerPkHashes {
 		if ownerPkHash != nil && ownerPkHash.Sign() != 0 {
@@ -281,11 +281,6 @@ func buildPublicInputs(
 				participantTag = ownerPkHash
 				break
 			}
-		}
-	}
-	for i, ownerPkHash := range inputs.inputOwnerPkHashes {
-		if participantTag != nil && (ownerPkHash == nil || ownerPkHash.Sign() == 0) {
-			inputs.inputOwnerPkHashes[i] = new(big.Int).Set(participantTag)
 		}
 	}
 	for i, ownerPkHash := range outputs.outputOwnerPkHashes {
@@ -303,10 +298,38 @@ func buildPublicInputs(
 		PublicAssets:        external.publicSlots.assets,
 		PublicAmounts:       external.publicSlots.amounts,
 		ZoneProgramID:       external.zoneProgramID,
-		PayerPubkeyHash:     new(big.Int).Set(payerHash),
 		AllowDummyInputs:    big.NewInt(1),
-		InputOwnerPkHashes:  inputs.inputOwnerPkHashes,
-		Confidential:        true,
+		SignerPkHashes:      signerPkHashes(payerHash, inputs.inputOwnerPkHashes),
+		BindOutputOwnerTags: true,
 		OutputOwnerPkHashes: outputs.outputOwnerPkHashes,
 	}
+}
+
+func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int) []*big.Int {
+	out := make([]*big.Int, len(inputOwnerPkHashes)+1)
+	out[0] = new(big.Int).Set(payerHash)
+	seen := []*big.Int{payerHash}
+	next := 1
+	for _, owner := range inputOwnerPkHashes {
+		if owner == nil || owner.Sign() == 0 {
+			continue
+		}
+		duplicate := false
+		for _, existing := range seen {
+			if existing.Cmp(owner) == 0 {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		seen = append(seen, owner)
+		out[next] = new(big.Int).Set(owner)
+		next++
+	}
+	for i := next; i < len(out); i++ {
+		out[i] = big.NewInt(0)
+	}
+	return out
 }

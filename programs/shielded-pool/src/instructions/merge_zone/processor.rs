@@ -2,6 +2,7 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -12,7 +13,6 @@ use zolana_interface::{
 
 use super::account::MergeZoneAccounts;
 use crate::instructions::{
-    hash::solana_pk_hash,
     merge::{processor::process_merge_core, verify::MergeOwnerBinding},
     shared::check_not_expired,
 };
@@ -45,7 +45,7 @@ pub fn process_merge_zone_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // registry, so the `Zone` binding omits owner identity entirely (see
     // `MergeProof::public_input_hash`); the binding also selects the
     // `merge_zone_8_1` verifying key.
-    let zone_program_id = solana_pk_hash(merge_accounts.zone_program_id.as_array())?;
+    let zone_program_id = hash_bytes(merge_accounts.zone_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Zone {
         zone_program_id,
         output_zone_data_hash: *ix.output_zone_data_hash,

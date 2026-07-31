@@ -10,7 +10,7 @@ use borsh::BorshDeserialize;
 use cucumber::{then, when};
 use solana_address::Address;
 use zolana_client::{
-    ConfidentialTransfer, ProverVariant, PublicMovements, Rpc, SettlementTarget, SppProofInputUtxo,
+    ConfidentialTransfer, ProverVariant, PublicTransfers, Rpc, SettlementTarget, SppProofInputUtxo,
 };
 use zolana_event::OutputDataEncoding;
 use zolana_interface::SOL_ASSET_FIELD;
@@ -173,7 +173,7 @@ impl TransferWorld {
                 .circuit;
         assert_outputs(
             &prover.outputs,
-            &prover.public_movements,
+            &prover.public_transfers,
             &prover.external_data,
             plan,
             &sender,
@@ -192,7 +192,7 @@ impl TransferWorld {
 #[allow(clippy::too_many_arguments)]
 fn assert_outputs(
     outputs: &[SppProofOutputUtxo],
-    public_movements: &PublicMovements,
+    public_transfers: &PublicTransfers,
     external_data: &ExternalData,
     plan: &TransferPlan,
     sender: &ShieldedKeypair,
@@ -320,7 +320,7 @@ fn assert_outputs(
     // Ordered non-zero public assets occupy the leading slots; idle slots remain zero.
     let net_sol = i64::try_from(net_public(Asset::Sol)).expect("public amount fits i64");
     let net_spl = i64::try_from(net_public(Asset::Spl)).expect("public amount fits i64");
-    let mut expected_movements = PublicMovements::default();
+    let mut expected_transfers = PublicTransfers::default();
     let (asset, amount) = if net_sol != 0 {
         (SOL_ASSET_FIELD, net_sol)
     } else if net_spl != 0 {
@@ -329,13 +329,13 @@ fn assert_outputs(
         ([0u8; 32], 0)
     };
     if let (Some(asset_slot), Some(amount_slot)) = (
-        expected_movements.assets.first_mut(),
-        expected_movements.amounts.first_mut(),
+        expected_transfers.assets.first_mut(),
+        expected_transfers.amounts.first_mut(),
     ) {
         *asset_slot = asset;
         *amount_slot = signed_to_field(amount);
     }
-    assert_eq!(public_movements, &expected_movements);
+    assert_eq!(public_transfers, &expected_transfers);
 
     // External data: transact discriminator, withdrawal magnitudes + accounts,
     // everything else defaulted; the random ciphertext is passed through.

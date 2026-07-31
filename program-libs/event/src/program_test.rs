@@ -1,7 +1,10 @@
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
 
-use crate::{tag, EventKind, GeneralEvent, ProoflessOutput};
+use crate::{
+    tag, EncryptedZoneDepositOutput, EventKind, GeneralEvent, OutputDataEncoding, ProoflessOutput,
+    ENCRYPTED_ZONE_DEPOSIT_SCHEME,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedInstruction {
@@ -75,9 +78,8 @@ pub fn decode_event_payload(payload: &[u8]) -> Result<GeneralEvent, EventDecodeE
 }
 
 pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeError> {
-    let crate::OutputDataEncoding::Plaintext(blob) =
-        crate::OutputDataEncoding::try_from_slice(data)
-            .map_err(|_| EventDecodeError::InvalidOutputData)?
+    let OutputDataEncoding::Plaintext(blob) = OutputDataEncoding::try_from_slice(data)
+        .map_err(|_| EventDecodeError::InvalidOutputData)?
     else {
         return Err(EventDecodeError::InvalidOutputData);
     };
@@ -88,6 +90,24 @@ pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeErr
         return Err(EventDecodeError::InvalidOutputData);
     }
     ProoflessOutput::try_from_slice(body).map_err(|_| EventDecodeError::InvalidOutputData)
+}
+
+pub fn decode_encrypted_zone_deposit_output_data(
+    data: &[u8],
+) -> Result<EncryptedZoneDepositOutput, EventDecodeError> {
+    let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(data)
+        .map_err(|_| EventDecodeError::InvalidOutputData)?
+    else {
+        return Err(EventDecodeError::InvalidOutputData);
+    };
+    let (&scheme, body) = blob
+        .split_first()
+        .ok_or(EventDecodeError::InvalidOutputData)?;
+    if scheme != ENCRYPTED_ZONE_DEPOSIT_SCHEME {
+        return Err(EventDecodeError::InvalidOutputData);
+    }
+    EncryptedZoneDepositOutput::try_from_slice(body)
+        .map_err(|_| EventDecodeError::InvalidOutputData)
 }
 
 pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessOutput, EventDecodeError> {

@@ -13,13 +13,15 @@ pub use client::{
 };
 pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs,
 };
 pub use merge::{MergeProofResult, MergeProver};
 pub use merge_zone::{MergeZoneProver, MergeZoneWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use transact::{
-    PublicMovements, TransferProofResult, TransferProver, TransferSpendInput,
-    ZoneTransferProofResult, ZoneTransferProver,
+    PublicTransfers, TransferProofResult, TransferProver, TransferSpendInput,
+    ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
+    ZoneTransferProver,
 };
 pub use zolana_transaction::instructions::transact::{
     canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES,

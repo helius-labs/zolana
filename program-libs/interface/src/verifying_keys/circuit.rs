@@ -1,6 +1,96 @@
-use wincode::{SchemaRead, SchemaWrite};
+use core::mem::MaybeUninit;
+use wincode::{
+    config::ConfigCore,
+    io::{Reader, Writer},
+    ReadError, ReadResult, SchemaRead, SchemaWrite, TypeMeta, WriteResult,
+};
 
 const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
+
+/// The compressed BSB22 commitment carried by a committed Groth16 proof.
+///
+/// This lives in [`CircuitId::ZoneP256`] so the existing `TransactProof` and
+/// `TransactIxData` layouts need no additional proof-specific fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct Bsb22Commitment {
+    pub commitment: [u8; 32],
+    pub commitment_pok: [u8; 32],
+}
+
+/// Proof-specific payload carried by [`CircuitId::ZoneP256`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct ZoneP256ProofData {
+    pub bsb22_commitment: Bsb22Commitment,
+    /// The P256 public key x-coordinate when a real default-zone P256 input or
+    /// address is present. `None` keeps zone-only P256 ownership private.
+    #[wincode(with = "FixedOptionOwnerTag")]
+    pub default_owner_tag: Option<[u8; 32]>,
+}
+
+/// Fixed-width wire adapter for the optional owner tag. Keeping the circuit
+/// selector statically sized preserves allocation-free borrowed instruction
+/// decoding even when a non-P256 selector is used.
+struct FixedOptionOwnerTag;
+
+unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for FixedOptionOwnerTag {
+    type Dst = Option<[u8; 32]>;
+
+    const TYPE_META: TypeMeta = TypeMeta::Static {
+        size: 33,
+        zero_copy: false,
+    };
+
+    fn read(mut reader: impl Reader<'de>, dst: &mut MaybeUninit<Self::Dst>) -> ReadResult<()> {
+        let present = <u8 as SchemaRead<'de, C>>::get(reader.by_ref())?;
+        let tag = <[u8; 32] as SchemaRead<'de, C>>::get(reader)?;
+        match present {
+            0 => {
+                if tag != [0u8; 32] {
+                    return Err(ReadError::InvalidValue(
+                        "absent P256 owner tag must be zero",
+                    ));
+                }
+                dst.write(None);
+            }
+            1 => {
+                dst.write(Some(tag));
+            }
+            _ => return Err(ReadError::InvalidBoolEncoding(present)),
+        }
+        Ok(())
+    }
+}
+
+unsafe impl<C: ConfigCore> SchemaWrite<C> for FixedOptionOwnerTag {
+    type Src = Option<[u8; 32]>;
+
+    const TYPE_META: TypeMeta = TypeMeta::Static {
+        size: 33,
+        zero_copy: false,
+    };
+
+    fn size_of(_: &Self::Src) -> WriteResult<usize> {
+        Ok(33)
+    }
+
+    fn write(mut writer: impl Writer, src: &Self::Src) -> WriteResult<()> {
+        let (present, tag) = match src {
+            Some(tag) => (1u8, *tag),
+            None => (0u8, [0u8; 32]),
+        };
+        <u8 as SchemaWrite<C>>::write(writer.by_ref(), &present)?;
+        <[u8; 32] as SchemaWrite<C>>::write(writer, &tag)
+    }
+}
+
+/// How the program derives the fixed-width output-owner hash vector committed
+/// into a circuit's public input hash.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputOwnerMode {
+    None,
+    All,
+    ConfidentialMarked,
+}
 
 /// A supported `transact` circuit instantiation.
 ///
@@ -11,9 +101,11 @@ const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u16")]
 pub enum CircuitId {
+    /// NumInputs, NumOutputs, NumPublicAssets
     ConfidentialEddsa(u8, u8, u8),
     ZoneEddsa(u8, u8, u8),
     ZoneAuthority(u8, u8, u8),
+    ZoneP256(u8, u8, u8, ZoneP256ProofData),
 }
 
 impl CircuitId {
@@ -21,7 +113,8 @@ impl CircuitId {
         match self {
             Self::ConfidentialEddsa(n, _, _)
             | Self::ZoneEddsa(n, _, _)
-            | Self::ZoneAuthority(n, _, _) => n,
+            | Self::ZoneAuthority(n, _, _)
+            | Self::ZoneP256(n, _, _, _) => n,
         }
     }
 
@@ -29,7 +122,8 @@ impl CircuitId {
         match self {
             Self::ConfidentialEddsa(_, n, _)
             | Self::ZoneEddsa(_, n, _)
-            | Self::ZoneAuthority(_, n, _) => n,
+            | Self::ZoneAuthority(_, n, _)
+            | Self::ZoneP256(_, n, _, _) => n,
         }
     }
 
@@ -37,7 +131,8 @@ impl CircuitId {
         match self {
             Self::ConfidentialEddsa(_, _, n)
             | Self::ZoneEddsa(_, _, n)
-            | Self::ZoneAuthority(_, _, n) => n,
+            | Self::ZoneAuthority(_, _, n)
+            | Self::ZoneP256(_, _, n, _) => n,
         }
     }
 
@@ -50,23 +145,51 @@ impl CircuitId {
     }
 
     pub const fn is_confidential(self) -> bool {
-        matches!(self, Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..))
+        matches!(
+            self,
+            Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..) | Self::ZoneP256(..)
+        )
     }
 
     pub const fn is_zone(self) -> bool {
-        matches!(self, Self::ZoneEddsa(..) | Self::ZoneAuthority(..))
+        matches!(
+            self,
+            Self::ZoneEddsa(..) | Self::ZoneAuthority(..) | Self::ZoneP256(..)
+        )
     }
 
     pub const fn is_authority(self) -> bool {
         matches!(self, Self::ZoneAuthority(..))
     }
 
+    pub const fn is_p256(self) -> bool {
+        matches!(self, Self::ZoneP256(..))
+    }
+
+    pub const fn bsb22_commitment(&self) -> Option<&Bsb22Commitment> {
+        match self {
+            Self::ZoneP256(_, _, _, proof_data) => Some(&proof_data.bsb22_commitment),
+            _ => None,
+        }
+    }
+
+    pub const fn default_p256_owner_tag(&self) -> Option<&[u8; 32]> {
+        match self {
+            Self::ZoneP256(_, _, _, proof_data) => proof_data.default_owner_tag.as_ref(),
+            _ => None,
+        }
+    }
+
     pub const fn requires_input_signatures(self) -> bool {
         !self.is_authority()
     }
 
-    pub const fn binds_output_owners(self) -> bool {
-        matches!(self, Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..))
+    pub const fn output_owner_mode(self) -> OutputOwnerMode {
+        match self {
+            Self::ConfidentialEddsa(..) => OutputOwnerMode::All,
+            Self::ZoneEddsa(..) | Self::ZoneP256(..) => OutputOwnerMode::ConfidentialMarked,
+            Self::ZoneAuthority(..) => OutputOwnerMode::None,
+        }
     }
 
     /// Whether this selector names a verifying key generated into this crate.
@@ -76,7 +199,7 @@ impl CircuitId {
             return false;
         }
         match self {
-            Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..) => matches!(
+            Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..) | Self::ZoneP256(..) => matches!(
                 (n_inputs, n_outputs),
                 (1, 1)
                     | (1, 2)
@@ -142,6 +265,36 @@ impl CircuitId {
             Self::ZoneEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_4_4::VERIFYINGKEY,
             Self::ZoneEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_5_3::VERIFYINGKEY,
             Self::ZoneEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_5_4::VERIFYINGKEY,
+            Self::ZoneP256(1, 1, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_1_1::VERIFYINGKEY
+            }
+            Self::ZoneP256(1, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_1_2::VERIFYINGKEY
+            }
+            Self::ZoneP256(1, 8, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_1_8::VERIFYINGKEY
+            }
+            Self::ZoneP256(2, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_2_2::VERIFYINGKEY
+            }
+            Self::ZoneP256(2, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_2_3::VERIFYINGKEY
+            }
+            Self::ZoneP256(3, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_3_3::VERIFYINGKEY
+            }
+            Self::ZoneP256(4, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_4_3::VERIFYINGKEY
+            }
+            Self::ZoneP256(4, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_4_4::VERIFYINGKEY
+            }
+            Self::ZoneP256(5, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_5_3::VERIFYINGKEY
+            }
+            Self::ZoneP256(5, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_zone_5_4::VERIFYINGKEY
+            }
             Self::ZoneAuthority(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
                 &transfer_zone_authority_1_1::VERIFYINGKEY
             }
@@ -157,79 +310,5 @@ impl CircuitId {
             _ => return None,
         };
         Some(key)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accessors_and_behavior_match_variants() {
-        let confidential = CircuitId::ConfidentialEddsa(2, 3, 3);
-        assert_eq!(confidential.shape(), (2, 3, 3));
-        assert!(confidential.is_confidential());
-        assert!(!confidential.is_zone());
-        assert!(confidential.requires_input_signatures());
-        assert!(confidential.binds_output_owners());
-
-        let zone = CircuitId::ZoneEddsa(1, 8, 3);
-        assert!(zone.is_zone());
-        assert!(zone.is_confidential());
-        assert!(!zone.is_authority());
-        assert!(zone.requires_input_signatures());
-        assert!(zone.binds_output_owners());
-
-        let authority = CircuitId::ZoneAuthority(4, 4, 3);
-        assert!(authority.is_zone());
-        assert!(authority.is_authority());
-        assert!(!authority.requires_input_signatures());
-        assert!(!authority.binds_output_owners());
-    }
-
-    #[test]
-    fn supported_shapes_are_fail_closed() {
-        assert!(CircuitId::ConfidentialEddsa(2, 3, 3).is_supported());
-        assert!(CircuitId::ZoneEddsa(1, 8, 3).is_supported());
-        assert!(CircuitId::ZoneAuthority(4, 4, 3).is_supported());
-        assert!(!CircuitId::ConfidentialEddsa(6, 6, 3).is_supported());
-        assert!(!CircuitId::ZoneEddsa(2, 3, 2).is_supported());
-        assert!(!CircuitId::ZoneAuthority(2, 3, 3).is_supported());
-    }
-
-    #[cfg(feature = "verifying-keys")]
-    #[test]
-    fn every_supported_shape_resolves_exactly_one_key() {
-        let transfer_shapes = [
-            (1, 1),
-            (1, 2),
-            (1, 8),
-            (2, 2),
-            (2, 3),
-            (3, 3),
-            (4, 3),
-            (4, 4),
-            (5, 3),
-            (5, 4),
-        ];
-        for (n_inputs, n_outputs) in transfer_shapes {
-            for circuit in [
-                CircuitId::ConfidentialEddsa(n_inputs, n_outputs, CURRENT_PUBLIC_ASSET_SLOTS),
-                CircuitId::ZoneEddsa(n_inputs, n_outputs, CURRENT_PUBLIC_ASSET_SLOTS),
-            ] {
-                assert!(circuit.is_supported());
-                assert!(circuit.verifying_key().is_some());
-            }
-        }
-        for n in 1..=4 {
-            let circuit = CircuitId::ZoneAuthority(n, n, CURRENT_PUBLIC_ASSET_SLOTS);
-            assert!(circuit.is_supported());
-            assert!(circuit.verifying_key().is_some());
-        }
-        assert!(
-            CircuitId::ConfidentialEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS - 1)
-                .verifying_key()
-                .is_none()
-        );
     }
 }

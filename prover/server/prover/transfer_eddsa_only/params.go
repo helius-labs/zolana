@@ -39,8 +39,8 @@ type InputParams struct {
 }
 
 // OutputParams mirrors txcircuit.Output. OwnerPkHash and NullifierPk bind the
-// public output owner tag on both confidential rails; they are 0 for authority
-// proofs.
+// output owner identity; only the default confidential rail publishes its owner
+// tags. They are 0 for authority proofs.
 type OutputParams struct {
 	Utxo        UtxoParams
 	IsDummy     *big.Int
@@ -65,11 +65,12 @@ type TransferParameters struct {
 	PrivateTxHash *big.Int
 	// PublicAssets/PublicAmounts are the uniform public movement slots, both of
 	// length shared.NPublicSlots.
-	PublicAssets     []*big.Int
-	PublicAmounts    []*big.Int
-	ZoneProgramID    *big.Int
-	PayerPubkeyHash  *big.Int
-	AllowDummyInputs *big.Int
+	PublicAssets                 []*big.Int
+	PublicAmounts                []*big.Int
+	ZoneProgramID                *big.Int
+	SignerPkHashes               []*big.Int
+	AllowDummyInputs             *big.Int
+	PublishedOutputOwnerPkHashes []*big.Int
 
 	// Variant selects the Solana-only instantiation: confidential default-zone,
 	// confidential custom-zone, or zone-authority (anonymous, input owners

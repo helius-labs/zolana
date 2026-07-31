@@ -1,9 +1,10 @@
 use pinocchio::{address::Address, error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{error::ShieldedPoolError, merge_utils::owner_proof_input_hash_compressed};
-use zolana_user_registry_interface::{state::UserRecord, USER_REGISTRY_PROGRAM_ID};
-
-use crate::instructions::hash::solana_pk_hash;
+use zolana_user_registry_interface::{
+    state::UserRecord, USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
+};
 
 /// Validated accounts for `merge_transact`, in loader order: `input_tree` and
 /// `output_tree` (writable), `payer` (signer, pays fees), `user_record`
@@ -48,12 +49,13 @@ pub struct UserPkFields {
     pub merging_enabled: bool,
 }
 
-/// Load and validate the `user_record`: owned by the registry program with a
-/// valid `UserRecord` discriminator/body. Returns the per-user `merging_enabled`
-/// opt-in alongside the rail-selected owner identity; the processor rejects the
-/// merge when it is `false`. The owner identity is rail-selected by `eddsa_owner`:
-/// a Solana owner derives `signing_pk_field` from the registry account `owner`
-/// (ed25519), a P256 owner from `owner_p256`.
+/// Load and validate the `user_record`: owned by the registry program, stored at
+/// the canonical PDA for its owner, and containing a valid `UserRecord`
+/// discriminator/body. Returns the per-user `merging_enabled` opt-in alongside
+/// the rail-selected owner identity; the processor rejects the merge when it is
+/// `false`. The owner identity is rail-selected by `eddsa_owner`: a Solana owner
+/// derives `signing_pk_field` from the registry account `owner` (ed25519), a P256
+/// owner from `owner_p256`.
 #[inline(never)]
 pub fn load_user_record(
     account: &AccountView,
@@ -68,11 +70,16 @@ pub fn load_user_record(
         .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
     let record = UserRecord::try_from_account_data(&data)
         .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
+    let (expected_record, expected_bump) =
+        Address::find_program_address(&[USER_RECORD_SEED, record.owner.as_ref()], &registry_id);
+    if account.address() != &expected_record || record.bump != expected_bump {
+        return Err(ShieldedPoolError::InvalidUserRecord.into());
+    }
     let merging_enabled = record.merging_enabled;
     let mut signing_view_tag = [0u8; 32];
     let signing_pk_field = if eddsa_owner {
         signing_view_tag.copy_from_slice(record.owner.as_array());
-        solana_pk_hash(record.owner.as_array())?
+        hash_bytes(record.owner.as_array())?
     } else {
         let owner_p256 = record
             .owner_p256
@@ -90,6 +97,7 @@ pub fn load_user_record(
 
 #[cfg(test)]
 mod tests {
+    use borsh::to_vec;
     use pinocchio::error::ProgramError;
     use zolana_account_checks::account_info::test_account_info::get_account_view;
 
@@ -112,6 +120,108 @@ mod tests {
         assert_eq!(
             error,
             ProgramError::Custom(ShieldedPoolError::InvalidSystemProgram as u32)
+        );
+    }
+
+    fn user_record_data(record: &UserRecord) -> Vec<u8> {
+        let mut data = vec![UserRecord::DISCRIMINATOR];
+        data.extend_from_slice(&to_vec(record).expect("serialize record"));
+        data.resize(UserRecord::SIZE, 0);
+        data
+    }
+
+    #[test]
+    fn loads_only_the_canonical_registry_pda() {
+        let owner = [7u8; 32];
+        let registry_id = Address::from(USER_REGISTRY_PROGRAM_ID);
+        let (record_address, bump) =
+            Address::find_program_address(&[USER_RECORD_SEED, &owner], &registry_id);
+        let record = UserRecord {
+            owner: owner.into(),
+            bump,
+            owner_p256: None,
+            nullifier_pubkey: [8u8; 32],
+            viewing_pubkey: [2u8; 33],
+            merging_enabled: true,
+        };
+        let account = get_account_view(
+            record_address.to_bytes(),
+            USER_REGISTRY_PROGRAM_ID,
+            false,
+            false,
+            false,
+            user_record_data(&record),
+        );
+
+        let loaded = load_user_record(&account, true).expect("canonical registry record");
+
+        assert!(loaded.merging_enabled);
+        assert_eq!(loaded.signing_view_tag, owner);
+    }
+
+    #[test]
+    fn rejects_program_owned_record_at_a_noncanonical_address() {
+        let owner = [7u8; 32];
+        let registry_id = Address::from(USER_REGISTRY_PROGRAM_ID);
+        let (_record_address, bump) =
+            Address::find_program_address(&[USER_RECORD_SEED, &owner], &registry_id);
+        let record = UserRecord {
+            owner: owner.into(),
+            bump,
+            owner_p256: None,
+            nullifier_pubkey: [8u8; 32],
+            viewing_pubkey: [2u8; 33],
+            merging_enabled: true,
+        };
+        let account = get_account_view(
+            [9u8; 32],
+            USER_REGISTRY_PROGRAM_ID,
+            false,
+            false,
+            false,
+            user_record_data(&record),
+        );
+
+        let error = match load_user_record(&account, true) {
+            Ok(_) => panic!("noncanonical record must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            ProgramError::Custom(ShieldedPoolError::InvalidUserRecord as u32)
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_user_record_discriminator() {
+        let owner = [7u8; 32];
+        let registry_id = Address::from(USER_REGISTRY_PROGRAM_ID);
+        let (record_address, bump) =
+            Address::find_program_address(&[USER_RECORD_SEED, &owner], &registry_id);
+        let record = UserRecord {
+            owner: owner.into(),
+            bump,
+            owner_p256: None,
+            nullifier_pubkey: [8u8; 32],
+            viewing_pubkey: [2u8; 33],
+            merging_enabled: true,
+        };
+        let mut data = user_record_data(&record);
+        data[0] = UserRecord::DISCRIMINATOR.wrapping_add(1);
+        let account = get_account_view(
+            record_address.to_bytes(),
+            USER_REGISTRY_PROGRAM_ID,
+            false,
+            false,
+            false,
+            data,
+        );
+
+        assert_eq!(
+            load_user_record(&account, true).map(|_| ()),
+            Err(ProgramError::Custom(
+                ShieldedPoolError::InvalidUserRecord as u32
+            ))
         );
     }
 }

@@ -13,9 +13,11 @@ pub mod plaintext;
 pub mod proofless;
 pub mod scheme;
 pub mod split;
+pub mod zone_deposit;
 
 pub use proofless::{Proofless, ProoflessEncode};
 pub use split::{Split, SplitBundlePlaintext, SplitEncryptedUtxos};
+pub use zone_deposit::ZoneDepositPlaintext;
 
 pub struct DecodeCx<'a> {
     pub viewing_key: &'a ViewingKey,

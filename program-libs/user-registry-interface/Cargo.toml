@@ -8,11 +8,12 @@ publish = false
 
 [features]
 default = []
-solana = ["dep:solana-instruction"]
+solana = ["dep:solana-instruction", "dep:solana-secp256r1-program"]
 
 [dependencies]
 borsh = { workspace = true }
 solana-instruction = { workspace = true, optional = true }
+solana-secp256r1-program = { workspace = true, optional = true }
 # `borsh` activates solana-address/borsh so `Pubkey` (an alias of Address) derives
 # Borsh for `UserRecord`; required because the isolated SBF build does not get it
 # via workspace feature unification.

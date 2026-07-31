@@ -31,12 +31,11 @@ fn spl_accounts(
     vec![
         AccountMeta::new(*tree, false),
         AccountMeta::new(*depositor, true),
+        AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
         AccountMeta::new_readonly(*mint, false),
         AccountMeta::new(*user_token, false),
-        AccountMeta::new(pda::spl_asset_vault(mint), false),
-        AccountMeta::new_readonly(pda::spl_asset_registry(mint), false),
-        AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+        AccountMeta::new(pda::spl_interface(mint), false),
     ]
 }
 
@@ -207,7 +206,7 @@ fn spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
     let mint = world.mint();
     let user_token = world.user_token();
-    let vault = pda::spl_asset_vault(&mint);
+    let vault = pda::spl_interface(&mint);
     let keypair = ShieldedKeypair::new().expect("recipient keypair");
     let mut recipient = Wallet::new(
         keypair.shielded_address().expect("shielded address"),

@@ -47,12 +47,11 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 	for i := range payerPubkey {
 		payerPubkey[i] = byte(i + 1)
 	}
-	payerHash := protocol.Sha256BEField(payerPubkey[:])
-
 	ownerKeyHash, err := protocol.SolanaPkField(payerPubkey)
 	if err != nil {
 		return ProofTransactionRequest{}, nil, err
 	}
+	payerHash := new(big.Int).Set(ownerKeyHash)
 	nullifierSecret := big.NewInt(12345)
 	nullifierPk, err := protocol.NullifierPk(nullifierSecret)
 	if err != nil {

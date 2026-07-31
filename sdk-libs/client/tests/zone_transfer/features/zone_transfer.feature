@@ -28,3 +28,24 @@ Feature: Zone-transfer proving (zone_transact)
   Scenario: Multi-input consolidation into a real recipient (eddsa rail)
     Given a 3x3 eddsa zone transfer consolidating 2 real inputs
     Then the zone-transfer proof verifies
+
+  Scenario Outline: All supported shapes prove and verify on the P256 rail
+    Given a <n_in>x<n_out> P256 zone transfer
+    Then the zone-transfer proof verifies
+
+    Examples:
+      | n_in | n_out |
+      | 1    | 1     |
+      | 1    | 2     |
+      | 2    | 2     |
+      | 2    | 3     |
+      | 3    | 3     |
+      | 4    | 3     |
+      | 4    | 4     |
+      | 5    | 3     |
+      | 5    | 4     |
+      | 1    | 8     |
+
+  Scenario: Mixed P256 and eddsa owners prove and verify
+    Given a 2x2 P256 zone transfer with a Solana-owned input
+    Then the zone-transfer proof verifies

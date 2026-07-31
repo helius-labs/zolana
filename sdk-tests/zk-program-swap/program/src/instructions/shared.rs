@@ -39,7 +39,7 @@ pub fn check_after_window(now: i64, expiry_unix_ts: u64) -> ProgramResult {
 #[profile]
 pub fn cpi_spp_transact(spp_accounts: &[AccountView], transact_bytes: &[u8]) -> ProgramResult {
     let spp_program_account = spp_accounts
-        .last()
+        .get(3)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
     if spp_program_account.address() != &spp_id {
@@ -80,7 +80,7 @@ pub fn cpi_spp_transact_signed(
         Address::find_program_address(&[crate::ORDER_AUTHORITY_PDA_SEED], &crate::ID);
 
     let spp_program_account = spp_accounts
-        .last()
+        .get(3)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
     if spp_program_account.address() != &spp_id {

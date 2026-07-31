@@ -204,20 +204,19 @@ func TestDefaultZoneEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// PayerPubkeyHash is SHA-256 over the payer address, while an owner tag is the
-// proof-input hash of the resolved owner tag. It is not a valid owner identity
-// fallback for a dummy slot.
-func TestDefaultZoneEddsaOnlyRejectsDummyOutputPayerHashTag(t *testing.T) {
+// The payer identity uses the same owner-tag encoding and is always an
+// authorized transaction signer.
+func TestDefaultZoneEddsaOnlyAcceptsDummyOutputPayerHashTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
 
-	assignment.Outputs[1].OwnerPkHash = assignment.PayerPubkeyHash
+	assignment.Outputs[1].OwnerPkHash = assignment.TransactionSignerPkHashes()[0]
 	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
 	refreshDummyOutputHashes(t, assignment)
 
 	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func dummyOutputAssignment(t *testing.T, shape protocol.Shape) *testAssignment {

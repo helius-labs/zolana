@@ -18,6 +18,9 @@ pub enum KeypairError {
     #[error("signing key is not ed25519")]
     NotEd25519,
 
+    #[error("signing key is not P256")]
+    NotP256,
+
     #[error("HKDF expansion failed")]
     Hkdf,
 

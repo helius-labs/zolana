@@ -67,8 +67,8 @@ impl LifecycleWorld {
         let recipient_before = self.rpc.client().get_balance(&recipient.pubkey())?;
 
         let from_keypair = self.actor(from).keypair.clone();
-        // An eddsa actor pays and signs its own spend (the owner sits at signer index
-        // 0 / the fee payer); actors without a signer fall back to the global payer.
+        // An eddsa actor pays and signs its own spend; actors without a native
+        // signer fall back to the global payer.
         let fee_payer = self
             .actor(from)
             .solana_signer
@@ -128,6 +128,7 @@ impl LifecycleWorld {
             payer: fee_payer.pubkey(),
             input_tree: self.tree,
             output_tree: self.tree,
+            owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
                     recipient: recipient.pubkey(),

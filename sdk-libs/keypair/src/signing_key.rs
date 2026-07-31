@@ -9,6 +9,7 @@ use p256::{
     SecretKey,
 };
 use rand::{rngs::OsRng, RngCore};
+use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -111,6 +112,23 @@ impl SigningKey {
         }
     }
 
+    /// Sign an arbitrary message exactly as Solana's secp256r1 precompile
+    /// verifies it: ECDSA over SHA-256(message), normalized to low-S.
+    pub fn sign_p256_message(&self, message: &[u8]) -> Result<[u8; 64], KeypairError> {
+        let SigningKeyInner::P256(sk) = &self.inner else {
+            return Err(KeypairError::NotP256);
+        };
+        let signing = EcdsaSigningKey::from(sk);
+        let digest = Sha256::digest(message);
+        let signature: EcdsaSig = signing
+            .sign_prehash(&digest)
+            .map_err(|_| KeypairError::InvalidSecretKey)?;
+        let signature = signature.normalize_s().unwrap_or(signature);
+        let mut out = [0u8; 64];
+        out.copy_from_slice(&signature.to_bytes());
+        Ok(out)
+    }
+
     pub fn verify(&self, msg: &[u8], sig: &[u8; 64]) -> bool {
         match &self.inner {
             SigningKeyInner::P256(sk) => {
@@ -161,6 +179,31 @@ mod tests {
         assert_eq!(
             pubkey.confidential_view_tag().unwrap(),
             pubkey.as_ed25519().unwrap()
+        );
+    }
+
+    #[test]
+    fn p256_message_signature_is_sha256_and_low_s() {
+        let key = SigningKey::new();
+        let message = b"registry binding";
+        let raw = key.sign_p256_message(message).expect("P256 signature");
+        let signature = EcdsaSig::from_slice(&raw).expect("compact signature");
+        assert!(signature.normalize_s().is_none(), "signature must be low-S");
+
+        let SigningKeyInner::P256(secret) = &key.inner else {
+            unreachable!();
+        };
+        let verifying = VerifyingKey::from(secret.public_key());
+        let digest = Sha256::digest(message);
+        assert!(verifying.verify_prehash(&digest, &signature).is_ok());
+    }
+
+    #[test]
+    fn ed25519_key_cannot_make_p256_precompile_signature() {
+        let key = SigningKey::new_ed25519();
+        assert_eq!(
+            key.sign_p256_message(b"registry binding"),
+            Err(KeypairError::NotP256)
         );
     }
 }

@@ -32,7 +32,8 @@ pub mod events;
 pub use events::{
     deposit_output_from_event, deposit_outputs_from_event, index_events, indexed_events_from_meta,
     parsed_instruction_from_compiled, parsed_instruction_groups_from_meta, single_deposit_view,
-    DepositOutput, IndexedEvent, InstructionGroup, ParsedInstruction,
+    zone_deposit_output_from_event, zone_deposit_outputs_from_event, DepositOutput, IndexedEvent,
+    InstructionGroup, ParsedInstruction, ZoneDepositOutput,
 };
 pub mod indexer;
 pub use indexer::{
@@ -53,6 +54,7 @@ pub use zolana_client::Rpc;
 mod spl;
 mod wallet_data;
 mod zone;
+pub use zone::ZoneDepositBatch;
 
 /// Build the canonical 32-byte field representation of a repeated legacy
 /// 31-byte test blinding.

@@ -32,7 +32,6 @@ fn input(nullifier_hash: [u8; 32]) -> InputUtxo {
         nullifier_hash,
         nullifier_tree_root_index: 0,
         utxo_tree_root_index: 0,
-        eddsa_signer_index: 0,
     }
 }
 
@@ -101,6 +100,7 @@ fn assert_rejected_without_sol_movement(
         payer: payer.pubkey(),
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts,
         data: ix_data(interface_transfers),
     }
@@ -133,6 +133,7 @@ fn six_same_asset_interface_transfers_reach_proof_verification() {
         payer: payer.pubkey(),
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
@@ -155,8 +156,10 @@ fn six_same_asset_interface_transfers_reach_proof_verification() {
 }
 
 #[test]
-fn zero_interface_transfer_is_rejected() {
-    assert_rejected_without_sol_movement(vec![InterfaceTransfer::SolDeposit { amount: 0 }], 7036);
+fn zero_interface_transfer_is_rejected_before_instruction_building() {
+    assert!(ix_data(vec![InterfaceTransfer::SolDeposit { amount: 0 }])
+        .serialize()
+        .is_err());
 }
 
 #[test]
@@ -193,8 +196,8 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
     let spl_deposit = || {
         TransactInterfaceTransferAccounts::SplDeposit(TransactSplDepositAccounts {
             mint,
-            vault,
-            depositor: payer.pubkey(),
+            spl_interface: vault,
+            token_authority: payer.pubkey(),
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
@@ -202,29 +205,30 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
     let spl_withdrawal = || {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             mint,
-            vault,
+            spl_interface: vault,
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
     };
-    let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
+    let spl_interface_bump = pda::spl_interface_with_bump(&mint).1;
     let ix = Transact {
         payer: payer.pubkey(),
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![spl_deposit(), spl_withdrawal(), spl_withdrawal()],
         data: ix_data(vec![
             InterfaceTransfer::SplDeposit {
                 amount: u64::MAX,
-                vault_bump,
+                spl_interface_bump,
             },
             InterfaceTransfer::SplWithdrawal {
                 amount: u64::MAX,
-                vault_bump,
+                spl_interface_bump,
             },
             InterfaceTransfer::SplWithdrawal {
                 amount: u64::MAX,
-                vault_bump,
+                spl_interface_bump,
             },
         ]),
     }
@@ -269,17 +273,18 @@ fn token_2022_withdrawal_accounts_reach_proof_verification() {
         payer: payer.pubkey(),
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint,
-                vault,
+                spl_interface: vault,
                 user_token_account: recipient,
                 token_program,
             },
         )],
         data: ix_data(vec![InterfaceTransfer::SplWithdrawal {
             amount: 1,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }]),
     }
     .instruction();
@@ -294,7 +299,7 @@ fn token_2022_withdrawal_accounts_reach_proof_verification() {
 }
 
 #[test]
-fn spl_settlement_rejects_noncanonical_vault_bump() {
+fn spl_settlement_rejects_noncanonical_spl_interface_bump() {
     let Some(mut rpc) = common::program_test() else {
         return;
     };
@@ -316,23 +321,24 @@ fn spl_settlement_rejects_noncanonical_vault_bump() {
     rpc.mint_to(&mint, &user_token_account, 1)
         .expect("mint deposit token");
 
-    let canonical_bump = pda::spl_asset_vault_with_bump(&mint).1;
+    let canonical_bump = pda::spl_interface_with_bump(&mint).1;
     let ix = Transact {
         payer: payer.pubkey(),
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
                 mint,
-                vault,
-                depositor: payer.pubkey(),
+                spl_interface: vault,
+                token_authority: payer.pubkey(),
                 user_token_account,
                 token_program: ZolanaProgramTest::token_program_id(),
             },
         )],
         data: ix_data(vec![InterfaceTransfer::SplDeposit {
             amount: 1,
-            vault_bump: canonical_bump.wrapping_add(1),
+            spl_interface_bump: canonical_bump.wrapping_add(1),
         }]),
     }
     .instruction();
@@ -378,32 +384,34 @@ fn spl_deposit_requires_depositor_signature() {
         payer: payer.pubkey(),
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
                 mint,
-                vault,
-                depositor: depositor.pubkey(),
+                spl_interface: vault,
+                token_authority: depositor.pubkey(),
                 user_token_account,
                 token_program: ZolanaProgramTest::token_program_id(),
             },
         )],
         data: ix_data(vec![InterfaceTransfer::SplDeposit {
             amount: 1,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }]),
     }
     .instruction();
-    ix.accounts[5].is_signer = false;
+    // Fixed prefix (5), then mint, vault, depositor.
+    ix.accounts[7].is_signer = false;
 
     let err = send_raw(&mut rpc, ix, &payer).expect_err("unsigned depositor must fail");
     assert!(
         err.contains("Custom(7040)"),
-        "expected SplDepositorMustSign (7040), got: {err}"
+        "expected SplTokenAuthorityMustSign (7040), got: {err}"
     );
 }
 
 #[test]
-fn spl_withdrawal_rejects_obsolete_recipient_account() {
+fn spl_withdrawal_rejects_obsolete_recipient_account_as_invalid_settlement_suffix() {
     let Some(mut rpc) = common::program_test() else {
         return;
     };
@@ -428,29 +436,32 @@ fn spl_withdrawal_rejects_obsolete_recipient_account() {
         payer: payer.pubkey(),
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint,
-                vault,
+                spl_interface: vault,
                 user_token_account,
                 token_program: ZolanaProgramTest::token_program_id(),
             },
         )],
         data: ix_data(vec![InterfaceTransfer::SplWithdrawal {
             amount: 1,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }]),
     }
     .instruction();
     ix.accounts.insert(
-        5,
+        // Fixed prefix (5), then CPI authority, mint, vault. Insert the retired
+        // recipient slot before the current user-token/token-program pair.
+        8,
         solana_instruction::AccountMeta::new_readonly(payer.pubkey(), false),
     );
 
     let err = send_raw(&mut rpc, ix, &payer).expect_err("obsolete recipient must fail");
     assert!(
-        err.contains("Custom(7041)"),
-        "expected UnsupportedSplTokenProgram (7041), got: {err}"
+        err.contains("Custom(7009)"),
+        "the extra account leaves an invalid settlement suffix: {err}"
     );
 }
 
@@ -484,8 +495,8 @@ fn four_distinct_public_assets_are_rejected() {
         interface_transfer_accounts.push(TransactInterfaceTransferAccounts::SplDeposit(
             TransactSplDepositAccounts {
                 mint,
-                vault,
-                depositor: payer.pubkey(),
+                spl_interface: vault,
+                token_authority: payer.pubkey(),
                 user_token_account,
                 token_program: ZolanaProgramTest::token_program_id(),
             },
@@ -493,7 +504,7 @@ fn four_distinct_public_assets_are_rejected() {
         vaults.push(vault);
         interface_transfers.push(InterfaceTransfer::SplDeposit {
             amount: 1,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         });
     }
     let vault_balances: Vec<u64> = vaults
@@ -504,6 +515,7 @@ fn four_distinct_public_assets_are_rejected() {
         payer: payer.pubkey(),
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts,
         data: ix_data(interface_transfers),
     }

@@ -33,6 +33,29 @@ func HashChain(inputs []*big.Int) (*big.Int, error) {
 	return h, nil
 }
 
+// RightHashChain folds values from right to left. The fixed-width signer
+// transcript uses this direction so the on-chain verifier can start from a
+// precomputed all-zero suffix.
+func RightHashChain(inputs []*big.Int) (*big.Int, error) {
+	if len(inputs) == 0 {
+		return new(big.Int), nil
+	}
+	for i, input := range inputs {
+		if err := validateFieldElement(fmt.Sprintf("input[%d]", i), input); err != nil {
+			return nil, fmt.Errorf("spp: right hash chain: %w", err)
+		}
+	}
+	h := new(big.Int).Set(inputs[len(inputs)-1])
+	for i := len(inputs) - 2; i >= 0; i-- {
+		next, err := poseidon.Hash([]*big.Int{inputs[i], h})
+		if err != nil {
+			return nil, fmt.Errorf("spp: right hash chain step %d: %w", i, err)
+		}
+		h = next
+	}
+	return h, nil
+}
+
 // PrivateTxHash mirrors PrivateTxHashGadget. addressUtxoHashes is the address
 // category (the UTXO hash of every address slot, 0 for real spends and padding);
 // it has the same length as inputUtxoHashes.

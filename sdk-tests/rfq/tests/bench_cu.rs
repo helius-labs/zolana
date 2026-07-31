@@ -13,7 +13,7 @@ use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_instruction::{AccountMeta, Instruction};
+use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
@@ -49,7 +49,6 @@ use zolana_tree::TreeAccount;
 const SELL_SOL: u64 = 250_000_000;
 const BUY_USDC: u64 = 100_000_000;
 const USDC_ASSET_ID: u64 = 2;
-const TAKER_SIGNER_INDEX: u8 = 3;
 
 const PROFILING_SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/rfq-bench");
 const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/BENCHMARK.md");
@@ -435,23 +434,17 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
     );
 
     let prover = ProverClient::local();
-    let (mut transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
-    transact
-        .inputs
-        .get_mut(1)
-        .expect("taker input")
-        .eddsa_signer_index = TAKER_SIGNER_INDEX;
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
 
-    let mut ix = Transact {
+    let ix = Transact {
         payer: maker_payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: vec![taker_payer.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transact,
     }
     .instruction();
-    ix.accounts
-        .push(AccountMeta::new_readonly(taker_payer.pubkey(), true));
 
     let fixtures = vec![
         (tree, tree_account),

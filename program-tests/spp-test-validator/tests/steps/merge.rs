@@ -32,7 +32,10 @@ use zolana_test_utils::test_validator_asserts::{
 };
 use zolana_transaction::{Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo, SOL_MINT};
 use zolana_user_registry_interface::{
-    instruction::{register, set_merging_enabled, RegisterData},
+    instruction::{
+        p256_key_binding_message, p256_verify_instruction, register, set_merging_enabled,
+        RegisterData,
+    },
     user_record_pda,
 };
 
@@ -89,7 +92,14 @@ impl LifecycleWorld {
         };
         let user_record = user_record_pda(&owner.pubkey()).0;
         let register_ix = register(user_record, owner.pubkey(), register_data);
-        send_transaction(&mut self.rpc, &[register_ix], &owner.pubkey(), &[&owner])?;
+        let mut register_ixs = Vec::with_capacity(2);
+        if let Some(owner_p256) = owner_p256 {
+            let message = p256_key_binding_message(&user_record, &owner.pubkey(), &owner_p256);
+            let signature = keypair.signing_key.sign_p256_message(&message)?;
+            register_ixs.push(p256_verify_instruction(&message, &signature, &owner_p256));
+        }
+        register_ixs.push(register_ix);
+        send_transaction(&mut self.rpc, &register_ixs, &owner.pubkey(), &[&owner])?;
 
         // Opt the record into merging. When enabled, any caller may run
         // `merge_transact`; the disabled path leaves it `false`, which the program

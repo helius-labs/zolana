@@ -166,7 +166,7 @@ impl ZolanaProgramTest {
         token_program: Pubkey,
     ) -> Result<(Pubkey, Pubkey), ProgramTestError> {
         let registry = pda::spl_asset_registry(mint);
-        let vault = pda::spl_asset_vault(mint);
+        let vault = pda::spl_interface(mint);
         let ix = CreateSplInterface {
             authority: authority.pubkey(),
             mint: *mint,

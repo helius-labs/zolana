@@ -156,10 +156,9 @@ maker-signed, to `maker_address`). The swap
 circuits leave the order UTXO owner a free witness; SPP enforces the PDA ownership at spend time, when
 the order UTXO input's owner must match the order-authority signer. The program derives the PDA via
 `find_program_address`, checks it is present among the forwarded SPP accounts, and flips it to a
-signer inside the SPP CPI to authorize the order UTXO spend (the client sets the order UTXO input's
-`eddsa_signer_index = 2`, the PDA's position in the forwarded SPP slice
-`[payer, tree, order_authority, spp_program]`); the PDA is a bare address and signs only inside
-the CPI.
+signer inside the SPP CPI to authorize the order UTXO spend. The PDA appears in the ordered owner
+signer section after the fixed `[payer, input_tree, output_tree, spp_program, system_program]`
+prefix; it is a bare address and signs only inside the CPI.
 
 `maker_address` is the committed destination for both outcomes: take pays the destination output
 there, cancel returns the source output there. Either way the maker recovers the bought output from

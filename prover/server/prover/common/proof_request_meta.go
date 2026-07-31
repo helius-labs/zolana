@@ -61,6 +61,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 	// tree height, so they are exempt from the tree-height requirement below.
 	isTransfer := CircuitType(circuitType) == TransferConfidentialCircuitType ||
 		CircuitType(circuitType) == TransferZoneCircuitType ||
+		CircuitType(circuitType) == TransferP256ZoneCircuitType ||
 		CircuitType(circuitType) == TransferZoneAuthorityCircuitType ||
 		CircuitType(circuitType) == MergeCircuitType ||
 		CircuitType(circuitType) == MergeZoneCircuitType

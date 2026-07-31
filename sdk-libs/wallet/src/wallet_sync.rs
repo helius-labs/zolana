@@ -5,7 +5,9 @@ use std::{
 
 use solana_address::Address;
 use zolana_interface::{
-    event::decode_output_data, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID,
+    event::{decode_encrypted_zone_deposit_output_data, decode_output_data},
+    state::SplAssetRegistry,
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
@@ -591,7 +593,9 @@ fn proofless_deposit_from_indexed_match(
     // The wallet deserializes the `ProoflessOutput` from the slot payload itself;
     // here we only confirm the payload is a decodable proofless output before
     // wrapping the slot into a proofless `ShieldedTransaction`.
-    if decode_output_data(&item.output_slot.payload).is_err() {
+    if decode_output_data(&item.output_slot.payload).is_err()
+        && decode_encrypted_zone_deposit_output_data(&item.output_slot.payload).is_err()
+    {
         return Ok(None);
     }
 

@@ -6,13 +6,15 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::SplTransfer;
 use zolana_interface::{
-    instruction::{AssetDeposit, UtxoData, ZoneAssetDeposit, ZoneDeposit},
+    instruction::{DepositAsset, DepositSplAccounts, UtxoData, ZoneAssetDeposit, ZoneDeposit},
     pda,
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{test_blinding, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_zone_deposit;
-use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
+use zolana_transaction::{
+    owner_utxo_hash, Address, AssetRegistry, LocalWalletAuthority, Wallet, ZoneDepositPlaintext,
+};
 
 use crate::ShieldedPoolWorld;
 
@@ -37,11 +39,35 @@ fn interface_lamports(world: &mut ShieldedPoolWorld) -> u64 {
         .unwrap_or_default()
 }
 
-fn zone_entry(deposit: AssetDeposit, seed: u8) -> ZoneAssetDeposit {
+fn zone_entry(
+    asset: DepositAsset,
+    amount: u64,
+    seed: u8,
+    utxo_data: Option<UtxoData>,
+    memo: Option<Vec<u8>>,
+) -> ZoneAssetDeposit {
+    let recipient = ShieldedKeypair::new().expect("zone recipient keypair");
+    let owner = recipient.owner_hash().expect("zone recipient owner hash");
+    let blinding = test_blinding(seed);
+    let data_hash = utxo_data.as_ref().map(|data| data.data_hash);
+    let zone_data = vec![seed, seed.wrapping_add(1)];
+    let encrypted = ZoneDepositPlaintext {
+        blinding,
+        utxo_data: utxo_data.map(|data| data.data),
+        memo,
+        zone_data,
+    }
+    .encrypt(&recipient.viewing_pubkey())
+    .expect("encrypt zone deposit");
+
     ZoneAssetDeposit {
-        deposit,
+        asset,
+        view_tag: [seed; 32],
+        owner_utxo_hash: owner_utxo_hash(&owner, &blinding).expect("owner UTXO hash"),
+        amount,
+        data_hash,
         zone_data_hash: [seed; 32],
-        zone_data: vec![seed, seed.wrapping_add(1)],
+        encrypted,
     }
 }
 
@@ -87,7 +113,7 @@ fn zone_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         &mut recipient,
     );
     world.depositor = Some(depositor);
-    world.last_proofless_view = Some(event);
+    world.last_zone_deposit_view = Some(event);
     world.recipient = Some(recipient);
 }
 
@@ -98,7 +124,7 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
     let tree = world.tree().pubkey();
     let mint = world.mint();
     let user_token = world.user_token();
-    let vault = pda::spl_asset_vault(&mint);
+    let vault = pda::spl_interface(&mint);
     let depositor = world.depositor().insecure_clone();
     let keypair = ShieldedKeypair::new().expect("recipient keypair");
     let mut recipient = Wallet::new(
@@ -153,8 +179,13 @@ fn zone_spl_shield(world: &mut ShieldedPoolWorld, amount: u64) {
         &mut recipient,
     );
     world.depositor = Some(depositor);
-    world.last_proofless_view = Some(event);
+    world.last_zone_deposit_view = Some(event);
     world.recipient = Some(recipient);
+}
+
+#[then(expr = "an encrypted zone deposit event is emitted")]
+fn encrypted_zone_event_emitted(world: &mut ShieldedPoolWorld) {
+    assert!(world.last_zone_deposit_view.is_some());
 }
 
 #[when(expr = "the depositor zone-batch-shields {int} SOL outputs of {int} lamports")]
@@ -171,14 +202,16 @@ fn zone_batch_shield_sol(world: &mut ShieldedPoolWorld, count: u64, amount: u64)
     let deposits = (0..count)
         .map(|index| {
             let seed = u8::try_from(index + 1).expect("small batch");
-            let mut deposit =
-                ZolanaProgramTest::sol_shield_data(amount, [seed; 32], test_blinding(seed));
-            deposit.utxo_data = Some(UtxoData {
-                data_hash: [seed.wrapping_add(20); 32],
-                data: vec![seed; 2],
-            });
-            deposit.memo = Some(vec![seed.wrapping_add(30)]);
-            zone_entry(deposit, seed.wrapping_add(10))
+            zone_entry(
+                DepositAsset::Sol,
+                amount,
+                seed.wrapping_add(10),
+                Some(UtxoData {
+                    data_hash: [seed.wrapping_add(20); 32],
+                    data: vec![seed; 2],
+                }),
+                Some(vec![seed.wrapping_add(30)]),
+            )
         })
         .collect::<Vec<_>>();
     let expected = deposits.clone();
@@ -202,17 +235,22 @@ fn zone_batch_shield_sol(world: &mut ShieldedPoolWorld, count: u64, amount: u64)
     );
     assert_eq!(batch.outputs.len(), expected.len());
     for (output, entry) in batch.outputs.iter().zip(&expected) {
-        assert_eq!(output.view_tag, entry.deposit.view_tag);
-        assert_eq!(output.output.zone_data_hash, Some(entry.zone_data_hash));
-        assert_eq!(output.output.zone_data.as_ref(), Some(&entry.zone_data));
+        assert_eq!(output.view_tag, entry.view_tag);
+        assert_eq!(output.output.owner_utxo_hash, entry.owner_utxo_hash);
+        assert_eq!(output.output.zone_data_hash, entry.zone_data_hash);
+        assert_eq!(output.output.data_hash, entry.data_hash);
+        assert_eq!(output.output.zone_program_id, ZONE_TEST_PROGRAM_ID);
         assert_eq!(
-            output.output.data_hash,
-            entry.deposit.utxo_data.as_ref().map(|data| data.data_hash)
+            output.output.encrypted.tx_viewing_pk,
+            entry.encrypted.tx_viewing_pk
         );
-        assert_eq!(output.output.memo, entry.deposit.memo);
-        assert_eq!(output.output.zone_program_id, Some(ZONE_TEST_PROGRAM_ID));
+        assert_eq!(output.output.encrypted.salt, entry.encrypted.salt);
+        assert_eq!(
+            output.output.encrypted.ciphertext,
+            entry.encrypted.ciphertext
+        );
     }
-    world.batch_outputs = batch.outputs;
+    world.zone_batch_outputs = batch.outputs;
     world.depositor = Some(depositor);
 }
 
@@ -223,29 +261,24 @@ fn zone_batch_shield_mixed(world: &mut ShieldedPoolWorld, lamports: u64, tokens:
     let depositor = world.depositor().insecure_clone();
     let mint = world.mint();
     let user_token = world.user_token();
-    let vault = pda::spl_asset_vault(&mint);
+    let vault = pda::spl_interface(&mint);
     let interface_before = interface_lamports(world);
     let vault_before = world.rpc().token_balance(&vault).expect("vault balance");
 
     let deposits = vec![
+        zone_entry(DepositAsset::Sol, lamports, 11, None, None),
         zone_entry(
-            ZolanaProgramTest::sol_shield_data(lamports, [1; 32], test_blinding(1)),
-            11,
-        ),
-        zone_entry(
-            ZolanaProgramTest::spl_shield_data(
-                tokens,
-                [2; 32],
-                test_blinding(2),
-                &mint,
-                &user_token,
-            ),
+            DepositAsset::Spl(DepositSplAccounts {
+                mint,
+                user_token,
+                token_program: ZolanaProgramTest::token_program_id(),
+            }),
+            tokens,
             12,
+            None,
+            None,
         ),
-        zone_entry(
-            ZolanaProgramTest::sol_shield_data(lamports, [3; 32], test_blinding(3)),
-            13,
-        ),
+        zone_entry(DepositAsset::Sol, lamports, 13, None, None),
     ];
     let batch = world
         .rpc()
@@ -280,14 +313,14 @@ fn zone_batch_shield_mixed(world: &mut ShieldedPoolWorld, lamports: u64, tokens:
             .collect::<Vec<_>>(),
         vec![[0; 32], mint.to_bytes(), [0; 32]]
     );
-    world.batch_outputs = batch.outputs;
+    world.zone_batch_outputs = batch.outputs;
 }
 
 #[then(expr = "the zone batch appends {int} distinct leaves")]
 fn zone_batch_appended(world: &mut ShieldedPoolWorld, count: usize) {
-    assert_eq!(world.batch_outputs.len(), count);
+    assert_eq!(world.zone_batch_outputs.len(), count);
     let mut hashes = world
-        .batch_outputs
+        .zone_batch_outputs
         .iter()
         .map(|output| output.utxo_hash)
         .collect::<Vec<_>>();

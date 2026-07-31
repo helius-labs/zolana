@@ -153,6 +153,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             payer: user_solana.pubkey(),
             input_tree: env.tree,
             output_tree: env.tree,
+            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: split_transact,
         }

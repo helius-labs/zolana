@@ -105,7 +105,7 @@ pub enum ShieldedPoolError {
     #[error("circuit selector type does not match the dispatched instruction")]
     MismatchedCircuitType = 7039,
     #[error("SPL deposit authority must sign")]
-    SplDepositorMustSign = 7040,
+    SplTokenAuthorityMustSign = 7040,
     #[error("SPL token program is not supported")]
     UnsupportedSplTokenProgram = 7041,
     #[error("SPL token mint account is invalid")]
@@ -114,6 +114,8 @@ pub enum ShieldedPoolError {
     UnsupportedToken2022Extension = 7043,
     #[error("nullifier tree is too full to process a merge")]
     NullifierTreeTooFullForMerge = 7044,
+    #[error("transact interface transfers for one asset must not net to zero")]
+    ZeroNetInterfaceTransferAmount = 7045,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -188,11 +190,12 @@ mod tests {
             (TooManyPublicAssets as u32, 7037),
             (PublicAssetAmountOverflow as u32, 7038),
             (MismatchedCircuitType as u32, 7039),
-            (SplDepositorMustSign as u32, 7040),
+            (SplTokenAuthorityMustSign as u32, 7040),
             (UnsupportedSplTokenProgram as u32, 7041),
             (InvalidSplTokenMint as u32, 7042),
             (UnsupportedToken2022Extension as u32, 7043),
             (NullifierTreeTooFullForMerge as u32, 7044),
+            (ZeroNetInterfaceTransferAmount as u32, 7045),
         ];
         for (got, want) in table {
             assert_eq!(got, want, "error code drifted");

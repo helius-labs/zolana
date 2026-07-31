@@ -42,15 +42,18 @@ pub fn process_instruction(
 /// Forward a zone instruction to SPP verbatim, signing the zone's `zone_auth`
 /// PDA. The client lays out the same accounts for the call into this fixture and
 /// for the CPI into SPP (only the target program id and the `zone_auth` signer
-/// flag differ), and the SPP program account is passed last. We rebuild the SPP
-/// instruction from the received account views, flip the `zone_auth` account to a
-/// signer, and forward the data (tag included, as SPP's dispatcher strips it)
-/// unchanged.
+/// flag differ). Transact fixes the SPP account at index 3, while the other
+/// forwarded instruction families retain their own layouts, so this shared
+/// forwarder locates the SPP account by address. We rebuild the SPP instruction
+/// from the received account views, flip the `zone_auth` account to a signer, and
+/// forward the data (tag included, as SPP's dispatcher strips it) unchanged.
 fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -> ProgramResult {
     let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_PDA_SEED], program_id);
-    // The last account is the SPP program account (loadable for the emit_event
-    // self-CPI), matching the builders' account layout.
-    let spp = accounts.last().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
+    let spp = accounts
+        .iter()
+        .find(|account| account.address() == &spp_id)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
     check_shielded_pool(spp.address())?;
     if !accounts.iter().any(|a| a.address() == &zone_auth) {
         return Err(ProgramError::InvalidSeeds);
@@ -63,7 +66,6 @@ fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -
             InstructionAccount::new(a.address(), a.is_writable(), is_signer)
         })
         .collect();
-    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
     let instruction = InstructionView {
         program_id: &spp_id,
         accounts: &metas,
@@ -72,8 +74,8 @@ fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -
     let bump = [bump];
     let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
-    // A five-mint zone deposit carries tree + depositor + zone_auth, four
-    // accounts per SPL settlement group, and the SPP program account.
+    // A five-mint zone deposit carries the fixed prefix, zone_auth, and five
+    // SPL settlement groups.
     invoke_signed_with_bounds::<24, _>(&instruction, accounts, core::slice::from_ref(&signer))
 }
 

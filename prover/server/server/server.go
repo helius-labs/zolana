@@ -1097,6 +1097,7 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		return "zk_address_append_queue"
 	case common.TransferConfidentialCircuitType,
 		common.TransferZoneCircuitType,
+		common.TransferP256ZoneCircuitType,
 		common.TransferZoneAuthorityCircuitType,
 		common.MergeCircuitType,
 		common.MergeZoneCircuitType:
@@ -1110,6 +1111,8 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
+	case common.TransferP256ZoneCircuitType:
+		return "30-180 seconds"
 	default:
 		return "1-3 seconds"
 	}
@@ -1119,6 +1122,8 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
+	case common.TransferP256ZoneCircuitType:
+		return 180
 	case common.TransferConfidentialCircuitType, common.TransferZoneCircuitType, common.TransferZoneAuthorityCircuitType:
 		return 30
 	case common.MergeCircuitType, common.MergeZoneCircuitType:
@@ -1142,6 +1147,8 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		common.TransferZoneCircuitType,
 		common.TransferZoneAuthorityCircuitType:
 		return handler.transferEddsaProof(buf)
+	case common.TransferP256ZoneCircuitType:
+		return handler.transferP256Proof(buf)
 	case common.MergeCircuitType:
 		return handler.mergeProof(buf)
 	case common.MergeZoneCircuitType:
@@ -1233,6 +1240,27 @@ func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Erro
 	}
 
 	proof, err := transfereddsaonly.ProveTransfer(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) transferP256Proof(buf []byte) (*common.Proof, *Error) {
+	var params transfereddsaonly.P256TransferParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetTransferSystem(
+		common.TransferP256ZoneCircuitType,
+		params.NInputs,
+		params.NOutputs,
+	)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
+	}
+	proof, err := transfereddsaonly.ProveP256Transfer(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)

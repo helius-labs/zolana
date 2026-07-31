@@ -4,17 +4,18 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_client::{ClientError, Rpc};
 use zolana_interface::instruction::ZoneAssetDeposit;
-use zolana_program_test::DepositOutput;
-use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_program_test::ZoneDepositOutput;
+use zolana_transaction::{
+    OutputContext, OutputSlot, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+};
 
 use super::{
-    assert_indexed_deposit_utxo, fetch_account, state_root_from, to_address, wait_for_indexed_utxo,
-    wait_for_merkle_proof,
+    fetch_account, state_root_from, to_address, wait_for_indexed_utxo, wait_for_merkle_proof,
 };
 
 pub struct ZoneDepositAssertArgs<'a> {
     pub tree: &'a Pubkey,
-    pub event: &'a DepositOutput,
+    pub event: &'a ZoneDepositOutput,
     pub data: &'a ZoneAssetDeposit,
     pub expected_amount: u64,
     pub expected_asset: Address,
@@ -42,22 +43,23 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
         tree_before,
     } = args;
 
-    let expected = DepositOutput {
-        view_tag: data.deposit.view_tag,
+    let expected = ZoneDepositOutput {
+        view_tag: data.view_tag,
         utxo_hash: event.utxo_hash,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
-        output: zolana_event::ProoflessOutput {
-            owner: data.deposit.owner,
-            blinding: data.deposit.blinding,
+        output: zolana_event::EncryptedZoneDepositOutput {
+            owner_utxo_hash: data.owner_utxo_hash,
             asset: expected_asset.to_bytes(),
             amount: expected_amount,
-            data_hash: data.deposit.utxo_data.as_ref().map(|p| p.data_hash),
-            utxo_data: data.deposit.utxo_data.as_ref().map(|p| p.data.clone()),
-            zone_program_id: Some(expected_zone_program_id),
-            zone_data_hash: Some(data.zone_data_hash),
-            zone_data: Some(data.zone_data.clone()),
-            memo: data.deposit.memo.clone(),
+            data_hash: data.data_hash,
+            zone_program_id: expected_zone_program_id,
+            zone_data_hash: data.zone_data_hash,
+            encrypted: zolana_event::EncryptedZoneDepositData {
+                tx_viewing_pk: data.encrypted.tx_viewing_pk,
+                salt: data.encrypted.salt,
+                ciphertext: data.encrypted.ciphertext.clone(),
+            },
         },
     };
     assert_eq!(*event, expected, "zone deposit event");
@@ -66,8 +68,28 @@ pub fn assert_zone_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
     let root_after = state_root_from(&fetch_account(rpc, tree)?);
     assert_ne!(root_after, root_before, "leaf must be appended");
 
-    let indexed = wait_for_indexed_utxo(indexer, data.deposit.view_tag, signature);
-    assert_indexed_deposit_utxo(&indexed, data.deposit.view_tag, signature, tree, event);
+    let indexed = wait_for_indexed_utxo(indexer, data.view_tag, signature);
+    assert_eq!(
+        indexed,
+        zolana_client::EncryptedUtxoMatch {
+            slot: indexed.slot,
+            tx_signature: signature,
+            output_slot: OutputSlot {
+                view_tag: data.view_tag,
+                output_context: OutputContext {
+                    hash: event.utxo_hash,
+                    tree: to_address(tree),
+                    leaf_index: event.leaf_index,
+                },
+                payload: zolana_event::encode_encrypted_zone_deposit_output(
+                    expected.output.clone(),
+                ),
+            },
+            tx_viewing_pk: None,
+            salt: None,
+        },
+        "indexed zone deposit"
+    );
 
     let proof = wait_for_merkle_proof(indexer, to_address(tree), event.utxo_hash);
     assert_eq!(

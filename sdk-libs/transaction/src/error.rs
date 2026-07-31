@@ -73,11 +73,14 @@ pub enum TransactionError {
     #[error("interface transfer amount must be nonzero")]
     ZeroInterfaceTransferAmount,
 
+    #[error("interface transfers for asset {asset} must not net to zero")]
+    ZeroNetInterfaceTransferAmount { asset: Address },
+
     #[error("settlement target type does not match asset {asset}")]
     SettlementTargetMismatch { asset: Address },
 
-    #[error("public movement sum overflow for asset {asset}")]
-    PublicMovementOverflow { asset: Address },
+    #[error("public transfer sum overflow for asset {asset}")]
+    PublicTransferOverflow { asset: Address },
 
     #[error("too many active public assets: got {got}, max {max}")]
     TooManyPublicAssets { got: usize, max: usize },

@@ -50,21 +50,25 @@ type Transaction struct {
 	Inputs  []Input
 	Outputs []UtxoCircuitFields
 
-	PrivateTxHash    frontend.Variable
-	ExternalDataHash frontend.Variable
-	PublicAssets     [NPublicSlots]frontend.Variable
-	PublicAmounts    [NPublicSlots]frontend.Variable
-	ZoneProgramID    frontend.Variable
-	PayerPubkeyHash  frontend.Variable
-	AllowDummyInputs frontend.Variable
-	PublicInputHash  frontend.Variable
+	PrivateTxHash     frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PublicAssets      [NPublicSlots]frontend.Variable
+	PublicAmounts     [NPublicSlots]frontend.Variable
+	ZoneProgramID     frontend.Variable
+	SignerPkHashChain frontend.Variable
+	AllowDummyInputs  frontend.Variable
+	PublicInputHash   frontend.Variable
+
+	// PreimageAfterPrivateTxHash contains variant-specific fields inserted
+	// immediately after PrivateTxHash in the public-input-hash preimage.
+	PreimageAfterPrivateTxHash []frontend.Variable
 
 	// PreimageTail ends the public-input-hash preimage with everything that is
 	// variant-dependent, in this order and count, mirroring the program's
 	// recomputation (transact/verify.rs):
 	//
-	//	default zone:      input owner chain, output owner chain
-	//	custom zone:       input owner chain
+	//	default zone:      output owner chain
+	//	owner-signed zone: masked output owner chain
 	//	zone authority:    owner tags stay private
 	//
 	// Constrain only chains these, never reads them: the count varies, so naming
@@ -165,10 +169,11 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 		gadget.HashChain(api, t.UtxoTreeRoots),
 		gadget.HashChain(api, t.NullifierTreeRoots),
 		t.PrivateTxHash,
-		t.ExternalDataHash,
 	}
+	fields = append(fields, t.PreimageAfterPrivateTxHash...)
+	fields = append(fields, t.ExternalDataHash)
 	fields = append(fields, publicSlots(t.PublicAssets, t.PublicAmounts)...)
-	fields = append(fields, t.ZoneProgramID, t.PayerPubkeyHash, t.AllowDummyInputs)
+	fields = append(fields, t.ZoneProgramID, t.SignerPkHashChain, t.AllowDummyInputs)
 	fields = append(fields, t.PreimageTail...)
 	return gadget.HashChain(api, fields)
 }

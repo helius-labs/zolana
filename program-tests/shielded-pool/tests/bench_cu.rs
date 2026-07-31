@@ -17,7 +17,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
 use zolana_hasher::primitives::hash_bytes;
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
@@ -196,7 +196,9 @@ fn bench_cu_deposit() {
     bench_deposit_sol(&mollusk, &program_id, &mut bench);
     bench_deposit_sol_batch(&mollusk, &program_id, &mut bench);
     bench_deposit_spl(&mollusk, &program_id, &token_program_account, &mut bench);
-    let _ = (bench_transfer, bench_withdrawal_sol, bench_withdrawal_spl); // TEMP-SKIP
+    bench_transfer(&mollusk, &program_id, &mut bench);
+    bench_withdrawal_sol(&mollusk, &program_id, &mut bench);
+    bench_withdrawal_spl(&mollusk, &program_id, &token_program_account, &mut bench);
 
     bench.generate().expect("write CU_BENCHMARK.md");
 }
@@ -384,11 +386,10 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let zero = [0u8; 32];
 
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    let owner_hash = hash_bytes(&payer_bytes).expect("owner hash");
     let (dummy_input_0, nullifier_0) =
-        dummy_input(&[31u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 0");
+        dummy_input(&[31u8; 31], &nf_tree, roots).expect("dummy input 0");
     let (dummy_input_1, nullifier_1) =
-        dummy_input(&[32u8; 31], &nf_tree, roots, &owner_hash).expect("dummy input 1");
+        dummy_input(&[32u8; 31], &nf_tree, roots).expect("dummy input 1");
     let nullifiers = [nullifier_0, nullifier_1];
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
@@ -397,7 +398,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
@@ -414,7 +415,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
     let private_tx = PrivateTxHash::new(&[zero, zero], &[zero, zero, zero], &external_data_hash)
         .hash()
         .expect("private tx hash");
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pk_hash = hash_bytes(&payer_bytes).expect("payer hash");
 
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = public_input_hash(
@@ -426,8 +427,8 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         &external_data_hash,
         &public_slot_assets,
         &public_slot_amounts,
-        &payer_pubkey_hash,
-        &[owner_hash, owner_hash],
+        &payer_pk_hash,
+        &[zero, zero],
         &owner_pk_hashes,
     );
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
@@ -437,7 +438,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        payer_pk_hash,
         public_input_hash,
     });
     transact_ix_data.proof =
@@ -449,6 +450,7 @@ fn bench_transfer(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &mut CuB
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
@@ -514,7 +516,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
 
     let roots = (utxo_root, nullifier_root);
     let (dummy_spend_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -539,7 +541,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
@@ -563,7 +565,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
             .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pk_hash = hash_bytes(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash(
         &[nullifier, dummy_nullifier],
@@ -574,7 +576,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         &external_data_hash,
         &public_slot_assets,
         &public_slot_amounts,
-        &payer_pubkey_hash,
+        &payer_pk_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
     );
@@ -585,7 +587,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        payer_pk_hash,
         public_input_hash,
     });
     transact_ix_data.proof =
@@ -597,6 +599,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &MolluskPubkey, bench: &m
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
@@ -687,7 +690,7 @@ fn bench_withdrawal_spl(
 
     let roots = (utxo_root, nullifier_root);
     let (dummy_spend_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -701,7 +704,7 @@ fn bench_withdrawal_spl(
     })
     .expect("real input");
 
-    let vault = pda::spl_asset_vault(&mint);
+    let vault = pda::spl_interface(&mint);
 
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
@@ -710,7 +713,7 @@ fn bench_withdrawal_spl(
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    let view_tags = [[1u8; 32], [2u8; 32], [3u8; 32]];
+    let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, 1),
@@ -718,7 +721,7 @@ fn bench_withdrawal_spl(
         ],
         vec![InterfaceTransfer::SplWithdrawal {
             amount: AMOUNT,
-            vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }],
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -733,7 +736,7 @@ fn bench_withdrawal_spl(
             .hash()
             .expect("private tx hash");
     let public_spl_field = public_sol_field(Some(-(AMOUNT as i64)));
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pk_hash = hash_bytes(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash_spl(
         &[nullifier, dummy_nullifier],
@@ -744,7 +747,7 @@ fn bench_withdrawal_spl(
         &external_data_hash,
         &public_spl_field,
         &mint.to_bytes(),
-        &payer_pubkey_hash,
+        &payer_pk_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
     );
@@ -756,7 +759,7 @@ fn bench_withdrawal_spl(
             private_tx_hash: private_tx,
             public_slot_assets: [[0u8; 32]; zolana_interface::N_PUBLIC_SLOTS],
             public_slot_amounts: [[0u8; 32]; zolana_interface::N_PUBLIC_SLOTS],
-            payer_pubkey_hash,
+            payer_pk_hash,
             public_input_hash,
         },
         public_spl_field,
@@ -771,10 +774,11 @@ fn bench_withdrawal_spl(
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
             TransactSplWithdrawalAccounts {
                 mint,
-                vault,
+                spl_interface: vault,
                 user_token_account: user_token,
                 token_program: ZolanaProgramTest::token_program_id(),
             },

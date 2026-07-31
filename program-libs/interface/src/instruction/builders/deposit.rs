@@ -9,8 +9,8 @@ use crate::{
     pda, PROGRAM_ID_PUBKEY,
 };
 
-/// SPL settlement for one deposited mint. The vault and registry are canonical
-/// PDAs of `mint`, so callers pass only the mint and the funding token account.
+/// SPL settlement for one deposited mint. The SPL interface is the canonical
+/// PDA of `mint`, so callers pass only the mint and funding token account.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DepositSplAccounts {
     pub mint: Pubkey,
@@ -19,7 +19,7 @@ pub struct DepositSplAccounts {
 }
 
 /// Asset one batch entry deposits. Native SOL settles through the SOL interface
-/// PDA; an SPL mint settles through its vault.
+/// PDA; an SPL mint settles through its interface token account.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DepositAsset {
     Sol,
@@ -171,7 +171,7 @@ impl DepositLayout {
             assets.push(DepositAssetKind::Sol);
         }
         assets.extend(self.spl_groups.iter().map(|spl| DepositAssetKind::Spl {
-            vault_bump: pda::spl_asset_vault_with_bump(&spl.mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&spl.mint).1,
         }));
         assets
     }
@@ -188,8 +188,7 @@ impl DepositLayout {
                 AccountMeta::new_readonly(spl.token_program, false),
                 AccountMeta::new_readonly(spl.mint, false),
                 AccountMeta::new(spl.user_token, false),
-                AccountMeta::new(pda::spl_asset_vault(&spl.mint), false),
-                AccountMeta::new_readonly(pda::spl_asset_registry(&spl.mint), false),
+                AccountMeta::new(pda::spl_interface(&spl.mint), false),
             ]);
         }
     }
@@ -241,9 +240,9 @@ impl Deposit {
         let mut accounts = vec![
             AccountMeta::new(self.tree, false),
             AccountMeta::new(self.depositor, true),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
         layout.extend_account_metas(&mut accounts);
-        accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
 
         Ok(Instruction {
             program_id: PROGRAM_ID_PUBKEY,
@@ -319,7 +318,7 @@ mod tests {
             vec![
                 DepositAssetKind::Sol,
                 DepositAssetKind::Spl {
-                    vault_bump: pda::spl_asset_vault_with_bump(&mint).1,
+                    spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
                 },
             ]
         );
@@ -329,6 +328,30 @@ mod tests {
                 .map(|entry| entry.asset_index)
                 .collect::<Vec<_>>(),
             vec![1, 0, 1]
+        );
+    }
+
+    #[test]
+    fn spl_layout_places_program_before_four_account_settlement_group() {
+        let mint = Pubkey::new_unique();
+        let user_token = Pubkey::new_unique();
+        let deposit = deposit(vec![spl(mint, user_token, 1)]);
+        let tree = deposit.tree;
+        let depositor = deposit.depositor;
+
+        let ix = deposit.instruction().unwrap();
+
+        assert_eq!(
+            ix.accounts,
+            vec![
+                AccountMeta::new(tree, false),
+                AccountMeta::new(depositor, true),
+                AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+                AccountMeta::new_readonly(pda::spl_token_program_id(), false),
+                AccountMeta::new_readonly(mint, false),
+                AccountMeta::new(user_token, false),
+                AccountMeta::new(pda::spl_interface(&mint), false),
+            ]
         );
     }
 

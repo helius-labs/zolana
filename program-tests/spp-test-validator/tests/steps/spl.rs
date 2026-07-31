@@ -70,7 +70,7 @@ impl LifecycleWorld {
                 &[&payer, &authority],
             )?;
             let registry = pda::spl_asset_registry(&mint);
-            let vault = pda::spl_asset_vault(&mint);
+            let vault = pda::spl_interface(&mint);
 
             assert_create_spl_interface(
                 &self.rpc,

@@ -3,7 +3,7 @@ use solana_pubkey::{Pubkey, PubkeyError};
 use crate::{
     ASSOCIATED_TOKEN_PROGRAM_ID, DEFAULT_SOL_INTERFACE_INDEX_SEED, SHIELDED_POOL_CPI_AUTHORITY,
     SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE_PDA_SEED, SPL_ASSET_COUNTER_PDA_SEED,
-    SPL_ASSET_REGISTRY_PDA_SEED, SPL_ASSET_VAULT_PDA_SEED, SPL_TOKEN_2022_PROGRAM_ID,
+    SPL_ASSET_REGISTRY_PDA_SEED, SPL_INTERFACE_PDA_SEED, SPL_TOKEN_2022_PROGRAM_ID,
     SPL_TOKEN_PROGRAM_ID, SPP_PROTOCOL_CONFIG_PDA_SEED, ZONE_AUTH_PDA_SEED,
 };
 
@@ -42,19 +42,19 @@ pub fn spl_asset_registry(mint: &Pubkey) -> Pubkey {
     .0
 }
 
-pub fn spl_asset_vault(mint: &Pubkey) -> Pubkey {
-    spl_asset_vault_with_bump(mint).0
+pub fn spl_interface(mint: &Pubkey) -> Pubkey {
+    spl_interface_with_bump(mint).0
 }
 
-pub fn spl_asset_vault_with_bump(mint: &Pubkey) -> (Pubkey, u8) {
+pub fn spl_interface_with_bump(mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
-        &[SPL_ASSET_VAULT_PDA_SEED, mint.as_ref()],
+        &[SPL_INTERFACE_PDA_SEED, mint.as_ref()],
         &shielded_pool_program_id(),
     )
 }
 
-pub fn spl_asset_vault_bump(mint: &[u8; 32]) -> u8 {
-    spl_asset_vault_with_bump(&Pubkey::new_from_array(*mint)).1
+pub fn spl_interface_bump(mint: &[u8; 32]) -> u8 {
+    spl_interface_with_bump(&Pubkey::new_from_array(*mint)).1
 }
 
 pub fn associated_token_program_id() -> Pubkey {
@@ -110,11 +110,11 @@ mod tests {
     }
 
     #[test]
-    fn spl_asset_vault_bump_matches_canonical_derivation() {
+    fn spl_interface_bump_matches_canonical_derivation() {
         let mint = Pubkey::new_unique();
-        let (address, bump) = super::spl_asset_vault_with_bump(&mint);
-        assert_eq!(super::spl_asset_vault(&mint), address);
-        assert_eq!(super::spl_asset_vault_bump(&mint.to_bytes()), bump);
+        let (address, bump) = super::spl_interface_with_bump(&mint);
+        assert_eq!(super::spl_interface(&mint), address);
+        assert_eq!(super::spl_interface_bump(&mint.to_bytes()), bump);
     }
 
     #[test]

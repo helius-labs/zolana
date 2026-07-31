@@ -16,7 +16,7 @@ use solana_pubkey::Pubkey;
 use test_indexer::TestIndexer;
 use zolana_client::{
     AsyncRpc, ClientError, ConfidentialTransfer, MerkleContext, MerkleProof, NonInclusionProof,
-    ProverVariant, PublicMovements, Rpc, SettlementTarget, SpendProof, SppProofInputUtxo,
+    ProverVariant, PublicTransfers, Rpc, SettlementTarget, SpendProof, SppProofInputUtxo,
     SppProofInputs, TransferProver, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_event::OutputDataEncoding;
@@ -332,9 +332,9 @@ fn transfer_round_trip_outputs_and_slots() {
     );
 
     // A pure transfer moves no public value.
-    assert_eq!(prover.public_movements, PublicMovements::default());
+    assert_eq!(prover.public_transfers, PublicTransfers::default());
 
-    // External data: transact discriminator, no public movement, defaulted
+    // External data: transact discriminator, no public transfer, defaulted
     // accounts; the random ciphertext is passed through.
     assert_eq!(
         prover.external_data,
@@ -641,8 +641,8 @@ fn withdrawal_sets_external_data_and_change() {
     );
     assert!(recipients.is_empty());
     assert_eq!(
-        prover.public_movements,
-        PublicMovements {
+        prover.public_transfers,
+        PublicTransfers {
             assets: [SOL_ASSET_FIELD, [0u8; 32], [0u8; 32]],
             amounts: [signed_to_field(-30), [0u8; 32], [0u8; 32]],
         }
@@ -865,7 +865,7 @@ fn repeated_withdrawals_are_preserved() {
             },
         )
         .expect("second interface transfer");
-    assert_eq!(transfer.public_movements.len(), 2);
+    assert_eq!(transfer.public_transfers.len(), 2);
 }
 
 #[test]

@@ -1,10 +1,11 @@
 Feature: eddsa signer authorizes shielded spends over Photon
   On the Solana-only eddsa rail (transfer_2_3) the UTXO owner is an ed25519 key and
-  authorizes each spend by signing the transaction, checked by the program at the
-  eddsa signer index. This is the contrast with the P256 rail, where ownership is
-  proven inside the proof and the owner never signs the transaction. One scenario
-  drives a SOL, an SPL, and a mixed SOL+SPL transfer; each asserts it took the
-  eddsa rail, and Wallet::sync recovers every output.
+  authorizes each spend by signing the transaction. The program commits the payer
+  and appended owner signers into the proof's fixed-width signer transcript. This
+  contrasts with the P256 rail, where ownership is proven inside the proof and the
+  owner never signs the transaction. One scenario drives a SOL, an SPL, and a
+  mixed SOL+SPL transfer; each asserts it took the eddsa rail, and Wallet::sync
+  recovers every output.
 
   Background:
     Given a fresh shielded pool

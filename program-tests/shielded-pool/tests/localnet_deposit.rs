@@ -20,16 +20,17 @@ use zolana_interface::{
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{
-    create_tree_instructions, deposit_outputs_from_event, index_events,
-    parsed_instruction_from_compiled, rpc_state_root, single_deposit_view, DepositOutput,
-    IndexedEvent, IndexedTransaction, TestIndexer, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID,
+    create_tree_instructions, index_events, parsed_instruction_from_compiled, rpc_state_root,
+    single_deposit_view, zone_deposit_outputs_from_event, DepositOutput, IndexedEvent,
+    IndexedTransaction, TestIndexer, ZolanaProgramTest, ZoneDepositOutput, ZONE_TEST_PROGRAM_ID,
 };
 use zolana_test_utils::{
     spl::{create_mint, create_spl_interface, create_token_account, ensure_asset_counter, mint_to},
     test_validator_asserts::{fetch_account, token_amount},
 };
 use zolana_transaction::{
-    AssetRegistry, LocalWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+    derive_blinding, AssetRegistry, LocalWalletAuthority, SyncWalletAuthority, Wallet,
+    ZoneDepositPlaintext, DEFAULT_TAG_WINDOW,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -182,28 +183,42 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         zone_sol_keypair.shielded_address()?,
         AssetRegistry::default(),
     )?;
+    let zone_sol_blinding_seed = right_align(&[5u8; 31]);
     let mut zone_sol_data = ZolanaProgramTest::wallet_zone_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &zone_sol_recipient.identity,
-        &right_align(&[5u8; 31]),
+        &zone_sol_blinding_seed,
         0,
     )?;
     zone_sol_data.zone_data_hash = [5u8; 32];
-    zone_sol_data.zone_data = vec![5, 6];
+    zone_sol_data.encrypted = ZoneDepositPlaintext {
+        blinding: derive_blinding(&zone_sol_blinding_seed, 0),
+        utxo_data: None,
+        memo: None,
+        zone_data: vec![5, 6],
+    }
+    .encrypt(&zone_sol_keypair.viewing_pubkey())?;
 
     let zone_spl_keypair = ShieldedKeypair::new()?;
     let spl_assets = AssetRegistry::new([(2, Address::new_from_array(mint.to_bytes()))])?;
     let mut zone_spl_recipient = Wallet::new(zone_spl_keypair.shielded_address()?, spl_assets)?;
+    let zone_spl_blinding_seed = right_align(&[7u8; 31]);
     let mut zone_spl_data = ZolanaProgramTest::wallet_zone_spl_shield_data(
         DEPOSIT_TOKENS,
         mint,
         user_token,
         &zone_spl_recipient.identity,
-        &right_align(&[7u8; 31]),
+        &zone_spl_blinding_seed,
         1,
     )?;
     zone_spl_data.zone_data_hash = [7u8; 32];
-    zone_spl_data.zone_data = vec![7, 8];
+    zone_spl_data.encrypted = ZoneDepositPlaintext {
+        blinding: derive_blinding(&zone_spl_blinding_seed, 1),
+        utxo_data: None,
+        memo: None,
+        zone_data: vec![7, 8],
+    }
+    .encrypt(&zone_spl_keypair.viewing_pubkey())?;
 
     let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
     let zone_ix = ZoneDeposit {
@@ -228,14 +243,12 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         .events
         .first()
         .ok_or_else(|| anyhow::anyhow!("zone batch emitted no event"))?;
-    let zone_views = deposit_outputs_from_event(zone_event)?;
+    let zone_views = zone_deposit_outputs_from_event(zone_event)?;
     assert_eq!(zone_views.len(), 2);
     assert_eq!(zone_views[0].output.asset, [0u8; 32]);
-    assert_eq!(zone_views[0].output.zone_data_hash, Some([5u8; 32]));
-    assert_eq!(zone_views[0].output.zone_data, Some(vec![5, 6]));
+    assert_eq!(zone_views[0].output.zone_data_hash, [5u8; 32]);
     assert_eq!(zone_views[1].output.asset, mint.to_bytes());
-    assert_eq!(zone_views[1].output.zone_data_hash, Some([7u8; 32]));
-    assert_eq!(zone_views[1].output.zone_data, Some(vec![7, 8]));
+    assert_eq!(zone_views[1].output.zone_data_hash, [7u8; 32]);
     assert_eq!(
         token_amount(&fetch_account(&rpc, &vault)?),
         vault_before + DEPOSIT_TOKENS
@@ -245,12 +258,12 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         user_token_before - DEPOSIT_TOKENS
     );
     assert_eq!(zone_root_after, indexer.root());
-    assert_wallet_discovers(
+    assert_wallet_discovers_zone(
         &mut zone_sol_recipient,
         &LocalWalletAuthority::new(Pubkey::default(), &zone_sol_keypair),
         &zone_views[0],
     )?;
-    assert_wallet_discovers(
+    assert_wallet_discovers_zone(
         &mut zone_spl_recipient,
         &LocalWalletAuthority::new(Pubkey::default(), &zone_spl_keypair),
         &zone_views[1],
@@ -304,6 +317,25 @@ fn assert_wallet_discovers<A: SyncWalletAuthority + ?Sized>(
     wallet: &mut Wallet,
     authority: &A,
     view: &DepositOutput,
+) -> TestResult {
+    wallet.sync(
+        authority,
+        &[view.to_shielded_transaction(Signature::default())],
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    assert_eq!(wallet.utxos.len(), 1);
+    assert_eq!(
+        wallet.utxos.first().expect("one utxo").output_context.hash,
+        view.utxo_hash
+    );
+    Ok(())
+}
+
+fn assert_wallet_discovers_zone<A: SyncWalletAuthority + ?Sized>(
+    wallet: &mut Wallet,
+    authority: &A,
+    view: &ZoneDepositOutput,
 ) -> TestResult {
     wallet.sync(
         authority,

@@ -5,8 +5,8 @@ use zolana_interface::{
     shape::Shape,
 };
 use zolana_keypair::{
-    constants::SALT_LEN, hash::sha256_be, random_salt, shielded::ShieldedAddress,
-    viewing_key::random_blinding, P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
+    constants::SALT_LEN, random_salt, shielded::ShieldedAddress, viewing_key::random_blinding,
+    P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
 };
 
 use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
@@ -33,7 +33,7 @@ pub struct ConfidentialSplit {
     pub asset: Address,
     pub num_outputs: u8,
     pub per_output_amount: u64,
-    pub payer_pubkey_hash: [u8; 32],
+    pub payer: Address,
     pub blinding_seed: [u8; 32],
 }
 
@@ -82,7 +82,7 @@ impl ConfidentialSplit {
             asset,
             num_outputs,
             per_output_amount,
-            payer_pubkey_hash: sha256_be(payer.as_array()),
+            payer,
             blinding_seed: random_blinding(),
         })
     }
@@ -124,7 +124,7 @@ impl ConfidentialSplit {
             per_output_amount: self.per_output_amount,
             num_outputs: self.num_outputs,
             blinding_seed: self.blinding_seed,
-            payer_pubkey_hash: self.payer_pubkey_hash,
+            payer: self.payer,
         })
     }
 
@@ -170,7 +170,7 @@ pub struct PreparedSplit {
     pub per_output_amount: u64,
     pub num_outputs: u8,
     pub blinding_seed: [u8; 32],
-    pub payer_pubkey_hash: [u8; 32],
+    pub payer: Address,
 }
 
 impl PreparedSplit {
@@ -218,7 +218,7 @@ impl PreparedSplit {
             owner,
             input,
             outputs,
-            payer_pubkey_hash,
+            payer,
             ..
         } = self;
         if owner.signing_pubkey.signature_type()? == SignatureType::P256 {
@@ -251,7 +251,7 @@ impl PreparedSplit {
             input_utxos: vec![input],
             output_utxos: outputs,
             external_data,
-            payer_pubkey_hash,
+            payer,
         })
     }
 }

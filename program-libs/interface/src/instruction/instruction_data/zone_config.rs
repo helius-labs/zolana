@@ -12,12 +12,6 @@ pub struct CreateZoneConfigData {
 
 #[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UpdateZoneConfigOwnerData {
-    pub new_authority: Address,
-}
-
-#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateZoneConfigData {
     pub zone_authority_transact_is_enabled: bool,
 }

@@ -6,13 +6,13 @@ Feature: Zone proofless deposit
 
   Scenario: A zone proofless deposit succeeds and the event is faithful
     When the depositor zone-shields 750000000 lamports to a fresh recipient
-    Then a proofless deposit event is emitted
+    Then an encrypted zone deposit event is emitted
     And the recipient owns 1 UTXO
 
   Scenario: A zone proofless SPL deposit succeeds and the event is faithful
     Given an SPL depositor holding 1000000 tokens
     When the SPL depositor zone-shields 1000 tokens to a fresh recipient
-    Then a proofless deposit event is emitted
+    Then an encrypted zone deposit event is emitted
     And the recipient owns 1 UTXO
 
   Scenario: A same-asset zone batch preserves every output's policy data

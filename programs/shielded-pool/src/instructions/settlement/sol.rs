@@ -17,8 +17,8 @@ pub fn settle_sol(
 ) -> ProgramResult {
     if is_deposit {
         Transfer {
-            from: settlement.recipient,
-            to: settlement.sol_interface,
+            from: settlement.recipient_account,
+            to: settlement.sol_interface_account,
             lamports: amount,
         }
         .invoke()
@@ -31,8 +31,8 @@ pub fn settle_sol(
         ];
         let signer = Signer::from(&seeds);
         Transfer {
-            from: settlement.sol_interface,
-            to: settlement.recipient,
+            from: settlement.sol_interface_account,
+            to: settlement.recipient_account,
             lamports: amount,
         }
         .invoke_signed(core::slice::from_ref(&signer))

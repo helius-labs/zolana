@@ -24,7 +24,9 @@ pub use instructions::transact::{
     EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, ShieldedTransaction,
     SppProofOutputUtxo,
 };
-pub use serialization::{scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization};
+pub use serialization::{
+    scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization, ZoneDepositPlaintext,
+};
 pub use solana_address::Address;
 pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, ProofInputUtxo, Utxo};
 pub use wallet::{

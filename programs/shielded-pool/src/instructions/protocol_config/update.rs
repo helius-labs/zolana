@@ -12,9 +12,9 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_mut("protocol_config")?;
 
-    if let UpdateProtocolConfigData::ProtocolAuthority(a) = &data {
+    if let UpdateProtocolConfigData::ProtocolAuthority(authority) = &data {
         let new_authority = iter.next_signer("new_authority")?;
-        if !address_eq(new_authority.address(), a) {
+        if !address_eq(new_authority.address(), authority) {
             return Err(ShieldedPoolError::InvalidInstructionData.into());
         }
     }

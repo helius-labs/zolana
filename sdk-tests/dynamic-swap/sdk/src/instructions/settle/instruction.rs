@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
@@ -30,16 +30,8 @@ impl Settle {
             rent_recipient,
             tree,
             proof,
-            mut transact,
+            transact,
         } = self;
-
-        // Both inputs (order, reservation) are owned by the escrow_authority PDA,
-        // forwarded at tail slot 4: [caller(payer)=0, input_tree=1,
-        // output_tree=2, system_program=3, escrow_authority=4, program=5].
-        // The program flips the PDA to a signer via invoke_signed.
-        const ESCROW_AUTHORITY_POSITION: u8 = 4;
-        route_input(&mut transact, 0, ESCROW_AUTHORITY_POSITION)?;
-        route_input(&mut transact, 1, ESCROW_AUTHORITY_POSITION)?;
 
         let ix_data = SettleIxData { proof, transact };
         let serialized = wincode::serialize(&ix_data).map_err(err)?;
@@ -53,13 +45,13 @@ impl Settle {
             AccountMeta::new(escrow, false),
             AccountMeta::new(rent_recipient, false),
             // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
-            // System Program, escrow authority, then SPP.
+            // SPP, System Program, then escrow authority.
             AccountMeta::new_readonly(caller, true),
             AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
+            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(escrow_authority_pda(&pair), false),
-            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
 
         Ok(Instruction {
@@ -68,15 +60,4 @@ impl Settle {
             data: instruction_data,
         })
     }
-}
-
-/// Points `transact.inputs[input]`'s `eddsa_signer_index` at `position`, the
-/// slot of that input's owner within the forwarded SPP `transact` account tail.
-fn route_input(transact: &mut TransactIxData, input: usize, position: u8) -> Result<()> {
-    transact
-        .inputs
-        .get_mut(input)
-        .ok_or_else(|| anyhow!("transact input {input} out of range"))?
-        .eddsa_signer_index = position;
-    Ok(())
 }

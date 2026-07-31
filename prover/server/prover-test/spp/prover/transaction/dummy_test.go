@@ -15,11 +15,11 @@ func proveTestOwner(t *testing.T) (payerPubkey [32]byte, payerHash, owner, nulli
 	for i := range payerPubkey {
 		payerPubkey[i] = byte(i + 1)
 	}
-	payerHash = protocol.Sha256BEField(payerPubkey[:])
 	ownerKeyHash, err := protocol.SolanaPkField(payerPubkey)
 	if err != nil {
 		t.Fatal(err)
 	}
+	payerHash = new(big.Int).Set(ownerKeyHash)
 	nullifierSecret = big.NewInt(12345)
 	nullifierPk, err := protocol.NullifierPk(nullifierSecret)
 	if err != nil {

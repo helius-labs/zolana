@@ -23,7 +23,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{TransferOutput, STATE_TREE_HEIGHT};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
@@ -143,7 +143,7 @@ fn shield_then_withdraw_sol() {
 
     let roots = (utxo_root, nullifier_root);
     let (dummy_spend_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
 
     // The real input spending the shielded UTXO (is_dummy = 0).
     let payer_spend_input = spend_input(SpendInputArgs {
@@ -217,7 +217,7 @@ fn shield_then_withdraw_sol() {
             .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pk_hash = zolana_hasher::primitives::hash_bytes(&payer_bytes).expect("payer hash");
 
     let public_input_hash = public_input_hash(
         &[nullifier, dummy_nullifier],
@@ -228,7 +228,7 @@ fn shield_then_withdraw_sol() {
         &external_data_hash,
         &public_slot_assets,
         &public_slot_amounts,
-        &payer_pubkey_hash,
+        &payer_pk_hash,
         &[owner_pk_hash, owner_pk_hash],
         &owner_pk_hashes,
     );
@@ -240,7 +240,7 @@ fn shield_then_withdraw_sol() {
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        payer_pk_hash,
         public_input_hash,
     });
     transact_ix_data.proof =
@@ -248,13 +248,13 @@ fn shield_then_withdraw_sol() {
             .expect("prove withdraw");
     transact_ix_data.private_tx_hash = private_tx;
 
-    // SOL withdrawal account layout: payer (signer/owner), tree, sol_interface
-    // (the SOL-custody PDA), recipient, then the system program (settle_sol
-    // Transfer CPI) and the program (emit_event self-CPI).
+    // SOL withdrawal account layout: payer, input tree, output tree, SPP,
+    // System Program, then the sol_interface custody PDA and recipient.
     let ix = Transact {
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
@@ -307,7 +307,7 @@ fn shield_transfer_then_withdraw_sol() {
         zone_program_id: None,
         data: Data::default(),
     };
-    let payer_owner_pk_hash = payer_utxo
+    let payer_pk_hash = payer_utxo
         .owner
         .owner_proof_input_hash()
         .expect("payer owner pk hash");
@@ -351,7 +351,7 @@ fn shield_transfer_then_withdraw_sol() {
         non_inclusion: &payer_non_inclusion,
         roots: (shield_utxo_root, nullifier_root),
         nullifier: &payer_nullifier,
-        owner_pk_hash: &payer_owner_pk_hash,
+        owner_pk_hash: &payer_pk_hash,
         nullifier_key: &payer_nullifier_key,
     })
     .expect("payer real input");
@@ -384,8 +384,7 @@ fn shield_transfer_then_withdraw_sol() {
     let recipient_hash = recipient_output.hash().expect("recipient output hash");
     let transfer_roots = (shield_utxo_root, nullifier_root);
     let (transfer_dummy_input, transfer_dummy_nullifier) =
-        dummy_input(&[20u8; 31], &nf_tree, transfer_roots, &payer_owner_pk_hash)
-            .expect("transfer dummy input");
+        dummy_input(&[20u8; 31], &nf_tree, transfer_roots).expect("transfer dummy input");
     // The transfer's third output is a dummy (`owner_hash = 0`): a real `utxo_hash`
     // the program appends and the proof commits, contributing `0` to private_tx_hash.
     let (transfer_dummy_output, transfer_dummy_hash) =
@@ -437,7 +436,7 @@ fn shield_transfer_then_withdraw_sol() {
     )
     .hash()
     .expect("transfer private tx hash");
-    let payer_pubkey_hash = Sha256BE::hash(&payer_bytes).expect("payer hash");
+    let payer_pk_hash = zolana_hasher::primitives::hash_bytes(&payer_bytes).expect("payer hash");
     let (transfer_public_slot_assets, transfer_public_slot_amounts) = sol_public_slots(zero);
     let transfer_public_input_hash = public_input_hash(
         &[payer_nullifier, transfer_dummy_nullifier],
@@ -448,8 +447,8 @@ fn shield_transfer_then_withdraw_sol() {
         &transfer_external_hash,
         &transfer_public_slot_assets,
         &transfer_public_slot_amounts,
-        &payer_pubkey_hash,
-        &[payer_owner_pk_hash, payer_owner_pk_hash],
+        &payer_pk_hash,
+        &[payer_pk_hash, payer_pk_hash],
         &transfer_owner_pk_hashes,
     );
     let transfer_prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
@@ -459,7 +458,7 @@ fn shield_transfer_then_withdraw_sol() {
         private_tx_hash: transfer_private_tx,
         public_slot_assets: transfer_public_slot_assets,
         public_slot_amounts: transfer_public_slot_amounts,
-        payer_pubkey_hash,
+        payer_pk_hash,
         public_input_hash: transfer_public_input_hash,
     });
     transfer_ix_data.proof = prove_and_verify_transfer(
@@ -474,6 +473,7 @@ fn shield_transfer_then_withdraw_sol() {
         payer: payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
@@ -551,7 +551,6 @@ fn shield_transfer_then_withdraw_sol() {
         &[21u8; 31],
         &nf_tree,
         (transfer_utxo_root, transfer_nullifier_root),
-        &recipient_owner_pk_hash,
     )
     .expect("withdraw dummy input");
     // The withdrawal spends the full transferred amount; all three outputs are
@@ -603,7 +602,8 @@ fn shield_transfer_then_withdraw_sol() {
     .expect("withdraw private tx hash");
     let public_sol_field = public_sol_field(Some(-(TRANSFER_AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
-    let recipient_pubkey_hash = Sha256BE::hash(&recipient_bytes).expect("recipient payer hash");
+    let recipient_pubkey_hash =
+        zolana_hasher::primitives::hash_bytes(&recipient_bytes).expect("recipient payer hash");
     let withdraw_public_input_hash = public_input_hash(
         &[recipient_nullifier, withdraw_dummy_nullifier],
         &withdraw_output_hashes,
@@ -624,7 +624,7 @@ fn shield_transfer_then_withdraw_sol() {
         private_tx_hash: withdraw_private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash: recipient_pubkey_hash,
+        payer_pk_hash: recipient_pubkey_hash,
         public_input_hash: withdraw_public_input_hash,
     });
     withdraw_ix_data.proof = prove_and_verify_transfer(
@@ -639,6 +639,7 @@ fn shield_transfer_then_withdraw_sol() {
         payer: recipient_owner.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
                 recipient: public_recipient,

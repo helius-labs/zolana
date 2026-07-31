@@ -10,7 +10,7 @@ use solana_address::Address;
 use crate::{
     error::TransactionError,
     instructions::{
-        transact::{shape::Shape, spp_proof_inputs::PublicMovements},
+        transact::{shape::Shape, spp_proof_inputs::PublicTransfers},
         types::{InputUtxoContext, SppProofInputUtxo},
     },
     ExternalData, SppProofOutputUtxo,
@@ -22,9 +22,9 @@ use crate::{
 pub struct PreparedZoneAuthority {
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
-    pub public_movements: PublicMovements,
+    pub public_transfers: PublicTransfers,
     pub external_data: ExternalData,
-    pub payer_pubkey_hash: [u8; 32],
+    pub payer: Address,
     /// The zone program; bound to the public `zone_program_id` and to each
     /// non-dummy UTXO's zone field by the circuit. Every input/output UTXO must
     /// already carry this `zone_program_id`.

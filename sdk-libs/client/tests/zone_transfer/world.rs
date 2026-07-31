@@ -15,6 +15,11 @@ pub(crate) enum Mode {
     /// multiple real inputs, a real recipient, and value conservation on the eddsa
     /// rail.
     EddsaMultiReal,
+    /// One P256-owned zone input plus dummy padding, proved by the Go server and
+    /// verified against the committed transfer_p256_zone VK.
+    P256,
+    /// One P256 and one ed25519 real input in the same custom-zone proof.
+    P256Mixed,
 }
 
 #[derive(Debug, Default)]

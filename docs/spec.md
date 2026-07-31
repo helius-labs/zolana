@@ -271,6 +271,9 @@ their stated Poseidon preimages.
 Solana / Ed25519 owner (32 B):
   owner_proof_input_hash(pk) := hash_bytes_32(pk)
 
+P256 owner (33 B SEC1):
+  owner_proof_input_hash(pk) := hash_bytes_32(pk.x)
+
 P256 viewing key (33 B SEC1, retained for viewing/ECDH):
   viewing_proof_input_hash(pk) := hash_bytes_33(pk)
 ```
@@ -281,16 +284,15 @@ P256 viewing key (33 B SEC1, retained for viewing/ECDH):
 owner_hash := Poseidon(owner_proof_input_hash(signing_pk), nullifier_pk)
 ```
 
-SPP derives the owner proof input from the verified Ed25519 signer account.
-P256 remains the curve used for viewing keys and ECDH, not transaction-owner
-authorization.
+SPP derives an Ed25519 owner proof input from the verified signer account. The
+`ZoneP256` rail instead proves one shared P256 signature and derives the owner
+proof input from the point's x-coordinate in-circuit.
 
 # Signing Key
 
-`(signing_sk, signing_pk)` — the spend-authorizing keypair. `transact` and
-`zone_transact` use Ed25519 owners, authorized through SPP's signer-account
-check (see [UTXO Ownership Check](#utxo-ownership-check)). P-256 remains
-available for viewing/ECDH and registry compatibility, not transact ownership.
+`(signing_sk, signing_pk)` — the spend-authorizing keypair. Ed25519 owners are
+authorized through SPP's signer-account check. `zone_transact` also supports
+the `ZoneP256` rail, which verifies one shared P256 signature in-circuit.
 
 **Coin type.** `TSPP_COIN_TYPE = 1392955331'` (`be_u32(SHA-256("luminous.TSPP.v1")[0..4]) & 0x7FFF_FFFF`).
 
@@ -879,7 +881,9 @@ struct MergeEncryptedUtxo {
 | public_amounts (`N_PUBLIC_SLOTS = 3`) | Signed-field encodings of the three aggregated proof movements. Each net magnitude must fit `u64`; deposits encode the magnitude directly and withdrawals encode its negation in the BN254 field. |
 | zone_program_id | single `pk_field` of the policy zone authorizing the transaction's UTXOs; `0` (non-zone / default transact) — instruction data |
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
-| owner_proof_input_hashes (one per input UTXO) | `hash_bytes_32` of the input's Solana / Ed25519 owner account. |
+| signer_pk_hashes | Payer first, then first-occurrence-deduplicated Ed25519 owner signers, then zero padding to `N_inputs + 1`; folded as a fixed-width right hash chain. |
+| P256 message and default-owner hashes (`ZoneP256` only) | Immediately after `private_tx_hash`: `hash_bytes_32(SHA-256(private_tx_hash))`, followed by `default_p256_owner_pk_hash`. The latter is `hash_bytes_32(p256_x)` iff a real P256 UTXO/address has `zone_program_id = 0`, otherwise `0`. SPP derives it from `CircuitId::ZoneP256.default_owner_tag`; the circuit conditionally binds it to the shared P256 key. |
+| published output owner hash chain (owner-signed variants) | Fixed-width per-output vector folded into a final hash-chain field. `ConfidentialEddsa` publishes every resolved owner tag. `ZoneEddsa` and `ZoneP256` publish `hash_bytes_32(fetch_tag)` only where the output ciphertext is structurally `OutputDataEncoding::Encrypted` with confidential scheme byte `3`; other slots contribute `0`. `ZoneAuthority` omits this field. |
 
 The rows are in preimage order: every variant shares the rows through
 `payer_pubkey_hash`, and the ones a variant does not publish are omitted from the
@@ -891,7 +895,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| owner proof input | The public `hash_bytes_32` commitment derived by SPP from the verified Ed25519 signer account. |
+| owner proof input | Private per-slot identity. Ed25519 identities must occur in the public signer vector. On `ZoneP256`, zero selects the shared P256 owner while non-zero selects an Ed25519 signer. A real default-zone P256 input/address additionally forces the conditional public owner hash described above. |
 | `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
 | `blinding`, `asset`, `amount`, `data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
@@ -900,7 +904,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| `owner` | recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`, which the proof hashes into `output_utxo_hashes[i]` without unpacking the components. The confidential variant additionally witnesses the owner's signing and nullifier pubkeys to recompute `owner_hash` and expose the signing pubkey as the public tag. |
+| `owner` | Recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`. Owner-signed circuits witness the actual owner identity and nullifier pubkey and recompute `owner_hash`. A real default-zone output must equal its published per-slot owner hash; a real policy-zone output must publish zero. A dummy may publish zero, or may publish a real participant identity to camouflage a confidential slot. |
 | `asset`, `amount`, `blinding`, `data_hash`, `zone_data_hash`, `zone_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **external_data_hash**
@@ -972,7 +976,7 @@ intermediary cannot replace either value while reusing the proof.
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
 | Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
-| Output owner tag (confidential variant) | The confidential variant exposes each output owner's signing pubkey — the output's fetch tag — as a public input and recomputes the output `owner_hash` from it, so the tag truthfully identifies the owner and a sender cannot mistag a recipient's output. The anonymous variant omits this, leaving `owner` free for a view tag. The `circuit` selector picks the variant. |
+| Output owner tag | `ConfidentialEddsa` binds every output tag. Owner-signed zone circuits use the ciphertext scheme as a public marker: confidential-encrypted slots contribute the resolved tag hash, all other encodings contribute zero. The circuit requires every real default-zone output to be marked and bound to its actual owner, and every real policy-zone output to be unmarked. Dummy outputs may use zero; a non-zero dummy marker must identify a real signer or real output owner. `ZoneAuthority` publishes no output-owner chain. |
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals. Public proof slots are the checked, non-zero net amounts aggregated from settlement legs by resolved asset. An idle slot has amount and asset pinned to `0`; the circuit retains its pairwise-distinct-asset constraint over active slots. |
 | Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, address utxo hash chain, external data hash)`. Dummy inputs and outputs contribute `0` to the input and output chains, so the hash covers only real state; their real hashes still enter the public `output_utxo_hashes` and nullifier inputs. The address chain contains each address slot's `utxo_hash` (`0` elsewhere). The Ed25519 account signatures and the circuit's owner bindings jointly authorize this value. SPP, policy, and third-party proofs all take `private_tx_hash` as a public input, so every circuit proves statements about the same transaction data. |
 | UTXO data | There is no program ownership: every real input takes the owner-signature path. `utxo_data` may sit on any UTXO; `data_hash` enters `utxo_hash` unchecked, so the owner signature over `private_tx_hash` authorizes any output that sets it. Zone programs additionally authorize spends of their zone (`zone_program_id`) via a PDA signer; policy proofs are checked by the zone program before CPI into SPP. |
@@ -987,20 +991,31 @@ intermediary cannot replace either value while reusing the proof.
 **Circuit Combinations**
 
 `CircuitId` selects the Ed25519 default (`ConfidentialEddsa`), Ed25519 zone
-(`ZoneEddsa`), or zone-authority (`ZoneAuthority`) circuit and its fixed shape.
+(`ZoneEddsa`), shared-P256 zone (`ZoneP256`), or zone-authority
+(`ZoneAuthority`) circuit and its fixed shape. `ZoneP256` carries the BSB22
+commitment/PoK and an optional raw P256 x-coordinate owner tag. The tag is
+present exactly when the transaction contains a real default-zone P256
+UTXO/address; SPP hashes it into the public-input preimage.
 It is a selector only — not a public input and never hashed into
 `private_tx_hash` or `external_data_hash`. SPP validates it fail-closed: its
 family must match the dispatched instruction and its dimensions must match the
-input/output vectors and a generated verifying key. All transact-family proofs
-use the vanilla 128-byte Groth16 encoding.
+input/output vectors and a generated verifying key. `ZoneP256` uses the
+committed Groth16/BSB22 proof payload; the other variants use vanilla Groth16.
 
-A third axis selects a zone-capable instantiation, fixed by the dispatched instruction (rule 1 above). The non-zone (default) variant pins every UTXO's zone fields to `0`. The zone variant binds each non-dummy input and output UTXO to the public `zone_program_id` when set: a UTXO whose `zone_program_id` is non-zero must equal the public `zone_program_id`, while a bare UTXO with `zone_program_id = 0` is exempt. The `zone_program_id` binding and non-zero `zone_data` are gated to the zone variant. Policy zones are anonymous, hiding the recipient behind a view tag, so there is no confidential zone variant: zone pairs only with the anonymous owner-tag variant.
+A third axis selects a zone-capable instantiation, fixed by the dispatched
+instruction. The non-zone variant pins every UTXO's zone fields to `0`. The
+zone variant binds each non-dummy input and output whose `zone_program_id` is
+non-zero to the public zone; a default-zone UTXO (`zone_program_id = 0`) is
+exempt. Owner-signed zone circuits therefore support mixed transactions:
+default-zone input/output owners are public through the signer/default-P256
+and confidential-marker bindings above, while policy-zone owners remain
+anonymous.
 
 **Transfer-key rotation.** Expanding the transfer circuit to
 `N_PUBLIC_SLOTS = 3` changes its constraint system. Every transfer proving key
 and embedded verifying key, across every shape and
-EdDSA/default-zone/policy-zone/
-zone-authority variant, MUST be regenerated from that same circuit revision.
+EdDSA/default-zone/policy-zone/P256/zone-authority variant, MUST be regenerated
+from that same circuit revision.
 The transfer circuit fingerprints and proving-key lock file MUST identify those
 new artifacts. A deployment MUST activate the matching program and published
 proving keys together; an old proving key and new verifying key, or the reverse,

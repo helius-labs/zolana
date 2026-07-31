@@ -12,7 +12,8 @@ use solana_signature::Signature;
 use solana_transaction::Transaction;
 use zolana_client::{spawn_prover, Proof, ProofCompressed, Rpc, SolanaRpc};
 use zolana_interface::instruction::instruction_data::{
-    merge_transact::MergeProof, transact::TransactProof,
+    merge_transact::MergeProof,
+    transact::{Bsb22Commitment, TransactProof},
 };
 use zolana_program_test::ZONE_TEST_PROGRAM_ID;
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
@@ -37,6 +38,12 @@ pub(crate) fn pack_proof(proof: &Proof) -> Result<MergeProof> {
 /// Build the compressed proof carried by a `transact` instruction.
 pub(crate) fn transact_proof(proof: &Proof) -> Result<TransactProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_transact_proof())
+}
+
+/// Split a committed P256 proof into the unchanged transact proof triple and the
+/// BSB22 payload carried by `CircuitId::ZoneP256`.
+pub(crate) fn p256_transact_proof(proof: &Proof) -> Result<(TransactProof, Bsb22Commitment)> {
+    Ok(ProofCompressed::try_from(*proof)?.into_zone_p256_transact_parts()?)
 }
 
 /// Start the persistent prover server (idempotent), pointing it at the committed
