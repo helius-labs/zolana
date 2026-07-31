@@ -25,7 +25,6 @@ use solana_instruction::{error::InstructionError, AccountMeta};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_account_checks::AccountError;
 use zolana_client::STATE_TREE_HEIGHT;
 use zolana_client::{
     prover::field::be, ProverClient, PublicInputs, PublicTransfers, TransferOutput,
