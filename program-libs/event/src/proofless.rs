@@ -8,9 +8,9 @@ pub struct ProoflessOutput {
     pub amount: u64,
     pub data_hash: Option<[u8; 32]>,
     pub utxo_data: Option<Vec<u8>>,
-    pub zone_program_id: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
-    pub zone_data: Option<Vec<u8>>,
+    pub ring_program_id: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
+    pub ring_data: Option<Vec<u8>>,
     /// Optional free-form memo, emitted in the clear. Not committed into any
     /// hash, so it is informational only.
     pub memo: Option<Vec<u8>>,
@@ -29,50 +29,50 @@ pub struct ProoflessOutputRef<'a> {
     pub amount: u64,
     pub data_hash: Option<&'a [u8; 32]>,
     pub utxo_data: Option<&'a [u8]>,
-    pub zone_program_id: Option<&'a [u8; 32]>,
-    pub zone_data_hash: Option<&'a [u8; 32]>,
-    pub zone_data: Option<&'a [u8]>,
+    pub ring_program_id: Option<&'a [u8; 32]>,
+    pub ring_data_hash: Option<&'a [u8; 32]>,
+    pub ring_data: Option<&'a [u8]>,
     pub memo: Option<&'a [u8]>,
 }
 
-/// Self-contained encryption envelope for one owner-hidden zone deposit.
+/// Self-contained encryption envelope for one owner-hidden ring deposit.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct EncryptedZoneDepositData {
+pub struct EncryptedRingDepositData {
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
     pub ciphertext: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize)]
-pub struct EncryptedZoneDepositDataRef<'a> {
+pub struct EncryptedRingDepositDataRef<'a> {
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
     pub ciphertext: &'a [u8],
 }
 
-/// Output body for an owner-hidden policy-zone deposit. Settlement and
+/// Output body for an owner-hidden policy-ring deposit. Settlement and
 /// commitment fields remain visible; private preimages live in `encrypted`.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
-pub struct EncryptedZoneDepositOutput {
+pub struct EncryptedRingDepositOutput {
     pub owner_utxo_hash: [u8; 32],
     pub asset: [u8; 32],
     pub amount: u64,
     pub data_hash: Option<[u8; 32]>,
-    pub zone_program_id: [u8; 32],
-    pub zone_data_hash: [u8; 32],
-    pub encrypted: EncryptedZoneDepositData,
+    pub ring_program_id: [u8; 32],
+    pub ring_data_hash: [u8; 32],
+    pub encrypted: EncryptedRingDepositData,
 }
 
-/// Borrowed serialization view of [`EncryptedZoneDepositOutput`].
+/// Borrowed serialization view of [`EncryptedRingDepositOutput`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize)]
-pub struct EncryptedZoneDepositOutputRef<'a> {
+pub struct EncryptedRingDepositOutputRef<'a> {
     pub owner_utxo_hash: &'a [u8; 32],
     pub asset: &'a [u8; 32],
     pub amount: u64,
     pub data_hash: Option<&'a [u8; 32]>,
-    pub zone_program_id: &'a [u8; 32],
-    pub zone_data_hash: &'a [u8; 32],
-    pub encrypted: EncryptedZoneDepositDataRef<'a>,
+    pub ring_program_id: &'a [u8; 32],
+    pub ring_data_hash: &'a [u8; 32],
+    pub encrypted: EncryptedRingDepositDataRef<'a>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -83,8 +83,8 @@ pub enum OutputDataEncoding {
 }
 
 /// Scheme byte inside [`OutputDataEncoding::Encrypted`] for owner-hidden
-/// policy-zone deposits.
-pub const ENCRYPTED_ZONE_DEPOSIT_SCHEME: u8 = 8;
+/// policy-ring deposits.
+pub const ENCRYPTED_RING_DEPOSIT_SCHEME: u8 = 8;
 
 impl OutputDataEncoding {
     pub const PLAINTEXT_TAG: u8 = 0;
@@ -104,7 +104,7 @@ const PLAINTEXT_TAG_LEN: usize = 1;
 /// Enum tag plus the `u32` body length prefix; the body starts here.
 const PLAINTEXT_BODY_OFFSET: usize = PLAINTEXT_TAG_LEN + 4;
 /// Bytes an [`OutputDataEncoding::Plaintext`] payload needs before the variable
-/// `utxo_data` / `zone_data` / `memo` contents: the enum tag, the body length
+/// `utxo_data` / `ring_data` / `memo` contents: the enum tag, the body length
 /// prefix, the scheme byte, and every fixed [`ProoflessOutput`] field with its
 /// options present. Pinned by `plaintext_fixed_len_covers_every_option`.
 pub const PLAINTEXT_OUTPUT_FIXED_LEN: usize = 224;
@@ -132,9 +132,9 @@ pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
         amount: data.amount,
         data_hash: data.data_hash.as_ref(),
         utxo_data: data.utxo_data.as_deref(),
-        zone_program_id: data.zone_program_id.as_ref(),
-        zone_data_hash: data.zone_data_hash.as_ref(),
-        zone_data: data.zone_data.as_deref(),
+        ring_program_id: data.ring_program_id.as_ref(),
+        ring_data_hash: data.ring_data_hash.as_ref(),
+        ring_data: data.ring_data.as_deref(),
         memo: data.memo.as_deref(),
     })
 }
@@ -142,7 +142,7 @@ pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
 /// Borrowed counterpart of [`encode_output_data`].
 pub fn encode_output_data_ref(data: ProoflessOutputRef<'_>) -> Vec<u8> {
     let variable_len = data.utxo_data.map_or(0, <[u8]>::len)
-        + data.zone_data.map_or(0, <[u8]>::len)
+        + data.ring_data.map_or(0, <[u8]>::len)
         + data.memo.map_or(0, <[u8]>::len);
     let mut out = Vec::with_capacity(PLAINTEXT_OUTPUT_FIXED_LEN + variable_len);
     out.push(OutputDataEncoding::PLAINTEXT_TAG);
@@ -166,16 +166,16 @@ pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
         .expect("shielded-pool output data serialization is infallible")
 }
 
-/// Encodes the mixed public/encrypted payload used by `zone_deposit`.
-pub fn encode_encrypted_zone_deposit_output(data: EncryptedZoneDepositOutput) -> Vec<u8> {
-    encode_encrypted_zone_deposit_output_ref(EncryptedZoneDepositOutputRef {
+/// Encodes the mixed public/encrypted payload used by `ring_deposit`.
+pub fn encode_encrypted_ring_deposit_output(data: EncryptedRingDepositOutput) -> Vec<u8> {
+    encode_encrypted_ring_deposit_output_ref(EncryptedRingDepositOutputRef {
         owner_utxo_hash: &data.owner_utxo_hash,
         asset: &data.asset,
         amount: data.amount,
         data_hash: data.data_hash.as_ref(),
-        zone_program_id: &data.zone_program_id,
-        zone_data_hash: &data.zone_data_hash,
-        encrypted: EncryptedZoneDepositDataRef {
+        ring_program_id: &data.ring_program_id,
+        ring_data_hash: &data.ring_data_hash,
+        encrypted: EncryptedRingDepositDataRef {
             tx_viewing_pk: &data.encrypted.tx_viewing_pk,
             salt: &data.encrypted.salt,
             ciphertext: &data.encrypted.ciphertext,
@@ -183,11 +183,11 @@ pub fn encode_encrypted_zone_deposit_output(data: EncryptedZoneDepositOutput) ->
     })
 }
 
-pub fn encode_encrypted_zone_deposit_output_ref(
-    data: EncryptedZoneDepositOutputRef<'_>,
+pub fn encode_encrypted_ring_deposit_output_ref(
+    data: EncryptedRingDepositOutputRef<'_>,
 ) -> Vec<u8> {
     let mut blob = Vec::new();
-    blob.push(ENCRYPTED_ZONE_DEPOSIT_SCHEME);
+    blob.push(ENCRYPTED_RING_DEPOSIT_SCHEME);
     data.serialize(&mut blob)
         .expect("shielded-pool output data serialization is infallible");
     borsh::to_vec(&OutputDataEncoding::Encrypted(blob))

@@ -14,8 +14,8 @@ use crate::{
     prover::{
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_zone,
-            to_json_p256_zone, to_json_zone, to_json_zone_authority,
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
+            to_json_p256_ring, to_json_ring, to_json_ring_authority,
         },
         proof::{proof_from_gnark_json, Proof},
     },
@@ -166,31 +166,31 @@ impl ProverClient {
         self.send(to_json_merge(inputs))
     }
 
-    /// Prove a zone-authority transfer (anonymous, no signature), returning the
+    /// Prove a ring-authority transfer (anonymous, no signature), returning the
     /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
     /// call [`Proof::compress`] for the wire format.
-    pub fn prove_zone_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_zone_authority(inputs))
+    pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_ring_authority(inputs))
     }
 
-    /// Prove a policy-zone merge (`merge-zone`), returning the uncompressed negated
+    /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
     /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
     /// wire format.
-    pub fn prove_merge_zone(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_zone(inputs))
+    pub fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge_ring(inputs))
     }
 
-    /// Prove an eddsa confidential policy-zone transfer (`transfer-zone`).
-    pub fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_zone(inputs))
+    /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
+    pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_ring(inputs))
     }
 
-    /// Prove a custom-zone P256 transfer.
-    pub fn prove_transfer_p256_zone(
+    /// Prove a custom-ring P256 transfer.
+    pub fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_zone(inputs))
+        self.send(to_json_p256_ring(inputs))
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -375,26 +375,26 @@ impl AsyncProverClient {
         self.send(to_json_merge(inputs)).await
     }
 
-    pub async fn prove_zone_authority(
+    pub async fn prove_ring_authority(
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_zone_authority(inputs)).await
+        self.send(to_json_ring_authority(inputs)).await
     }
 
-    pub async fn prove_merge_zone(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_zone(inputs)).await
+    pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge_ring(inputs)).await
     }
 
-    pub async fn prove_transfer_zone(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_zone(inputs)).await
+    pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_ring(inputs)).await
     }
 
-    pub async fn prove_transfer_p256_zone(
+    pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_zone(inputs)).await
+        self.send(to_json_p256_ring(inputs)).await
     }
 
     pub async fn prove_batch_address_append(

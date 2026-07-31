@@ -207,7 +207,7 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
     let owner_cx = OwnerCx {
         owner: owner_kp.signing_pubkey(),
         assets: &assets,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let sender_view_tag = owner_kp.get_sender_view_tag(tx_count).unwrap();
     let ciphertext = Split::encode(

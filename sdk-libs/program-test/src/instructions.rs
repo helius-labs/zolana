@@ -6,7 +6,7 @@ use zolana_interface::{instruction::CreateTree, pda, state::state_root_offset};
 
 use crate::ProgramTestError;
 
-pub const ZONE_TEST_PROGRAM_ID: [u8; 32] = *b"zone_test_program_aaaaaaaaaaaaaa";
+pub const RING_TEST_PROGRAM_ID: [u8; 32] = *b"ring_test_program_aaaaaaaaaaaaaa";
 
 pub fn system_create_account_ix(
     payer: &Pubkey,

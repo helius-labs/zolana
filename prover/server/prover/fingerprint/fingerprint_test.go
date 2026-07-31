@@ -53,20 +53,20 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	eddsa, err := eddsaprover.R1CSTransfer(2, 3, eddsaprover.ConfidentialVariant)
 	add("transfer_confidential_2_3", eddsa, err)
 
-	zone, err := eddsaprover.R1CSTransfer(2, 3, eddsaprover.ZoneVariant)
-	add("transfer_zone_2_3", zone, err)
+	ring, err := eddsaprover.R1CSTransfer(2, 3, eddsaprover.RingVariant)
+	add("transfer_ring_2_3", ring, err)
 
-	zoneAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.ZoneAuthorityVariant)
-	add("transfer_zone_authority_2_2", zoneAuthority, err)
+	ringAuthority, err := eddsaprover.R1CSTransfer(2, 2, eddsaprover.RingAuthorityVariant)
+	add("transfer_ring_authority_2_2", ringAuthority, err)
 
-	p256Zone, err := eddsaprover.R1CSP256Transfer(2, 3)
-	add("transfer_p256_zone_2_3", p256Zone, err)
+	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 3)
+	add("transfer_p256_ring_2_3", p256Ring, err)
 
 	merged, err := mergeprover.R1CSMerge()
 	add("merge_8_1", merged, err)
 
-	mergedZone, err := mergeprover.R1CSMergeZone()
-	add("merge_zone_8_1", mergedZone, err)
+	mergedRing, err := mergeprover.R1CSMergeRing()
+	add("merge_ring_8_1", mergedRing, err)
 
 	batch, err := nulltree.R1CSBatchAddressAppend(40, 10)
 	add("batch_address-append_40_10", batch, err)
@@ -79,11 +79,11 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_3":   {constraints: 54031, public: 2},
-	"transfer_zone_2_3":           {constraints: 54136, public: 2},
-	"transfer_zone_authority_2_2": {constraints: 50574, public: 2},
-	"transfer_p256_zone_2_3":      {constraints: 245645, public: 2},
+	"transfer_ring_2_3":           {constraints: 54136, public: 2},
+	"transfer_ring_authority_2_2": {constraints: 50574, public: 2},
+	"transfer_p256_ring_2_3":      {constraints: 245645, public: 2},
 	"merge_8_1":                   {constraints: 180470, public: 2},
-	"merge_zone_8_1":              {constraints: 180740, public: 2},
+	"merge_ring_8_1":              {constraints: 180740, public: 2},
 	"batch_address-append_40_10":  {constraints: 423683, public: 2},
 }
 

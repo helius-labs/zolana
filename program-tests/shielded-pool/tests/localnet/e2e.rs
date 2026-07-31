@@ -151,7 +151,7 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let payer_owner_pk_hash = payer_utxo.owner.owner_proof_input_hash()?;
@@ -332,7 +332,7 @@ fn phase_unshield(
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: transferred.blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let recipient_nullifier_pk = transferred.nullifier_key.pubkey()?;

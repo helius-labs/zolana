@@ -1012,7 +1012,7 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 	// Transfer circuits queue too: they route to the shared transfer queue.
 	transferTests := []common.CircuitType{
 		common.TransferConfidentialCircuitType,
-		common.TransferP256ZoneCircuitType,
+		common.TransferP256RingCircuitType,
 	}
 
 	for _, circuitType := range transferTests {

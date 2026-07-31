@@ -1,23 +1,23 @@
-//! `update_zone_config_owner` unit tests, moved out of the program crate
-//! (`zone_config/update_owner.rs`): the new authority is read only from the
+//! `update_ring_config_owner` unit tests, moved out of the program crate
+//! (`ring_config/update_owner.rs`): the new authority is read only from the
 //! signer account, legacy owner payloads are rejected, and an unsigned new
 //! owner is rejected.
 
 use bytemuck::bytes_of;
 use pinocchio::error::ProgramError;
-use shielded_pool_program::testing::{load_zone_config, process_update_zone_config_owner};
+use shielded_pool_program::testing::{load_ring_config, process_update_ring_config_owner};
 use zolana_account_checks::account_info::test_account_info::get_account_view;
 use zolana_interface::{
     error::ShieldedPoolError,
-    state::{discriminator::ZONE_CONFIG, ZoneConfig},
+    state::{discriminator::RING_CONFIG, RingConfig},
 };
 
-fn zone_config(authority: [u8; 32]) -> Vec<u8> {
-    bytes_of(&ZoneConfig {
-        discriminator: ZONE_CONFIG,
+fn ring_config(authority: [u8; 32]) -> Vec<u8> {
+    bytes_of(&RingConfig {
+        discriminator: RING_CONFIG,
         authority: authority.into(),
         program_id: [9u8; 32].into(),
-        zone_authority_transact_is_enabled: 1,
+        ring_authority_transact_is_enabled: 1,
         bump: 7,
     })
     .to_vec()
@@ -33,21 +33,21 @@ fn reads_new_owner_only_from_the_signer_account() {
             false,
             true,
             false,
-            zone_config([1; 32]),
+            ring_config([1; 32]),
         ),
         get_account_view([3; 32], [0; 32], true, false, false, vec![]),
     ];
 
-    process_update_zone_config_owner(&mut accounts, &[]).unwrap();
+    process_update_ring_config_owner(&mut accounts, &[]).unwrap();
 
-    let config = load_zone_config(&accounts[1]).expect("updated config");
+    let config = load_ring_config(&accounts[1]).expect("updated config");
     assert_eq!(config.authority.to_bytes(), [3; 32]);
 }
 
 #[test]
 fn rejects_legacy_owner_payload() {
     assert_eq!(
-        process_update_zone_config_owner(&mut [], &[7; 32]),
+        process_update_ring_config_owner(&mut [], &[7; 32]),
         Err(ProgramError::Custom(
             ShieldedPoolError::InvalidInstructionData as u32
         ))
@@ -64,10 +64,10 @@ fn rejects_unsigned_new_owner() {
             false,
             true,
             false,
-            zone_config([1; 32]),
+            ring_config([1; 32]),
         ),
         get_account_view([3; 32], [0; 32], false, false, false, vec![]),
     ];
 
-    assert!(process_update_zone_config_owner(&mut accounts, &[]).is_err());
+    assert!(process_update_ring_config_owner(&mut accounts, &[]).is_err());
 }

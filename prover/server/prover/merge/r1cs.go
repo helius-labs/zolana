@@ -22,14 +22,14 @@ func R1CSMerge() (constraint.ConstraintSystem, error) {
 	)
 }
 
-// R1CSMergeZone compiles the policy-zone merge circuit (merge_zone). It mirrors
-// R1CSMerge with the zone binding added, so the same compression threshold and
+// R1CSMergeRing compiles the policy-ring merge circuit (merge_ring). It mirrors
+// R1CSMerge with the ring binding added, so the same compression threshold and
 // BSB22 commitment apply.
-func R1CSMergeZone() (constraint.ConstraintSystem, error) {
+func R1CSMergeRing() (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),
 		r1cs.NewBuilder,
-		mergecircuit.NewMergeZoneCircuit(),
+		mergecircuit.NewMergeRingCircuit(),
 		frontend.WithCompressThreshold(300),
 	)
 }

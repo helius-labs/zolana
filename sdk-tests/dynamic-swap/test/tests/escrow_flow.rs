@@ -193,7 +193,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 asset: SOL_MINT,
                 amount: reserved,
                 blinding: deposit.deposit.blinding,
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             }
         };

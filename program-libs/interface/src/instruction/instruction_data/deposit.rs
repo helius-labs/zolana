@@ -8,7 +8,7 @@ use wincode::{
 type DepositRefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
 
 /// Application data committed into the deposited UTXO's `data_hash`. The deposit
-/// is authorized by the payer (non-zone) or the `ZoneConfig` account (zone); the
+/// is authorized by the payer (non-ring) or the `RingConfig` account (ring); the
 /// UTXO is not program-owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct UtxoData {
@@ -53,8 +53,8 @@ pub struct DepositEntry {
     /// Deposited amount of the asset selected by `asset_index`.
     pub amount: u64,
     /// Application data committed into the UTXO's `data_hash`, authorized by the
-    /// payer; `None` for a plain user deposit. Policy-zone deposits use
-    /// [`ZoneDepositIxData`].
+    /// payer; `None` for a plain user deposit. Policy-ring deposits use
+    /// [`RingDepositIxData`].
     pub utxo_data: Option<UtxoData>,
     /// Optional free-form memo emitted in the clear with the proofless output.
     /// Not committed into any hash, so it is informational only.
@@ -110,21 +110,21 @@ pub struct DepositEntryRef<'a> {
     pub memo: Option<&'a [u8]>,
 }
 
-/// Self-contained recipient-encryption envelope for one zone-deposit output.
+/// Self-contained recipient-encryption envelope for one ring-deposit output.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct EncryptedZoneDepositData {
+pub struct EncryptedRingDepositData {
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub ciphertext: Vec<u8>,
 }
 
-/// One output of a batched policy-zone deposit.
+/// One output of a batched policy-ring deposit.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct ZoneDepositEntry {
-    /// Index into [`ZoneDepositIxData::assets`].
+pub struct RingDepositEntry {
+    /// Index into [`RingDepositIxData::assets`].
     pub asset_index: u8,
-    /// Opaque indexing tag supplied by the zone. SPP does not derive or
+    /// Opaque indexing tag supplied by the ring. SPP does not derive or
     /// validate it.
     pub view_tag: [u8; 32],
     /// `Poseidon(owner_hash, blinding)`. The owner hash and blinding preimage
@@ -134,27 +134,27 @@ pub struct ZoneDepositEntry {
     pub amount: u64,
     /// Hash of the encrypted application-data preimage, when present.
     pub data_hash: Option<[u8; 32]>,
-    /// Zone-defined data committed into `zone_hash`. The zone's `program_id` is
-    /// NOT in instruction data: it is read from the `ZoneConfig` account (the
-    /// signing `zone_auth` PDA) the zone forwards.
-    pub zone_data_hash: [u8; 32],
+    /// Ring-defined data committed into `ring_hash`. The ring's `program_id` is
+    /// NOT in instruction data: it is read from the `RingConfig` account (the
+    /// signing `ring_auth` PDA) the ring forwards.
+    pub ring_data_hash: [u8; 32],
     /// Contains the encrypted blinding and private data preimages together with
     /// the public key and salt needed by the recipient.
-    pub encrypted: EncryptedZoneDepositData,
+    pub encrypted: EncryptedRingDepositData,
 }
 
-/// Batched policy-zone analog of [`DepositIxData`] (spec: `zone_deposit`, tag
-/// 15). A zone program CPIs into SPP signing with its `zone_auth` PDA. Every
-/// output is owned by that zone, while policy data is specified per output.
+/// Batched policy-ring analog of [`DepositIxData`] (spec: `ring_deposit`, tag
+/// 15). A ring program CPIs into SPP signing with its `ring_auth` PDA. Every
+/// output is owned by that ring, while policy data is specified per output.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct ZoneDepositIxData {
+pub struct RingDepositIxData {
     #[wincode(with = "containers::Vec<DepositAssetKind, FixIntLen<u8>>")]
     pub assets: Vec<DepositAssetKind>,
-    #[wincode(with = "containers::Vec<ZoneDepositEntry, FixIntLen<u8>>")]
-    pub deposits: Vec<ZoneDepositEntry>,
+    #[wincode(with = "containers::Vec<RingDepositEntry, FixIntLen<u8>>")]
+    pub deposits: Vec<RingDepositEntry>,
 }
 
-impl ZoneDepositIxData {
+impl RingDepositIxData {
     pub fn serialize(&self) -> Result<Vec<u8>, wincode::Error> {
         Ok(wincode::serialize(self)?)
     }
@@ -164,20 +164,20 @@ impl ZoneDepositIxData {
     }
 }
 
-/// Borrowed view of [`ZoneDepositEntry`].
+/// Borrowed view of [`RingDepositEntry`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct ZoneDepositEntryRef<'a> {
+pub struct RingDepositEntryRef<'a> {
     pub asset_index: u8,
     pub view_tag: &'a [u8; 32],
     pub owner_utxo_hash: &'a [u8; 32],
     pub amount: u64,
     pub data_hash: Option<&'a [u8; 32]>,
-    pub zone_data_hash: &'a [u8; 32],
-    pub encrypted: EncryptedZoneDepositDataRef<'a>,
+    pub ring_data_hash: &'a [u8; 32],
+    pub encrypted: EncryptedRingDepositDataRef<'a>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct EncryptedZoneDepositDataRef<'a> {
+pub struct EncryptedRingDepositDataRef<'a> {
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
     pub ciphertext: &'a [u8],
@@ -199,17 +199,17 @@ impl<'a> DepositIxDataRef<'a> {
     }
 }
 
-/// Borrowed on-chain view of [`ZoneDepositIxData`]. Entry payloads alias the
+/// Borrowed on-chain view of [`RingDepositIxData`]. Entry payloads alias the
 /// instruction buffer.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
-pub struct ZoneDepositIxDataRef<'a> {
+pub struct RingDepositIxDataRef<'a> {
     #[wincode(with = "containers::Vec<DepositAssetKind, FixIntLen<u8>>")]
     pub assets: Vec<DepositAssetKind>,
-    #[wincode(with = "containers::Vec<ZoneDepositEntryRef<'a>, FixIntLen<u8>>")]
-    pub deposits: Vec<ZoneDepositEntryRef<'a>>,
+    #[wincode(with = "containers::Vec<RingDepositEntryRef<'a>, FixIntLen<u8>>")]
+    pub deposits: Vec<RingDepositEntryRef<'a>>,
 }
 
-impl<'a> ZoneDepositIxDataRef<'a> {
+impl<'a> RingDepositIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> wincode::ReadResult<Self> {
         wincode::config::deserialize_exact(data, DepositRefConfig::new())
     }

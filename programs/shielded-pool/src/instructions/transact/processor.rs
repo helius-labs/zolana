@@ -16,7 +16,7 @@ use zolana_interface::{
 };
 
 use super::{
-    account::{TransactAccounts, ZoneTransactAccounts},
+    account::{RingTransactAccounts, TransactAccounts},
     event::{build_transact_event, resolve_outputs},
     interface_transfer::{resolve_interface_transfers, settle_interface_transfers},
     tree::{apply_input_tree, apply_output_tree},
@@ -61,10 +61,10 @@ pub fn process_transact_ix(
     // 6. Check accounts.
     let transact_accounts = match ix.circuit {
         CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
-        CircuitId::ZoneEddsa(..) | CircuitId::ZoneAuthority(..) | CircuitId::ZoneP256(..) => {
-            let (transact_accounts, zone_program_id) =
-                ZoneTransactAccounts::validate_and_parse(accounts, &ix, ix.circuit.is_authority())?;
-            proof_inputs.assign_zone_program_id(hash_bytes(&zone_program_id)?);
+        CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
+            let (transact_accounts, ring_program_id) =
+                RingTransactAccounts::validate_and_parse(accounts, &ix, ix.circuit.is_authority())?;
+            proof_inputs.assign_ring_program_id(hash_bytes(&ring_program_id)?);
             transact_accounts
         }
     };
@@ -95,7 +95,7 @@ pub fn process_transact_ix(
         expiry_unix_ts: ix.expiry_unix_ts,
         interface_transfers: &resolved_interface_transfers,
         data_hash: ix.data_hash,
-        zone_data_hash: ix.zone_data_hash,
+        ring_data_hash: ix.ring_data_hash,
         tx_viewing_pk: ix.tx_viewing_pk,
         salt: ix.salt,
         outputs: &resolved_outputs,
@@ -137,13 +137,13 @@ pub fn validate_circuit_type(
     // 1. Circuit is allowed for the instruction type.
     let circuit_matches = match instruction_tag {
         InstructionTag::Transact => matches!(ix.circuit, CircuitId::ConfidentialEddsa(..)),
-        InstructionTag::ZoneTransact => {
+        InstructionTag::RingTransact => {
             matches!(
                 ix.circuit,
-                CircuitId::ZoneEddsa(..) | CircuitId::ZoneP256(..)
+                CircuitId::RingEddsa(..) | CircuitId::RingP256(..)
             )
         }
-        InstructionTag::ZoneAuthorityTransact => ix.circuit.is_authority(),
+        InstructionTag::RingAuthorityTransact => ix.circuit.is_authority(),
         _ => false,
     };
     if !circuit_matches {

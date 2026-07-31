@@ -3,82 +3,82 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
 
 use crate::{
-    instruction::{encode_instruction, tag, CreateZoneConfigData, UpdateZoneConfigData},
+    instruction::{encode_instruction, tag, CreateRingConfigData, UpdateRingConfigData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
-pub struct CreateZoneConfig {
+pub struct CreateRingConfig {
     pub payer: Pubkey,
     pub program_id: Address,
     pub authority: Address,
-    pub zone_authority_transact_is_enabled: bool,
+    pub ring_authority_transact_is_enabled: bool,
 }
 
-impl CreateZoneConfig {
+impl CreateRingConfig {
     pub fn instruction(&self) -> Result<Instruction, PubkeyError> {
-        let data = CreateZoneConfigData {
+        let data = CreateRingConfigData {
             program_id: self.program_id,
             authority: self.authority,
-            zone_authority_transact_is_enabled: self.zone_authority_transact_is_enabled,
+            ring_authority_transact_is_enabled: self.ring_authority_transact_is_enabled,
         };
 
-        // The config account IS the zone's `zone_auth` PDA (canonical); it signs
-        // its own creation via the zone's `invoke_signed`.
-        let zone_program = Pubkey::new_from_array(data.program_id.to_bytes());
-        let zone_config = pda::zone_auth(&zone_program).0;
+        // The config account IS the ring's `ring_auth` PDA (canonical); it signs
+        // its own creation via the ring's `invoke_signed`.
+        let ring_program = Pubkey::new_from_array(data.program_id.to_bytes());
+        let ring_config = pda::ring_auth(&ring_program).0;
 
         Ok(Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts: vec![
                 AccountMeta::new(self.payer, true),
                 AccountMeta::new_readonly(pda::protocol_config(), false),
-                AccountMeta::new(zone_config, true),
+                AccountMeta::new(ring_config, true),
                 AccountMeta::new_readonly(Pubkey::default(), false),
             ],
-            data: encode_instruction(tag::CREATE_ZONE_CONFIG, &data),
+            data: encode_instruction(tag::CREATE_RING_CONFIG, &data),
         })
     }
 }
 
-pub struct UpdateZoneConfigOwner {
+pub struct UpdateRingConfigOwner {
     pub authority: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub new_authority: Address,
 }
 
-impl UpdateZoneConfigOwner {
+impl UpdateRingConfigOwner {
     pub fn instruction(&self) -> Instruction {
         let new_authority = Pubkey::new_from_array(self.new_authority.to_bytes());
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts: vec![
                 AccountMeta::new_readonly(self.authority, true),
-                AccountMeta::new(self.zone_config, false),
+                AccountMeta::new(self.ring_config, false),
                 AccountMeta::new_readonly(new_authority, true),
             ],
-            data: vec![tag::UPDATE_ZONE_CONFIG_OWNER],
+            data: vec![tag::UPDATE_RING_CONFIG_OWNER],
         }
     }
 }
 
-pub struct UpdateZoneConfig {
+pub struct UpdateRingConfig {
     pub authority: Pubkey,
-    pub zone_config: Pubkey,
-    pub zone_authority_transact_is_enabled: bool,
+    pub ring_config: Pubkey,
+    pub ring_authority_transact_is_enabled: bool,
 }
 
-impl UpdateZoneConfig {
+impl UpdateRingConfig {
     pub fn instruction(&self) -> Instruction {
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts: vec![
                 AccountMeta::new_readonly(self.authority, true),
-                AccountMeta::new(self.zone_config, false),
+                AccountMeta::new(self.ring_config, false),
             ],
             data: encode_instruction(
-                tag::UPDATE_ZONE_CONFIG,
-                &UpdateZoneConfigData {
-                    zone_authority_transact_is_enabled: self.zone_authority_transact_is_enabled,
+                tag::UPDATE_RING_CONFIG,
+                &UpdateRingConfigData {
+                    ring_authority_transact_is_enabled: self.ring_authority_transact_is_enabled,
                 },
             ),
         }

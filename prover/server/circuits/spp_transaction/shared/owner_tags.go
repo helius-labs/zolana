@@ -33,8 +33,8 @@ func AssertOutputOwnerTags(
 }
 
 // AssertPublishedOutputOwners binds the public masked owner vector used by
-// owner-signed custom-zone rails. A real default-zone output publishes its
-// actual private owner identity; a real policy-zone output must publish zero.
+// owner-signed custom-ring rails. A real default-ring output publishes its
+// actual private owner identity; a real policy-ring output must publish zero.
 // Dummy slots are handled separately so they may choose either marker.
 func AssertPublishedOutputOwners(
 	api frontend.API,
@@ -50,8 +50,8 @@ func AssertPublishedOutputOwners(
 	}
 	for i, utxo := range outputs {
 		isReal := utxo.isUtxo(api)
-		isDefaultZone := api.IsZero(utxo.ZoneProgramID)
-		expected := api.Mul(isDefaultZone, ownerPkHashes[i])
+		isDefaultRing := api.IsZero(utxo.RingProgramID)
+		expected := api.Mul(isDefaultRing, ownerPkHashes[i])
 		AssertWhen(api, isReal, api.IsZero(api.Sub(publishedOwnerPkHashes[i], expected)))
 	}
 	return nil

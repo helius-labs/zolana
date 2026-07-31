@@ -7,12 +7,12 @@ use zolana_interface::{
     instruction::{CreateTree, UpdateProtocolConfigData},
     pda,
     state::{
-        discriminator::{TREE_ACCOUNT_DISCRIMINATOR, ZONE_CONFIG},
-        ProtocolConfig, ZoneConfig,
+        discriminator::{TREE_ACCOUNT_DISCRIMINATOR, RING_CONFIG},
+        ProtocolConfig, RingConfig,
     },
     PROGRAM_ID_PUBKEY,
 };
-use zolana_program_test::{ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 use zolana_test_utils::mollusk::snapshot_instruction_accounts;
 use zolana_tree::{INITIALIZED, PAUSED};
@@ -32,18 +32,18 @@ fn account_named<'a>(accounts: &'a [(Pubkey, Account)], key: &Pubkey) -> &'a Acc
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct ZoneConfigState {
+struct RingConfigState {
     authority: Pubkey,
     enabled: bool,
     bump: u8,
 }
 
-fn read_zone_config(rpc: &ZolanaProgramTest, address: &Pubkey) -> ZoneConfigState {
-    let bytes = rpc.account_data(address).expect("zone config account");
-    assert_eq!(bytes.len(), ZoneConfig::SIZE);
-    assert_eq!(bytes.first(), Some(&ZONE_CONFIG));
-    let config: &ZoneConfig = bytemuck::from_bytes(&bytes);
-    ZoneConfigState {
+fn read_ring_config(rpc: &ZolanaProgramTest, address: &Pubkey) -> RingConfigState {
+    let bytes = rpc.account_data(address).expect("ring config account");
+    assert_eq!(bytes.len(), RingConfig::SIZE);
+    assert_eq!(bytes.first(), Some(&RING_CONFIG));
+    let config: &RingConfig = bytemuck::from_bytes(&bytes);
+    RingConfigState {
         authority: Pubkey::new_from_array(config.authority.to_bytes()),
         enabled: config.enabled(),
         bump: config.bump,
@@ -197,7 +197,7 @@ fn protocol_authority_rotation_updates_all_authority_fields() {
         config.protocol_authority,
         config.tree_creation_authority,
         config.forester_authority,
-        config.zone_creation_authority,
+        config.ring_creation_authority,
     ] {
         assert_eq!(authority.to_bytes(), next.pubkey().to_bytes());
     }
@@ -241,10 +241,10 @@ fn new_tree_creation_authority_can_create_tree() {
 }
 
 #[test]
-fn zone_config_creation_initializes_complete_state() {
+fn ring_config_creation_initializes_complete_state() {
     let mut rpc = program_test();
-    rpc.load_zone_test_program()
-        .expect("load zone test program");
+    rpc.load_ring_test_program()
+        .expect("load ring test program");
     let admin = Keypair::new();
     rpc.create_protocol_config_permissionless(&admin)
         .expect("create permissionless protocol config");
@@ -253,24 +253,24 @@ fn zone_config_creation_initializes_complete_state() {
         .expect("fund payer");
     let authority = Keypair::new();
 
-    let zone_config = rpc
-        .create_zone_config(&payer, &authority.pubkey(), true)
-        .expect("create zone config");
+    let ring_config = rpc
+        .create_ring_config(&payer, &authority.pubkey(), true)
+        .expect("create ring config");
     assert_eq!(
-        read_zone_config(&rpc, &zone_config),
-        ZoneConfigState {
+        read_ring_config(&rpc, &ring_config),
+        RingConfigState {
             authority: authority.pubkey(),
             enabled: true,
-            bump: pda::zone_auth(&Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID)).1,
+            bump: pda::ring_auth(&Pubkey::new_from_array(RING_TEST_PROGRAM_ID)).1,
         }
     );
 }
 
 #[test]
-fn zone_config_update_changes_enabled_state() {
+fn ring_config_update_changes_enabled_state() {
     let mut rpc = program_test();
-    rpc.load_zone_test_program()
-        .expect("load zone test program");
+    rpc.load_ring_test_program()
+        .expect("load ring test program");
     let admin = Keypair::new();
     rpc.create_protocol_config_permissionless(&admin)
         .expect("create permissionless protocol config");
@@ -278,27 +278,27 @@ fn zone_config_update_changes_enabled_state() {
     rpc.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("fund payer");
     let authority = Keypair::new();
-    let zone_config = rpc
-        .create_zone_config(&payer, &authority.pubkey(), true)
-        .expect("create zone config");
+    let ring_config = rpc
+        .create_ring_config(&payer, &authority.pubkey(), true)
+        .expect("create ring config");
 
-    rpc.update_zone_config(&authority, &zone_config, false)
-        .expect("disable zone authority transact");
+    rpc.update_ring_config(&authority, &ring_config, false)
+        .expect("disable ring authority transact");
     assert_eq!(
-        read_zone_config(&rpc, &zone_config),
-        ZoneConfigState {
+        read_ring_config(&rpc, &ring_config),
+        RingConfigState {
             authority: authority.pubkey(),
             enabled: false,
-            bump: pda::zone_auth(&Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID)).1,
+            bump: pda::ring_auth(&Pubkey::new_from_array(RING_TEST_PROGRAM_ID)).1,
         }
     );
 }
 
 #[test]
-fn zone_config_owner_rotation_updates_authority() {
+fn ring_config_owner_rotation_updates_authority() {
     let mut rpc = program_test();
-    rpc.load_zone_test_program()
-        .expect("load zone test program");
+    rpc.load_ring_test_program()
+        .expect("load ring test program");
     let admin = Keypair::new();
     rpc.create_protocol_config_permissionless(&admin)
         .expect("create permissionless protocol config");
@@ -306,26 +306,26 @@ fn zone_config_owner_rotation_updates_authority() {
     rpc.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("fund payer");
     let authority = Keypair::new();
-    let zone_config = rpc
-        .create_zone_config(&payer, &authority.pubkey(), true)
-        .expect("create zone config");
-    rpc.update_zone_config(&authority, &zone_config, false)
-        .expect("disable zone authority transact");
+    let ring_config = rpc
+        .create_ring_config(&payer, &authority.pubkey(), true)
+        .expect("create ring config");
+    rpc.update_ring_config(&authority, &ring_config, false)
+        .expect("disable ring authority transact");
 
     let next = Keypair::new();
-    rpc.update_zone_config_owner(&authority, &zone_config, &next)
-        .expect("rotate zone config owner");
+    rpc.update_ring_config_owner(&authority, &ring_config, &next)
+        .expect("rotate ring config owner");
     assert_eq!(
-        read_zone_config(&rpc, &zone_config).authority,
+        read_ring_config(&rpc, &ring_config).authority,
         next.pubkey()
     );
 }
 
 #[test]
-fn new_zone_config_authority_can_update_config() {
+fn new_ring_config_authority_can_update_config() {
     let mut rpc = program_test();
-    rpc.load_zone_test_program()
-        .expect("load zone test program");
+    rpc.load_ring_test_program()
+        .expect("load ring test program");
     let admin = Keypair::new();
     rpc.create_protocol_config_permissionless(&admin)
         .expect("create permissionless protocol config");
@@ -333,16 +333,16 @@ fn new_zone_config_authority_can_update_config() {
     rpc.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("fund payer");
     let authority = Keypair::new();
-    let zone_config = rpc
-        .create_zone_config(&payer, &authority.pubkey(), true)
-        .expect("create zone config");
-    rpc.update_zone_config(&authority, &zone_config, false)
-        .expect("disable zone authority transact");
+    let ring_config = rpc
+        .create_ring_config(&payer, &authority.pubkey(), true)
+        .expect("create ring config");
+    rpc.update_ring_config(&authority, &ring_config, false)
+        .expect("disable ring authority transact");
     let next = Keypair::new();
-    rpc.update_zone_config_owner(&authority, &zone_config, &next)
-        .expect("rotate zone config owner");
+    rpc.update_ring_config_owner(&authority, &ring_config, &next)
+        .expect("rotate ring config owner");
 
-    rpc.update_zone_config(&next, &zone_config, true)
-        .expect("new zone authority updates config");
-    assert!(read_zone_config(&rpc, &zone_config).enabled);
+    rpc.update_ring_config(&next, &ring_config, true)
+        .expect("new ring authority updates config");
+    assert!(read_ring_config(&rpc, &ring_config).enabled);
 }

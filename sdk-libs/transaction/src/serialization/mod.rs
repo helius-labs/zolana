@@ -13,11 +13,11 @@ pub mod plaintext;
 pub mod proofless;
 pub mod scheme;
 pub mod split;
-pub mod zone_deposit;
+pub mod ring_deposit;
 
 pub use proofless::{Proofless, ProoflessEncode};
 pub use split::{Split, SplitBundlePlaintext, SplitEncryptedUtxos};
-pub use zone_deposit::ZoneDepositPlaintext;
+pub use ring_deposit::RingDepositPlaintext;
 
 pub struct DecodeCx<'a> {
     pub viewing_key: &'a ViewingKey,
@@ -46,7 +46,7 @@ impl<'a> DecodeCx<'a> {
 pub struct OwnerCx<'a> {
     pub owner: PublicKey,
     pub assets: &'a AssetRegistry,
-    pub zone_program_id: Option<Address>,
+    pub ring_program_id: Option<Address>,
 }
 
 pub trait UtxoSerialization {

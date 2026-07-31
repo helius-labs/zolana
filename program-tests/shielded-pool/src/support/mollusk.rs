@@ -82,8 +82,8 @@ pub fn protocol_config_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskA
         tree_creation_authority: authority_address,
         tree_creation_is_permissionless: false,
         forester_authority: authority_address,
-        zone_creation_authority: authority_address,
-        zone_creation_is_permissionless: false,
+        ring_creation_authority: authority_address,
+        ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();

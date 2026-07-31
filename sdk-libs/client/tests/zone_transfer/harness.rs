@@ -1,17 +1,17 @@
-//! Zone-transfer proof case data.
+//! Ring-transfer proof case data.
 
 /// Selects the witness builder for a proof case.
-// NOTE(pr164): PR164 removed the P256 rail (`ZoneTransferP256Prover` and the
-// `transfer_p256_zone_*` verifying keys are gone), so the `P256` / `P256MultiReal`
+// NOTE(pr164): PR164 removed the P256 rail (`RingTransferP256Prover` and the
+// `transfer_p256_ring_*` verifying keys are gone), so the `P256` / `P256MultiReal`
 // modes from the original suite were dropped.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
-    /// One real zero-value Solana-owned zone input + dummy padding, dummy outputs;
-    /// verified against the eddsa-rail `transfer_zone_<shape>` vk (vanilla Groth16).
+    /// One real zero-value Solana-owned ring input + dummy padding, dummy outputs;
+    /// verified against the eddsa-rail `transfer_ring_<shape>` vk (vanilla Groth16).
     #[default]
     Eddsa,
-    /// Two real nonzero Solana-owned zone inputs consolidated into one real
-    /// zone-owned recipient output (+ dummy padding) at shape 3x3 — exercises
+    /// Two real nonzero Solana-owned ring inputs consolidated into one real
+    /// ring-owned recipient output (+ dummy padding) at shape 3x3 — exercises
     /// multiple real inputs, a real recipient, and value conservation on the eddsa
     /// rail.
     EddsaMultiReal,
@@ -25,6 +25,6 @@ pub(crate) struct Plan {
 }
 
 #[derive(Debug, Default)]
-pub struct ZoneTransferHarness {
+pub struct RingTransferHarness {
     pub(crate) plan: Plan,
 }

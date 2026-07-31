@@ -21,7 +21,7 @@ pub struct TransferSpendInput {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
     /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
     /// the first real input's state root, so it has no state proof of its own.
     pub proof: Option<SpendProof>,
@@ -56,7 +56,7 @@ pub(crate) struct AssembledOutputs {
     pub output_owner_pk_hashes: Vec<[u8; 32]>,
 }
 
-/// Derive the public per-slot owner vector for owner-signed custom-zone
+/// Derive the public per-slot owner vector for owner-signed custom-ring
 /// circuits. Only structurally confidential-encrypted slots publish the hash
 /// of their resolved owner tag; every other slot contributes zero.
 pub(crate) fn confidential_marked_output_owner_pk_hashes(
@@ -93,17 +93,17 @@ pub(crate) enum OwnerMode {
     /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
     /// no P256 gadget); ed25519 uses its `pk_field`.
     ConfidentialEddsa,
-    /// Custom-zone P256 rail: P256-owned inputs contribute the zero sentinel
+    /// Custom-ring P256 rail: P256-owned inputs contribute the zero sentinel
     /// consumed by the circuit's shared P256 authorization; ed25519 inputs keep
     /// their normal public owner hash.
-    ZoneP256,
+    RingP256,
     /// Merge: the circuit uses a single shared owner, so a P256 input contributes
     /// the `0` sentinel here (the per-input value is ignored); ed25519 uses its
     /// `pk_field`.
     Merge,
-    /// Zone authority (anonymous, pubkey-agnostic): every owner uses its own
+    /// Ring authority (anonymous, pubkey-agnostic): every owner uses its own
     /// `owner_pk_field()` as a private witness, regardless of scheme.
-    ZoneAuthority,
+    RingAuthority,
 }
 
 /// Convert the already-padded inputs into circuit witness fields. Makes no padding
@@ -156,12 +156,12 @@ pub(crate) fn assemble_inputs(
         };
 
         let data_hash = spend.data_hash.unwrap_or([0u8; 32]);
-        let zone_data_hash = spend.zone_data_hash.unwrap_or([0u8; 32]);
+        let ring_data_hash = spend.ring_data_hash.unwrap_or([0u8; 32]);
 
         let nullifier_pubkey = spend.nullifier_key.pubkey()?;
         let utxo_inputs = spend
             .utxo
-            .proof_input(&nullifier_pubkey, &data_hash, &zone_data_hash)?;
+            .proof_input(&nullifier_pubkey, &data_hash, &ring_data_hash)?;
         let utxo_hash = utxo_inputs.hash()?;
         let nullifier = spend
             .nullifier_key
@@ -172,11 +172,11 @@ pub(crate) fn assemble_inputs(
         // depends on the mode (see OwnerMode); an ed25519 owner always uses
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
-            (OwnerMode::Merge | OwnerMode::ZoneP256, true) => [0u8; 32],
+            (OwnerMode::Merge | OwnerMode::RingP256, true) => [0u8; 32],
             (OwnerMode::ConfidentialEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }
-            (OwnerMode::ZoneAuthority, true) => spend.utxo.owner.owner_proof_input_hash()?,
+            (OwnerMode::RingAuthority, true) => spend.utxo.owner.owner_proof_input_hash()?,
             (_, false) => spend.utxo.owner.owner_proof_input_hash()?,
         };
 
@@ -284,13 +284,13 @@ pub struct PublicInputs<'a> {
     pub private_tx: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
     pub public_transfers: &'a PublicTransfers,
-    /// Per-tx zone program (pk_field-encoded); 0 on default transact.
-    pub zone_program_id: &'a [u8; 32],
+    /// Per-tx ring program (pk_field-encoded); 0 on default transact.
+    pub ring_program_id: &'a [u8; 32],
     pub allow_dummy_inputs: &'a [u8; 32],
     /// Payer first, then unique appended owner signers, then zero padding.
     pub signer_pk_hashes: &'a [[u8; 32]],
     /// Appended by owner-signed rails. The default rail publishes every slot;
-    /// custom-zone rails publish only confidential-encryption-marked slots.
+    /// custom-ring rails publish only confidential-encryption-marked slots.
     pub output_owner_pk_hashes: Option<&'a [[u8; 32]]>,
 }
 
@@ -316,7 +316,7 @@ impl PublicInputs<'_> {
         elements.push(*self.external_data_hash);
         elements.extend(slots);
         elements.extend([
-            *self.zone_program_id,
+            *self.ring_program_id,
             create_right_hash_chain_from_slice(self.signer_pk_hashes)?,
             *self.allow_dummy_inputs,
         ]);

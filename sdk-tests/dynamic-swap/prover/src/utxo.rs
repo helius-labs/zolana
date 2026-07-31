@@ -13,8 +13,8 @@ pub(crate) fn utxo_witness_entries(
         ("Amount", &utxo.amount),
         ("Blinding", &utxo.blinding),
         ("DataHash", &utxo.data_hash),
-        ("ZoneDataHash", &utxo.zone_data_hash),
-        ("ZoneProgramID", &utxo.zone_program_id),
+        ("RingDataHash", &utxo.ring_data_hash),
+        ("RingProgramID", &utxo.ring_program_id),
     ];
     fields
         .iter()

@@ -1,25 +1,25 @@
-//! Zone-merge proof construction and verification cases.
+//! Ring-merge proof construction and verification cases.
 
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
-    prover::merge_zone::MergeZoneProver, MergeZone, MergeZoneWitness, ProverClient, Rpc,
+    prover::merge_ring::MergeRingProver, MergeRing, MergeRingWitness, ProverClient, Rpc,
     SppProofInputUtxo, MERGE_INPUTS,
 };
-use zolana_interface::verifying_keys::merge_zone_8_1;
+use zolana_interface::verifying_keys::merge_ring_8_1;
 use zolana_keypair::{merge::merge_output_blinding, random_blinding, ShieldedKeypair, ViewingKey};
 use zolana_transaction::{Data, Utxo};
 
-use crate::{harness::MergeZoneHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
+use crate::{harness::MergeRingHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
-/// Fixed test zone program id; every input and the merged output carry it and the
-/// proof binds it as the shared `zone_program_id`.
-fn zone_program() -> Address {
+/// Fixed test ring program id; every input and the merged output carry it and the
+/// proof binds it as the shared `ring_program_id`.
+fn ring_program() -> Address {
     Address::new_from_array([9u8; 32])
 }
 
-impl MergeZoneHarness {
-    pub(crate) fn prove_and_verify_merge_zone(&self) {
+impl MergeRingHarness {
+    pub(crate) fn prove_and_verify_merge_ring(&self) {
         start_prover();
         let n = self.plan.real_inputs;
         assert!((1..=MERGE_INPUTS).contains(&n), "real inputs must be 1..=8");
@@ -32,39 +32,39 @@ impl MergeZoneHarness {
             ShieldedKeypair::new().expect("sender keypair")
         };
         let asset = Address::default(); // SOL
-        let zone = zone_program();
+        let ring = ring_program();
         let owner = sender.signing_pubkey();
         let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pk");
 
-        // Real inputs: index each zone-owned UTXO into the state tree so its inclusion
+        // Real inputs: index each ring-owned UTXO into the state tree so its inclusion
         // and nullifier non-inclusion proofs can be served.
         let mut indexer = TestIndexer::new();
         let mut inputs = Vec::with_capacity(n);
         for i in 0..n {
             let amount = 100 + i as u64;
-            let mut zone_data_hash = [0u8; 32];
-            zone_data_hash[31] = u8::try_from(i + 1).expect("merge input count fits u8");
+            let mut ring_data_hash = [0u8; 32];
+            ring_data_hash[31] = u8::try_from(i + 1).expect("merge input count fits u8");
             let utxo = Utxo {
                 owner,
                 asset,
                 amount,
                 blinding: random_blinding(),
-                zone_program_id: Some(zone),
+                ring_program_id: Some(ring),
                 data: Data::default(),
             };
             let utxo_hash = utxo
-                .hash(&nullifier_pk, &[0u8; 32], &zone_data_hash)
+                .hash(&nullifier_pk, &[0u8; 32], &ring_data_hash)
                 .expect("utxo hash");
             indexer.add_utxo(utxo_hash);
-            inputs.push(SppProofInputUtxo::new(utxo, &sender).with_zone_data_hash(zone_data_hash));
+            inputs.push(SppProofInputUtxo::new(utxo, &sender).with_ring_data_hash(ring_data_hash));
         }
-        // The plan derives the merged zone-owned output and owner identity; preparing
-        // it pads to MERGE_INPUTS, and the MergeZoneWitness folds in the owner
+        // The plan derives the merged ring-owned output and owner identity; preparing
+        // it pads to MERGE_INPUTS, and the MergeRingWitness folds in the owner
         // nullifier key and the proofs. The prover never sees the high-level plan.
-        let mut output_zone_data_hash = [0u8; 32];
-        output_zone_data_hash[31] = 0xd2;
-        let merge = MergeZone::new(&sender, inputs, zone, Some(output_zone_data_hash))
-            .expect("build merge-zone plan")
+        let mut output_ring_data_hash = [0u8; 32];
+        output_ring_data_hash[31] = 0xd2;
+        let merge = MergeRing::new(&sender, inputs, ring, Some(output_ring_data_hash))
+            .expect("build merge-ring plan")
             .with_expiry(0);
         let prepared = merge.prepare();
         let expected_output = prepared.output.clone();
@@ -78,22 +78,22 @@ impl MergeZoneHarness {
             .into_iter()
             .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
             .collect();
-        let result = MergeZoneProver::try_from(MergeZoneWitness {
+        let result = MergeRingProver::try_from(MergeRingWitness {
             prepared,
             nullifier_key: sender.nullifier_key.clone(),
             proofs,
             dummy_nullifier_proofs,
         })
-        .expect("merge-zone prover")
+        .expect("merge-ring prover")
         .build()
-        .expect("build merge-zone proof");
+        .expect("build merge-ring proof");
 
         let proof = ProverClient::local()
-            .prove_merge_zone(&result.inputs)
-            .expect("prove merge-zone");
+            .prove_merge_ring(&result.inputs)
+            .expect("prove merge-ring");
         assert!(
             proof.commitment.is_none(),
-            "merge-zone proof must use vanilla Groth16"
+            "merge-ring proof must use vanilla Groth16"
         );
         let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
         let mut verifier = Groth16Verifier::new(
@@ -101,25 +101,25 @@ impl MergeZoneHarness {
             &proof.b,
             &proof.c,
             &public_inputs,
-            &merge_zone_8_1::VERIFYINGKEY,
+            &merge_ring_8_1::VERIFYINGKEY,
         )
         .expect("construct verifier");
         verifier
             .verify()
-            .expect("merge-zone groth16 proof verifies");
+            .expect("merge-ring groth16 proof verifies");
 
-        // The owner reconstructs the ciphertext-free merge-zone output from the
+        // The owner reconstructs the ciphertext-free merge-ring output from the
         // first real input and its published nullifier.
         assert_eq!(
             merge_output_blinding(&sender.nullifier_key, &result.nullifiers[0])
-                .expect("derive merge-zone output blinding"),
+                .expect("derive merge-ring output blinding"),
             expected_output.blinding,
-            "owner reconstructs the merged zone output blinding",
+            "owner reconstructs the merged ring output blinding",
         );
         assert_eq!(
             expected_output.hash().expect("reconstructed utxo hash"),
             result.output_hash,
-            "owner reconstructs the merged zone output from the first nullifier",
+            "owner reconstructs the merged ring output from the first nullifier",
         );
     }
 }

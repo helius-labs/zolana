@@ -32,7 +32,7 @@ type ProofTransactionRequest struct {
 	NullifierTreeRootIndex   []uint16                   `json:"nullifier_tree_root_index"`
 	NullifierEntries         []string                   `json:"nullifier_entries"`
 	DataHash                 string                     `json:"data_hash"`
-	ZoneDataHash             string                     `json:"zone_data_hash"`
+	RingDataHash             string                     `json:"ring_data_hash"`
 }
 
 type InterfaceTransferRequest struct {
@@ -65,8 +65,8 @@ type ProofUtxoRequest struct {
 	Amount               string `json:"amount"`
 	Blinding             string `json:"blinding"`
 	DataHash             string `json:"data_hash"`
-	ZoneDataHash         string `json:"zone_data_hash"`
-	ZoneProgramID        string `json:"zone_program_id"`
+	RingDataHash         string `json:"ring_data_hash"`
+	RingProgramID        string `json:"ring_program_id"`
 }
 
 type ProofBundle struct {

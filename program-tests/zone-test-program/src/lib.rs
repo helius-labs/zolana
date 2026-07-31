@@ -1,12 +1,12 @@
-//! Test policy-zone program for shielded-pool integration tests.
+//! Test policy-ring program for shielded-pool integration tests.
 //!
-//! It enforces no policy: every supported zone instruction is forwarded verbatim
-//! to SPP, signed with the zone's `zone_auth` PDA. This exists so integration
-//! tests can exercise the zone-signer path (a PDA can only sign via a CPI from
-//! its owning program). The client builds the SPP-shaped instruction (the zone
-//! `program_id` and `zone_auth` account are identical between the call to this
+//! It enforces no policy: every supported ring instruction is forwarded verbatim
+//! to SPP, signed with the ring's `ring_auth` PDA. This exists so integration
+//! tests can exercise the ring-signer path (a PDA can only sign via a CPI from
+//! its owning program). The client builds the SPP-shaped instruction (the ring
+//! `program_id` and `ring_auth` account are identical between the call to this
 //! fixture and the CPI it makes), so the fixture only re-targets the program id
-//! and marks `zone_auth` a signer.
+//! and marks `ring_auth` a signer.
 
 use pinocchio::{
     cpi::{invoke_signed_with_bounds, Seed, Signer},
@@ -14,7 +14,7 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::{instruction::tag, SHIELDED_POOL_PROGRAM_ID, ZONE_AUTH_PDA_SEED};
+use zolana_interface::{instruction::tag, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {
@@ -30,39 +30,39 @@ pub fn process_instruction(
         return Err(ProgramError::InvalidInstructionData);
     };
     match *ix_tag {
-        tag::CREATE_ZONE_CONFIG
-        | tag::ZONE_DEPOSIT
-        | tag::ZONE_TRANSACT
-        | tag::ZONE_AUTHORITY_TRANSACT
-        | tag::ZONE_MERGE_TRANSACT => forward_to_spp(program_id, accounts, data),
+        tag::CREATE_RING_CONFIG
+        | tag::RING_DEPOSIT
+        | tag::RING_TRANSACT
+        | tag::RING_AUTHORITY_TRANSACT
+        | tag::RING_MERGE_TRANSACT => forward_to_spp(program_id, accounts, data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
 
-/// Forward a zone instruction to SPP verbatim, signing the zone's `zone_auth`
+/// Forward a ring instruction to SPP verbatim, signing the ring's `ring_auth`
 /// PDA. The client lays out the same accounts for the call into this fixture and
-/// for the CPI into SPP (only the target program id and the `zone_auth` signer
+/// for the CPI into SPP (only the target program id and the `ring_auth` signer
 /// flag differ). Transact fixes the SPP account at index 3, while the other
 /// forwarded instruction families retain their own layouts, so this shared
 /// forwarder locates the SPP account by address. We rebuild the SPP instruction
-/// from the received account views, flip the `zone_auth` account to a signer, and
+/// from the received account views, flip the `ring_auth` account to a signer, and
 /// forward the data (tag included, as SPP's dispatcher strips it) unchanged.
 fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -> ProgramResult {
-    let (zone_auth, bump) = Address::find_program_address(&[ZONE_AUTH_PDA_SEED], program_id);
+    let (ring_auth, bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], program_id);
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
     let spp = accounts
         .iter()
         .find(|account| account.address() == &spp_id)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
     check_shielded_pool(spp.address())?;
-    if !accounts.iter().any(|a| a.address() == &zone_auth) {
+    if !accounts.iter().any(|a| a.address() == &ring_auth) {
         return Err(ProgramError::InvalidSeeds);
     }
 
     let metas: Vec<InstructionAccount> = accounts
         .iter()
         .map(|a| {
-            let is_signer = a.is_signer() || a.address() == &zone_auth;
+            let is_signer = a.is_signer() || a.address() == &ring_auth;
             InstructionAccount::new(a.address(), a.is_writable(), is_signer)
         })
         .collect();
@@ -72,9 +72,9 @@ fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -
         data,
     };
     let bump = [bump];
-    let seeds = [Seed::from(ZONE_AUTH_PDA_SEED), Seed::from(&bump)];
+    let seeds = [Seed::from(RING_AUTH_PDA_SEED), Seed::from(&bump)];
     let signer = Signer::from(&seeds);
-    // A five-mint zone deposit carries the fixed prefix, zone_auth, and five
+    // A five-mint ring deposit carries the fixed prefix, ring_auth, and five
     // SPL settlement groups.
     invoke_signed_with_bounds::<24, _>(&instruction, accounts, core::slice::from_ref(&signer))
 }

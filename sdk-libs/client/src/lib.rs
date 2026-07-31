@@ -36,12 +36,12 @@ pub use prover::{
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness, Proof,
+    CompressedCommitments, MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof,
     ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers, Shape,
     TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult,
-    TransferProver, TransferSpendInput, ZoneAuthorityProofResult, ZoneAuthorityProver,
-    ZoneAuthorityWitness, ZoneTransferP256ProofResult, ZoneTransferP256Prover,
-    ZoneTransferProofResult, ZoneTransferProver, SPP_SUPPORTED_SHAPES,
+    TransferProver, TransferSpendInput, RingAuthorityProofResult, RingAuthorityProver,
+    RingAuthorityWitness, RingTransferP256ProofResult, RingTransferP256Prover,
+    RingTransferProofResult, RingTransferProver, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
@@ -57,10 +57,10 @@ pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
 pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
-        merge_zone::{MergeZone, PreparedMergeZone},
+        merge_ring::{MergeRing, PreparedMergeRing},
         transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},
         types::{InputUtxoContext, SppProofInputUtxo},
-        zone_authority::PreparedZoneAuthority,
+        ring_authority::PreparedRingAuthority,
     },
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
     PrivateTransactionKind, PrivateTransactionStatus,

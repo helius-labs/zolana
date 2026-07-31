@@ -6,11 +6,11 @@ mod prover_bootstrap;
 #[path = "../test_indexer.rs"]
 mod test_indexer;
 
-use harness::{Mode, Plan, ZoneTransferHarness};
+use harness::{Mode, Plan, RingTransferHarness};
 
 #[test]
 #[serial_test::serial]
-fn eddsa_zone_transfer_proofs_cover_all_shapes() {
+fn eddsa_ring_transfer_proofs_cover_all_shapes() {
     run_shape_matrix(Mode::Eddsa);
 }
 
@@ -28,7 +28,7 @@ fn run_shape_matrix(mode: Mode) {
         (1, 8),
     ];
     for (n_inputs, n_outputs) in shapes {
-        ZoneTransferHarness {
+        RingTransferHarness {
             plan: Plan {
                 n_inputs,
                 n_outputs,
@@ -41,8 +41,8 @@ fn run_shape_matrix(mode: Mode) {
 
 #[test]
 #[serial_test::serial]
-fn zone_transfer_proofs_cover_real_multi_input_consolidation() {
-    ZoneTransferHarness {
+fn ring_transfer_proofs_cover_real_multi_input_consolidation() {
+    RingTransferHarness {
         plan: Plan {
             n_inputs: 3,
             n_outputs: 3,

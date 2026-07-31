@@ -59,7 +59,7 @@ fn plaintext_fixed_len_covers_every_option() {
 fn variable_contents_extend_the_fixed_length() {
     let data = every_option_present();
     let variable = data.utxo_data.as_ref().map_or(0, Vec::len)
-        + data.zone_data.as_ref().map_or(0, Vec::len)
+        + data.ring_data.as_ref().map_or(0, Vec::len)
         + data.memo.as_ref().map_or(0, Vec::len);
     assert_eq!(
         encode_output_data(data).len(),
@@ -98,9 +98,9 @@ fn minimal() -> ProoflessOutput {
         amount: 1_000,
         data_hash: None,
         utxo_data: None,
-        zone_program_id: None,
-        zone_data_hash: None,
-        zone_data: None,
+        ring_program_id: None,
+        ring_data_hash: None,
+        ring_data: None,
         memo: None,
     }
 }
@@ -113,9 +113,9 @@ fn every_option_present() -> ProoflessOutput {
         amount: u64::MAX,
         data_hash: Some([6u8; 32]),
         utxo_data: Some(vec![7u8; 200]),
-        zone_program_id: Some([8u8; 32]),
-        zone_data_hash: Some([9u8; 32]),
-        zone_data: Some(vec![10u8; 64]),
+        ring_program_id: Some([8u8; 32]),
+        ring_data_hash: Some([9u8; 32]),
+        ring_data: Some(vec![10u8; 64]),
         memo: Some(b"batched deposit".to_vec()),
     }
 }
@@ -124,9 +124,9 @@ fn every_option_present_but_empty() -> ProoflessOutput {
     ProoflessOutput {
         data_hash: Some([11u8; 32]),
         utxo_data: Some(Vec::new()),
-        zone_program_id: Some([12u8; 32]),
-        zone_data_hash: Some([13u8; 32]),
-        zone_data: Some(Vec::new()),
+        ring_program_id: Some([12u8; 32]),
+        ring_data_hash: Some([13u8; 32]),
+        ring_data: Some(Vec::new()),
         memo: Some(Vec::new()),
         ..minimal()
     }

@@ -18,7 +18,7 @@ cargo build-sbf --tools-version "$sbf_tools_version" \
     -- --locked --features bpf-entrypoint
 cargo build-sbf --tools-version "$sbf_tools_version" \
     --sbf-out-dir target/deploy \
-    --manifest-path program-tests/zone-test-program/Cargo.toml \
+    --manifest-path program-tests/ring-test-program/Cargo.toml \
     -- --locked
 cargo build-sbf --tools-version "$sbf_tools_version" \
     --sbf-out-dir target/deploy \

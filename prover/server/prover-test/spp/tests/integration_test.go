@@ -52,8 +52,8 @@ func p256ProofRequest(t *testing.T) txprover.ProofBundleRequest {
 		Amount:        big.NewInt(5),
 		Blinding:      big.NewInt(23),
 		DataHash:      big.NewInt(0),
-		ZoneDataHash:  big.NewInt(0),
-		ZoneProgramID: big.NewInt(0),
+		RingDataHash:  big.NewInt(0),
+		RingProgramID: big.NewInt(0),
 	}
 	utxoHash, err := protocol.UtxoHash(utxo)
 	if err != nil {
@@ -80,8 +80,8 @@ func p256ProofRequest(t *testing.T) txprover.ProofBundleRequest {
 					Amount:          fieldInput(utxo.Amount),
 					Blinding:        fieldInput(utxo.Blinding),
 					DataHash:        fieldInput(utxo.DataHash),
-					ZoneDataHash:    fieldInput(utxo.ZoneDataHash),
-					ZoneProgramID:   fieldInput(utxo.ZoneProgramID),
+					RingDataHash:    fieldInput(utxo.RingDataHash),
+					RingProgramID:   fieldInput(utxo.RingProgramID),
 				},
 				LeafIndex:       0,
 				NullifierSecret: fieldInput(nullifierSecret),
@@ -94,8 +94,8 @@ func p256ProofRequest(t *testing.T) txprover.ProofBundleRequest {
 					Amount:        fieldInput(big.NewInt(5)),
 					Blinding:      fieldInput(big.NewInt(31)),
 					DataHash:      fieldInput(big.NewInt(0)),
-					ZoneDataHash:  fieldInput(big.NewInt(0)),
-					ZoneProgramID: fieldInput(big.NewInt(0)),
+					RingDataHash:  fieldInput(big.NewInt(0)),
+					RingProgramID: fieldInput(big.NewInt(0)),
 				},
 				{
 					Domain:        fieldInput(big.NewInt(protocol.UtxoDomain)),
@@ -104,12 +104,12 @@ func p256ProofRequest(t *testing.T) txprover.ProofBundleRequest {
 					Amount:        fieldInput(big.NewInt(0)),
 					Blinding:      fieldInput(big.NewInt(37)),
 					DataHash:      fieldInput(big.NewInt(0)),
-					ZoneDataHash:  fieldInput(big.NewInt(0)),
-					ZoneProgramID: fieldInput(big.NewInt(0)),
+					RingDataHash:  fieldInput(big.NewInt(0)),
+					RingProgramID: fieldInput(big.NewInt(0)),
 				},
 			},
 			DataHash:     fieldInput(big.NewInt(0)),
-			ZoneDataHash: fieldInput(big.NewInt(0)),
+			RingDataHash: fieldInput(big.NewInt(0)),
 		}},
 	}
 }

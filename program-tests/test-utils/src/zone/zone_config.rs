@@ -1,4 +1,4 @@
-//! `create_zone_config` / `update_zone_config` / `update_zone_config_owner` admin
+//! `create_ring_config` / `update_ring_config` / `update_ring_config_owner` admin
 //! helpers, the Harness operations, and the full-struct state assert.
 
 use anyhow::{anyhow, Result};
@@ -9,14 +9,14 @@ use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{CreateZoneConfig, UpdateZoneConfig, UpdateZoneConfigOwner},
+    instruction::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner},
     pda,
-    state::{discriminator::ZONE_CONFIG, ZoneConfig},
+    state::{discriminator::RING_CONFIG, RingConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::{Rejection, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
 
-use super::ZoneHarness;
+use super::RingHarness;
 use crate::{
     localnet::send_transaction,
     test_validator_asserts::{
@@ -25,65 +25,65 @@ use crate::{
     },
 };
 
-/// The on-chain `ZoneConfig` state read back for a full-struct assert.
+/// The on-chain `RingConfig` state read back for a full-struct assert.
 #[derive(Debug, PartialEq, Eq)]
-struct ZoneConfigState {
+struct RingConfigState {
     authority: Pubkey,
     program_id: Pubkey,
-    zone_authority_transact_is_enabled: bool,
+    ring_authority_transact_is_enabled: bool,
     bump: u8,
 }
 
-impl ZoneHarness {
-    /// Create an enabled zone config under a fresh authority keypair, tracking that
-    /// keypair as `self.zone_authority` for the later update/rotate operations.
-    pub fn create_enabled_zone_config(&mut self) -> Result<()> {
+impl RingHarness {
+    /// Create an enabled ring config under a fresh authority keypair, tracking that
+    /// keypair as `self.ring_authority` for the later update/rotate operations.
+    pub fn create_enabled_ring_config(&mut self) -> Result<()> {
         let authority = Keypair::new();
-        self.create_zone_config(
+        self.create_ring_config(
             &Address::new_from_array(authority.pubkey().to_bytes()),
             true,
         )?;
-        self.zone_authority = Some(authority);
+        self.ring_authority = Some(authority);
         Ok(())
     }
 
-    /// Read the zone config account and decode it into a full `ZoneConfigState`.
-    fn zone_config_state(&self) -> Result<ZoneConfigState> {
-        let zone_config = self.zone_config.ok_or_else(|| anyhow!("no zone config"))?;
+    /// Read the ring config account and decode it into a full `RingConfigState`.
+    fn ring_config_state(&self) -> Result<RingConfigState> {
+        let ring_config = self.ring_config.ok_or_else(|| anyhow!("no ring config"))?;
         let account = self
             .rpc
-            .get_account(Address::new_from_array(zone_config.to_bytes()))?
-            .ok_or_else(|| anyhow!("zone config account missing"))?;
+            .get_account(Address::new_from_array(ring_config.to_bytes()))?
+            .ok_or_else(|| anyhow!("ring config account missing"))?;
         let bytes = account.data.as_slice();
-        if bytes.len() != ZoneConfig::SIZE {
-            return Err(anyhow!("zone config size mismatch"));
+        if bytes.len() != RingConfig::SIZE {
+            return Err(anyhow!("ring config size mismatch"));
         }
-        if bytes.first().copied() != Some(ZONE_CONFIG) {
-            return Err(anyhow!("zone config discriminator mismatch"));
+        if bytes.first().copied() != Some(RING_CONFIG) {
+            return Err(anyhow!("ring config discriminator mismatch"));
         }
-        let cfg: &ZoneConfig = bytemuck::from_bytes(bytes);
-        Ok(ZoneConfigState {
+        let cfg: &RingConfig = bytemuck::from_bytes(bytes);
+        Ok(RingConfigState {
             authority: Pubkey::new_from_array(cfg.authority.to_bytes()),
             program_id: Pubkey::new_from_array(cfg.program_id.to_bytes()),
-            zone_authority_transact_is_enabled: cfg.enabled(),
+            ring_authority_transact_is_enabled: cfg.enabled(),
             bump: cfg.bump,
         })
     }
 
-    /// Full-struct assert of the freshly created, enabled zone config.
-    pub fn assert_zone_config(&self, enabled: bool) -> Result<()> {
+    /// Full-struct assert of the freshly created, enabled ring config.
+    pub fn assert_ring_config(&self, enabled: bool) -> Result<()> {
         let authority = self
-            .zone_authority
+            .ring_authority
             .as_ref()
             .ok_or_else(|| anyhow!("no authority"))?
             .pubkey();
-        let bump = pda::zone_auth(&self.zone_program_id).1;
+        let bump = pda::ring_auth(&self.ring_program_id).1;
         assert_eq!(
-            self.zone_config_state()?,
-            ZoneConfigState {
+            self.ring_config_state()?,
+            RingConfigState {
                 authority,
-                program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-                zone_authority_transact_is_enabled: enabled,
+                program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
+                ring_authority_transact_is_enabled: enabled,
                 bump,
             }
         );
@@ -91,17 +91,17 @@ impl ZoneHarness {
     }
 
     /// Update the enabled flag, signed by the current authority.
-    pub fn update_zone_config(&mut self, enabled: bool) -> Result<()> {
+    pub fn update_ring_config(&mut self, enabled: bool) -> Result<()> {
         let authority = self
-            .zone_authority
+            .ring_authority
             .as_ref()
             .ok_or_else(|| anyhow!("no authority"))?
             .insecure_clone();
-        let zone_config = self.zone_config.ok_or_else(|| anyhow!("no zone config"))?;
-        let ix = UpdateZoneConfig {
+        let ring_config = self.ring_config.ok_or_else(|| anyhow!("no ring config"))?;
+        let ix = UpdateRingConfig {
             authority: authority.pubkey(),
-            zone_config,
-            zone_authority_transact_is_enabled: enabled,
+            ring_config,
+            ring_authority_transact_is_enabled: enabled,
         }
         .instruction();
         let payer = self.payer.insecure_clone();
@@ -111,17 +111,17 @@ impl ZoneHarness {
 
     /// Rotate the config owner to a fresh authority, signed by both the current and
     /// the new authority. The previous owner is kept for the negative path.
-    pub fn rotate_zone_config_owner(&mut self) -> Result<()> {
+    pub fn rotate_ring_config_owner(&mut self) -> Result<()> {
         let authority = self
-            .zone_authority
+            .ring_authority
             .as_ref()
             .ok_or_else(|| anyhow!("no authority"))?
             .insecure_clone();
-        let zone_config = self.zone_config.ok_or_else(|| anyhow!("no zone config"))?;
+        let ring_config = self.ring_config.ok_or_else(|| anyhow!("no ring config"))?;
         let next = Keypair::new();
-        let ix = UpdateZoneConfigOwner {
+        let ix = UpdateRingConfigOwner {
             authority: authority.pubkey(),
-            zone_config,
+            ring_config,
             new_authority: Address::new_from_array(next.pubkey().to_bytes()),
         }
         .instruction();
@@ -132,8 +132,8 @@ impl ZoneHarness {
             &payer.pubkey(),
             &[&payer, &authority, &next],
         )?;
-        self.previous_zone_authority = Some(authority);
-        self.zone_authority = Some(next);
+        self.previous_ring_authority = Some(authority);
+        self.ring_authority = Some(next);
         Ok(())
     }
 
@@ -141,16 +141,16 @@ impl ZoneHarness {
     /// `UnauthorizedCaller`.
     pub fn old_owner_update_rejected(&mut self) -> Result<()> {
         let stale = self
-            .previous_zone_authority
+            .previous_ring_authority
             .as_ref()
             .ok_or_else(|| anyhow!("no previous authority"))?
             .insecure_clone();
-        let zone_config = self.zone_config.ok_or_else(|| anyhow!("no zone config"))?;
-        let config_before = fetch_account(&self.rpc, &zone_config)?;
-        let ix = UpdateZoneConfig {
+        let ring_config = self.ring_config.ok_or_else(|| anyhow!("no ring config"))?;
+        let config_before = fetch_account(&self.rpc, &ring_config)?;
+        let ix = UpdateRingConfig {
             authority: stale.pubkey(),
-            zone_config,
-            zone_authority_transact_is_enabled: true,
+            ring_config,
+            ring_authority_transact_is_enabled: true,
         }
         .instruction();
         let payer = self.payer.insecure_clone();
@@ -158,48 +158,48 @@ impl ZoneHarness {
             Ok(_) => Err(anyhow!("stale owner update unexpectedly succeeded")),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_client(&error);
-                assert_account_unchanged(&self.rpc, &zone_config, &config_before)?;
+                assert_account_unchanged(&self.rpc, &ring_config, &config_before)?;
                 Ok(())
             }
         }
     }
 
-    /// Attempt to create a zone config with a bogus (non-PDA) zone authority account,
+    /// Attempt to create a ring config with a bogus (non-PDA) ring authority account,
     /// sent straight to SPP; the canonical derivation check must reject it with
-    /// `InvalidZoneConfig`.
-    pub fn create_invalid_zone_authority_rejected(&mut self) -> Result<()> {
+    /// `InvalidRingConfig`.
+    pub fn create_invalid_ring_authority_rejected(&mut self) -> Result<()> {
         let payer = self.payer.insecure_clone();
-        let mut ix = CreateZoneConfig {
+        let mut ix = CreateRingConfig {
             payer: payer.pubkey(),
-            program_id: Address::new_from_array(ZONE_TEST_PROGRAM_ID),
+            program_id: Address::new_from_array(RING_TEST_PROGRAM_ID),
             authority: Address::new_from_array(payer.pubkey().to_bytes()),
-            zone_authority_transact_is_enabled: true,
+            ring_authority_transact_is_enabled: true,
         }
         .instruction()
-        .map_err(|e| anyhow!("zone config PDA: {e}"))?;
+        .map_err(|e| anyhow!("ring config PDA: {e}"))?;
         ix.program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-        let canonical_zone_config = ix
+        let canonical_ring_config = ix
             .accounts
             .get(2)
-            .ok_or_else(|| anyhow!("missing zone config account meta"))?
+            .ok_or_else(|| anyhow!("missing ring config account meta"))?
             .pubkey;
-        let config_before = fetch_optional_account(&self.rpc, &canonical_zone_config)?;
-        // Swap the config account (the zone's `zone_auth` PDA, index 2) for a bogus
+        let config_before = fetch_optional_account(&self.rpc, &canonical_ring_config)?;
+        // Swap the config account (the ring's `ring_auth` PDA, index 2) for a bogus
         // signer: the on-chain canonical derivation check must reject it.
         let meta = ix
             .accounts
             .get_mut(2)
-            .ok_or_else(|| anyhow!("missing zone config account meta"))?;
+            .ok_or_else(|| anyhow!("missing ring config account meta"))?;
         meta.pubkey = payer.pubkey();
         match send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer]) {
             Ok(_) => Err(anyhow!(
-                "invalid zone authority create unexpectedly succeeded"
+                "invalid ring authority create unexpectedly succeeded"
             )),
             Err(error) => {
-                Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_client(&error);
+                Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_client(&error);
                 assert_optional_account_unchanged(
                     &self.rpc,
-                    &canonical_zone_config,
+                    &canonical_ring_config,
                     &config_before,
                 )?;
                 Ok(())

@@ -3,26 +3,26 @@ use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MergeTransactIxDataRef, MERGE_INPUT_COUNT},
-    verifying_keys::{merge_8_1, merge_zone_8_1},
+    verifying_keys::{merge_8_1, merge_ring_8_1},
 };
 
 use crate::instructions::verifier;
 
 /// The owner-binding tail of the merge public-input hash, which differs by
 /// variant. Modeling it as an enum keeps the two shapes mutually exclusive: the
-/// default merge cannot carry a zone id, and the policy-zone merge cannot carry
+/// default merge cannot carry a ring id, and the policy-ring merge cannot carry
 /// owner-identity fields. The variant also selects the verifying key.
 pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
     /// registry record -- `pk_field(owner_p256)`. Verified against `merge_8_1`.
     Registry { signing_pk_field: [u8; 32] },
-    /// Policy-zone merge (`merge_zone`): `pk_field(zone_program_id)` from the
-    /// calling `zone_config`, plus the output `zone_data_hash` the zone program
+    /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
+    /// calling `ring_config`, plus the output `ring_data_hash` the ring program
     /// selected; the proof asserts it against the output's
-    /// `Output.Utxo.ZoneDataHash`. Verified against `merge_zone_8_1`.
-    Zone {
-        zone_program_id: [u8; 32],
-        output_zone_data_hash: [u8; 32],
+    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_8_1`.
+    Ring {
+        ring_program_id: [u8; 32],
+        output_ring_data_hash: [u8; 32],
     },
 }
 
@@ -58,11 +58,11 @@ impl<'a> MergeProof<'a> {
             c: p.c,
             commitment: None,
         };
-        // The policy-zone merge (`merge_zone`) commits `zone_program_id`, so it uses
-        // its own verifying key; the default-zone merge uses `merge_8_1`.
+        // The policy-ring merge (`merge_ring`) commits `ring_program_id`, so it uses
+        // its own verifying key; the default-ring merge uses `merge_8_1`.
         let vk = match self.derived.owner_binding {
             MergeOwnerBinding::Registry { .. } => &merge_8_1::VERIFYINGKEY,
-            MergeOwnerBinding::Zone { .. } => &merge_zone_8_1::VERIFYINGKEY,
+            MergeOwnerBinding::Ring { .. } => &merge_ring_8_1::VERIFYINGKEY,
         };
         verifier::verify_groth16(
             proof,
@@ -74,14 +74,14 @@ impl<'a> MergeProof<'a> {
     }
 
     /// The Poseidon hash chain the circuit folds into its single public input
-    /// (`prover/server/circuits/spp_merge/{default,zone}.go`).
+    /// (`prover/server/circuits/spp_merge/{default,ring}.go`).
     ///
     /// Both variants share the same 7 leading elements (including the
     /// proof-wide dummy-input policy);
     /// the default merge then folds the owner's signing `pk_field` (bound from
-    /// the user registry), while the policy-zone merge omits owner identity (no
-    /// registry to bind it against) and appends the output `zone_data_hash` and
-    /// `zone_program_id`.
+    /// the user registry), while the policy-ring merge omits owner identity (no
+    /// registry to bind it against) and appends the output `ring_data_hash` and
+    /// `ring_program_id`.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         let nullifiers = create_hash_chain_from_slice(&self.ix.nullifiers)?;
         let utxo_roots = create_hash_chain_from_slice(&self.derived.utxo_roots)?;
@@ -100,13 +100,13 @@ impl<'a> MergeProof<'a> {
         let prefix_hash = create_hash_chain_from_slice(&prefix)?;
 
         match &self.derived.owner_binding {
-            MergeOwnerBinding::Zone {
-                zone_program_id,
-                output_zone_data_hash,
+            MergeOwnerBinding::Ring {
+                ring_program_id,
+                output_ring_data_hash,
             } => create_hash_chain_from_slice(&[
                 prefix_hash,
-                *output_zone_data_hash,
-                *zone_program_id,
+                *output_ring_data_hash,
+                *ring_program_id,
             ])
             .map_err(Into::into),
             MergeOwnerBinding::Registry { signing_pk_field } => {

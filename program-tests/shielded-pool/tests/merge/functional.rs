@@ -116,7 +116,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     env.rpc
@@ -169,7 +169,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
         utxo: utxo.clone(),
         nullifier_key: nullifier_key.clone(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         proof: Some(SpendProof {
             state: MerkleProof {
                 leaf: utxo_hash,
@@ -197,12 +197,12 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
                 asset: SOL_MINT,
                 amount: 0,
                 blinding: test_blinding(slot as u8 + 10),
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             },
             nullifier_key: nullifier_key.clone(),
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             proof: None,
             nullifier_proof: Some(to_non_inclusion(dummy_nullifier, &proof)),
         });

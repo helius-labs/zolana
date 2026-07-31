@@ -1,32 +1,32 @@
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::{
     error::ShieldedPoolError,
-    state::{discriminator::ZONE_CONFIG, ZoneConfig},
+    state::{discriminator::RING_CONFIG, RingConfig},
 };
 
-/// Values written when initializing a freshly created zone config account.
-pub struct ZoneConfigInitParams {
+/// Values written when initializing a freshly created ring config account.
+pub struct RingConfigInitParams {
     pub authority: Address,
     pub program_id: Address,
-    pub zone_authority_transact_is_enabled: bool,
+    pub ring_authority_transact_is_enabled: bool,
     pub bump: u8,
 }
 
-impl ZoneConfigInitParams {
+impl RingConfigInitParams {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         let mut data = account
             .try_borrow_mut()
-            .map_err(|_| ShieldedPoolError::InvalidZoneConfig)?;
-        if data.len() != ZoneConfig::SIZE || data.iter().any(|byte| *byte != 0) {
-            return Err(ShieldedPoolError::InvalidZoneConfig.into());
+            .map_err(|_| ShieldedPoolError::InvalidRingConfig)?;
+        if data.len() != RingConfig::SIZE || data.iter().any(|byte| *byte != 0) {
+            return Err(ShieldedPoolError::InvalidRingConfig.into());
         }
-        let config: &mut ZoneConfig = bytemuck::from_bytes_mut(&mut data[..]);
-        *config = ZoneConfig {
-            discriminator: ZONE_CONFIG,
+        let config: &mut RingConfig = bytemuck::from_bytes_mut(&mut data[..]);
+        *config = RingConfig {
+            discriminator: RING_CONFIG,
             authority: self.authority,
             program_id: self.program_id,
-            zone_authority_transact_is_enabled: u8::from(self.zone_authority_transact_is_enabled),
+            ring_authority_transact_is_enabled: u8::from(self.ring_authority_transact_is_enabled),
             bump: self.bump,
         };
         Ok(())

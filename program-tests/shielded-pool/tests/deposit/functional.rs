@@ -10,13 +10,13 @@ use zolana_interface::{
 use zolana_keypair::{
     hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey,
 };
-use zolana_program_test::{test_blinding, DepositOutput, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{test_blinding, DepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
-    litesvm_assert_deposit, litesvm_assert_zone_deposit, DepositAssertArgs, SolDepositOracle,
-    ZoneDepositAssertArgs,
+    litesvm_assert_deposit, litesvm_assert_ring_deposit, DepositAssertArgs, SolDepositOracle,
+    RingDepositAssertArgs,
 };
 use zolana_transaction::{
-    owner_utxo_hash, serialization::ZoneDepositPlaintext, AssetRegistry, Data,
+    owner_utxo_hash, serialization::RingDepositPlaintext, AssetRegistry, Data,
     LocalWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
@@ -181,7 +181,7 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
@@ -301,15 +301,15 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
 }
 
 #[test]
-fn zone_sol_deposit_settles_and_indexes_the_exact_output() {
+fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
     let mut pool = Pool::initialized();
     pool.rpc
-        .load_zone_test_program()
-        .expect("load zone test program");
-    let zone_authority = pool.authority.insecure_clone();
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
-        .expect("create zone config");
+        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .expect("create ring config");
 
     let tree = pool.tree.pubkey();
     let depositor = pool.funded_signer(5_000_000_000);
@@ -319,14 +319,14 @@ fn zone_sol_deposit_settles_and_indexes_the_exact_output() {
         AssetRegistry::default(),
     )
     .expect("recipient wallet");
-    let mut data = ZolanaProgramTest::wallet_zone_sol_shield_data(
+    let mut data = ZolanaProgramTest::wallet_ring_sol_shield_data(
         600_000_000,
         &recipient.identity,
         &[5u8; 32],
         0,
     )
-    .expect("zone SOL deposit data");
-    data.zone_data_hash = [5u8; 32];
+    .expect("ring SOL deposit data");
+    data.ring_data_hash = [5u8; 32];
     let root_before = pool.rpc.state_root(&tree).expect("root");
     let depositor_before = pool
         .rpc
@@ -342,8 +342,8 @@ fn zone_sol_deposit_settles_and_indexes_the_exact_output() {
 
     let event = pool
         .rpc
-        .zone_deposit(&tree, &depositor, &data)
-        .expect("zone SOL deposit");
+        .ring_deposit(&tree, &depositor, &data)
+        .expect("ring SOL deposit");
     assert_eq!(
         pool.rpc
             .svm
@@ -360,16 +360,16 @@ fn zone_sol_deposit_settles_and_indexes_the_exact_output() {
             .lamports,
         vault_before + 600_000_000
     );
-    litesvm_assert_zone_deposit(
+    litesvm_assert_ring_deposit(
         &mut pool.rpc,
         &mut recipient,
-        ZoneDepositAssertArgs {
+        RingDepositAssertArgs {
             tree: &tree,
             event: &event,
             data: &data,
             expected_amount: 600_000_000,
             expected_asset: [0u8; 32],
-            expected_zone_program_id: ZONE_TEST_PROGRAM_ID,
+            expected_ring_program_id: RING_TEST_PROGRAM_ID,
             root_before,
             authority: &LocalWalletAuthority::new(Address::default(), &recipient_key),
         },
@@ -378,69 +378,69 @@ fn zone_sol_deposit_settles_and_indexes_the_exact_output() {
 }
 
 #[test]
-fn zone_deposit_event_carries_the_zone_data_preimage_verbatim() {
+fn ring_deposit_event_carries_the_ring_data_preimage_verbatim() {
     let mut pool = Pool::initialized();
     pool.rpc
-        .load_zone_test_program()
-        .expect("load zone test program");
-    let zone_authority = pool.authority.insecure_clone();
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
-        .expect("create zone config");
+        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .expect("create ring config");
     let tree = pool.tree.pubkey();
     let depositor = pool.funded_signer(2_000_000_000);
     let mut data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
-    data.zone_data_hash = [6u8; 32];
-    // The zone_data preimage travels inside the owner-hidden encrypted
+        .ring_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
+    data.ring_data_hash = [6u8; 32];
+    // The ring_data preimage travels inside the owner-hidden encrypted
     // envelope, so the event must carry the ciphertext verbatim and the
-    // plaintext must round-trip back to the exact zone_data bytes.
+    // plaintext must round-trip back to the exact ring_data bytes.
     let viewing_key = ViewingKey::new();
-    let zone_data = vec![11, 22, 33, 44, 55];
-    data.encrypted = ZoneDepositPlaintext {
+    let ring_data = vec![11, 22, 33, 44, 55];
+    data.encrypted = RingDepositPlaintext {
         blinding: [4u8; 32],
         utxo_data: None,
         memo: None,
-        zone_data: zone_data.clone(),
+        ring_data: ring_data.clone(),
     }
     .encrypt(&viewing_key.pubkey())
-    .expect("encrypt zone deposit plaintext");
+    .expect("encrypt ring deposit plaintext");
 
     let event = pool
         .rpc
-        .zone_deposit(&tree, &depositor, &data)
-        .expect("zone SOL deposit");
+        .ring_deposit(&tree, &depositor, &data)
+        .expect("ring SOL deposit");
     assert_eq!(
         event.output.encrypted.ciphertext, data.encrypted.ciphertext,
         "emitted output carries the encrypted envelope verbatim"
     );
-    let plaintext = ZoneDepositPlaintext::decrypt(&event.output.encrypted, &viewing_key)
-        .expect("decrypt zone deposit plaintext");
+    let plaintext = RingDepositPlaintext::decrypt(&event.output.encrypted, &viewing_key)
+        .expect("decrypt ring deposit plaintext");
     assert_eq!(
-        plaintext.zone_data, zone_data,
-        "zone_data preimage round-trips verbatim"
+        plaintext.ring_data, ring_data,
+        "ring_data preimage round-trips verbatim"
     );
     assert_eq!(
-        event.output.zone_data_hash, data.zone_data_hash,
-        "emitted output carries the instruction's zone_data_hash"
+        event.output.ring_data_hash, data.ring_data_hash,
+        "emitted output carries the instruction's ring_data_hash"
     );
     assert_eq!(
-        event.output.zone_program_id, ZONE_TEST_PROGRAM_ID,
-        "emitted output carries the signing zone's program id"
+        event.output.ring_program_id, RING_TEST_PROGRAM_ID,
+        "emitted output carries the signing ring's program id"
     );
 }
 
 #[test]
-fn zone_spl_deposit_settles_and_indexes_the_exact_output() {
+fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
     let mut pool = Pool::initialized();
     pool.rpc
-        .load_zone_test_program()
-        .expect("load zone test program");
-    let zone_authority = pool.authority.insecure_clone();
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
-        .expect("create zone config");
+        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .expect("create ring config");
     let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
     let recipient_key = ShieldedKeypair::new().expect("recipient keypair");
@@ -449,7 +449,7 @@ fn zone_spl_deposit_settles_and_indexes_the_exact_output() {
         AssetRegistry::default(),
     )
     .expect("recipient wallet");
-    let mut data = ZolanaProgramTest::wallet_zone_spl_shield_data(
+    let mut data = ZolanaProgramTest::wallet_ring_spl_shield_data(
         350_000,
         mint,
         user_token,
@@ -457,8 +457,8 @@ fn zone_spl_deposit_settles_and_indexes_the_exact_output() {
         &[9u8; 32],
         0,
     )
-    .expect("zone SPL deposit data");
-    data.zone_data_hash = [9u8; 32];
+    .expect("ring SPL deposit data");
+    data.ring_data_hash = [9u8; 32];
     let tree = pool.tree.pubkey();
     let root_before = pool.rpc.state_root(&tree).expect("root");
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
@@ -469,23 +469,23 @@ fn zone_spl_deposit_settles_and_indexes_the_exact_output() {
 
     let event = pool
         .rpc
-        .zone_deposit(&tree, &depositor, &data)
-        .expect("zone SPL deposit");
+        .ring_deposit(&tree, &depositor, &data)
+        .expect("ring SPL deposit");
     assert_eq!(pool.rpc.token_balance(&vault), Some(vault_before + 350_000));
     assert_eq!(
         pool.rpc.token_balance(&user_token),
         Some(user_before - 350_000)
     );
-    litesvm_assert_zone_deposit(
+    litesvm_assert_ring_deposit(
         &mut pool.rpc,
         &mut recipient,
-        ZoneDepositAssertArgs {
+        RingDepositAssertArgs {
             tree: &tree,
             event: &event,
             data: &data,
             expected_amount: 350_000,
             expected_asset: mint.to_bytes(),
-            expected_zone_program_id: ZONE_TEST_PROGRAM_ID,
+            expected_ring_program_id: RING_TEST_PROGRAM_ID,
             root_before,
             authority: &LocalWalletAuthority::new(Address::default(), &recipient_key),
         },

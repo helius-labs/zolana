@@ -59,7 +59,7 @@ impl TransferHarness {
                     asset: asset_addr(input.asset),
                     amount: input.amount,
                     blinding: random_blinding(&mut rng),
-                    zone_program_id: None,
+                    ring_program_id: None,
                     data: Data::default(),
                 };
                 SppProofInputUtxo::new(
@@ -362,7 +362,7 @@ impl OutputAssertions<'_> {
                 expiry_unix_ts: u64::MAX,
                 interface_transfers,
                 data_hash: None,
-                zone_data_hash: None,
+                ring_data_hash: None,
                 tx_viewing_pk: external_data.tx_viewing_pk,
                 salt: external_data.salt,
                 outputs: external_data.outputs.clone(),
@@ -397,7 +397,7 @@ impl OutputAssertions<'_> {
                 asset_id: SPL_ASSET_ID,
                 amount: change(Asset::Spl),
                 blinding: derive_blinding(&seed, 0),
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             });
         }
@@ -406,7 +406,7 @@ impl OutputAssertions<'_> {
                 asset_id: zolana_transaction::SOL_ASSET_ID,
                 amount: change(Asset::Sol),
                 blinding: derive_blinding(&seed, 1),
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             });
         }
@@ -426,7 +426,7 @@ impl OutputAssertions<'_> {
                         },
                         amount: send.amount,
                         blinding: derive_blinding(&seed, 2 + i as u8),
-                        zone_program_id: None,
+                        ring_program_id: None,
                         data: Data::default(),
                     },
                 )

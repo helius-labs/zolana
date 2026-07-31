@@ -19,13 +19,13 @@
 //! |----------|-------------|
 //! | protocol | +1          |
 //! | tree     | +2          |
-//! | zone     | +3          |
+//! | ring     | +3          |
 //! | merge    | +4          |
 //! | forester | +5          |
 //!
 //! This is the order `init-protocol` creates them, and therefore the order on
 //! any persistent deployment it initialized; the localnet harnesses were
-//! migrated from their historical protocol/forester/merge/tree/zone order to
+//! migrated from their historical protocol/forester/merge/tree/ring order to
 //! match. xtask's `--resume` recovery path derives the batch as
 //! `smart_account_index - 5` plus the same offsets.
 
@@ -38,7 +38,7 @@ use zolana_smart_account_client::{settings_pda, smart_account_pda};
 pub enum Role {
     Protocol,
     Tree,
-    Zone,
+    Ring,
     Merge,
     Forester,
 }
@@ -48,7 +48,7 @@ impl Role {
     pub const ALL: [Role; 5] = [
         Role::Protocol,
         Role::Tree,
-        Role::Zone,
+        Role::Ring,
         Role::Merge,
         Role::Forester,
     ];
@@ -57,7 +57,7 @@ impl Role {
         match self {
             Role::Protocol => "protocol",
             Role::Tree => "tree",
-            Role::Zone => "zone",
+            Role::Ring => "ring",
             Role::Merge => "merge",
             Role::Forester => "forester",
         }
@@ -68,7 +68,7 @@ impl Role {
         match self {
             Role::Protocol => 1,
             Role::Tree => 2,
-            Role::Zone => 3,
+            Role::Ring => 3,
             Role::Merge => 4,
             Role::Forester => 5,
         }
@@ -102,7 +102,7 @@ mod tests {
         let offsets: Vec<u128> = Role::ALL.iter().map(|role| role.seed_offset()).collect();
         assert_eq!(offsets, [1, 2, 3, 4, 5]);
         let labels: Vec<&str> = Role::ALL.iter().map(|role| role.label()).collect();
-        assert_eq!(labels, ["protocol", "tree", "zone", "merge", "forester"]);
+        assert_eq!(labels, ["protocol", "tree", "ring", "merge", "forester"]);
     }
 
     #[test]

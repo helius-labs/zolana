@@ -29,7 +29,7 @@ pub struct SpendProof {
 /// input (non-zero owner) consumes the next spend proof, each dummy slot consumes
 /// the next dummy non-inclusion proof (the transact circuit checks non-inclusion
 /// for every slot). Shared by every witness builder (transact, merge,
-/// merge-zone, zone-authority).
+/// merge-ring, ring-authority).
 pub(crate) fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
@@ -55,7 +55,7 @@ pub(crate) fn attach_input_proofs(
             utxo: spend.utxo,
             nullifier_key: spend.nullifier_key,
             data_hash: spend.data_hash,
-            zone_data_hash: spend.zone_data_hash,
+            ring_data_hash: spend.ring_data_hash,
             proof,
             nullifier_proof,
         });
@@ -215,7 +215,7 @@ pub fn assemble_with_dummy_policy(
         expiry_unix_ts,
         interface_transfers,
         data_hash,
-        zone_data_hash,
+        ring_data_hash,
         tx_viewing_pk,
         salt,
         outputs,
@@ -286,7 +286,7 @@ pub fn assemble_with_dummy_policy(
         inputs,
         interface_transfers,
         data_hash,
-        zone_data_hash,
+        ring_data_hash,
         tx_viewing_pk,
         salt,
         outputs,
@@ -339,7 +339,7 @@ mod tests {
                 asset: SOL_MINT,
                 amount: 1,
                 blinding: [1u8; 32],
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             },
             &keypair,

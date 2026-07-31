@@ -1,13 +1,13 @@
-//! Merge-zone proof case data.
+//! Merge-ring proof case data.
 
 #[derive(Debug, Default)]
-pub(crate) struct MergeZonePlan {
+pub(crate) struct MergeRingPlan {
     pub real_inputs: usize,
     /// True selects the Solana (ed25519) owner rail; false the P256 rail.
     pub eddsa: bool,
 }
 
 #[derive(Debug, Default)]
-pub struct MergeZoneHarness {
-    pub(crate) plan: MergeZonePlan,
+pub struct MergeRingHarness {
+    pub(crate) plan: MergeRingPlan,
 }

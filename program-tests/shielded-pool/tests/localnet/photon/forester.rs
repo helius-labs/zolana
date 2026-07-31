@@ -135,7 +135,7 @@ fn phase_bootstrap() -> TestResult<ForesterEnv> {
     let config = BootstrapConfig {
         label: "zolana-photon",
         extra_programs: Vec::new(),
-        zone_creation_is_permissionless: false,
+        ring_creation_is_permissionless: false,
         fund_merge_vault: false,
     };
     let (mut rpc, indexer) = LocalnetHarness::<()>::start_stack(&config)?;
@@ -208,7 +208,7 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
             asset: SOL_MINT,
             amount: AMOUNT,
             blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let shield_data =
@@ -448,7 +448,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         asset: SOL_MINT,
         amount: total_amount - TRANSFER_AMOUNT,
         blinding: change_plaintext.blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let recipient_utxo = Utxo {
@@ -456,7 +456,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_plaintext.blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let change_utxo = RealSpendUtxo::new(

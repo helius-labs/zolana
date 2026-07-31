@@ -7,14 +7,14 @@ use borsh::BorshSerialize;
 pub use builders::*;
 pub use instruction_data::{
     fetch_tag, validate_interface_transfers, BatchUpdateNullifierTreeData, CircuitId,
-    CompressedProof, CreateProtocolConfigData, CreateZoneConfigData, DepositAssetKind,
-    DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef, EncryptedZoneDepositData,
-    EncryptedZoneDepositDataRef, InputUtxo, InterfaceTransfer, MergeExternalDataHash,
-    MergeTransactIxData, MergeTransactIxDataRef, MergeZoneIxData, MergeZoneIxDataRef, MessageData,
+    CompressedProof, CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind,
+    DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
+    EncryptedRingDepositDataRef, InputUtxo, InterfaceTransfer, MergeExternalDataHash,
+    MergeTransactIxData, MergeTransactIxDataRef, MergeRingIxData, MergeRingIxDataRef, MessageData,
     OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData, ResolvedInterfaceTransfer, ResolvedOutput,
     TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
-    UpdateProtocolConfigData, UpdateZoneConfigData, UtxoData, UtxoDataRef, ZoneDepositEntry,
-    ZoneDepositEntryRef, ZoneDepositIxData, ZoneDepositIxDataRef, MAX_DEPOSIT_ASSETS,
+    UpdateProtocolConfigData, UpdateRingConfigData, UtxoData, UtxoDataRef, RingDepositEntry,
+    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, MAX_DEPOSIT_ASSETS,
 };
 pub use zolana_event::{tag, tag::InstructionTag};
 

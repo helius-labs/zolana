@@ -1,18 +1,18 @@
 use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, instruction::UpdateZoneConfigData};
+use zolana_interface::{error::ShieldedPoolError, instruction::UpdateRingConfigData};
 
-use crate::instructions::zone_config::loader::load_and_validate_zone_authority_mut;
+use crate::instructions::ring_config::loader::load_and_validate_ring_authority_mut;
 
-pub fn process_update_zone_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let data = UpdateZoneConfigData::try_from_slice(data)
+pub fn process_update_ring_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let data = UpdateRingConfigData::try_from_slice(data)
         .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
-    let config = iter.next_mut("zone_config")?;
+    let config = iter.next_mut("ring_config")?;
 
-    let mut current = load_and_validate_zone_authority_mut(config, authority)?;
-    current.zone_authority_transact_is_enabled = u8::from(data.zone_authority_transact_is_enabled);
+    let mut current = load_and_validate_ring_authority_mut(config, authority)?;
+    current.ring_authority_transact_is_enabled = u8::from(data.ring_authority_transact_is_enabled);
     Ok(())
 }

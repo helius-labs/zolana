@@ -9,10 +9,10 @@
 //! - more inputs or outputs than any circuit supports, and wire-valid but
 //!   unsupported shapes (7006, `InvalidTransactShape`)
 //! - a duplicate nullifier inside one instruction (7002)
-//! - a negative clock (7005) and a paused tree on the zone rails (7013)
-//! - zone-config defects on the zone rails (7014 / signer error)
+//! - a negative clock (7005) and a paused tree on the ring rails (7013)
+//! - ring-config defects on the ring rails (7014 / signer error)
 
-use shielded_pool_tests::support::{fixtures::Pool, transact::write_zone_config_account};
+use shielded_pool_tests::support::{fixtures::Pool, transact::write_ring_config_account};
 
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -25,13 +25,13 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
-        Transact, ZoneAuthorityTransact, ZoneTransact,
+        Transact, RingAuthorityTransact, RingTransact,
     },
     pda,
-    state::{discriminator::ZONE_CONFIG, ZoneConfig},
+    state::{discriminator::RING_CONFIG, RingConfig},
     N_PUBLIC_SLOTS,
 };
-use zolana_program_test::{Rejection, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
 
 /// A pure shielded transfer (no settlement accounts) with `n_in` inputs bound
@@ -48,7 +48,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
         inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: (11..11 + n_out)
             .map(|n| inline_output(fe(n), fe(n)))
             .collect(),
@@ -73,7 +73,7 @@ fn expect_rejection(env: &mut Pool, data: TransactIxData, expected: ShieldedPool
 }
 
 /// Like [`expect_rejection`], but for a caller-built instruction
-/// (tampered metas, zone rails) with extra transaction signers.
+/// (tampered metas, ring rails) with extra transaction signers.
 #[track_caller]
 fn expect_ix_rejection(env: &mut Pool, ix: Instruction, signers: &[&Keypair], expected: Rejection) {
     let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
@@ -88,21 +88,21 @@ fn expect_ix_rejection(env: &mut Pool, ix: Instruction, signers: &[&Keypair], ex
         .assert_rolled_back_except(&[env.rpc.payer.pubkey()]);
 }
 
-/// Materialize a `ZoneConfig` at a fresh keypair address so tests can
-/// produce the signature the zone rails require without the zone program's
-/// `invoke_signed`. `load_zone_config` validates only owner, size, and
-/// discriminator (the `zone_auth` derivation is bound once, at creation),
+/// Materialize a `RingConfig` at a fresh keypair address so tests can
+/// produce the signature the ring rails require without the ring program's
+/// `invoke_signed`. `load_ring_config` validates only owner, size, and
+/// discriminator (the `ring_auth` derivation is bound once, at creation),
 /// so a signing keypair account stands in for the canonical PDA.
-fn write_zone_config(env: &mut Pool, owner: Pubkey, discriminator: u8, enabled: bool) -> Keypair {
-    let config = ZoneConfig {
+fn write_ring_config(env: &mut Pool, owner: Pubkey, discriminator: u8, enabled: bool) -> Keypair {
+    let config = RingConfig {
         discriminator,
         authority: Address::new_from_array([9u8; 32]),
-        program_id: Address::new_from_array(ZONE_TEST_PROGRAM_ID),
-        zone_authority_transact_is_enabled: u8::from(enabled),
+        program_id: Address::new_from_array(RING_TEST_PROGRAM_ID),
+        ring_authority_transact_is_enabled: u8::from(enabled),
         bump: 255,
     };
     let keypair = Keypair::new();
-    write_zone_config_account(
+    write_ring_config_account(
         &mut env.rpc,
         keypair.pubkey(),
         owner,
@@ -111,55 +111,55 @@ fn write_zone_config(env: &mut Pool, owner: Pubkey, discriminator: u8, enabled: 
     keypair
 }
 
-/// CPI-shaped `zone_transact` / `zone_authority_transact` instruction with
-/// the fabricated `zone_config` keypair substituted for the canonical
-/// `zone_auth` PDA (still marked as a signer).
-fn zone_instruction(
+/// CPI-shaped `ring_transact` / `ring_authority_transact` instruction with
+/// the fabricated `ring_config` keypair substituted for the canonical
+/// `ring_auth` PDA (still marked as a signer).
+fn ring_instruction(
     env: &Pool,
     authority_variant: bool,
-    zone_config: &Keypair,
+    ring_config: &Keypair,
     data: TransactIxData,
 ) -> Instruction {
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let zone_program_id = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
+    let ring_program_id = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
     let mut data = data;
     data.circuit = if authority_variant {
-        CircuitId::ZoneAuthority(
+        CircuitId::RingAuthority(
             data.circuit.num_inputs(),
             data.circuit.num_outputs(),
             N_PUBLIC_SLOTS as u8,
         )
     } else {
-        CircuitId::ZoneEddsa(
+        CircuitId::RingEddsa(
             data.circuit.num_inputs(),
             data.circuit.num_outputs(),
             N_PUBLIC_SLOTS as u8,
         )
     };
     let mut ix = if authority_variant {
-        ZoneAuthorityTransact {
+        RingAuthorityTransact {
             payer,
             input_tree: tree,
             output_tree: tree,
-            zone_program_id,
+            ring_program_id,
             interface_transfer_accounts: Vec::new(),
             data,
         }
         .cpi_instruction()
     } else {
-        ZoneTransact {
+        RingTransact {
             payer,
             input_tree: tree,
             output_tree: tree,
             owner_signers: Vec::new(),
-            zone_program_id,
+            ring_program_id,
             interface_transfer_accounts: Vec::new(),
             data,
         }
         .cpi_instruction()
     };
-    ix.accounts.get_mut(5).expect("zone config meta").pubkey = zone_config.pubkey();
+    ix.accounts.get_mut(5).expect("ring config meta").pubkey = ring_config.pubkey();
     ix
 }
 
@@ -264,26 +264,26 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
 }
 
 #[test]
-fn zone_transact_rejects_an_unsigned_zone_config() {
+fn ring_transact_rejects_an_unsigned_ring_config() {
     let mut env = Pool::initialized();
-    let mut ix = ZoneTransact {
+    let mut ix = RingTransact {
         payer: env.rpc.payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
         owner_signers: Vec::new(),
-        zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
         data: {
             let mut data = transfer_ix_data(2, 3);
-            data.circuit = CircuitId::ZoneEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+            data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
             data
         },
     }
     .cpi_instruction();
-    // The `zone_config` signature IS the zone authorization (see
+    // The `ring_config` signature IS the ring authorization (see
     // merge/contract.rs): without it the flag must be rejected before the
     // config is even loaded (so the account does not need to exist).
-    ix.accounts.get_mut(5).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(5).expect("ring config meta").is_signer = false;
 
     expect_ix_rejection(
         &mut env,
@@ -501,79 +501,79 @@ fn transact_rejects_an_expired_transaction() {
 }
 
 #[test]
-fn zone_transact_rejects_a_zone_config_with_a_wrong_owner() {
+fn ring_transact_rejects_a_ring_config_with_a_wrong_owner() {
     let mut env = Pool::initialized();
-    // INV-ZONE-TRANSACT-02: correct ZoneConfig bytes at a signed but
-    // system-owned account cannot authorize a zone.
-    let zone_config = write_zone_config(&mut env, Pubkey::default(), ZONE_CONFIG, true);
-    let ix = zone_instruction(&env, false, &zone_config, transfer_ix_data(2, 3));
+    // INV-RING-TRANSACT-02: correct RingConfig bytes at a signed but
+    // system-owned account cannot authorize a ring.
+    let ring_config = write_ring_config(&mut env, Pubkey::default(), RING_CONFIG, true);
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
     expect_ix_rejection(
         &mut env,
         ix,
-        &[&zone_config],
-        Rejection::pool(ShieldedPoolError::InvalidZoneConfig),
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::InvalidRingConfig),
     );
 }
 
 #[test]
-fn zone_transact_rejects_a_zone_config_with_a_wrong_discriminator() {
+fn ring_transact_rejects_a_ring_config_with_a_wrong_discriminator() {
     let mut env = Pool::initialized();
-    // INV-ZONE-TRANSACT-02: program-owned and signed, but the first byte is
-    // not exactly the ZoneConfig discriminator (4).
-    let zone_config = write_zone_config(&mut env, pda::shielded_pool_program_id(), 0, true);
-    let ix = zone_instruction(&env, false, &zone_config, transfer_ix_data(2, 3));
+    // INV-RING-TRANSACT-02: program-owned and signed, but the first byte is
+    // not exactly the RingConfig discriminator (4).
+    let ring_config = write_ring_config(&mut env, pda::shielded_pool_program_id(), 0, true);
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
     expect_ix_rejection(
         &mut env,
         ix,
-        &[&zone_config],
-        Rejection::pool(ShieldedPoolError::InvalidZoneConfig),
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::InvalidRingConfig),
     );
 }
 
 #[test]
-fn zone_transact_rejects_a_paused_tree() {
+fn ring_transact_rejects_a_paused_tree() {
     let mut env = Pool::initialized();
     let authority = env.authority.insecure_clone();
     env.rpc
         .pause_tree(&authority, &env.tree, true)
         .expect("pause tree");
-    // INV-XC-08: a valid signed zone config does not exempt zone_transact from
+    // INV-XC-08: a valid signed ring config does not exempt ring_transact from
     // the pause; the tree load must halt the write.
-    let zone_config = write_zone_config(
+    let ring_config = write_ring_config(
         &mut env,
         pda::shielded_pool_program_id(),
-        ZONE_CONFIG,
+        RING_CONFIG,
         false,
     );
-    let ix = zone_instruction(&env, false, &zone_config, transfer_ix_data(2, 3));
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
     expect_ix_rejection(
         &mut env,
         ix,
-        &[&zone_config],
+        &[&ring_config],
         Rejection::pool(ShieldedPoolError::TreePaused),
     );
 }
 
 #[test]
-fn zone_authority_transact_rejects_an_unsigned_zone_config() {
+fn ring_authority_transact_rejects_an_unsigned_ring_config() {
     let mut env = Pool::initialized();
-    // INV-ZONE-AUTH-01: tag 3 shares the zone loader, so the missing
-    // `zone_config` signature is rejected before the config is even loaded.
-    let mut ix = ZoneAuthorityTransact {
+    // INV-RING-AUTH-01: tag 3 shares the ring loader, so the missing
+    // `ring_config` signature is rejected before the config is even loaded.
+    let mut ix = RingAuthorityTransact {
         payer: env.rpc.payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
-        zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
         data: {
-            // Square shape so the zone-config signer check is the branch that fires.
+            // Square shape so the ring-config signer check is the branch that fires.
             let mut data = transfer_ix_data(2, 2);
-            data.circuit = CircuitId::ZoneAuthority(2, 2, N_PUBLIC_SLOTS as u8);
+            data.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
             data
         },
     }
     .cpi_instruction();
-    ix.accounts.get_mut(5).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(5).expect("ring config meta").is_signer = false;
 
     expect_ix_rejection(
         &mut env,
@@ -584,37 +584,37 @@ fn zone_authority_transact_rejects_an_unsigned_zone_config() {
 }
 
 #[test]
-fn zone_authority_transact_rejects_a_paused_tree() {
+fn ring_authority_transact_rejects_a_paused_tree() {
     let mut env = Pool::initialized();
     let authority = env.authority.insecure_clone();
     env.rpc
         .pause_tree(&authority, &env.tree, true)
         .expect("pause tree");
-    // INV-XC-08: even an enabled zone authority cannot write a paused tree.
-    let zone_config =
-        write_zone_config(&mut env, pda::shielded_pool_program_id(), ZONE_CONFIG, true);
-    let ix = zone_instruction(&env, true, &zone_config, transfer_ix_data(2, 2));
+    // INV-XC-08: even an enabled ring authority cannot write a paused tree.
+    let ring_config =
+        write_ring_config(&mut env, pda::shielded_pool_program_id(), RING_CONFIG, true);
+    let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 2));
     expect_ix_rejection(
         &mut env,
         ix,
-        &[&zone_config],
+        &[&ring_config],
         Rejection::pool(ShieldedPoolError::TreePaused),
     );
 }
 
 #[test]
-fn zone_authority_transact_rejects_a_non_square_shape() {
+fn ring_authority_transact_rejects_a_non_square_shape() {
     let mut env = Pool::initialized();
-    // INV-ZONE-AUTH-04: the zone-authority keys cover exactly the square
+    // INV-RING-AUTH-04: the ring-authority keys cover exactly the square
     // shapes (1,1)..(4,4); (2 inputs, 3 outputs) is wire-valid (and a
-    // supported zone_transact shape) but must fail key selection here.
-    let zone_config =
-        write_zone_config(&mut env, pda::shielded_pool_program_id(), ZONE_CONFIG, true);
-    let ix = zone_instruction(&env, true, &zone_config, transfer_ix_data(2, 3));
+    // supported ring_transact shape) but must fail key selection here.
+    let ring_config =
+        write_ring_config(&mut env, pda::shielded_pool_program_id(), RING_CONFIG, true);
+    let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 3));
     expect_ix_rejection(
         &mut env,
         ix,
-        &[&zone_config],
+        &[&ring_config],
         Rejection::pool(ShieldedPoolError::InvalidTransactShape),
     );
 }

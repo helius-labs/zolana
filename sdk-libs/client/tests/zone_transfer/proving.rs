@@ -1,20 +1,20 @@
-//! Zone-transfer proof construction and verification cases.
+//! Ring-transfer proof construction and verification cases.
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
     InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferSpendInput,
-    ZoneTransferProver,
+    RingTransferProver,
 };
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{OwnerTag, TransactOutput},
-        tag::ZONE_TRANSACT,
+        tag::RING_TRANSACT,
     },
     verifying_keys::{
-        transfer_zone_1_1, transfer_zone_1_2, transfer_zone_1_8, transfer_zone_2_2,
-        transfer_zone_2_3, transfer_zone_3_3, transfer_zone_4_3, transfer_zone_4_4,
-        transfer_zone_5_3, transfer_zone_5_4,
+        transfer_ring_1_1, transfer_ring_1_2, transfer_ring_1_8, transfer_ring_2_2,
+        transfer_ring_2_3, transfer_ring_3_3, transfer_ring_4_3, transfer_ring_4_4,
+        transfer_ring_5_3, transfer_ring_5_4,
     },
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
@@ -23,29 +23,29 @@ use zolana_transaction::{
 };
 
 use crate::{
-    harness::{Mode, ZoneTransferHarness},
+    harness::{Mode, RingTransferHarness},
     prover_bootstrap::start_prover,
     test_indexer::TestIndexer,
 };
 
-impl ZoneTransferHarness {
+impl RingTransferHarness {
     pub(crate) fn prove_and_verify(&self) {
         start_prover();
         let (n_in, n_out, mode) = (self.plan.n_inputs, self.plan.n_outputs, self.plan.mode);
         match mode {
             Mode::Eddsa => prove_and_verify_eddsa(eddsa_prover(n_in, n_out), n_in, n_out),
             Mode::EddsaMultiReal => prove_and_verify_eddsa(eddsa_multi_real(), n_in, n_out),
-            // NOTE(pr164): PR164 removed the P256 rail (`ZoneTransferP256Prover`,
-            // `transfer_p256_zone_*` VKs are gone); the P256 modes were dropped here.
+            // NOTE(pr164): PR164 removed the P256 rail (`RingTransferP256Prover`,
+            // `transfer_p256_ring_*` VKs are gone); the P256 modes were dropped here.
         }
     }
 }
 
 // ---- scenario builders --------------------------------------------------------
 
-/// One real zero-value Solana-owned zone input + dummy padding, dummy outputs. The
+/// One real zero-value Solana-owned ring input + dummy padding, dummy outputs. The
 /// real input balances at zero so the witness selects the eddsa (Solana-only) rail.
-fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
+fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
     let mut indexer = TestIndexer::new();
     let signer = eddsa_keypair();
     let mut inputs = build_real_inputs(&mut indexer, &[(signer.clone(), 0)]);
@@ -57,22 +57,22 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> ZoneTransferProver {
     // pk-field (payer-first on-chain; any placement satisfies Contains).
     let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
     signer_pk_hashes.resize(n_in + 1, [0u8; 32]);
-    ZoneTransferProver {
+    RingTransferProver {
         inputs,
         outputs,
-        external_data: zone_external_data(n_out),
+        external_data: ring_external_data(n_out),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes,
         allow_dummy_inputs: true,
-        zone_program_id: Some(zone_program()),
+        ring_program_id: Some(ring_program()),
         shape: Some(Shape::new(n_in, n_out)),
     }
 }
 
-/// Shape 3x3: two real nonzero Solana-owned zone inputs (100 + 150) consolidated
-/// into one real zone-owned recipient output (250) plus dummy padding. Exercises
+/// Shape 3x3: two real nonzero Solana-owned ring inputs (100 + 150) consolidated
+/// into one real ring-owned recipient output (250) plus dummy padding. Exercises
 /// multiple real inputs, a real recipient, and value conservation on the eddsa rail.
-fn eddsa_multi_real() -> ZoneTransferProver {
+fn eddsa_multi_real() -> RingTransferProver {
     let mut indexer = TestIndexer::new();
     let first_signer = eddsa_keypair();
     let second_signer = eddsa_keypair();
@@ -87,10 +87,10 @@ fn eddsa_multi_real() -> ZoneTransferProver {
         dummy_output(&first_signer),
         dummy_output(&first_signer),
     ];
-    ZoneTransferProver {
+    RingTransferProver {
         inputs,
         outputs,
-        external_data: zone_external_data(3),
+        external_data: ring_external_data(3),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![
             owner_pk_hash(&first_signer),
@@ -99,7 +99,7 @@ fn eddsa_multi_real() -> ZoneTransferProver {
             [0u8; 32],
         ],
         allow_dummy_inputs: true,
-        zone_program_id: Some(zone_program()),
+        ring_program_id: Some(ring_program()),
         shape: Some(Shape::new(3, 3)),
     }
 }
@@ -115,33 +115,33 @@ fn owner_pk_hash(keypair: &ShieldedKeypair) -> [u8; 32] {
         .expect("owner pk hash")
 }
 
-fn prove_and_verify_eddsa(prover: ZoneTransferProver, n_in: usize, n_out: usize) {
-    let result = prover.build().expect("build zone-transfer witness");
+fn prove_and_verify_eddsa(prover: RingTransferProver, n_in: usize, n_out: usize) {
+    let result = prover.build().expect("build ring-transfer witness");
     let proof = ProverClient::local()
-        .prove_transfer_zone(&result.inputs)
-        .expect("prove zone-transfer");
+        .prove_transfer_ring(&result.inputs)
+        .expect("prove ring-transfer");
     let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
     let mut verifier = Groth16Verifier::new(
         &proof.a,
         &proof.b,
         &proof.c,
         &public_inputs,
-        eddsa_zone_vk(n_in, n_out),
+        eddsa_ring_vk(n_in, n_out),
     )
     .expect("construct verifier");
     verifier
         .verify()
-        .expect("zone-transfer eddsa groth16 proof verifies");
+        .expect("ring-transfer eddsa groth16 proof verifies");
 }
 
 /// Build the real (proof-backed) inputs for `specs` (owner keypair + amount),
 /// indexing every UTXO into one shared tree so all inclusion / non-inclusion proofs
-/// share a single root. Each real input is zone-owned (`zone_program_id = ZONE`).
+/// share a single root. Each real input is ring-owned (`ring_program_id = RING`).
 fn build_real_inputs(
     indexer: &mut TestIndexer,
     specs: &[(ShieldedKeypair, u64)],
 ) -> Vec<TransferSpendInput> {
-    let zone = zone_program();
+    let ring = ring_program();
     let mut utxos = Vec::with_capacity(specs.len());
     let mut keys = Vec::with_capacity(specs.len());
     let mut commitments = Vec::with_capacity(specs.len());
@@ -151,7 +151,7 @@ fn build_real_inputs(
             asset: SOL_MINT,
             amount: *amount,
             blinding: random_blinding(),
-            zone_program_id: Some(zone),
+            ring_program_id: Some(ring),
             data: Data::default(),
         };
         let nullifier_pk = kp.nullifier_key.pubkey().expect("nullifier pubkey");
@@ -181,24 +181,24 @@ fn build_real_inputs(
             utxo,
             nullifier_key,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             proof: Some(proof),
             nullifier_proof: None,
         })
         .collect()
 }
 
-/// A real zone-owned recipient output: the recipient owns it via its
-/// `owner_hash`, which the confidential zone circuit binds to the public owner
-/// tag, and the shared zone program.
+/// A real ring-owned recipient output: the recipient owns it via its
+/// `owner_hash`, which the confidential ring circuit binds to the public owner
+/// tag, and the shared ring program.
 fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
     SppProofOutputUtxo {
         owner_address: Some(recipient.shielded_address().expect("shielded address")),
         asset: SOL_MINT,
         amount,
         blinding: random_blinding(),
-        zone_program_id: Some(zone_program()),
-        zone_data_hash: None,
+        ring_program_id: Some(ring_program()),
+        ring_data_hash: None,
         data_hash: None,
         owner_tag: None,
         data: Data::default(),
@@ -230,7 +230,7 @@ fn dummy_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let mut spend = SppProofInputUtxo::new_dummy();
@@ -241,22 +241,22 @@ fn dummy_input() -> TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         proof: None,
         nullifier_proof: Some(nullifier_proof),
     }
 }
 
-/// Transaction-level data with the zone-transact discriminator. `external_data_hash`
+/// Transaction-level data with the ring-transact discriminator. `external_data_hash`
 /// is opaque to the circuit, so the output vectors are zero-filled (the witness and
 /// public input use the same value, which is all the proof binds).
-fn zone_external_data(n_out: usize) -> ExternalData {
+fn ring_external_data(n_out: usize) -> ExternalData {
     ExternalData {
-        instruction_discriminator: ZONE_TRANSACT,
+        instruction_discriminator: RING_TRANSACT,
         expiry_unix_ts: 0,
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         outputs: (0..n_out)
@@ -271,9 +271,9 @@ fn zone_external_data(n_out: usize) -> ExternalData {
     }
 }
 
-/// Fixed test zone program id; every input/output UTXO carries it and the prover
-/// binds it as the public `zone_program_id`.
-fn zone_program() -> Address {
+/// Fixed test ring program id; every input/output UTXO carries it and the prover
+/// binds it as the public `ring_program_id`.
+fn ring_program() -> Address {
     Address::new_from_array([9u8; 32])
 }
 
@@ -283,18 +283,18 @@ fn eddsa_keypair() -> ShieldedKeypair {
     ShieldedKeypair::from_ed25519(&seed, ViewingKey::new()).expect("eddsa keypair")
 }
 
-fn eddsa_zone_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
+fn eddsa_ring_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
     match (n_in, n_out) {
-        (1, 1) => &transfer_zone_1_1::VERIFYINGKEY,
-        (1, 2) => &transfer_zone_1_2::VERIFYINGKEY,
-        (2, 2) => &transfer_zone_2_2::VERIFYINGKEY,
-        (2, 3) => &transfer_zone_2_3::VERIFYINGKEY,
-        (3, 3) => &transfer_zone_3_3::VERIFYINGKEY,
-        (4, 3) => &transfer_zone_4_3::VERIFYINGKEY,
-        (4, 4) => &transfer_zone_4_4::VERIFYINGKEY,
-        (5, 3) => &transfer_zone_5_3::VERIFYINGKEY,
-        (5, 4) => &transfer_zone_5_4::VERIFYINGKEY,
-        (1, 8) => &transfer_zone_1_8::VERIFYINGKEY,
-        _ => panic!("unsupported zone-transfer shape {n_in}x{n_out}"),
+        (1, 1) => &transfer_ring_1_1::VERIFYINGKEY,
+        (1, 2) => &transfer_ring_1_2::VERIFYINGKEY,
+        (2, 2) => &transfer_ring_2_2::VERIFYINGKEY,
+        (2, 3) => &transfer_ring_2_3::VERIFYINGKEY,
+        (3, 3) => &transfer_ring_3_3::VERIFYINGKEY,
+        (4, 3) => &transfer_ring_4_3::VERIFYINGKEY,
+        (4, 4) => &transfer_ring_4_4::VERIFYINGKEY,
+        (5, 3) => &transfer_ring_5_3::VERIFYINGKEY,
+        (5, 4) => &transfer_ring_5_4::VERIFYINGKEY,
+        (1, 8) => &transfer_ring_1_8::VERIFYINGKEY,
+        _ => panic!("unsupported ring-transfer shape {n_in}x{n_out}"),
     }
 }

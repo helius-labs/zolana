@@ -54,8 +54,8 @@ pub enum ShieldedPoolError {
     InvalidProtocolConfig = 7012,
     #[error("pool tree is paused")]
     TreePaused = 7013,
-    #[error("zone config account is invalid")]
-    InvalidZoneConfig = 7014,
+    #[error("ring config account is invalid")]
+    InvalidRingConfig = 7014,
     #[error("nullifier root index references a zeroed (stale) root-history slot")]
     StaleNullifierRoot = 7015,
     #[error("account address does not match its canonical PDA derivation")]
@@ -71,8 +71,8 @@ pub enum ShieldedPoolError {
     // derived, so there is no ciphertext scheme to check.
     // 7021 retired: was `MismatchedTransactProofVariant`; transact proofs no
     // longer have rail-specific variants.
-    #[error("zone_authority_transact is disabled for this zone")]
-    ZoneAuthorityTransactDisabled = 7022,
+    #[error("ring_authority_transact is disabled for this ring")]
+    RingAuthorityTransactDisabled = 7022,
     // 7023 retired.
     // 7024 retired.
     #[error("output owner tag account index is out of range")]
@@ -177,13 +177,13 @@ mod tests {
                 InvalidSplAssetRegistry => 7011,
                 InvalidProtocolConfig => 7012,
                 TreePaused => 7013,
-                InvalidZoneConfig => 7014,
+                InvalidRingConfig => 7014,
                 StaleNullifierRoot => 7015,
                 InvalidPda => 7016,
                 MergeDisabled => 7017,
                 InvalidUserRecord => 7018,
                 InvalidMergeShape => 7019,
-                ZoneAuthorityTransactDisabled => 7022,
+                RingAuthorityTransactDisabled => 7022,
                 OwnerTagAccountMissing => 7025,
                 InvalidForesterFee => 7026,
                 InsufficientForesterFeeBalance => 7027,
@@ -225,13 +225,13 @@ mod tests {
             InvalidSplAssetRegistry,
             InvalidProtocolConfig,
             TreePaused,
-            InvalidZoneConfig,
+            InvalidRingConfig,
             StaleNullifierRoot,
             InvalidPda,
             MergeDisabled,
             InvalidUserRecord,
             InvalidMergeShape,
-            ZoneAuthorityTransactDisabled,
+            RingAuthorityTransactDisabled,
             OwnerTagAccountMissing,
             InvalidForesterFee,
             InsufficientForesterFeeBalance,

@@ -9,11 +9,11 @@ use super::{
     wait_for_nullifier_present,
 };
 
-/// Inputs for [`assert_zone_transact`]. The view tags identify which indexed
-/// transaction photon must serve: a `zone_transact` output is indexed by the
+/// Inputs for [`assert_ring_transact`]. The view tags identify which indexed
+/// transaction photon must serve: a `ring_transact` output is indexed by the
 /// recipient's confidential view tag, or by the sender change tag for a
 /// change-only transfer with no recipient slot.
-pub struct ZoneTransactAssertArgs<'a> {
+pub struct RingTransactAssertArgs<'a> {
     pub tree: &'a Pubkey,
     pub data: &'a TransactIxData,
     pub signature: Signature,
@@ -23,7 +23,7 @@ pub struct ZoneTransactAssertArgs<'a> {
     pub tree_before: &'a Account,
 }
 
-/// Functional assert for `zone_transact` (and the shared `transact` flow).
+/// Functional assert for `ring_transact` (and the shared `transact` flow).
 ///
 /// Verifies the full state transition without re-deriving the emitted event from
 /// scratch (event re-derivation is coupled to the bundle/ciphertext slot mapping,
@@ -43,12 +43,12 @@ pub struct ZoneTransactAssertArgs<'a> {
 /// Callers must pass the `tree` account state captured before the transaction
 /// (`tree_before`) so the root advance can be checked.
 #[track_caller]
-pub fn assert_zone_transact<R: Rpc, I: Rpc>(
+pub fn assert_ring_transact<R: Rpc, I: Rpc>(
     rpc: &R,
     indexer: &I,
-    args: ZoneTransactAssertArgs,
+    args: RingTransactAssertArgs,
 ) -> Result<(), ClientError> {
-    let ZoneTransactAssertArgs {
+    let RingTransactAssertArgs {
         tree,
         data,
         signature,

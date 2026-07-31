@@ -24,7 +24,7 @@
       }
     ],
     "data_hash": "0x00",
-    "zone_data_hash": "0x00",
+    "ring_data_hash": "0x00",
     "output_hashes": [
       "0x01",
       "0x02"

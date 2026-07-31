@@ -62,7 +62,7 @@ impl TransferProver {
             private_tx: &private_tx,
             external_data_hash: &external_data_hash,
             public_transfers: &self.public_transfers,
-            zone_program_id: &[0u8; 32],
+            ring_program_id: &[0u8; 32],
             allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&assembled_outputs.output_owner_pk_hashes),
@@ -76,7 +76,7 @@ impl TransferProver {
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),
             public_amounts: self.public_transfers.amounts.map(|amount| be(&amount)),
-            zone_program_id: BigUint::ZERO,
+            ring_program_id: BigUint::ZERO,
             signer_pk_hashes: self.signer_pk_hashes.iter().map(be).collect(),
             allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             published_output_owner_pk_hashes: assembled_outputs

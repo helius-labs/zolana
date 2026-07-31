@@ -83,22 +83,22 @@ func TestUtxoHashUsesSpecFieldOrder(t *testing.T) {
 		Amount:        fe(4),
 		Blinding:      fe(5),
 		DataHash:      fe(6),
-		ZoneDataHash:  fe(7),
-		ZoneProgramID: fe(8),
+		RingDataHash:  fe(7),
+		RingProgramID: fe(8),
 	}
 
 	got := mustUtxoHash(t, utxo)
 	ownerUtxoHash := mustPoseidon(t, 3, []*big.Int{fe(2), fe(5)})
-	zoneHash := mustPoseidon(t, 3, []*big.Int{fe(7), fe(8)})
+	ringHash := mustPoseidon(t, 3, []*big.Int{fe(7), fe(8)})
 	want := mustPoseidon(t, 7, []*big.Int{
-		fe(1), fe(3), fe(4), fe(6), zoneHash, ownerUtxoHash,
+		fe(1), fe(3), fe(4), fe(6), ringHash, ownerUtxoHash,
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("utxo hash mismatch: got %s want %s", got, want)
 	}
 
 	swapped := mustPoseidon(t, 7, []*big.Int{
-		fe(1), fe(4), fe(3), fe(6), zoneHash, ownerUtxoHash,
+		fe(1), fe(4), fe(3), fe(6), ringHash, ownerUtxoHash,
 	})
 	if got.Cmp(swapped) == 0 {
 		t.Fatal("utxo hash did not change when asset_id and asset_amount were swapped")

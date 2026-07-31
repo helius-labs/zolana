@@ -62,7 +62,7 @@ fn spend_input(sender: &ShieldedKeypair, amount: u64, rng: &mut ThreadRng) -> Sp
         asset: SOL_MINT,
         amount,
         blinding: blinding(rng),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     SppProofInputUtxo::new(utxo, sender)
@@ -343,7 +343,7 @@ fn transfer_round_trip_outputs_and_slots() {
             expiry_unix_ts: u64::MAX,
             interface_transfers: Vec::new(),
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
             salt: prover.external_data.salt,
             outputs: prover.external_data.outputs.clone(),
@@ -367,7 +367,7 @@ fn transfer_round_trip_outputs_and_slots() {
             asset_id: SOL_ASSET_ID,
             amount: 40,
             blinding: derive_blinding(&seed, 1),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         }]
     );
@@ -379,7 +379,7 @@ fn transfer_round_trip_outputs_and_slots() {
                 asset_id: SOL_ASSET_ID,
                 amount: 60,
                 blinding: derive_blinding(&seed, 2),
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             }
         )]
@@ -390,7 +390,7 @@ fn transfer_round_trip_outputs_and_slots() {
 /// must be byte-shape-indistinguishable in `outputs`: same output count, same
 /// number of ciphertexts, and every ciphertext the same derived length.
 ///
-/// In the confidential default zone a real recipient slot is tagged by the owner
+/// In the confidential default ring a real recipient slot is tagged by the owner
 /// pubkey -- a P256 x-coordinate whose leading byte reaches `0xFF`. A dummy slot's
 /// view tag is drawn from the same distribution (the x-coordinate of a throwaway
 /// signing key), so a dummy stands out neither by tag value, tag length, nor
@@ -635,7 +635,7 @@ fn withdrawal_sets_external_data_and_change() {
             asset_id: SOL_ASSET_ID,
             amount: 70,
             blinding: derive_blinding(&seed, 1),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         }]
     );
@@ -658,7 +658,7 @@ fn withdrawal_sets_external_data_and_change() {
                 user_sol_account: dest,
             }],
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk: prover.external_data.tx_viewing_pk,
             salt: prover.external_data.salt,
             outputs: prover.external_data.outputs.clone(),
@@ -709,20 +709,20 @@ fn default_transact_rejects_p256_and_uses_eddsa() {
 }
 
 #[test]
-fn input_commitments_include_data_and_zone_hashes() {
+fn input_commitments_include_data_and_ring_hashes() {
     let mut rng = rand::thread_rng();
     let sender = test_keypair();
     let recipient = test_keypair();
     let mut spend = spend_input(&sender, 100, &mut rng);
     spend.data_hash = Some([11u8; 32]);
-    spend.zone_data_hash = Some([12u8; 32]);
+    spend.ring_data_hash = Some([12u8; 32]);
     let nullifier_pubkey = spend.nullifier_key.pubkey().unwrap();
     let expected_hash = spend
         .utxo
         .hash(
             &nullifier_pubkey,
             spend.data_hash.as_ref().unwrap(),
-            spend.zone_data_hash.as_ref().unwrap(),
+            spend.ring_data_hash.as_ref().unwrap(),
         )
         .unwrap();
     let expected_nullifier = spend
@@ -777,7 +777,7 @@ fn async_authority_invokes_approval_without_p256_signing() {
         },
         nullifier,
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         spent: false,
     });
     let unsigned = create_withdrawal(WithdrawalParams {
@@ -935,7 +935,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
             blinding[0] = 0;
             blinding
         },
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pubkey");
@@ -954,7 +954,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         },
         nullifier,
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         spent: false,
     });
 

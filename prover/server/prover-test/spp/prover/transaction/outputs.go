@@ -102,13 +102,13 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 	if err != nil {
 		return parsedUtxo{}, fmt.Errorf("data_hash: %w", err)
 	}
-	zoneDataHash, err := parse.OptionalField(input.ZoneDataHash)
+	ringDataHash, err := parse.OptionalField(input.RingDataHash)
 	if err != nil {
-		return parsedUtxo{}, fmt.Errorf("zone_data_hash: %w", err)
+		return parsedUtxo{}, fmt.Errorf("ring_data_hash: %w", err)
 	}
-	zoneProgramID, err := parse.OptionalField(input.ZoneProgramID)
+	ringProgramID, err := parse.OptionalField(input.RingProgramID)
 	if err != nil {
-		return parsedUtxo{}, fmt.Errorf("zone_program_id: %w", err)
+		return parsedUtxo{}, fmt.Errorf("ring_program_id: %w", err)
 	}
 	// Default transact handles only bare UTXOs: the circuit pins these fields to
 	// zero on every real input and output, so a non-zero value could never
@@ -116,11 +116,11 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 	if dataHash.Sign() != 0 {
 		return parsedUtxo{}, fmt.Errorf("data_hash must be zero: default transact handles only bare UTXOs")
 	}
-	if zoneDataHash.Sign() != 0 {
-		return parsedUtxo{}, fmt.Errorf("zone_data_hash must be zero: default transact handles only bare UTXOs")
+	if ringDataHash.Sign() != 0 {
+		return parsedUtxo{}, fmt.Errorf("ring_data_hash must be zero: default transact handles only bare UTXOs")
 	}
-	if zoneProgramID.Sign() != 0 {
-		return parsedUtxo{}, fmt.Errorf("zone_program_id must be zero: default transact handles only bare UTXOs")
+	if ringProgramID.Sign() != 0 {
+		return parsedUtxo{}, fmt.Errorf("ring_program_id must be zero: default transact handles only bare UTXOs")
 	}
 	utxo := protocol.Utxo{
 		Domain:        domain,
@@ -129,8 +129,8 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		Amount:        amount,
 		Blinding:      blinding,
 		DataHash:      dataHash,
-		ZoneDataHash:  zoneDataHash,
-		ZoneProgramID: zoneProgramID,
+		RingDataHash:  ringDataHash,
+		RingProgramID: ringProgramID,
 	}
 	normalized := ProofUtxoRequest{
 		Domain:            proofFieldInput(domain),
@@ -141,8 +141,8 @@ func parseProofUtxo(input ProofUtxoRequest, inputNullifierSecret *big.Int) (pars
 		Amount:            proofFieldInput(amount),
 		Blinding:          proofFieldInput(blinding),
 		DataHash:          proofFieldInput(dataHash),
-		ZoneDataHash:      proofFieldInput(zoneDataHash),
-		ZoneProgramID:     proofFieldInput(zoneProgramID),
+		RingDataHash:      proofFieldInput(ringDataHash),
+		RingProgramID:     proofFieldInput(ringProgramID),
 	}
 	return parsedUtxo{
 		utxo:             utxo,

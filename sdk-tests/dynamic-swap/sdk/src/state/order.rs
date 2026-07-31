@@ -100,7 +100,7 @@ impl EscrowUtxo {
             asset: self.asset,
             amount: self.order_amount,
             blinding: self.blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         Ok(SppProofInputUtxo::new(utxo, owner.nullifier_key()).with_data_hash(self.data_hash()?))
@@ -154,7 +154,7 @@ impl Reservation {
             asset: self.asset,
             amount: self.amount,
             blinding: self.blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         Ok(SppProofInputUtxo::new(utxo, owner.nullifier_key()).with_data_hash(order_utxo_hash))

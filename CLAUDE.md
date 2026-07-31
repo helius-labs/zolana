@@ -296,7 +296,7 @@ pub fn create_pool_tree(payer: Pubkey, tree: Pubkey, data: CreatePoolTreeData) -
 ### wincode length prefixes (zolana-transaction)
 
 When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..>>`:
-- `Vec<u8>` (byte vectors: ciphertexts, program/zone data, can exceed 255 bytes) use `FixIntLen<u16>`.
+- `Vec<u8>` (byte vectors: ciphertexts, program/ring data, can exceed 255 bytes) use `FixIntLen<u16>`.
 - every other vector (element counts: records, recipient slots, recipient viewing keys; always small) use `FixIntLen<u8>`.
 
 ### Accounts

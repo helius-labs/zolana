@@ -55,7 +55,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
             asset: SOL_MINT,
             amount: half,
             blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let owner_field = owner_hash(&utxo.owner, &sender_nullifier_pk)?;
@@ -171,7 +171,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_plaintext.blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
@@ -214,7 +214,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         output_context,
         nullifier: expected_nullifier,
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         spent: false,
     };
     assert_eq!(*recovered, expected);

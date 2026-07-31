@@ -1,5 +1,5 @@
 use zolana_interface::{
-    verifying_keys::{Bsb22Commitment, CircuitId, OutputOwnerMode, ZoneP256ProofData},
+    verifying_keys::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData},
     N_PUBLIC_SLOTS,
 };
 
@@ -8,7 +8,7 @@ const COMMITMENT: Bsb22Commitment = Bsb22Commitment {
     commitment: [4u8; 32],
     commitment_pok: [5u8; 32],
 };
-const P256_PROOF_DATA: ZoneP256ProofData = ZoneP256ProofData {
+const P256_PROOF_DATA: RingP256ProofData = RingP256ProofData {
     bsb22_commitment: COMMITMENT,
     default_owner_tag: None,
 };
@@ -18,29 +18,29 @@ fn accessors_and_behavior_match_variants() {
     let confidential = CircuitId::ConfidentialEddsa(2, 3, 3);
     assert_eq!(confidential.shape(), (2, 3, 3));
     assert!(confidential.is_confidential());
-    assert!(!confidential.is_zone());
+    assert!(!confidential.is_ring());
     assert!(confidential.requires_input_signatures());
     assert_eq!(confidential.output_owner_mode(), OutputOwnerMode::All);
 
-    let zone = CircuitId::ZoneEddsa(1, 8, 3);
-    assert!(zone.is_zone());
-    assert!(zone.is_confidential());
-    assert!(!zone.is_authority());
-    assert!(zone.requires_input_signatures());
+    let ring = CircuitId::RingEddsa(1, 8, 3);
+    assert!(ring.is_ring());
+    assert!(ring.is_confidential());
+    assert!(!ring.is_authority());
+    assert!(ring.requires_input_signatures());
     assert_eq!(
-        zone.output_owner_mode(),
+        ring.output_owner_mode(),
         OutputOwnerMode::ConfidentialMarked
     );
 
-    let authority = CircuitId::ZoneAuthority(4, 4, 3);
-    assert!(authority.is_zone());
+    let authority = CircuitId::RingAuthority(4, 4, 3);
+    assert!(authority.is_ring());
     assert!(authority.is_authority());
     assert!(!authority.requires_input_signatures());
     assert_eq!(authority.output_owner_mode(), OutputOwnerMode::None);
 
-    let p256 = CircuitId::ZoneP256(2, 3, 3, P256_PROOF_DATA);
+    let p256 = CircuitId::RingP256(2, 3, 3, P256_PROOF_DATA);
     assert_eq!(p256.shape(), (2, 3, 3));
-    assert!(p256.is_zone());
+    assert!(p256.is_ring());
     assert!(p256.is_confidential());
     assert!(p256.is_p256());
     assert!(p256.requires_input_signatures());
@@ -55,12 +55,12 @@ fn accessors_and_behavior_match_variants() {
 #[test]
 fn supported_shapes_are_fail_closed() {
     assert!(CircuitId::ConfidentialEddsa(2, 3, 3).is_supported());
-    assert!(CircuitId::ZoneEddsa(1, 8, 3).is_supported());
-    assert!(CircuitId::ZoneP256(2, 3, 3, P256_PROOF_DATA).is_supported());
-    assert!(CircuitId::ZoneAuthority(4, 4, 3).is_supported());
+    assert!(CircuitId::RingEddsa(1, 8, 3).is_supported());
+    assert!(CircuitId::RingP256(2, 3, 3, P256_PROOF_DATA).is_supported());
+    assert!(CircuitId::RingAuthority(4, 4, 3).is_supported());
     assert!(!CircuitId::ConfidentialEddsa(6, 6, 3).is_supported());
-    assert!(!CircuitId::ZoneEddsa(2, 3, 2).is_supported());
-    assert!(!CircuitId::ZoneAuthority(2, 3, 3).is_supported());
+    assert!(!CircuitId::RingEddsa(2, 3, 2).is_supported());
+    assert!(!CircuitId::RingAuthority(2, 3, 3).is_supported());
 }
 
 #[cfg(feature = "verifying-keys")]
@@ -81,15 +81,15 @@ fn every_supported_shape_resolves_exactly_one_key() {
     for (n_inputs, n_outputs) in transfer_shapes {
         for circuit in [
             CircuitId::ConfidentialEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::ZoneEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
-            CircuitId::ZoneP256(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, P256_PROOF_DATA),
+            CircuitId::RingEddsa(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS),
+            CircuitId::RingP256(n_inputs, n_outputs, PUBLIC_ASSET_SLOTS, P256_PROOF_DATA),
         ] {
             assert!(circuit.is_supported());
             assert!(circuit.verifying_key().is_some());
         }
     }
     for n in 1..=4 {
-        let circuit = CircuitId::ZoneAuthority(n, n, PUBLIC_ASSET_SLOTS);
+        let circuit = CircuitId::RingAuthority(n, n, PUBLIC_ASSET_SLOTS);
         assert!(circuit.is_supported());
         assert!(circuit.verifying_key().is_some());
     }

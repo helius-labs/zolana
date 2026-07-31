@@ -14,7 +14,7 @@ pub struct SppProofInputUtxo {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
 }
 
 impl SppProofInputUtxo {
@@ -23,7 +23,7 @@ impl SppProofInputUtxo {
             utxo,
             nullifier_key: nullifier_key.as_ref().clone(),
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
         }
     }
 
@@ -32,8 +32,8 @@ impl SppProofInputUtxo {
         self
     }
 
-    pub fn with_zone_data_hash(mut self, zone_data_hash: [u8; 32]) -> Self {
-        self.zone_data_hash = Some(zone_data_hash);
+    pub fn with_ring_data_hash(mut self, ring_data_hash: [u8; 32]) -> Self {
+        self.ring_data_hash = Some(ring_data_hash);
         self
     }
 
@@ -43,14 +43,14 @@ impl SppProofInputUtxo {
             asset: Address::default(),
             amount: 0,
             blinding: random_blinding(),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         Self {
             utxo,
             nullifier_key: NullifierKey::from_secret([0u8; BLINDING_LEN]),
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
         }
     }
 
@@ -88,9 +88,9 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
             &spend.utxo.blinding,
         )?
         .with_data_hash(spend.data_hash.unwrap_or_default())
-        .with_zone(
-            spend.zone_data_hash.unwrap_or_default(),
-            &spend.utxo.zone_program_id,
+        .with_ring(
+            spend.ring_data_hash.unwrap_or_default(),
+            &spend.utxo.ring_program_id,
         )
     }
 }

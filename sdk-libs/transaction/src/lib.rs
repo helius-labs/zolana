@@ -25,7 +25,7 @@ pub use instructions::transact::{
     SppProofOutputUtxo,
 };
 pub use serialization::{
-    scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization, ZoneDepositPlaintext,
+    scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization, RingDepositPlaintext,
 };
 pub use solana_address::Address;
 pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, ProofInputUtxo, Utxo};

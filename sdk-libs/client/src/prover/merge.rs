@@ -7,7 +7,7 @@ use num_bigint::BigUint;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::instruction_data::{
     merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
-    merge_zone::MergeZoneIxData,
+    merge_ring::MergeRingIxData,
 };
 use zolana_keypair::{merge::merge_dummy_nullifier, NullifierKey, PublicKey, SignatureType};
 use zolana_transaction::{
@@ -51,8 +51,8 @@ pub struct MergeProver {
 
 /// The built merge witness and the instruction-data ingredients, produced by
 /// both [`MergeProver`] (default) and
-/// [`crate::prover::merge_zone::MergeZoneProver`] (policy zone); the two rails
-/// differ only in their public-input tail and the zone binding inside `inputs`.
+/// [`crate::prover::merge_ring::MergeRingProver`] (policy ring); the two rails
+/// differ only in their public-input tail and the ring binding inside `inputs`.
 #[derive(Debug, Clone)]
 pub struct MergeProofResult {
     pub inputs: MergeInputs,
@@ -92,17 +92,17 @@ impl MergeProofResult {
         }
     }
 
-    /// Assemble the `merge_zone` instruction data: the same `merge_transact`
-    /// body wrapped in a [`MergeZoneIxData`] with the output `zone_data_hash`
-    /// the zone program selected. The caller passes the result to the
-    /// `MergeZone` builder with the tree / zone_config accounts.
-    pub fn zone_instruction_data(
+    /// Assemble the `merge_ring` instruction data: the same `merge_transact`
+    /// body wrapped in a [`MergeRingIxData`] with the output `ring_data_hash`
+    /// the ring program selected. The caller passes the result to the
+    /// `MergeRing` builder with the tree / ring_config accounts.
+    pub fn ring_instruction_data(
         &self,
         proof: MergeProof,
-        output_zone_data_hash: [u8; 32],
-    ) -> MergeZoneIxData {
-        MergeZoneIxData {
-            output_zone_data_hash,
+        output_ring_data_hash: [u8; 32],
+    ) -> MergeRingIxData {
+        MergeRingIxData {
+            output_ring_data_hash,
             merge: self.instruction_data(proof),
         }
     }
@@ -119,13 +119,13 @@ impl MergeProver {
         elements.push(merge.user_signing_pk_hash);
         let public_input = create_hash_chain_from_slice(&elements)?;
 
-        // Default merge is non-zone; the merge-zone builder sets the zone binding.
+        // Default merge is non-ring; the merge-ring builder sets the ring binding.
         Ok(merge.finish(public_input, BigUint::ZERO, BigUint::ZERO))
     }
 }
 
-/// Everything the default ([`MergeProver`]) and policy-zone
-/// ([`crate::prover::merge_zone::MergeZoneProver`]) merges compute identically:
+/// Everything the default ([`MergeProver`]) and policy-ring
+/// ([`crate::prover::merge_ring::MergeRingProver`]) merges compute identically:
 /// input/output assembly, the deterministic dummy nullifiers, and the shared
 /// public-input prefix. Each rail appends its own public-input tail to
 /// [`Self::head`] and calls [`Self::finish`].
@@ -153,7 +153,7 @@ pub(crate) struct CommonMerge {
 
 impl MergeProver {
     /// The computation both merge rails share, parameterized only by the
-    /// instruction tag (`merge_transact` or `merge_zone`) bound into
+    /// instruction tag (`merge_transact` or `merge_ring`) bound into
     /// `external_data_hash`. Callers append their rail's public-input tail to
     /// [`CommonMerge::head`] and call [`CommonMerge::finish`].
     pub(crate) fn common(
@@ -260,14 +260,14 @@ impl MergeProver {
 }
 
 impl CommonMerge {
-    /// Fold the rail's completed public-input hash, zone binding, and output
-    /// zone-data hash (both zero for the default merge) into the final witness
+    /// Fold the rail's completed public-input hash, ring binding, and output
+    /// ring-data hash (both zero for the default merge) into the final witness
     /// and proof result.
     pub(crate) fn finish(
         self,
         public_input: [u8; 32],
-        zone_program_id: BigUint,
-        output_zone_data_hash: BigUint,
+        ring_program_id: BigUint,
+        output_ring_data_hash: BigUint,
     ) -> MergeProofResult {
         let inputs = MergeInputs {
             inputs: self.inputs,
@@ -279,8 +279,8 @@ impl CommonMerge {
             private_tx_hash: be(&self.private_tx_hash),
             allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: be(&public_input),
-            output_zone_data_hash,
-            zone_program_id,
+            output_ring_data_hash,
+            ring_program_id,
         };
         MergeProofResult {
             inputs,
@@ -329,7 +329,7 @@ impl TryFrom<MergeWitness> for MergeProver {
         // Default-merge inputs are plain utxos; no data hashes ride along.
         for spend in &mut spends {
             spend.data_hash = None;
-            spend.zone_data_hash = None;
+            spend.ring_data_hash = None;
         }
 
         Ok(MergeProver {

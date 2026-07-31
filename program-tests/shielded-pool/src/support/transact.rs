@@ -35,11 +35,11 @@ pub fn tree_progress(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u64, u64) {
     )
 }
 
-/// Write caller-constructed zone-config bytes at an arbitrary address.
+/// Write caller-constructed ring-config bytes at an arbitrary address.
 ///
 /// Callers retain control over the payload and owner so malformed-account
 /// tests keep their defect visible at the call site.
-pub fn write_zone_config_account(
+pub fn write_ring_config_account(
     rpc: &mut ZolanaProgramTest,
     address: Pubkey,
     owner: Pubkey,
@@ -56,5 +56,5 @@ pub fn write_zone_config_account(
                 rent_epoch: 0,
             },
         )
-        .expect("write fabricated zone config");
+        .expect("write fabricated ring config");
 }

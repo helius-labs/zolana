@@ -1,7 +1,7 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_event::EncryptedZoneDepositData as EventEncryptedZoneDepositData;
-use zolana_interface::instruction::EncryptedZoneDepositData;
+use zolana_event::EncryptedRingDepositData as EventEncryptedRingDepositData;
+use zolana_interface::instruction::EncryptedRingDepositData;
 use zolana_keypair::{random_salt, P256Pubkey, PublicKey, ViewingKey};
 
 use crate::{
@@ -10,28 +10,28 @@ use crate::{
     utxo::{Blinding, Utxo},
 };
 
-/// Private preimages delivered to the owner of a proofless zone deposit.
+/// Private preimages delivered to the owner of a proofless ring deposit.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct ZoneDepositPlaintext {
+pub struct RingDepositPlaintext {
     pub blinding: Blinding,
     #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
     pub utxo_data: Option<Vec<u8>>,
     #[wincode(with = "Option<containers::Vec<u8, FixIntLen<u16>>>")]
     pub memo: Option<Vec<u8>>,
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub zone_data: Vec<u8>,
+    pub ring_data: Vec<u8>,
 }
 
-impl ZoneDepositPlaintext {
+impl RingDepositPlaintext {
     pub fn encrypt(
         &self,
         recipient: &P256Pubkey,
-    ) -> Result<EncryptedZoneDepositData, TransactionError> {
+    ) -> Result<EncryptedRingDepositData, TransactionError> {
         let tx_viewing_key = ViewingKey::new();
         let salt = random_salt();
         let plaintext = wincode::serialize(self)?;
-        let ciphertext = tx_viewing_key.encrypt_zone_deposit(recipient, &plaintext, salt)?;
-        Ok(EncryptedZoneDepositData {
+        let ciphertext = tx_viewing_key.encrypt_ring_deposit(recipient, &plaintext, salt)?;
+        Ok(EncryptedRingDepositData {
             tx_viewing_pk: *tx_viewing_key.pubkey().as_bytes(),
             salt,
             ciphertext,
@@ -39,11 +39,11 @@ impl ZoneDepositPlaintext {
     }
 
     pub fn decrypt(
-        encrypted: &EventEncryptedZoneDepositData,
+        encrypted: &EventEncryptedRingDepositData,
         viewing_key: &ViewingKey,
     ) -> Result<Self, TransactionError> {
         let tx_viewing_pk = P256Pubkey::from_bytes(encrypted.tx_viewing_pk)?;
-        let plaintext = viewing_key.decrypt_zone_deposit(
+        let plaintext = viewing_key.decrypt_ring_deposit(
             &encrypted.ciphertext,
             &tx_viewing_pk,
             encrypted.salt,
@@ -56,9 +56,9 @@ impl ZoneDepositPlaintext {
         owner: PublicKey,
         asset: Address,
         amount: u64,
-        zone_program_id: Address,
+        ring_program_id: Address,
     ) -> Utxo {
-        let mut records = vec![DataRecord::ZoneData(self.zone_data)];
+        let mut records = vec![DataRecord::RingData(self.ring_data)];
         if let Some(data) = self.utxo_data {
             records.push(DataRecord::UtxoData(data));
         }
@@ -70,7 +70,7 @@ impl ZoneDepositPlaintext {
             asset,
             amount,
             blinding: self.blinding,
-            zone_program_id: Some(zone_program_id),
+            ring_program_id: Some(ring_program_id),
             data: Data::new(records),
         }
     }

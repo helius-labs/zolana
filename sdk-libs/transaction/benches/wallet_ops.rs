@@ -22,7 +22,7 @@ fn sample_utxo(owner: &ShieldedKeypair, counter: &mut u64) -> Utxo {
         asset: SOL_MINT,
         amount: 100,
         blinding: unique31(counter, 0xBB),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     }
 }
@@ -47,14 +47,14 @@ fn sender_bundle_body(recipient_count: u16) -> (ShieldedKeypair, Vec<u8>, Option
         asset: SOL_MINT,
         amount: 50,
         blinding: blinding_seed,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     }];
 
     let owner_cx = OwnerCx {
         owner: alice.signing_pubkey(),
         assets: &assets,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let cx = AnonymousSenderEncode {
         tx: tx_key,
@@ -213,14 +213,14 @@ fn decrypt(c: &mut Criterion) {
             asset: SOL_MINT,
             amount: 100,
             blinding: zolana_transaction::derive_blinding(&split_blinding_seed, i),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         })
         .collect();
     let split_owner_cx = OwnerCx {
         owner: alice.signing_pubkey(),
         assets: &assets,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let split_cx = SplitEncode {
         tx: split_tx_key,

@@ -36,7 +36,7 @@ pub(crate) fn build_split_tx(
     let owner_cx = OwnerCx {
         owner: owner_kp.signing_pubkey(),
         assets: &registry,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let view_tag = owner_kp.get_sender_view_tag(0).unwrap();
     let ciphertext = Split::encode(

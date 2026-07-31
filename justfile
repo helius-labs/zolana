@@ -104,7 +104,7 @@ test-program-proofs-programs-only: build-programs build-prover-server build-cli
 # Groth16-backed program and client matrices, separated from fast state tests.
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
 test-program-proofs: test-program-proofs-programs-only
-    cargo nextest run -p zolana-client --test transaction_proving --test merge_proving --test merge_zone_proving --test zone_authority_proving --test zone_transfer_proving --test-threads 1
+    cargo nextest run -p zolana-client --test transaction_proving --test merge_proving --test merge_ring_proving --test ring_authority_proving --test ring_transfer_proving --test-threads 1
 
 # Export Mollusk's exact-error cases as replayable fuzz fixtures. Only the
 # Mollusk-backed cases in tests/deposit/rejection.rs (the `deposit_rejection`
@@ -163,7 +163,7 @@ test-programs: build-programs build-prover-server build-cli
 
 # Proving-key-independent interface, program, and LiteSVM proofless tests.
 # The explicit shielded-pool suites cover pool administration, deposit batches,
-# and zone config (including the fixture program's signed CPI into SPP); the
+# and ring config (including the fixture program's signed CPI into SPP); the
 # proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-proofless-programs: build-programs
@@ -456,7 +456,7 @@ test-localnet-deposit: build-programs build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
-    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
 # Local-validator end-to-end SOL cycle.
@@ -475,7 +475,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     # each a clean environment (mirroring the per-test restart in the Photon
     # recipe below).
     dev_start() {
-      cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+      cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
     }
     dev_start
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo nextest run -p shielded-pool-tests --features localnet --test localnet_e2e --no-capture
@@ -540,7 +540,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
       --photon-port {{localnet-photon-port}} \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
       --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
-      --sbf-program "$ZONE_TEST_PROGRAM_ID" target/deploy/zone_test_program.so
+      --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
 
     # 2. Bootstrap: a funder keypair (funds the smoke wallets), an authority wallet
     #    (also the smoke actor), and a pool tree. Capture the created tree address.
@@ -711,15 +711,15 @@ test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensur
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p spp-test-validator --test lifecycle --no-capture -E 'test(transfer)'
 
-# Zone lifecycle tests over a fresh validator + Photon per test
-# (program-tests/zone-test-program). Mirrors test-spp-validator but loads the
-# policy-zone fixture program (zone_test_program.so) and CPIs into SPP via its
-# `zone_auth` PDA, so the recipe also exports ZONE_TEST_PROGRAM_ID and
-# USER_REGISTRY_PROGRAM_ID. build-programs builds zone_test_program.so; the merge
+# Ring lifecycle tests over a fresh validator + Photon per test
+# (program-tests/ring-test-program). Mirrors test-spp-validator but loads the
+# policy-ring fixture program (ring_test_program.so) and CPIs into SPP via its
+# `ring_auth` PDA, so the recipe also exports RING_TEST_PROGRAM_ID and
+# USER_REGISTRY_PROGRAM_ID. build-programs builds ring_test_program.so; the merge
 # flow reads the user-registry record so that program must be co-loaded, and the
-# zone deposits use the Squads smart account binary (ensure-smart-account). The
+# ring deposits use the Squads smart account binary (ensure-smart-account). The
 # prover server persists while each test restarts the validator + Photon.
-test-zone-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-ring-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
@@ -731,16 +731,16 @@ test-zone-validator: build-programs build-prover-server build-cli ensure-photon 
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
     export USER_REGISTRY_PROGRAM_ID
-    export ZONE_TEST_PROGRAM_ID
+    export RING_TEST_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo nextest run -p zone-test-program --test zone_lifecycle --test p256_zone_lifecycle --test proof_cu --release
+      cargo nextest run -p ring-test-program --test ring_lifecycle --test p256_ring_lifecycle --test proof_cu --release
 
-# Run only real-validator CU ceilings for zone EdDSA/P256 transact,
-# zone-authority transact, and maximal 8x1 merge-zone.
-test-zone-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+# Run only real-validator CU ceilings for ring EdDSA/P256 transact,
+# ring-authority transact, and maximal 8x1 merge-ring.
+test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
@@ -752,12 +752,12 @@ test-zone-validator-proof-cu: build-programs build-prover-server build-cli ensur
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
     export USER_REGISTRY_PROGRAM_ID
-    export ZONE_TEST_PROGRAM_ID
+    export RING_TEST_PROGRAM_ID
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      cargo nextest run -p zone-test-program --test proof_cu --release --no-capture
+      cargo nextest run -p ring-test-program --test proof_cu --release --no-capture
 
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
 # create+cancel swap flows over a fresh validator

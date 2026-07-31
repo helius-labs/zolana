@@ -158,7 +158,7 @@ impl Wallet {
                 continue;
             };
 
-            // Anonymous policy-zone bootstrap scan (recipient viewing-pubkey
+            // Anonymous policy-ring bootstrap scan (recipient viewing-pubkey
             // x-coordinate); also catches proofless deposits.
             let bootstrap = key.recipient_bootstrap_view_tag();
             if let Some(sites) = index.recipient_sites.get(&bootstrap) {
@@ -169,7 +169,7 @@ impl Wallet {
                     }
                 }
             }
-            // Confidential default-zone scan: every confidential output is tagged by
+            // Confidential default-ring scan: every confidential output is tagged by
             // the owner signing pubkey. Recipient slots and merge outputs live in
             // `recipient_sites`; the owner's own change rides the sender bundle in
             // `sender_sites` (decoded at slot 0).

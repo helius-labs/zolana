@@ -70,7 +70,7 @@ fn update_rejects_a_cosplay_config_account() {
     // Program-owned and correctly sized, but stamped as another account type:
     // the discriminator alone must gate the load.
     let mut data = vec![0u8; ProtocolConfig::SIZE];
-    *data.get_mut(0).expect("discriminator byte") = discriminator::ZONE_CONFIG;
+    *data.get_mut(0).expect("discriminator byte") = discriminator::RING_CONFIG;
     expect_update_rejects_config_account(Account {
         lamports: 1_000_000_000,
         data,
@@ -147,9 +147,9 @@ fn create_and_update_protocol_config() {
         protocol_authority: authority.pubkey().to_bytes().into(),
         tree_creation_authority: authority.pubkey().to_bytes().into(),
         forester_authority: authority.pubkey().to_bytes().into(),
-        zone_creation_authority: authority.pubkey().to_bytes().into(),
+        ring_creation_authority: authority.pubkey().to_bytes().into(),
         tree_creation_is_permissionless: 0,
-        zone_creation_is_permissionless: 0,
+        ring_creation_is_permissionless: 0,
         spl_interface_creation_is_permissionless: 0,
     };
     assert_eq!(read_config(&backend), expected, "config after create");
@@ -175,15 +175,15 @@ fn create_and_update_protocol_config() {
     expected.tree_creation_authority = next_tree.pubkey().to_bytes().into();
     assert_eq!(read_config(&backend), expected, "tree authority rotated");
 
-    let next_zone = Keypair::new();
+    let next_ring = Keypair::new();
     backend
         .send_protocol_config_update(
             &authority,
-            UpdateProtocolConfigData::ZoneCreationAuthority(next_zone.pubkey().to_bytes().into()),
+            UpdateProtocolConfigData::RingCreationAuthority(next_ring.pubkey().to_bytes().into()),
         )
-        .expect("update zone creation authority");
-    expected.zone_creation_authority = next_zone.pubkey().to_bytes().into();
-    assert_eq!(read_config(&backend), expected, "zone authority rotated");
+        .expect("update ring creation authority");
+    expected.ring_creation_authority = next_ring.pubkey().to_bytes().into();
+    assert_eq!(read_config(&backend), expected, "ring authority rotated");
 
     backend
         .send_protocol_config_update(
@@ -197,11 +197,11 @@ fn create_and_update_protocol_config() {
     backend
         .send_protocol_config_update(
             &authority,
-            UpdateProtocolConfigData::ZoneCreationPermissionless(true),
+            UpdateProtocolConfigData::RingCreationPermissionless(true),
         )
-        .expect("toggle zone permissionless");
-    expected.zone_creation_is_permissionless = 1;
-    assert_eq!(read_config(&backend), expected, "zone flag toggled");
+        .expect("toggle ring permissionless");
+    expected.ring_creation_is_permissionless = 1;
+    assert_eq!(read_config(&backend), expected, "ring flag toggled");
 
     backend
         .send_protocol_config_update(

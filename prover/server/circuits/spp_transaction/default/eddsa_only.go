@@ -1,4 +1,4 @@
-package defaultzone
+package defaultring
 
 import (
 	"zolana/prover/circuits/gadget"
@@ -14,7 +14,7 @@ import (
 // 4. Nullifiers of UTXOs, dummies, addresses cannot collide.
 // 5. Balances are preserved.
 
-type DefaultZoneEddsaOnlyPublic struct {
+type DefaultRingEddsaOnlyPublic struct {
 	Nullifiers          []frontend.Variable
 	OutputHashes        []frontend.Variable
 	UtxoTreeRoots       []frontend.Variable
@@ -30,26 +30,26 @@ type DefaultZoneEddsaOnlyPublic struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-type DefaultZoneEddsaOnlyPrivate struct {
+type DefaultRingEddsaOnlyPrivate struct {
 	Inputs             []shared.Input
 	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
 	OutputNullifierPks []frontend.Variable
 }
 
-type DefaultZoneEddsaOnlyCircuit struct {
+type DefaultRingEddsaOnlyCircuit struct {
 	Shape   shared.Shape `gnark:"-"`
-	Public  DefaultZoneEddsaOnlyPublic
-	Private DefaultZoneEddsaOnlyPrivate
+	Public  DefaultRingEddsaOnlyPublic
+	Private DefaultRingEddsaOnlyPrivate
 }
 
-func NewDefaultZoneEddsaOnlyCircuit(shape shared.Shape) (*DefaultZoneEddsaOnlyCircuit, error) {
+func NewDefaultRingEddsaOnlyCircuit(shape shared.Shape) (*DefaultRingEddsaOnlyCircuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &DefaultZoneEddsaOnlyCircuit{
+	return &DefaultRingEddsaOnlyCircuit{
 		Shape: shape,
-		Public: DefaultZoneEddsaOnlyPublic{
+		Public: DefaultRingEddsaOnlyPublic{
 			Nullifiers:          make([]frontend.Variable, shape.NInputs),
 			OutputHashes:        make([]frontend.Variable, shape.NOutputs),
 			UtxoTreeRoots:       make([]frontend.Variable, shape.NInputs),
@@ -57,7 +57,7 @@ func NewDefaultZoneEddsaOnlyCircuit(shape shared.Shape) (*DefaultZoneEddsaOnlyCi
 			SignerPkHashes:      make([]frontend.Variable, shape.NInputs+1),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
-		Private: DefaultZoneEddsaOnlyPrivate{
+		Private: DefaultRingEddsaOnlyPrivate{
 			Inputs:             shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes: make([]frontend.Variable, shape.NInputs),
 			Outputs:            make([]shared.UtxoCircuitFields, shape.NOutputs),
@@ -66,7 +66,7 @@ func NewDefaultZoneEddsaOnlyCircuit(shape shared.Shape) (*DefaultZoneEddsaOnlyCi
 	}, nil
 }
 
-func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Transaction {
+func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
 		Shape:              c.Shape,
 		Nullifiers:         c.Public.Nullifiers,
@@ -79,7 +79,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,
-		ZoneProgramID:      frontend.Variable(0),
+		RingProgramID:      frontend.Variable(0),
 		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
@@ -89,7 +89,7 @@ func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 	}
 }
 
-func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
+func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	tx := c.newTransaction(api)
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.NInputs + 1},
@@ -99,8 +99,8 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 	); err != nil {
 		return err
 	}
-	// Assert that all input and output UTXOs are in the default zone.
-	shared.AssertInDefaultZone(api, tx.Inputs, tx.Outputs)
+	// Assert that all input and output UTXOs are in the default ring.
+	shared.AssertInDefaultRing(api, tx.Inputs, tx.Outputs)
 	// Enforce confidentiality:
 	// 1. Input utxos pubkeys are part of public inputs.
 	// 2. Output UTXOs pubkeys are part of public input.

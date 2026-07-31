@@ -6,7 +6,7 @@ use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{derive_blinding, resolve_zone_program_id, Utxo},
+    utxo::{derive_blinding, resolve_ring_program_id, Utxo},
     AssetRegistry, EncryptedScheme, PublicKeySchema, SOL_MINT, TRANSFER_PLAINTEXT,
 };
 
@@ -31,7 +31,7 @@ impl TransferPlaintextSender {
         self,
         blinding_seed: &[u8; 32],
         assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
+        ring_program_id: Option<Address>,
     ) -> Result<Vec<(ViewTag, Utxo)>, TransactionError> {
         if self.spl.is_none() && !self.spl_data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
@@ -49,7 +49,7 @@ impl TransferPlaintextSender {
                     asset: assets.resolve(spl.asset_id)?,
                     amount: spl.amount,
                     blinding: derive_blinding(blinding_seed, 0),
-                    zone_program_id: resolve_zone_program_id(zone_program_id, &self.spl_data)?,
+                    ring_program_id: resolve_ring_program_id(ring_program_id, &self.spl_data)?,
                     data: self.spl_data,
                 },
             ));
@@ -62,7 +62,7 @@ impl TransferPlaintextSender {
                     asset: SOL_MINT,
                     amount: sol_amount,
                     blinding: derive_blinding(blinding_seed, 1),
-                    zone_program_id: resolve_zone_program_id(zone_program_id, &self.sol_data)?,
+                    ring_program_id: resolve_ring_program_id(ring_program_id, &self.sol_data)?,
                     data: self.sol_data,
                 },
             ));
@@ -85,7 +85,7 @@ impl TransferPlaintextRecipient {
         self,
         blinding: [u8; 32],
         assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
+        ring_program_id: Option<Address>,
     ) -> Result<(ViewTag, Utxo), TransactionError> {
         let view_tag = self.owner_pubkey.confidential_view_tag()?;
         let utxo = Utxo {
@@ -93,7 +93,7 @@ impl TransferPlaintextRecipient {
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding,
-            zone_program_id: resolve_zone_program_id(zone_program_id, &self.data)?,
+            ring_program_id: resolve_ring_program_id(ring_program_id, &self.data)?,
             data: self.data,
         };
         Ok((view_tag, utxo))
@@ -138,20 +138,20 @@ impl TransferPlaintextUtxos {
     pub fn into_indexed_utxos(
         self,
         assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
+        ring_program_id: Option<Address>,
     ) -> Result<Vec<(ViewTag, Utxo)>, TransactionError> {
         let mut utxos = Vec::new();
         if let Some(sender) = self.sender {
             utxos.extend(sender.into_indexed_utxos(
                 &self.blinding_seed,
                 assets,
-                zone_program_id,
+                ring_program_id,
             )?);
         }
         for (i, recipient) in self.recipient_slots.into_iter().enumerate() {
             let position = u8::try_from(i + 2).map_err(|_| TransactionError::TooManyOutputs)?;
             let blinding = derive_blinding(&self.blinding_seed, position);
-            utxos.push(recipient.into_indexed_utxo(blinding, assets, zone_program_id)?);
+            utxos.push(recipient.into_indexed_utxo(blinding, assets, ring_program_id)?);
         }
         Ok(utxos)
     }
@@ -159,10 +159,10 @@ impl TransferPlaintextUtxos {
     pub fn into_utxos(
         self,
         assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
+        ring_program_id: Option<Address>,
     ) -> Result<Vec<Utxo>, TransactionError> {
         Ok(self
-            .into_indexed_utxos(assets, zone_program_id)?
+            .into_indexed_utxos(assets, ring_program_id)?
             .into_iter()
             .map(|(_, utxo)| utxo)
             .collect())
@@ -189,7 +189,7 @@ impl UtxoSerialization for PlaintextTransfer {
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        plaintext.into_utxos(cx.assets, cx.zone_program_id)
+        plaintext.into_utxos(cx.assets, cx.ring_program_id)
     }
 
     fn from_utxos(

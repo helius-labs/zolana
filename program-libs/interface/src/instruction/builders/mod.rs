@@ -5,13 +5,13 @@ mod create_spl_interface;
 mod create_tree;
 mod deposit;
 mod merge_transact;
-mod merge_zone;
+mod merge_ring;
 mod protocol_config;
 mod transact;
-mod zone_authority_transact;
-mod zone_config;
-mod zone_deposit;
-mod zone_transact;
+mod ring_authority_transact;
+mod ring_config;
+mod ring_deposit;
+mod ring_transact;
 
 pub use batch_update_nullifier_tree::BatchUpdateNullifierTree;
 pub use create_asset_counter::CreateAssetCounter;
@@ -20,13 +20,13 @@ pub use create_spl_interface::CreateSplInterface;
 pub use create_tree::CreateTree;
 pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
 pub use merge_transact::MergeTransact;
-pub use merge_zone::MergeZone;
+pub use merge_ring::MergeRing;
 pub use protocol_config::{CreateProtocolConfig, PauseTree, UpdateProtocolConfig};
 pub use transact::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
-pub use zone_authority_transact::ZoneAuthorityTransact;
-pub use zone_config::{CreateZoneConfig, UpdateZoneConfig, UpdateZoneConfigOwner};
-pub use zone_deposit::{ZoneAssetDeposit, ZoneDeposit};
-pub use zone_transact::ZoneTransact;
+pub use ring_authority_transact::RingAuthorityTransact;
+pub use ring_config::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};
+pub use ring_deposit::{RingAssetDeposit, RingDeposit};
+pub use ring_transact::RingTransact;

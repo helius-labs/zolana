@@ -1,4 +1,4 @@
-//! Default-zone (plain-pool) lifecycle fixture: the [`LifecycleHarness`] and
+//! Default-ring (plain-pool) lifecycle fixture: the [`LifecycleHarness`] and
 //! its action implementations.
 //!
 //! The validator/prover/indexer bring-up, actor management, and SPL asset
@@ -88,7 +88,7 @@ impl LifecycleHarness {
         let (base, merge_key) = LocalnetHarness::bootstrap(BootstrapConfig {
             label: "zolana-spp",
             extra_programs: Vec::new(),
-            zone_creation_is_permissionless: false,
+            ring_creation_is_permissionless: false,
             fund_merge_vault: true,
         })?;
         Ok(Self {
@@ -111,7 +111,7 @@ pub(crate) struct DepositResult {
     pub(crate) data: AssetDeposit,
 }
 
-/// A direct (non-zone) proofless shield that appends a recipient-hidden,
+/// A direct (non-ring) proofless shield that appends a recipient-hidden,
 /// wallet-discoverable UTXO.
 ///
 /// The asset is inferred from `sender`: a system-owned account shields SOL; an
@@ -212,7 +212,7 @@ impl Deposit<'_> {
             asset,
             amount: self.amount,
             blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         Ok(DepositResult {

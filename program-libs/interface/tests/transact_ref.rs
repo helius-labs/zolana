@@ -75,7 +75,7 @@ fn transact_ref_decode_only_allocates_element_vectors() {
         }],
         interface_transfers: vec![InterfaceTransfer::SolDeposit { amount: 8 }],
         data_hash: Some([9; 32]),
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: vec![TransactOutput {
             utxo_hash: [10; 32],
             owner_tag: OwnerTag::Inline([11; 32]),

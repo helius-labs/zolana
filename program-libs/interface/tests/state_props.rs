@@ -6,7 +6,7 @@ use proptest::prelude::*;
 use solana_address::Address;
 use zolana_interface::{
     error::InterfaceError,
-    state::{discriminator, ProtocolConfig, SplAssetCounter, SplAssetRegistry, ZoneConfig},
+    state::{discriminator, ProtocolConfig, SplAssetCounter, SplAssetRegistry, RingConfig},
 };
 
 /// 8-aligned byte buffer so the positive-path `bytemuck` cast in
@@ -125,7 +125,7 @@ proptest! {
 fn state_sizes_and_discriminators_are_stable() {
     let sizes = [
         (ProtocolConfig::SIZE, 132),
-        (ZoneConfig::SIZE, 67),
+        (RingConfig::SIZE, 67),
         (SplAssetCounter::SIZE, 16),
         (SplAssetRegistry::SIZE, 48),
     ];
@@ -136,7 +136,7 @@ fn state_sizes_and_discriminators_are_stable() {
     let discriminators = [
         (discriminator::TREE_ACCOUNT_DISCRIMINATOR, 1),
         (discriminator::PROTOCOL_CONFIG, 3),
-        (discriminator::ZONE_CONFIG, 4),
+        (discriminator::RING_CONFIG, 4),
         (discriminator::SPL_ASSET_REGISTRY, 5),
         (discriminator::SPL_ASSET_COUNTER, 6),
     ];

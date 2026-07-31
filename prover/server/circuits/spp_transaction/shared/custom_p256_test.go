@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"testing"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
+	customring "zolana/prover/circuits/spp_transaction/custom"
 	. "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -20,24 +20,24 @@ import (
 )
 
 type p256Authorization struct {
-	pub    customzone.P256PublicKey
-	sig    customzone.P256Signature
+	pub    customring.P256PublicKey
+	sig    customring.P256Signature
 	low    *big.Int
 	high   *big.Int
 	pkHash *big.Int
 }
 
-func MustNewCustomZoneP256Circuit(shape Shape) *customzone.CustomZoneP256Circuit {
-	circuit, err := customzone.NewCustomZoneP256Circuit(shape)
+func MustNewCustomRingP256Circuit(shape Shape) *customring.CustomRingP256Circuit {
+	circuit, err := customring.NewCustomRingP256Circuit(shape)
 	if err != nil {
 		panic(err)
 	}
 	return circuit
 }
 
-func asCustomZoneP256(a *testAssignment, authorization p256Authorization) frontend.Circuit {
-	return &customzone.CustomZoneP256Circuit{
-		Public: customzone.CustomZoneP256Public{
+func asCustomRingP256(a *testAssignment, authorization p256Authorization) frontend.Circuit {
+	return &customring.CustomRingP256Circuit{
+		Public: customring.CustomRingP256Public{
 			Nullifiers:                   a.InputNullifiers(),
 			OutputHashes:                 a.OutputHashes(),
 			UtxoTreeRoots:                a.InputUtxoRoots(),
@@ -49,13 +49,13 @@ func asCustomZoneP256(a *testAssignment, authorization p256Authorization) fronte
 			ExternalDataHash:             a.ExternalDataHash,
 			PublicAssets:                 a.PublicAssets,
 			PublicAmounts:                a.PublicAmounts,
-			ZoneProgramID:                a.ZoneProgramID,
+			RingProgramID:                a.RingProgramID,
 			AllowDummyInputs:             a.AllowDummyInputs,
 			SignerPkHashes:               a.TransactionSignerPkHashes(),
 			PublishedOutputOwnerPkHashes: a.PublishedOutputOwnerPkHashes(),
 			PublicInputHash:              a.PublicInputHash,
 		},
-		Private: customzone.CustomZoneP256Private{
+		Private: customring.CustomRingP256Private{
 			Inputs:              a.coreInputs(),
 			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
 			Outputs:             a.outputUtxos(),
@@ -123,7 +123,7 @@ func authorizeP256(
 	}
 	authorization := p256Authorization{
 		pub: spptest.P256PubkeyAssignment(publicKeyPrivate),
-		sig: customzone.P256Signature{
+		sig: customring.P256Signature{
 			R: emulated.ValueOf[emulated.P256Fr](r),
 			S: emulated.ValueOf[emulated.P256Fr](s),
 		},
@@ -131,11 +131,11 @@ func authorizeP256(
 		high:   high,
 		pkHash: ownerPkHash,
 	}
-	refreshCustomZoneP256PublicInputHash(t, assignment, digest, ownerPkHash)
+	refreshCustomRingP256PublicInputHash(t, assignment, digest, ownerPkHash)
 	return authorization
 }
 
-func refreshCustomZoneP256PublicInputHash(
+func refreshCustomRingP256PublicInputHash(
 	t testing.TB,
 	assignment *testAssignment,
 	messageDigest [32]byte,
@@ -171,7 +171,7 @@ func refreshCustomZoneP256PublicInputHash(
 	}
 	fields = append(
 		fields,
-		spptest.AsBigInt(assignment.ZoneProgramID),
+		spptest.AsBigInt(assignment.RingProgramID),
 		signerChain,
 		spptest.AsBigInt(assignment.AllowDummyInputs),
 		spptest.MustHashChain(t, spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes())),
@@ -184,17 +184,17 @@ func defaultP256OwnerPkHash(assignment *testAssignment, p256PkHash *big.Int) *bi
 		domain := spptest.AsBigInt(input.Utxo.Domain).Int64()
 		if (domain == UtxoDomain || domain == AddressDomain) &&
 			spptest.AsBigInt(input.OwnerPkHash).Sign() == 0 &&
-			spptest.AsBigInt(input.Utxo.ZoneProgramID).Sign() == 0 {
+			spptest.AsBigInt(input.Utxo.RingProgramID).Sign() == 0 {
 			return new(big.Int).Set(p256PkHash)
 		}
 	}
 	return big.NewInt(0)
 }
 
-func TestCustomZoneP256Solves(t *testing.T) {
+func TestCustomRingP256Solves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, owner)
@@ -202,33 +202,33 @@ func TestCustomZoneP256Solves(t *testing.T) {
 
 	assert.SolvingSucceeded(
 		circuit,
-		asCustomZoneP256(assignment, authorization),
+		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }
 
-func TestCustomZoneP256KeepsZoneOnlyOwnerPrivate(t *testing.T) {
+func TestCustomRingP256KeepsRingOnlyOwnerPrivate(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, owner)
-	assignment.Inputs[0].Utxo.ZoneProgramID = assignment.ZoneProgramID
+	assignment.Inputs[0].Utxo.RingProgramID = assignment.RingProgramID
 	rebuildAfterOwnerChange(t, assignment)
 	authorization := authorizeP256(t, assignment, owner, owner)
 
 	assert.SolvingSucceeded(
 		circuit,
-		asCustomZoneP256(assignment, authorization),
+		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }
 
-func TestCustomZoneP256AcceptsMixedOwners(t *testing.T) {
+func TestCustomRingP256AcceptsMixedOwners(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, owner)
@@ -236,15 +236,15 @@ func TestCustomZoneP256AcceptsMixedOwners(t *testing.T) {
 
 	assert.SolvingSucceeded(
 		circuit,
-		asCustomZoneP256(assignment, authorization),
+		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }
 
-func TestCustomZoneP256RejectsBadSignature(t *testing.T) {
+func TestCustomRingP256RejectsBadSignature(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := spptest.FixedP256Key(t, 11)
 	wrongSigner := spptest.FixedP256Key(t, 12)
@@ -253,15 +253,15 @@ func TestCustomZoneP256RejectsBadSignature(t *testing.T) {
 
 	assert.SolvingFailed(
 		circuit,
-		asCustomZoneP256(assignment, authorization),
+		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }
 
-func TestCustomZoneP256RejectsBadMessageHash(t *testing.T) {
+func TestCustomRingP256RejectsBadMessageHash(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, owner)
@@ -271,19 +271,19 @@ func TestCustomZoneP256RejectsBadMessageHash(t *testing.T) {
 	var changedDigest [32]byte
 	authorization.high.FillBytes(changedDigest[:16])
 	authorization.low.FillBytes(changedDigest[16:])
-	refreshCustomZoneP256PublicInputHash(t, assignment, changedDigest, authorization.pkHash)
+	refreshCustomRingP256PublicInputHash(t, assignment, changedDigest, authorization.pkHash)
 
 	assert.SolvingFailed(
 		circuit,
-		asCustomZoneP256(assignment, authorization),
+		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }
 
-func TestCustomZoneP256RejectsOwnerKeyMismatch(t *testing.T) {
+func TestCustomRingP256RejectsOwnerKeyMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := spptest.FixedP256Key(t, 11)
 	otherOwner := spptest.FixedP256Key(t, 12)
@@ -292,27 +292,27 @@ func TestCustomZoneP256RejectsOwnerKeyMismatch(t *testing.T) {
 
 	assert.SolvingFailed(
 		circuit,
-		asCustomZoneP256(assignment, authorization),
+		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }
 
-func TestCustomZoneP256RejectsOffCurvePublicKey(t *testing.T) {
+func TestCustomRingP256RejectsOffCurvePublicKey(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := spptest.FixedP256Key(t, 11)
 	rewriteInputAsP256(t, assignment, 0, owner)
 	authorization := authorizeP256(t, assignment, owner, owner)
-	authorization.pub = customzone.P256PublicKey{
+	authorization.pub = customring.P256PublicKey{
 		X: emulated.ValueOf[emulated.P256Fp](1),
 		Y: emulated.ValueOf[emulated.P256Fp](1),
 	}
 
 	assert.SolvingFailed(
 		circuit,
-		asCustomZoneP256(assignment, authorization),
+		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }

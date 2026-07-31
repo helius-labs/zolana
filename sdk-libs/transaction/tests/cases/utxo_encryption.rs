@@ -34,7 +34,7 @@ pub(crate) fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8
         asset,
         amount,
         blinding: [seed; 32],
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     }
 }
@@ -85,7 +85,7 @@ pub(crate) fn standard_transfer_round_trips(
         asset: spl_mint(),
         amount: 30,
         blinding: [1u8; 32],
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
@@ -112,7 +112,7 @@ pub(crate) fn standard_transfer_round_trips(
     let sender_owner_cx = OwnerCx {
         owner: sender.signing_pubkey(),
         assets: &registry,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let sender_ciphertext = AnonymousSenderBundle::encode(
         &expected_change,
@@ -132,7 +132,7 @@ pub(crate) fn standard_transfer_round_trips(
     let recipient_owner_cx = OwnerCx {
         owner: recipient_utxo.owner,
         assets: &registry,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let recipient_ciphertext = AnonymousRecipient::encode(
         core::slice::from_ref(&recipient_utxo),
@@ -180,51 +180,51 @@ pub(crate) fn standard_transfer_round_trips(
     assert_eq!(recovered_recipient, recipient_utxo);
 }
 
-pub(crate) fn zone_owned_with_data_round_trips(world: &mut TransactionWorld, name: String) {
+pub(crate) fn ring_owned_with_data_round_trips(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
-    let zone_program_id = Some(Address::new_from_array([9u8; 32]));
+    let ring_program_id = Some(Address::new_from_array([9u8; 32]));
     let utxo = Utxo {
         owner: kp.signing_pubkey(),
         asset: spl_mint(),
         amount: 30,
         blinding: [1u8; 32],
-        zone_program_id,
-        data: Data::new(vec![DataRecord::ZoneData(vec![4, 5, 6])]),
+        ring_program_id,
+        data: Data::new(vec![DataRecord::RingData(vec![4, 5, 6])]),
     };
     let pt = utxo.to_confidential_output_plaintext(&registry).unwrap();
     assert_eq!(pt.into_utxo(kp.signing_pubkey(), &registry).unwrap(), utxo);
 }
 
-pub(crate) fn zone_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
+pub(crate) fn ring_data_without_id_rejected(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
     let pt = ConfidentialOutputPlaintext {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; 32],
-        zone_program_id: None,
-        data: Data::new(vec![DataRecord::ZoneData(vec![1])]),
+        ring_program_id: None,
+        data: Data::new(vec![DataRecord::RingData(vec![1])]),
     };
     assert_eq!(
         pt.into_utxo(kp.signing_pubkey(), &registry).unwrap_err(),
-        TransactionError::MissingZoneProgramId
+        TransactionError::MissingRingProgramId
     );
 }
 
-pub(crate) fn zone_id_carried_onto_utxo(world: &mut TransactionWorld, name: String) {
+pub(crate) fn ring_id_carried_onto_utxo(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let kp = world.kp(&name);
-    let zone_program_id = Some(Address::new_from_array([9u8; 32]));
+    let ring_program_id = Some(Address::new_from_array([9u8; 32]));
     let pt = ConfidentialOutputPlaintext {
         asset_id: SPL_ASSET_ID,
         amount: 30,
         blinding: [1u8; 32],
-        zone_program_id,
+        ring_program_id,
         data: Data::default(),
     };
     let utxo = pt.into_utxo(kp.signing_pubkey(), &registry).unwrap();
-    assert_eq!(utxo.zone_program_id, zone_program_id);
+    assert_eq!(utxo.ring_program_id, ring_program_id);
 }
 
 pub(crate) fn data_without_output_rejected(world: &mut TransactionWorld, name: String) {
@@ -282,7 +282,7 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
     let owner_cx = OwnerCx {
         owner: owner.signing_pubkey(),
         assets: &registry,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let ciphertext = Split::encode(
         &expected,

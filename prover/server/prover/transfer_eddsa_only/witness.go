@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math/big"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
-	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	customring "zolana/prover/circuits/spp_transaction/custom"
+	defaultring "zolana/prover/circuits/spp_transaction/default"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 
 	"github.com/consensys/gnark/frontend"
@@ -19,8 +19,8 @@ func utxoFields(u UtxoParams) txcircuit.UtxoCircuitFields {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.DataHash,
-		ZoneDataHash:  u.ZoneDataHash,
-		ZoneProgramID: u.ZoneProgramID,
+		RingDataHash:  u.RingDataHash,
+		RingProgramID: u.RingProgramID,
 	}
 }
 
@@ -104,7 +104,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	}
 	shape := txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)}
 	wantSigners := int(p.NInputs) + 1
-	if p.Variant == ZoneAuthorityVariant {
+	if p.Variant == RingAuthorityVariant {
 		wantSigners = 1
 	}
 	if len(p.SignerPkHashes) != wantSigners {
@@ -119,7 +119,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		signerPkHashes[i] = p.SignerPkHashes[i]
 	}
 	wantPublishedOwners := len(p.Outputs)
-	if p.Variant == ZoneAuthorityVariant {
+	if p.Variant == RingAuthorityVariant {
 		wantPublishedOwners = 0
 	}
 	if len(p.PublishedOutputOwnerPkHashes) != wantPublishedOwners {
@@ -140,9 +140,9 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		for i, out := range p.Outputs {
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
-		return &defaultzone.DefaultZoneEddsaOnlyCircuit{
+		return &defaultring.DefaultRingEddsaOnlyCircuit{
 			Shape: shape,
-			Public: defaultzone.DefaultZoneEddsaOnlyPublic{
+			Public: defaultring.DefaultRingEddsaOnlyPublic{
 				Nullifiers:          core.nullifiers,
 				OutputHashes:        core.outputHashes,
 				UtxoTreeRoots:       core.utxoTreeRoots,
@@ -156,17 +156,17 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				OutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 				PublicInputHash:     p.PublicInputHash,
 			},
-			Private: defaultzone.DefaultZoneEddsaOnlyPrivate{
+			Private: defaultring.DefaultRingEddsaOnlyPrivate{
 				Inputs:             core.inputs,
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
 				OutputNullifierPks: outputNullifierPks,
 			},
 		}, nil
-	case ZoneAuthorityVariant:
-		return &customzone.CustomZoneAuthorityCircuit{
+	case RingAuthorityVariant:
+		return &customring.CustomRingAuthorityCircuit{
 			Shape: shape,
-			Public: customzone.CustomZoneAuthorityPublic{
+			Public: customring.CustomRingAuthorityPublic{
 				Nullifiers:         core.nullifiers,
 				OutputHashes:       core.outputHashes,
 				UtxoTreeRoots:      core.utxoTreeRoots,
@@ -175,12 +175,12 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				ExternalDataHash:   p.ExternalDataHash,
 				PublicAssets:       core.publicAssets,
 				PublicAmounts:      core.publicAmounts,
-				ZoneProgramID:      p.ZoneProgramID,
+				RingProgramID:      p.RingProgramID,
 				SignerPkHashes:     signerPkHashes,
 				AllowDummyInputs:   p.AllowDummyInputs,
 				PublicInputHash:    p.PublicInputHash,
 			},
-			Private: customzone.CustomZoneAuthorityPrivate{
+			Private: customring.CustomRingAuthorityPrivate{
 				Inputs:             core.inputs,
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
@@ -193,9 +193,9 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
 			outputNullifierPks[i] = orZero(out.NullifierPk)
 		}
-		return &customzone.CustomZoneEddsaOnlyCircuit{
+		return &customring.CustomRingEddsaOnlyCircuit{
 			Shape: shape,
-			Public: customzone.CustomZoneEddsaOnlyPublic{
+			Public: customring.CustomRingEddsaOnlyPublic{
 				Nullifiers:                   core.nullifiers,
 				OutputHashes:                 core.outputHashes,
 				UtxoTreeRoots:                core.utxoTreeRoots,
@@ -204,13 +204,13 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				ExternalDataHash:             p.ExternalDataHash,
 				PublicAssets:                 core.publicAssets,
 				PublicAmounts:                core.publicAmounts,
-				ZoneProgramID:                p.ZoneProgramID,
+				RingProgramID:                p.RingProgramID,
 				AllowDummyInputs:             p.AllowDummyInputs,
 				SignerPkHashes:               signerPkHashes,
 				PublishedOutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 				PublicInputHash:              p.PublicInputHash,
 			},
-			Private: customzone.CustomZoneEddsaOnlyPrivate{
+			Private: customring.CustomRingEddsaOnlyPrivate{
 				Inputs:              core.inputs,
 				InputOwnerPkHashes:  core.inputOwnerPkHashes,
 				Outputs:             core.outputs,
@@ -223,7 +223,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 
 // orZero returns big.NewInt(0) for a nil pointer so gnark always sees an
 // assigned witness value. Public output-tag fields are absent on anonymous
-// zone-authority params.
+// ring-authority params.
 func orZero(x *big.Int) *big.Int {
 	if x == nil {
 		return big.NewInt(0)

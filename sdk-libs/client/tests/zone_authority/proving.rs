@@ -1,19 +1,19 @@
-//! Zone-authority proof construction and verification cases.
+//! Ring-authority proof construction and verification cases.
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    InputUtxoContext, PreparedZoneAuthority, ProverClient, PublicTransfers, Rpc, Shape,
-    SppProofInputUtxo, TransferSpendInput, ZoneAuthorityProver, ZoneAuthorityWitness,
+    InputUtxoContext, PreparedRingAuthority, ProverClient, PublicTransfers, Rpc, Shape,
+    SppProofInputUtxo, TransferSpendInput, RingAuthorityProver, RingAuthorityWitness,
 };
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{OwnerTag, TransactOutput},
-        tag::ZONE_AUTHORITY_TRANSACT,
+        tag::RING_AUTHORITY_TRANSACT,
     },
     verifying_keys::{
-        transfer_zone_authority_1_1, transfer_zone_authority_2_2, transfer_zone_authority_3_3,
-        transfer_zone_authority_4_4,
+        transfer_ring_authority_1_1, transfer_ring_authority_2_2, transfer_ring_authority_3_3,
+        transfer_ring_authority_4_4,
     },
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, ViewingKey};
@@ -23,12 +23,12 @@ use zolana_transaction::{
 };
 
 use crate::{
-    harness::{Mode, ZoneAuthorityHarness},
+    harness::{Mode, RingAuthorityHarness},
     prover_bootstrap::start_prover,
     test_indexer::TestIndexer,
 };
 
-impl ZoneAuthorityHarness {
+impl RingAuthorityHarness {
     pub(crate) fn prove_and_verify(&self) {
         start_prover();
         let (n_in, n_out, mode) = (self.plan.n_inputs, self.plan.n_outputs, self.plan.mode);
@@ -44,8 +44,8 @@ impl ZoneAuthorityHarness {
 
 // ---- scenario builders --------------------------------------------------------
 
-/// #1: one real zero-value Solana-owned zone input + dummy padding, dummy outputs.
-fn shape_sweep(n: usize) -> ZoneAuthorityProver {
+/// #1: one real zero-value Solana-owned ring input + dummy padding, dummy outputs.
+fn shape_sweep(n: usize) -> RingAuthorityProver {
     let mut indexer = TestIndexer::new();
     let mut inputs = build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0)]);
     for _ in 1..n {
@@ -55,9 +55,9 @@ fn shape_sweep(n: usize) -> ZoneAuthorityProver {
     assemble_prover(inputs, outputs, n, n)
 }
 
-/// #2: 2 real nonzero Solana-owned zone inputs consolidated into 1 real zone-owned
+/// #2: 2 real nonzero Solana-owned ring inputs consolidated into 1 real ring-owned
 /// output, with dummy input/output padding (shape 3x3).
-fn multi_real() -> ZoneAuthorityProver {
+fn multi_real() -> RingAuthorityProver {
     let mut indexer = TestIndexer::new();
     let mut inputs = build_real_inputs(
         &mut indexer,
@@ -69,25 +69,25 @@ fn multi_real() -> ZoneAuthorityProver {
     assemble_prover(inputs, outputs, 3, 3)
 }
 
-/// #3: one real P256-owned zone input + dummy output (shape 1x1). Exercises the
+/// #3: one real P256-owned ring input + dummy output (shape 1x1). Exercises the
 /// pubkey-agnostic owner mode (no signature).
-fn p256_input() -> ZoneAuthorityProver {
+fn p256_input() -> RingAuthorityProver {
     let mut indexer = TestIndexer::new();
     let inputs = build_real_inputs(&mut indexer, &[(p256_keypair(), 0)]);
     assemble_prover(inputs, vec![dummy_output()], 1, 1)
 }
 
 /// #4: one Solana-owned and one P256-owned real input, dummy outputs (shape 2x2).
-fn mixed_owners() -> ZoneAuthorityProver {
+fn mixed_owners() -> RingAuthorityProver {
     let mut indexer = TestIndexer::new();
     let inputs = build_real_inputs(&mut indexer, &[(eddsa_keypair(), 0), (p256_keypair(), 0)]);
     assemble_prover(inputs, vec![dummy_output(), dummy_output()], 2, 2)
 }
 
-/// #5: build through the transaction-crate boundary: `PreparedZoneAuthority` ->
-/// `ZoneAuthorityWitness` -> `ZoneAuthorityProver` (shape 2x2).
-fn boundary_prover() -> ZoneAuthorityProver {
-    let zone = zone_program();
+/// #5: build through the transaction-crate boundary: `PreparedRingAuthority` ->
+/// `RingAuthorityWitness` -> `RingAuthorityProver` (shape 2x2).
+fn boundary_prover() -> RingAuthorityProver {
+    let ring = ring_program();
     let mut indexer = TestIndexer::new();
     let kp = eddsa_keypair();
     let utxo = Utxo {
@@ -95,7 +95,7 @@ fn boundary_prover() -> ZoneAuthorityProver {
         asset: SOL_MINT,
         amount: 0,
         blinding: random_blinding(),
-        zone_program_id: Some(zone),
+        ring_program_id: Some(ring),
         data: Data::default(),
     };
     let nullifier_pk = kp.nullifier_key.pubkey().expect("nullifier pubkey");
@@ -104,16 +104,16 @@ fn boundary_prover() -> ZoneAuthorityProver {
         .expect("utxo hash");
     indexer.add_utxo(utxo_hash);
 
-    let prepared = PreparedZoneAuthority {
+    let prepared = PreparedRingAuthority {
         inputs: vec![
             SppProofInputUtxo::new(utxo, &kp),
             SppProofInputUtxo::new_dummy(),
         ],
         outputs: vec![dummy_output(), dummy_output()],
         public_transfers: PublicTransfers::default(),
-        external_data: zone_external_data(2),
+        external_data: ring_external_data(2),
         payer: Address::new_from_array([0u8; 32]),
-        zone_program_id: Some(zone),
+        ring_program_id: Some(ring),
         shape: TxShape::IN2_OUT2,
     };
     let commitments = prepared.input_utxo_hashes().expect("input commitments");
@@ -129,33 +129,33 @@ fn boundary_prover() -> ZoneAuthorityProver {
             TestIndexer::new().dummy_nullifier_proof(nullifier)
         })
         .collect();
-    ZoneAuthorityProver::try_from(ZoneAuthorityWitness {
+    RingAuthorityProver::try_from(RingAuthorityWitness {
         prepared,
         proofs,
         dummy_nullifier_proofs,
     })
-    .expect("zone-authority prover")
+    .expect("ring-authority prover")
 }
 
 // ---- shared helpers -----------------------------------------------------------
 
-fn prove_and_verify(prover: ZoneAuthorityProver, n_in: usize, n_out: usize) {
-    let result = prover.build().expect("build zone-authority witness");
+fn prove_and_verify(prover: RingAuthorityProver, n_in: usize, n_out: usize) {
+    let result = prover.build().expect("build ring-authority witness");
     let proof = ProverClient::local()
-        .prove_zone_authority(&result.inputs)
-        .expect("prove zone-authority");
+        .prove_ring_authority(&result.inputs)
+        .expect("prove ring-authority");
     let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
     let mut verifier = Groth16Verifier::new(
         &proof.a,
         &proof.b,
         &proof.c,
         &public_inputs,
-        zone_authority_vk(n_in, n_out),
+        ring_authority_vk(n_in, n_out),
     )
     .expect("construct verifier");
     verifier
         .verify()
-        .expect("zone-authority groth16 proof verifies");
+        .expect("ring-authority groth16 proof verifies");
 }
 
 fn assemble_prover(
@@ -163,28 +163,28 @@ fn assemble_prover(
     outputs: Vec<SppProofOutputUtxo>,
     n_in: usize,
     n_out: usize,
-) -> ZoneAuthorityProver {
-    ZoneAuthorityProver {
+) -> RingAuthorityProver {
+    RingAuthorityProver {
         inputs,
         outputs,
-        external_data: zone_external_data(n_out),
+        external_data: ring_external_data(n_out),
         public_transfers: PublicTransfers::default(),
         payer: Address::new_from_array([0u8; 32]),
         allow_dummy_inputs: true,
-        zone_program_id: Some(zone_program()),
+        ring_program_id: Some(ring_program()),
         shape: Some(Shape::new(n_in, n_out)),
     }
 }
 
 /// Build the real (proof-backed) inputs for `specs` (owner keypair + amount),
 /// indexing every UTXO into one shared tree so all inclusion / non-inclusion proofs
-/// share a single root. Each real input is zone-owned (`zone_program_id = ZONE`),
-/// as the strict zone binding requires.
+/// share a single root. Each real input is ring-owned (`ring_program_id = RING`),
+/// as the strict ring binding requires.
 fn build_real_inputs(
     indexer: &mut TestIndexer,
     specs: &[(ShieldedKeypair, u64)],
 ) -> Vec<TransferSpendInput> {
-    let zone = zone_program();
+    let ring = ring_program();
     let mut utxos = Vec::with_capacity(specs.len());
     let mut keys = Vec::with_capacity(specs.len());
     let mut commitments = Vec::with_capacity(specs.len());
@@ -194,7 +194,7 @@ fn build_real_inputs(
             asset: SOL_MINT,
             amount: *amount,
             blinding: random_blinding(),
-            zone_program_id: Some(zone),
+            ring_program_id: Some(ring),
             data: Data::default(),
         };
         let nullifier_pk = kp.nullifier_key.pubkey().expect("nullifier pubkey");
@@ -224,22 +224,22 @@ fn build_real_inputs(
             utxo,
             nullifier_key,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             proof: Some(proof),
             nullifier_proof: None,
         })
         .collect()
 }
 
-/// A zone-owned real output to a recipient (used in the consolidation scenario).
+/// A ring-owned real output to a recipient (used in the consolidation scenario).
 fn real_output(recipient: &ShieldedKeypair, amount: u64) -> SppProofOutputUtxo {
     SppProofOutputUtxo {
         owner_address: Some(recipient.shielded_address().expect("shielded address")),
         asset: SOL_MINT,
         amount,
         blinding: random_blinding(),
-        zone_program_id: Some(zone_program()),
-        zone_data_hash: None,
+        ring_program_id: Some(ring_program()),
+        ring_data_hash: None,
         data_hash: None,
         owner_tag: None,
         data: Data::default(),
@@ -265,7 +265,7 @@ fn dummy_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let mut spend = SppProofInputUtxo::new_dummy();
@@ -276,22 +276,22 @@ fn dummy_input() -> TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         proof: None,
         nullifier_proof: Some(nullifier_proof),
     }
 }
 
-/// Transaction-level data with the zone-authority discriminator. `external_data_hash`
+/// Transaction-level data with the ring-authority discriminator. `external_data_hash`
 /// is opaque to the circuit, so the output vectors are zero-filled (the witness and
 /// public input use the same value, which is all the proof binds).
-fn zone_external_data(n_out: usize) -> ExternalData {
+fn ring_external_data(n_out: usize) -> ExternalData {
     ExternalData {
-        instruction_discriminator: ZONE_AUTHORITY_TRANSACT,
+        instruction_discriminator: RING_AUTHORITY_TRANSACT,
         expiry_unix_ts: 0,
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         outputs: (0..n_out)
@@ -306,9 +306,9 @@ fn zone_external_data(n_out: usize) -> ExternalData {
     }
 }
 
-/// Fixed test zone program id; every input/output UTXO carries it and the prover
-/// binds it as the public `zone_program_id`.
-fn zone_program() -> Address {
+/// Fixed test ring program id; every input/output UTXO carries it and the prover
+/// binds it as the public `ring_program_id`.
+fn ring_program() -> Address {
     Address::new_from_array([9u8; 32])
 }
 
@@ -322,12 +322,12 @@ fn p256_keypair() -> ShieldedKeypair {
     ShieldedKeypair::new().expect("p256 keypair")
 }
 
-fn zone_authority_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
+fn ring_authority_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'static> {
     match (n_in, n_out) {
-        (1, 1) => &transfer_zone_authority_1_1::VERIFYINGKEY,
-        (2, 2) => &transfer_zone_authority_2_2::VERIFYINGKEY,
-        (3, 3) => &transfer_zone_authority_3_3::VERIFYINGKEY,
-        (4, 4) => &transfer_zone_authority_4_4::VERIFYINGKEY,
-        _ => panic!("unsupported zone-authority shape {n_in}x{n_out}"),
+        (1, 1) => &transfer_ring_authority_1_1::VERIFYINGKEY,
+        (2, 2) => &transfer_ring_authority_2_2::VERIFYINGKEY,
+        (3, 3) => &transfer_ring_authority_3_3::VERIFYINGKEY,
+        (4, 4) => &transfer_ring_authority_4_4::VERIFYINGKEY,
+        _ => panic!("unsupported ring-authority shape {n_in}x{n_out}"),
     }
 }

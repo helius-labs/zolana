@@ -14,7 +14,7 @@ use crate::instructions::settlement::{
     validate_sol_settlement, validate_spl_deposit_settlement, validate_spl_withdrawal_settlement,
     Settlement, SettlementAccountsSol, SplDepositAccounts, SplWithdrawalAccounts,
 };
-use crate::instructions::zone_config::loader::load_zone_config;
+use crate::instructions::ring_config::loader::load_ring_config;
 
 pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
@@ -164,40 +164,40 @@ impl<'a> TransactAccounts<'a> {
     }
 }
 
-pub struct ZoneTransactAccounts;
+pub struct RingTransactAccounts;
 
-impl ZoneTransactAccounts {
-    /// Parse the accounts shared by `zone_transact` and `zone_authority_transact`:
-    /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `ZoneConfig`
-    /// account (the zone's `zone_auth` PDA), then owner signers and settlement
-    /// accounts. Returns the parsed transact accounts and the zone's
-    /// `program_id`, read from the validated `ZoneConfig` (never re-derived; the
-    /// create-time `zone_auth` derivation already bound it). `require_enabled`
+impl RingTransactAccounts {
+    /// Parse the accounts shared by `ring_transact` and `ring_authority_transact`:
+    /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `RingConfig`
+    /// account (the ring's `ring_auth` PDA), then owner signers and settlement
+    /// accounts. Returns the parsed transact accounts and the ring's
+    /// `program_id`, read from the validated `RingConfig` (never re-derived; the
+    /// create-time `ring_auth` derivation already bound it). `require_enabled`
     /// additionally requires
-    /// `zone_authority_transact_is_enabled` (only `zone_authority_transact` sets it).
+    /// `ring_authority_transact_is_enabled` (only `ring_authority_transact` sets it).
     pub fn validate_and_parse<'a>(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
-        require_zone_authority_enabled: bool,
+        require_ring_authority_enabled: bool,
     ) -> Result<(Box<TransactAccounts<'a>>, [u8; 32]), ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let payer: &AccountView = iter.next_signer("payer")?;
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
         validate_program_prefix(&mut iter)?;
-        // The `zone_config` must sign (only the zone program can sign for its
-        // `zone_auth` PDA); validate owner / discriminator and read the bound zone
+        // The `ring_config` must sign (only the ring program can sign for its
+        // `ring_auth` PDA); validate owner / discriminator and read the bound ring
         // `program_id`.
-        let zone_config = iter.next_signer("zone_config")?;
-        let (zone_program_id, zone_authority_is_enabled) = {
-            let config = load_zone_config(zone_config)?;
+        let ring_config = iter.next_signer("ring_config")?;
+        let (ring_program_id, ring_authority_is_enabled) = {
+            let config = load_ring_config(ring_config)?;
             (config.program_id.to_bytes(), config.enabled())
         };
-        if require_zone_authority_enabled && !zone_authority_is_enabled {
-            return Err(ShieldedPoolError::ZoneAuthorityTransactDisabled.into());
+        if require_ring_authority_enabled && !ring_authority_is_enabled {
+            return Err(ShieldedPoolError::RingAuthorityTransactDisabled.into());
         }
-        // Zone authority instruction does not require any signatures.
-        let allow_owner_signers = !require_zone_authority_enabled;
+        // Ring authority instruction does not require any signatures.
+        let allow_owner_signers = !require_ring_authority_enabled;
         let transact_accounts = TransactAccounts::from_iter(
             iter,
             ix,
@@ -206,7 +206,7 @@ impl ZoneTransactAccounts {
             output_tree,
             allow_owner_signers,
         )?;
-        Ok((transact_accounts, zone_program_id))
+        Ok((transact_accounts, ring_program_id))
     }
 }
 

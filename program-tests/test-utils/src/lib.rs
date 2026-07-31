@@ -21,4 +21,4 @@ pub mod spl;
 pub mod test_validator_asserts;
 pub mod transact;
 mod wallet_discovery;
-pub mod zone;
+pub mod ring;

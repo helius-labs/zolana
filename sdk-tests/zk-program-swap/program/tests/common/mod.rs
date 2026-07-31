@@ -78,7 +78,7 @@ pub fn transact(messages: Vec<MessageData>) -> TransactIxData {
         inputs: Vec::new(),
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: vec![
             TransactOutput {
                 utxo_hash: [4; 32],

@@ -120,7 +120,7 @@ fn deposit_sol_note(env: &mut Pool, amount: u64) -> SpendNote {
         asset: SOL_MINT,
         amount,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
@@ -168,7 +168,7 @@ fn deposit_spl_note_with_program(
         asset: Address::new_from_array(mint.to_bytes()),
         amount,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
@@ -323,7 +323,7 @@ fn prove_spend(
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &[0u8; 32],
+        ring_program_id: &[0u8; 32],
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),

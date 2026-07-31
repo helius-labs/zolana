@@ -7,13 +7,13 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::SolanaRpc;
 use zolana_interface::{
-    instruction::{encode_instruction, tag, CreateZoneConfigData, Deposit, ZoneDeposit},
+    instruction::{encode_instruction, tag, CreateRingConfigData, Deposit, RingDeposit},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{
     rpc_state_root, single_deposit_view, DepositOutput, TestIndexer, ZolanaProgramTest,
-    ZONE_TEST_PROGRAM_ID,
+    RING_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{
     AssetRegistry, LocalWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
@@ -34,11 +34,11 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let rpc_url = std::env::var(RPC_URL_ENV).unwrap_or_else(|_| DEFAULT_RPC_URL.to_owned());
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let zone_program_id = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID);
+    let ring_program_id = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
     let mut indexer = TestIndexer::new();
     rpc.assert_executable(&program_id)?;
-    rpc.assert_executable(&zone_program_id)?;
+    rpc.assert_executable(&ring_program_id)?;
 
     let LocalnetPool {
         payer,
@@ -87,81 +87,81 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         &direct_view,
     )?;
 
-    // A zone deposit is authorized by the zone's `zone_config` (its `zone_auth`
-    // PDA), which the zone program signs for on the CPI into SPP. Create that
-    // config first via the zone program's `CREATE_ZONE_CONFIG` forwarding
-    // instruction; without it SPP rejects the zone deposit with
-    // `InvalidZoneConfig`.
+    // A ring deposit is authorized by the ring's `ring_config` (its `ring_auth`
+    // PDA), which the ring program signs for on the CPI into SPP. Create that
+    // config first via the ring program's `CREATE_RING_CONFIG` forwarding
+    // instruction; without it SPP rejects the ring deposit with
+    // `InvalidRingConfig`.
     // The instruction's fee-payer account (index 0) must be the protocol config's
-    // `zone_creation_authority` -- here the `authority` keypair -- since zone
-    // creation is not permissionless. `zone_authority` is the config's stored
+    // `ring_creation_authority` -- here the `authority` keypair -- since ring
+    // creation is not permissionless. `ring_authority` is the config's stored
     // owner and needs no signature at creation.
-    let zone_authority = Keypair::new();
-    let (zone_auth, _) = pda::zone_auth(&zone_program_id);
-    let create_zone_config = Instruction {
-        program_id: zone_program_id,
+    let ring_authority = Keypair::new();
+    let (ring_auth, _) = pda::ring_auth(&ring_program_id);
+    let create_ring_config = Instruction {
+        program_id: ring_program_id,
         accounts: vec![
             AccountMeta::new(authority.pubkey(), true),
             AccountMeta::new_readonly(pda::protocol_config(), false),
-            AccountMeta::new(zone_auth, false),
+            AccountMeta::new(ring_auth, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(program_id, false),
         ],
         data: encode_instruction(
-            tag::CREATE_ZONE_CONFIG,
-            &CreateZoneConfigData {
-                program_id: ZONE_TEST_PROGRAM_ID.into(),
-                authority: zone_authority.pubkey().to_bytes().into(),
-                zone_authority_transact_is_enabled: true,
+            tag::CREATE_RING_CONFIG,
+            &CreateRingConfigData {
+                program_id: RING_TEST_PROGRAM_ID.into(),
+                authority: ring_authority.pubkey().to_bytes().into(),
+                ring_authority_transact_is_enabled: true,
             },
         ),
     };
-    let create_zone_config_tx = send_indexed(
+    let create_ring_config_tx = send_indexed(
         &mut rpc,
         &mut indexer,
         program_id,
-        &[create_zone_config],
+        &[create_ring_config],
         &authority.pubkey(),
         &[&authority],
     )?;
-    print_signature("create_zone_config", &create_zone_config_tx.signature);
+    print_signature("create_ring_config", &create_ring_config_tx.signature);
 
-    let zone_keypair = ShieldedKeypair::new()?;
-    let mut zone_recipient =
-        Wallet::new(zone_keypair.shielded_address()?, AssetRegistry::default())?;
-    let mut zone_data = ZolanaProgramTest::wallet_zone_sol_shield_data(
+    let ring_keypair = ShieldedKeypair::new()?;
+    let mut ring_recipient =
+        Wallet::new(ring_keypair.shielded_address()?, AssetRegistry::default())?;
+    let mut ring_data = ZolanaProgramTest::wallet_ring_sol_shield_data(
         DEPOSIT_LAMPORTS,
-        &zone_recipient.identity,
+        &ring_recipient.identity,
         &[5u8; 32],
         0,
     )?;
-    zone_data.zone_data_hash = [5u8; 32];
-    let zone_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
-    let zone_ix = ZoneDeposit {
+    ring_data.ring_data_hash = [5u8; 32];
+    let ring_root_before = rpc_state_root(&rpc, &tree.pubkey())?;
+    let ring_ix = RingDeposit {
         tree: tree.pubkey(),
         depositor: depositor.pubkey(),
-        zone_program_id,
-        deposits: vec![zone_data],
+        ring_program_id,
+        deposits: vec![ring_data],
     }
     .instruction()
-    .expect("zone deposit instruction");
-    let zone_tx = send_indexed(
+    .expect("ring deposit instruction");
+    let ring_tx = send_indexed(
         &mut rpc,
         &mut indexer,
         program_id,
-        &[zone_ix],
+        &[ring_ix],
         &payer.pubkey(),
         &[&payer, &depositor],
     )?;
-    print_signature("zone_deposit", &zone_tx.signature);
-    let zone_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
-    assert_ne!(zone_root_after, zone_root_before);
-    let zone_view = single_deposit_view(&zone_tx.events)?;
-    assert_eq!(zone_root_after, indexer.root());
+    print_signature("ring_deposit", &ring_tx.signature);
+    let ring_root_after = rpc_state_root(&rpc, &tree.pubkey())?;
+    assert_ne!(ring_root_after, ring_root_before);
+    let ring_view = single_deposit_view(&ring_tx.events)?;
+    assert_eq!(ring_root_after, indexer.root());
     assert_wallet_discovers(
-        &mut zone_recipient,
-        &LocalWalletAuthority::new(Pubkey::default(), &zone_keypair),
-        &zone_view,
+        &mut ring_recipient,
+        &LocalWalletAuthority::new(Pubkey::default(), &ring_keypair),
+        &ring_view,
     )?;
 
     println!("localnet proofless deposit test passed via {rpc_url}");

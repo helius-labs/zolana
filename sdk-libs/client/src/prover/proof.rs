@@ -86,13 +86,13 @@ impl ProofCompressed {
         }
     }
 
-    /// Split a committed custom-zone proof into the unchanged transact proof
-    /// triple and the BSB22 payload embedded in `CircuitId::ZoneP256`.
-    pub fn into_zone_p256_transact_parts(
+    /// Split a committed custom-ring proof into the unchanged transact proof
+    /// triple and the BSB22 payload embedded in `CircuitId::RingP256`.
+    pub fn into_ring_p256_transact_parts(
         self,
     ) -> Result<(TransactProof, Bsb22Commitment), ClientError> {
         let commitment = self.commitment.ok_or_else(|| {
-            ClientError::ProofParse("P256 zone proof is missing its BSB22 commitment".to_string())
+            ClientError::ProofParse("P256 ring proof is missing its BSB22 commitment".to_string())
         })?;
         Ok((
             TransactProof {
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn p256_transact_parts_keep_the_existing_proof_and_extract_commitment() {
         let (proof, commitment) = proof_with_commitment()
-            .into_zone_p256_transact_parts()
+            .into_ring_p256_transact_parts()
             .expect("committed P256 proof maps");
 
         assert_eq!(proof.a, [1u8; 32]);
@@ -258,8 +258,8 @@ mod tests {
             ..proof_with_commitment()
         };
         let error = vanilla
-            .into_zone_p256_transact_parts()
-            .expect_err("vanilla proof is not a P256 zone proof");
+            .into_ring_p256_transact_parts()
+            .expect_err("vanilla proof is not a P256 ring proof");
 
         assert!(matches!(error, ClientError::ProofParse(_)));
     }

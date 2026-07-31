@@ -37,10 +37,10 @@ impl Merge {
         inputs: Vec<SppProofInputUtxo>,
     ) -> Result<Self, TransactionError> {
         // The default merge only consolidates plain utxos: no input may be bound
-        // to a zone or carry program/zone data.
+        // to a ring or carry program/ring data.
         let (asset, total) = validate_merge_inputs(keypair, &inputs, |index, spend| {
-            if spend.utxo.zone_program_id.is_some() {
-                return Err(TransactionError::MergeInputZoneMismatch { index });
+            if spend.utxo.ring_program_id.is_some() {
+                return Err(TransactionError::MergeInputRingMismatch { index });
             }
             if has_data(spend) {
                 return Err(TransactionError::MergeInputHasData { index });
@@ -93,7 +93,7 @@ impl Merge {
 /// The validation both merge rails share: 1..=[`MERGE_INPUTS`] inputs bound to
 /// one owner identity -- the proof binds every input to a single rail, exact
 /// owner, and nullifier key from `keypair` -- and one asset. `check` adds the
-/// rail's zone-binding and data policy per input. Returns the shared asset and
+/// rail's ring-binding and data policy per input. Returns the shared asset and
 /// the overflow-checked merged amount.
 pub(crate) fn validate_merge_inputs<K: ShieldedKeypairTrait>(
     keypair: &K,
@@ -199,7 +199,7 @@ pub struct PreparedMerge {
 
 impl PreparedMerge {
     /// Commitments for the real inputs only. Merge assembly only supports clean
-    /// inputs, so an input that committed to program or zone data is rejected.
+    /// inputs, so an input that committed to program or ring data is rejected.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
         real_input_contexts(&self.inputs, has_data)
     }
@@ -214,17 +214,17 @@ impl PreparedMerge {
     }
 }
 
-/// Whether an input carries program or zone data: an external `data_hash`,
-/// `zone_data_hash`, or inline UTXO data. Default-zone merge and split consolidate
+/// Whether an input carries program or ring data: an external `data_hash`,
+/// `ring_data_hash`, or inline UTXO data. Default-ring merge and split consolidate
 /// only plain utxos, so any of these disqualifies the input. Option semantics: a
 /// `Some(_)` hash means "has data" regardless of the hash value (an all-zero hash
 /// still binds committed data).
 pub(crate) fn has_data(spend: &SppProofInputUtxo) -> bool {
-    spend.data_hash.is_some() || spend.zone_data_hash.is_some() || !spend.utxo.data.is_empty()
+    spend.data_hash.is_some() || spend.ring_data_hash.is_some() || !spend.utxo.data.is_empty()
 }
 
-/// Whether an input carries program-controlled UTXO data. Policy-zone merges may
-/// consume `zone_data_hash` values after the zone has authorized their transition,
+/// Whether an input carries program-controlled UTXO data. Policy-ring merges may
+/// consume `ring_data_hash` values after the ring has authorized their transition,
 /// but `utxo_data` remains owner/program controlled and is never mergeable.
 pub(crate) fn has_utxo_data(spend: &SppProofInputUtxo) -> bool {
     spend.data_hash.is_some() || spend.utxo.data.utxo_data().is_some()
@@ -244,7 +244,7 @@ mod tests {
             asset,
             amount,
             blinding: random_blinding(),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
@@ -291,7 +291,7 @@ mod tests {
             asset: Address::default(),
             amount: 10,
             blinding: random_blinding(),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let input = SppProofInputUtxo::new(utxo, &other);
@@ -307,16 +307,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zone_bound_input() {
+    fn rejects_ring_bound_input() {
         let keypair = ShieldedKeypair::new().expect("keypair");
         let mut input = plain_input(&keypair, Address::default(), 10);
-        input.utxo.zone_program_id = Some(Address::new_from_array([3u8; 32]));
+        input.utxo.ring_program_id = Some(Address::new_from_array([3u8; 32]));
 
         let Err(error) = Merge::new(&keypair, vec![input]) else {
-            panic!("zone-bound input must be rejected");
+            panic!("ring-bound input must be rejected");
         };
 
-        assert_eq!(error, TransactionError::MergeInputZoneMismatch { index: 0 });
+        assert_eq!(error, TransactionError::MergeInputRingMismatch { index: 0 });
     }
 
     #[test]

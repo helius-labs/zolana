@@ -83,7 +83,7 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 ## Privacy Model
 
 What is public and what is private. The confidentiality is inherited from the SPP confidential
-zone; the swap program does not try to hide which action ran.
+ring; the swap program does not try to hide which action ran.
 
 - **Public:** the maker's Solana signer pubkey, written into the marker at make (the taker resolves
   the maker's registered shielded address from it via the user registry) and revealed again at
@@ -199,7 +199,7 @@ with the PDA owner, makes SPP spend it only through a swap circuit). The transac
 message tagged to the taker.
 
 The order UTXO output's recipient ciphertext (`TransferRecipientPlaintext { asset_id, amount, blinding,
-zone_program_id, data }`, with `data` = the order terms other than `maker_address`) is encrypted to
+ring_program_id, data }`, with `data` = the order terms other than `maker_address`) is encrypted to
 the taker's viewing pubkey, so the taker recovers the private order terms and the order UTXO `blinding`;
 the maker can decrypt the same slot via the transaction viewing key it holds. Those two parties are
 exactly who can decrypt the order. The taker resolves `maker_address`
@@ -401,7 +401,7 @@ by the SPP proof.
     addresses. The source input hash and external-data hash are free witnesses; the change slot
     contributes 0 when the change amount is 0.
   - The order UTXO output committed in `private_tx_hash` has `data_hash = Poseidon(order terms)`
-    with `maker_address` hashed in as a field element, zone fields 0, and a nonzero amount, so the
+    with `maker_address` hashed in as a field element, ring fields 0, and a nonzero amount, so the
     public SPP order UTXO output commits the terms.
   - The change output is constrained to the order UTXO's asset and to `maker_owner_hash`, with empty
     data.

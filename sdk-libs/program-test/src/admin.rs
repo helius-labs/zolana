@@ -41,8 +41,8 @@ impl ZolanaProgramTest {
             tree_creation_authority: data.tree_creation_authority,
             tree_creation_is_permissionless: data.tree_creation_is_permissionless != 0,
             forester_authority: data.forester_authority,
-            zone_creation_authority: data.zone_creation_authority,
-            zone_creation_is_permissionless: data.zone_creation_is_permissionless != 0,
+            ring_creation_authority: data.ring_creation_authority,
+            ring_creation_is_permissionless: data.ring_creation_is_permissionless != 0,
             spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless
                 != 0,
         }
@@ -70,7 +70,7 @@ impl ZolanaProgramTest {
         let ixs = [
             update(UpdateProtocolConfigData::TreeCreationAuthority(next.into())),
             update(UpdateProtocolConfigData::ForesterAuthority(next.into())),
-            update(UpdateProtocolConfigData::ZoneCreationAuthority(next.into())),
+            update(UpdateProtocolConfigData::RingCreationAuthority(next.into())),
             update(UpdateProtocolConfigData::ProtocolAuthority(next.into())),
         ];
         let mut signers = vec![authority];
@@ -132,8 +132,8 @@ fn create_protocol_config_data(
         tree_creation_authority: authority.into(),
         tree_creation_is_permissionless: u8::from(permissionless),
         forester_authority: authority.into(),
-        zone_creation_authority: authority.into(),
-        zone_creation_is_permissionless: u8::from(permissionless),
+        ring_creation_authority: authority.into(),
+        ring_creation_is_permissionless: u8::from(permissionless),
         spl_interface_creation_is_permissionless: u8::from(permissionless),
     }
 }

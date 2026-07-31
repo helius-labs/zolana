@@ -1548,9 +1548,9 @@ fn proofless_output_payload() -> Vec<u8> {
         amount: 100,
         data_hash: None,
         utxo_data: None,
-        zone_program_id: None,
-        zone_data_hash: None,
-        zone_data: None,
+        ring_program_id: None,
+        ring_data_hash: None,
+        ring_data: None,
         memo: None,
     })
 }

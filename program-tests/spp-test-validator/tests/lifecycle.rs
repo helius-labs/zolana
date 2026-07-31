@@ -37,7 +37,7 @@ fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
     let config = BootstrapConfig {
         label: "spp-settings",
         extra_programs: Vec::new(),
-        zone_creation_is_permissionless: false,
+        ring_creation_is_permissionless: false,
         fund_merge_vault: false,
     };
     let setup = LocalnetHarness::<()>::setup_protocol_accounts(&mut rpc, &config)?;
@@ -45,7 +45,7 @@ fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
     let expected: [(Pubkey, Pubkey); 5] = [
         (setup.accounts.protocol_settings, setup.authority.pubkey()),
         (setup.accounts.tree_settings, setup.tree_key.pubkey()),
-        (setup.accounts.zone_settings, setup.zone_key.pubkey()),
+        (setup.accounts.ring_settings, setup.ring_key.pubkey()),
         (setup.accounts.merge_settings, setup.merge_key.pubkey()),
         (
             setup.accounts.forester_settings,

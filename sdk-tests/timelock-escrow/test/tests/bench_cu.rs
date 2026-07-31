@@ -378,7 +378,7 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         asset: SOL_MINT,
         amount: INPUT_AMOUNT,
         blinding: input_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let spend = SppProofInputUtxo::new(input_utxo, &creator);

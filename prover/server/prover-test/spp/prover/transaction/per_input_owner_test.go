@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
+	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
@@ -31,8 +31,8 @@ func refreshStateEntry(t *testing.T, tx *ProofTransactionRequest, i int) {
 }
 
 // mustNewSolanaCircuit builds the Solana-only circuit and panics on error.
-func mustNewSolanaCircuit(shape txcircuit.Shape) *customzone.CustomZoneEddsaOnlyCircuit {
-	circuit, err := customzone.NewCustomZoneEddsaOnlyCircuit(shape)
+func mustNewSolanaCircuit(shape txcircuit.Shape) *customring.CustomRingEddsaOnlyCircuit {
+	circuit, err := customring.NewCustomRingEddsaOnlyCircuit(shape)
 	if err != nil {
 		panic(err)
 	}

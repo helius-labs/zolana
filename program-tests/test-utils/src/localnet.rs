@@ -106,7 +106,7 @@ pub fn isolated_temp_path(label: &str) -> String {
 /// Boot a fresh `solana-test-validator` with Photon (and no bundled prover) via
 /// the `zolana` CLI, loading the given SBF programs and the Squads smart-account
 /// program-config fixture. Mirrors the per-crate `restart_localnet` helpers the
-/// swap, spp and zone test crates each used to copy.
+/// swap, spp and ring test crates each used to copy.
 ///
 /// The caller resolves the CLI path, ports, ledger/account directories and the
 /// `(program_id, program_so)` list so this stays program-agnostic.

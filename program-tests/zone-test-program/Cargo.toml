@@ -1,17 +1,17 @@
 [package]
-name = "zone-test-program"
+name = "ring-test-program"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-# Only the explicit `zone_lifecycle` and `proof_cu` test targets build; both
-# consume the shared fixture from `zolana-test-utils` (`zone` module).
+# Only the explicit `ring_lifecycle` and `proof_cu` test targets build; both
+# consume the shared fixture from `zolana-test-utils` (`ring` module).
 autotests = false
 
-# Test-only fixture: a minimal "policy zone" program that CPIs into SPP,
-# signing with its `zone_auth` PDA. It enforces no policy — it exists so
-# integration tests can exercise the zone-signer path (a PDA can only sign via
+# Test-only fixture: a minimal "policy ring" program that CPIs into SPP,
+# signing with its `ring_auth` PDA. It enforces no policy — it exists so
+# integration tests can exercise the ring-signer path (a PDA can only sign via
 # a CPI from its owning program).
 
 [lib]
@@ -52,12 +52,12 @@ zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [[test]]
-name = "zone_lifecycle"
-path = "tests/zone_lifecycle.rs"
+name = "ring_lifecycle"
+path = "tests/ring_lifecycle.rs"
 
 [[test]]
-name = "p256_zone_lifecycle"
-path = "tests/p256_zone_lifecycle.rs"
+name = "p256_ring_lifecycle"
+path = "tests/p256_ring_lifecycle.rs"
 
 [[test]]
 name = "proof_cu"

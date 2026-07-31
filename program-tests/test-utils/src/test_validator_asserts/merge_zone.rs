@@ -4,17 +4,17 @@ use zolana_client::{ClientError, Rpc};
 
 use super::{state_root_from, to_address, wait_for_merkle_proof, wait_for_nullifier_present};
 
-/// Inputs for [`assert_merge_zone`]. The merge consolidates the 8-input shape
+/// Inputs for [`assert_merge_ring`]. The merge consolidates the 8-input shape
 /// into the single `output_hash`; `input_nullifiers` are the nullifiers the merge
 /// proof spent (real and dummy slots).
-pub struct MergeZoneAssertArgs<'a> {
+pub struct MergeRingAssertArgs<'a> {
     pub tree: &'a Pubkey,
     pub output_hash: [u8; 32],
     pub input_nullifiers: &'a [[u8; 32]],
     pub tree_before: &'a Account,
 }
 
-/// Functional assert for the `merge_zone` consolidated output. Mirrors the
+/// Functional assert for the `merge_ring` consolidated output. Mirrors the
 /// `spp merge` inclusion-proof check (`steps/merge.rs::assert_merged`) but as a
 /// reusable function: given the appended output hash and the spent input
 /// nullifiers, verify
@@ -28,12 +28,12 @@ pub struct MergeZoneAssertArgs<'a> {
 /// Callers must pass the `tree` account state captured before the transaction
 /// (`tree_before`) so the root advance can be checked.
 #[track_caller]
-pub fn assert_merge_zone<R: Rpc, I: Rpc>(
+pub fn assert_merge_ring<R: Rpc, I: Rpc>(
     rpc: &R,
     indexer: &I,
-    args: MergeZoneAssertArgs,
+    args: MergeRingAssertArgs,
 ) -> Result<(), ClientError> {
-    let MergeZoneAssertArgs {
+    let MergeRingAssertArgs {
         tree,
         output_hash,
         input_nullifiers,

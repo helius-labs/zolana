@@ -5,7 +5,7 @@ use zolana_interface::{
     instruction::{
         instruction_data::transact::{
             Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
-            TransactOutput, TransactProof, ZoneP256ProofData,
+            TransactOutput, TransactProof, RingP256ProofData,
         },
         tag::InstructionTag,
     },
@@ -33,7 +33,7 @@ fn validate(
             .collect(),
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: (0..actual_outputs)
             .map(|_| TransactOutput {
                 utxo_hash: [0u8; 32],
@@ -60,21 +60,21 @@ fn selector_family_must_match_instruction() {
             InstructionTag::Transact,
         ),
         (
-            CircuitId::ZoneP256(
+            CircuitId::RingP256(
                 2,
                 3,
                 3,
-                ZoneP256ProofData {
+                RingP256ProofData {
                     bsb22_commitment: commitment,
                     default_owner_tag: None,
                 },
             ),
-            InstructionTag::ZoneTransact,
+            InstructionTag::RingTransact,
         ),
-        (CircuitId::ZoneEddsa(2, 3, 3), InstructionTag::ZoneTransact),
+        (CircuitId::RingEddsa(2, 3, 3), InstructionTag::RingTransact),
         (
-            CircuitId::ZoneAuthority(2, 2, 3),
-            InstructionTag::ZoneAuthorityTransact,
+            CircuitId::RingAuthority(2, 2, 3),
+            InstructionTag::RingAuthorityTransact,
         ),
     ] {
         assert_eq!(
@@ -85,7 +85,7 @@ fn selector_family_must_match_instruction() {
 
     assert_eq!(
         validate(
-            CircuitId::ZoneEddsa(2, 3, 3),
+            CircuitId::RingEddsa(2, 3, 3),
             InstructionTag::Transact,
             2,
             3,
@@ -121,11 +121,11 @@ fn selector_dimensions_are_fail_closed() {
         ),
         invalid_shape
     );
-    let p256 = CircuitId::ZoneP256(
+    let p256 = CircuitId::RingP256(
         2,
         3,
         3,
-        ZoneP256ProofData {
+        RingP256ProofData {
             bsb22_commitment: Bsb22Commitment {
                 commitment: [1u8; 32],
                 commitment_pok: [2u8; 32],
@@ -133,5 +133,5 @@ fn selector_dimensions_are_fail_closed() {
             default_owner_tag: None,
         },
     );
-    assert_eq!(validate(p256, InstructionTag::ZoneTransact, 2, 3), Ok(()));
+    assert_eq!(validate(p256, InstructionTag::RingTransact, 2, 3), Ok(()));
 }

@@ -18,8 +18,8 @@ func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
 		Amount:        zero,
 		Blinding:      zero,
 		DataHash:      zero,
-		ZoneDataHash:  zero,
-		ZoneProgramID: zero,
+		RingDataHash:  zero,
+		RingProgramID: zero,
 	}
 	params := P256TransferParameters{
 		NInputs:  1,
@@ -56,7 +56,7 @@ func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
 		P256MessageHashHigh: zero,
 		PublicAssets:        []*big.Int{zero, zero, zero},
 		PublicAmounts:       []*big.Int{zero, zero, zero},
-		ZoneProgramID:       zero,
+		RingProgramID:       zero,
 		SignerPkHashes:      []*big.Int{zero, zero},
 		AllowDummyInputs:    zero,
 		PublicInputHash:     zero,
@@ -76,7 +76,7 @@ func TestP256TransferParametersJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(encoded, &raw); err != nil {
 		t.Fatalf("unmarshal raw: %v", err)
 	}
-	if raw["circuitType"] != string(common.TransferP256ZoneCircuitType) {
+	if raw["circuitType"] != string(common.TransferP256RingCircuitType) {
 		t.Fatalf("circuit type = %v", raw["circuitType"])
 	}
 	if _, exists := raw["p256SigningPkField"]; exists {

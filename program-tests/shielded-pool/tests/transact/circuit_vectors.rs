@@ -84,7 +84,7 @@ struct GoAssembly<'a> {
     external_data_hash: [u8; 32],
     public_slot_assets: &'a [[u8; 32]],
     public_slot_amounts: &'a [[u8; 32]],
-    zone_program_id: [u8; 32],
+    ring_program_id: [u8; 32],
     signer_pk_hashes: &'a [[u8; 32]],
     allow_dummy_inputs: [u8; 32],
     output_owner_pk_hashes: Option<&'a [[u8; 32]]>,
@@ -109,7 +109,7 @@ impl GoAssembly<'_> {
             fields.push(*amount);
         }
         fields.extend_from_slice(&[
-            self.zone_program_id,
+            self.ring_program_id,
             create_right_hash_chain_from_slice(self.signer_pk_hashes).expect("signer chain"),
             self.allow_dummy_inputs,
         ]);
@@ -124,7 +124,7 @@ impl GoAssembly<'_> {
 
 /// The committed known-answer vector reproduces through the Go assembly
 /// ordering built from the program's own hash primitives (the Go test pins
-/// the confidential rail: `Confidential: true`, `ZoneAuthority: false`).
+/// the confidential rail: `Confidential: true`, `RingAuthority: false`).
 #[test]
 pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
     let vector = vector("public_input_hash_vector.json");
@@ -145,7 +145,7 @@ pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
         external_data_hash: fe_at(&vector, "external_data_hash"),
         public_slot_assets: &public_slot_assets,
         public_slot_amounts: &public_slot_amounts,
-        zone_program_id: fe_at(&vector, "zone_program_id"),
+        ring_program_id: fe_at(&vector, "ring_program_id"),
         signer_pk_hashes: &signer_pk_hashes,
         allow_dummy_inputs: fe_at(&vector, "allow_dummy_inputs"),
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),
@@ -179,7 +179,7 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
             .collect(),
         interface_transfers: vec![],
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: (11..=13)
             .map(|tag| TransactOutput {
                 utxo_hash: small_fe(tag),
@@ -195,7 +195,7 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
     let mut derived =
         TransactProofInputs::new(CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8));
     derived.external_data_hash = small_fe(0x62);
-    derived.zone_program_id = small_fe(0x64);
+    derived.ring_program_id = small_fe(0x64);
     derived.allow_dummy_inputs = small_fe(1);
     derived.public_slot_amounts = [801, -901, 0];
     derived.unique_owner_signer_count = unique_signers;
@@ -226,8 +226,8 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
     for (circuit, signer_width, unique_signers, binds_output_owners) in [
         (CircuitId::ConfidentialEddsa(2, 3, 3), 3usize, 2u8, true),
-        (CircuitId::ZoneEddsa(2, 3, 3), 3, 2, true),
-        (CircuitId::ZoneAuthority(2, 3, 3), 1, 1, false),
+        (CircuitId::RingEddsa(2, 3, 3), 3, 2, true),
+        (CircuitId::RingAuthority(2, 3, 3), 1, 1, false),
     ] {
         let owned = ix_data(circuit);
         let bytes = owned.serialize().expect("serialize transact ix");
@@ -273,7 +273,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
                 .get(..N_PUBLIC_SLOTS)
                 .expect("slot assets"),
             public_slot_amounts: &slot_amount_fields,
-            zone_program_id: derived.zone_program_id,
+            ring_program_id: derived.ring_program_id,
             signer_pk_hashes: &signer_run,
             allow_dummy_inputs: derived.allow_dummy_inputs,
             output_owner_pk_hashes: binds_output_owners.then_some(

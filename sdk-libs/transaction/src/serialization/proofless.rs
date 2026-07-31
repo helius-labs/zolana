@@ -13,7 +13,7 @@ use crate::{
 pub struct ProoflessEncode {
     pub owner_hash: [u8; 32],
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
 }
 
 pub struct Proofless;
@@ -34,8 +34,8 @@ impl UtxoSerialization for Proofless {
 
     fn into_utxos(output: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
         let mut records = Vec::new();
-        if let Some(zone_data) = output.zone_data {
-            records.push(DataRecord::ZoneData(zone_data));
+        if let Some(ring_data) = output.ring_data {
+            records.push(DataRecord::RingData(ring_data));
         }
         if let Some(utxo_data) = output.utxo_data {
             records.push(DataRecord::UtxoData(utxo_data));
@@ -48,7 +48,7 @@ impl UtxoSerialization for Proofless {
             asset: Address::new_from_array(output.asset),
             amount: output.amount,
             blinding: output.blinding,
-            zone_program_id: output.zone_program_id.map(Address::new_from_array),
+            ring_program_id: output.ring_program_id.map(Address::new_from_array),
             data: Data::new(records),
         }])
     }
@@ -66,9 +66,9 @@ impl UtxoSerialization for Proofless {
             amount: utxo.amount,
             data_hash: cx.data_hash,
             utxo_data: utxo.data.utxo_data().map(<[u8]>::to_vec),
-            zone_program_id: utxo.zone_program_id.map(|address| address.to_bytes()),
-            zone_data_hash: cx.zone_data_hash,
-            zone_data: utxo.data.zone_data().map(<[u8]>::to_vec),
+            ring_program_id: utxo.ring_program_id.map(|address| address.to_bytes()),
+            ring_data_hash: cx.ring_data_hash,
+            ring_data: utxo.data.ring_data().map(<[u8]>::to_vec),
             memo: utxo.data.memo().map(<[u8]>::to_vec),
         })
     }
@@ -97,19 +97,19 @@ mod tests {
             asset: SOL_MINT,
             amount: 42,
             blinding: [3u8; 32],
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::new(vec![DataRecord::Memo(b"gm".to_vec())]),
         };
         let assets = AssetRegistry::default();
         let owner_cx = OwnerCx {
             owner,
             assets: &assets,
-            zone_program_id: None,
+            ring_program_id: None,
         };
         let encode_cx = ProoflessEncode {
             owner_hash: [0u8; 32],
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
         };
 
         let plaintext = Proofless::from_utxos(&[utxo], &owner_cx, &encode_cx).unwrap();

@@ -20,10 +20,10 @@ const CREATE_ASSET_COUNTER_CU_CEILING: u64 = 14_000; // observed 4_600
 const CREATE_SPL_INTERFACE_CU_CEILING: u64 = 23_000; // observed 7_638
 const DEPOSIT_SOL_CU_CEILING: u64 = 90_000; // observed 38_393
 const DEPOSIT_SPL_CU_CEILING: u64 = 100_000; // observed 39_424
-const CREATE_ZONE_CONFIG_CU_CEILING: u64 = 20_000; // observed 6_658
-const UPDATE_ZONE_CONFIG_CU_CEILING: u64 = 450; // observed 141
-const ZONE_DEPOSIT_SOL_CU_CEILING: u64 = 120_000; // observed 47_441
-const UPDATE_ZONE_CONFIG_OWNER_CU_CEILING: u64 = 700; // observed 218
+const CREATE_RING_CONFIG_CU_CEILING: u64 = 20_000; // observed 6_658
+const UPDATE_RING_CONFIG_CU_CEILING: u64 = 450; // observed 141
+const RING_DEPOSIT_SOL_CU_CEILING: u64 = 120_000; // observed 47_441
+const UPDATE_RING_CONFIG_OWNER_CU_CEILING: u64 = 700; // observed 218
 
 #[track_caller]
 fn assert_last_under(test: &ZolanaProgramTest, operation: &str, limit: u64) {
@@ -66,8 +66,8 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
             UpdateProtocolConfigData::TreeCreationPermissionless(true),
         ),
         (
-            "update zone permission",
-            UpdateProtocolConfigData::ZoneCreationPermissionless(true),
+            "update ring permission",
+            UpdateProtocolConfigData::RingCreationPermissionless(true),
         ),
         (
             "update SPL permission",
@@ -82,8 +82,8 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
             UpdateProtocolConfigData::ForesterAuthority(authority.pubkey().to_bytes().into()),
         ),
         (
-            "update zone authority",
-            UpdateProtocolConfigData::ZoneCreationAuthority(authority.pubkey().to_bytes().into()),
+            "update ring authority",
+            UpdateProtocolConfigData::RingCreationAuthority(authority.pubkey().to_bytes().into()),
         ),
         (
             "update protocol authority",
@@ -139,29 +139,29 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         .expect("deposit SPL");
     assert_last_under(&test, "deposit SPL", DEPOSIT_SPL_CU_CEILING);
 
-    test.load_zone_test_program()
-        .expect("load zone test program");
-    let zone_config = test
-        .create_zone_config(&authority, &authority.pubkey(), true)
-        .expect("create zone config");
-    assert_last_under(&test, "create zone config", CREATE_ZONE_CONFIG_CU_CEILING);
-    test.update_zone_config(&authority, &zone_config, false)
-        .expect("update zone config");
-    assert_last_under(&test, "update zone config", UPDATE_ZONE_CONFIG_CU_CEILING);
-    test.update_zone_config(&authority, &zone_config, true)
-        .expect("re-enable zone config");
+    test.load_ring_test_program()
+        .expect("load ring test program");
+    let ring_config = test
+        .create_ring_config(&authority, &authority.pubkey(), true)
+        .expect("create ring config");
+    assert_last_under(&test, "create ring config", CREATE_RING_CONFIG_CU_CEILING);
+    test.update_ring_config(&authority, &ring_config, false)
+        .expect("update ring config");
+    assert_last_under(&test, "update ring config", UPDATE_RING_CONFIG_CU_CEILING);
+    test.update_ring_config(&authority, &ring_config, true)
+        .expect("re-enable ring config");
 
-    let zone_data = test.zone_sol_shield_data(1_000_000, [5; 32], [6; 32]);
-    test.zone_deposit(&tree.pubkey(), &depositor, &zone_data)
-        .expect("zone deposit SOL");
-    assert_last_under(&test, "zone deposit SOL", ZONE_DEPOSIT_SOL_CU_CEILING);
+    let ring_data = test.ring_sol_shield_data(1_000_000, [5; 32], [6; 32]);
+    test.ring_deposit(&tree.pubkey(), &depositor, &ring_data)
+        .expect("ring deposit SOL");
+    assert_last_under(&test, "ring deposit SOL", RING_DEPOSIT_SOL_CU_CEILING);
 
-    let next_zone_owner = Keypair::new();
-    test.update_zone_config_owner(&authority, &zone_config, &next_zone_owner)
-        .expect("rotate zone config owner");
+    let next_ring_owner = Keypair::new();
+    test.update_ring_config_owner(&authority, &ring_config, &next_ring_owner)
+        .expect("rotate ring config owner");
     assert_last_under(
         &test,
-        "update zone config owner",
-        UPDATE_ZONE_CONFIG_OWNER_CU_CEILING,
+        "update ring config owner",
+        UPDATE_RING_CONFIG_OWNER_CU_CEILING,
     );
 }

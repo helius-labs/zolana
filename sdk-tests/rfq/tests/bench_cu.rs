@@ -357,7 +357,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         asset: SOL_MINT,
         amount: SELL_SOL,
         blinding: random_blinding(),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let taker_usdc_utxo = Utxo {
@@ -365,7 +365,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         asset: usdc_mint,
         amount: BUY_USDC,
         blinding: random_blinding(),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 

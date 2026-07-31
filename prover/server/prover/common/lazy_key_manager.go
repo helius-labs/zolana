@@ -235,21 +235,21 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	switch circuitType {
 	case TransferConfidentialCircuitType:
 		prefix = "transfer_confidential"
-	case TransferZoneCircuitType:
-		prefix = "transfer_zone"
-	case TransferP256ZoneCircuitType:
-		prefix = "transfer_p256_zone"
-	case TransferZoneAuthorityCircuitType:
-		prefix = "transfer_zone_authority"
+	case TransferRingCircuitType:
+		prefix = "transfer_ring"
+	case TransferP256RingCircuitType:
+		prefix = "transfer_p256_ring"
+	case TransferRingAuthorityCircuitType:
+		prefix = "transfer_ring_authority"
 	case MergeCircuitType:
 		// Merge has the single fixed 8-in/1-out shape (see prover/merge).
 		if nInputs == 8 && nOutputs == 1 {
 			return m.keyPath("merge_8_1.key")
 		}
 		return ""
-	case MergeZoneCircuitType:
+	case MergeRingCircuitType:
 		if nInputs == 8 && nOutputs == 1 {
-			return m.keyPath("merge_zone_8_1.key")
+			return m.keyPath("merge_ring_8_1.key")
 		}
 		return ""
 	default:

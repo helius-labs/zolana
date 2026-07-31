@@ -1,4 +1,4 @@
-package customzone
+package customring
 
 import (
 	"math/big"

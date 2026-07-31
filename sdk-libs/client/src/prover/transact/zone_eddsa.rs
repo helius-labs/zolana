@@ -1,9 +1,9 @@
-//! High-level builder for the eddsa-rail zone-transfer proof. This is the
-//! ed25519-only (Solana) confidential rail bound to a zone program. It binds
-//! the public signer transcript and binds the zone program
-//! like [`ZoneAuthorityProver`](crate::prover::zone_authority::ZoneAuthorityProver).
+//! High-level builder for the eddsa-rail ring-transfer proof. This is the
+//! ed25519-only (Solana) confidential rail bound to a ring program. It binds
+//! the public signer transcript and binds the ring program
+//! like [`RingAuthorityProver`](crate::prover::ring_authority::RingAuthorityProver).
 //!
-//! Unlike the zone-authority variant, input owners are privately matched
+//! Unlike the ring-authority variant, input owners are privately matched
 //! against the public Solana signer set. Output owner hashes remain private.
 
 use num_bigint::BigUint;
@@ -27,22 +27,22 @@ use crate::{
     },
 };
 
-/// Confidential zone-bound transfer over the ed25519-only rail.
-pub struct ZoneTransferProver {
+/// Confidential ring-bound transfer over the ed25519-only rail.
+pub struct RingTransferProver {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
     pub public_transfers: PublicTransfers,
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
-    /// The zone program; bound to the public `zone_program_id` and to each
-    /// non-dummy UTXO's zone field by the circuit.
-    pub zone_program_id: Option<Address>,
+    /// The ring program; bound to the public `ring_program_id` and to each
+    /// non-dummy UTXO's ring field by the circuit.
+    pub ring_program_id: Option<Address>,
     pub shape: Option<Shape>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ZoneTransferProofResult {
+pub struct RingTransferProofResult {
     pub inputs: TransferInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
@@ -51,8 +51,8 @@ pub struct ZoneTransferProofResult {
     pub input_root_indices: Vec<(u16, u16)>,
 }
 
-impl ZoneTransferProver {
-    pub fn build(self) -> Result<ZoneTransferProofResult, ClientError> {
+impl RingTransferProver {
+    pub fn build(self) -> Result<RingTransferProofResult, ClientError> {
         let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.n_inputs() + 1 {
             return Err(ClientError::WitnessInputCountMismatch {
@@ -73,10 +73,10 @@ impl ZoneTransferProver {
         )
         .hash()?;
 
-        // Bind the zone program: zone_program_id is the zone's pk_field. The UTXOs
-        // themselves carry zone_program_id; the circuit binds each non-dummy UTXO's
-        // zone field to this public input.
-        let zone_program_id = program_id_proof_input_hash(&self.zone_program_id)?;
+        // Bind the ring program: ring_program_id is the ring's pk_field. The UTXOs
+        // themselves carry ring_program_id; the circuit binds each non-dummy UTXO's
+        // ring field to this public input.
+        let ring_program_id = program_id_proof_input_hash(&self.ring_program_id)?;
 
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
@@ -86,7 +86,7 @@ impl ZoneTransferProver {
             private_tx: &private_tx,
             external_data_hash: &external_data_hash,
             public_transfers: &self.public_transfers,
-            zone_program_id: &zone_program_id,
+            ring_program_id: &ring_program_id,
             allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&published_output_owner_pk_hashes),
@@ -100,7 +100,7 @@ impl ZoneTransferProver {
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),
             public_amounts: self.public_transfers.amounts.map(|amount| be(&amount)),
-            zone_program_id: be(&zone_program_id),
+            ring_program_id: be(&ring_program_id),
             signer_pk_hashes: self.signer_pk_hashes.iter().map(be).collect(),
             allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
             published_output_owner_pk_hashes: published_output_owner_pk_hashes
@@ -110,7 +110,7 @@ impl ZoneTransferProver {
             public_input_hash: be(&public_input),
         };
 
-        Ok(ZoneTransferProofResult {
+        Ok(RingTransferProofResult {
             inputs,
             public_input_hash: public_input,
             nullifiers: assembled_inputs.nullifiers,

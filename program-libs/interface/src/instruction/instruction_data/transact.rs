@@ -2,7 +2,7 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 pub use zolana_event::{is_confidential_encrypted_output, MessageData, OutputUtxo};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, ZoneP256ProofData};
+pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData};
 use crate::{error::ShieldedPoolError, MAX_INTERFACE_TRANSFERS};
 
 /// The compressed Groth16 proof carried by a `transact` instruction.
@@ -88,7 +88,7 @@ pub fn validate_interface_transfers(
 /// How an output's owner tag is carried on the wire (spec: `transact`
 /// `OwnerTag`). The resolved 32-byte value is hashed into the OWNER public input
 /// and republished as the event `view_tag`. `Inline` embeds the tag directly
-/// (recipient signing pubkey, zone HKDF tag, dummy tag); `Account` indexes the
+/// (recipient signing pubkey, ring HKDF tag, dummy tag); `Account` indexes the
 /// raw account list so an address-lookup table can compress self-owned outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
@@ -130,12 +130,12 @@ pub struct TransactIxData {
     pub inputs: Vec<InputUtxo>,
     #[wincode(with = "containers::Vec<InterfaceTransfer, FixIntLen<u8>>")]
     pub interface_transfers: Vec<InterfaceTransfer>,
-    /// Optional transaction-level application- and zone-specific external data
+    /// Optional transaction-level application- and ring-specific external data
     /// digests folded into `external_data_hash`; `None` (`[0; 32]`) for a
-    /// default-zone `transact`. Distinct from the per-UTXO `data_hash` /
-    /// `zone_data_hash` in the UTXO body.
+    /// default-ring `transact`. Distinct from the per-UTXO `data_hash` /
+    /// `ring_data_hash` in the UTXO body.
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>, // TODO: check whether we use this at all.
+    pub ring_data_hash: Option<[u8; 32]>, // TODO: check whether we use this at all.
     /// All `M` outputs in tree-append order (SPL change, SOL change, then
     /// recipients / dummies). Each carries its commitment, owner tag, and an
     /// optional ciphertext. Commitments are appended to the UTXO tree and folded
@@ -206,7 +206,7 @@ pub struct TransactIxDataRef<'a> {
     #[wincode(with = "containers::Vec<InterfaceTransfer, FixIntLen<u8>>")]
     pub interface_transfers: Vec<InterfaceTransfer>,
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
     #[wincode(with = "containers::Vec<TransactOutputRef<'a>, FixIntLen<u8>>")]
     pub outputs: Vec<TransactOutputRef<'a>>,
     #[wincode(with = "containers::Vec<OutputDataRef<'a>, FixIntLen<u8>>")]
@@ -334,9 +334,9 @@ pub struct ExternalDataHash<'a, M: OutputDataBytes> {
     /// Zk programs can commit their data to the external data hash. The option
     /// presence is bound separately from the value.
     pub data_hash: Option<[u8; 32]>,
-    /// Zone programs can commit their data to the external data hash. The
+    /// Ring programs can commit their data to the external data hash. The
     /// option presence is bound separately from the value.
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
     /// Shared transaction viewing key used to derive every output's encryption
     /// key. Binding it prevents an intermediary from making otherwise-valid
     /// ciphertexts undecryptable.
@@ -400,8 +400,8 @@ impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
         }
         preimage.push(u8::from(self.data_hash.is_some()));
         preimage.extend_from_slice(&self.data_hash.unwrap_or([0u8; 32]));
-        preimage.push(u8::from(self.zone_data_hash.is_some()));
-        preimage.extend_from_slice(&self.zone_data_hash.unwrap_or([0u8; 32]));
+        preimage.push(u8::from(self.ring_data_hash.is_some()));
+        preimage.extend_from_slice(&self.ring_data_hash.unwrap_or([0u8; 32]));
         preimage.extend_from_slice(self.tx_viewing_pk);
         preimage.extend_from_slice(self.salt);
         preimage.extend_from_slice(&(self.outputs.len() as u16).to_be_bytes());
@@ -437,8 +437,8 @@ mod tests {
     fn circuit_id_wire_layout_and_unknown_rejection() {
         let vanilla_ids = [
             CircuitId::ConfidentialEddsa(1, 2, 3),
-            CircuitId::ZoneEddsa(2, 3, 3),
-            CircuitId::ZoneAuthority(4, 4, 3),
+            CircuitId::RingEddsa(2, 3, 3),
+            CircuitId::RingAuthority(4, 4, 3),
         ];
         for (value, id) in vanilla_ids.into_iter().enumerate() {
             let bytes = wincode::serialize(&id).unwrap();
@@ -456,11 +456,11 @@ mod tests {
             commitment: [4u8; 32],
             commitment_pok: [5u8; 32],
         };
-        let proof_data = crate::verifying_keys::ZoneP256ProofData {
+        let proof_data = crate::verifying_keys::RingP256ProofData {
             bsb22_commitment: commitment,
             default_owner_tag: None,
         };
-        let p256 = CircuitId::ZoneP256(2, 3, 3, proof_data);
+        let p256 = CircuitId::RingP256(2, 3, 3, proof_data);
         let bytes = wincode::serialize(&p256).unwrap();
         let mut expected = 3u16.to_le_bytes().to_vec();
         expected.extend_from_slice(&[2, 3, 3]);
@@ -474,11 +474,11 @@ mod tests {
             p256
         );
 
-        let tagged = CircuitId::ZoneP256(
+        let tagged = CircuitId::RingP256(
             2,
             3,
             3,
-            ZoneP256ProofData {
+            RingP256ProofData {
                 bsb22_commitment: commitment,
                 default_owner_tag: Some([7u8; 32]),
             },
@@ -560,7 +560,7 @@ mod tests {
                 },
             ],
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk: [4u8; 33],
             salt: [6u8; 16],
             outputs: mixed_outputs(),
@@ -583,7 +583,7 @@ mod tests {
         assert_eq!(view.inputs, owned.inputs);
         assert_eq!(view.interface_transfers, owned.interface_transfers);
         assert_eq!(view.data_hash, owned.data_hash);
-        assert_eq!(view.zone_data_hash, owned.zone_data_hash);
+        assert_eq!(view.ring_data_hash, owned.ring_data_hash);
         assert_eq!(view.outputs.len(), owned.outputs.len());
         for (got, want) in view.outputs.iter().zip(owned.outputs.iter()) {
             assert_eq!(got.utxo_hash, &want.utxo_hash);
@@ -714,7 +714,7 @@ mod tests {
             expiry_unix_ts: 3,
             interface_transfers: &resolved,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk: &[0u8; 33],
             salt: &[0u8; 16],
             outputs: &[],
@@ -776,7 +776,7 @@ mod tests {
             expiry_unix_ts: 0,
             interface_transfers: &[],
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk: &[0u8; 33],
             salt: &[0u8; 16],
             outputs,
@@ -792,7 +792,7 @@ mod tests {
             expiry_unix_ts: 3,
             interface_transfers,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk: &[0u8; 33],
             salt: &[0u8; 16],
             outputs: &[],
@@ -804,7 +804,7 @@ mod tests {
 
     fn hash_with_encryption_context(
         data_hash: Option<[u8; 32]>,
-        zone_data_hash: Option<[u8; 32]>,
+        ring_data_hash: Option<[u8; 32]>,
         tx_viewing_pk: &[u8; 33],
         salt: &[u8; 16],
     ) -> [u8; 32] {
@@ -813,7 +813,7 @@ mod tests {
             expiry_unix_ts: 0,
             interface_transfers: &[],
             data_hash,
-            zone_data_hash,
+            ring_data_hash,
             tx_viewing_pk,
             salt,
             outputs: &[],
@@ -963,7 +963,7 @@ mod tests {
             expiry_unix_ts: 1_234_567_890,
             interface_transfers: &transfers,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk: &tx_viewing_pk,
             salt: &salt,
             outputs: &outputs,

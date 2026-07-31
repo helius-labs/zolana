@@ -11,11 +11,11 @@ use crate::{
     utxo::{Blinding, ProofInputUtxo, Utxo},
 };
 
-/// Canonical ordering key for data records: `ZoneData` < `UtxoData` < `Memo`,
+/// Canonical ordering key for data records: `RingData` < `UtxoData` < `Memo`,
 /// matching `Data::validate`.
 fn canonical_data_order(record: &DataRecord) -> u8 {
     match record {
-        DataRecord::ZoneData(_) => 0,
+        DataRecord::RingData(_) => 0,
         DataRecord::UtxoData(_) => 1,
         DataRecord::Memo(_) => 2,
     }
@@ -25,7 +25,7 @@ fn canonical_data_order(record: &DataRecord) -> u8 {
 pub struct InputUtxo {
     pub utxo: Utxo,
     pub nullifier_pk: [u8; 32],
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
     pub data_hash: Option<[u8; 32]>,
 }
 
@@ -34,7 +34,7 @@ impl InputUtxo {
         self.utxo.hash(
             &self.nullifier_pk,
             &self.data_hash.unwrap_or_default(),
-            &self.zone_data_hash.unwrap_or_default(),
+            &self.ring_data_hash.unwrap_or_default(),
         )
     }
 }
@@ -44,8 +44,8 @@ pub struct SppProofOutputUtxo {
     pub asset: Address,
     pub amount: u64,
     pub blinding: Blinding,
-    pub zone_program_id: Option<Address>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_program_id: Option<Address>,
+    pub ring_data_hash: Option<[u8; 32]>,
     pub data_hash: Option<[u8; 32]>,
     pub owner_address: Option<ShieldedAddress>,
     pub owner_tag: Option<[u8; 32]>,
@@ -68,33 +68,33 @@ impl SppProofOutputUtxo {
         })
     }
 
-    pub fn with_zone_data(
+    pub fn with_ring_data(
         mut self,
-        zone_program_id: Address,
-        zone_data: Vec<u8>,
-        zone_data_hash: [u8; 32],
+        ring_program_id: Address,
+        ring_data: Vec<u8>,
+        ring_data_hash: [u8; 32],
     ) -> Self {
-        self.zone_data_hash = Some(zone_data_hash);
-        self.zone_program_id = Some(zone_program_id);
-        self.set_data_record(DataRecord::ZoneData(zone_data));
+        self.ring_data_hash = Some(ring_data_hash);
+        self.ring_program_id = Some(ring_program_id);
+        self.set_data_record(DataRecord::RingData(ring_data));
         self
     }
 
-    pub fn with_zone_program_id(mut self, zone_program_id: Address) -> Self {
-        self.zone_program_id = Some(zone_program_id);
+    pub fn with_ring_program_id(mut self, ring_program_id: Address) -> Self {
+        self.ring_program_id = Some(ring_program_id);
         self
     }
 
-    /// Bind an output to policy-zone state when only its commitment hash belongs
-    /// in the merge witness. The zone is responsible for making the corresponding
+    /// Bind an output to policy-ring state when only its commitment hash belongs
+    /// in the merge witness. The ring is responsible for making the corresponding
     /// preimage available to the owner according to its policy protocol.
-    pub fn with_zone_data_hash(
+    pub fn with_ring_data_hash(
         mut self,
-        zone_program_id: Address,
-        zone_data_hash: [u8; 32],
+        ring_program_id: Address,
+        ring_data_hash: [u8; 32],
     ) -> Self {
-        self.zone_program_id = Some(zone_program_id);
-        self.zone_data_hash = Some(zone_data_hash);
+        self.ring_program_id = Some(ring_program_id);
+        self.ring_data_hash = Some(ring_data_hash);
         self
     }
 
@@ -106,7 +106,7 @@ impl SppProofOutputUtxo {
 
     /// Attach a free-form memo to the output. The memo is encrypted into the
     /// recipient's note but not bound by the commitment, so unlike
-    /// `with_utxo_data`/`with_zone_data` it sets no `data_hash`.
+    /// `with_utxo_data`/`with_ring_data` it sets no `data_hash`.
     pub fn with_memo(mut self, memo: Vec<u8>) -> Self {
         self.set_data_record(DataRecord::Memo(memo));
         self
@@ -151,9 +151,9 @@ impl TryFrom<&SppProofOutputUtxo> for ProofInputUtxo {
             &output.blinding,
         )?
         .with_data_hash(output.data_hash.unwrap_or_default())
-        .with_zone(
-            output.zone_data_hash.unwrap_or_default(),
-            &output.zone_program_id,
+        .with_ring(
+            output.ring_data_hash.unwrap_or_default(),
+            &output.ring_program_id,
         )
     }
 }

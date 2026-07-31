@@ -10366,7 +10366,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zone-test-program"
+name = "ring-test-program"
 version = "0.1.0"
 dependencies = [
  "anyhow",

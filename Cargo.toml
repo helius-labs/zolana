@@ -16,7 +16,7 @@ members = [
     "program-tests/user-registry",
     "programs/shielded-pool",
     "programs/user-registry",
-    "program-tests/zone-test-program",
+    "program-tests/ring-test-program",
     "bench/bloom-filter",
     "bench/tree",
     "cli",

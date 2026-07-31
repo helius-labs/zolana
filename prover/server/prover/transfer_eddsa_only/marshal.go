@@ -16,8 +16,8 @@ type UtxoParamsJSON struct {
 	Amount        string `json:"amount"`
 	Blinding      string `json:"blinding"`
 	DataHash      string `json:"dataHash"`
-	ZoneDataHash  string `json:"zoneDataHash"`
-	ZoneProgramID string `json:"zoneProgramId"`
+	RingDataHash  string `json:"ringDataHash"`
+	RingProgramID string `json:"ringProgramId"`
 }
 
 type InputParamsJSON struct {
@@ -54,7 +54,7 @@ type TransferParametersJSON struct {
 	PrivateTxHash                string             `json:"privateTxHash"`
 	PublicAssets                 []string           `json:"publicAssets"`
 	PublicAmounts                []string           `json:"publicAmounts"`
-	ZoneProgramID                string             `json:"zoneProgramId"`
+	RingProgramID                string             `json:"ringProgramId"`
 	SignerPkHashes               []string           `json:"signerPkHashes"`
 	AllowDummyInputs             string             `json:"allowDummyInputs"`
 	PublishedOutputOwnerPkHashes []string           `json:"publishedOutputOwnerPkHashes"`
@@ -83,7 +83,7 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		PrivateTxHash:                feHex(p.PrivateTxHash),
 		PublicAssets:                 feHexSlice(p.PublicAssets),
 		PublicAmounts:                feHexSlice(p.PublicAmounts),
-		ZoneProgramID:                feHex(p.ZoneProgramID),
+		RingProgramID:                feHex(p.RingProgramID),
 		SignerPkHashes:               feHexSlice(p.SignerPkHashes),
 		AllowDummyInputs:             feHex(p.AllowDummyInputs),
 		PublishedOutputOwnerPkHashes: feHexSlice(p.PublishedOutputOwnerPkHashes),
@@ -147,7 +147,7 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PublicAmounts, err = feFromHexSlice(params.PublicAmounts); err != nil {
 		return err
 	}
-	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
+	if p.RingProgramID, err = feFromHex(params.RingProgramID); err != nil {
 		return err
 	}
 	if p.SignerPkHashes, err = feFromHexSlice(params.SignerPkHashes); err != nil {
@@ -242,8 +242,8 @@ func utxoParamsToJSON(u UtxoParams) UtxoParamsJSON {
 		Amount:        feHex(u.Amount),
 		Blinding:      feHex(u.Blinding),
 		DataHash:      feHex(u.DataHash),
-		ZoneDataHash:  feHex(u.ZoneDataHash),
-		ZoneProgramID: feHex(u.ZoneProgramID),
+		RingDataHash:  feHex(u.RingDataHash),
+		RingProgramID: feHex(u.RingProgramID),
 	}
 }
 
@@ -268,10 +268,10 @@ func utxoParamsFromJSON(u UtxoParamsJSON) (UtxoParams, error) {
 	if out.DataHash, err = feFromHex(u.DataHash); err != nil {
 		return out, err
 	}
-	if out.ZoneDataHash, err = feFromHex(u.ZoneDataHash); err != nil {
+	if out.RingDataHash, err = feFromHex(u.RingDataHash); err != nil {
 		return out, err
 	}
-	if out.ZoneProgramID, err = feFromHex(u.ZoneProgramID); err != nil {
+	if out.RingProgramID, err = feFromHex(u.RingProgramID); err != nil {
 		return out, err
 	}
 	return out, nil

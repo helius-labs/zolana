@@ -67,16 +67,16 @@ name = "merge_proving"
 path = "tests/merge/main.rs"
 
 [[test]]
-name = "zone_authority_proving"
-path = "tests/zone_authority/main.rs"
+name = "ring_authority_proving"
+path = "tests/ring_authority/main.rs"
 
 [[test]]
-name = "merge_zone_proving"
-path = "tests/merge_zone/main.rs"
+name = "merge_ring_proving"
+path = "tests/merge_ring/main.rs"
 
 [[test]]
-name = "zone_transfer_proving"
-path = "tests/zone_transfer/main.rs"
+name = "ring_transfer_proving"
+path = "tests/ring_transfer/main.rs"
 
 [[test]]
 name = "transfer_dummy"

@@ -13,11 +13,11 @@ use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::{
     deposit::{
-        DepositEntry, DepositIxData, EncryptedZoneDepositData, UtxoData, ZoneDepositEntry,
-        ZoneDepositIxData,
+        DepositEntry, DepositIxData, EncryptedRingDepositData, UtxoData, RingDepositEntry,
+        RingDepositIxData,
     },
     merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
-    merge_zone::{MergeZoneIxData, MergeZoneIxDataRef},
+    merge_ring::{MergeRingIxData, MergeRingIxDataRef},
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
         TransactOutput, TransactProof,
@@ -38,8 +38,8 @@ mod strategies {
         (0u8..3, any::<u8>(), any::<u8>(), any::<u8>()).prop_map(
             |(variant, n_in, n_out, n_slots)| match variant {
                 0 => CircuitId::ConfidentialEddsa(n_in, n_out, n_slots),
-                1 => CircuitId::ZoneEddsa(n_in, n_out, n_slots),
-                _ => CircuitId::ZoneAuthority(n_in, n_out, n_slots),
+                1 => CircuitId::RingEddsa(n_in, n_out, n_slots),
+                _ => CircuitId::RingAuthority(n_in, n_out, n_slots),
             },
         )
     }
@@ -122,7 +122,7 @@ mod strategies {
             .prop_map(
                 |(
                     (expiry_unix_ts, private_tx_hash, circuit, tx_viewing_pk, salt, proof),
-                    (inputs, interface_transfers, data_hash, zone_data_hash, outputs, messages),
+                    (inputs, interface_transfers, data_hash, ring_data_hash, outputs, messages),
                 )| TransactIxData {
                     expiry_unix_ts,
                     private_tx_hash,
@@ -133,7 +133,7 @@ mod strategies {
                     inputs,
                     interface_transfers,
                     data_hash,
-                    zone_data_hash,
+                    ring_data_hash,
                     outputs,
                     messages,
                 },
@@ -191,7 +191,7 @@ fn assert_ref_matches_owned(
     prop_assert_eq!(&view.inputs, &owned.inputs);
     prop_assert_eq!(&view.interface_transfers, &owned.interface_transfers);
     prop_assert_eq!(view.data_hash, owned.data_hash);
-    prop_assert_eq!(view.zone_data_hash, owned.zone_data_hash);
+    prop_assert_eq!(view.ring_data_hash, owned.ring_data_hash);
     prop_assert_eq!(view.outputs.len(), owned.outputs.len());
     for (got, want) in view.outputs.iter().zip(owned.outputs.iter()) {
         prop_assert_eq!(got.utxo_hash, &want.utxo_hash);
@@ -217,10 +217,10 @@ proptest! {
         let _ = TransactIxDataRef::from_bytes(&bytes);
         let _ = MergeTransactIxData::deserialize(&bytes);
         let _ = MergeTransactIxDataRef::from_bytes(&bytes);
-        let _ = MergeZoneIxData::deserialize(&bytes);
-        let _ = MergeZoneIxDataRef::from_bytes(&bytes);
+        let _ = MergeRingIxData::deserialize(&bytes);
+        let _ = MergeRingIxDataRef::from_bytes(&bytes);
         let _ = DepositIxData::deserialize(&bytes);
-        let _ = ZoneDepositIxData::deserialize(&bytes);
+        let _ = RingDepositIxData::deserialize(&bytes);
     }
 
     /// The owned exact-length decoder and the zero-copy view agree
@@ -308,24 +308,24 @@ proptest! {
         );
     }
 
-    /// The `merge_zone` wrapper enforces the embedded merge shape through its
+    /// The `merge_ring` wrapper enforces the embedded merge shape through its
     /// own decoder.
     #[test]
-    fn merge_zone_wrapper_enforces_the_embedded_shape(
+    fn merge_ring_wrapper_enforces_the_embedded_shape(
         merge in strategies::merge_ix_data(),
         view_tag in any::<[u8; 32]>(),
         drop_last_nullifier in any::<bool>(),
     ) {
-        let mut owned = MergeZoneIxData {
-            output_zone_data_hash: view_tag,
+        let mut owned = MergeRingIxData {
+            output_ring_data_hash: view_tag,
             merge,
         };
         if drop_last_nullifier {
             owned.merge.nullifiers.pop();
         }
-        let bytes = owned.serialize().expect("serialize merge_zone ix");
+        let bytes = owned.serialize().expect("serialize merge_ring ix");
         prop_assert_eq!(
-            MergeZoneIxDataRef::from_bytes(&bytes).is_ok(),
+            MergeRingIxDataRef::from_bytes(&bytes).is_ok(),
             !drop_last_nullifier
         );
     }
@@ -341,8 +341,8 @@ proptest! {
         amount in any::<u64>(),
         utxo_data in prop::option::of((any::<[u8; 32]>(), prop::collection::vec(any::<u8>(), 0..300))),
         memo in prop::option::of(prop::collection::vec(any::<u8>(), 0..300)),
-        zone_data_hash in any::<[u8; 32]>(),
-        zone_data in prop::collection::vec(any::<u8>(), 0..300),
+        ring_data_hash in any::<[u8; 32]>(),
+        ring_data in prop::collection::vec(any::<u8>(), 0..300),
         cut in any::<prop::sample::Index>(),
         trailing in any::<u8>(),
     ) {
@@ -360,35 +360,35 @@ proptest! {
             assets: vec![],
             deposits: vec![entry.clone()],
         };
-        let zone_deposit = ZoneDepositIxData {
+        let ring_deposit = RingDepositIxData {
             assets: vec![],
-            deposits: vec![ZoneDepositEntry {
+            deposits: vec![RingDepositEntry {
                 asset_index: 0,
                 view_tag,
                 owner_utxo_hash: owner,
                 amount,
                 data_hash: utxo_data.map(|data| data.data_hash),
-                zone_data_hash,
-                encrypted: EncryptedZoneDepositData {
+                ring_data_hash,
+                encrypted: EncryptedRingDepositData {
                     tx_viewing_pk: [blinding[0]; 33],
                     salt: [blinding[1]; 16],
-                    ciphertext: zone_data,
+                    ciphertext: ring_data,
                 },
             }],
         };
         let deposit_bytes = deposit.serialize().expect("serialize deposit ix");
-        let zone_bytes = zone_deposit.serialize().expect("serialize zone deposit ix");
+        let ring_bytes = ring_deposit.serialize().expect("serialize ring deposit ix");
 
         let cut_at = cut.index(deposit_bytes.len());
         prop_assert!(DepositIxData::deserialize(deposit_bytes.get(..cut_at).unwrap_or_default()).is_err());
-        let cut_at = cut.index(zone_bytes.len());
-        prop_assert!(ZoneDepositIxData::deserialize(zone_bytes.get(..cut_at).unwrap_or_default()).is_err());
+        let cut_at = cut.index(ring_bytes.len());
+        prop_assert!(RingDepositIxData::deserialize(ring_bytes.get(..cut_at).unwrap_or_default()).is_err());
 
         let mut extended = deposit_bytes;
         extended.push(trailing);
         prop_assert!(DepositIxData::deserialize(&extended).is_err());
-        let mut extended = zone_bytes;
+        let mut extended = ring_bytes;
         extended.push(trailing);
-        prop_assert!(ZoneDepositIxData::deserialize(&extended).is_err());
+        prop_assert!(RingDepositIxData::deserialize(&extended).is_err());
     }
 }

@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
+	customring "zolana/prover/circuits/spp_transaction/custom"
 	. "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
@@ -15,127 +15,127 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-func MustNewCustomZoneAuthorityCircuit(shape Shape) *customzone.CustomZoneAuthorityCircuit {
-	circuit, err := customzone.NewCustomZoneAuthorityCircuit(shape)
+func MustNewCustomRingAuthorityCircuit(shape Shape) *customring.CustomRingAuthorityCircuit {
+	circuit, err := customring.NewCustomRingAuthorityCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
 	return circuit
 }
 
-func zoneAuthorityZone() *big.Int { return spptest.Fe(0x5a) }
+func ringAuthorityRing() *big.Int { return spptest.Fe(0x5a) }
 
-func TestCustomZoneAuthoritySolvesForSupportedShapes(t *testing.T) {
+func TestCustomRingAuthoritySolvesForSupportedShapes(t *testing.T) {
 	for _, shape := range protocol.SupportedShapes {
 		shape := shape
 		t.Run(shape.String(), func(t *testing.T) {
 			assert := test.NewAssert(t)
-			circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
-			assignment := buildZoneAuthorityAssignment(t, shape)
-			assert.SolvingSucceeded(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
+			circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+			assignment := buildRingAuthorityAssignment(t, shape)
+			assert.SolvingSucceeded(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
 		})
 	}
 }
 
-func TestCustomZoneAuthorityProves(t *testing.T) {
+func TestCustomRingAuthorityProves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
-	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
-	assignment := buildZoneAuthorityAssignment(t, shape)
+	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	assignment := buildRingAuthorityAssignment(t, shape)
 	assert.ProverSucceeded(
 		circuit,
-		asCustomZoneAuthority(assignment),
+		asCustomRingAuthority(assignment),
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
 	)
 }
 
-func TestCustomZoneAuthorityRejectsWrongNullifierSecret(t *testing.T) {
+func TestCustomRingAuthorityRejectsWrongNullifierSecret(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
-	assignment := buildZoneAuthorityAssignment(t, shape)
+	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	assignment := buildRingAuthorityAssignment(t, shape)
 	assignment.Inputs[0].NullifierSecret = spptest.Fe(12345)
-	refreshZoneAuthorityPublicInputHash(t, assignment)
+	refreshRingAuthorityPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestCustomZoneAuthorityRejectsDefaultZoneInput(t *testing.T) {
+func TestCustomRingAuthorityRejectsDefaultRingInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
-	assignment := buildZoneAuthorityAssignmentWithZone(t, shape, zoneAuthorityZone(), big.NewInt(0))
+	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	assignment := buildRingAuthorityAssignmentWithRing(t, shape, ringAuthorityRing(), big.NewInt(0))
 
-	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestCustomZoneAuthorityRejectsZeroZoneProgramID(t *testing.T) {
+func TestCustomRingAuthorityRejectsZeroRingProgramID(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
-	assignment := buildZoneAuthorityAssignmentWithZone(t, shape, big.NewInt(0), big.NewInt(0))
+	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	assignment := buildRingAuthorityAssignmentWithRing(t, shape, big.NewInt(0), big.NewInt(0))
 
-	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestCustomZoneAuthorityRejectsDefaultZoneOutput(t *testing.T) {
+func TestCustomRingAuthorityRejectsDefaultRingOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
-	zone := zoneAuthorityZone()
-	assignment := buildZoneAuthorityAssignmentZones(t, shape, zone, zone, big.NewInt(0))
+	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	ring := ringAuthorityRing()
+	assignment := buildRingAuthorityAssignmentRings(t, shape, ring, ring, big.NewInt(0))
 
-	assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
 }
 
-func TestCustomZoneAuthorityRejectsAddressInputs(t *testing.T) {
+func TestCustomRingAuthorityRejectsAddressInputs(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	for addressIndex := range shape.NInputs {
 		t.Run(fmt.Sprintf("input-%d", addressIndex), func(t *testing.T) {
 			assert := test.NewAssert(t)
-			circuit := MustNewCustomZoneAuthorityCircuit(Shape(shape))
-			assignment := buildZoneAuthorityAssignmentWithAddressInput(t, shape, addressIndex)
+			circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+			assignment := buildRingAuthorityAssignmentWithAddressInput(t, shape, addressIndex)
 
-			assert.SolvingFailed(circuit, asCustomZoneAuthority(assignment), test.WithCurves(ecc.BN254))
+			assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
 		})
 	}
 }
 
-func buildZoneAuthorityAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
+func buildRingAuthorityAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
-	zone := zoneAuthorityZone()
-	return buildZoneAuthorityAssignmentWithZone(t, shape, zone, zone)
+	ring := ringAuthorityRing()
+	return buildRingAuthorityAssignmentWithRing(t, shape, ring, ring)
 }
 
-func buildZoneAuthorityAssignmentWithZone(t testing.TB, shape protocol.Shape, publicZone, utxoZone *big.Int) *testAssignment {
+func buildRingAuthorityAssignmentWithRing(t testing.TB, shape protocol.Shape, publicRing, utxoRing *big.Int) *testAssignment {
 	t.Helper()
-	return buildZoneAuthorityAssignmentZones(t, shape, publicZone, utxoZone, utxoZone)
+	return buildRingAuthorityAssignmentRings(t, shape, publicRing, utxoRing, utxoRing)
 }
 
-func buildZoneAuthorityAssignmentZones(t testing.TB, shape protocol.Shape, publicZone, inputZone, outputZone *big.Int) *testAssignment {
+func buildRingAuthorityAssignmentRings(t testing.TB, shape protocol.Shape, publicRing, inputRing, outputRing *big.Int) *testAssignment {
 	t.Helper()
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	for i := range inputs {
-		inputs[i].ZoneProgramID = new(big.Int).Set(inputZone)
+		inputs[i].RingProgramID = new(big.Int).Set(inputRing)
 	}
 	for i := range outputs {
-		outputs[i].ZoneProgramID = new(big.Int).Set(outputZone)
+		outputs[i].RingProgramID = new(big.Int).Set(outputRing)
 	}
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
-	assignment.ZoneProgramID = new(big.Int).Set(publicZone)
-	refreshZoneAuthorityPublicInputHash(t, assignment)
+	assignment.RingProgramID = new(big.Int).Set(publicRing)
+	refreshRingAuthorityPublicInputHash(t, assignment)
 	return assignment
 }
 
-func buildZoneAuthorityAssignmentWithAddressInput(
+func buildRingAuthorityAssignmentWithAddressInput(
 	t testing.TB,
 	shape protocol.Shape,
 	addressIndex int,
 ) *testAssignment {
 	t.Helper()
-	zone := zoneAuthorityZone()
+	ring := ringAuthorityRing()
 	asset := protocol.SolAsset()
 	inputs := []protocol.Utxo{
 		sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(0)),
@@ -144,14 +144,14 @@ func buildZoneAuthorityAssignmentWithAddressInput(
 	inputs[1-addressIndex].Amount = spptest.Fe(100)
 	outputs := twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, asset, spptest.Fe(100)))
 	for i := range inputs {
-		inputs[i].ZoneProgramID = new(big.Int).Set(zone)
+		inputs[i].RingProgramID = new(big.Int).Set(ring)
 	}
 	for i := range outputs {
-		outputs[i].ZoneProgramID = new(big.Int).Set(zone)
+		outputs[i].RingProgramID = new(big.Int).Set(ring)
 	}
 
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputs, outputs)
-	assignment.ZoneProgramID = new(big.Int).Set(zone)
+	assignment.RingProgramID = new(big.Int).Set(ring)
 	makeAddressSlot(t, assignment, addressIndex, addressOwnerPkHash(t), spptest.Fe(int64(0xABCDEF+addressIndex)))
 
 	inputHashes := make([]*big.Int, shape.NInputs)
@@ -173,10 +173,10 @@ func buildZoneAuthorityAssignmentWithAddressInput(
 		addressHashes,
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
-	refreshZoneAuthorityPublicInputHash(t, assignment)
+	refreshRingAuthorityPublicInputHash(t, assignment)
 	return assignment
 }
 
-func refreshZoneAuthorityPublicInputHash(t testing.TB, assignment *testAssignment) {
+func refreshRingAuthorityPublicInputHash(t testing.TB, assignment *testAssignment) {
 	refreshPublicInputHashVariant(t, assignment, false, true)
 }

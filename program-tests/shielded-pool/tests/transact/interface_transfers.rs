@@ -33,7 +33,7 @@ fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         inputs: vec![eddsa_input_utxo(fe(101), 0), eddsa_input_utxo(fe(102), 0)],
         interface_transfers,
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: vec![
             inline_output([1u8; 32], [1u8; 32]),
             inline_output([2u8; 32], [2u8; 32]),

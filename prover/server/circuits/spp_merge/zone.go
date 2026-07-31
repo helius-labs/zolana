@@ -17,7 +17,7 @@ import (
 // 7. The output UTXO is derived completely deterministically from the
 // input UTXOs so that the owner can derive it without decrypting the transaction cipher text.
 
-type ZoneCircuit struct {
+type RingCircuit struct {
 	NumInputs int `gnark:"-"`
 
 	Inputs []Input
@@ -31,25 +31,25 @@ type ZoneCircuit struct {
 
 	mergeshared.CommonPublicInputs
 
-	// OutputZoneDataHash is the zone-data hash the calling zone program carries
-	// in the instruction/event; asserting it against Output.ZoneDataHash binds
-	// the carried value to Output.Utxo.ZoneDataHash. Zone state stays under the
-	// zone proof; this proof only binds the hash.
-	OutputZoneDataHash frontend.Variable
-	ZoneProgramID      frontend.Variable
+	// OutputRingDataHash is the ring-data hash the calling ring program carries
+	// in the instruction/event; asserting it against Output.RingDataHash binds
+	// the carried value to Output.Utxo.RingDataHash. Ring state stays under the
+	// ring proof; this proof only binds the hash.
+	OutputRingDataHash frontend.Variable
+	RingProgramID      frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-func NewMergeZoneCircuit() *ZoneCircuit {
-	return &ZoneCircuit{
+func NewMergeRingCircuit() *RingCircuit {
+	return &RingCircuit{
 		NumInputs:          MergeInputs,
 		Inputs:             mergeshared.NewInputs(),
 		CommonPublicInputs: mergeshared.NewCommonPublicInputs(),
 	}
 }
 
-func (c *ZoneCircuit) transaction() mergeshared.Transaction {
+func (c *RingCircuit) transaction() mergeshared.Transaction {
 	return mergeshared.Transaction{
 		Inputs:              c.Inputs,
 		Output:              c.Output,
@@ -58,23 +58,23 @@ func (c *ZoneCircuit) transaction() mergeshared.Transaction {
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,
 		Public:              c.CommonPublicInputs,
-		ZoneProgramID:       c.ZoneProgramID,
+		RingProgramID:       c.RingProgramID,
 	}
 }
 
-func (c *ZoneCircuit) Define(api frontend.API) error {
+func (c *RingCircuit) Define(api frontend.API) error {
 	tx := c.transaction()
 	if err := tx.ValidateLayout(c.NumInputs); err != nil {
 		return err
 	}
-	api.AssertIsDifferent(c.ZoneProgramID, 0)
+	api.AssertIsDifferent(c.RingProgramID, 0)
 	if _, err := tx.Constrain(api); err != nil {
 		return err
 	}
-	api.AssertIsEqual(c.OutputZoneDataHash, c.Output.ZoneDataHash)
+	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.OutputZoneDataHash, c.ZoneProgramID)
+	fields = append(fields, c.OutputRingDataHash, c.RingProgramID)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, fields))
 	return nil
 }

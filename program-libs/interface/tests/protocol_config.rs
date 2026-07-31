@@ -10,9 +10,9 @@ fn protocol_config() -> ProtocolConfig {
         protocol_authority: Address::new_from_array([1; 32]),
         tree_creation_authority: Address::new_from_array([2; 32]),
         forester_authority: Address::new_from_array([3; 32]),
-        zone_creation_authority: Address::new_from_array([4; 32]),
+        ring_creation_authority: Address::new_from_array([4; 32]),
         tree_creation_is_permissionless: 0,
-        zone_creation_is_permissionless: 0,
+        ring_creation_is_permissionless: 0,
         spl_interface_creation_is_permissionless: 1,
     }
 }

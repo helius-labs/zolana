@@ -1,11 +1,11 @@
 //! Shared localnet lifecycle harness used by the `spp-test-validator` and
-//! `zone-test-program` integration suites.
+//! `ring-test-program` integration suites.
 //!
 //! [`LocalnetHarness`] carries the validator/indexer handles, the protocol
 //! smart-account state, the per-actor map, and the SPL asset registrations that
 //! both suites bootstrap identically. Each suite's own harness struct
-//! ([`crate::lifecycle::LifecycleHarness`], [`crate::zone::ZoneHarness`]) embeds
-//! it (via `Deref`) and adds its suite-specific state (zone config, merge
+//! ([`crate::lifecycle::LifecycleHarness`], [`crate::ring::RingHarness`]) embeds
+//! it (via `Deref`) and adds its suite-specific state (ring config, merge
 //! records, rails).
 
 use std::collections::BTreeMap;
@@ -68,7 +68,7 @@ pub struct SplDepositAccounts {
 /// with the typed deposit asserts (which need the sent data and the pre-deposit
 /// account snapshots). `spl` is `Some` for token deposits. `D` is the
 /// suite-specific deposit instruction data (`AssetDeposit` for the plain pool,
-/// `ZoneAssetDeposit` for zone deposits).
+/// `RingAssetDeposit` for ring deposits).
 #[derive(Clone)]
 pub struct DepositRecord<D> {
     pub signature: Signature,
@@ -114,7 +114,7 @@ impl<D> Actor<D> {
     }
 
     /// A P256-rail actor with a fresh P256 shielded signing key. Spend
-    /// authorization is proved inside ZoneP256; the harness payer funds and
+    /// authorization is proved inside RingP256; the harness payer funds and
     /// signs its transactions.
     pub fn p256() -> Result<Self> {
         let keypair = ShieldedKeypair::new()?;
@@ -136,12 +136,12 @@ pub struct BootstrapConfig {
     /// concurrent suites do not share validator state).
     pub label: &'static str,
     /// Extra `(program_id, workspace-relative .so path)` programs the validator
-    /// loads (e.g. the zone fixture program).
+    /// loads (e.g. the ring fixture program).
     pub extra_programs: Vec<(String, String)>,
-    /// `CreateProtocolConfig::zone_creation_is_permissionless`. The zone suite
-    /// sets it so the fixture's payer can create zone configs without the zone
+    /// `CreateProtocolConfig::ring_creation_is_permissionless`. The ring suite
+    /// sets it so the fixture's payer can create ring configs without the ring
     /// smart-account signing.
-    pub zone_creation_is_permissionless: bool,
+    pub ring_creation_is_permissionless: bool,
     /// Whether to fund the merge vault so it can collect the per-nullifier
     /// forester fee (only suites that execute merges need it).
     pub fund_merge_vault: bool,
@@ -157,7 +157,7 @@ pub struct ProtocolSetup {
     pub forester_key: Keypair,
     pub merge_key: Keypair,
     pub tree_key: Keypair,
-    pub zone_key: Keypair,
+    pub ring_key: Keypair,
     pub accounts: StandardAccounts,
 }
 
@@ -248,13 +248,13 @@ impl<D> LocalnetHarness<D> {
         let forester_key = Keypair::new();
         let merge_key = Keypair::new();
         let tree_key = Keypair::new();
-        let zone_key = Keypair::new();
+        let ring_key = Keypair::new();
         rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
         rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&merge_key.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&tree_key.pubkey(), 1_000_000_000)?;
-        rpc.airdrop(&zone_key.pubkey(), 1_000_000_000)?;
+        rpc.airdrop(&ring_key.pubkey(), 1_000_000_000)?;
 
         let accounts = smart_account::standard_accounts();
         for ix in accounts.create_ixs(
@@ -264,7 +264,7 @@ impl<D> LocalnetHarness<D> {
                 forester: forester_key.pubkey(),
                 merge: merge_key.pubkey(),
                 tree: tree_key.pubkey(),
-                zone: zone_key.pubkey(),
+                ring: ring_key.pubkey(),
             },
         ) {
             send_transaction(rpc, &[ix], &payer.pubkey(), &[&payer])?;
@@ -285,8 +285,8 @@ impl<D> LocalnetHarness<D> {
             tree_creation_authority: accounts.tree_vault.to_bytes().into(),
             tree_creation_is_permissionless: false,
             forester_authority: accounts.forester_vault.to_bytes().into(),
-            zone_creation_authority: accounts.zone_vault.to_bytes().into(),
-            zone_creation_is_permissionless: config.zone_creation_is_permissionless,
+            ring_creation_authority: accounts.ring_vault.to_bytes().into(),
+            ring_creation_is_permissionless: config.ring_creation_is_permissionless,
             spl_interface_creation_is_permissionless: false,
         }
         .instruction();
@@ -309,7 +309,7 @@ impl<D> LocalnetHarness<D> {
             forester_key,
             merge_key,
             tree_key,
-            zone_key,
+            ring_key,
             accounts,
         })
     }
@@ -383,7 +383,7 @@ impl<D> LocalnetHarness<D> {
     }
 
     /// Create `name` with a P256 shielded signing key. Its Solana transaction is
-    /// paid by the harness payer; spend authorization is proved inside ZoneP256.
+    /// paid by the harness payer; spend authorization is proved inside RingP256.
     pub fn make_p256_actor(&mut self, name: &str) -> Result<()> {
         self.actors.insert(name.to_string(), Actor::p256()?);
         Ok(())

@@ -99,7 +99,7 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
@@ -365,7 +365,7 @@ fn phase_shielded_transfer(
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     assert_eq!(

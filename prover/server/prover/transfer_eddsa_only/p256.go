@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
+	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
@@ -17,7 +17,7 @@ import (
 	"github.com/consensys/gnark/std/math/emulated"
 )
 
-// P256TransferParameters is the flat witness for CustomZoneP256Circuit.
+// P256TransferParameters is the flat witness for CustomRingP256Circuit.
 type P256TransferParameters struct {
 	NInputs  uint32
 	NOutputs uint32
@@ -38,7 +38,7 @@ type P256TransferParameters struct {
 
 	PublicAssets                 []*big.Int
 	PublicAmounts                []*big.Int
-	ZoneProgramID                *big.Int
+	RingProgramID                *big.Int
 	SignerPkHashes               []*big.Int
 	AllowDummyInputs             *big.Int
 	PublishedOutputOwnerPkHashes []*big.Int
@@ -62,7 +62,7 @@ type P256TransferParametersJSON struct {
 	DefaultP256OwnerPkHash       string             `json:"defaultP256OwnerPkHash"`
 	PublicAssets                 []string           `json:"publicAssets"`
 	PublicAmounts                []string           `json:"publicAmounts"`
-	ZoneProgramID                string             `json:"zoneProgramId"`
+	RingProgramID                string             `json:"ringProgramId"`
 	SignerPkHashes               []string           `json:"signerPkHashes"`
 	AllowDummyInputs             string             `json:"allowDummyInputs"`
 	PublishedOutputOwnerPkHashes []string           `json:"publishedOutputOwnerPkHashes"`
@@ -79,15 +79,15 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		PrivateTxHash:                p.PrivateTxHash,
 		PublicAssets:                 p.PublicAssets,
 		PublicAmounts:                p.PublicAmounts,
-		ZoneProgramID:                p.ZoneProgramID,
+		RingProgramID:                p.RingProgramID,
 		SignerPkHashes:               p.SignerPkHashes,
 		AllowDummyInputs:             p.AllowDummyInputs,
 		PublishedOutputOwnerPkHashes: p.PublishedOutputOwnerPkHashes,
-		Variant:                      ZoneVariant,
+		Variant:                      RingVariant,
 		PublicInputHash:              p.PublicInputHash,
 	}).CreateTransferParametersJSON()
 	return json.Marshal(P256TransferParametersJSON{
-		CircuitType:                  common.TransferP256ZoneCircuitType,
+		CircuitType:                  common.TransferP256RingCircuitType,
 		NInputs:                      base.NInputs,
 		NOutputs:                     base.NOutputs,
 		Inputs:                       base.Inputs,
@@ -103,7 +103,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		DefaultP256OwnerPkHash:       feHex(p.DefaultP256OwnerPkHash),
 		PublicAssets:                 base.PublicAssets,
 		PublicAmounts:                base.PublicAmounts,
-		ZoneProgramID:                base.ZoneProgramID,
+		RingProgramID:                base.RingProgramID,
 		SignerPkHashes:               base.SignerPkHashes,
 		AllowDummyInputs:             base.AllowDummyInputs,
 		PublishedOutputOwnerPkHashes: base.PublishedOutputOwnerPkHashes,
@@ -116,12 +116,12 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &params); err != nil {
 		return err
 	}
-	if params.CircuitType != common.TransferP256ZoneCircuitType {
+	if params.CircuitType != common.TransferP256RingCircuitType {
 		return fmt.Errorf("invalid P256 transfer circuit type %q", params.CircuitType)
 	}
 	base := TransferParameters{}
 	if err := base.UpdateWithJSON(TransferParametersJSON{
-		CircuitType:                  common.TransferZoneCircuitType,
+		CircuitType:                  common.TransferRingCircuitType,
 		NInputs:                      params.NInputs,
 		NOutputs:                     params.NOutputs,
 		Inputs:                       params.Inputs,
@@ -130,7 +130,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 		PrivateTxHash:                params.PrivateTxHash,
 		PublicAssets:                 params.PublicAssets,
 		PublicAmounts:                params.PublicAmounts,
-		ZoneProgramID:                params.ZoneProgramID,
+		RingProgramID:                params.RingProgramID,
 		SignerPkHashes:               params.SignerPkHashes,
 		AllowDummyInputs:             params.AllowDummyInputs,
 		PublishedOutputOwnerPkHashes: params.PublishedOutputOwnerPkHashes,
@@ -146,7 +146,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	p.PrivateTxHash = base.PrivateTxHash
 	p.PublicAssets = base.PublicAssets
 	p.PublicAmounts = base.PublicAmounts
-	p.ZoneProgramID = base.ZoneProgramID
+	p.RingProgramID = base.RingProgramID
 	p.SignerPkHashes = base.SignerPkHashes
 	p.AllowDummyInputs = base.AllowDummyInputs
 	p.PublishedOutputOwnerPkHashes = base.PublishedOutputOwnerPkHashes
@@ -211,9 +211,9 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
 		outputNullifierPks[i] = orZero(out.NullifierPk)
 	}
-	return &customzone.CustomZoneP256Circuit{
+	return &customring.CustomRingP256Circuit{
 		Shape: txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)},
-		Public: customzone.CustomZoneP256Public{
+		Public: customring.CustomRingP256Public{
 			Nullifiers:                   core.nullifiers,
 			OutputHashes:                 core.outputHashes,
 			UtxoTreeRoots:                core.utxoTreeRoots,
@@ -225,23 +225,23 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			ExternalDataHash:             p.ExternalDataHash,
 			PublicAssets:                 core.publicAssets,
 			PublicAmounts:                core.publicAmounts,
-			ZoneProgramID:                p.ZoneProgramID,
+			RingProgramID:                p.RingProgramID,
 			AllowDummyInputs:             p.AllowDummyInputs,
 			SignerPkHashes:               signerPkHashes,
 			PublishedOutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 			PublicInputHash:              p.PublicInputHash,
 		},
-		Private: customzone.CustomZoneP256Private{
+		Private: customring.CustomRingP256Private{
 			Inputs:              core.inputs,
 			InputOwnerPkHashes:  core.inputOwnerPkHashes,
 			Outputs:             core.outputs,
 			OutputOwnerPkHashes: outputOwnerPkHashes,
 			OutputNullifierPks:  outputNullifierPks,
-			P256Pub: customzone.P256PublicKey{
+			P256Pub: customring.P256PublicKey{
 				X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
 				Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),
 			},
-			P256Sig: customzone.P256Signature{
+			P256Sig: customring.P256Signature{
 				R: emulated.ValueOf[emulated.P256Fr](p.P256SigR),
 				S: emulated.ValueOf[emulated.P256Fr](p.P256SigS),
 			},
@@ -250,7 +250,7 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 }
 
 func R1CSP256Transfer(nInputs uint32, nOutputs uint32) (constraint.ConstraintSystem, error) {
-	circuit, err := customzone.NewCustomZoneP256Circuit(
+	circuit, err := customring.NewCustomRingP256Circuit(
 		txcircuit.Shape{NInputs: int(nInputs), NOutputs: int(nOutputs)},
 	)
 	if err != nil {
@@ -274,7 +274,7 @@ func SetupP256Transfer(nInputs uint32, nOutputs uint32) (*common.TransferProofSy
 		return nil, err
 	}
 	return &common.TransferProofSystem{
-		CircuitType:      common.TransferP256ZoneCircuitType,
+		CircuitType:      common.TransferP256RingCircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     true,

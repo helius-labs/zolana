@@ -21,8 +21,8 @@ pub fn build_merge_event(
     // The merged output is owner-indexed like every confidential output: the view
     // tag is the owner signing pubkey, so `Wallet::sync` rediscovers it via the
     // confidential owner-pubkey scan. It carries no ciphertext: the wallet
-    // reconstructs it from `nullifiers[0]` and its spent inputs. `merge_zone`
-    // additionally publishes the output `zone_data_hash` in the output data.
+    // reconstructs it from `nullifiers[0]` and its spent inputs. `merge_ring`
+    // additionally publishes the output `ring_data_hash` in the output data.
     let outputs = vec![OutputUtxo {
         view_tag: output_view_tag,
         utxo_hash: *ix.output_utxo_hash,

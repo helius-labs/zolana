@@ -1,8 +1,8 @@
 pub(crate) mod assembly;
 pub mod eddsa;
 pub mod witness;
-pub mod zone_eddsa;
-pub mod zone_p256;
+pub mod ring_eddsa;
+pub mod ring_p256;
 
 pub use assembly::{PublicInputs, TransferSpendInput};
 pub use eddsa::{TransferProofResult, TransferProver};
@@ -11,5 +11,5 @@ pub use witness::{
     AssembledTransfer, BuiltCircuit, ProverInputs, ProverVariant, SpendProof,
 };
 pub use zolana_transaction::instructions::transact::PublicTransfers;
-pub use zone_eddsa::{ZoneTransferProofResult, ZoneTransferProver};
-pub use zone_p256::{ZoneTransferP256ProofResult, ZoneTransferP256Prover};
+pub use ring_eddsa::{RingTransferProofResult, RingTransferProver};
+pub use ring_p256::{RingTransferP256ProofResult, RingTransferP256Prover};

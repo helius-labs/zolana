@@ -4,8 +4,8 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_interface::instruction::{
-    CircuitId, MergeTransact, MergeTransactIxData, MergeZone, Transact, TransactIxData,
-    TransactProof, ZoneAuthorityTransact, ZoneTransact,
+    CircuitId, MergeTransact, MergeTransactIxData, MergeRing, Transact, TransactIxData,
+    TransactProof, RingAuthorityTransact, RingTransact,
 };
 
 fn transact_data(circuit: CircuitId) -> TransactIxData {
@@ -19,7 +19,7 @@ fn transact_data(circuit: CircuitId) -> TransactIxData {
         inputs: Vec::new(),
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: Vec::new(),
         messages: Vec::new(),
     }
@@ -57,7 +57,7 @@ fn every_spend_builder_has_explicit_input_and_output_tree_slots() {
     let payer = Pubkey::new_unique();
     let input_tree = Pubkey::new_unique();
     let output_tree = Pubkey::new_unique();
-    let zone_program_id = Pubkey::new_unique();
+    let ring_program_id = Pubkey::new_unique();
 
     let transact = Transact {
         payer,
@@ -70,28 +70,28 @@ fn every_spend_builder_has_explicit_input_and_output_tree_slots() {
     .instruction();
     assert_tree_slots(&transact, 1, input_tree, output_tree);
 
-    let zone = ZoneTransact {
+    let ring = RingTransact {
         payer,
         input_tree,
         output_tree,
-        zone_program_id,
+        ring_program_id,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::ZoneEddsa(0, 0, 3)),
+        data: transact_data(CircuitId::RingEddsa(0, 0, 3)),
     }
     .cpi_instruction();
-    assert_tree_slots(&zone, 1, input_tree, output_tree);
+    assert_tree_slots(&ring, 1, input_tree, output_tree);
 
-    let zone_authority = ZoneAuthorityTransact {
+    let ring_authority = RingAuthorityTransact {
         payer,
         input_tree,
         output_tree,
-        zone_program_id,
+        ring_program_id,
         interface_transfer_accounts: Vec::new(),
-        data: transact_data(CircuitId::ZoneAuthority(0, 0, 3)),
+        data: transact_data(CircuitId::RingAuthority(0, 0, 3)),
     }
     .cpi_instruction();
-    assert_tree_slots(&zone_authority, 1, input_tree, output_tree);
+    assert_tree_slots(&ring_authority, 1, input_tree, output_tree);
 
     let merge = MergeTransact {
         input_tree,
@@ -103,16 +103,16 @@ fn every_spend_builder_has_explicit_input_and_output_tree_slots() {
     .instruction();
     assert_tree_slots(&merge, 0, input_tree, output_tree);
 
-    let merge_zone = MergeZone {
+    let merge_ring = MergeRing {
         input_tree,
         output_tree,
-        zone_program_id,
+        ring_program_id,
         payer,
         data: merge_data(),
-        output_zone_data_hash: [0u8; 32],
+        output_ring_data_hash: [0u8; 32],
     }
     .cpi_instruction();
-    assert_tree_slots(&merge_zone, 0, input_tree, output_tree);
+    assert_tree_slots(&merge_ring, 0, input_tree, output_tree);
 }
 
 #[test]

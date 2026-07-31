@@ -1,8 +1,8 @@
 package transfereddsaonly
 
 import (
-	customzone "zolana/prover/circuits/spp_transaction/custom"
-	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	customring "zolana/prover/circuits/spp_transaction/custom"
+	defaultring "zolana/prover/circuits/spp_transaction/default"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
@@ -15,17 +15,17 @@ type Variant int
 
 const (
 	// ConfidentialVariant is the default transact: output owners bind to public
-	// pk_field tags; non-zone.
+	// pk_field tags; non-ring.
 	ConfidentialVariant Variant = iota
-	// ZoneVariant is the confidential policy-zone transfer (zone_transact):
+	// RingVariant is the confidential policy-ring transfer (ring_transact):
 	// input and output owners remain private and each real UTXO binds its
-	// zone_program_id. Solana signer hashes still authorize private owner hashes.
-	ZoneVariant
-	// ZoneAuthorityVariant is the anonymous policy-zone transfer for
-	// zone_authority_transact: the zone authority controls its zone-owned UTXOs, so
+	// ring_program_id. Solana signer hashes still authorize private owner hashes.
+	RingVariant
+	// RingAuthorityVariant is the anonymous policy-ring transfer for
+	// ring_authority_transact: the ring authority controls its ring-owned UTXOs, so
 	// owners do not sign. No in-circuit signature and every input owner pk_field
 	// kept private (omitted from the public input hash).
-	ZoneAuthorityVariant
+	RingAuthorityVariant
 )
 
 // CircuitType maps the variant to its wire/key CircuitType string.
@@ -33,23 +33,23 @@ func (v Variant) CircuitType() common.CircuitType {
 	switch v {
 	case ConfidentialVariant:
 		return common.TransferConfidentialCircuitType
-	case ZoneAuthorityVariant:
-		return common.TransferZoneAuthorityCircuitType
+	case RingAuthorityVariant:
+		return common.TransferRingAuthorityCircuitType
 	default:
-		return common.TransferZoneCircuitType
+		return common.TransferRingCircuitType
 	}
 }
 
 // variantFromCircuitType is the inverse of Variant.CircuitType; unknown types map
-// to the confidential zone variant.
+// to the confidential ring variant.
 func variantFromCircuitType(ct common.CircuitType) Variant {
 	switch ct {
 	case common.TransferConfidentialCircuitType:
 		return ConfidentialVariant
-	case common.TransferZoneAuthorityCircuitType:
-		return ZoneAuthorityVariant
+	case common.TransferRingAuthorityCircuitType:
+		return RingAuthorityVariant
 	default:
-		return ZoneVariant
+		return RingVariant
 	}
 }
 
@@ -57,10 +57,10 @@ func variantFromCircuitType(ct common.CircuitType) Variant {
 func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, error) {
 	switch v {
 	case ConfidentialVariant:
-		return defaultzone.NewDefaultZoneEddsaOnlyCircuit(shape)
-	case ZoneAuthorityVariant:
-		return customzone.NewCustomZoneAuthorityCircuit(shape)
+		return defaultring.NewDefaultRingEddsaOnlyCircuit(shape)
+	case RingAuthorityVariant:
+		return customring.NewCustomRingAuthorityCircuit(shape)
 	default:
-		return customzone.NewCustomZoneEddsaOnlyCircuit(shape)
+		return customring.NewCustomRingEddsaOnlyCircuit(shape)
 	}
 }

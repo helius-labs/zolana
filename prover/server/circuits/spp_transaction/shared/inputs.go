@@ -167,8 +167,8 @@ func (in Input) checkAddress(api frontend.API) frontend.Variable {
 		in.Utxo.Asset,
 		in.Utxo.Amount,
 		in.Utxo.DataHash,
-		in.Utxo.ZoneDataHash,
-		in.Utxo.ZoneProgramID,
+		in.Utxo.RingDataHash,
+		in.Utxo.RingProgramID,
 		in.NullifierSecret,
 	)
 }

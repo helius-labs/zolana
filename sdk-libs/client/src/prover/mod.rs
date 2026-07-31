@@ -3,10 +3,10 @@ pub mod field;
 mod inputs;
 mod json;
 pub mod merge;
-pub mod merge_zone;
+pub mod merge_ring;
 mod proof;
 pub mod transact;
-pub mod zone_authority;
+pub mod ring_authority;
 
 pub use client::{
     spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, ProverClient,
@@ -17,15 +17,15 @@ pub use inputs::{
     TransferP256Inputs,
 };
 pub use merge::{MergeProofResult, MergeProver};
-pub use merge_zone::{MergeZoneProver, MergeZoneWitness};
+pub use merge_ring::{MergeRingProver, MergeRingWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use transact::{
     PublicInputs, PublicTransfers, TransferProofResult, TransferProver, TransferSpendInput,
-    ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
-    ZoneTransferProver,
+    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver,
 };
 pub use zolana_transaction::instructions::transact::{
     canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES,
 };
 pub use zolana_transaction::ProofInputUtxo;
-pub use zone_authority::{ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness};
+pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness};

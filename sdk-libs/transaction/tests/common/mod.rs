@@ -112,7 +112,7 @@ pub fn build_transfer(
         asset: SOL_MINT,
         amount: spec.amount,
         blinding: spec.blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
@@ -130,7 +130,7 @@ pub fn build_transfer(
     let sender_owner_cx = OwnerCx {
         owner: spec.sender.signing_pubkey(),
         assets,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let change =
         AnonymousSenderBundle::into_utxos(sender_plaintext.clone(), &sender_owner_cx).unwrap();
@@ -156,7 +156,7 @@ pub fn build_transfer(
     let recipient_owner_cx = OwnerCx {
         owner: spec.recipient.signing_pubkey(),
         assets,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let recipient_cx = AnonymousRecipientEncode {
         tx: tx_key,
@@ -228,7 +228,7 @@ pub fn build_unified_transfer(
         asset: SOL_MINT,
         amount: spec.change_amount,
         blinding: spec.change_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let recipient_utxo = Utxo {
@@ -236,14 +236,14 @@ pub fn build_unified_transfer(
         asset: SOL_MINT,
         amount: spec.amount,
         blinding: spec.blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
     let sender_owner_cx = OwnerCx {
         owner: spec.sender.signing_pubkey(),
         assets,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let change_ciphertext = Confidential::encode(
         std::slice::from_ref(&change_utxo),
@@ -264,7 +264,7 @@ pub fn build_unified_transfer(
     let recipient_owner_cx = OwnerCx {
         owner: spec.recipient.signing_pubkey(),
         assets,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let recipient_ciphertext = Confidential::encode(
         std::slice::from_ref(&recipient_utxo),

@@ -31,9 +31,9 @@ mod admin;
 pub mod events;
 pub use events::{
     deposit_output_from_event, deposit_outputs_from_event, index_events, indexed_events_from_meta,
-    parsed_instruction_from_compiled, parsed_instruction_groups_from_meta, single_deposit_view,
-    zone_deposit_output_from_event, zone_deposit_outputs_from_event, DepositOutput, IndexedEvent,
-    InstructionGroup, ParsedInstruction, ZoneDepositOutput,
+    parsed_instruction_from_compiled, parsed_instruction_groups_from_meta,
+    ring_deposit_output_from_event, ring_deposit_outputs_from_event, single_deposit_view,
+    DepositOutput, IndexedEvent, InstructionGroup, ParsedInstruction, RingDepositOutput,
 };
 pub mod indexer;
 pub use indexer::{
@@ -42,7 +42,7 @@ pub use indexer::{
 };
 pub mod instructions;
 pub use instructions::{
-    create_tree_instructions, rpc_state_root, system_create_account_ix, ZONE_TEST_PROGRAM_ID,
+    create_tree_instructions, rpc_state_root, system_create_account_ix, RING_TEST_PROGRAM_ID,
 };
 mod paths;
 mod rejection;
@@ -57,10 +57,10 @@ pub use transaction_trace::{
     AccountSnapshot, AccountTransition, InstructionTrace, TransactionOutcome, TransactionTrace,
 };
 pub use zolana_client::Rpc;
+mod ring;
 mod spl;
 mod wallet_data;
-mod zone;
-pub use zone::ZoneDepositBatch;
+pub use ring::RingDepositBatch;
 
 /// Build the canonical 32-byte field representation of a repeated legacy
 /// 31-byte test blinding.

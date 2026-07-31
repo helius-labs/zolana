@@ -1,17 +1,17 @@
-//! Policy-zone lifecycle fixture: the [`ZoneHarness`] and its action
+//! Policy-ring lifecycle fixture: the [`RingHarness`] and its action
 //! implementations.
 //!
 //! The validator/prover/indexer bring-up, actor management, and SPL asset
 //! registration live in [`crate::harness::LocalnetHarness`]; this struct embeds
-//! it and adds the zone-config state only the policy-zone lifecycle needs. Both
-//! `zone-test-program` test binaries (`zone_lifecycle` and `proof_cu`) consume
+//! it and adds the ring-config state only the policy-ring lifecycle needs. Both
+//! `ring-test-program` test binaries (`ring_lifecycle` and `proof_cu`) consume
 //! this module, so each composes exactly the fixture surface it uses.
 
-pub(crate) mod merge_zone;
-mod zone_authority_transact;
-mod zone_config;
-mod zone_deposit;
-mod zone_transact;
+pub(crate) mod merge_ring;
+mod ring_authority_transact;
+mod ring_config;
+mod ring_deposit;
+mod ring_transact;
 
 use std::ops::{Deref, DerefMut};
 
@@ -22,10 +22,10 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{encode_instruction, tag, CreateZoneConfigData, ZoneAssetDeposit},
+    instruction::{encode_instruction, tag, CreateRingConfigData, RingAssetDeposit},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::ZONE_TEST_PROGRAM_ID;
+use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_transaction::{
     serialization::confidential::Confidential, LocalWalletAuthority, ShieldedTransaction, Utxo,
     WalletUtxo, DEFAULT_TAG_WINDOW,
@@ -36,124 +36,124 @@ use crate::{
     localnet::{send_transaction, ZERO},
 };
 
-/// A second zone fixture program id (deployed from the same
-/// `zone_test_program.so`), used to prove configs are per-program.
-pub(crate) const SECOND_ZONE_TEST_PROGRAM_ID: [u8; 32] = [42u8; 32];
+/// A second ring fixture program id (deployed from the same
+/// `ring_test_program.so`), used to prove configs are per-program.
+pub(crate) const SECOND_RING_TEST_PROGRAM_ID: [u8; 32] = [42u8; 32];
 
-/// What the consolidated-output assert needs after a `merge_zone`: the actor that
+/// What the consolidated-output assert needs after a `merge_ring`: the actor that
 /// owns the appended output and the output's hash (for the inclusion-proof check).
-pub(crate) struct MergeZoneRecord {
+pub(crate) struct MergeRingRecord {
     pub(crate) actor: String,
     pub(crate) output_hash: [u8; 32],
 }
 
-/// The extra account snapshots an SPL zone-deposit assert needs.
-pub(crate) use crate::harness::SplDepositAccounts as SplZoneDepositAccounts;
+/// The extra account snapshots an SPL ring-deposit assert needs.
+pub(crate) use crate::harness::SplDepositAccounts as SplRingDepositAccounts;
 
-/// What a zone deposit records so the separate assertion can verify
-/// it with `assert_zone_deposit` (which needs the sent data and the pre-deposit
-/// account snapshots). `spl` is `Some` for token zone deposits.
-pub(crate) type ZoneDepositRecord = crate::harness::DepositRecord<ZoneAssetDeposit>;
+/// What a ring deposit records so the separate assertion can verify
+/// it with `assert_ring_deposit` (which needs the sent data and the pre-deposit
+/// account snapshots). `spl` is `Some` for token ring deposits.
+pub(crate) type RingDepositRecord = crate::harness::DepositRecord<RingAssetDeposit>;
 
-pub struct ZoneHarness {
-    pub(crate) base: LocalnetHarness<ZoneAssetDeposit>,
-    pub(crate) zone_program_id: Pubkey,
-    /// The zone's `zone_auth` PDA (which IS the zone-config account), set when the
-    /// zone config is created.
-    pub(crate) zone_config: Option<Pubkey>,
-    pub(crate) zone_authority: Option<Keypair>,
-    pub(crate) previous_zone_authority: Option<Keypair>,
-    /// The most recent `merge_zone`, kept so the consolidated-output assert can
+pub struct RingHarness {
+    pub(crate) base: LocalnetHarness<RingAssetDeposit>,
+    pub(crate) ring_program_id: Pubkey,
+    /// The ring's `ring_auth` PDA (which IS the ring-config account), set when the
+    /// ring config is created.
+    pub(crate) ring_config: Option<Pubkey>,
+    pub(crate) ring_authority: Option<Keypair>,
+    pub(crate) previous_ring_authority: Option<Keypair>,
+    /// The most recent `merge_ring`, kept so the consolidated-output assert can
     /// reconstruct and verify the merged UTXO.
-    pub(crate) last_merge: Option<MergeZoneRecord>,
+    pub(crate) last_merge: Option<MergeRingRecord>,
 }
 
-impl std::fmt::Debug for ZoneHarness {
+impl std::fmt::Debug for RingHarness {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ZoneHarness")
+        f.write_str("RingHarness")
     }
 }
 
-impl Deref for ZoneHarness {
-    type Target = LocalnetHarness<ZoneAssetDeposit>;
+impl Deref for RingHarness {
+    type Target = LocalnetHarness<RingAssetDeposit>;
 
     fn deref(&self) -> &Self::Target {
         &self.base
     }
 }
 
-impl DerefMut for ZoneHarness {
+impl DerefMut for RingHarness {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
     }
 }
 
-impl ZoneHarness {
+impl RingHarness {
     pub fn new() -> Result<Self> {
-        let zone_program_id = Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID).to_string();
-        let second_zone_program_id =
-            Pubkey::new_from_array(SECOND_ZONE_TEST_PROGRAM_ID).to_string();
+        let ring_program_id = Pubkey::new_from_array(RING_TEST_PROGRAM_ID).to_string();
+        let second_ring_program_id =
+            Pubkey::new_from_array(SECOND_RING_TEST_PROGRAM_ID).to_string();
         let (base, _) = LocalnetHarness::bootstrap(BootstrapConfig {
-            label: "zolana-zone",
+            label: "zolana-ring",
             extra_programs: vec![
-                (zone_program_id, "target/deploy/zone_test_program.so".into()),
+                (ring_program_id, "target/deploy/ring_test_program.so".into()),
                 (
-                    second_zone_program_id,
-                    "target/deploy/zone_test_program.so".into(),
+                    second_ring_program_id,
+                    "target/deploy/ring_test_program.so".into(),
                 ),
             ],
-            // Permissionless zone creation lets the fixture's payer create the zone
-            // config without the zone smart-account signing.
-            zone_creation_is_permissionless: true,
+            // Permissionless ring creation lets the fixture's payer create the ring
+            // config without the ring smart-account signing.
+            ring_creation_is_permissionless: true,
             fund_merge_vault: false,
         })?;
         Ok(Self {
             base,
-            zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-            zone_config: None,
-            zone_authority: None,
-            previous_zone_authority: None,
+            ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
+            ring_config: None,
+            ring_authority: None,
+            previous_ring_authority: None,
             last_merge: None,
         })
     }
 
-    /// Create the zone config through the fixture's `CREATE_ZONE_CONFIG` instruction.
-    /// The fixture signs the `zone_auth` PDA (which IS the config account) on the CPI
-    /// into SPP. Stores the resulting `zone_auth` PDA in `self.zone_config`. The
+    /// Create the ring config through the fixture's `CREATE_RING_CONFIG` instruction.
+    /// The fixture signs the `ring_auth` PDA (which IS the config account) on the CPI
+    /// into SPP. Stores the resulting `ring_auth` PDA in `self.ring_config`. The
     /// caller owns the authority keypair and is responsible for setting
-    /// `self.zone_authority` if it wants to track it.
-    pub fn create_zone_config(&mut self, authority: &Address, enabled: bool) -> Result<()> {
-        let zone_auth = self.create_zone_config_for(self.zone_program_id, authority, enabled)?;
-        self.zone_config = Some(zone_auth);
+    /// `self.ring_authority` if it wants to track it.
+    pub fn create_ring_config(&mut self, authority: &Address, enabled: bool) -> Result<()> {
+        let ring_auth = self.create_ring_config_for(self.ring_program_id, authority, enabled)?;
+        self.ring_config = Some(ring_auth);
         Ok(())
     }
 
-    pub fn create_zone_config_for(
+    pub fn create_ring_config_for(
         &mut self,
         program_id: Pubkey,
         authority: &Address,
         enabled: bool,
     ) -> Result<Pubkey> {
         let payer = self.payer.insecure_clone();
-        let (zone_auth, _) = pda::zone_auth(&program_id);
-        let data = CreateZoneConfigData {
+        let (ring_auth, _) = pda::ring_auth(&program_id);
+        let data = CreateRingConfigData {
             program_id: program_id.to_bytes().into(),
             authority: *authority,
-            zone_authority_transact_is_enabled: enabled,
+            ring_authority_transact_is_enabled: enabled,
         };
         let ix = Instruction {
             program_id,
             accounts: vec![
                 AccountMeta::new(payer.pubkey(), true),
                 AccountMeta::new_readonly(pda::protocol_config(), false),
-                AccountMeta::new(zone_auth, false),
+                AccountMeta::new(ring_auth, false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             ],
-            data: encode_instruction(tag::CREATE_ZONE_CONFIG, &data),
+            data: encode_instruction(tag::CREATE_RING_CONFIG, &data),
         };
         send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
-        Ok(zone_auth)
+        Ok(ring_auth)
     }
 
     /// Sync an actor's wallet from every indexed transaction (decryption), and make
@@ -200,8 +200,8 @@ impl ZoneHarness {
 
     /// Build the `WalletUtxo` an actor should hold for a known output `utxo`,
     /// locating its on-chain output context in the indexed transaction so
-    /// `assert_utxos` cross-checks the synced wallet. A zone-owned output's
-    /// `zone_program_id` binds the zone into the hash; a default-pool output
+    /// `assert_utxos` cross-checks the synced wallet. A ring-owned output's
+    /// `ring_program_id` binds the ring into the hash; a default-pool output
     /// carries `None`.
     pub fn build_expected(
         &self,
@@ -224,7 +224,7 @@ impl ZoneHarness {
             output_context,
             nullifier,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             spent: false,
         })
     }

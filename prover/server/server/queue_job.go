@@ -539,15 +539,15 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	case common.BatchAddressAppendCircuitType:
 		proof, proofError = w.processBatchAddressAppendProof(job.Payload)
 	case common.TransferConfidentialCircuitType,
-		common.TransferZoneCircuitType,
-		common.TransferZoneAuthorityCircuitType:
+		common.TransferRingCircuitType,
+		common.TransferRingAuthorityCircuitType:
 		proof, proofError = w.processTransferEddsaProof(job.Payload)
-	case common.TransferP256ZoneCircuitType:
+	case common.TransferP256RingCircuitType:
 		proof, proofError = w.processTransferP256Proof(job.Payload)
 	case common.MergeCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
-	case common.MergeZoneCircuitType:
-		proof, proofError = w.processMergeProof(job.Payload, common.MergeZoneCircuitType)
+	case common.MergeRingCircuitType:
+		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -606,7 +606,7 @@ func (w *BaseQueueWorker) processTransferP256Proof(payload json.RawMessage) (*co
 		return nil, fmt.Errorf("unmarshal transfer-p256 params: %w", err)
 	}
 	ps, err := w.keyManager.GetTransferSystem(
-		common.TransferP256ZoneCircuitType,
+		common.TransferP256RingCircuitType,
 		params.NInputs,
 		params.NOutputs,
 	)

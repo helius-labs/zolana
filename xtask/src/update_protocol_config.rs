@@ -19,7 +19,7 @@ pub struct Options {
     payer: PathBuf,
     protocol_signer: PathBuf,
     tree_creation_permissionless: Option<bool>,
-    zone_creation_permissionless: Option<bool>,
+    ring_creation_permissionless: Option<bool>,
     spl_interface_creation_permissionless: Option<bool>,
     yes: bool,
     dry_run: bool,
@@ -32,7 +32,7 @@ impl Options {
         let mut payer = None;
         let mut protocol_signer = None;
         let mut tree_creation_permissionless = None;
-        let mut zone_creation_permissionless = None;
+        let mut ring_creation_permissionless = None;
         let mut spl_interface_creation_permissionless = None;
         let mut yes = false;
         let mut dry_run = false;
@@ -69,9 +69,9 @@ impl Options {
                     tree_creation_permissionless =
                         Some(parse_bool(args.next(), "--tree-creation-permissionless"));
                 }
-                "--zone-creation-permissionless" => {
-                    zone_creation_permissionless =
-                        Some(parse_bool(args.next(), "--zone-creation-permissionless"));
+                "--ring-creation-permissionless" => {
+                    ring_creation_permissionless =
+                        Some(parse_bool(args.next(), "--ring-creation-permissionless"));
                 }
                 "--spl-interface-creation-permissionless" => {
                     spl_interface_creation_permissionless = Some(parse_bool(
@@ -93,7 +93,7 @@ impl Options {
         let protocol_signer =
             protocol_signer.unwrap_or_else(|| usage_and_exit("--protocol-signer is required"));
         if tree_creation_permissionless.is_none()
-            && zone_creation_permissionless.is_none()
+            && ring_creation_permissionless.is_none()
             && spl_interface_creation_permissionless.is_none()
         {
             usage_and_exit("at least one --*-permissionless flag is required");
@@ -105,7 +105,7 @@ impl Options {
             payer,
             protocol_signer,
             tree_creation_permissionless,
-            zone_creation_permissionless,
+            ring_creation_permissionless,
             spl_interface_creation_permissionless,
             yes,
             dry_run,
@@ -123,8 +123,8 @@ impl Options {
         if let Some(value) = self.tree_creation_permissionless {
             updates.push(UpdateProtocolConfigData::TreeCreationPermissionless(value));
         }
-        if let Some(value) = self.zone_creation_permissionless {
-            updates.push(UpdateProtocolConfigData::ZoneCreationPermissionless(value));
+        if let Some(value) = self.ring_creation_permissionless {
+            updates.push(UpdateProtocolConfigData::RingCreationPermissionless(value));
         }
         if let Some(value) = self.spl_interface_creation_permissionless {
             updates.push(UpdateProtocolConfigData::SplInterfaceCreationPermissionless(value));
@@ -136,7 +136,7 @@ impl Options {
 struct OnChainConfig {
     protocol_authority: Pubkey,
     tree_creation_is_permissionless: u8,
-    zone_creation_is_permissionless: u8,
+    ring_creation_is_permissionless: u8,
     spl_interface_creation_is_permissionless: u8,
     lamports: u64,
     len: usize,
@@ -165,7 +165,7 @@ fn read_protocol_config(rpc: &SolanaRpc) -> Result<OnChainConfig> {
     Ok(OnChainConfig {
         protocol_authority: Pubkey::new_from_array(field::<32>(data, 1, "protocol_authority")?),
         tree_creation_is_permissionless: field::<1>(data, 129, "tree flag")?[0],
-        zone_creation_is_permissionless: field::<1>(data, 130, "zone flag")?[0],
+        ring_creation_is_permissionless: field::<1>(data, 130, "ring flag")?[0],
         spl_interface_creation_is_permissionless: field::<1>(data, 131, "spl interface flag")?[0],
         lamports: account.lamports,
         len: data.len(),
@@ -181,8 +181,8 @@ fn print_config(label: &str, config: &OnChainConfig) {
         config.tree_creation_is_permissionless != 0
     );
     println!(
-        "  zone_creation_is_permissionless={}",
-        config.zone_creation_is_permissionless != 0
+        "  ring_creation_is_permissionless={}",
+        config.ring_creation_is_permissionless != 0
     );
     println!(
         "  spl_interface_creation_is_permissionless={}",
@@ -309,7 +309,7 @@ fn print_help() {
         "  --tree-creation-permissionless <true|false>      set tree_creation_is_permissionless"
     );
     println!(
-        "  --zone-creation-permissionless <true|false>      set zone_creation_is_permissionless"
+        "  --ring-creation-permissionless <true|false>      set ring_creation_is_permissionless"
     );
     println!("  --spl-interface-creation-permissionless <true|false>");
     println!("                                                   set spl_interface_creation_is_permissionless");

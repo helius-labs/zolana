@@ -37,16 +37,16 @@ pub fn litesvm_assert_protocol_config(
         "forester authority"
     );
     assert_eq!(
-        cfg.zone_creation_authority.to_bytes(),
+        cfg.ring_creation_authority.to_bytes(),
         authority.to_bytes(),
-        "zone creation authority"
+        "ring creation authority"
     );
     assert_eq!(
         cfg.tree_creation_is_permissionless, 0,
         "tree creation permissionless"
     );
     assert_eq!(
-        cfg.zone_creation_is_permissionless, 0,
-        "zone creation permissionless"
+        cfg.ring_creation_is_permissionless, 0,
+        "ring creation permissionless"
     );
 }

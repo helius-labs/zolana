@@ -26,12 +26,12 @@ shapes=(
 
 # "<setup-transfer --circuit flag> <key-file prefix>". The key-file prefix
 # mirrors the verifying-key module name. The default rail binds every output
-# owner tag; owner-signed custom-zone rails bind the confidential-marker-masked
+# owner tag; owner-signed custom-ring rails bind the confidential-marker-masked
 # public owner vector.
 rails=(
     "transfer-confidential transfer_confidential"
-    "transfer-zone transfer_zone"
-    "transfer-p256-zone transfer_p256_zone"
+    "transfer-ring transfer_ring"
+    "transfer-p256-ring transfer_p256_ring"
 )
 
 for entry in "${rails[@]}"; do
@@ -48,7 +48,7 @@ for entry in "${rails[@]}"; do
     done
 done
 
-# The zone-authority rail (transfer_zone_authority) re-owns N inputs into N
+# The ring-authority rail (transfer_ring_authority) re-owns N inputs into N
 # outputs (freeze / thaw / permanent-delegate), so only the square shapes the
 # on-chain verifier supports are generated.
 if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
@@ -60,10 +60,10 @@ if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
     )
     for shape in "${authority_shapes[@]}"; do
         read -r n_inputs n_outputs <<<"$shape"
-        output="${keys_dir}/transfer_zone_authority_${n_inputs}_${n_outputs}.key"
-        echo "Generating transfer-zone-authority ${n_inputs}x${n_outputs} -> ${output}"
+        output="${keys_dir}/transfer_ring_authority_${n_inputs}_${n_outputs}.key"
+        echo "Generating transfer-ring-authority ${n_inputs}x${n_outputs} -> ${output}"
         ./light-prover setup-transfer \
-            --circuit "transfer-zone-authority" \
+            --circuit "transfer-ring-authority" \
             --n-inputs "$n_inputs" \
             --n-outputs "$n_outputs" \
             --output "$output"

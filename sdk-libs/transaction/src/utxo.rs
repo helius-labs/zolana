@@ -36,27 +36,27 @@ pub struct Utxo {
     pub asset: Address,
     pub amount: u64,
     pub blinding: Blinding,
-    pub zone_program_id: Option<Address>,
+    pub ring_program_id: Option<Address>,
     pub data: Data,
 }
 
-pub(crate) fn resolve_zone_program_id(
-    zone_program_id: Option<Address>,
+pub(crate) fn resolve_ring_program_id(
+    ring_program_id: Option<Address>,
     data: &Data,
 ) -> Result<Option<Address>, TransactionError> {
-    if data.zone_data().is_none() {
+    if data.ring_data().is_none() {
         return Ok(None);
     }
-    if zone_program_id.is_none() {
-        return Err(TransactionError::MissingZoneProgramId);
+    if ring_program_id.is_none() {
+        return Err(TransactionError::MissingRingProgramId);
     }
-    Ok(zone_program_id)
+    Ok(ring_program_id)
 }
 
-pub fn zone_program_id_proof_input_hash(
-    zone_program_id: &Option<Address>,
+pub fn ring_program_id_proof_input_hash(
+    ring_program_id: &Option<Address>,
 ) -> Result<[u8; 32], TransactionError> {
-    program_id_proof_input_hash(zone_program_id)
+    program_id_proof_input_hash(ring_program_id)
 }
 
 pub fn program_id_proof_input_hash(
@@ -84,8 +84,8 @@ pub struct ProofInputUtxo {
     pub amount: [u8; 32],
     pub blinding: [u8; 32],
     pub data_hash: [u8; 32],
-    pub zone_data_hash: [u8; 32],
-    pub zone_program_id: [u8; 32],
+    pub ring_data_hash: [u8; 32],
+    pub ring_program_id: [u8; 32],
 }
 
 impl ProofInputUtxo {
@@ -102,8 +102,8 @@ impl ProofInputUtxo {
             amount: right_align(&amount.to_be_bytes()),
             blinding: right_align(blinding),
             data_hash: [0u8; 32],
-            zone_data_hash: [0u8; 32],
-            zone_program_id: [0u8; 32],
+            ring_data_hash: [0u8; 32],
+            ring_program_id: [0u8; 32],
         })
     }
 
@@ -123,25 +123,25 @@ impl ProofInputUtxo {
         self
     }
 
-    pub fn with_zone(
+    pub fn with_ring(
         mut self,
-        zone_data_hash: [u8; 32],
-        zone_program_id: &Option<Address>,
+        ring_data_hash: [u8; 32],
+        ring_program_id: &Option<Address>,
     ) -> Result<Self, TransactionError> {
-        self.zone_data_hash = zone_data_hash;
-        self.zone_program_id = program_id_proof_input_hash(zone_program_id)?;
+        self.ring_data_hash = ring_data_hash;
+        self.ring_program_id = program_id_proof_input_hash(ring_program_id)?;
         Ok(self)
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        let zone_hash = Poseidon::hashv(&[&self.zone_data_hash, &self.zone_program_id])?;
+        let ring_hash = Poseidon::hashv(&[&self.ring_data_hash, &self.ring_program_id])?;
         let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, &self.blinding])?;
         Ok(Poseidon::hashv(&[
             &self.domain,
             &self.asset,
             &self.amount,
             &self.data_hash,
-            &zone_hash,
+            &ring_hash,
             &owner_utxo_hash,
         ])?)
     }
@@ -152,21 +152,21 @@ impl Utxo {
         &self,
         nullifier_pk: &[u8; 32],
         data_hash: &[u8; 32],
-        zone_data_hash: &[u8; 32],
+        ring_data_hash: &[u8; 32],
     ) -> Result<ProofInputUtxo, TransactionError> {
         let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
         ProofInputUtxo::new(owner_hash, &self.asset, self.amount, &self.blinding)?
             .with_data_hash(*data_hash)
-            .with_zone(*zone_data_hash, &self.zone_program_id)
+            .with_ring(*ring_data_hash, &self.ring_program_id)
     }
 
     pub fn hash(
         &self,
         nullifier_pk: &[u8; 32],
         data_hash: &[u8; 32],
-        zone_data_hash: &[u8; 32],
+        ring_data_hash: &[u8; 32],
     ) -> Result<[u8; 32], TransactionError> {
-        self.proof_input(nullifier_pk, data_hash, zone_data_hash)?
+        self.proof_input(nullifier_pk, data_hash, ring_data_hash)?
             .hash()
     }
 
@@ -186,7 +186,7 @@ impl Utxo {
             asset_id: assets.asset_id(&self.asset)?,
             amount: self.amount,
             blinding: self.blinding,
-            zone_program_id: self.zone_program_id,
+            ring_program_id: self.ring_program_id,
             data: self.data.clone(),
         })
     }

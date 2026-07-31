@@ -1,11 +1,11 @@
 //! Client-side transact assembly in two layers. The low level is
 //! [`SppProofInputs`] (the assembled transaction sent to the prover), written
 //! as a struct literal after encoding explicit output slots with the [`slots`]
-//! encoders; it serves custom UTXOs (zone/swap flows). The high level is [`ConfidentialTransfer`], a
+//! encoders; it serves custom UTXOs (ring/swap flows). The high level is [`ConfidentialTransfer`], a
 //! padded transfer (smallest fitting [`Shape`], derived change outputs, dummy
 //! slots) not intended for custom UTXOs.
 //! [`EncryptedTransaction::hash`] produces the `private_tx_hash` shared as a
-//! public input by the SPP and zone proofs.
+//! public input by the SPP and ring proofs.
 
 pub mod external_data;
 pub mod shape;

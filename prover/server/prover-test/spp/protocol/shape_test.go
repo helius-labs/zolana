@@ -120,7 +120,7 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		"public_amount_1",
 		"public_asset_2",
 		"public_amount_2",
-		"zone_program_id",
+		"ring_program_id",
 		"signer_pk_hashes",
 		"allow_dummy_inputs",
 		"output_owner_pk_hashes",

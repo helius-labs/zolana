@@ -45,8 +45,8 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         tree_creation_authority: data.tree_creation_authority,
         tree_creation_is_permissionless: data.tree_creation_is_permissionless,
         forester_authority: data.forester_authority,
-        zone_creation_authority: data.zone_creation_authority,
-        zone_creation_is_permissionless: data.zone_creation_is_permissionless,
+        ring_creation_authority: data.ring_creation_authority,
+        ring_creation_is_permissionless: data.ring_creation_is_permissionless,
         spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless,
     }
     .init(protocol_config)
