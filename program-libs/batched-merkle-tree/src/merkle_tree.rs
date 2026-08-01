@@ -1362,7 +1362,7 @@ mod test {
             .check_queue_next_index_reached_tree_capacity()
             .is_ok());
         // 3. the last value fills the last leaf: full
-        let account =
+        let mut account =
             insert_rnd_addresses::<10, 3, 1000, 200>(&mut account_data, 1, rng, &pubkey).unwrap();
         assert_eq!(
             account

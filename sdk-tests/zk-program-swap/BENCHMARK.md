@@ -18,16 +18,15 @@ Regenerate with `just bench-swap`.
 
 ## 1. Cancel
 
-| Function                             |   Total CU |     Net CU |
-| ------------------------------------ | ---------- | ---------- |
-| `cpi_spp_transact_signed`            |    155,297 |    155,297 |
-| `process_cancel`                     |    252,641 |     97,344 |
-
+| Function                                |   Total CU |     Net CU |
+| --------------------------------------- | ---------- | ---------- |
+| `cpi_spp_transact_signed`               |    151,880 |    151,880 |
+| `process_cancel_ix`                     |    251,626 |     99,746 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total |
 | ------------------ | ------------------ | ----- |
-|              61 ms |              17 ms | 78 ms |
+|              63 ms |              18 ms | 81 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |
@@ -36,32 +35,32 @@ Regenerate with `just bench-swap`.
 
 ## 2. Make
 
-| Function                             |   Total CU |     Net CU |
-| ------------------------------------ | ---------- | ---------- |
-| `cpi_spp_transact`                   |    162,992 |    162,992 |
-| `process_make`                       |    258,987 |     95,995 |
+| Function                                |   Total CU |     Net CU |
+| --------------------------------------- | ---------- | ---------- |
+| `cpi_spp_transact`                      |    162,713 |    162,713 |
+| `process_make_ix`                       |    257,789 |     95,076 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             107 ms |              18 ms | 125 ms |
+|             112 ms |              19 ms | 132 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
 | ---------------- | -------- | ---------- | ----------- |
-|        846 bytes |        4 | 1124 bytes |  1098 bytes |
+|        910 bytes |        4 | 1188 bytes |  1162 bytes |
 
 ## 3. Take
 
-| Function                             |   Total CU |     Net CU |
-| ------------------------------------ | ---------- | ---------- |
-| `cpi_spp_transact_signed`            |    164,710 |    164,710 |
-| `process_take`                       |    261,268 |     96,558 |
+| Function                                |   Total CU |     Net CU |
+| --------------------------------------- | ---------- | ---------- |
+| `cpi_spp_transact_signed`               |    161,259 |    161,259 |
+| `process_take_ix`                       |    260,024 |     98,765 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             109 ms |              28 ms | 138 ms |
+|             113 ms |              29 ms | 142 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -70,15 +69,15 @@ Regenerate with `just bench-swap`.
 
 ## 4. Take Verifiable Encryption
 
-| Function                             |   Total CU |     Net CU |
-| ------------------------------------ | ---------- | ---------- |
-| `cpi_spp_transact_signed`            |    164,702 |    164,702 |
-| `process_take_verifiable_encryption` |    395,782 |    231,080 |
+| Function                                |   Total CU |     Net CU |
+| --------------------------------------- | ---------- | ---------- |
+| `cpi_spp_transact_signed`               |    161,251 |    161,251 |
+| `process_take_verifiable_encryption_ix` |    394,199 |    232,948 |
 
 **Proving Time**
 | SPP transfer proof | Swap circuit proof | Total  |
 | ------------------ | ------------------ | ------ |
-|             107 ms |             133 ms | 241 ms |
+|             111 ms |             134 ms | 245 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |

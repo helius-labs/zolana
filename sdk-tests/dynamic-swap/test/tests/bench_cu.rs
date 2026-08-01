@@ -31,15 +31,12 @@ use light_program_profiler::{
 };
 use mollusk_svm::{result::Check, Mollusk};
 use num_bigint::BigUint;
-use solana_account::Account as MolluskAccount;
+use solana_account::Account;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_instruction::{
-    AccountMeta as MolluskAccountMeta, Instruction, Instruction as MolluskInstruction,
-};
+use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
-use solana_pubkey::Pubkey as MolluskPubkey;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
@@ -85,17 +82,17 @@ const SOURCE_ASSET_ID: u64 = 2;
 const DESTINATION_ASSET_ID: u64 = 1;
 const PRICE: u64 = 5;
 
-fn to_mollusk_pubkey(key: &Pubkey) -> MolluskPubkey {
-    MolluskPubkey::new_from_array(key.to_bytes())
+fn to_mollusk_pubkey(key: &Pubkey) -> Pubkey {
+    Pubkey::new_from_array(key.to_bytes())
 }
 
-fn to_mollusk_instruction(ix: &Instruction) -> MolluskInstruction {
-    MolluskInstruction {
+fn to_mollusk_instruction(ix: &Instruction) -> Instruction {
+    Instruction {
         program_id: to_mollusk_pubkey(&ix.program_id),
         accounts: ix
             .accounts
             .iter()
-            .map(|meta| MolluskAccountMeta {
+            .map(|meta| AccountMeta {
                 pubkey: to_mollusk_pubkey(&meta.pubkey),
                 is_signer: meta.is_signer,
                 is_writable: meta.is_writable,
@@ -105,7 +102,7 @@ fn to_mollusk_instruction(ix: &Instruction) -> MolluskInstruction {
     }
 }
 
-fn mollusk_program_account(program_id: &MolluskPubkey) -> (MolluskPubkey, MolluskAccount) {
+fn mollusk_program_account(program_id: &Pubkey) -> (Pubkey, Account) {
     let account = mollusk_svm::program::create_program_account_loader_v3(program_id);
     (*program_id, account)
 }
@@ -114,11 +111,11 @@ fn mollusk_program_account(program_id: &MolluskPubkey) -> (MolluskPubkey, Mollus
 // yet" to `pinocchio_system::create_account_with_minimum_balance_signed`'s
 // hot path (used for every PDA `create_pair`/`create_escrow` initializes);
 // `lamports > 0` models an existing wallet.
-fn system_owned_account(lamports: u64) -> MolluskAccount {
-    MolluskAccount {
+fn system_owned_account(lamports: u64) -> Account {
+    Account {
         lamports,
         data: Vec::new(),
-        owner: MolluskPubkey::new_from_array([0u8; 32]),
+        owner: Pubkey::new_from_array([0u8; 32]),
         executable: false,
         rent_epoch: 0,
     }
@@ -130,8 +127,8 @@ fn system_owned_account(lamports: u64) -> MolluskAccount {
 // needs the world "as if" those prior calls already happened, exactly
 // mirroring how `zk-program-swap`'s own bench constructs its order UTXOs and
 // tree fixture directly instead of replaying a deposit.
-fn dynamic_swap_account(bytes: Vec<u8>, program_id: &MolluskPubkey) -> MolluskAccount {
-    MolluskAccount {
+fn dynamic_swap_account(bytes: Vec<u8>, program_id: &Pubkey) -> Account {
+    Account {
         lamports: 1_000_000_000,
         data: bytes,
         owner: *program_id,
@@ -140,18 +137,15 @@ fn dynamic_swap_account(bytes: Vec<u8>, program_id: &MolluskPubkey) -> MolluskAc
     }
 }
 
-fn pair_fixture(state: Pair, program_id: &MolluskPubkey) -> MolluskAccount {
+fn pair_fixture(state: Pair, program_id: &Pubkey) -> Account {
     dynamic_swap_account(bytemuck::bytes_of(&state).to_vec(), program_id)
 }
 
-fn escrow_fixture(state: Escrow, program_id: &MolluskPubkey) -> MolluskAccount {
+fn escrow_fixture(state: Escrow, program_id: &Pubkey) -> Account {
     dynamic_swap_account(bytemuck::bytes_of(&state).to_vec(), program_id)
 }
 
-fn build_tree_fixture(
-    tree: &Pubkey,
-    leaves: &[[u8; 32]],
-) -> (MolluskAccount, [u8; 32], [u8; 32], u16) {
+fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32], [u8; 32], u16) {
     let mut tree_account_bytes = vec![0u8; tree_account_size()];
     let root_index = leaves.len() as u16;
     let (utxo_root, nullifier_root) = {
@@ -171,10 +165,10 @@ fn build_tree_fixture(
             account.get_nullifier_tree_root(0).expect("nullifier root"),
         )
     };
-    let fixture = MolluskAccount {
+    let fixture = Account {
         lamports: 1_000_000_000_000,
         data: tree_account_bytes,
-        owner: MolluskPubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        owner: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         executable: false,
         rent_epoch: 0,
     };
@@ -261,9 +255,9 @@ fn build_spend_proofs(
 // PDA signer placeholders whose address alone matters for CPI signer checks).
 fn assemble_accounts(
     ix: &Instruction,
-    spp_id: &MolluskPubkey,
-    fixtures: &[(Pubkey, MolluskAccount)],
-) -> Vec<(MolluskPubkey, MolluskAccount)> {
+    spp_id: &Pubkey,
+    fixtures: &[(Pubkey, Account)],
+) -> Vec<(Pubkey, Account)> {
     let spp = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     ix.accounts
         .iter()
@@ -385,8 +379,8 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
 fn bench_cu_dynamic_swap() {
     std::env::set_var("SBF_OUT_DIR", PROFILING_SBF_DIR);
 
-    let dynamic_swap_id = MolluskPubkey::new_from_array(*dynamic_swap_program::ID.as_array());
-    let spp_id = MolluskPubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let dynamic_swap_id = Pubkey::new_from_array(*dynamic_swap_program::ID.as_array());
+    let spp_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
     let mut mollusk = Mollusk::default();
     register_profiling_syscalls(&mut mollusk);
@@ -429,8 +423,8 @@ fn bench_cu_dynamic_swap() {
 
 fn bench_create_pair(
     mollusk: &mut Mollusk,
-    spp_id: &MolluskPubkey,
-    _dynamic_swap_id: &MolluskPubkey,
+    spp_id: &Pubkey,
+    _dynamic_swap_id: &Pubkey,
     bench: &mut CuBenchmark,
 ) {
     let authority = Keypair::new();
@@ -468,8 +462,8 @@ fn bench_create_pair(
 
 fn bench_update_price(
     mollusk: &mut Mollusk,
-    spp_id: &MolluskPubkey,
-    dynamic_swap_id: &MolluskPubkey,
+    spp_id: &Pubkey,
+    dynamic_swap_id: &Pubkey,
     bench: &mut CuBenchmark,
 ) {
     let authority = Keypair::new();
@@ -514,8 +508,8 @@ fn bench_update_price(
 
 fn bench_create_escrow(
     mollusk: &mut Mollusk,
-    spp_id: &MolluskPubkey,
-    dynamic_swap_id: &MolluskPubkey,
+    spp_id: &Pubkey,
+    dynamic_swap_id: &Pubkey,
     bench: &mut CuBenchmark,
 ) {
     const FUNDING_AMOUNT: u64 = 1_000_000_000;
@@ -763,8 +757,8 @@ fn bench_create_escrow(
 
 fn bench_settle(
     mollusk: &mut Mollusk,
-    spp_id: &MolluskPubkey,
-    dynamic_swap_id: &MolluskPubkey,
+    spp_id: &Pubkey,
+    dynamic_swap_id: &Pubkey,
     bench: &mut CuBenchmark,
 ) {
     const ORDER_AMOUNT: u64 = 100_000_000;

@@ -13,6 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 borsh = { workspace = true }
 litesvm = { workspace = true, features = ["precompiles"] }
+solana-account = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
@@ -23,9 +24,5 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 
 [dev-dependencies]
-cucumber = { workspace = true }
-tokio = { workspace = true }
-
-[[test]]
-name = "bdd"
-harness = false
+solana-transaction-error = { workspace = true }
+zolana-user-registry = { workspace = true }

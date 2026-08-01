@@ -6,19 +6,43 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+mollusk = ["dep:mollusk-svm", "dep:solana-program-error"]
+
 [dependencies]
+anyhow = { workspace = true }
 base64 = { workspace = true }
 bytemuck = { workspace = true }
+groth16-solana = { workspace = true }
+mollusk-svm = { workspace = true, optional = true }
+num-bigint = { workspace = true }
+rand = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
+solana-instruction-error = { workspace = true }
 solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-program-error = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true }
+solana-transaction = { workspace = true }
+solana-transaction-error = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-smart-account-client = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
+zolana-hasher = { workspace = true, features = ["poseidon"] }
+zolana-keypair = { workspace = true }
+zolana-merkle-tree = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }
+zolana-tree = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+
+[dev-dependencies]
+# smart_account::settings pins the Anchor discriminator scheme in its unit test.
+sha2 = { workspace = true }
+solana-rpc-client-api = { workspace = true }

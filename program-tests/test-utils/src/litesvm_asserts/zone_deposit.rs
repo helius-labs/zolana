@@ -6,43 +6,62 @@ use zolana_program_test::{ZolanaProgramTest, ZoneDepositOutput};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled `zone_deposit` against the integration-test
-/// expectations: the emitted event faithfully mirrors the instruction data and
-/// the settled amount, the created UTXO is owned by the zone program and
-/// carries its policy hash, the state tree advanced, the indexer agrees with
-/// the on-chain root, the recipient view tag locates exactly one deposit, and
-/// the recipient wallet discovers the new zone-owned UTXO.
+/// expectations: the emitted owner-hidden event faithfully mirrors the
+/// instruction data and the settled amount, the created UTXO is owned by the
+/// zone program and carries its policy hash, the state tree advanced, the
+/// indexer agrees with the on-chain root, the recipient view tag locates
+/// exactly one deposit, and the recipient wallet discovers the new zone-owned
+/// UTXO.
 ///
 /// `expected_zone_program_id` is the zone wrapper program id; `root_before` is
 /// the on-chain state root captured before the deposit.
+pub struct ZoneDepositAssertArgs<'a, A: ?Sized> {
+    pub tree: &'a Pubkey,
+    pub event: &'a ZoneDepositOutput,
+    pub data: &'a ZoneAssetDeposit,
+    pub expected_amount: u64,
+    pub expected_asset: [u8; 32],
+    pub expected_zone_program_id: [u8; 32],
+    pub root_before: [u8; 32],
+    pub authority: &'a A,
+}
+
 #[track_caller]
-#[allow(clippy::too_many_arguments)]
 pub fn litesvm_assert_zone_deposit<A: SyncWalletAuthority + ?Sized>(
     program_test: &mut ZolanaProgramTest,
-    tree: &Pubkey,
-    event: &ZoneDepositOutput,
-    data: &ZoneAssetDeposit,
-    expected_amount: u64,
-    expected_asset: [u8; 32],
-    expected_zone_program_id: [u8; 32],
-    root_before: [u8; 32],
-    authority: &A,
     recipient: &mut Wallet,
+    args: ZoneDepositAssertArgs<'_, A>,
 ) {
-    assert_eq!(event.output.amount, expected_amount, "event amount");
-    assert_eq!(event.output.asset, expected_asset, "event asset");
-    assert_eq!(
-        event.output.owner_utxo_hash, data.owner_utxo_hash,
-        "owner UTXO hash"
-    );
-    assert_eq!(event.view_tag, data.view_tag, "view tag");
-    assert_eq!(
-        event.output.zone_program_id, expected_zone_program_id,
-        "UTXO is owned by the zone program"
-    );
-    assert_eq!(
-        event.output.zone_data_hash, data.zone_data_hash,
-        "UTXO carries the zone policy hash"
-    );
+    let ZoneDepositAssertArgs {
+        tree,
+        event,
+        data,
+        expected_amount,
+        expected_asset,
+        expected_zone_program_id,
+        root_before,
+        authority,
+    } = args;
+    let expected = ZoneDepositOutput {
+        view_tag: data.view_tag,
+        utxo_hash: event.utxo_hash,
+        output_tree: event.output_tree,
+        leaf_index: event.leaf_index,
+        output: zolana_event::EncryptedZoneDepositOutput {
+            owner_utxo_hash: data.owner_utxo_hash,
+            asset: expected_asset,
+            amount: expected_amount,
+            data_hash: data.data_hash,
+            zone_program_id: expected_zone_program_id,
+            zone_data_hash: data.zone_data_hash,
+            encrypted: zolana_event::EncryptedZoneDepositData {
+                tx_viewing_pk: data.encrypted.tx_viewing_pk,
+                salt: data.encrypted.salt,
+                ciphertext: data.encrypted.ciphertext.clone(),
+            },
+        },
+    };
+    assert_eq!(*event, expected, "zone deposit event");
 
     let root_after = program_test.state_root(tree).expect("state root");
     assert_ne!(root_after, root_before, "leaf must be appended");

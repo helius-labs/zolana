@@ -8,8 +8,7 @@ pub const MERGE_INPUT_COUNT: usize = 8;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 128 bytes on the wire (compressed points, G1 -> 32 bytes, G2 -> 64 bytes).
-/// The merge circuit carries no P256 gadget, so there is no BSB22 commitment
-/// (unlike `transact`'s P256 rail).
+/// The merge circuit carries no P256 gadget, so there is no BSB22 commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeProof {
     pub a: [u8; 32],

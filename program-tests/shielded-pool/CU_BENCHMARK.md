@@ -1,6 +1,6 @@
 # Shielded Pool -- CU Benchmark
 
-Compute unit profiling for the shielded-pool deposit and transact instructions, replayed under mollusk from litesvm-built account state: proof-free SOL and SPL shields, plus Groth16-proven (2,3) eddsa transact shapes -- a shielded transfer and SOL/SPL withdrawals.
+Compute unit profiling for feasible shielded-pool instruction families, replayed under mollusk from litesvm-built account state: protocol creation, tree pause, proof-free SOL/SPL shields, all ten Groth16-proven EdDSA transact shapes (including the 1x8 split shape), and SOL/SPL withdrawals. Each proof-bearing replay has an enforced ceiling; the fast cu_budget_contract separately pins every proofless administration variant.
 
 Regenerate with `just bench-shielded-pool`.
 
@@ -11,124 +11,218 @@ Regenerate with `just bench-shielded-pool`.
 
 ## Table of Contents
 
-1. [Deposit sol](#deposit-sol)
-2. [Deposit sol batch 3](#deposit-sol-batch-3)
-3. [Deposit spl](#deposit-spl)
-4. [Transfer](#transfer)
-5. [Withdrawal sol](#withdrawal-sol)
-6. [Withdrawal spl](#withdrawal-spl)
-7. [Baseline comparison](#baseline-comparison)
+1. [Create protocol config](#create-protocol-config)
+2. [Deposit sol](#deposit-sol)
+3. [Deposit sol batch 3](#deposit-sol-batch-3)
+4. [Deposit spl](#deposit-spl)
+5. [Pause tree](#pause-tree)
+6. [Transfer eddsa 1x1](#transfer-eddsa-1x1)
+7. [Transfer eddsa 1x2](#transfer-eddsa-1x2)
+8. [Transfer eddsa 1x8](#transfer-eddsa-1x8)
+9. [Transfer eddsa 2x2](#transfer-eddsa-2x2)
+10. [Transfer eddsa 2x3](#transfer-eddsa-2x3)
+11. [Transfer eddsa 3x3](#transfer-eddsa-3x3)
+12. [Transfer eddsa 4x3](#transfer-eddsa-4x3)
+13. [Transfer eddsa 4x4](#transfer-eddsa-4x4)
+14. [Transfer eddsa 5x3](#transfer-eddsa-5x3)
+15. [Transfer eddsa 5x4](#transfer-eddsa-5x4)
+16. [Withdrawal sol](#withdrawal-sol)
+17. [Withdrawal spl](#withdrawal-spl)
 
-## 1. Deposit sol
-
-| Function                      |   Total CU |     Net CU |
-| ----------------------------- | ---------- | ---------- |
-| `settle_sol`                  |      1,224 |      1,224 |
-| `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     38,530 |     37,275 |
-| `process_instruction`         |     38,581 |         51 |
-
-## 2. Deposit sol batch 3
-
-| Function                      |   Total CU |     Net CU |
-| ----------------------------- | ---------- | ---------- |
-| `settle_sol`                  |      1,224 |      1,224 |
-| `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     50,034 |     48,779 |
-| `process_instruction`         |     50,085 |         51 |
-
-## 3. Deposit spl
+## 1. Create protocol config
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `settle_spl_deposit`          |      1,330 |      1,330 |
-| `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     39,383 |     38,022 |
-| `process_instruction`         |     39,434 |         51 |
+| `process_instruction`         |      5,448 |      5,448 |
 
-## 4. Transfer
+## 2. Deposit sol
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      2,887 |      2,887 |
-| `fill_owner_signer_hashes`    |      1,001 |      1,001 |
-| `apply_input_tree`            |      3,592 |      3,592 |
-| `apply_output_tree`           |     28,964 |     28,964 |
-| `verify_groth16`              |     93,351 |     93,351 |
+| `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    165,114 |     35,288 |
-| `process_instruction`         |    165,164 |         50 |
+| `process_deposit`             |     38,307 |     37,106 |
+| `process_instruction`         |     38,357 |          0 |
 
-## 5. Withdrawal sol
+## 3. Deposit sol batch 3
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      2,887 |      2,887 |
-| `fill_owner_signer_hashes`    |      1,001 |      1,001 |
-| `apply_input_tree`            |      3,592 |      3,592 |
-| `apply_output_tree`           |     28,964 |     28,964 |
-| `verify_groth16`              |     93,351 |     93,351 |
-| `settle_sol`                  |      1,243 |      1,243 |
+| `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    169,208 |     38,139 |
-| `process_instruction`         |    169,258 |         50 |
+| `process_deposit`             |     49,807 |     48,606 |
+| `process_instruction`         |     49,857 |          0 |
 
-## 6. Withdrawal spl
+## 4. Deposit spl
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      2,887 |      2,887 |
-| `fill_owner_signer_hashes`    |      1,001 |      1,001 |
-| `apply_input_tree`            |      3,592 |      3,592 |
-| `apply_output_tree`           |     28,964 |     28,964 |
-| `verify_groth16`              |     93,351 |     93,351 |
-| `settle_spl_withdrawal`       |      1,263 |      1,263 |
+| `settle_spl_deposit`          |      1,277 |      1,277 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    170,913 |     39,824 |
-| `process_instruction`         |    170,963 |         50 |
+| `process_deposit`             |     39,290 |     37,982 |
+| `process_instruction`         |     39,340 |          0 |
 
-## Baseline comparison
+## 5. Pause tree
 
-Compared with expanded pre-TODO baseline commit `d02f3455`. Negative deltas are
-CU improvements.
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `process_instruction`         |        190 |        190 |
 
-| Case | Phase | Baseline total | Current total | Total delta | Baseline net | Current net | Net delta |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Deposit SOL | `settle_sol` | 1,224 | 1,224 | +0 (+0.00%) | 1,224 | 1,224 | +0 (+0.00%) |
-| Deposit SOL | `process_instruction` (dispatch) | 31 | 31 | +0 (+0.00%) | 31 | 31 | +0 (+0.00%) |
-| Deposit SOL | `process_deposit` | 38,410 | 38,530 | +120 (+0.31%) | 37,155 | 37,275 | +120 (+0.32%) |
-| Deposit SOL | `process_instruction` (total) | 38,460 | 38,581 | +121 (+0.31%) | 50 | 51 | +1 (+2.00%) |
-| Deposit SOL batch 3 | `settle_sol` | 1,224 | 1,224 | +0 (+0.00%) | 1,224 | 1,224 | +0 (+0.00%) |
-| Deposit SOL batch 3 | `process_instruction` (dispatch) | 31 | 31 | +0 (+0.00%) | 31 | 31 | +0 (+0.00%) |
-| Deposit SOL batch 3 | `process_deposit` | 49,908 | 50,034 | +126 (+0.25%) | 48,653 | 48,779 | +126 (+0.26%) |
-| Deposit SOL batch 3 | `process_instruction` (total) | 49,958 | 50,085 | +127 (+0.25%) | 50 | 51 | +1 (+2.00%) |
-| Deposit SPL | `settle_spl_deposit` | 1,330 | 1,330 | +0 (+0.00%) | 1,330 | 1,330 | +0 (+0.00%) |
-| Deposit SPL | `process_instruction` (dispatch) | 31 | 31 | +0 (+0.00%) | 31 | 31 | +0 (+0.00%) |
-| Deposit SPL | `process_deposit` | 39,395 | 39,383 | -12 (-0.03%) | 38,034 | 38,022 | -12 (-0.03%) |
-| Deposit SPL | `process_instruction` (total) | 39,445 | 39,434 | -11 (-0.03%) | 50 | 51 | +1 (+2.00%) |
-| Transfer | `fill_output_owner_pk_hashes` | 2,882 | 2,887 | +5 (+0.17%) | 2,882 | 2,887 | +5 (+0.17%) |
-| Transfer | `fill_owner_signer_hashes` | 971 | 1,001 | +30 (+3.09%) | 971 | 1,001 | +30 (+3.09%) |
-| Transfer | `apply_input_tree` | 3,387 | 3,592 | +205 (+6.05%) | 3,387 | 3,592 | +205 (+6.05%) |
-| Transfer | `apply_output_tree` | 28,870 | 28,964 | +94 (+0.33%) | 28,870 | 28,964 | +94 (+0.33%) |
-| Transfer | `verify_groth16` | 93,351 | 93,351 | +0 (+0.00%) | 93,351 | 93,351 | +0 (+0.00%) |
-| Transfer | `process_instruction` (dispatch) | 31 | 31 | +0 (+0.00%) | 31 | 31 | +0 (+0.00%) |
-| Transfer | `process_transact_ix` | 164,799 | 165,114 | +315 (+0.19%) | 35,307 | 35,288 | -19 (-0.05%) |
-| Transfer | `process_instruction` (total) | 164,850 | 165,164 | +314 (+0.19%) | 51 | 50 | -1 (-1.96%) |
-| Withdraw SOL | `fill_output_owner_pk_hashes` | 2,882 | 2,887 | +5 (+0.17%) | 2,882 | 2,887 | +5 (+0.17%) |
-| Withdraw SOL | `fill_owner_signer_hashes` | 971 | 1,001 | +30 (+3.09%) | 971 | 1,001 | +30 (+3.09%) |
-| Withdraw SOL | `apply_input_tree` | 3,387 | 3,592 | +205 (+6.05%) | 3,387 | 3,592 | +205 (+6.05%) |
-| Withdraw SOL | `apply_output_tree` | 28,870 | 28,964 | +94 (+0.33%) | 28,870 | 28,964 | +94 (+0.33%) |
-| Withdraw SOL | `verify_groth16` | 93,351 | 93,351 | +0 (+0.00%) | 93,351 | 93,351 | +0 (+0.00%) |
-| Withdraw SOL | `settle_sol` | 1,243 | 1,243 | +0 (+0.00%) | 1,243 | 1,243 | +0 (+0.00%) |
-| Withdraw SOL | `process_instruction` (dispatch) | 31 | 31 | +0 (+0.00%) | 31 | 31 | +0 (+0.00%) |
-| Withdraw SOL | `process_transact_ix` | 168,934 | 169,208 | +274 (+0.16%) | 38,199 | 38,139 | -60 (-0.16%) |
-| Withdraw SOL | `process_instruction` (total) | 168,985 | 169,258 | +273 (+0.16%) | 51 | 50 | -1 (-1.96%) |
-| Withdraw SPL | `fill_output_owner_pk_hashes` | 2,882 | 2,887 | +5 (+0.17%) | 2,882 | 2,887 | +5 (+0.17%) |
-| Withdraw SPL | `fill_owner_signer_hashes` | 971 | 1,001 | +30 (+3.09%) | 971 | 1,001 | +30 (+3.09%) |
-| Withdraw SPL | `apply_input_tree` | 3,387 | 3,592 | +205 (+6.05%) | 3,387 | 3,592 | +205 (+6.05%) |
-| Withdraw SPL | `apply_output_tree` | 28,870 | 28,964 | +94 (+0.33%) | 28,870 | 28,964 | +94 (+0.33%) |
-| Withdraw SPL | `verify_groth16` | 93,351 | 93,351 | +0 (+0.00%) | 93,351 | 93,351 | +0 (+0.00%) |
-| Withdraw SPL | `settle_spl_withdrawal` | 1,262 | 1,263 | +1 (+0.08%) | 1,262 | 1,263 | +1 (+0.08%) |
-| Withdraw SPL | `process_instruction` (dispatch) | 31 | 31 | +0 (+0.00%) | 31 | 31 | +0 (+0.00%) |
-| Withdraw SPL | `process_transact_ix` | 170,627 | 170,913 | +286 (+0.17%) | 39,873 | 39,824 | -49 (-0.12%) |
-| Withdraw SPL | `process_instruction` (total) | 170,678 | 170,963 | +285 (+0.17%) | 51 | 50 | -1 (-1.96%) |
+## 6. Transfer eddsa 1x1
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |        988 |        988 |
+| `fill_output_owner_pk_hashes` |        970 |        970 |
+| `apply_input_tree`            |      1,363 |      1,363 |
+| `apply_output_tree`           |     27,913 |     27,913 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    153,111 |     28,554 |
+| `process_instruction`         |    153,162 |          0 |
+
+## 7. Transfer eddsa 1x2
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |        988 |        988 |
+| `fill_output_owner_pk_hashes` |      1,926 |      1,926 |
+| `apply_input_tree`            |      1,363 |      1,363 |
+| `apply_output_tree`           |     27,958 |     27,958 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    156,209 |     30,651 |
+| `process_instruction`         |    156,260 |          0 |
+
+## 8. Transfer eddsa 1x8
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |        988 |        988 |
+| `fill_output_owner_pk_hashes` |      7,664 |      7,664 |
+| `apply_input_tree`            |      1,363 |      1,363 |
+| `apply_output_tree`           |     31,696 |     31,696 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    177,810 |     42,776 |
+| `process_instruction`         |    177,861 |          0 |
+
+## 9. Transfer eddsa 2x2
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      1,961 |      1,961 |
+| `fill_output_owner_pk_hashes` |      1,926 |      1,926 |
+| `apply_input_tree`            |      3,387 |      3,387 |
+| `apply_output_tree`           |     27,958 |     27,958 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    162,577 |     34,022 |
+| `process_instruction`         |    162,628 |          0 |
+
+## 10. Transfer eddsa 2x3
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      1,961 |      1,961 |
+| `fill_output_owner_pk_hashes` |      2,882 |      2,882 |
+| `apply_input_tree`            |      3,387 |      3,387 |
+| `apply_output_tree`           |     28,870 |     28,870 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    166,420 |     35,997 |
+| `process_instruction`         |    166,471 |          0 |
+
+## 11. Transfer eddsa 3x3
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      2,934 |      2,934 |
+| `fill_output_owner_pk_hashes` |      2,882 |      2,882 |
+| `apply_input_tree`            |      5,411 |      5,411 |
+| `apply_output_tree`           |     28,870 |     28,870 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    172,784 |     39,364 |
+| `process_instruction`         |    172,835 |          0 |
+
+## 12. Transfer eddsa 4x3
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      3,907 |      3,907 |
+| `fill_output_owner_pk_hashes` |      2,882 |      2,882 |
+| `apply_input_tree`            |      7,435 |      7,435 |
+| `apply_output_tree`           |     28,870 |     28,870 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    179,150 |     42,733 |
+| `process_instruction`         |    179,201 |          0 |
+
+## 13. Transfer eddsa 4x4
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      3,907 |      3,907 |
+| `fill_output_owner_pk_hashes` |      3,838 |      3,838 |
+| `apply_input_tree`            |      7,435 |      7,435 |
+| `apply_output_tree`           |     28,915 |     28,915 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    182,420 |     45,002 |
+| `process_instruction`         |    182,471 |          0 |
+
+## 14. Transfer eddsa 5x3
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      4,880 |      4,880 |
+| `fill_output_owner_pk_hashes` |      2,882 |      2,882 |
+| `apply_input_tree`            |      9,459 |      9,459 |
+| `apply_output_tree`           |     28,870 |     28,870 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    185,633 |     46,219 |
+| `process_instruction`         |    185,684 |          0 |
+
+## 15. Transfer eddsa 5x4
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      4,880 |      4,880 |
+| `fill_output_owner_pk_hashes` |      3,838 |      3,838 |
+| `apply_input_tree`            |      9,459 |      9,459 |
+| `apply_output_tree`           |     28,915 |     28,915 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    188,788 |     48,373 |
+| `process_instruction`         |    188,839 |          0 |
+
+## 16. Withdrawal sol
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      1,961 |      1,961 |
+| `fill_output_owner_pk_hashes` |      2,882 |      2,882 |
+| `apply_input_tree`            |      3,387 |      3,387 |
+| `apply_output_tree`           |     28,870 |     28,870 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `settle_sol`                  |      1,189 |      1,189 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    169,733 |     38,121 |
+| `process_instruction`         |    169,784 |          0 |
+
+## 17. Withdrawal spl
+
+| Function                      |   Total CU |     Net CU |
+| ----------------------------- | ---------- | ---------- |
+| `check_input_signers`         |      1,961 |      1,961 |
+| `fill_output_owner_pk_hashes` |      2,882 |      2,882 |
+| `apply_input_tree`            |      3,387 |      3,387 |
+| `apply_output_tree`           |     28,870 |     28,870 |
+| `verify_groth16`              |     93,292 |     93,292 |
+| `settle_spl_withdrawal`       |      1,209 |      1,209 |
+| `process_instruction`         |         31 |         31 |
+| `process_transact_ix`         |    171,435 |     39,803 |
+| `process_instruction`         |    171,486 |          0 |
+

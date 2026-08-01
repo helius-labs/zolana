@@ -131,3 +131,23 @@ fn every_option_present_but_empty() -> ProoflessOutput {
         ..minimal()
     }
 }
+
+/// The `VerifiablyEncrypted` variant is reserved for upcoming auditor
+/// encryption flows (custom rings with auditor): pin its wire shape so the
+/// reservation cannot rot while it has no producer.
+#[test]
+fn verifiably_encrypted_round_trips_with_tag_byte_two() {
+    use borsh::BorshDeserialize;
+    use zolana_event::encode_verifiably_encrypted;
+
+    let blob = vec![1u8, 2, 3, 4, 5];
+    let encoded = encode_verifiably_encrypted(blob.clone());
+    assert_eq!(
+        encoded.first(),
+        Some(&OutputDataEncoding::VERIFIABLY_ENCRYPTED_TAG)
+    );
+    match OutputDataEncoding::try_from_slice(&encoded).expect("decode tag 2") {
+        OutputDataEncoding::VerifiablyEncrypted(out) => assert_eq!(out, blob),
+        other => panic!("expected VerifiablyEncrypted, got {other:?}"),
+    }
+}

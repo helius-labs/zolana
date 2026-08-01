@@ -204,9 +204,10 @@ the taker's viewing pubkey, so the taker recovers the private order terms and th
 the maker can decrypt the same slot via the transaction viewing key it holds. Those two parties are
 exactly who can decrypt the order. The taker resolves `maker_address`
 from the user registry via the marker's `maker_pubkey` and verifies the resolution by
-recomputing the order UTXO `utxo_hash`. The program requires exactly one transact message, with empty
-`data`, and writes a plaintext [`MarkerData`](#glossary) `{ order_utxo_hash,
-maker_pubkey }` into it (the order UTXO hash read from transact output index 1, the pubkey from the
+recomputing the order UTXO `utxo_hash`. The program requires exactly one transact message, with
+`data` equal to the 64-byte zeroed placeholder (`MARKER_PLACEHOLDER`), and overwrites it in place
+with the plaintext [`MarkerData`](#glossary) `{ order_utxo_hash,
+maker_pubkey }` (the order UTXO hash read from transact output index 1, the pubkey from the
 signer), so ordinary wallet sync finds the trade and
 can locate the matching order UTXO slot to decrypt. The message is committed in `private_tx_hash` via
 the external-data hash, so the SPP proof only verifies if the maker proved over the exact

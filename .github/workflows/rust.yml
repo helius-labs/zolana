@@ -29,6 +29,9 @@ env:
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-D warnings"
   SBF_TOOLS_VERSION: v1.54
+  # Activate .config/nextest.toml's [profile.ci]: retries = 2 (flaky localnet /
+  # prover tests get two retries, reported FLAKY on pass) and fail-fast = false.
+  NEXTEST_PROFILE: ci
 
 jobs:
   fmt:
@@ -45,6 +48,7 @@ jobs:
       - name: Install workspace Rust toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check
+      - run: ./tools/check-test-hygiene.sh
 
   machete:
     name: cargo-machete
@@ -103,10 +107,6 @@ jobs:
       AGAVE_VERSION: v4.0.2
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: prover/server/go.mod
-          cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: litesvm
@@ -117,12 +117,7 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install pinned SBF platform tools
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
-      - name: Cache proving keys
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: prover/server/proving-keys
-          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - run: just test-shielded-pool
+      - run: just test-program-fast
 
   test-sdk-libs:
     name: tests / sdk-libs
@@ -162,7 +157,7 @@ jobs:
         with:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - run: just test-programs
+      - run: just test-program-proofs-programs-only
 
   build-photon:
     name: build / photon
@@ -200,6 +195,8 @@ jobs:
             recipe: test-spp-validator-merge
           - name: spp randomized
             recipe: test-spp-validator-randomized
+          - name: spp proof cu
+            recipe: test-spp-validator-proof-cu
           - name: zone lifecycle
             recipe: test-zone-validator
           - name: swap and escrow lifecycle
@@ -306,3 +303,4 @@ jobs:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-client-integration
+

@@ -1,0 +1,112 @@
+//! Shielded-pool Mollusk fixtures, snapshotted from a green LiteSVM state.
+//! Harness-generic execution and assertion helpers live in
+//! `zolana_test_utils::mollusk`.
+
+use mollusk_svm::Mollusk;
+use solana_account::Account as MolluskAccount;
+use solana_instruction::Instruction;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
+use zolana_interface::{
+    instruction::{CreateProtocolConfig, Deposit, PauseTree},
+    PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
+};
+use zolana_program_test::ZolanaProgramTest;
+use zolana_test_utils::mollusk::{
+    mollusk_instruction, mollusk_with_program, snapshot_instruction_accounts,
+};
+
+use crate::support::runtime;
+
+/// The SBF deploy directory: `$CARGO_TARGET_DIR/deploy` when the target dir is
+/// overridden, else the workspace default.
+fn sbf_dir() -> String {
+    match std::env::var("CARGO_TARGET_DIR") {
+        Ok(dir) => format!("{dir}/deploy"),
+        Err(_) => concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy").to_string(),
+    }
+}
+
+pub fn setup_mollusk() -> (Mollusk, Pubkey) {
+    mollusk_with_program(
+        &sbf_dir(),
+        SHIELDED_POOL_PROGRAM_ID,
+        "shielded_pool_program",
+    )
+}
+
+fn snapshot(
+    test: &ZolanaProgramTest,
+    ix: &Instruction,
+    program_id: Pubkey,
+) -> Vec<(Pubkey, MolluskAccount)> {
+    snapshot_instruction_accounts(ix, (&PROGRAM_ID_PUBKEY, program_id), |key| {
+        test.svm.get_account(key)
+    })
+}
+
+pub fn deposit_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>) {
+    let mut test = runtime::program_test();
+    let authority = Keypair::new();
+    test.create_protocol_config(&authority)
+        .expect("create protocol config");
+    let tree = test
+        .create_tree(runtime::tree_account_size(), &authority)
+        .expect("create tree");
+    let depositor = Keypair::new();
+    test.airdrop(&depositor.pubkey(), 1_000_000_000)
+        .expect("fund depositor");
+    let data = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 32]);
+    let ix = Deposit {
+        tree: tree.pubkey(),
+        depositor: depositor.pubkey(),
+        deposits: vec![data],
+    }
+    .instruction()
+    .expect("build deposit instruction");
+    let (mollusk, program_id) = setup_mollusk();
+    let accounts = snapshot(&test, &ix, program_id);
+    (mollusk, mollusk_instruction(&ix), accounts)
+}
+
+pub fn protocol_config_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>) {
+    let mut test = runtime::program_test();
+    let authority = Keypair::new();
+    test.airdrop(&authority.pubkey(), 1_000_000_000)
+        .expect("fund authority");
+    let authority_address = authority.pubkey().to_bytes().into();
+    let ix = CreateProtocolConfig {
+        authority: authority.pubkey(),
+        protocol_authority: authority_address,
+        tree_creation_authority: authority_address,
+        tree_creation_is_permissionless: false,
+        forester_authority: authority_address,
+        zone_creation_authority: authority_address,
+        zone_creation_is_permissionless: false,
+        spl_interface_creation_is_permissionless: false,
+    }
+    .instruction();
+    let (mollusk, program_id) = setup_mollusk();
+    let accounts = snapshot(&test, &ix, program_id);
+    (mollusk, mollusk_instruction(&ix), accounts)
+}
+
+pub fn pause_tree_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>) {
+    let mut test = runtime::program_test();
+    let authority = Keypair::new();
+    test.create_protocol_config(&authority)
+        .expect("create protocol config");
+    let tree = test
+        .create_tree(runtime::tree_account_size(), &authority)
+        .expect("create tree");
+    let ix = PauseTree {
+        authority: authority.pubkey(),
+        tree: tree.pubkey(),
+        paused: true,
+    }
+    .instruction();
+    let (mollusk, program_id) = setup_mollusk();
+    let accounts = snapshot(&test, &ix, program_id);
+    (mollusk, mollusk_instruction(&ix), accounts)
+}

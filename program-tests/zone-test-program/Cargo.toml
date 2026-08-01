@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-# Only the explicit `zone_lifecycle` test target builds; tests/{actor,localnet,
-# world,...}.rs are its modules, not standalone integration-test binaries.
+# Only the explicit `zone_lifecycle` and `proof_cu` test targets build; both
+# consume the shared fixture from `zolana-test-utils` (`zone` module).
 autotests = false
 
 # Test-only fixture: a minimal "policy zone" program that CPIs into SPP,
@@ -26,17 +26,13 @@ test-sbf = []
 
 [dependencies]
 pinocchio = { workspace = true, features = ["cpi"] }
-solana-instruction = { workspace = true }
-solana-pubkey = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
-cucumber = { workspace = true }
-futures = { workspace = true }
 p256 = { workspace = true }
-rand = { workspace = true }
+serial_test = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
@@ -58,7 +54,14 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 [[test]]
 name = "zone_lifecycle"
 path = "tests/zone_lifecycle.rs"
-harness = false
+
+[[test]]
+name = "p256_zone_lifecycle"
+path = "tests/p256_zone_lifecycle.rs"
+
+[[test]]
+name = "proof_cu"
+path = "tests/proof_cu.rs"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

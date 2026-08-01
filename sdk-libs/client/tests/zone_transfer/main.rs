@@ -1,28 +1,53 @@
-//! End-to-end BDD tests for the zone-transfer circuit (`zone_transact`). Each
-//! scenario builds a zone-owned state transition over a chosen shape, proves it on
-//! the prover server, and verifies against the committed `transfer_zone_<shape>`
-//! verifying key for the ed25519 and P256 rails using groth16-solana.
-//!
-//! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `transfer_zone_<shape>.key` and `transfer_p256_zone_<shape>.key` proving keys
-//! available.
-//!
-//! Run with: `cargo test -p zolana-client --test zone_transfer_proving`
+mod harness;
+mod proving;
 
-mod steps;
-mod world;
-
-// Shared with the transfer/merge/zone-authority runners; included by path since it
-// lives at tests/.
+#[path = "../prover_bootstrap.rs"]
+mod prover_bootstrap;
 #[path = "../test_indexer.rs"]
 mod test_indexer;
 
-use cucumber::World as _;
+use harness::{Mode, Plan, ZoneTransferHarness};
 
-fn main() {
-    futures::executor::block_on(
-        world::ZoneTransferWorld::cucumber()
-            .fail_on_skipped()
-            .run_and_exit("tests/zone_transfer/features"),
-    );
+#[test]
+#[serial_test::serial]
+fn eddsa_zone_transfer_proofs_cover_all_shapes() {
+    run_shape_matrix(Mode::Eddsa);
+}
+
+fn run_shape_matrix(mode: Mode) {
+    let shapes = [
+        (1, 1),
+        (1, 2),
+        (2, 2),
+        (2, 3),
+        (3, 3),
+        (4, 3),
+        (4, 4),
+        (5, 3),
+        (5, 4),
+        (1, 8),
+    ];
+    for (n_inputs, n_outputs) in shapes {
+        ZoneTransferHarness {
+            plan: Plan {
+                n_inputs,
+                n_outputs,
+                mode,
+            },
+        }
+        .prove_and_verify();
+    }
+}
+
+#[test]
+#[serial_test::serial]
+fn zone_transfer_proofs_cover_real_multi_input_consolidation() {
+    ZoneTransferHarness {
+        plan: Plan {
+            n_inputs: 3,
+            n_outputs: 3,
+            mode: Mode::EddsaMultiReal,
+        },
+    }
+    .prove_and_verify();
 }

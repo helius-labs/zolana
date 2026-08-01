@@ -57,3 +57,6 @@ path = "tests/swap.rs"
 name = "cancel"
 path = "tests/cancel.rs"
 
+[[test]]
+name = "take_verifiable_encryption"
+path = "tests/take_verifiable_encryption.rs"

@@ -14,8 +14,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{
-    spawn_prover, AsyncProverClient, AsyncZolanaIndexer, ProverClient, Rpc, SolanaRpc,
-    ZolanaClient, ZolanaIndexer,
+    AsyncProverClient, AsyncZolanaIndexer, ProverClient, Rpc, SolanaRpc, ZolanaClient,
+    ZolanaIndexer,
 };
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
@@ -28,7 +28,8 @@ use zolana_keypair::{
 };
 use zolana_program_test::system_create_account_ix;
 use zolana_test_utils::{
-    localnet::LocalnetValidator,
+    localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
+    prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
 };
@@ -74,30 +75,30 @@ impl std::ops::DerefMut for TestWallet {
 }
 pub fn setup() -> Result<TestEnv> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../..");
+    let artifacts = WorkspaceArtifacts::new(root);
     let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| format!("{root}/target/debug/zolana"));
+        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/zolana"));
     let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_string());
     let photon_port =
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_string());
 
     let swap_program_id = swap_program::ID.to_string();
     let swap_program_so = std::env::var("SWAP_PROGRAM_SO")
-        .unwrap_or_else(|_| format!("{root}/target/deploy/swap_program.so"));
+        .unwrap_or_else(|_| artifacts.path("target/deploy/swap_program.so"));
     let spp_program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID).to_string();
-    let spp_program_so = format!("{root}/target/deploy/shielded_pool_program.so");
+    let spp_program_so = artifacts.path("target/deploy/shielded_pool_program.so");
     let user_registry_id = user_registry_program_id().to_string();
-    let user_registry_so = format!("{root}/target/deploy/zolana_user_registry.so");
+    let user_registry_so = artifacts.path("target/deploy/zolana_user_registry.so");
     let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
-    let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
+    let smart_account_so = artifacts.path("target/deploy/squads_smart_account_program.so");
 
-    let account_dir = "/tmp/zolana-swap-inline-smart-account-accounts".to_string();
     LocalnetValidator {
-        cli_bin: cli,
-        working_dir: root.to_string(),
+        cli_bin: cli.clone(),
+        working_dir: artifacts.root(),
         rpc_port,
         photon_port,
-        ledger: "/tmp/zolana-swap-inline-test-ledger".to_string(),
-        account_dir,
+        ledger: isolated_temp_path("zolana-swap-ledger"),
+        account_dir: isolated_temp_path("zolana-swap-smart-accounts"),
         programs: vec![
             (swap_program_id, swap_program_so),
             (spp_program_id, spp_program_so),
@@ -107,14 +108,7 @@ pub fn setup() -> Result<TestEnv> {
     }
     .start();
 
-    std::env::set_var(
-        "ZOLANA_PROVER_KEYS_DIR",
-        concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../prover/server/proving-keys"
-        ),
-    );
-    spawn_prover()?;
+    spawn_workspace_prover();
 
     let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
@@ -325,7 +319,7 @@ pub fn setup() -> Result<TestEnv> {
         Address::new_from_array(tree.to_bytes()),
     );
 
-    Ok(TestEnv {
+    let env = TestEnv {
         client,
         tree,
         maker: TestWallet {
@@ -338,7 +332,13 @@ pub fn setup() -> Result<TestEnv> {
             keypair: taker_shielded_keypair,
         },
         spl_mint,
-    })
+    };
+
+    // Guard the fixture: the retained order-authority input the make flows
+    // spend must be exactly the note the maker deposit just funded.
+    debug_assert_eq!(env.maker_input.utxo.asset, spl_mint);
+    debug_assert_eq!(env.maker_input.utxo.amount, MAKER_SHIELD_SPL);
+    Ok(env)
 }
 
 // Submit a single (large) swap instruction as a v0 transaction behind a throwaway

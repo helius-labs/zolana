@@ -528,6 +528,13 @@ async fn async_wait_or_timeout(
 /// Block until a prover server is reachable, starting one via the `zolana` CLI if
 /// none is already running. Intended for tests.
 pub fn spawn_prover() -> Result<(), ClientError> {
+    spawn_prover_inner(None, None)
+}
+
+fn spawn_prover_inner(
+    cli_override: Option<String>,
+    keys_dir: Option<&Path>,
+) -> Result<(), ClientError> {
     if health_check(10, 1) {
         return Ok(());
     }
@@ -545,19 +552,23 @@ pub fn spawn_prover() -> Result<(), ClientError> {
         ));
     }
 
-    let cli = get_cli_command().ok_or_else(|| {
-        ClientError::Prover(
+    let Some(cli) = cli_override.or_else(get_cli_command) else {
+        IS_LOADING.store(false, Ordering::Release);
+        return Err(ClientError::Prover(
             "could not locate the `zolana` CLI; set ZOLANA_CLI_BIN or build target/debug/zolana"
                 .to_string(),
-        )
-    })?;
+        ));
+    };
 
     let port = prover_port(&server_address());
     let redis_url = env::var("ZOLANA_PROVER_REDIS_URL").ok();
-    let spawn_result = Command::new("sh")
-        .arg("-c")
-        .arg(prover_start_command(&cli, port, redis_url.as_deref()))
-        .spawn();
+    let command = prover_start_command(&cli, port, redis_url.as_deref());
+    let mut child_command = Command::new("sh");
+    child_command.arg("-c").arg(command);
+    if let Some(keys_dir) = keys_dir {
+        child_command.env("ZOLANA_PROVER_KEYS_DIR", keys_dir);
+    }
+    let spawn_result = child_command.spawn();
 
     let result = match spawn_result {
         Ok(mut child) => {
@@ -583,6 +594,40 @@ pub fn spawn_prover() -> Result<(), ClientError> {
             "prover failed to start (health check failed)".to_string(),
         ))
     }
+}
+
+/// Start the test prover from an explicit CLI binary and key-cache directory.
+/// Repository tests use this entry point so neither artifact is discovered
+/// from Git or `PATH`. A healthy server is reused so separate test binaries keep
+/// its lazily loaded proving keys warm.
+pub fn spawn_prover_with_artifacts(
+    cli_bin: impl AsRef<Path>,
+    keys_dir: impl AsRef<Path>,
+) -> Result<(), ClientError> {
+    let cli_bin = cli_bin.as_ref();
+    if !cli_bin.is_file() {
+        return Err(ClientError::Prover(format!(
+            "zolana CLI is missing: {}; build it before starting the prover",
+            cli_bin.display()
+        )));
+    }
+    let keys_dir = keys_dir.as_ref();
+    let parent = keys_dir.parent().ok_or_else(|| {
+        ClientError::Prover(format!(
+            "prover keys path has no parent: {}",
+            keys_dir.display()
+        ))
+    })?;
+    if !parent.is_dir() {
+        return Err(ClientError::Prover(format!(
+            "prover keys parent is missing: {}",
+            parent.display()
+        )));
+    }
+    spawn_prover_inner(
+        Some(shell_quote(&cli_bin.to_string_lossy())),
+        Some(keys_dir),
+    )
 }
 
 fn health_check(retries: usize, timeout_secs: u64) -> bool {

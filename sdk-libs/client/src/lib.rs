@@ -30,18 +30,18 @@ pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
     canonical_shape,
     merge::MergeWitness,
-    resolve_shape, spawn_prover,
+    resolve_shape, spawn_prover, spawn_prover_with_artifacts,
     transact::{
         assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
     CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness, Proof,
-    ProofCompressed, ProofInputUtxo, ProverClient, PublicTransfers, Shape, TransferInput,
-    TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult, TransferProver,
-    TransferSpendInput, ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness,
-    ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
-    ZoneTransferProver, SPP_SUPPORTED_SHAPES,
+    ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers, Shape,
+    TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult,
+    TransferProver, TransferSpendInput, ZoneAuthorityProofResult, ZoneAuthorityProver,
+    ZoneAuthorityWitness, ZoneTransferP256ProofResult, ZoneTransferP256Prover,
+    ZoneTransferProofResult, ZoneTransferProver, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{

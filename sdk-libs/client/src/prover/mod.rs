@@ -9,7 +9,8 @@ pub mod transact;
 pub mod zone_authority;
 
 pub use client::{
-    spawn_prover, AsyncPollConfig, AsyncProverClient, ProverClient, PROVE_PATH, SERVER_ADDRESS,
+    spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, ProverClient,
+    PROVE_PATH, SERVER_ADDRESS,
 };
 pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
@@ -19,7 +20,7 @@ pub use merge::{MergeProofResult, MergeProver};
 pub use merge_zone::{MergeZoneProver, MergeZoneWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use transact::{
-    PublicTransfers, TransferProofResult, TransferProver, TransferSpendInput,
+    PublicInputs, PublicTransfers, TransferProofResult, TransferProver, TransferSpendInput,
     ZoneTransferP256ProofResult, ZoneTransferP256Prover, ZoneTransferProofResult,
     ZoneTransferProver,
 };
