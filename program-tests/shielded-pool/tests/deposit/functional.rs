@@ -12,8 +12,8 @@ use zolana_keypair::{
 };
 use zolana_program_test::{test_blinding, DepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::{
-    litesvm_assert_deposit, litesvm_assert_ring_deposit, DepositAssertArgs, SolDepositOracle,
-    RingDepositAssertArgs,
+    litesvm_assert_deposit, litesvm_assert_ring_deposit, DepositAssertArgs, RingDepositAssertArgs,
+    SolDepositOracle,
 };
 use zolana_transaction::{
     owner_utxo_hash, serialization::RingDepositPlaintext, AssetRegistry, Data,

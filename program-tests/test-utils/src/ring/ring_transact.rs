@@ -9,15 +9,15 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ConfidentialTransfer, ProofCompressed, ProverClient, Shape, SpendProof, SppProofInputUtxo,
-    SppProofInputs, TransferSpendInput, RingTransferP256Prover, RingTransferProver,
+    ConfidentialTransfer, ProofCompressed, ProverClient, RingTransferP256Prover,
+    RingTransferProver, Shape, SpendProof, SppProofInputUtxo, SppProofInputs, TransferSpendInput,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
         tag::RING_TRANSACT,
-        TransactInterfaceTransferAccounts, TransactSolTransferAccounts, RingTransact,
+        RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
 };

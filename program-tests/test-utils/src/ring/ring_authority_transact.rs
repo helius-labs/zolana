@@ -6,7 +6,7 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, PublicTransfers, Shape, SpendProof, TransferSpendInput, RingAuthorityProver,
+    ProverClient, PublicTransfers, RingAuthorityProver, Shape, SpendProof, TransferSpendInput,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -15,7 +15,7 @@ use zolana_interface::{
             CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof,
         },
         tag::RING_AUTHORITY_TRANSACT,
-        TransactIxData, RingAuthorityTransact,
+        RingAuthorityTransact, TransactIxData,
     },
 };
 use zolana_keypair::{random_blinding, random_salt, ViewingKey};

@@ -13,11 +13,11 @@ use proptest::{prelude::*, test_runner::TestCaseError};
 use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::{
     deposit::{
-        DepositEntry, DepositIxData, EncryptedRingDepositData, UtxoData, RingDepositEntry,
-        RingDepositIxData,
+        DepositEntry, DepositIxData, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
+        UtxoData,
     },
-    merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
+    merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
         TransactOutput, TransactProof,

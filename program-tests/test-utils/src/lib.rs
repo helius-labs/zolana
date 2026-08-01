@@ -16,9 +16,9 @@ pub mod localnet;
 #[cfg(feature = "mollusk")]
 pub mod mollusk;
 pub mod prover;
+pub mod ring;
 pub mod smart_account;
 pub mod spl;
 pub mod test_validator_asserts;
 pub mod transact;
 mod wallet_discovery;
-pub mod ring;

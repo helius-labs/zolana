@@ -7,7 +7,7 @@ use zolana_interface::{
     instruction::{CreateTree, UpdateProtocolConfigData},
     pda,
     state::{
-        discriminator::{TREE_ACCOUNT_DISCRIMINATOR, RING_CONFIG},
+        discriminator::{RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},
         ProtocolConfig, RingConfig,
     },
     PROGRAM_ID_PUBKEY,

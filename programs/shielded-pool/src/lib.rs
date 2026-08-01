@@ -7,6 +7,9 @@ pub mod instructions;
 pub mod testing {
     pub use crate::instructions::hash::solana_pk_hash;
     pub use crate::instructions::merge::account::MergeTransactAccounts;
+    pub use crate::instructions::ring_config::{
+        loader::load_ring_config, update_owner::process_update_ring_config_owner,
+    };
     pub use crate::instructions::settlement::{Settlement, SettlementAccountsSol};
     pub use crate::instructions::shared::{
         forester_fee_amount, reimburse_forester_with_rent_minimum, tree_error,
@@ -14,9 +17,6 @@ pub mod testing {
     pub use crate::instructions::transact::verify::{
         amount_field, fixed_signer_hash_chain, OwnerHashCache, TransactProof, TransactProofInputs,
         MAX_SIGNERS, SIGNER_ZERO_SUFFIX_CHAINS,
-    };
-    pub use crate::instructions::ring_config::{
-        loader::load_ring_config, update_owner::process_update_ring_config_owner,
     };
 }
 

@@ -10,7 +10,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::merge_transact::{MergeProof, MergeTransactIxData, MERGE_INPUT_COUNT},
-        MergeTransact, MergeRing,
+        MergeRing, MergeTransact,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
 };

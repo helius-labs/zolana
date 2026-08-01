@@ -8,8 +8,8 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        CreateAssetCounter, CreateProtocolConfig, CreateProtocolConfigData, CreateTree,
-        CreateRingConfig, UpdateProtocolConfigData,
+        CreateAssetCounter, CreateProtocolConfig, CreateProtocolConfigData, CreateRingConfig,
+        CreateTree, UpdateProtocolConfigData,
     },
     pda,
     state::{address_tree_params, RingConfig},

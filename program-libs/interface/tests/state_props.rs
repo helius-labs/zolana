@@ -6,7 +6,7 @@ use proptest::prelude::*;
 use solana_address::Address;
 use zolana_interface::{
     error::InterfaceError,
-    state::{discriminator, ProtocolConfig, SplAssetCounter, SplAssetRegistry, RingConfig},
+    state::{discriminator, ProtocolConfig, RingConfig, SplAssetCounter, SplAssetRegistry},
 };
 
 /// 8-aligned byte buffer so the positive-path `bytemuck` cast in

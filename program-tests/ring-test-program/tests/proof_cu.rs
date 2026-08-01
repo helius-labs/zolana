@@ -3,7 +3,7 @@
 use anyhow::Result;
 use serial_test::serial;
 use zolana_test_utils::{
-    test_validator_asserts::assert_transaction_compute_units, ring::RingHarness,
+    ring::RingHarness, test_validator_asserts::assert_transaction_compute_units,
 };
 use zolana_transaction::SOL_MINT;
 

@@ -37,11 +37,11 @@ pub use prover::{
     },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
     CompressedCommitments, MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof,
-    ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers, Shape,
-    TransferInput, TransferInputs, TransferOutput, TransferP256Inputs, TransferProofResult,
-    TransferProver, TransferSpendInput, RingAuthorityProofResult, RingAuthorityProver,
-    RingAuthorityWitness, RingTransferP256ProofResult, RingTransferP256Prover,
-    RingTransferProofResult, RingTransferProver, SPP_SUPPORTED_SHAPES,
+    ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers,
+    RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
+    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
+    TransferProofResult, TransferProver, TransferSpendInput, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
@@ -58,9 +58,9 @@ pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
         merge_ring::{MergeRing, PreparedMergeRing},
+        ring_authority::PreparedRingAuthority,
         transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},
         types::{InputUtxoContext, SppProofInputUtxo},
-        ring_authority::PreparedRingAuthority,
     },
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
     PrivateTransactionKind, PrivateTransactionStatus,

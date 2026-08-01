@@ -16,14 +16,14 @@ use zolana_interface::{
 };
 use zolana_keypair::random_blinding;
 use zolana_program_test::{
-    test_blinding, ring_deposit_output_from_event, Rejection, RING_TEST_PROGRAM_ID,
+    ring_deposit_output_from_event, test_blinding, Rejection, RING_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{
     owner_utxo_hash, serialization::RingDepositPlaintext, Data, LocalWalletAuthority, Utxo, Wallet,
     SOL_MINT,
 };
 
-use super::{SplRingDepositAccounts, RingDepositRecord, RingHarness};
+use super::{RingDepositRecord, RingHarness, SplRingDepositAccounts};
 use crate::{
     localnet::send_transaction,
     spl::mint_to,

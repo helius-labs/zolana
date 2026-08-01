@@ -2,7 +2,7 @@
 
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::RingAssetDeposit;
-use zolana_program_test::{ZolanaProgramTest, RingDepositOutput};
+use zolana_program_test::{RingDepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 
 /// Verify a settled `ring_deposit` against the integration-test

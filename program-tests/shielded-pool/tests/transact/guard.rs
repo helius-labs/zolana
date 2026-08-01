@@ -25,7 +25,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
-        Transact, RingAuthorityTransact, RingTransact,
+        RingAuthorityTransact, RingTransact, Transact,
     },
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
