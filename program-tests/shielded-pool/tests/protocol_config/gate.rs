@@ -16,7 +16,7 @@ use zolana_interface::{
     error::ShieldedPoolError, instruction::CreateProtocolConfig, pda,
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
+use zolana_program_test::{ProgramTestError, Rejection, ZolanaProgramTest};
 
 /// Boot LiteSVM with the shielded-pool program, skipping when the `.so` is
 /// missing (run `cargo build-sbf -p shielded-pool-program`).
@@ -90,8 +90,8 @@ fn create_ix_for(authority: &Keypair) -> Instruction {
         tree_creation_authority: authority.pubkey().to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: authority.pubkey().to_bytes().into(),
-        zone_creation_authority: authority.pubkey().to_bytes().into(),
-        zone_creation_is_permissionless: false,
+        ring_creation_authority: authority.pubkey().to_bytes().into(),
+        ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction()
@@ -108,16 +108,6 @@ fn boot_with_deploy(
     Some(rpc)
 }
 
-fn assert_pool_error(result: ProgramTestError, expected: ShieldedPoolError) {
-    match result {
-        ProgramTestError::Litesvm(message) => assert!(
-            message.contains(&format!("Custom({})", expected as u32)),
-            "unexpected transaction error: {message}"
-        ),
-        other => panic!("unexpected error: {other}"),
-    }
-}
-
 /// A fee payer other than the upgrade authority must not initialize the
 /// protocol config on an upgradeable deployment (deploy-time front-run).
 #[test]
@@ -131,7 +121,7 @@ fn create_rejects_a_fee_payer_that_is_not_the_upgrade_authority() {
     let error = rpc
         .create_and_send_default_payer_transaction(&[create_ix_for(&attacker)], &[&attacker])
         .expect_err("a non-upgrade-authority payer must be rejected");
-    assert_pool_error(error, ShieldedPoolError::UnauthorizedCaller);
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(error);
     assert!(
         rpc.account_data(&pda::protocol_config()).is_none(),
         "rejected init must not write the config"
