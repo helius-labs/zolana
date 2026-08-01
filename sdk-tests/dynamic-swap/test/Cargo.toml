@@ -21,7 +21,7 @@ solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-solana-transaction = { workspace = true, features = ["bincode"] }
+solana-transaction = { workspace = true, features = ["serde"] }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
@@ -32,16 +32,18 @@ zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-wallet = { workspace = true }
 
 [dev-dependencies]
+# Solana transactions serialize with bincode 1.x wire format; bincode 2.x is not
+# byte-compatible, so this must stay pinned to match the runtime.
 bincode = "1.3"
 num-bigint = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-merkle-tree = { workspace = true }
 zolana-tree = { workspace = true }
-mollusk-svm = "0.3.0"
+mollusk-svm = { workspace = true }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
-mollusk-solana-account = { package = "solana-account", version = "2.2" }
-mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
-mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
+solana-account = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
 
 [[test]]
 name = "bench_cu"

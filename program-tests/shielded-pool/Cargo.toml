@@ -45,11 +45,9 @@ zolana-smart-account-client = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-tree = { workspace = true }
 zolana-wallet = { workspace = true }
-mollusk-svm = "0.3.0"
+mollusk-svm = { workspace = true }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
-mollusk-solana-account = { package = "solana-account", version = "2.2" }
-mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
-mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
+solana-account = { workspace = true }
 
 [[test]]
 name = "bench_cu"

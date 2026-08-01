@@ -24,7 +24,10 @@ use zolana_batched_merkle_tree::{
     zero_copy::TreeAccountLayout as NullifierLayout,
 };
 
-const POOL_UTXO_HEIGHT: usize = 32;
+/// Height of the pool's UTXO state tree. `TreeAccount::init` rejects any
+/// other height; exported so programs/tests initialize trees with the same
+/// value instead of pinning a literal by comment.
+pub const POOL_UTXO_HEIGHT: usize = 32;
 
 const NULLIFIER_RH: usize = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN as usize;
 const NULLIFIER_NUM_ITERS: usize = ADDRESS_BLOOM_FILTER_NUM_HASHES as usize;

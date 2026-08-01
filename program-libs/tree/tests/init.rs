@@ -2,9 +2,11 @@ use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccounts
 use zolana_tree::{
     error::TreeError,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},
-    TreeAccount,
+    TreeAccount, INITIALIZED,
 };
 
+// Must equal the pool's `POOL_UTXO_HEIGHT` (lib.rs) — `TreeAccount::init`
+// rejects any other height with `HeightTooLarge`.
 const HEIGHT: u8 = 32;
 const DISCRIMINATOR: u8 = 7;
 
@@ -26,12 +28,13 @@ fn init_then_reload() {
             TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
 
         assert_eq!(tree.discriminator(), DISCRIMINATOR);
+        assert_eq!(tree.state(), INITIALIZED);
         assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
         assert_eq!(tree.utxo_tree().next_index(), 0);
+        assert_eq!(tree.nullifer_tree().pubkey().to_bytes(), pubkey);
 
         let empty_root = tree.utxo_tree().root();
         assert_ne!(empty_root, [0u8; 32]);
-        // History starts with the empty root at index 0.
         assert_eq!(tree.utxo_tree().current_root_index(), 0);
         assert_eq!(tree.utxo_tree().root_by_index(0).unwrap(), empty_root);
 
@@ -48,6 +51,7 @@ fn init_then_reload() {
 
     let mut tree = TreeAccount::from_bytes(&mut bytes, pubkey).unwrap();
     assert_eq!(tree.discriminator(), DISCRIMINATOR);
+    assert_eq!(tree.state(), INITIALIZED);
     assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
     assert_eq!(tree.utxo_tree().next_index(), 1);
     assert_eq!(tree.utxo_tree().root(), appended_root);
