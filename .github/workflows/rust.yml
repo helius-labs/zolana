@@ -280,15 +280,14 @@ jobs:
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - run: just test-user-registry-litesvm
 
-
-  # Line/region coverage over every library and binary crate: the program-libs,
-  # the SDK crates, the CLI, forester, photon, and xtask. Informational (prints
-  # the summary in the log). The on-chain programs and the test/example crates
-  # are excluded, and zolana-client is collected `--lib` only, so the job stays
-  # hermetic — no prover, validator, or database (see the `coverage` just
-  # recipe for why). Code executed inside the SVM is not measured here. The lcov
-  # report is uploaded as a build artifact; there is no `--fail-under-lines`
-  # gate yet — add one when the team picks a target.
+  # Line/region coverage over the library and binary crates: the program-libs,
+  # the SDK crates, the CLI, forester, and photon. Informational — it renders a
+  # summary table into the run's job summary and uploads lcov/HTML reports, but
+  # there is no `--fail-under-lines` gate yet; add one when the team picks a
+  # target. The on-chain programs, the test/example crates, and xtask are
+  # excluded, and zolana-client is collected `--lib` only, so the job stays
+  # hermetic — no prover, validator, or database. See tools/coverage-packages.py
+  # for what is measured and why. Code executed inside the SVM is not measured.
   coverage:
     name: coverage (llvm-cov)
     runs-on: ubuntu-latest
@@ -307,12 +306,8 @@ jobs:
       - run: just coverage --lcov --output-path lcov.info
       - name: Render coverage reports
         run: |
-          cargo llvm-cov report \
-            --ignore-filename-regex '(program-tests|sdk-tests|bench)/' \
-            --html --output-dir coverage-html
-          cargo llvm-cov report \
-            --ignore-filename-regex '(program-tests|sdk-tests|bench)/' \
-            --json --summary-only --output-path coverage.json
+          just coverage-report --html --output-dir coverage-html
+          just coverage-report --json --summary-only --output-path coverage.json
       - name: Publish coverage summary
         run: python3 tools/coverage-summary.py coverage.json >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage report
@@ -324,6 +319,7 @@ jobs:
             coverage.json
             coverage-html
           if-no-files-found: error
+
   test-client-integration:
     name: tests / client integration
     runs-on: ubuntu-latest
