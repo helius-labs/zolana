@@ -178,7 +178,11 @@ coverage *args="--summary-only":
         --exclude zolana-client \
         --features zolana-interface/solana
     cargo llvm-cov --no-report -p zolana-client --lib --all-features
-    cargo llvm-cov report {{args}}
+    # `--exclude` keeps a crate's own tests from running, but its source is still
+    # instrumented wherever a covered binary links it, so the harness crates would
+    # otherwise land in the report at ~0% and depress the total while measuring
+    # nothing shipped. Drop them from the report by path.
+    cargo llvm-cov report --ignore-filename-regex '(program-tests|sdk-tests|bench)/' {{args}}
 
 # All zolana-client tests (lib unit tests and the proving/integration test
 # binaries). The proving tests spawn the prover server

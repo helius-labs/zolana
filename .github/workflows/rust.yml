@@ -302,12 +302,27 @@ jobs:
       - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
         with:
           tool: cargo-llvm-cov
+      # Collect once, then re-render from the same profile data: `report` only
+      # reads what the two passes wrote, so the extra formats are nearly free.
       - run: just coverage --lcov --output-path lcov.info
+      - name: Render coverage reports
+        run: |
+          cargo llvm-cov report \
+            --ignore-filename-regex '(program-tests|sdk-tests|bench)/' \
+            --html --output-dir coverage-html
+          cargo llvm-cov report \
+            --ignore-filename-regex '(program-tests|sdk-tests|bench)/' \
+            --json --summary-only --output-path coverage.json
+      - name: Publish coverage summary
+        run: python3 tools/coverage-summary.py coverage.json >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage report
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
         with:
-          name: lcov.info
-          path: lcov.info
+          name: coverage
+          path: |
+            lcov.info
+            coverage.json
+            coverage-html
           if-no-files-found: error
   test-client-integration:
     name: tests / client integration
