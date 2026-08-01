@@ -11,13 +11,13 @@ pub mod anonymous;
 pub mod confidential;
 pub mod plaintext;
 pub mod proofless;
+pub mod ring_deposit;
 pub mod scheme;
 pub mod split;
-pub mod ring_deposit;
 
 pub use proofless::{Proofless, ProoflessEncode};
-pub use split::{Split, SplitBundlePlaintext, SplitEncryptedUtxos};
 pub use ring_deposit::RingDepositPlaintext;
+pub use split::{Split, SplitBundlePlaintext, SplitEncryptedUtxos};
 
 pub struct DecodeCx<'a> {
     pub viewing_key: &'a ViewingKey,

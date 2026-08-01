@@ -36,11 +36,11 @@ use crate::instructions::{
         create::process_create_protocol_config, pause_tree::process_pause_tree,
         update::process_update_protocol_config,
     },
-    transact::process_transact_ix,
     ring_config::{
         create::process_create_ring_config, update::process_update_ring_config,
         update_owner::process_update_ring_config_owner,
     },
+    transact::process_transact_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]

@@ -4,8 +4,8 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
-            TransactOutput, TransactProof, RingP256ProofData,
+            Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, RingP256ProofData, TransactIxData,
+            TransactIxDataRef, TransactOutput, TransactProof,
         },
         tag::InstructionTag,
     },

@@ -10,11 +10,11 @@ use zolana_interface::{
     MAX_INTERFACE_TRANSFERS,
 };
 
+use crate::instructions::ring_config::loader::load_ring_config;
 use crate::instructions::settlement::{
     validate_sol_settlement, validate_spl_deposit_settlement, validate_spl_withdrawal_settlement,
     Settlement, SettlementAccountsSol, SplDepositAccounts, SplWithdrawalAccounts,
 };
-use crate::instructions::ring_config::loader::load_ring_config;
 
 pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,

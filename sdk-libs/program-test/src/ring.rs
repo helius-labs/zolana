@@ -6,8 +6,8 @@ use zolana_event::SplTransfer;
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, CreateRingConfigData, DepositAsset, DepositSplAccounts,
-        EncryptedRingDepositData, UpdateRingConfig, UpdateRingConfigOwner, RingAssetDeposit,
-        RingDeposit,
+        EncryptedRingDepositData, RingAssetDeposit, RingDeposit, UpdateRingConfig,
+        UpdateRingConfigOwner,
     },
     pda,
 };
@@ -16,7 +16,7 @@ use zolana_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext};
 
 use crate::{
     instructions::RING_TEST_PROGRAM_ID, paths::default_ring_test_program_path,
-    wallet_data::wallet_shield_fields, ProgramTestError, ZolanaProgramTest, RingDepositOutput,
+    wallet_data::wallet_shield_fields, ProgramTestError, RingDepositOutput, ZolanaProgramTest,
 };
 
 pub struct RingDepositBatch {

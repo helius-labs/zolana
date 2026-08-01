@@ -6,8 +6,8 @@
 use num_bigint::BigUint;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::instruction::instruction_data::{
-    merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
     merge_ring::MergeRingIxData,
+    merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
 };
 use zolana_keypair::{merge::merge_dummy_nullifier, NullifierKey, PublicKey, SignatureType};
 use zolana_transaction::{

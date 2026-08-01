@@ -4,8 +4,8 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_interface::instruction::{
-    CircuitId, MergeTransact, MergeTransactIxData, MergeRing, Transact, TransactIxData,
-    TransactProof, RingAuthorityTransact, RingTransact,
+    CircuitId, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
+    Transact, TransactIxData, TransactProof,
 };
 
 fn transact_data(circuit: CircuitId) -> TransactIxData {

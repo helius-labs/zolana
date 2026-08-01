@@ -1,6 +1,6 @@
 use zolana_interface::instruction::{
     DepositAssetKind, DepositEntry, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
-    UtxoData, RingDepositEntry, RingDepositIxData, RingDepositIxDataRef,
+    RingDepositEntry, RingDepositIxData, RingDepositIxDataRef, UtxoData,
 };
 
 fn entry(seed: u8) -> DepositEntry {

@@ -10,11 +10,11 @@ pub use instruction_data::{
     CompressedProof, CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind,
     DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
     EncryptedRingDepositDataRef, InputUtxo, InterfaceTransfer, MergeExternalDataHash,
-    MergeTransactIxData, MergeTransactIxDataRef, MergeRingIxData, MergeRingIxDataRef, MessageData,
+    MergeRingIxData, MergeRingIxDataRef, MergeTransactIxData, MergeTransactIxDataRef, MessageData,
     OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData, ResolvedInterfaceTransfer, ResolvedOutput,
-    TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
-    UpdateProtocolConfigData, UpdateRingConfigData, UtxoData, UtxoDataRef, RingDepositEntry,
-    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, MAX_DEPOSIT_ASSETS,
+    RingDepositEntry, RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, TransactIxData,
+    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof, UpdateProtocolConfigData,
+    UpdateRingConfigData, UtxoData, UtxoDataRef, MAX_DEPOSIT_ASSETS,
 };
 pub use zolana_event::{tag, tag::InstructionTag};
 

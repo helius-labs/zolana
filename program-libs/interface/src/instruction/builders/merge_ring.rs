@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, MergeTransactIxData, MergeRingIxData},
+    instruction::{tag, MergeRingIxData, MergeTransactIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
 
