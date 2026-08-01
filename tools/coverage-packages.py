@@ -26,7 +26,17 @@ import sys
 #   program-tests/ the harness and the SBF fixture programs it drives.
 #   sdk-tests/     example programs and their SDK/prover scaffolding.
 #   bench/         CU benchmarks, which run under `--ignored` and need SBF builds.
-EXCLUDED_DIRS = ("programs", "program-tests", "sdk-tests", "bench")
+#   xtask/         `publish = false` build and release automation (the
+#                  cargo-xtask pattern), not a shipped artifact. Same blind spot
+#                  as programs/: what exercises it is being RUN -- the justfile's
+#                  `cargo run -p xtask -- program-ids` and the verifying-keys
+#                  smoke job -- as a subprocess this job cannot instrument. It
+#                  measured 4.78% of 1,902 lines, all of it create_release.rs's
+#                  unit tests, while main.rs / init_protocol.rs /
+#                  update_protocol_config.rs sat permanently at 0% and occupied
+#                  the top of the least-covered list ahead of files that should
+#                  actually move.
+EXCLUDED_DIRS = ("programs", "program-tests", "sdk-tests", "bench", "xtask")
 
 # Collected by a separate `--lib` pass: this crate's integration targets declare
 # no required-features, so selecting the whole package would build and run the
