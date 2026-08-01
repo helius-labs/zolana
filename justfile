@@ -143,18 +143,11 @@ test-photon:
 # `just coverage --lcov --output-path lcov.info` for CI upload. `{{args}}` reaches
 # the report step, so the two collection passes stay fixed.
 #
-# Two categories are excluded, both because llvm-cov instruments the HOST build:
-#
-#   - The on-chain programs (`shielded-pool-program`, `zolana-user-registry`).
-#     Their logic executes inside the SVM under litesvm/mollusk, which is not
-#     instrumented, and their host-side unit tests moved into program-tests. So
-#     including them would contribute an all-but-uncovered denominator that
-#     measures nothing. That surface is covered by the exact-error negative
-#     suites instead.
-#   - The test and example crates under program-tests/, sdk-tests/, and bench/.
-#     They are the harness, not the code under test; their coverage of
-#     themselves is meaningless, and the proof/validator tiers need external
-#     services.
+# Which crates are measured is decided by manifest PATH in
+# tools/coverage-packages.py, not by a list of names here: #181 renamed
+# zone-test-program to ring-test-program, a name-based `--exclude` stopped
+# matching, and a test crate silently entered the coverage set and failed the
+# job. See that script for what each excluded directory is and why.
 #
 # `zolana-client` runs as its own pass restricted to `--lib`: its integration
 # targets (transaction_proving, merge_proving, …) declare no required-features,
@@ -162,21 +155,7 @@ test-photon:
 # prover server. Keeping this hermetic means no prover, validator, or network.
 coverage *args="--summary-only":
     cargo llvm-cov clean --workspace
-    cargo llvm-cov --no-report --workspace \
-        --exclude shielded-pool-program --exclude zolana-user-registry \
-        --exclude shielded-pool-tests --exclude spp-test-validator \
-        --exclude zolana-test-utils --exclude user-registry-tests \
-        --exclude zone-test-program --exclude client-example \
-        --exclude dynamic-swap-program --exclude dynamic-swap-prover \
-        --exclude dynamic-swap-sdk --exclude dynamic-swap-test \
-        --exclude rfq-test \
-        --exclude timelock-escrow-program --exclude timelock-escrow-prover \
-        --exclude timelock-escrow-sdk --exclude timelock-escrow-test \
-        --exclude swap-program --exclude swap-prover \
-        --exclude swap-sdk --exclude swap-test-validator \
-        --exclude bloom-filter-bench --exclude tree-bench \
-        --exclude zolana-client \
-        --features zolana-interface/solana
+    cargo llvm-cov --no-report $(python3 tools/coverage-packages.py) --features zolana-interface/solana
     cargo llvm-cov --no-report -p zolana-client --lib --all-features
     # `--exclude` keeps a crate's own tests from running, but its source is still
     # instrumented wherever a covered binary links it, so the harness crates would
