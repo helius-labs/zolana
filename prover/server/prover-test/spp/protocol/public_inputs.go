@@ -21,7 +21,7 @@ var publicInputNames = [...]string{
 	"public_amount_1",
 	"public_asset_2",
 	"public_amount_2",
-	"zone_program_id",
+	"ring_program_id",
 	"signer_pk_hashes",
 	"allow_dummy_inputs",
 	"output_owner_pk_hashes",
@@ -43,12 +43,12 @@ type PublicInputs struct {
 	ExternalDataHash   *big.Int
 	PublicAssets       [NPublicSlots]*big.Int
 	PublicAmounts      [NPublicSlots]*big.Int
-	ZoneProgramID      *big.Int
+	RingProgramID      *big.Int
 	SignerPkHashes     []*big.Int
 	AllowDummyInputs   *big.Int
 
 	// BindOutputOwnerTags appends the output-owner chain for owner-signed rails.
-	// Custom-zone values are masked to zero for anonymous outputs.
+	// Custom-ring values are masked to zero for anonymous outputs.
 	BindOutputOwnerTags bool
 	OutputOwnerPkHashes []*big.Int
 }
@@ -88,7 +88,7 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		return nil, fmt.Errorf("spp: public input hash solana owner chain: %w", err)
 	}
 	fields = append(fields,
-		inputs.ZoneProgramID,
+		inputs.RingProgramID,
 		solanaOwnerChain,
 		inputs.AllowDummyInputs,
 	)

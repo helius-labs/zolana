@@ -2,18 +2,18 @@
 
 pub const TRANSACT: u8 = 0;
 pub const DEPOSIT: u8 = 1;
-pub const ZONE_TRANSACT: u8 = 2;
-pub const ZONE_AUTHORITY_TRANSACT: u8 = 3;
+pub const RING_TRANSACT: u8 = 2;
+pub const RING_AUTHORITY_TRANSACT: u8 = 3;
 pub const CREATE_SPL_INTERFACE: u8 = 4;
 pub const CREATE_TREE: u8 = 5;
 pub const CREATE_PROTOCOL_CONFIG: u8 = 6;
 pub const UPDATE_PROTOCOL_CONFIG: u8 = 7;
 pub const PAUSE_TREE: u8 = 8;
-pub const CREATE_ZONE_CONFIG: u8 = 9;
-pub const UPDATE_ZONE_CONFIG_OWNER: u8 = 10;
-pub const UPDATE_ZONE_CONFIG: u8 = 11;
+pub const CREATE_RING_CONFIG: u8 = 9;
+pub const UPDATE_RING_CONFIG_OWNER: u8 = 10;
+pub const UPDATE_RING_CONFIG: u8 = 11;
 pub const MERGE_TRANSACT: u8 = 12;
-pub const ZONE_MERGE_TRANSACT: u8 = 13;
+pub const RING_MERGE_TRANSACT: u8 = 13;
 /// No-op self-CPI target used to log events as inner-instruction data. The
 /// program performs no validation on this tag, so ANY program can CPI the
 /// shielded pool with `EMIT_EVENT` and forged payload bytes. Consumers MUST
@@ -22,7 +22,7 @@ pub const ZONE_MERGE_TRANSACT: u8 = 13;
 /// state-transitioning tag (never `EMIT_EVENT` itself) -- see photon's
 /// `rings_event_parser::is_event_source` for the reference filter.
 pub const EMIT_EVENT: u8 = 14;
-pub const ZONE_DEPOSIT: u8 = 15;
+pub const RING_DEPOSIT: u8 = 15;
 pub const CREATE_ASSET_COUNTER: u8 = 16;
 
 pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 51;
@@ -32,8 +32,8 @@ pub const BATCH_UPDATE_NULLIFIER_TREE: u8 = 51;
 #[repr(u8)]
 pub enum InstructionTag {
     Transact = TRANSACT,
-    ZoneTransact = ZONE_TRANSACT,
-    ZoneAuthorityTransact = ZONE_AUTHORITY_TRANSACT,
+    RingTransact = RING_TRANSACT,
+    RingAuthorityTransact = RING_AUTHORITY_TRANSACT,
     CreateTree = CREATE_TREE,
     BatchUpdateNullifierTree = BATCH_UPDATE_NULLIFIER_TREE,
     Deposit = DEPOSIT,
@@ -41,13 +41,13 @@ pub enum InstructionTag {
     CreateProtocolConfig = CREATE_PROTOCOL_CONFIG,
     UpdateProtocolConfig = UPDATE_PROTOCOL_CONFIG,
     PauseTree = PAUSE_TREE,
-    CreateZoneConfig = CREATE_ZONE_CONFIG,
-    UpdateZoneConfigOwner = UPDATE_ZONE_CONFIG_OWNER,
-    UpdateZoneConfig = UPDATE_ZONE_CONFIG,
+    CreateRingConfig = CREATE_RING_CONFIG,
+    UpdateRingConfigOwner = UPDATE_RING_CONFIG_OWNER,
+    UpdateRingConfig = UPDATE_RING_CONFIG,
     MergeTransact = MERGE_TRANSACT,
-    ZoneMergeTransact = ZONE_MERGE_TRANSACT,
+    RingMergeTransact = RING_MERGE_TRANSACT,
     EmitEvent = EMIT_EVENT,
-    ZoneDeposit = ZONE_DEPOSIT,
+    RingDeposit = RING_DEPOSIT,
     CreateAssetCounter = CREATE_ASSET_COUNTER,
 }
 
@@ -57,8 +57,8 @@ impl TryFrom<u8> for InstructionTag {
     fn try_from(tag: u8) -> Result<Self, Self::Error> {
         match tag {
             TRANSACT => Ok(Self::Transact),
-            ZONE_TRANSACT => Ok(Self::ZoneTransact),
-            ZONE_AUTHORITY_TRANSACT => Ok(Self::ZoneAuthorityTransact),
+            RING_TRANSACT => Ok(Self::RingTransact),
+            RING_AUTHORITY_TRANSACT => Ok(Self::RingAuthorityTransact),
             CREATE_TREE => Ok(Self::CreateTree),
             BATCH_UPDATE_NULLIFIER_TREE => Ok(Self::BatchUpdateNullifierTree),
             DEPOSIT => Ok(Self::Deposit),
@@ -66,13 +66,13 @@ impl TryFrom<u8> for InstructionTag {
             CREATE_PROTOCOL_CONFIG => Ok(Self::CreateProtocolConfig),
             UPDATE_PROTOCOL_CONFIG => Ok(Self::UpdateProtocolConfig),
             PAUSE_TREE => Ok(Self::PauseTree),
-            CREATE_ZONE_CONFIG => Ok(Self::CreateZoneConfig),
-            UPDATE_ZONE_CONFIG_OWNER => Ok(Self::UpdateZoneConfigOwner),
-            UPDATE_ZONE_CONFIG => Ok(Self::UpdateZoneConfig),
+            CREATE_RING_CONFIG => Ok(Self::CreateRingConfig),
+            UPDATE_RING_CONFIG_OWNER => Ok(Self::UpdateRingConfigOwner),
+            UPDATE_RING_CONFIG => Ok(Self::UpdateRingConfig),
             MERGE_TRANSACT => Ok(Self::MergeTransact),
-            ZONE_MERGE_TRANSACT => Ok(Self::ZoneMergeTransact),
+            RING_MERGE_TRANSACT => Ok(Self::RingMergeTransact),
             EMIT_EVENT => Ok(Self::EmitEvent),
-            ZONE_DEPOSIT => Ok(Self::ZoneDeposit),
+            RING_DEPOSIT => Ok(Self::RingDeposit),
             CREATE_ASSET_COUNTER => Ok(Self::CreateAssetCounter),
             _ => Err(()),
         }

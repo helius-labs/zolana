@@ -38,13 +38,13 @@ const ASSIGNED_OWNER_SIGNERS: u8 = 1 << 1;
 const ASSIGNED_PUBLIC_TRANSFERS: u8 = 1 << 2;
 const ASSIGNED_INPUT_TREE: u8 = 1 << 3;
 const ASSIGNED_EXTERNAL_DATA: u8 = 1 << 4;
-const ASSIGNED_ZONE_PROGRAM: u8 = 1 << 5;
+const ASSIGNED_RING_PROGRAM: u8 = 1 << 5;
 const ALL_ASSIGNMENTS: u8 = ASSIGNED_OUTPUT_OWNERS
     | ASSIGNED_OWNER_SIGNERS
     | ASSIGNED_PUBLIC_TRANSFERS
     | ASSIGNED_INPUT_TREE
     | ASSIGNED_EXTERNAL_DATA
-    | ASSIGNED_ZONE_PROGRAM;
+    | ASSIGNED_RING_PROGRAM;
 
 #[derive(Debug)]
 pub struct TransactProofInputs {
@@ -55,7 +55,7 @@ pub struct TransactProofInputs {
     pub external_data_hash: [u8; 32],
     pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub public_slot_amounts: [i128; N_PUBLIC_SLOTS],
-    pub zone_program_id: [u8; 32],
+    pub ring_program_id: [u8; 32],
     pub allow_dummy_inputs: [u8; 32],
     /// Number of unique entries at the head of `signer_pk_hashes` (payer
     /// first); the remaining slots are zero padding. Public only so the moved
@@ -69,7 +69,7 @@ impl TransactProofInputs {
     pub fn new(circuit: CircuitId) -> Self {
         let mut assignments = 0;
         if matches!(circuit, CircuitId::ConfidentialEddsa(..)) {
-            assignments |= ASSIGNED_ZONE_PROGRAM;
+            assignments |= ASSIGNED_RING_PROGRAM;
         }
         Self {
             utxo_roots: [[0u8; 32]; MAX_INPUTS],
@@ -79,16 +79,16 @@ impl TransactProofInputs {
             external_data_hash: [0u8; 32],
             public_slot_assets: [[0u8; 32]; N_PUBLIC_SLOTS],
             public_slot_amounts: [0i128; N_PUBLIC_SLOTS],
-            zone_program_id: [0u8; 32],
+            ring_program_id: [0u8; 32],
             allow_dummy_inputs: [0u8; 32],
             unique_owner_signer_count: 0,
             assignments,
         }
     }
 
-    pub(crate) fn assign_zone_program_id(&mut self, zone_program_id: [u8; 32]) {
-        self.zone_program_id = zone_program_id;
-        self.assignments |= ASSIGNED_ZONE_PROGRAM;
+    pub(crate) fn assign_ring_program_id(&mut self, ring_program_id: [u8; 32]) {
+        self.ring_program_id = ring_program_id;
+        self.assignments |= ASSIGNED_RING_PROGRAM;
     }
 
     pub(crate) fn assign_input_tree(
@@ -406,7 +406,7 @@ impl<'a> TransactProof<'a> {
             fields.push(amount_field(*amount)?);
         }
         fields.extend_from_slice(&[
-            self.derived.zone_program_id,
+            self.derived.ring_program_id,
             fixed_signer_hash_chain(unique_signer_pk_hashes, signer_width)?,
             self.derived.allow_dummy_inputs,
         ]);

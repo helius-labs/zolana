@@ -114,12 +114,12 @@ name = "spl_interface_rejection"
 path = "tests/spl_interface/rejection.rs"
 
 [[test]]
-name = "zone_config_contract"
-path = "tests/zone_config/contract.rs"
+name = "ring_config_contract"
+path = "tests/ring_config/contract.rs"
 
 [[test]]
-name = "zone_config_update_owner"
-path = "tests/zone_config/update_owner.rs"
+name = "ring_config_update_owner"
+path = "tests/ring_config/update_owner.rs"
 
 [[test]]
 name = "deposit_functional"

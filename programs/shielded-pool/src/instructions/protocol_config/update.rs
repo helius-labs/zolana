@@ -24,12 +24,12 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
         UpdateProtocolConfigData::ProtocolAuthority(a) => current.protocol_authority = a,
         UpdateProtocolConfigData::TreeCreationAuthority(a) => current.tree_creation_authority = a,
         UpdateProtocolConfigData::ForesterAuthority(a) => current.forester_authority = a,
-        UpdateProtocolConfigData::ZoneCreationAuthority(a) => current.zone_creation_authority = a,
+        UpdateProtocolConfigData::RingCreationAuthority(a) => current.ring_creation_authority = a,
         UpdateProtocolConfigData::TreeCreationPermissionless(b) => {
             current.tree_creation_is_permissionless = u8::from(b)
         }
-        UpdateProtocolConfigData::ZoneCreationPermissionless(b) => {
-            current.zone_creation_is_permissionless = u8::from(b)
+        UpdateProtocolConfigData::RingCreationPermissionless(b) => {
+            current.ring_creation_is_permissionless = u8::from(b)
         }
         UpdateProtocolConfigData::SplInterfaceCreationPermissionless(b) => {
             current.spl_interface_creation_is_permissionless = u8::from(b)

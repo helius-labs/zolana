@@ -1,4 +1,4 @@
-package customzone
+package customring
 
 import (
 	"zolana/prover/circuits/gadget"
@@ -17,7 +17,7 @@ type (
 	P256Signature = gnarkecdsa.Signature[emulated.P256Fr]
 )
 
-type CustomZoneP256Public struct {
+type CustomRingP256Public struct {
 	Nullifiers                   []frontend.Variable
 	OutputHashes                 []frontend.Variable
 	UtxoTreeRoots                []frontend.Variable
@@ -29,14 +29,14 @@ type CustomZoneP256Public struct {
 	ExternalDataHash             frontend.Variable
 	PublicAssets                 [shared.NPublicSlots]frontend.Variable
 	PublicAmounts                [shared.NPublicSlots]frontend.Variable
-	ZoneProgramID                frontend.Variable
+	RingProgramID                frontend.Variable
 	AllowDummyInputs             frontend.Variable
 	SignerPkHashes               []frontend.Variable
 	PublishedOutputOwnerPkHashes []frontend.Variable
 	PublicInputHash              frontend.Variable `gnark:",public"`
 }
 
-type CustomZoneP256Private struct {
+type CustomRingP256Private struct {
 	Inputs              []shared.Input
 	InputOwnerPkHashes  []frontend.Variable
 	Outputs             []shared.UtxoCircuitFields
@@ -46,19 +46,19 @@ type CustomZoneP256Private struct {
 	P256Sig             P256Signature
 }
 
-type CustomZoneP256Circuit struct {
+type CustomRingP256Circuit struct {
 	Shape   shared.Shape `gnark:"-"`
-	Public  CustomZoneP256Public
-	Private CustomZoneP256Private
+	Public  CustomRingP256Public
+	Private CustomRingP256Private
 }
 
-func NewCustomZoneP256Circuit(shape shared.Shape) (*CustomZoneP256Circuit, error) {
+func NewCustomRingP256Circuit(shape shared.Shape) (*CustomRingP256Circuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &CustomZoneP256Circuit{
+	return &CustomRingP256Circuit{
 		Shape: shape,
-		Public: CustomZoneP256Public{
+		Public: CustomRingP256Public{
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
 			UtxoTreeRoots:                make([]frontend.Variable, shape.NInputs),
@@ -66,7 +66,7 @@ func NewCustomZoneP256Circuit(shape shared.Shape) (*CustomZoneP256Circuit, error
 			SignerPkHashes:               make([]frontend.Variable, shape.NInputs+1),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
-		Private: CustomZoneP256Private{
+		Private: CustomRingP256Private{
 			Inputs:              shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
 			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
@@ -76,7 +76,7 @@ func NewCustomZoneP256Circuit(shape shared.Shape) (*CustomZoneP256Circuit, error
 	}, nil
 }
 
-func (c *CustomZoneP256Circuit) transaction(
+func (c *CustomRingP256Circuit) transaction(
 	api frontend.API,
 	p256MessageHash frontend.Variable,
 ) shared.Transaction {
@@ -92,7 +92,7 @@ func (c *CustomZoneP256Circuit) transaction(
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,
-		ZoneProgramID:      c.Public.ZoneProgramID,
+		RingProgramID:      c.Public.RingProgramID,
 		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
@@ -106,7 +106,7 @@ func (c *CustomZoneP256Circuit) transaction(
 	}
 }
 
-func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
+func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	p256PkHash, p256MessageHash, p256SignatureValid, err := c.p256Authorization(api)
 	if err != nil {
 		return err
@@ -122,8 +122,8 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 		return err
 	}
 
-	shared.AssertZoneMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.ZoneProgramID)
-	api.AssertIsDifferent(c.Public.ZoneProgramID, 0)
+	shared.AssertRingMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.RingProgramID)
+	api.AssertIsDifferent(c.Public.RingProgramID, 0)
 	if err := shared.AssertOutputOwnerTags(
 		api,
 		tx.Outputs,
@@ -173,7 +173,7 @@ func (c *CustomZoneP256Circuit) Define(api frontend.API) error {
 	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
 }
 
-func (c *CustomZoneP256Circuit) p256Authorization(
+func (c *CustomRingP256Circuit) p256Authorization(
 	api frontend.API,
 ) (frontend.Variable, frontend.Variable, frontend.Variable, error) {
 	curve, err := sw_emulated.New[emulated.P256Fp, emulated.P256Fr](

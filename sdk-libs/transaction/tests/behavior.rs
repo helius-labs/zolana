@@ -168,9 +168,9 @@ fn utxo_hashes_nullifiers_and_encryption_bind_all_context() {
         "sender".into(),
         "alice".into(),
     );
-    cases::utxo_encryption::zone_owned_with_data_round_trips(&mut world, "owner".into());
-    cases::utxo_encryption::zone_data_without_id_rejected(&mut world, "owner".into());
-    cases::utxo_encryption::zone_id_carried_onto_utxo(&mut world, "owner".into());
+    cases::utxo_encryption::ring_owned_with_data_round_trips(&mut world, "owner".into());
+    cases::utxo_encryption::ring_data_without_id_rejected(&mut world, "owner".into());
+    cases::utxo_encryption::ring_id_carried_onto_utxo(&mut world, "owner".into());
     cases::utxo_encryption::data_without_output_rejected(&mut world, "owner".into());
     cases::utxo_encryption::split_round_trips(&mut world, "owner".into());
 }

@@ -41,7 +41,7 @@ const MIN_PARTS: u8 = 2;
 
 impl ConfidentialSplit {
     /// Validate the split shape and input before assembly: `num_outputs` in
-    /// `2..=8`, the input matches `asset`, the input is a plain utxo (no zone
+    /// `2..=8`, the input matches `asset`, the input is a plain utxo (no ring
     /// binding and no attached data), and `num_outputs * per_output_amount`
     /// equals the input amount so the circuit balance holds.
     pub fn new(
@@ -59,8 +59,8 @@ impl ConfidentialSplit {
         if input.utxo.asset != asset {
             return Err(TransactionError::SplitInputAssetMismatch);
         }
-        if input.utxo.zone_program_id.is_some() {
-            return Err(TransactionError::SplitInputZoneMismatch);
+        if input.utxo.ring_program_id.is_some() {
+            return Err(TransactionError::SplitInputRingMismatch);
         }
         if has_data(&input) {
             return Err(TransactionError::SplitInputHasData);
@@ -273,7 +273,7 @@ mod tests {
             asset: SOL_MINT,
             amount,
             blinding: [5u8; 32],
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
@@ -430,7 +430,7 @@ mod tests {
         let owner_cx = OwnerCx {
             owner: keypair.signing_pubkey(),
             assets: &AssetRegistry::default(),
-            zone_program_id: None,
+            ring_program_id: None,
         };
         let recovered = Split::into_utxos(plaintext, &owner_cx).expect("into utxos");
         assert_eq!(recovered.len(), usize::from(parts));

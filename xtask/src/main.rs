@@ -93,8 +93,8 @@ fn print_program_ids() {
         bs58::encode(zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID).into_string()
     );
     println!(
-        "ZONE_TEST_PROGRAM_ID={}",
-        bs58::encode(zolana_program_test::ZONE_TEST_PROGRAM_ID).into_string()
+        "RING_TEST_PROGRAM_ID={}",
+        bs58::encode(zolana_program_test::RING_TEST_PROGRAM_ID).into_string()
     );
     println!(
         "SWAP_PROGRAM_ID={}",
@@ -436,7 +436,7 @@ fn tx_size(args: Vec<String>) {
             inputs,
             interface_transfers,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             outputs,

@@ -90,8 +90,8 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 
 func (f Core) checkOrderInputUtxo(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(f.OrderUtxo.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(f.OrderUtxo.ZoneDataHash, 0)
-	api.AssertIsEqual(f.OrderUtxo.ZoneProgramID, 0)
+	api.AssertIsEqual(f.OrderUtxo.RingDataHash, 0)
+	api.AssertIsEqual(f.OrderUtxo.RingProgramID, 0)
 	api.AssertIsEqual(f.OrderUtxo.DataHash, f.Order.DataHash(api, makerAddressFe))
 	api.AssertIsDifferent(f.OrderUtxo.Amount, 0)
 	return spp.UtxoHashCircuit(api, f.OrderUtxo)
@@ -99,8 +99,8 @@ func (f Core) checkOrderInputUtxo(api frontend.API, makerAddressFe frontend.Vari
 
 func (f Core) checkTakerInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.TakerIn.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(f.TakerIn.ZoneDataHash, 0)
-	api.AssertIsEqual(f.TakerIn.ZoneProgramID, 0)
+	api.AssertIsEqual(f.TakerIn.RingDataHash, 0)
+	api.AssertIsEqual(f.TakerIn.RingProgramID, 0)
 	api.AssertIsEqual(f.TakerIn.DataHash, 0)
 	api.AssertIsEqual(f.TakerIn.Asset, f.Order.DestinationAsset)
 	api.AssertIsEqual(f.TakerIn.Amount, f.Order.DestinationAmount)
@@ -109,8 +109,8 @@ func (f Core) checkTakerInputUtxo(api frontend.API) frontend.Variable {
 
 func (f Core) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.SourceOutput.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(f.SourceOutput.ZoneDataHash, 0)
-	api.AssertIsEqual(f.SourceOutput.ZoneProgramID, 0)
+	api.AssertIsEqual(f.SourceOutput.RingDataHash, 0)
+	api.AssertIsEqual(f.SourceOutput.RingProgramID, 0)
 	api.AssertIsEqual(f.SourceOutput.DataHash, 0)
 	api.AssertIsEqual(f.SourceOutput.Asset, f.OrderUtxo.Asset)
 	api.AssertIsEqual(f.SourceOutput.Amount, f.OrderUtxo.Amount)
@@ -120,8 +120,8 @@ func (f Core) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
 
 func (f Core) checkDestinationOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.DestinationOutput.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(f.DestinationOutput.ZoneDataHash, 0)
-	api.AssertIsEqual(f.DestinationOutput.ZoneProgramID, 0)
+	api.AssertIsEqual(f.DestinationOutput.RingDataHash, 0)
+	api.AssertIsEqual(f.DestinationOutput.RingProgramID, 0)
 	api.AssertIsEqual(f.DestinationOutput.DataHash, 0)
 	api.AssertIsEqual(f.DestinationOutput.Asset, f.Order.DestinationAsset)
 	api.AssertIsEqual(f.DestinationOutput.Amount, f.Order.DestinationAmount)

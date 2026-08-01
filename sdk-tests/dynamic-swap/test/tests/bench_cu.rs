@@ -549,7 +549,7 @@ fn bench_create_escrow(
         asset: source_asset,
         amount: ORDER_AMOUNT,
         blinding: random_blinding(),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let source_in = SppProofInputUtxo::new(source_utxo, &user_keypair);
@@ -560,7 +560,7 @@ fn bench_create_escrow(
         asset: SOL_MINT,
         amount: FUNDING_AMOUNT,
         blinding: random_blinding(),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let maker_funding = SppProofInputUtxo::new(maker_funding_utxo, &authority_keypair);

@@ -260,23 +260,23 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		// Transfer variants are resolved from canonical key filenames. The
 		// RequiresP256 header is retained as a consistency check for P256 keys.
-		zone := strings.Contains(strings.ToLower(path), "zone")
-		p256Zone := strings.Contains(strings.ToLower(path), "p256_zone")
-		// Zone-authority keys are named transfer_zone_authority_*.key (Solana-only,
-		// anonymous). Detect it before the plain "zone" case: the name contains both
-		// "transfer" (matched this branch) and "zone".
-		zoneAuthority := strings.Contains(strings.ToLower(path), "zone_authority")
+		ring := strings.Contains(strings.ToLower(path), "ring")
+		p256Ring := strings.Contains(strings.ToLower(path), "p256_ring")
+		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
+		// anonymous). Detect it before the plain "ring" case: the name contains both
+		// "transfer" (matched this branch) and "ring".
+		ringAuthority := strings.Contains(strings.ToLower(path), "ring_authority")
 		switch {
-		case zoneAuthority:
-			ps.CircuitType = TransferZoneAuthorityCircuitType
-		case p256Zone:
-			ps.CircuitType = TransferP256ZoneCircuitType
-		case zone:
-			ps.CircuitType = TransferZoneCircuitType
+		case ringAuthority:
+			ps.CircuitType = TransferRingAuthorityCircuitType
+		case p256Ring:
+			ps.CircuitType = TransferP256RingCircuitType
+		case ring:
+			ps.CircuitType = TransferRingCircuitType
 		default:
 			ps.CircuitType = TransferConfidentialCircuitType
 		}
-		ps.Confidential = !zoneAuthority
+		ps.Confidential = !ringAuthority
 		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "merge") {
 		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
@@ -292,10 +292,10 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		// merge_zone_8_1.key is the policy-zone variant; the default merge file is
+		// merge_ring_8_1.key is the policy-ring variant; the default merge file is
 		// merge_8_1.key.
-		if strings.Contains(strings.ToLower(path), "zone") {
-			ps.CircuitType = MergeZoneCircuitType
+		if strings.Contains(strings.ToLower(path), "ring") {
+			ps.CircuitType = MergeRingCircuitType
 		} else {
 			ps.CircuitType = MergeCircuitType
 		}

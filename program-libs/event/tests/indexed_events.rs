@@ -78,13 +78,13 @@ fn direct_transact_emit_event_is_indexed() {
 }
 
 #[test]
-fn zone_transact_cpi_emit_event_is_indexed() {
+fn ring_transact_cpi_emit_event_is_indexed() {
     let spp = Pubkey::new_unique();
-    let zone = Pubkey::new_unique();
+    let ring = Pubkey::new_unique();
     let group = InstructionGroup {
-        outer: ParsedInstruction::new(zone, vec![spp], vec![tag::ZONE_TRANSACT], Some(1)),
+        outer: ParsedInstruction::new(ring, vec![spp], vec![tag::RING_TRANSACT], Some(1)),
         inner: vec![
-            ParsedInstruction::new(spp, Vec::new(), vec![tag::ZONE_TRANSACT], Some(2)),
+            ParsedInstruction::new(spp, Vec::new(), vec![tag::RING_TRANSACT], Some(2)),
             ParsedInstruction::new(
                 spp,
                 Vec::new(),
@@ -99,13 +99,13 @@ fn zone_transact_cpi_emit_event_is_indexed() {
 }
 
 #[test]
-fn zone_authority_transact_cpi_emit_event_is_indexed() {
+fn ring_authority_transact_cpi_emit_event_is_indexed() {
     let spp = Pubkey::new_unique();
-    let zone = Pubkey::new_unique();
+    let ring = Pubkey::new_unique();
     let group = InstructionGroup {
-        outer: ParsedInstruction::new(zone, vec![spp], vec![tag::ZONE_AUTHORITY_TRANSACT], Some(1)),
+        outer: ParsedInstruction::new(ring, vec![spp], vec![tag::RING_AUTHORITY_TRANSACT], Some(1)),
         inner: vec![
-            ParsedInstruction::new(spp, Vec::new(), vec![tag::ZONE_AUTHORITY_TRANSACT], Some(2)),
+            ParsedInstruction::new(spp, Vec::new(), vec![tag::RING_AUTHORITY_TRANSACT], Some(2)),
             ParsedInstruction::new(
                 spp,
                 Vec::new(),
@@ -120,12 +120,12 @@ fn zone_authority_transact_cpi_emit_event_is_indexed() {
 }
 
 #[test]
-fn merge_and_zone_merge_emit_events_are_indexed() {
+fn merge_and_ring_merge_emit_events_are_indexed() {
     let spp = Pubkey::new_unique();
 
     for (source_tag, kind) in [
         (tag::MERGE_TRANSACT, EventKind::Merge),
-        (tag::ZONE_MERGE_TRANSACT, EventKind::Merge),
+        (tag::RING_MERGE_TRANSACT, EventKind::Merge),
     ] {
         let group = InstructionGroup {
             outer: ParsedInstruction::new(spp, Vec::new(), vec![source_tag], Some(1)),
@@ -159,9 +159,9 @@ fn unrelated_emit_event_without_event_source_parent_is_ignored() {
 }
 
 #[test]
-fn instruction_may_emit_events_matches_direct_and_zone_wrappers() {
+fn instruction_may_emit_events_matches_direct_and_ring_wrappers() {
     let spp = Pubkey::new_unique();
-    let zone = Pubkey::new_unique();
+    let ring = Pubkey::new_unique();
 
     assert!(instruction_may_emit_events(
         spp,
@@ -172,27 +172,27 @@ fn instruction_may_emit_events_matches_direct_and_zone_wrappers() {
         &ParsedInstruction::new(spp, Vec::new(), vec![tag::MERGE_TRANSACT], None),
     ));
 
-    for zone_tag in [
-        tag::ZONE_DEPOSIT,
-        tag::ZONE_TRANSACT,
-        tag::ZONE_AUTHORITY_TRANSACT,
-        tag::ZONE_MERGE_TRANSACT,
+    for ring_tag in [
+        tag::RING_DEPOSIT,
+        tag::RING_TRANSACT,
+        tag::RING_AUTHORITY_TRANSACT,
+        tag::RING_MERGE_TRANSACT,
     ] {
         assert!(
             instruction_may_emit_events(
                 spp,
-                &ParsedInstruction::new(zone, vec![spp], vec![zone_tag], None),
+                &ParsedInstruction::new(ring, vec![spp], vec![ring_tag], None),
             ),
-            "zone wrapper tag {zone_tag}"
+            "ring wrapper tag {ring_tag}"
         );
     }
 
     assert!(!instruction_may_emit_events(
         spp,
-        &ParsedInstruction::new(zone, Vec::new(), vec![tag::ZONE_TRANSACT], None),
+        &ParsedInstruction::new(ring, Vec::new(), vec![tag::RING_TRANSACT], None),
     ));
     assert!(!instruction_may_emit_events(
         spp,
-        &ParsedInstruction::new(zone, vec![spp], vec![tag::TRANSACT], None),
+        &ParsedInstruction::new(ring, vec![spp], vec![tag::TRANSACT], None),
     ));
 }

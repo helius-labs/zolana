@@ -7,6 +7,9 @@ pub mod instructions;
 pub mod testing {
     pub use crate::instructions::hash::solana_pk_hash;
     pub use crate::instructions::merge::account::MergeTransactAccounts;
+    pub use crate::instructions::ring_config::{
+        loader::load_ring_config, update_owner::process_update_ring_config_owner,
+    };
     pub use crate::instructions::settlement::{Settlement, SettlementAccountsSol};
     pub use crate::instructions::shared::{
         forester_fee_amount, reimburse_forester_with_rent_minimum, tree_error,
@@ -14,9 +17,6 @@ pub mod testing {
     pub use crate::instructions::transact::verify::{
         amount_field, fixed_signer_hash_chain, OwnerHashCache, TransactProof, TransactProofInputs,
         MAX_SIGNERS, SIGNER_ZERO_SUFFIX_CHAINS,
-    };
-    pub use crate::instructions::zone_config::{
-        loader::load_zone_config, update_owner::process_update_zone_config_owner,
     };
 }
 
@@ -29,18 +29,18 @@ use crate::instructions::{
     create_asset_counter::process_create_asset_counter,
     create_spl_interface::processor::process_create_spl_interface,
     create_tree::process_create_tree,
-    deposit::{process_deposit, process_zone_deposit},
+    deposit::{process_deposit, process_ring_deposit},
     merge::process_merge_transact_ix,
-    merge_zone::process_merge_zone_ix,
+    merge_ring::process_merge_ring_ix,
     protocol_config::{
         create::process_create_protocol_config, pause_tree::process_pause_tree,
         update::process_update_protocol_config,
     },
-    transact::process_transact_ix,
-    zone_config::{
-        create::process_create_zone_config, update::process_update_zone_config,
-        update_owner::process_update_zone_config_owner,
+    ring_config::{
+        create::process_create_ring_config, update::process_update_ring_config,
+        update_owner::process_update_ring_config_owner,
     },
+    transact::process_transact_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -72,25 +72,25 @@ pub fn process_instruction(
         // (see `zolana_event::tag::EMIT_EVENT`).
         InstructionTag::EmitEvent => Ok(()),
         InstructionTag::Transact
-        | InstructionTag::ZoneTransact
-        | InstructionTag::ZoneAuthorityTransact => process_transact_ix(accounts, payload, ix_tag),
+        | InstructionTag::RingTransact
+        | InstructionTag::RingAuthorityTransact => process_transact_ix(accounts, payload, ix_tag),
         InstructionTag::CreateTree => process_create_tree(accounts, payload),
         InstructionTag::BatchUpdateNullifierTree => {
             process_batch_update_nullifier_tree(accounts, payload)
         }
         InstructionTag::Deposit => process_deposit(accounts, payload),
-        InstructionTag::ZoneDeposit => process_zone_deposit(accounts, payload),
+        InstructionTag::RingDeposit => process_ring_deposit(accounts, payload),
         InstructionTag::CreateAssetCounter => process_create_asset_counter(accounts, payload),
         InstructionTag::CreateSplInterface => process_create_spl_interface(accounts, payload),
         InstructionTag::CreateProtocolConfig => process_create_protocol_config(accounts, payload),
         InstructionTag::UpdateProtocolConfig => process_update_protocol_config(accounts, payload),
         InstructionTag::PauseTree => process_pause_tree(accounts, payload),
-        InstructionTag::CreateZoneConfig => process_create_zone_config(accounts, payload),
-        InstructionTag::UpdateZoneConfigOwner => {
-            process_update_zone_config_owner(accounts, payload)
+        InstructionTag::CreateRingConfig => process_create_ring_config(accounts, payload),
+        InstructionTag::UpdateRingConfigOwner => {
+            process_update_ring_config_owner(accounts, payload)
         }
-        InstructionTag::UpdateZoneConfig => process_update_zone_config(accounts, payload),
+        InstructionTag::UpdateRingConfig => process_update_ring_config(accounts, payload),
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
-        InstructionTag::ZoneMergeTransact => process_merge_zone_ix(accounts, payload),
+        InstructionTag::RingMergeTransact => process_merge_ring_ix(accounts, payload),
     }
 }

@@ -85,14 +85,14 @@ func P256Signers(
 		signers[i] = api.Mul(carriesContent, pkHash)
 		resolvedOwnerPkHashes[i] = pkHash
 	}
-	// ZoneP256 is the mixed P256/Ed25519 rail, not an alternative all-Ed25519
-	// selector. All-Ed25519 transactions use ZoneEddsa.
+	// RingP256 is the mixed P256/Ed25519 rail, not an alternative all-Ed25519
+	// selector. All-Ed25519 transactions use RingEddsa.
 	api.AssertIsDifferent(hasP256Input, 0)
 	return signers, resolvedOwnerPkHashes
 }
 
 // AssertDefaultP256Owner publishes the shared P256 identity iff at least one
-// real P256 UTXO/address belongs to the default zone. Zone-only P256 inputs keep
+// real P256 UTXO/address belongs to the default ring. Ring-only P256 inputs keep
 // the shared owner private and require the public field to be zero.
 func AssertDefaultP256Owner(
 	api frontend.API,
@@ -105,10 +105,10 @@ func AssertDefaultP256Owner(
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
 		isP256 := api.IsZero(ownerPkHashes[i])
-		isDefaultZone := api.IsZero(in.Utxo.ZoneProgramID)
+		isDefaultRing := api.IsZero(in.Utxo.RingProgramID)
 		hasDefaultP256 = api.Add(
 			hasDefaultP256,
-			api.Mul(carriesContent, isP256, isDefaultZone),
+			api.Mul(carriesContent, isP256, isDefaultRing),
 		)
 	}
 	hasDefaultP256 = api.Sub(1, api.IsZero(hasDefaultP256))

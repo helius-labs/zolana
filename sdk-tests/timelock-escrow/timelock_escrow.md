@@ -61,7 +61,7 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 ## Privacy Model
 
 What is public and what is private. The confidentiality is inherited from the SPP confidential
-zone; the timelock escrow program does not try to hide which action ran.
+ring; the timelock escrow program does not try to hide which action ran.
 
 - **Public:** which escrow instruction ran; `asset_id` at escrow and again at withdraw (`asset_id`s
   are SPP public inputs); the escrow UTXO hash at escrow; the escrow `unlock` timestamp, revealed at
@@ -246,7 +246,7 @@ UTXO in; change + escrow UTXO out), padded to the SPP `(2, 2)` proving shape.
     The source input hash is supplied directly, not recomputed by the circuit; the change slot
     contributes 0 when the change amount is 0.
   - The escrow UTXO output committed in `private_tx_hash` has `data_hash = Poseidon(escrow terms)`,
-    `zone_program_id = 0` and `zone_data_hash = 0` (the [default, non-zone](../../docs/spec.md#default-zone)
+    `ring_program_id = 0` and `ring_data_hash = 0` (the [default, non-ring](../../docs/spec.md#default-ring)
     UTXO variant), and a nonzero amount, so the public SPP escrow UTXO output commits the terms.
   - The change output is constrained to the escrow UTXO's asset and to `owner_hash`, with empty
     data.

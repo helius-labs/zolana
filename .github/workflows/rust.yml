@@ -197,8 +197,8 @@ jobs:
             recipe: test-spp-validator-randomized
           - name: spp proof cu
             recipe: test-spp-validator-proof-cu
-          - name: zone lifecycle
-            recipe: test-zone-validator
+          - name: ring lifecycle
+            recipe: test-ring-validator
           - name: swap and escrow lifecycle
             recipe: test-swap-and-escrow-validator
           - name: dynamic-swap lifecycle

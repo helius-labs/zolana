@@ -25,7 +25,7 @@ func (c *publishedOutputOwnerCircuit) Define(api frontend.API) error {
 	)
 }
 
-func outputOwnerAssignment(zoneProgramID, actual, published int) *publishedOutputOwnerCircuit {
+func outputOwnerAssignment(ringProgramID, actual, published int) *publishedOutputOwnerCircuit {
 	return &publishedOutputOwnerCircuit{
 		Output: UtxoCircuitFields{
 			Domain:        UtxoDomain,
@@ -34,15 +34,15 @@ func outputOwnerAssignment(zoneProgramID, actual, published int) *publishedOutpu
 			Amount:        0,
 			Blinding:      0,
 			DataHash:      0,
-			ZoneDataHash:  0,
-			ZoneProgramID: zoneProgramID,
+			RingDataHash:  0,
+			RingProgramID: ringProgramID,
 		},
 		Actual:    actual,
 		Published: published,
 	}
 }
 
-func TestPublishedOutputOwnersSeparateDefaultAndPolicyZones(t *testing.T) {
+func TestPublishedOutputOwnersSeparateDefaultAndPolicyRings(t *testing.T) {
 	assert := test.NewAssert(t)
 	circuit := &publishedOutputOwnerCircuit{}
 

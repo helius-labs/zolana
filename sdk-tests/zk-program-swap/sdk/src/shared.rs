@@ -47,11 +47,11 @@ pub(crate) fn check_output_utxo(
         return Err(err(format!("{label} amount mismatch")));
     }
     if output.data_hash.is_some()
-        || output.zone_data_hash.is_some()
-        || output.zone_program_id.is_some()
+        || output.ring_data_hash.is_some()
+        || output.ring_program_id.is_some()
     {
         return Err(err(format!(
-            "{label} must not carry data or zone commitments"
+            "{label} must not carry data or ring commitments"
         )));
     }
     Ok(owner)

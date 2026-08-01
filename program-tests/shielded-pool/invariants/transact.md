@@ -1,6 +1,6 @@
 # Transact Invariants
 
-Covers `Transact` (tag 0), `ZoneTransact` (tag 2), `ZoneAuthorityTransact` (tag 3).
+Covers `Transact` (tag 0), `RingTransact` (tag 2), `RingAuthorityTransact` (tag 3).
 Invariants shared with other instructions (expiry, pause, stale root, double-spend,
 rollback, rail/vk separation, external_data_hash, settlement amount semantics) live
 in `cross-cutting.md`.
@@ -9,7 +9,7 @@ All three tags parse the same `TransactIxDataRef` and run the same shared core
 (`process_transact_ix`), so the instruction-data invariants INV-TRANSACT-07..12,
 the settlement invariants INV-TRANSACT-13..17, the tree/settlement postconditions
 INV-TRANSACT-23..28, and the frame conditions INV-TRANSACT-29..30 apply verbatim to
-`ZoneTransact` and `ZoneAuthorityTransact`; they are stated once here (this file
+`RingTransact` and `RingAuthorityTransact`; they are stated once here (this file
 covers the whole group) and referenced from the coverage matrix.
 
 ## Transact
@@ -70,11 +70,11 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical (spend authorization)
   - Suggested test: unit (exists) + negative overflow + negative unsigned owner (exist); harness: `cargo test -p shielded-pool-tests --test transact_signer_run` + program-tests integration
 
-- [x] **INV-TRANSACT-06: P256-owned inputs are authorized in-circuit (ZoneP256 only)**
-  - Covered by: `prover/server/circuits/spp_transaction/shared/custom_p256_test.go` (`TestCustomZoneP256Solves`, `TestCustomZoneP256KeepsZoneOnlyOwnerPrivate`, `TestCustomZoneP256AcceptsMixedOwners`), `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs`
+- [x] **INV-TRANSACT-06: P256-owned inputs are authorized in-circuit (RingP256 only)**
+  - Covered by: `prover/server/circuits/spp_transaction/shared/custom_p256_test.go` (`TestCustomRingP256Solves`, `TestCustomRingP256KeepsRingOnlyOwnerPrivate`, `TestCustomRingP256AcceptsMixedOwners`), `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs`
   - Kind: postcondition
-  - Statement: on the ZoneP256 rail there is no per-input signer element (and no shared `p256_signing_pk_x` instruction field): ownership is proved inside the circuit by a P256 signature over `Sha256(private_tx_hash)`, split low/high as public inputs; the owner's pubkey x-coordinate is exposed on the wire as `ZoneP256ProofData.default_owner_tag` ONLY when a real default-zone P256 input is present (zone-only P256 ownership stays private). The confidential (default-zone) transact rail has no P256 variant — that scope stays not applicable.
-  - Location: `sdk-libs/client/src/prover/transact/zone_p256.rs`, `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `is_p256()` appendix)
+  - Statement: on the RingP256 rail there is no per-input signer element (and no shared `p256_signing_pk_x` instruction field): ownership is proved inside the circuit by a P256 signature over `Sha256(private_tx_hash)`, split low/high as public inputs; the owner's pubkey x-coordinate is exposed on the wire as `RingP256ProofData.default_owner_tag` ONLY when a real default-ring P256 input is present (ring-only P256 ownership stays private). The confidential (default-ring) transact rail has no P256 variant — that scope stays not applicable.
+  - Location: `sdk-libs/client/src/prover/transact/ring_p256.rs`, `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `is_p256()` appendix)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (spend authorization)
   - Suggested test: positive per ownership layout (exists, Go) + on-chain owner-tag binding (exists); harness: `go test` + program-tests integration
@@ -135,10 +135,10 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-TRANSACT-11: a ZoneP256 proof with an invalid BSB22 commitment is rejected before pairing**
-  - Covered by: `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs` `p256_zone_transfer_updates_recipient_wallet` (bad-commitment leg)
+- [x] **INV-TRANSACT-11: a RingP256 proof with an invalid BSB22 commitment is rejected before pairing**
+  - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `p256_ring_transfer_updates_recipient_wallet` (bad-commitment leg)
   - Kind: precondition
-  - Statement: a `CircuitId::ZoneP256` selector whose embedded `ZoneP256ProofData.bsb22_commitment` does not verify against the proof returns the encoding error before any pairing work. (The pre-PR164 `P256SigningKey` owner-tag variant and `p256_signing_pk_x` field did NOT return; `OwnerTag` is `Inline`/`Account` only and `MissingP256SigningKey = 7024` stays retired — the decode-level rejection of the retired discriminant is covered by INV-XC-32.)
+  - Statement: a `CircuitId::RingP256` selector whose embedded `RingP256ProofData.bsb22_commitment` does not verify against the proof returns the encoding error before any pairing work. (The pre-PR164 `P256SigningKey` owner-tag variant and `p256_signing_pk_x` field did NOT return; `OwnerTag` is `Inline`/`Account` only and `MissingP256SigningKey = 7024` stays retired — the decode-level rejection of the retired discriminant is covered by INV-XC-32.)
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn verify`, commitment leg)
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007`
   - Severity: Critical (spend authorization)
@@ -150,7 +150,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-34: circuit selector family must match the dispatched tag**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
-  - Statement: before any account is read, `Transact` accepts only `CircuitId::ConfidentialEddsa`, `ZoneTransact` only `ZoneEddsa`, `ZoneAuthorityTransact` only `ZoneAuthority`; any other selector returns Err. The untrusted selector is validated before it may drive account parsing, proof-input layout, or key selection.
+  - Statement: before any account is read, `Transact` accepts only `CircuitId::ConfidentialEddsa`, `RingTransact` only `RingEddsa`, `RingAuthorityTransact` only `RingAuthority`; any other selector returns Err. The untrusted selector is validated before it may drive account parsing, proof-input layout, or key selection.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
   - Error: `ShieldedPoolError::MismatchedCircuitType = 7039`
   - Severity: Critical
@@ -270,7 +270,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative + positive per shape; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-TRANSACT-19: the proof rail is selected exactly by the CircuitId selector**
-  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`, `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
+  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`, `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
   - Kind: precondition
   - Statement: the proof rail (uncommitted eddsa vs BSB22-committed P256) is selected ONLY by the `CircuitId` discriminant in instruction data, validated against the dispatched tag before any account is read; there is no sentinel value anywhere in the payload that can reroute a proof to another rail. (Replaces the pre-PR164 255-signer-index selection model; the retired `eddsa_signer_index` field is deleted from the wire.)
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`), `program-libs/interface/src/verifying_keys/circuit.rs` (`CircuitId`)
@@ -299,7 +299,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-22: confidential variant binds output owners**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag`
   - Kind: postcondition
-  - Statement: the `transact` public-input hash chain contains the base chain (nullifier chain, output chain, utxo-root chain, nullifier-root chain, `private_tx_hash`), `external_data_hash`, the interleaved public transfer slots `(asset, amount)`, then `zone_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`, where each output-owner element is `hash_bytes(resolved owner tag)`; changing any resolved output owner tag makes verification fail.
+  - Statement: the `transact` public-input hash chain contains the base chain (nullifier chain, output chain, utxo-root chain, nullifier-root chain, `private_tx_hash`), `external_data_hash`, the interleaved public transfer slots `(asset, amount)`, then `ring_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`, where each output-owner element is `hash_bytes(resolved owner tag)`; changing any resolved output owner tag makes verification fail.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `fn fill_output_owner_pk_hashes`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (output redirection)
@@ -420,135 +420,135 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High (availability: near-capacity trees must not accept spends they cannot nullify)
   - Suggested test: negative (queue cursor moved past the threshold, roots unchanged); harness: program-tests integration (`cargo test-sbf`)
 
-## ZoneTransact
+## RingTransact
 
 ### Account Constraints
 
-- [x] **INV-ZONE-TRANSACT-01: zone_config must sign**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `zone_transact_rejects_an_unsigned_zone_config`
+- [x] **INV-RING-TRANSACT-01: ring_config must sign**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_transact_rejects_an_unsigned_ring_config`
   - Kind: precondition
-  - Statement: `zone_transact` can only succeed when the fourth account (`zone_config`) is a signer; only the zone program can produce that signature for its `zone_auth` PDA.
-  - Location: `programs/shielded-pool/src/instructions/transact/account.rs:152` (`ZoneTransactAccounts::validate_and_parse`)
+  - Statement: `ring_transact` can only succeed when the fourth account (`ring_config`) is a signer; only the ring program can produce that signature for its `ring_auth` PDA.
+  - Location: `programs/shielded-pool/src/instructions/transact/account.rs:152` (`RingTransactAccounts::validate_and_parse`)
   - Error: account-checks signer error
-  - Severity: Critical (zone authorization)
+  - Severity: Critical (ring authorization)
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-TRANSACT-02: zone_config must be a valid SPP-owned ZoneConfig**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `zone_transact_rejects_a_zone_config_with_a_wrong_owner`, `zone_transact_rejects_a_zone_config_with_a_wrong_discriminator`
+- [x] **INV-RING-TRANSACT-02: ring_config must be a valid SPP-owned RingConfig**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_transact_rejects_a_ring_config_with_a_wrong_owner`, `ring_transact_rejects_a_ring_config_with_a_wrong_discriminator`
   - Kind: precondition
-  - Statement: the `zone_config` account must be owned by the shielded-pool program, have `data_len` exactly `ZoneConfig::SIZE` (67), and discriminator byte exactly 4; any violation returns Err.
-  - Location: `programs/shielded-pool/src/instructions/zone_config/loader.rs:14-20` (`fn load_zone_config`)
-  - Error: `ShieldedPoolError::InvalidZoneConfig = 7014`
+  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly `RingConfig::SIZE` (67), and discriminator byte exactly 4; any violation returns Err.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`)
+  - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
 
 ### Proof Binding
 
-- [x] **INV-ZONE-TRANSACT-03: zone_program_id public input comes from the signed ZoneConfig**
-  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `zone_transact_rejects_a_proof_bound_to_a_different_zone`
+- [x] **INV-RING-TRANSACT-03: ring_program_id public input comes from the signed RingConfig**
+  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `ring_transact_rejects_a_proof_bound_to_a_different_ring`
   - Kind: postcondition
-  - Statement: the `zone_program_id` public-input element is exactly `solana_pk_hash` of the `program_id` stored in the signing `zone_config` account — `hash_bytes`, which packs the 32 bytes big-endian into 31-byte + 1-byte chunks and folds `Poseidon(chunk_0, chunk_1)`; it is never taken from instruction data.
+  - Statement: the `ring_program_id` public-input element is exactly `solana_pk_hash` of the `program_id` stored in the signing `ring_config` account — `hash_bytes`, which packs the 32 bytes big-endian into 31-byte + 1-byte chunks and folds `Poseidon(chunk_0, chunk_1)`; it is never taken from instruction data.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:60-65` (`fn process_transact_ix`), `transact/account.rs:152-156`
   - Error: (mismatch) `ShieldedPoolError::TransactProofVerificationFailed = 7008`
-  - Severity: Critical (cross-zone spend prevention)
-  - Suggested test: negative (proof for zone A submitted with zone B's config); harness: program-tests integration (`cargo test-sbf`)
+  - Severity: Critical (cross-ring spend prevention)
+  - Suggested test: negative (proof for ring A submitted with ring B's config); harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-ZONE-TRANSACT-04: zone variant uses the anonymous key family**
-  - Partial coverage: `program-libs/interface/tests/vk_fingerprint.rs` `verifying_key_fingerprint_is_pinned` (all 26 committed keys are pinned; no test submits a confidential proof on the zone rail and asserts the 7008 rejection)
+- [ ] **INV-RING-TRANSACT-04: ring variant uses the anonymous key family**
+  - Partial coverage: `program-libs/interface/tests/vk_fingerprint.rs` `verifying_key_fingerprint_is_pinned` (all 26 committed keys are pinned; no test submits a confidential proof on the ring rail and asserts the 7008 rejection)
   - Kind: precondition
-  - Statement: `zone_transact` verifies only against `transfer_zone_*` keys; a proof generated for the confidential (`transfer_confidential_*`) circuit of the same shape does not verify.
+  - Statement: `ring_transact` verifies only against `transfer_ring_*` keys; a proof generated for the confidential (`transfer_confidential_*`) circuit of the same shape does not verify.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:96-118` (`fn verify`), `program-libs/interface/src/verifying_keys/circuit.rs:98-161` (`fn verifying_key`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-ZONE-TRANSACT-05: zone variant folds no output-owner public inputs**
+- [x] **INV-RING-TRANSACT-05: ring variant folds no output-owner public inputs**
   - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
-  - Statement: the `zone_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `zone_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`; the ZoneP256 selector additionally appends the P256 message hash and the default-owner-tag element after `private_tx_hash` (ZoneEddsa/ZoneP256 bind output owners; ZoneAuthority omits the owner chain and folds a bare payer element).
+  - Statement: the `ring_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `ring_program_id`, the right-folded payer-first signer chain, `allow_dummy_inputs`, and `hash_chain(output_owner_pk_hashes)`; the RingP256 selector additionally appends the P256 message hash and the default-owner-tag element after `private_tx_hash` (RingEddsa/RingP256 bind output owners; RingAuthority omits the owner chain and folds a bare payer element).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:192-202` (`fn public_input_hash`)
   - Severity: High
   - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
-- [x] **INV-ZONE-TRANSACT-06: zone-only P256 ownership stays private on the wire**
-  - Covered by: `program-tests/zone-test-program/tests/p256_zone_lifecycle.rs` `p256_zone_transfer_updates_recipient_wallet`, `default_zone_p256_input_exposes_and_binds_owner_tag`
+- [x] **INV-RING-TRANSACT-06: ring-only P256 ownership stays private on the wire**
+  - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `p256_ring_transfer_updates_recipient_wallet`, `default_ring_p256_input_exposes_and_binds_owner_tag`
   - Kind: postcondition
-  - Statement: for a zone-owned P256 input the wire carries NO owner identifier — `ZoneP256ProofData.default_owner_tag` is `None` and the public input's owner-tag element is 0; ownership exists only inside the proof. Only a real DEFAULT-zone P256 input exposes the pubkey x-coordinate (`Some`), and that exposed tag is bound into the public input (a wrong tag fails pairing).
-  - Location: `sdk-libs/client/src/prover/transact/zone_p256.rs` (`has_default_p256_input`), `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `default_p256_owner_tag` leg)
+  - Statement: for a ring-owned P256 input the wire carries NO owner identifier — `RingP256ProofData.default_owner_tag` is `None` and the public input's owner-tag element is 0; ownership exists only inside the proof. Only a real DEFAULT-ring P256 input exposes the pubkey x-coordinate (`Some`), and that exposed tag is bound into the public input (a wrong tag fails pairing).
+  - Location: `sdk-libs/client/src/prover/transact/ring_p256.rs` (`has_default_p256_input`), `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn public_input_hash`, `default_p256_owner_tag` leg)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (confidentiality + binding)
   - Suggested test: positive private-by-default + positive exposed-and-bound + negative wrong tag (all exist); harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-ZONE-TRANSACT-07: enabled flag is not required for zone_transact**
-  - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_transact_succeeds_while_zone_authority_transact_is_disabled`
+- [x] **INV-RING-TRANSACT-07: enabled flag is not required for ring_transact**
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_transact_succeeds_while_ring_authority_transact_is_disabled`
   - Kind: precondition
-  - Statement: `zone_transact` succeeds for a zone whose `zone_authority_transact_is_enabled` is 0, all other preconditions held equal.
+  - Statement: `ring_transact` succeeds for a ring whose `ring_authority_transact_is_enabled` is 0, all other preconditions held equal.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:157-159` (`fn validate_and_parse`, `require_enabled = false`), `transact/processor.rs:60-62`
   - Severity: Medium
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
-## ZoneAuthorityTransact
+## RingAuthorityTransact
 
 ### Authorization
 
-- [x] **INV-ZONE-AUTH-01: zone_config must sign**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `zone_authority_transact_rejects_an_unsigned_zone_config`
+- [x] **INV-RING-AUTH-01: ring_config must sign**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_authority_transact_rejects_an_unsigned_ring_config`
   - Kind: precondition
-  - Statement: `zone_authority_transact` can only succeed when the `zone_config` account is a signer.
-  - Location: `programs/shielded-pool/src/instructions/transact/account.rs:152` (`ZoneTransactAccounts::validate_and_parse`), called from `transact/processor.rs:60-62`
+  - Statement: `ring_authority_transact` can only succeed when the `ring_config` account is a signer.
+  - Location: `programs/shielded-pool/src/instructions/transact/account.rs:152` (`RingTransactAccounts::validate_and_parse`), called from `transact/processor.rs:60-62`
   - Error: account-checks signer error
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-AUTH-02: disabled zones are rejected**
-  - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `invalid_proofs_and_disabled_authority_are_atomic`
+- [x] **INV-RING-AUTH-02: disabled rings are rejected**
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `invalid_proofs_and_disabled_authority_are_atomic`
   - Kind: precondition
-  - Statement: `zone_authority_transact` returns Err whenever the signing zone's `zone_authority_transact_is_enabled` field is exactly 0.
+  - Statement: `ring_authority_transact` returns Err whenever the signing ring's `ring_authority_transact_is_enabled` field is exactly 0.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:157-159` (`fn validate_and_parse`, `require_enabled = true`)
-  - Error: `ShieldedPoolError::ZoneAuthorityTransactDisabled = 7022`
+  - Error: `ShieldedPoolError::RingAuthorityTransactDisabled = 7022`
   - Severity: Critical (authority containment)
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-AUTH-03: no input-owner signature is required**
-  - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_authority_transfer_reowns_a_utxo`
+- [x] **INV-RING-AUTH-03: no input-owner signature is required**
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_authority_transfer_reowns_a_utxo`
   - Kind: precondition
-  - Statement: `zone_authority_transact` succeeds without any input-owner account signing; input-signer checks are skipped entirely for this variant (the zone_config signature is the sole spend authorization).
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:52-54, 60-62` (`fn process_transact_ix`, `CircuitId::ZoneAuthority` arm, `requires_input_signatures() == false`)
+  - Statement: `ring_authority_transact` succeeds without any input-owner account signing; input-signer checks are skipped entirely for this variant (the ring_config signature is the sole spend authorization).
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:52-54, 60-62` (`fn process_transact_ix`, `CircuitId::RingAuthority` arm, `requires_input_signatures() == false`)
   - Severity: Critical
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
 ### Proof Binding
 
-- [x] **INV-ZONE-AUTH-04: zone-authority verifying keys cover exactly the square shapes**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `zone_authority_transact_rejects_a_non_square_shape`
+- [x] **INV-RING-AUTH-04: ring-authority verifying keys cover exactly the square shapes**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_authority_transact_rejects_a_non_square_shape`
   - Kind: precondition
-  - Statement: `zone_authority_transact` verifies only for shapes `(1,1)`, `(2,2)`, `(3,3)`, `(4,4)`; every other `(inputs.len(), outputs.len())` returns Err.
-  - Location: `program-libs/interface/src/verifying_keys/circuit.rs:92-94` (`fn is_supported`, `ZoneAuthority` arm)
+  - Statement: `ring_authority_transact` verifies only for shapes `(1,1)`, `(2,2)`, `(3,3)`, `(4,4)`; every other `(inputs.len(), outputs.len())` returns Err.
+  - Location: `program-libs/interface/src/verifying_keys/circuit.rs:92-94` (`fn is_supported`, `RingAuthority` arm)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-AUTH-05: zone-authority proofs must use the uncommitted (non-P256) encoding**
+- [x] **INV-RING-AUTH-05: ring-authority proofs must use the uncommitted (non-P256) encoding**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_family_must_match_instruction`
   - Kind: precondition
-  - Statement: `zone_authority_transact` accepts only the `CircuitId::ZoneAuthority` selector; a BSB22-committed `ZoneP256` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.
+  - Statement: `ring_authority_transact` accepts only the `CircuitId::RingAuthority` selector; a BSB22-committed `RingP256` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
   - Error: `ShieldedPoolError::MismatchedCircuitType = 7039`
   - Severity: High
   - Suggested test: negative per selector family (exists); harness: mollusk unit
 
-- [x] **INV-ZONE-AUTH-06: authority variant folds no input-owner public inputs**
+- [x] **INV-RING-AUTH-06: authority variant folds no input-owner public inputs**
   - Covered by: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs` `program_assembly_matches_the_go_ordering_on_every_variant`
   - Kind: postcondition
-  - Statement: the `zone_authority_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `zone_program_id`, the bare `hash_bytes(payer)` element (a one-element signer "chain"), and `allow_dummy_inputs` (no output-owner chain).
+  - Statement: the `ring_authority_transact` public-input hash chain contains the base chain, `external_data_hash`, the interleaved public transfer slots, then `ring_program_id`, the bare `hash_bytes(payer)` element (a one-element signer "chain"), and `allow_dummy_inputs` (no output-owner chain).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:192-202` (`fn public_input_hash`, authority selector omits both owner chains)
   - Severity: High
   - Suggested test: golden vector (exists: `program-tests/shielded-pool/tests/transact/circuit_vectors.rs`); harness: `cargo nextest run -p shielded-pool-tests --test transact_circuit_vectors`
 
-- [x] **INV-ZONE-AUTH-07: zone_program_id binds the signing zone**
-  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `zone_authority_transact_rejects_a_proof_bound_to_a_different_zone`
+- [x] **INV-RING-AUTH-07: ring_program_id binds the signing ring**
+  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `ring_authority_transact_rejects_a_proof_bound_to_a_different_ring`
   - Kind: postcondition
-  - Statement: as for `zone_transact`, the `zone_program_id` public-input element is exactly `solana_pk_hash` of the signing `zone_config.program_id`; a zone authority cannot transition UTXOs of a different zone.
+  - Statement: as for `ring_transact`, the `ring_program_id` public-input element is exactly `solana_pk_hash` of the signing `ring_config.program_id`; a ring authority cannot transition UTXOs of a different ring.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:60-65` (`fn process_transact_ix`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical

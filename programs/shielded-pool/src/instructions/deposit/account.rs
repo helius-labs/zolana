@@ -12,11 +12,11 @@ use zolana_interface::{
 };
 
 use crate::instructions::{
+    ring_config::loader::load_ring_config,
     settlement::{
         validate_sol_settlement, validate_spl_deposit_settlement, Settlement,
         SettlementAccountsSol, SplDepositAccounts, ValidatedSplSettlement,
     },
-    zone_config::loader::load_zone_config,
 };
 
 /// One deposited asset: its validated settlement accounts plus the asset
@@ -43,14 +43,14 @@ pub struct DepositAccounts<'a> {
 }
 
 impl<'a> DepositAccounts<'a> {
-    /// Account layout after `tree`, `depositor` (and `zone_config` on the zone
+    /// Account layout after `tree`, `depositor` (and `ring_config` on the ring
     /// rail), then the program account: one group per entry of `assets`, in order.
     /// A `Sol` group reads (`system_program`, `sol_interface`); an `Spl`
     /// group reads (`token_program`, `mint`, `user_token`, `spl_interface`). The
     /// instruction data declares the layout, so nothing is inferred from the
     /// account count: too few accounts hits NotEnoughAccountKeys and too many
     /// leaves the iterator non-empty (InvalidSettlementAccounts).
-    pub fn validate_and_parse<const HAS_ZONE: bool>(
+    pub fn validate_and_parse<const HAS_RING: bool>(
         program_id: &Address,
         accounts: &'a mut [AccountView],
         assets: &[DepositAssetKind],
@@ -68,14 +68,14 @@ impl<'a> DepositAccounts<'a> {
         // Either spl token account authority, or source for deposited SOL.
         let depositor = iter.next_signer("depositor")?;
 
-        // `zone_deposit` passes the `ZoneConfig` account (the zone's `zone_auth`
+        // `ring_deposit` passes the `RingConfig` account (the ring's `ring_auth`
         // PDA) first. It must sign and is validated by owner/discriminator -- the
         // create-time derivation already bound it to its program -- and its stored
-        // `program_id` becomes the UTXO's `zone_program_id`. The plain `deposit`
-        // has no zone; its program data is authorized by the depositor signer.
-        let zone_program_id = if HAS_ZONE {
-            let account = iter.next_signer("zone_config")?;
-            let config = load_zone_config(account)?;
+        // `program_id` becomes the UTXO's `ring_program_id`. The plain `deposit`
+        // has no ring; its program data is authorized by the depositor signer.
+        let ring_program_id = if HAS_RING {
+            let account = iter.next_signer("ring_config")?;
+            let config = load_ring_config(account)?;
             Some(config.program_id.to_bytes())
         } else {
             None
@@ -146,7 +146,7 @@ impl<'a> DepositAccounts<'a> {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
 
-        Ok((Self { tree, groups }, zone_program_id))
+        Ok((Self { tree, groups }, ring_program_id))
     }
 }
 

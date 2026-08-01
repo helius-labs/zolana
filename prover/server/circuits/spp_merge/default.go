@@ -1,4 +1,4 @@
-// Package merge implements the default and policy-zone SPP merge circuits.
+// Package merge implements the default and policy-ring SPP merge circuits.
 package merge
 
 import (
@@ -30,7 +30,7 @@ const (
 	DummyDomain = mergeshared.DummyDomain
 )
 
-// Circuit is the default-zone merge rail. It publishes the owner's signing
+// Circuit is the default-ring merge rail. It publishes the owner's signing
 // pk_field in addition to the common merge public-input-hash preimage.
 type Circuit struct {
 	NumInputs int `gnark:"-"`
@@ -68,7 +68,7 @@ func (c *Circuit) transaction() mergeshared.Transaction {
 		UserNullifierPk:     c.UserNullifierPk,
 		UserNullifierSecret: c.UserNullifierSecret,
 		Public:              c.CommonPublicInputs,
-		ZoneProgramID:       frontend.Variable(0),
+		RingProgramID:       frontend.Variable(0),
 	}
 }
 
@@ -78,7 +78,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		return err
 	}
 
-	assertDefaultZone(api, tx.Inputs, tx.Output)
+	assertDefaultRing(api, tx.Inputs, tx.Output)
 	if _, err := tx.Constrain(api); err != nil {
 		return err
 	}
@@ -90,16 +90,16 @@ func (c *Circuit) Define(api frontend.API) error {
 	return nil
 }
 
-// assertDefaultZone pins zone data to zero for every real input and for the
-// always-real output. Dummy input zone data remains free, matching the existing
+// assertDefaultRing pins ring data to zero for every real input and for the
+// always-real output. Dummy input ring data remains free, matching the existing
 // arity-hiding convention.
-func assertDefaultZone(api frontend.API, inputs []Input, output Output) {
+func assertDefaultRing(api frontend.API, inputs []Input, output Output) {
 	for _, input := range inputs {
 		isUtxo := api.IsZero(api.Sub(input.Domain, UtxoDomain))
 		abstractor.CallVoid(api, gadget.AssertZeroWhen{
 			Cond: isUtxo,
-			V:    input.ZoneDataHash,
+			V:    input.RingDataHash,
 		})
 	}
-	api.AssertIsEqual(output.ZoneDataHash, 0)
+	api.AssertIsEqual(output.RingDataHash, 0)
 }

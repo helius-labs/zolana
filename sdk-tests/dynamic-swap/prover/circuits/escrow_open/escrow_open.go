@@ -147,8 +147,8 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 
 func (c *Circuit) checkSourceInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.SourceIn.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.SourceIn.ZoneDataHash, 0)
-	api.AssertIsEqual(c.SourceIn.ZoneProgramID, 0)
+	api.AssertIsEqual(c.SourceIn.RingDataHash, 0)
+	api.AssertIsEqual(c.SourceIn.RingProgramID, 0)
 	api.AssertIsEqual(c.SourceIn.DataHash, 0)
 	// Bind the escrowed asset to the pair's source asset so a worthless token
 	// cannot stand in for it.
@@ -160,8 +160,8 @@ func (c *Circuit) checkSourceInputUtxo(api frontend.API) frontend.Variable {
 
 func (c *Circuit) checkMakerFundingInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.MakerFunding.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.MakerFunding.ZoneDataHash, 0)
-	api.AssertIsEqual(c.MakerFunding.ZoneProgramID, 0)
+	api.AssertIsEqual(c.MakerFunding.RingDataHash, 0)
+	api.AssertIsEqual(c.MakerFunding.RingProgramID, 0)
 	api.AssertIsEqual(c.MakerFunding.DataHash, 0)
 	// Bind the maker's funding asset to the pair's destination asset so the maker
 	// cannot fund with a worthless token that the taker would be paid on settle.
@@ -181,8 +181,8 @@ func (c *Circuit) checkMakerFundingInputUtxo(api frontend.API) frontend.Variable
 // PDA -- only the native program can spend them, via settle.
 func (c *Circuit) checkOrderOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.OrderOut.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.OrderOut.ZoneDataHash, 0)
-	api.AssertIsEqual(c.OrderOut.ZoneProgramID, 0)
+	api.AssertIsEqual(c.OrderOut.RingDataHash, 0)
+	api.AssertIsEqual(c.OrderOut.RingProgramID, 0)
 	api.AssertIsEqual(c.OrderOut.Owner, c.Public.EscrowAuthorityOwnerHash)
 	api.AssertIsEqual(c.OrderOut.Asset, c.SourceIn.Asset)
 	api.AssertIsEqual(c.OrderOut.Amount, c.OrderAmount)
@@ -201,8 +201,8 @@ func (c *Circuit) checkOrderOutputUtxo(api frontend.API) frontend.Variable {
 // escrow_authority PDA.
 func (c *Circuit) checkReservationOutputUtxo(api frontend.API, orderOutHash frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(c.ReservationOut.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.ReservationOut.ZoneDataHash, 0)
-	api.AssertIsEqual(c.ReservationOut.ZoneProgramID, 0)
+	api.AssertIsEqual(c.ReservationOut.RingDataHash, 0)
+	api.AssertIsEqual(c.ReservationOut.RingProgramID, 0)
 	api.AssertIsEqual(c.ReservationOut.Asset, c.MakerFunding.Asset)
 	api.AssertIsEqual(c.ReservationOut.Owner, c.OrderOut.Owner)
 	api.AssertIsEqual(c.ReservationOut.DataHash, orderOutHash)
@@ -218,8 +218,8 @@ func (c *Circuit) checkReservationOutputUtxo(api frontend.API, orderOutHash fron
 // over-reservation (funding < reserved would wrap the field subtraction).
 func (c *Circuit) checkMakerChangeOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.MakerChange.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.MakerChange.ZoneDataHash, 0)
-	api.AssertIsEqual(c.MakerChange.ZoneProgramID, 0)
+	api.AssertIsEqual(c.MakerChange.RingDataHash, 0)
+	api.AssertIsEqual(c.MakerChange.RingProgramID, 0)
 	api.AssertIsEqual(c.MakerChange.DataHash, 0)
 	api.AssertIsEqual(c.MakerChange.Asset, c.MakerFunding.Asset)
 	api.AssertIsEqual(c.MakerChange.Owner, c.MakerFunding.Owner)

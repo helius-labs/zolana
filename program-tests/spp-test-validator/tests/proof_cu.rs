@@ -1,4 +1,4 @@
-//! Real-validator compute contracts for proof-bearing default-zone operations.
+//! Real-validator compute contracts for proof-bearing default-ring operations.
 
 use anyhow::Result;
 use serial_test::serial;
@@ -15,7 +15,7 @@ const MERGE_TRANSACTION_CU_LIMIT: u64 = 400_000;
 
 #[test]
 #[serial]
-fn proof_bearing_default_zone_variants_stay_within_budget() -> Result<()> {
+fn proof_bearing_default_ring_variants_stay_within_budget() -> Result<()> {
     let mut harness = LifecycleHarness::new()?;
 
     for _ in 0..2 {

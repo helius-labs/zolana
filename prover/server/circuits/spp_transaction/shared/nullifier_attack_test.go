@@ -39,12 +39,12 @@ import (
 func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(0xF01)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // TestDummyInputRejectsZeroNullifier (INV-TRANSACT-31): nullifier 0 can never enter the
@@ -55,12 +55,12 @@ func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 func TestDummyInputRejectsZeroNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(0)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // TestCircuitRejectsSharedNullifierAcrossSlots (INV-TRANSACT-31): two input slots carrying
@@ -73,7 +73,7 @@ func TestDummyInputRejectsZeroNullifier(t *testing.T) {
 func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 
 	// Duplicate slot 0 into slot 1: identical private witness and public signals,
@@ -99,21 +99,21 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 	)
 	refreshPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // TestP256DummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31, P256 rail):
-// the ZoneP256 circuit runs the same shared non-inclusion binding -- a dummy
+// the RingP256 circuit runs the same shared non-inclusion binding -- a dummy
 // slot whose public Nullifier is NOT the circuit-derived value must not solve,
 // even with a valid P256 authorization and a consistent public input hash.
 func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneP256Circuit(Shape(shape))
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(0xF01)
 	owner := spptest.FixedP256Key(t, 11)
 	authorization := authorizeP256(t, assignment, owner, owner)
 
-	assert.SolvingFailed(circuit, asCustomZoneP256(assignment, authorization), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingP256(assignment, authorization), test.WithCurves(ecc.BN254))
 }

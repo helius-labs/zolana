@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"strings"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
+	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
@@ -111,7 +111,7 @@ func buildProofAssignment(
 		return proofAssignment{}, err
 	}
 
-	witness := customZoneWitness(
+	witness := customRingWitness(
 		inputs,
 		outputs,
 		publicInputs,
@@ -146,10 +146,10 @@ func instructionOutputHashes(outputHashes []*big.Int, realOutputCount int) ([]*b
 	return outputHashes[:realOutputCount:realOutputCount], nil
 }
 
-// customZoneWitness materializes the rail-specific circuit assignment. This
-// package proves only the custom-zone variants; the Public struct is filled
+// customRingWitness materializes the rail-specific circuit assignment. This
+// package proves only the custom-ring variants; the Public struct is filled
 // straight from the host-computed protocol.PublicInputs.
-func customZoneWitness(
+func customRingWitness(
 	inputs inputWitnesses,
 	outputs outputWitnesses,
 	publicInputs protocol.PublicInputs,
@@ -160,8 +160,8 @@ func customZoneWitness(
 		publicAssets[i] = publicInputs.PublicAssets[i]
 		publicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
-	return &customzone.CustomZoneEddsaOnlyCircuit{
-		Public: customzone.CustomZoneEddsaOnlyPublic{
+	return &customring.CustomRingEddsaOnlyCircuit{
+		Public: customring.CustomRingEddsaOnlyPublic{
 			Nullifiers:                   fieldVariables(publicInputs.Nullifiers),
 			OutputHashes:                 fieldVariables(publicInputs.OutputUtxoHashes),
 			UtxoTreeRoots:                fieldVariables(publicInputs.UtxoTreeRoots),
@@ -170,13 +170,13 @@ func customZoneWitness(
 			ExternalDataHash:             publicInputs.ExternalDataHash,
 			PublicAssets:                 publicAssets,
 			PublicAmounts:                publicAmounts,
-			ZoneProgramID:                publicInputs.ZoneProgramID,
+			RingProgramID:                publicInputs.RingProgramID,
 			AllowDummyInputs:             publicInputs.AllowDummyInputs,
 			SignerPkHashes:               fieldVariables(publicInputs.SignerPkHashes),
 			PublishedOutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
 			PublicInputHash:              publicInputHash,
 		},
-		Private: customzone.CustomZoneEddsaOnlyPrivate{
+		Private: customring.CustomRingEddsaOnlyPrivate{
 			Inputs:              inputs.inputs,
 			InputOwnerPkHashes:  fieldVariables(inputs.inputOwnerPkHashes),
 			Outputs:             outputs.outputs,
@@ -297,7 +297,7 @@ func buildPublicInputs(
 		ExternalDataHash:    external.hash,
 		PublicAssets:        external.publicSlots.assets,
 		PublicAmounts:       external.publicSlots.amounts,
-		ZoneProgramID:       external.zoneProgramID,
+		RingProgramID:       external.ringProgramID,
 		AllowDummyInputs:    big.NewInt(1),
 		SignerPkHashes:      signerPkHashes(payerHash, inputs.inputOwnerPkHashes),
 		BindOutputOwnerTags: true,

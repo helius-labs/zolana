@@ -26,7 +26,7 @@ func constrainInput(
 	asset,
 	utxoTreeRoot,
 	nullifierTreeRoot,
-	zoneProgramID,
+	ringProgramID,
 	firstNullifier frontend.Variable,
 	slotIndex int,
 ) (frontend.Variable, frontend.Variable) {
@@ -38,7 +38,7 @@ func constrainInput(
 
 	leafOwner := api.Select(isDummy, frontend.Variable(0), userOwnerHash)
 	leafAsset := api.Select(isDummy, frontend.Variable(0), asset)
-	leafZoneProgramID := api.Select(isDummy, frontend.Variable(0), zoneProgramID)
+	leafRingProgramID := api.Select(isDummy, frontend.Variable(0), ringProgramID)
 	nullifierSecret := api.Select(isDummy, frontend.Variable(0), userNullifierSecret)
 	utxo := transaction.UtxoCircuitFields{
 		Domain:        in.Domain,
@@ -47,8 +47,8 @@ func constrainInput(
 		Amount:        in.Amount,
 		Blinding:      in.Blinding,
 		DataHash:      frontend.Variable(0),
-		ZoneDataHash:  in.ZoneDataHash,
-		ZoneProgramID: leafZoneProgramID,
+		RingDataHash:  in.RingDataHash,
+		RingProgramID: leafRingProgramID,
 	}
 	transaction.AssertWhen(api, isDummy, utxo.CheckDummy(api))
 	utxoHash := transaction.UtxoHashCircuit(api, utxo)

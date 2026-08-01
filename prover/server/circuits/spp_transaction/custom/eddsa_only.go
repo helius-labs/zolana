@@ -1,4 +1,4 @@
-package customzone
+package customring
 
 import (
 	"zolana/prover/circuits/gadget"
@@ -14,7 +14,7 @@ import (
 // 4. Nullifiers of UTXOs, dummies, addresses cannot collide.
 // 5. Balances are preserved.
 
-type CustomZoneEddsaOnlyPublic struct {
+type CustomRingEddsaOnlyPublic struct {
 	Nullifiers                   []frontend.Variable
 	OutputHashes                 []frontend.Variable
 	UtxoTreeRoots                []frontend.Variable
@@ -23,14 +23,14 @@ type CustomZoneEddsaOnlyPublic struct {
 	ExternalDataHash             frontend.Variable
 	PublicAssets                 [shared.NPublicSlots]frontend.Variable
 	PublicAmounts                [shared.NPublicSlots]frontend.Variable
-	ZoneProgramID                frontend.Variable
+	RingProgramID                frontend.Variable
 	AllowDummyInputs             frontend.Variable
 	SignerPkHashes               []frontend.Variable
 	PublishedOutputOwnerPkHashes []frontend.Variable
 	PublicInputHash              frontend.Variable `gnark:",public"`
 }
 
-type CustomZoneEddsaOnlyPrivate struct {
+type CustomRingEddsaOnlyPrivate struct {
 	Inputs              []shared.Input
 	InputOwnerPkHashes  []frontend.Variable
 	Outputs             []shared.UtxoCircuitFields
@@ -38,19 +38,19 @@ type CustomZoneEddsaOnlyPrivate struct {
 	OutputNullifierPks  []frontend.Variable
 }
 
-type CustomZoneEddsaOnlyCircuit struct {
+type CustomRingEddsaOnlyCircuit struct {
 	Shape   shared.Shape `gnark:"-"`
-	Public  CustomZoneEddsaOnlyPublic
-	Private CustomZoneEddsaOnlyPrivate
+	Public  CustomRingEddsaOnlyPublic
+	Private CustomRingEddsaOnlyPrivate
 }
 
-func NewCustomZoneEddsaOnlyCircuit(shape shared.Shape) (*CustomZoneEddsaOnlyCircuit, error) {
+func NewCustomRingEddsaOnlyCircuit(shape shared.Shape) (*CustomRingEddsaOnlyCircuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &CustomZoneEddsaOnlyCircuit{
+	return &CustomRingEddsaOnlyCircuit{
 		Shape: shape,
-		Public: CustomZoneEddsaOnlyPublic{
+		Public: CustomRingEddsaOnlyPublic{
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
 			UtxoTreeRoots:                make([]frontend.Variable, shape.NInputs),
@@ -58,7 +58,7 @@ func NewCustomZoneEddsaOnlyCircuit(shape shared.Shape) (*CustomZoneEddsaOnlyCirc
 			SignerPkHashes:               make([]frontend.Variable, shape.NInputs+1),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
-		Private: CustomZoneEddsaOnlyPrivate{
+		Private: CustomRingEddsaOnlyPrivate{
 			Inputs:              shared.NewInputs(shape.NInputs),
 			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
 			Outputs:             make([]shared.UtxoCircuitFields, shape.NOutputs),
@@ -68,7 +68,7 @@ func NewCustomZoneEddsaOnlyCircuit(shape shared.Shape) (*CustomZoneEddsaOnlyCirc
 	}, nil
 }
 
-func (c *CustomZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Transaction {
+func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
 		Shape:              c.Shape,
 		Nullifiers:         c.Public.Nullifiers,
@@ -81,7 +81,7 @@ func (c *CustomZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,
-		ZoneProgramID:      c.Public.ZoneProgramID,
+		RingProgramID:      c.Public.RingProgramID,
 		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
@@ -91,7 +91,7 @@ func (c *CustomZoneEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 	}
 }
 
-func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
+func (c *CustomRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	tx := c.transaction(api)
 	if err := tx.ValidateLayout(
 		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.NInputs + 1},
@@ -103,8 +103,8 @@ func (c *CustomZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		return err
 	}
 
-	shared.AssertZoneMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.ZoneProgramID)
-	api.AssertIsDifferent(c.Public.ZoneProgramID, 0)
+	shared.AssertRingMemberOrFree(api, tx.Inputs, tx.Outputs, c.Public.RingProgramID)
+	api.AssertIsDifferent(c.Public.RingProgramID, 0)
 	if err := shared.AssertOutputOwnerTags(
 		api,
 		tx.Outputs,

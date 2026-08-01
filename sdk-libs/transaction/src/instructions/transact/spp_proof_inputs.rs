@@ -312,7 +312,7 @@ mod tests {
                 asset: SOL_MINT,
                 amount: 1,
                 blinding: [7u8; 32],
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             },
             keypair,

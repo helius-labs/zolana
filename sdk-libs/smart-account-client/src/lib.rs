@@ -1,5 +1,5 @@
 //! Client for the Squads smart-account program used by Zolana to gate protocol
-//! authorities (protocol, forester, tree, zone) behind multisig vaults.
+//! authorities (protocol, forester, tree, ring) behind multisig vaults.
 //!
 //! Provides the program id, PDA derivations, and instruction builders
 //! (`create_smart_account_ix`, `execute_sync_ix`) needed to create smart

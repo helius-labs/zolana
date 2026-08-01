@@ -9,7 +9,7 @@ const CURRENT_PUBLIC_ASSET_SLOTS: u8 = crate::N_PUBLIC_SLOTS as u8;
 
 /// The compressed BSB22 commitment carried by a committed Groth16 proof.
 ///
-/// This lives in [`CircuitId::ZoneP256`] so the existing `TransactProof` and
+/// This lives in [`CircuitId::RingP256`] so the existing `TransactProof` and
 /// `TransactIxData` layouts need no additional proof-specific fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct Bsb22Commitment {
@@ -17,12 +17,12 @@ pub struct Bsb22Commitment {
     pub commitment_pok: [u8; 32],
 }
 
-/// Proof-specific payload carried by [`CircuitId::ZoneP256`].
+/// Proof-specific payload carried by [`CircuitId::RingP256`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct ZoneP256ProofData {
+pub struct RingP256ProofData {
     pub bsb22_commitment: Bsb22Commitment,
-    /// The P256 public key x-coordinate when a real default-zone P256 input or
-    /// address is present. `None` keeps zone-only P256 ownership private.
+    /// The P256 public key x-coordinate when a real default-ring P256 input or
+    /// address is present. `None` keeps ring-only P256 ownership private.
     #[wincode(with = "FixedOptionOwnerTag")]
     pub default_owner_tag: Option<[u8; 32]>,
 }
@@ -103,36 +103,36 @@ pub enum OutputOwnerMode {
 pub enum CircuitId {
     /// NumInputs, NumOutputs, NumPublicAssets
     ConfidentialEddsa(u8, u8, u8),
-    ZoneEddsa(u8, u8, u8),
-    ZoneAuthority(u8, u8, u8),
-    ZoneP256(u8, u8, u8, ZoneP256ProofData),
+    RingEddsa(u8, u8, u8),
+    RingAuthority(u8, u8, u8),
+    RingP256(u8, u8, u8, RingP256ProofData),
 }
 
 impl CircuitId {
     pub const fn num_inputs(self) -> u8 {
         match self {
             Self::ConfidentialEddsa(n, _, _)
-            | Self::ZoneEddsa(n, _, _)
-            | Self::ZoneAuthority(n, _, _)
-            | Self::ZoneP256(n, _, _, _) => n,
+            | Self::RingEddsa(n, _, _)
+            | Self::RingAuthority(n, _, _)
+            | Self::RingP256(n, _, _, _) => n,
         }
     }
 
     pub const fn num_outputs(self) -> u8 {
         match self {
             Self::ConfidentialEddsa(_, n, _)
-            | Self::ZoneEddsa(_, n, _)
-            | Self::ZoneAuthority(_, n, _)
-            | Self::ZoneP256(_, n, _, _) => n,
+            | Self::RingEddsa(_, n, _)
+            | Self::RingAuthority(_, n, _)
+            | Self::RingP256(_, n, _, _) => n,
         }
     }
 
     pub const fn num_public_asset_slots(self) -> u8 {
         match self {
             Self::ConfidentialEddsa(_, _, n)
-            | Self::ZoneEddsa(_, _, n)
-            | Self::ZoneAuthority(_, _, n)
-            | Self::ZoneP256(_, _, n, _) => n,
+            | Self::RingEddsa(_, _, n)
+            | Self::RingAuthority(_, _, n)
+            | Self::RingP256(_, _, n, _) => n,
         }
     }
 
@@ -147,35 +147,35 @@ impl CircuitId {
     pub const fn is_confidential(self) -> bool {
         matches!(
             self,
-            Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..) | Self::ZoneP256(..)
+            Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingP256(..)
         )
     }
 
-    pub const fn is_zone(self) -> bool {
+    pub const fn is_ring(self) -> bool {
         matches!(
             self,
-            Self::ZoneEddsa(..) | Self::ZoneAuthority(..) | Self::ZoneP256(..)
+            Self::RingEddsa(..) | Self::RingAuthority(..) | Self::RingP256(..)
         )
     }
 
     pub const fn is_authority(self) -> bool {
-        matches!(self, Self::ZoneAuthority(..))
+        matches!(self, Self::RingAuthority(..))
     }
 
     pub const fn is_p256(self) -> bool {
-        matches!(self, Self::ZoneP256(..))
+        matches!(self, Self::RingP256(..))
     }
 
     pub const fn bsb22_commitment(&self) -> Option<&Bsb22Commitment> {
         match self {
-            Self::ZoneP256(_, _, _, proof_data) => Some(&proof_data.bsb22_commitment),
+            Self::RingP256(_, _, _, proof_data) => Some(&proof_data.bsb22_commitment),
             _ => None,
         }
     }
 
     pub const fn default_p256_owner_tag(&self) -> Option<&[u8; 32]> {
         match self {
-            Self::ZoneP256(_, _, _, proof_data) => proof_data.default_owner_tag.as_ref(),
+            Self::RingP256(_, _, _, proof_data) => proof_data.default_owner_tag.as_ref(),
             _ => None,
         }
     }
@@ -187,8 +187,8 @@ impl CircuitId {
     pub const fn output_owner_mode(self) -> OutputOwnerMode {
         match self {
             Self::ConfidentialEddsa(..) => OutputOwnerMode::All,
-            Self::ZoneEddsa(..) | Self::ZoneP256(..) => OutputOwnerMode::ConfidentialMarked,
-            Self::ZoneAuthority(..) => OutputOwnerMode::None,
+            Self::RingEddsa(..) | Self::RingP256(..) => OutputOwnerMode::ConfidentialMarked,
+            Self::RingAuthority(..) => OutputOwnerMode::None,
         }
     }
 
@@ -199,7 +199,7 @@ impl CircuitId {
             return false;
         }
         match self {
-            Self::ConfidentialEddsa(..) | Self::ZoneEddsa(..) | Self::ZoneP256(..) => matches!(
+            Self::ConfidentialEddsa(..) | Self::RingEddsa(..) | Self::RingP256(..) => matches!(
                 (n_inputs, n_outputs),
                 (1, 1)
                     | (1, 2)
@@ -212,7 +212,7 @@ impl CircuitId {
                     | (5, 3)
                     | (5, 4)
             ),
-            Self::ZoneAuthority(..) => {
+            Self::RingAuthority(..) => {
                 matches!((n_inputs, n_outputs), (1, 1) | (2, 2) | (3, 3) | (4, 4))
             }
         }
@@ -255,57 +255,57 @@ impl CircuitId {
             Self::ConfidentialEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
                 &transfer_confidential_5_4::VERIFYINGKEY
             }
-            Self::ZoneEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_1_1::VERIFYINGKEY,
-            Self::ZoneEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_1_2::VERIFYINGKEY,
-            Self::ZoneEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_1_8::VERIFYINGKEY,
-            Self::ZoneEddsa(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_2_2::VERIFYINGKEY,
-            Self::ZoneEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_2_3::VERIFYINGKEY,
-            Self::ZoneEddsa(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_3_3::VERIFYINGKEY,
-            Self::ZoneEddsa(4, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_4_3::VERIFYINGKEY,
-            Self::ZoneEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_4_4::VERIFYINGKEY,
-            Self::ZoneEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_5_3::VERIFYINGKEY,
-            Self::ZoneEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_zone_5_4::VERIFYINGKEY,
-            Self::ZoneP256(1, 1, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_1_1::VERIFYINGKEY
+            Self::RingEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_1::VERIFYINGKEY,
+            Self::RingEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_2::VERIFYINGKEY,
+            Self::RingEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_8::VERIFYINGKEY,
+            Self::RingEddsa(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_2_2::VERIFYINGKEY,
+            Self::RingEddsa(2, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_2_3::VERIFYINGKEY,
+            Self::RingEddsa(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_3_3::VERIFYINGKEY,
+            Self::RingEddsa(4, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_3::VERIFYINGKEY,
+            Self::RingEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_4::VERIFYINGKEY,
+            Self::RingEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_3::VERIFYINGKEY,
+            Self::RingEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_4::VERIFYINGKEY,
+            Self::RingP256(1, 1, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_1_1::VERIFYINGKEY
             }
-            Self::ZoneP256(1, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_1_2::VERIFYINGKEY
+            Self::RingP256(1, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_1_2::VERIFYINGKEY
             }
-            Self::ZoneP256(1, 8, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_1_8::VERIFYINGKEY
+            Self::RingP256(1, 8, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_1_8::VERIFYINGKEY
             }
-            Self::ZoneP256(2, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_2_2::VERIFYINGKEY
+            Self::RingP256(2, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_2_2::VERIFYINGKEY
             }
-            Self::ZoneP256(2, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_2_3::VERIFYINGKEY
+            Self::RingP256(2, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_2_3::VERIFYINGKEY
             }
-            Self::ZoneP256(3, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_3_3::VERIFYINGKEY
+            Self::RingP256(3, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_3_3::VERIFYINGKEY
             }
-            Self::ZoneP256(4, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_4_3::VERIFYINGKEY
+            Self::RingP256(4, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_4_3::VERIFYINGKEY
             }
-            Self::ZoneP256(4, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_4_4::VERIFYINGKEY
+            Self::RingP256(4, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_4_4::VERIFYINGKEY
             }
-            Self::ZoneP256(5, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_5_3::VERIFYINGKEY
+            Self::RingP256(5, 3, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_5_3::VERIFYINGKEY
             }
-            Self::ZoneP256(5, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
-                &transfer_p256_zone_5_4::VERIFYINGKEY
+            Self::RingP256(5, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_5_4::VERIFYINGKEY
             }
-            Self::ZoneAuthority(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_zone_authority_1_1::VERIFYINGKEY
+            Self::RingAuthority(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_ring_authority_1_1::VERIFYINGKEY
             }
-            Self::ZoneAuthority(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_zone_authority_2_2::VERIFYINGKEY
+            Self::RingAuthority(2, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_ring_authority_2_2::VERIFYINGKEY
             }
-            Self::ZoneAuthority(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_zone_authority_3_3::VERIFYINGKEY
+            Self::RingAuthority(3, 3, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_ring_authority_3_3::VERIFYINGKEY
             }
-            Self::ZoneAuthority(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
-                &transfer_zone_authority_4_4::VERIFYINGKEY
+            Self::RingAuthority(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_ring_authority_4_4::VERIFYINGKEY
             }
             _ => return None,
         };

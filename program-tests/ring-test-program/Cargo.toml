@@ -1,0 +1,71 @@
+[package]
+name = "ring-test-program"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+# Only the explicit `ring_lifecycle` and `proof_cu` test targets build; both
+# consume the shared fixture from `zolana-test-utils` (`ring` module).
+autotests = false
+
+# Test-only fixture: a minimal "policy ring" program that CPIs into SPP,
+# signing with its `ring_auth` PDA. It enforces no policy — it exists so
+# integration tests can exercise the ring-signer path (a PDA can only sign via
+# a CPI from its owning program).
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+bpf-entrypoint = []
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+test-sbf = []
+
+[dependencies]
+pinocchio = { workspace = true, features = ["cpi"] }
+zolana-interface = { workspace = true, features = ["solana"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
+p256 = { workspace = true }
+serial_test = { workspace = true }
+solana-account = { workspace = true }
+solana-address = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
+zolana-event = { workspace = true, features = ["program-test"] }
+zolana-hasher = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-smart-account-client = { workspace = true }
+zolana-test-utils = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+
+[[test]]
+name = "ring_lifecycle"
+path = "tests/ring_lifecycle.rs"
+
+[[test]]
+name = "p256_ring_lifecycle"
+path = "tests/p256_ring_lifecycle.rs"
+
+[[test]]
+name = "proof_cu"
+path = "tests/proof_cu.rs"
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

@@ -69,7 +69,7 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
 		EncryptedUtxos:           "00",
 		DataHash:                 proofFieldInput(big.NewInt(0)),
-		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
+		RingDataHash:             proofFieldInput(big.NewInt(0)),
 	}
 
 	inputAmount := big.NewInt(int64(shape.NOutputs * 10))
@@ -82,8 +82,8 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 			Amount:        new(big.Int).Set(inputAmount),
 			Blinding:      big.NewInt(int64(1000 + i)),
 			DataHash:      big.NewInt(0),
-			ZoneDataHash:  big.NewInt(0),
-			ZoneProgramID: big.NewInt(0),
+			RingDataHash:  big.NewInt(0),
+			RingProgramID: big.NewInt(0),
 		}
 		hash, err := protocol.UtxoHash(utxo)
 		if err != nil {
@@ -99,8 +99,8 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 			Amount:        proofFieldInput(utxo.Amount),
 			Blinding:      proofFieldInput(utxo.Blinding),
 			DataHash:      proofFieldInput(utxo.DataHash),
-			ZoneDataHash:  proofFieldInput(utxo.ZoneDataHash),
-			ZoneProgramID: proofFieldInput(utxo.ZoneProgramID),
+			RingDataHash:  proofFieldInput(utxo.RingDataHash),
+			RingProgramID: proofFieldInput(utxo.RingProgramID),
 		}
 		utxoRequest.OwnerSolanaPubkey = parse.BytesHex(payerPubkey[:])
 		tx.Inputs = append(tx.Inputs, ProofInputRequest{
@@ -120,8 +120,8 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 			Amount:               proofFieldInput(outputAmount),
 			Blinding:             proofFieldInput(big.NewInt(int64(2000 + i))),
 			DataHash:             proofFieldInput(big.NewInt(0)),
-			ZoneDataHash:         proofFieldInput(big.NewInt(0)),
-			ZoneProgramID:        proofFieldInput(big.NewInt(0)),
+			RingDataHash:         proofFieldInput(big.NewInt(0)),
+			RingProgramID:        proofFieldInput(big.NewInt(0)),
 		})
 	}
 

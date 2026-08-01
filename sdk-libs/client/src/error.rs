@@ -103,7 +103,7 @@ pub enum ClientError {
     #[error("a P256 registry key binding proof was supplied for an Ed25519 owner")]
     UnexpectedRegistryP256Proof,
 
-    #[error("the P256 zone proof requires at least one real P256-owned input")]
+    #[error("the P256 ring proof requires at least one real P256-owned input")]
     P256ProofWithoutP256Input,
 
     #[error(
@@ -167,8 +167,8 @@ pub enum ClientError {
     #[error("split input utxo {hash:?} carries program or utxo data, which is not supported")]
     SplitInputHasData { hash: [u8; 32] },
 
-    #[error("split input utxo {hash:?} is bound to a zone, which is not supported")]
-    SplitInputZoneMismatch { hash: [u8; 32] },
+    #[error("split input utxo {hash:?} is bound to a ring, which is not supported")]
+    SplitInputRingMismatch { hash: [u8; 32] },
 
     #[error("P256-owned inputs are unsupported by transact")]
     P256TransactUnsupported,

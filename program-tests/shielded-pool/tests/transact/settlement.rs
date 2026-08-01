@@ -52,7 +52,7 @@ fn sol_withdrawal_ix_data() -> TransactIxData {
             amount: 1_000_000_000,
         }],
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: vec![
             inline_output([4u8; 32], [4u8; 32]),
             inline_output([5u8; 32], [5u8; 32]),

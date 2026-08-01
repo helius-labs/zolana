@@ -77,7 +77,7 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
         }],
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         outputs: vec![TransactOutput {
             utxo_hash: [2u8; 32],
             owner_tag: OwnerTag::Inline([3u8; 32]),
@@ -97,28 +97,28 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
     const KNOWN_TAGS: [u8; 18] = [
         tag::TRANSACT,
         tag::DEPOSIT,
-        tag::ZONE_TRANSACT,
-        tag::ZONE_AUTHORITY_TRANSACT,
+        tag::RING_TRANSACT,
+        tag::RING_AUTHORITY_TRANSACT,
         tag::CREATE_SPL_INTERFACE,
         tag::CREATE_TREE,
         tag::CREATE_PROTOCOL_CONFIG,
         tag::UPDATE_PROTOCOL_CONFIG,
         tag::PAUSE_TREE,
-        tag::CREATE_ZONE_CONFIG,
-        tag::UPDATE_ZONE_CONFIG_OWNER,
-        tag::UPDATE_ZONE_CONFIG,
+        tag::CREATE_RING_CONFIG,
+        tag::UPDATE_RING_CONFIG_OWNER,
+        tag::UPDATE_RING_CONFIG,
         tag::MERGE_TRANSACT,
-        tag::ZONE_MERGE_TRANSACT,
+        tag::RING_MERGE_TRANSACT,
         tag::EMIT_EVENT,
-        tag::ZONE_DEPOSIT,
+        tag::RING_DEPOSIT,
         tag::CREATE_ASSET_COUNTER,
         tag::BATCH_UPDATE_NULLIFIER_TREE,
     ];
     let transact_payload =
         transfer_payload(CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8));
-    let zone_transact_payload = transfer_payload(CircuitId::ZoneEddsa(1, 1, N_PUBLIC_SLOTS as u8));
-    let zone_authority_payload =
-        transfer_payload(CircuitId::ZoneAuthority(1, 1, N_PUBLIC_SLOTS as u8));
+    let ring_transact_payload = transfer_payload(CircuitId::RingEddsa(1, 1, N_PUBLIC_SLOTS as u8));
+    let ring_authority_payload =
+        transfer_payload(CircuitId::RingAuthority(1, 1, N_PUBLIC_SLOTS as u8));
 
     for byte in 0..=u8::MAX {
         match byte {
@@ -129,11 +129,11 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
             // malformed payload, so give them one that parses: the next step,
             // Clock::get, fails on the host with UnsupportedSysvar, which
             // proves the tag dispatched past parsing.
-            tag::TRANSACT | tag::ZONE_TRANSACT | tag::ZONE_AUTHORITY_TRANSACT => {
+            tag::TRANSACT | tag::RING_TRANSACT | tag::RING_AUTHORITY_TRANSACT => {
                 let mut data = vec![byte];
                 data.extend_from_slice(match byte {
-                    tag::ZONE_TRANSACT => &zone_transact_payload,
-                    tag::ZONE_AUTHORITY_TRANSACT => &zone_authority_payload,
+                    tag::RING_TRANSACT => &ring_transact_payload,
+                    tag::RING_AUTHORITY_TRANSACT => &ring_authority_payload,
                     _ => &transact_payload,
                 });
                 assert_eq!(

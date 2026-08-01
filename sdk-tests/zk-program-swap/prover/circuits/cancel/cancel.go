@@ -70,8 +70,8 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 
 func (c *Circuit) checkOrderInputUtxo(api frontend.API, makerAddressFe frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(c.OrderUtxo.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.OrderUtxo.ZoneDataHash, 0)
-	api.AssertIsEqual(c.OrderUtxo.ZoneProgramID, 0)
+	api.AssertIsEqual(c.OrderUtxo.RingDataHash, 0)
+	api.AssertIsEqual(c.OrderUtxo.RingProgramID, 0)
 	api.AssertIsEqual(c.OrderUtxo.DataHash, c.Order.DataHash(api, makerAddressFe))
 	api.AssertIsDifferent(c.OrderUtxo.Amount, 0)
 	return spp.UtxoHashCircuit(api, c.OrderUtxo)
@@ -79,8 +79,8 @@ func (c *Circuit) checkOrderInputUtxo(api frontend.API, makerAddressFe frontend.
 
 func (c *Circuit) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.SourceOutput.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.SourceOutput.ZoneDataHash, 0)
-	api.AssertIsEqual(c.SourceOutput.ZoneProgramID, 0)
+	api.AssertIsEqual(c.SourceOutput.RingDataHash, 0)
+	api.AssertIsEqual(c.SourceOutput.RingProgramID, 0)
 	api.AssertIsEqual(c.SourceOutput.DataHash, 0)
 	api.AssertIsEqual(c.SourceOutput.Asset, c.OrderUtxo.Asset)
 	api.AssertIsEqual(c.SourceOutput.Amount, c.OrderUtxo.Amount)

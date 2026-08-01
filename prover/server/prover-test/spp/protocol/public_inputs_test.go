@@ -18,7 +18,7 @@ type publicInputHashVector struct {
 	ExternalDataHash    string   `json:"external_data_hash"`
 	PublicAssets        []string `json:"public_assets"`
 	PublicAmounts       []string `json:"public_amounts"`
-	ZoneProgramID       string   `json:"zone_program_id"`
+	RingProgramID       string   `json:"ring_program_id"`
 	AllowDummyInputs    string   `json:"allow_dummy_inputs"`
 	SignerPkHashes      []string `json:"signer_pk_hashes"`
 	OutputOwnerPkHashes []string `json:"output_owner_pk_hashes"`
@@ -38,7 +38,7 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 		NullifierTreeRoots:  parseFields(t, vector.NullifierTreeRoots),
 		PrivateTxHash:       parseField(t, vector.PrivateTxHash),
 		ExternalDataHash:    parseField(t, vector.ExternalDataHash),
-		ZoneProgramID:       parseField(t, vector.ZoneProgramID),
+		RingProgramID:       parseField(t, vector.RingProgramID),
 		AllowDummyInputs:    parseField(t, vector.AllowDummyInputs),
 		SignerPkHashes:      parseFields(t, vector.SignerPkHashes),
 		BindOutputOwnerTags: true,
@@ -59,7 +59,7 @@ func TestPublicInputHashKnownAnswerVector(t *testing.T) {
 	}
 }
 
-func TestCustomZonePublicInputHashDoesNotBindPrivateOutputOwners(t *testing.T) {
+func TestCustomRingPublicInputHashDoesNotBindPrivateOutputOwners(t *testing.T) {
 	vector := readPublicInputHashVector(t)
 	inputs := inputsFromVector(t, vector)
 	inputs.BindOutputOwnerTags = false
@@ -81,7 +81,7 @@ func TestCustomZonePublicInputHashDoesNotBindPrivateOutputOwners(t *testing.T) {
 		t.Fatalf("second public input hash: %v", err)
 	}
 	if first.Cmp(second) != 0 {
-		t.Fatal("custom-zone public input hash changed with private output owner")
+		t.Fatal("custom-ring public input hash changed with private output owner")
 	}
 
 	inputs.BindOutputOwnerTags = true
@@ -90,7 +90,7 @@ func TestCustomZonePublicInputHashDoesNotBindPrivateOutputOwners(t *testing.T) {
 		t.Fatalf("second bound public input hash: %v", err)
 	}
 	if boundBefore.Cmp(boundAfter) == 0 {
-		t.Fatal("default-zone public input hash did not change with public output owner")
+		t.Fatal("default-ring public input hash did not change with public output owner")
 	}
 }
 
@@ -103,7 +103,7 @@ func inputsFromVector(t *testing.T, vector publicInputHashVector) PublicInputs {
 		NullifierTreeRoots:  parseFields(t, vector.NullifierTreeRoots),
 		PrivateTxHash:       parseField(t, vector.PrivateTxHash),
 		ExternalDataHash:    parseField(t, vector.ExternalDataHash),
-		ZoneProgramID:       parseField(t, vector.ZoneProgramID),
+		RingProgramID:       parseField(t, vector.RingProgramID),
 		AllowDummyInputs:    parseField(t, vector.AllowDummyInputs),
 		SignerPkHashes:      parseFields(t, vector.SignerPkHashes),
 		OutputOwnerPkHashes: parseFields(t, vector.OutputOwnerPkHashes),

@@ -20,7 +20,7 @@ require_paths \
   sdk-libs/keypair/tests sdk-libs/transaction/tests \
   sdk-tests/zk-program-swap/test \
   program-tests/spp-test-validator program-tests/spp-test-validator/tests \
-  program-tests/zone-test-program program-tests/zone-test-program/tests
+  program-tests/ring-test-program program-tests/ring-test-program/tests
 
 # git grep exits 0 on a match (a hygiene violation), 1 on no match (clean),
 # and >1 on a fatal error such as an invalid pathspec; the fatal case must
@@ -65,12 +65,12 @@ report_matches \
 report_matches \
   "validator failures must inspect typed errors, not formatted strings" \
   '(assert_rpc_custom_error|expected custom program error.*got:|contains\(&code\.to_string\(\)\))' -- \
-  program-tests/spp-test-validator/tests program-tests/zone-test-program/tests
+  program-tests/spp-test-validator/tests program-tests/ring-test-program/tests
 
 report_matches \
   "test fixtures use Harness naming; World is a removed scenario-framework remnant" \
-  '(LifecycleWorld|TransferWorld|MergeWorld|ZoneTransferWorld|ZoneAuthorityWorld|mod[[:space:]]+world|_world[[:space:]]*:)' -- \
-  program-tests/spp-test-validator program-tests/zone-test-program ':(glob)sdk-libs/*/tests/**'
+  '(LifecycleWorld|TransferWorld|MergeWorld|RingTransferWorld|RingAuthorityWorld|mod[[:space:]]+world|_world[[:space:]]*:)' -- \
+  program-tests/spp-test-validator program-tests/ring-test-program ':(glob)sdk-libs/*/tests/**'
 
 # --- shielded-pool test-suite structural hygiene ---
 #
@@ -146,7 +146,7 @@ inv_dir=program-tests/shielded-pool/invariants
 inv_readme="$inv_dir/README.md"
 require_paths "$inv_dir" "$inv_readme"
 
-inv_files="transact deposit merge tree protocol-config zone-config spl event cross-cutting"
+inv_files="transact deposit merge tree protocol-config ring-config spl event cross-cutting"
 
 # Per file: total entries, ticked [x], companion [~], N/A entries (block
 # contains the marker). Prints "total ticked comp na".

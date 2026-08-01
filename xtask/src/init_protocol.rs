@@ -282,7 +282,7 @@ fn derive_roles(base_index: u128) -> [RoleAddrs; 5] {
     [
         role_addrs("protocol", base_index + 1),
         role_addrs("tree", base_index + 2),
-        role_addrs("zone", base_index + 3),
+        role_addrs("ring", base_index + 3),
         role_addrs("merge", base_index + 4),
         role_addrs("forester", base_index + 5),
     ]
@@ -372,13 +372,13 @@ fn create_all_smart_accounts(
         &protocol_signers,
         "tree",
     )?;
-    let zone = create_smart_account_with_retry(
+    let ring = create_smart_account_with_retry(
         rpc,
         payer,
         treasury,
         Some(protocol_vault),
         &protocol_signers,
-        "zone",
+        "ring",
     )?;
     let merge = create_smart_account_with_retry(
         rpc,
@@ -397,7 +397,7 @@ fn create_all_smart_accounts(
         "forester",
     )?;
 
-    Ok([protocol, tree, zone, merge, forester])
+    Ok([protocol, tree, ring, merge, forester])
 }
 
 fn protocol_already_initialized(rpc: &SolanaRpc) -> Result<bool> {
@@ -462,15 +462,15 @@ fn send_protocol_config(
     // Merging is now a per-user opt-in set via the user-registry
     // `set_merging_enabled` instruction, not a protocol-config field, so the
     // `merge` role no longer feeds the protocol config here.
-    let [protocol, tree, zone, _merge, forester] = roles;
+    let [protocol, tree, ring, _merge, forester] = roles;
     let create_config_ix = CreateProtocolConfig {
         authority: protocol.vault,
         protocol_authority: protocol.vault.to_bytes().into(),
         tree_creation_authority: tree.vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: forester.vault.to_bytes().into(),
-        zone_creation_authority: zone.vault.to_bytes().into(),
-        zone_creation_is_permissionless: false,
+        ring_creation_authority: ring.vault.to_bytes().into(),
+        ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();

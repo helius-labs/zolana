@@ -115,7 +115,7 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
             args.utxo.amount,
             &args.utxo.blinding,
         )?
-        .with_zone([0u8; 32], &args.utxo.zone_program_id)?,
+        .with_ring([0u8; 32], &args.utxo.ring_program_id)?,
         is_dummy: be(&fe(0)),
         state_path_elements: args.state_proof.path.iter().map(be).collect(),
         state_path_index: be(&fe(args.state_proof.leaf_index)),

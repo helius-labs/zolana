@@ -1,4 +1,4 @@
-use shielded_pool_tests::support::{fixtures::Pool, transact::write_zone_config_account};
+use shielded_pool_tests::support::{fixtures::Pool, transact::write_ring_config_account};
 
 use borsh::BorshSerialize;
 use solana_account::Account;
@@ -10,9 +10,9 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::merge_transact::{MergeProof, MergeTransactIxData, MERGE_INPUT_COUNT},
-        MergeTransact, MergeZone,
+        MergeRing, MergeTransact,
     },
-    state::{discriminator::ZONE_CONFIG, ZoneConfig},
+    state::{discriminator::RING_CONFIG, RingConfig},
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::fe;
@@ -277,25 +277,25 @@ fn merge_rejects_an_unsigned_payer() {
 }
 
 #[test]
-fn merge_zone_rejects_an_unsigned_zone_config() {
+fn merge_ring_rejects_an_unsigned_ring_config() {
     let (mut rpc, tree) = merge_env();
-    let mut ix = zolana_interface::instruction::MergeZone {
+    let mut ix = zolana_interface::instruction::MergeRing {
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
-        zone_program_id: Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
-        output_zone_data_hash: fe(99),
+        output_ring_data_hash: fe(99),
     }
     .cpi_instruction();
-    // The `zone_config` signature IS the zone authorization; without the zone
+    // The `ring_config` signature IS the ring authorization; without the ring
     // program's `invoke_signed` the flag must be rejected before the config is
     // even loaded (so the account does not need to exist).
-    ix.accounts.get_mut(2).expect("zone config meta").is_signer = false;
+    ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
 
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("unsigned zone config must be rejected");
+        .expect_err("unsigned ring config must be rejected");
     Rejection::custom(u32::from(
         zolana_account_checks::AccountError::InvalidSigner,
     ))
@@ -440,97 +440,97 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     );
 }
 
-/// SPP-shaped zone merge instruction (as a zone program would CPI it, the
-/// canonical `zone_auth` PDA marked signer).
-fn merge_zone_cpi_instruction(
+/// SPP-shaped ring merge instruction (as a ring program would CPI it, the
+/// canonical `ring_auth` PDA marked signer).
+fn merge_ring_cpi_instruction(
     rpc: &ZolanaProgramTest,
     tree: &Keypair,
     data: MergeTransactIxData,
-    output_zone_data_hash: [u8; 32],
+    output_ring_data_hash: [u8; 32],
 ) -> solana_instruction::Instruction {
-    MergeZone {
+    MergeRing {
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
-        zone_program_id: Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data,
-        output_zone_data_hash,
+        output_ring_data_hash,
     }
     .cpi_instruction()
 }
 
-/// A valid-shaped `ZoneConfig` account written at a keypair address, so the
-/// "zone_config" can sign a LiteSVM transaction without a zone program CPI.
+/// A valid-shaped `RingConfig` account written at a keypair address, so the
+/// "ring_config" can sign a LiteSVM transaction without a ring program CPI.
 /// Only the owner + size + discriminator checks apply (INV-XC-26); the stored
 /// fields are never validated against a derivation.
-fn write_fake_zone_config(rpc: &mut ZolanaProgramTest, address: Pubkey, discriminator: u8) {
-    let mut data = vec![0u8; ZoneConfig::SIZE];
+fn write_fake_ring_config(rpc: &mut ZolanaProgramTest, address: Pubkey, discriminator: u8) {
+    let mut data = vec![0u8; RingConfig::SIZE];
     if let Some(first) = data.first_mut() {
         *first = discriminator;
     }
-    write_zone_config_account(rpc, address, rpc.program_id, data);
+    write_ring_config_account(rpc, address, rpc.program_id, data);
 }
 
 #[test]
-fn merge_zone_rejects_a_zone_config_with_a_wrong_owner() {
+fn merge_ring_rejects_a_ring_config_with_a_wrong_owner() {
     let (mut rpc, tree) = merge_env();
     // A signing account that is system-owned instead of SPP-owned.
     let impostor = Keypair::new();
     rpc.airdrop(&impostor.pubkey(), 1_000_000)
         .expect("fund impostor");
 
-    let mut ix = merge_zone_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(90));
-    ix.accounts.get_mut(2).expect("zone config meta").pubkey = impostor.pubkey();
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(90));
+    ix.accounts.get_mut(2).expect("ring config meta").pubkey = impostor.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&impostor])
-        .expect_err("a zone config with a wrong owner must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(error);
+        .expect_err("a ring config with a wrong owner must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("rejected transaction trace")
         .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
 #[test]
-fn merge_zone_rejects_a_zone_config_with_a_wrong_discriminator() {
+fn merge_ring_rejects_a_ring_config_with_a_wrong_discriminator() {
     let (mut rpc, tree) = merge_env();
     // SPP-owned and correctly sized, but the discriminator byte is wrong.
     let fake = Keypair::new();
-    write_fake_zone_config(&mut rpc, fake.pubkey(), ZONE_CONFIG + 1);
+    write_fake_ring_config(&mut rpc, fake.pubkey(), RING_CONFIG + 1);
 
-    let mut ix = merge_zone_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(91));
-    ix.accounts.get_mut(2).expect("zone config meta").pubkey = fake.pubkey();
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(91));
+    ix.accounts.get_mut(2).expect("ring config meta").pubkey = fake.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&fake])
-        .expect_err("a zone config with a wrong discriminator must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(error);
+        .expect_err("a ring config with a wrong discriminator must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("rejected transaction trace")
         .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
 #[test]
-fn merge_zone_rejects_an_unsigned_payer() {
+fn merge_ring_rejects_an_unsigned_payer() {
     let (mut rpc, tree) = merge_env();
-    // Valid signed zone config, so the payer signer check (third account) is
+    // Valid signed ring config, so the payer signer check (third account) is
     // the branch that fires.
-    let zone_config_signer = Keypair::new();
-    write_fake_zone_config(&mut rpc, zone_config_signer.pubkey(), ZONE_CONFIG);
+    let ring_config_signer = Keypair::new();
+    write_fake_ring_config(&mut rpc, ring_config_signer.pubkey(), RING_CONFIG);
 
     let outsider = Pubkey::new_unique();
-    let mut ix = MergeZone {
+    let mut ix = MergeRing {
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
-        zone_program_id: Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: outsider,
         data: merge_ix_data(true),
-        output_zone_data_hash: fe(92),
+        output_ring_data_hash: fe(92),
     }
     .cpi_instruction();
-    ix.accounts.get_mut(2).expect("zone config meta").pubkey = zone_config_signer.pubkey();
+    ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config_signer.pubkey();
     ix.accounts.get_mut(3).expect("payer meta").is_signer = false;
     let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[&zone_config_signer])
-        .expect_err("an unsigned zone merge payer must be rejected");
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config_signer])
+        .expect_err("an unsigned ring merge payer must be rejected");
     Rejection::custom(u32::from(
         zolana_account_checks::AccountError::InvalidSigner,
     ))
@@ -541,17 +541,17 @@ fn merge_zone_rejects_an_unsigned_payer() {
 }
 
 #[test]
-fn merge_zone_rejects_a_wrong_input_count_shape_exactly() {
+fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
     let (mut rpc, tree) = merge_env();
     // Seven nullifiers violate the fixed 8-in/1-out shape at parse time, which
-    // runs before any account (or the zone_config signature) is checked.
+    // runs before any account (or the ring_config signature) is checked.
     let mut data = merge_ix_data(true);
     data.nullifiers.pop();
-    let mut ix = merge_zone_cpi_instruction(&rpc, &tree, data, fe(93));
-    ix.accounts.get_mut(2).expect("zone config meta").is_signer = false;
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, data, fe(93));
+    ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("a 7-input zone merge must be rejected");
+        .expect_err("a 7-input ring merge must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("rejected transaction trace")
@@ -559,32 +559,32 @@ fn merge_zone_rejects_a_wrong_input_count_shape_exactly() {
 }
 
 #[test]
-fn merge_zone_rejects_a_paused_tree() {
+fn merge_ring_rejects_a_paused_tree() {
     let Pool {
         mut rpc,
         authority,
         tree,
     } = Pool::initialized();
-    rpc.load_zone_test_program()
-        .expect("load zone test program");
-    rpc.create_zone_config(&authority, &authority.pubkey(), true)
-        .expect("create zone config");
+    rpc.load_ring_test_program()
+        .expect("load ring test program");
+    rpc.create_ring_config(&authority, &authority.pubkey(), true)
+        .expect("create ring config");
     rpc.pause_tree(&authority, &tree, true).expect("pause tree");
 
-    // Through the zone test program so the real `zone_auth` PDA signs; every
+    // Through the ring test program so the real `ring_auth` PDA signs; every
     // wire field is valid and the pause alone must halt the tree mutation.
-    let ix = MergeZone {
+    let ix = MergeRing {
         input_tree: tree.pubkey(),
         output_tree: tree.pubkey(),
-        zone_program_id: Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
-        output_zone_data_hash: fe(95),
+        output_ring_data_hash: fe(95),
     }
     .instruction();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("a zone merge against a paused tree must be rejected");
+        .expect_err("a ring merge against a paused tree must be rejected");
     Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("rejected transaction trace")

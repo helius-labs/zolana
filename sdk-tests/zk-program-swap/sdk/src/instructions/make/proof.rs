@@ -41,10 +41,10 @@ impl MakeProofInputParams {
             bail!("change asset does not match order source mint");
         }
         if self.change.data_hash.is_some()
-            || self.change.zone_data_hash.is_some()
-            || self.change.zone_program_id.is_some()
+            || self.change.ring_data_hash.is_some()
+            || self.change.ring_program_id.is_some()
         {
-            bail!("change output must not carry data or zone commitments");
+            bail!("change output must not carry data or ring commitments");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
         let order_utxo =

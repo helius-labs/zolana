@@ -4,7 +4,7 @@
 //! wallet-facing outputs that tests query.
 
 use thiserror::Error;
-use zolana_event::{encode_encrypted_zone_deposit_output, proofless_output, GeneralEvent};
+use zolana_event::{encode_encrypted_ring_deposit_output, proofless_output, GeneralEvent};
 use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::P256Pubkey;
@@ -121,16 +121,16 @@ impl TestIndexer {
         Ok(&self.utxos[record_index])
     }
 
-    pub fn record_zone_deposit(
+    pub fn record_ring_deposit(
         &mut self,
-        event: &crate::ZoneDepositOutput,
+        event: &crate::RingDepositOutput,
     ) -> Result<&IndexedUtxo, IndexerError> {
         let record_index = self.utxos.len();
         self.append_output_slot(
             event.leaf_index,
             event.view_tag,
             event.utxo_hash,
-            IndexedPayload::Encrypted(encode_encrypted_zone_deposit_output(event.output.clone())),
+            IndexedPayload::Encrypted(encode_encrypted_ring_deposit_output(event.output.clone())),
         )?;
         Ok(&self.utxos[record_index])
     }
@@ -317,9 +317,9 @@ fn proofless_utxo_hash(event: &crate::DepositOutput) -> Result<[u8; 32], Transac
         &output.blinding,
     )?
     .with_data_hash(output.data_hash.unwrap_or([0u8; 32]))
-    .with_zone(
-        output.zone_data_hash.unwrap_or([0u8; 32]),
-        &output.zone_program_id.map(Address::new_from_array),
+    .with_ring(
+        output.ring_data_hash.unwrap_or([0u8; 32]),
+        &output.ring_program_id.map(Address::new_from_array),
     )?
     .hash()
 }

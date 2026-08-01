@@ -42,7 +42,7 @@ done
 
 {
     echo "mod circuit;"
-    echo "pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, ZoneP256ProofData};"
+    echo "pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData};"
     echo
     echo "$modules" | sort -u | while read -r module; do
         if [ -n "$module" ]; then

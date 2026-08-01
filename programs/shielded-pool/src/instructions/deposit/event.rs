@@ -1,11 +1,11 @@
 use pinocchio::ProgramResult;
 use zolana_interface::{
     event::{
-        encode_encrypted_zone_deposit_output_ref, encode_output_data_ref,
-        EncryptedZoneDepositDataRef as EventEncryptedZoneDepositDataRef,
-        EncryptedZoneDepositOutputRef, EventKind, GeneralEvent, ProoflessOutputRef, SplTransfer,
+        encode_encrypted_ring_deposit_output_ref, encode_output_data_ref,
+        EncryptedRingDepositDataRef as EventEncryptedRingDepositDataRef,
+        EncryptedRingDepositOutputRef, EventKind, GeneralEvent, ProoflessOutputRef, SplTransfer,
     },
-    instruction::{DepositEntryRef, OutputUtxo, ZoneDepositEntryRef},
+    instruction::{DepositEntryRef, OutputUtxo, RingDepositEntryRef},
 };
 
 use crate::instructions::event::emit_general_event;
@@ -30,9 +30,9 @@ pub(crate) fn proofless_output_utxo<'a>(
         amount: entry.amount,
         data_hash,
         utxo_data,
-        zone_program_id: None,
-        zone_data_hash: None,
-        zone_data: None,
+        ring_program_id: None,
+        ring_data_hash: None,
+        ring_data: None,
         memo: entry.memo,
     });
     OutputUtxo {
@@ -42,19 +42,19 @@ pub(crate) fn proofless_output_utxo<'a>(
     }
 }
 
-pub(crate) fn encrypted_zone_output_utxo(
-    entry: ZoneDepositEntryRef<'_>,
+pub(crate) fn encrypted_ring_output_utxo(
+    entry: RingDepositEntryRef<'_>,
     ctx: ProoflessOutputCtx,
-    zone_program_id: [u8; 32],
+    ring_program_id: [u8; 32],
 ) -> OutputUtxo {
-    let data = encode_encrypted_zone_deposit_output_ref(EncryptedZoneDepositOutputRef {
+    let data = encode_encrypted_ring_deposit_output_ref(EncryptedRingDepositOutputRef {
         owner_utxo_hash: entry.owner_utxo_hash,
         asset: &ctx.asset,
         amount: entry.amount,
         data_hash: entry.data_hash,
-        zone_program_id: &zone_program_id,
-        zone_data_hash: entry.zone_data_hash,
-        encrypted: EventEncryptedZoneDepositDataRef {
+        ring_program_id: &ring_program_id,
+        ring_data_hash: entry.ring_data_hash,
+        encrypted: EventEncryptedRingDepositDataRef {
             tx_viewing_pk: entry.encrypted.tx_viewing_pk,
             salt: entry.encrypted.salt,
             ciphertext: entry.encrypted.ciphertext,

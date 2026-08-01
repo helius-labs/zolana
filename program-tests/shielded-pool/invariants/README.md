@@ -6,11 +6,11 @@ of truth.
 
 Legend: PR164 = the circuit/protocol update, merged via PR171 (#171);
 "post-PR164" below refers to that update. PR172 (signer-run authorization,
-owner-hidden zone deposits, the ZoneP256 rail) has landed: the P256 N/A
-entries are re-activated in their ZoneP256 scope (INV-TRANSACT-06, -11,
-INV-ZONE-TRANSACT-06, INV-ZONE-AUTH-05, INV-XC-12), INV-XC-32 covers
+owner-hidden ring deposits, the RingP256 rail) has landed: the P256 N/A
+entries are re-activated in their RingP256 scope (INV-TRANSACT-06, -11,
+INV-RING-TRANSACT-06, INV-RING-AUTH-05, INV-XC-12), INV-XC-32 covers
 retired-and-new wire formats, and new entries pin the signer-run model
-(INV-TRANSACT-45), the ZoneP256ProofData payload (INV-XC-33), and the
+(INV-TRANSACT-45), the RingP256ProofData payload (INV-XC-33), and the
 signer-account owner rotation hardening (INV-UPDATE-ZC-OWNER-02/-05).
 
 Marker legend: `- [x]` covered by tests on this branch; `- [ ]` partial or
@@ -20,28 +20,28 @@ and return with that merge).
 
 | File | Covers |
 |---|---|
-| `transact.md` | Transact, ZoneTransact, ZoneAuthorityTransact |
-| `deposit.md` | Deposit, ZoneDeposit |
-| `merge.md` | MergeTransact, ZoneMergeTransact |
+| `transact.md` | Transact, RingTransact, RingAuthorityTransact |
+| `deposit.md` | Deposit, RingDeposit |
+| `merge.md` | MergeTransact, RingMergeTransact |
 | `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree |
 | `protocol-config.md` | CreateProtocolConfig, UpdateProtocolConfig |
-| `zone-config.md` | CreateZoneConfig, UpdateZoneConfig, UpdateZoneConfigOwner |
+| `ring-config.md` | CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner |
 | `spl.md` | CreateAssetCounter, CreateSplInterface |
 | `event.md` | EmitEvent |
-| `cross-cutting.md` | dispatch, rollback, expiry/pause, double-spend, proof rails, external_data_hash, lamports/PDAs, loaders, zone authorization, events, error codes |
+| `cross-cutting.md` | dispatch, rollback, expiry/pause, double-spend, proof rails, external_data_hash, lamports/PDAs, loaders, ring authorization, events, error codes |
 
-ID prefixes: `INV-TRANSACT`, `INV-ZONE-TRANSACT`, `INV-ZONE-AUTH`, `INV-DEPOSIT`,
-`INV-ZONE-DEPOSIT`, `INV-MERGE`, `INV-ZONE-MERGE`, `INV-CREATE-TREE`,
+ID prefixes: `INV-TRANSACT`, `INV-RING-TRANSACT`, `INV-RING-AUTH`, `INV-DEPOSIT`,
+`INV-RING-DEPOSIT`, `INV-MERGE`, `INV-RING-MERGE`, `INV-CREATE-TREE`,
 `INV-BATCH-NULL`, `INV-PAUSE-TREE`, `INV-CREATE-PC`, `INV-UPDATE-PC`,
 `INV-CREATE-ZC`, `INV-UPDATE-ZC`, `INV-UPDATE-ZC-OWNER`, `INV-CREATE-AC`,
 `INV-CREATE-SPL`, `INV-EMIT-EVENT`, `INV-XC`. IDs are stable once assigned --
 never renumber.
 
-`Transact`, `ZoneTransact`, and `ZoneAuthorityTransact` share one parser and core
+`Transact`, `RingTransact`, and `RingAuthorityTransact` share one parser and core
 (`process_transact_core`), so the shared `INV-TRANSACT-*` data/settlement/tree
 invariants apply to all three (noted in `transact.md`); the matrix references them
-from all three rows. The same holds for `Deposit`/`ZoneDeposit`
-(`process_deposit_internal`) and `MergeTransact`/`ZoneMergeTransact`
+from all three rows. The same holds for `Deposit`/`RingDeposit`
+(`process_deposit_internal`) and `MergeTransact`/`RingMergeTransact`
 (`process_merge_core`).
 
 ## Coverage Matrix
@@ -50,25 +50,25 @@ from all three rows. The same holds for `Deposit`/`ZoneDeposit`
 |---|---|---|---|---|---|---|---|
 | EmitEvent (14) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
 | Transact (0) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-TRANSACT-40, INV-TRANSACT-41, INV-TRANSACT-43, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31..38, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20, INV-TRANSACT-39 | INV-TRANSACT-23..28, INV-TRANSACT-42, INV-TRANSACT-44, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
-| ZoneTransact (2) | `transact.md` | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-ZONE-TRANSACT-01, INV-ZONE-TRANSACT-03, INV-ZONE-TRANSACT-07, INV-XC-26 | INV-ZONE-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
-| ZoneAuthorityTransact (3) | `transact.md` | INV-ZONE-AUTH-01, INV-ZONE-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-ZONE-AUTH-01..03, INV-XC-26 | INV-ZONE-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| RingTransact (2) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| RingAuthorityTransact (3) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
 | CreateTree (5) | `tree.md` | INV-CREATE-TREE-03, INV-CREATE-TREE-04 | INV-CREATE-TREE-05, INV-CREATE-TREE-06 | INV-CREATE-TREE-01, INV-CREATE-TREE-02 | INV-CREATE-TREE-07, INV-CREATE-TREE-08 | INV-XC-04 | INV-CREATE-TREE-09 |
 | BatchUpdateNullifierTree (51) | `tree.md` | INV-XC-24, INV-XC-08 | INV-BATCH-NULL-03 | INV-BATCH-NULL-01, INV-BATCH-NULL-02 | INV-BATCH-NULL-05, INV-BATCH-NULL-08 | INV-BATCH-NULL-04, INV-XC-04 | INV-BATCH-NULL-06, INV-BATCH-NULL-09 |
 | Deposit (1) | `deposit.md` | INV-DEPOSIT-01..09, INV-DEPOSIT-20, INV-DEPOSIT-23, INV-DEPOSIT-24 | INV-DEPOSIT-10, INV-DEPOSIT-11, INV-DEPOSIT-18, INV-DEPOSIT-19, INV-DEPOSIT-21, INV-DEPOSIT-22 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16, INV-DEPOSIT-25 | INV-XC-04 | INV-DEPOSIT-17 |
-| ZoneDeposit (15) | `deposit.md` | INV-ZONE-DEPOSIT-01..04 | INV-ZONE-DEPOSIT-05, INV-DEPOSIT-11, INV-DEPOSIT-18..25 | INV-ZONE-DEPOSIT-01, INV-ZONE-DEPOSIT-03, INV-XC-26 | INV-ZONE-DEPOSIT-06..09 | INV-XC-04 | INV-DEPOSIT-17 |
+| RingDeposit (15) | `deposit.md` | INV-RING-DEPOSIT-01..04 | INV-RING-DEPOSIT-05, INV-DEPOSIT-11, INV-DEPOSIT-18..25 | INV-RING-DEPOSIT-01, INV-RING-DEPOSIT-03, INV-XC-26 | INV-RING-DEPOSIT-06..09 | INV-XC-04 | INV-DEPOSIT-17 |
 | CreateAssetCounter (16) | `spl.md` | INV-CREATE-AC-03, INV-CREATE-AC-04 | INV-CREATE-AC-05 | INV-CREATE-AC-01, INV-CREATE-AC-02 | INV-CREATE-AC-06, INV-CREATE-AC-07 | INV-XC-04 | INV-CREATE-AC-08 |
 | CreateSplInterface (4) | `spl.md` | INV-CREATE-SPL-03..05, INV-CREATE-SPL-08, INV-CREATE-SPL-13, INV-CREATE-SPL-14 | INV-CREATE-SPL-06 | INV-CREATE-SPL-01, INV-CREATE-SPL-02 | INV-CREATE-SPL-07, INV-CREATE-SPL-09..11 | INV-XC-04 | INV-CREATE-SPL-12 |
 | CreateProtocolConfig (6) | `protocol-config.md` | INV-CREATE-PC-03, INV-CREATE-PC-04 | INV-CREATE-PC-05 | INV-CREATE-PC-01, INV-CREATE-PC-02, INV-CREATE-PC-10 | INV-CREATE-PC-06..08 | INV-XC-04 | INV-CREATE-PC-09 |
 | UpdateProtocolConfig (7) | `protocol-config.md` | INV-UPDATE-PC-03 | INV-UPDATE-PC-04 | INV-UPDATE-PC-01, INV-UPDATE-PC-02 | INV-UPDATE-PC-05, INV-UPDATE-PC-07 | INV-XC-04 | INV-UPDATE-PC-06 |
 | PauseTree (8) | `tree.md` | INV-XC-24 | INV-PAUSE-TREE-02 | INV-PAUSE-TREE-01 | INV-PAUSE-TREE-03, INV-PAUSE-TREE-04 | INV-XC-04 | INV-PAUSE-TREE-05 |
-| CreateZoneConfig (9) | `zone-config.md` | INV-CREATE-ZC-04, INV-CREATE-ZC-05 | INV-CREATE-ZC-06 | INV-CREATE-ZC-01..03 | INV-CREATE-ZC-07, INV-CREATE-ZC-08 | INV-XC-04 | INV-CREATE-ZC-09 |
-| UpdateZoneConfigOwner (10) | `zone-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-OWNER-05 | INV-UPDATE-ZC-OWNER-01, INV-UPDATE-ZC-OWNER-02 | INV-UPDATE-ZC-OWNER-03 | INV-XC-04 | INV-UPDATE-ZC-OWNER-04 |
-| UpdateZoneConfig (11) | `zone-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-06 | INV-UPDATE-ZC-01 | INV-UPDATE-ZC-03, INV-UPDATE-ZC-05 | INV-XC-04 | INV-UPDATE-ZC-04 |
+| CreateRingConfig (9) | `ring-config.md` | INV-CREATE-ZC-04, INV-CREATE-ZC-05 | INV-CREATE-ZC-06 | INV-CREATE-ZC-01..03 | INV-CREATE-ZC-07, INV-CREATE-ZC-08 | INV-XC-04 | INV-CREATE-ZC-09 |
+| UpdateRingConfigOwner (10) | `ring-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-OWNER-05 | INV-UPDATE-ZC-OWNER-01, INV-UPDATE-ZC-OWNER-02 | INV-UPDATE-ZC-OWNER-03 | INV-XC-04 | INV-UPDATE-ZC-OWNER-04 |
+| UpdateRingConfig (11) | `ring-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-06 | INV-UPDATE-ZC-01 | INV-UPDATE-ZC-03, INV-UPDATE-ZC-05 | INV-XC-04 | INV-UPDATE-ZC-04 |
 | MergeTransact (12) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
-| ZoneMergeTransact (13) | `merge.md` | INV-ZONE-MERGE-01..03, INV-MERGE-18 | INV-ZONE-MERGE-05 | INV-ZONE-MERGE-01, INV-ZONE-MERGE-04, INV-XC-26 | INV-ZONE-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| RingMergeTransact (13) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18 | INV-RING-MERGE-05 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-XC-26 | INV-RING-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
 
 Cross-cutting rows that apply to every proof-bearing instruction (Transact,
-ZoneTransact, ZoneAuthorityTransact, MergeTransact, ZoneMergeTransact) and are not
+RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact) and are not
 repeated in each cell above: INV-XC-06/07 (expiry), INV-XC-08 (pause), INV-XC-09
 (stale root), INV-XC-10 (double-spend), INV-XC-11..17 (proof system and
 external_data_hash), INV-XC-19/20 (value binding), INV-XC-31 (TreeError
@@ -79,12 +79,12 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 ## Summary
 
 - Total invariants: 244
-  - transact.md: 59 (Transact 45, ZoneTransact 7, ZoneAuthorityTransact 7)
-  - deposit.md: 34 (Deposit 25, ZoneDeposit 9)
-  - merge.md: 32 (MergeTransact 19, ZoneMergeTransact 13)
+  - transact.md: 59 (Transact 45, RingTransact 7, RingAuthorityTransact 7)
+  - deposit.md: 34 (Deposit 25, RingDeposit 9)
+  - merge.md: 32 (MergeTransact 19, RingMergeTransact 13)
   - tree.md: 23 (CreateTree 9, BatchUpdateNullifierTree 9, PauseTree 5)
   - protocol-config.md: 17 (Create 10, Update 7)
-  - zone-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
+  - ring-config.md: 20 (Create 9, UpdateOwner 5, Update 6)
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
@@ -95,11 +95,11 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
   after an audit found the first resolution had not actually landed):
-  1. Deposit/ZoneDeposit instruction data is a batch: `assets: Vec<DepositAssetKind>` declared in the instruction data plus `deposits: Vec<DepositEntry>`; each entry carries `amount`, `view_tag`, `UtxoData`, `memo`.
+  1. Deposit/RingDeposit instruction data is a batch: `assets: Vec<DepositAssetKind>` declared in the instruction data plus `deposits: Vec<DepositEntry>`; each entry carries `amount`, `view_tag`, `UtxoData`, `memo`.
   2. Transact public amounts signed `Option<i64>`; exactly the absolute value settles (fee folded prover-side) (INV-XC-18).
   3. Merge fixed 8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
   4. UTXO tree height 32.
-  5. Duplicate `zone_deposit` "Tag 1" row removed from the instruction table.
+  5. Duplicate `ring_deposit` "Tag 1" row removed from the instruction table.
   6. `create_asset_counter` (tag 16) and `batch_update_nullifier_tree` (tag 51) added to the instruction table.
   7. UpdateProtocolConfig: one field per call plus new-authority co-signature.
   8. GeneralEvent `tx_viewing_pk`/`salt` non-optional (all-zero on proofless deposits); `OutputUtxo.view_tag` naming; `OutputDataEncoding` wrapper; `ProoflessOutput.owner` + `memo`.
@@ -119,7 +119,7 @@ the test backend. Localnet coverage does not count as LiteSVM coverage.
 | LiteSVM | A passing test in `program-tests/shielded-pool/tests/` that runs through `Pool`/`ZolanaProgramTest` and asserts the invariant directly |
 | Localnet | A validator/RPC/indexer test; complementary, not a LiteSVM substitute |
 | Partial | The behavior is exercised, but an important postcondition, delta, rollback sweep, or backend leg is not asserted |
-| Blocked | The current harness cannot exercise the invariant (for example, a real-proof SPL transact path or a second zone identity) |
+| Blocked | The current harness cannot exercise the invariant (for example, a real-proof SPL transact path or a second ring identity) |
 
 Every invariant was mapped against the test suite (integration tests in
 `program-tests/`, unit tests in `programs/shielded-pool` and `program-libs/`).
@@ -141,7 +141,7 @@ because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
 transact 55/3/0/1, deposit 33/1/0/0, merge 22/6/0/4, tree 18/4/1/0,
-protocol-config 16/0/1/0, zone-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
+protocol-config 16/0/1/0, ring-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
 All added tests pass. Suites run green this pass:
@@ -193,7 +193,7 @@ Status of the audit findings against the current (post-PR164) tree:
   `prover/server/circuits/spp_transaction/shared/nullifier_attack_test.go`
   (INV-TRANSACT-31, INV-TRANSACT-32).
 - F-02 `merge_view_tag` >= p / zero / tree-resident queue poison: ELIMINATED
-  (field removed; output indexed by first input nullifier -- INV-ZONE-MERGE-12).
+  (field removed; output indexed by first input nullifier -- INV-RING-MERGE-12).
 - F-03 merge dummy-slot nullifier burn: FIXED by PR164 (`MergeDummyNullifier`
   derivation); regression tests
   `prover/server/circuits/spp_merge/dummy_nullifier_attack_test.go`
@@ -237,9 +237,9 @@ Status of the audit findings against the current (post-PR164) tree:
   the attacker initialized successfully pre-fix),
   `create_accepts_the_upgrade_authority`,
   `create_skips_the_check_without_an_upgrade_authority`.
-- F-08 zone-merge viewing-key binding: PARTIALLY addressed (output
-  `zone_data_hash` now proof-bound; owner identity still omitted by design --
-  INV-ZONE-MERGE-08, INV-ZONE-MERGE-12).
+- F-08 ring-merge viewing-key binding: PARTIALLY addressed (output
+  `ring_data_hash` now proof-bound; owner identity still omitted by design --
+  INV-RING-MERGE-08, INV-RING-MERGE-12).
 - F-09 `merge_view_tag` not proof-bound: MOOT (field removed).
 - F-10 root-history zero-placeholder burn: FIXED by PR164. `append_batch`
   pushes only the batch-final root into the 200-slot history
@@ -251,7 +251,7 @@ Status of the audit findings against the current (post-PR164) tree:
   Hash) documents `data_hash` as "committed into `utxo_hash` unchecked": the
   hashing scheme is application-defined, so the program cannot recompute it,
   and the deposit event publishes both `data_hash` and `data` for consumers to
-  verify. Deposit is authorized by the payer (or the zone config), so a
+  verify. Deposit is authorized by the payer (or the ring config), so a
   mismatch is self-inflicted; the deposit path
   (`programs/shielded-pool/src/instructions/deposit/processor.rs:104-124`)
   still folds the supplied `data_hash` into the UTXO hash as specified.

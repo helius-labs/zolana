@@ -5008,6 +5008,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "ring-test-program"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "p256",
+ "pinocchio 0.11.2",
+ "serial_test",
+ "solana-account 4.3.1",
+ "solana-address 2.6.1",
+ "solana-compute-budget-interface",
+ "solana-keypair",
+ "solana-message",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "zolana-client",
+ "zolana-event",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-keypair",
+ "zolana-program-test",
+ "zolana-smart-account-client",
+ "zolana-test-utils",
+ "zolana-transaction",
+ "zolana-user-registry-interface",
+]
+
+[[package]]
 name = "rkyv"
 version = "0.7.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10361,35 +10390,6 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
- "zolana-transaction",
- "zolana-user-registry-interface",
-]
-
-[[package]]
-name = "zone-test-program"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "p256",
- "pinocchio 0.11.2",
- "serial_test",
- "solana-account 4.3.1",
- "solana-address 2.6.1",
- "solana-compute-budget-interface",
- "solana-keypair",
- "solana-message",
- "solana-signature",
- "solana-signer",
- "solana-transaction",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-interface",
- "zolana-keypair",
- "zolana-program-test",
- "zolana-smart-account-client",
- "zolana-test-utils",
  "zolana-transaction",
  "zolana-user-registry-interface",
 ]

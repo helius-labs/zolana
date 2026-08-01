@@ -11,9 +11,9 @@ pub struct ProtocolConfig {
     pub protocol_authority: Address,
     pub tree_creation_authority: Address,
     pub forester_authority: Address,
-    pub zone_creation_authority: Address,
+    pub ring_creation_authority: Address,
     pub tree_creation_is_permissionless: u8,
-    pub zone_creation_is_permissionless: u8,
+    pub ring_creation_is_permissionless: u8,
     pub spl_interface_creation_is_permissionless: u8,
 }
 
@@ -55,8 +55,8 @@ impl ProtocolConfig {
             .ok_or(InterfaceError::Unauthorized)
     }
 
-    pub fn check_zone_creation_authority(&self, authority: &Address) -> Result<(), InterfaceError> {
-        address_eq(&self.zone_creation_authority, authority)
+    pub fn check_ring_creation_authority(&self, authority: &Address) -> Result<(), InterfaceError> {
+        address_eq(&self.ring_creation_authority, authority)
             .then_some(())
             .ok_or(InterfaceError::Unauthorized)
     }
@@ -65,8 +65,8 @@ impl ProtocolConfig {
         self.tree_creation_is_permissionless != 0
     }
 
-    pub fn allows_permissionless_zone_creation(&self) -> bool {
-        self.zone_creation_is_permissionless != 0
+    pub fn allows_permissionless_ring_creation(&self) -> bool {
+        self.ring_creation_is_permissionless != 0
     }
 
     pub fn allows_permissionless_spl_interface_creation(&self) -> bool {

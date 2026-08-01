@@ -159,7 +159,7 @@ mod tests {
             inputs: Vec::new(),
             interface_transfers,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             outputs: Vec::new(),
             messages: Vec::new(),
         }

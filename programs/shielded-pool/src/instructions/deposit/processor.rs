@@ -6,8 +6,8 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::SplTransfer,
     instruction::{
-        DepositAssetKind, DepositEntryRef, DepositIxDataRef, ZoneDepositEntryRef,
-        ZoneDepositIxDataRef, MAX_DEPOSIT_ASSETS,
+        DepositAssetKind, DepositEntryRef, DepositIxDataRef, RingDepositEntryRef,
+        RingDepositIxDataRef, MAX_DEPOSIT_ASSETS,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
@@ -16,7 +16,7 @@ use zolana_tree::TreeAccount;
 use super::{
     account::DepositAccounts,
     event::{
-        emit_deposit_event, encrypted_zone_output_utxo, proofless_output_utxo, DepositEvent,
+        emit_deposit_event, encrypted_ring_output_utxo, proofless_output_utxo, DepositEvent,
         ProoflessOutputCtx,
     },
 };
@@ -25,7 +25,7 @@ use crate::instructions::hash::{field_from_u64, UTXO_DOMAIN_FIELD};
 #[derive(Clone, Copy)]
 enum ProcessingEntry<'a> {
     Default(DepositEntryRef<'a>),
-    Zone(ZoneDepositEntryRef<'a>),
+    Ring(RingDepositEntryRef<'a>),
 }
 
 #[profile]
@@ -39,17 +39,17 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
     )
 }
 
-pub fn process_zone_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let data = ZoneDepositIxDataRef::from_bytes(data)
+pub fn process_ring_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
+    let data = RingDepositIxDataRef::from_bytes(data)
         .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     process_deposit_internal::<true>(
         accounts,
         &data.assets,
-        data.deposits.into_iter().map(ProcessingEntry::Zone),
+        data.deposits.into_iter().map(ProcessingEntry::Ring),
     )
 }
 
-fn process_deposit_internal<'a, const HAS_ZONE: bool>(
+fn process_deposit_internal<'a, const HAS_RING: bool>(
     accounts: &mut [AccountView],
     assets: &[DepositAssetKind],
     entries: impl ExactSizeIterator<Item = ProcessingEntry<'a>>,
@@ -59,11 +59,11 @@ fn process_deposit_internal<'a, const HAS_ZONE: bool>(
         return Err(ShieldedPoolError::EmptyDepositBatch.into());
     }
 
-    let (parsed, zone_program_id) =
-        DepositAccounts::validate_and_parse::<HAS_ZONE>(&crate::ID, accounts, assets)?;
+    let (parsed, ring_program_id) =
+        DepositAccounts::validate_and_parse::<HAS_RING>(&crate::ID, accounts, assets)?;
 
     let zero = [0u8; 32];
-    let zone_program_id_field = match &zone_program_id {
+    let ring_program_id_field = match &ring_program_id {
         Some(program_id) => hash_bytes(program_id)?,
         None => zero,
     };
@@ -77,14 +77,14 @@ fn process_deposit_internal<'a, const HAS_ZONE: bool>(
     for processing_entry in entries {
         let (asset_index, amount) = match processing_entry {
             ProcessingEntry::Default(entry) => (entry.asset_index, entry.amount),
-            ProcessingEntry::Zone(entry) => (entry.asset_index, entry.amount),
+            ProcessingEntry::Ring(entry) => (entry.asset_index, entry.amount),
         };
         let group = parsed
             .groups
             .get(usize::from(asset_index))
             .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
 
-        let (data_hash, zone_data_hash, owner_utxo_hash) = match processing_entry {
+        let (data_hash, ring_data_hash, owner_utxo_hash) = match processing_entry {
             ProcessingEntry::Default(entry) => {
                 let data_hash = entry.utxo_data.map_or(&zero, |utxo| utxo.data_hash);
                 let owner_utxo_hash =
@@ -92,19 +92,19 @@ fn process_deposit_internal<'a, const HAS_ZONE: bool>(
                         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
                 (data_hash, &zero, owner_utxo_hash)
             }
-            ProcessingEntry::Zone(entry) => (
+            ProcessingEntry::Ring(entry) => (
                 entry.data_hash.unwrap_or(&zero),
-                entry.zone_data_hash,
+                entry.ring_data_hash,
                 *entry.owner_utxo_hash,
             ),
         };
-        let zone_hash = hash_with_program_id(zone_data_hash, &zone_program_id_field)?;
+        let ring_hash = hash_with_program_id(ring_data_hash, &ring_program_id_field)?;
         let utxo_hash = Poseidon::hashv(&[
             UTXO_DOMAIN_FIELD.as_slice(),
             group.asset_field.as_slice(),
             field_from_u64(amount).as_slice(),
             data_hash.as_slice(),
-            zone_hash.as_slice(),
+            ring_hash.as_slice(),
             owner_utxo_hash.as_slice(),
         ])
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
@@ -127,10 +127,10 @@ fn process_deposit_internal<'a, const HAS_ZONE: bool>(
         };
         outputs.push(match processing_entry {
             ProcessingEntry::Default(entry) => proofless_output_utxo(entry, output_ctx),
-            ProcessingEntry::Zone(entry) => encrypted_zone_output_utxo(
+            ProcessingEntry::Ring(entry) => encrypted_ring_output_utxo(
                 entry,
                 output_ctx,
-                zone_program_id.ok_or(ShieldedPoolError::InvalidZoneConfig)?,
+                ring_program_id.ok_or(ShieldedPoolError::InvalidRingConfig)?,
             ),
         });
     }

@@ -9,7 +9,7 @@ rename them to satisfy this document.
 
 Established parties: `user`, `payer`, `owner`, `sender`, `recipient`,
 `authority` (qualified: `protocol_authority`, `tree_creation_authority`,
-`forester_authority`, `zone_creation_authority`), `relayer`.
+`forester_authority`, `ring_creation_authority`), `relayer`.
 
 - The transaction fee payer is `payer` (`builders/transact.rs`,
   `SppProofInputs::payer`). Do not call it `issuer`, `caller`, or `maker` — those
@@ -56,7 +56,7 @@ encoded form from the raw value, use the `_fe` suffix (`secret_fe`,
 ## UTXOs / notes
 
 Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
-`asset`, `amount`, `blinding`, `zone_program_id`, `data`.
+`asset`, `amount`, `blinding`, `ring_program_id`, `data`.
 
 - Consumed notes: `SppProofInputUtxo` (signing/proving layer) or `InputUtxo`
   (encrypted/instruction layer); local binding `spend`; collections `inputs`.
@@ -102,7 +102,7 @@ Canonical struct fields (`sdk-libs/transaction/src/utxo.rs`): `owner`,
 
 Reuse these exact spellings:
 `public_input_hash`, `private_tx_hash`, `external_data_hash`,
-`signer_pk_hashes`, `data_hash`, `zone_data_hash`, `utxo_hash`,
+`signer_pk_hashes`, `data_hash`, `ring_data_hash`, `utxo_hash`,
 `owner_hash`, `owner_utxo_hash`, `nullifier_hash`, `hash_chain`
 (accumulator local `acc`). Hash primitives are named by algorithm:
 `poseidon`, `poseidon2`, `sha256`, `sha256_be`, `hash_bytes`.
@@ -132,7 +132,7 @@ Reuse these exact spellings:
 - Seed constants: `SCREAMING_SNAKE` ending in `_PDA_SEED`
   (`SPP_PROTOCOL_CONFIG_PDA_SEED`).
 - Deriving functions are named after the account with no suffix
-  (`protocol_config()`, `zone_config(zone_program)`), with a `_with_bump`
+  (`protocol_config()`, `ring_config(ring_program)`), with a `_with_bump`
   variant; bump locals are `bump`.
 - Local variables holding a derived address take the `_pda` suffix
   (`config_pda`).
@@ -142,7 +142,7 @@ Reuse these exact spellings:
 
 - Exported circuit fields are `PascalCase` one-to-one mirrors of the Rust
   names: `Owner`, `Asset`, `Amount`, `Blinding`, `DataHash`,
-  `ZoneDataHash`, `OwnerPkField`, `OwnerPkHash`.
+  `RingDataHash`, `OwnerPkField`, `OwnerPkHash`.
   Circuit-local mirrors are `camelCase` (`p256PkField`, `ownerKeyHash`).
 - Renaming a circuit struct field renames its witness JSON key; the Go
   bindings, the Rust witness writers, and any fixtures move in one commit.

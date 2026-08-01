@@ -182,10 +182,10 @@ impl ConfidentialTransfer {
         self.assemble(keypair, assets, false)
     }
 
-    /// Assemble a custom-zone P256 transfer. Unlike the default transact rail,
+    /// Assemble a custom-ring P256 transfer. Unlike the default transact rail,
     /// the sender's P256 owner tag is carried inline because ownership is proven
-    /// inside the ZoneP256 circuit rather than by a Solana signer account.
-    pub fn sign_zone_p256<K: ShieldedKeypairTrait + ViewingKeyTrait>(
+    /// inside the RingP256 circuit rather than by a Solana signer account.
+    pub fn sign_ring_p256<K: ShieldedKeypairTrait + ViewingKeyTrait>(
         self,
         keypair: &K,
         assets: &AssetRegistry,
@@ -586,7 +586,7 @@ fn dummy_ciphertext_len(
             asset_id: SOL_ASSET_ID,
             amount: 0,
             blinding: random_blinding(),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         },
         [0u8; VIEW_TAG_LEN],
@@ -641,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn zone_p256_sender_tag_is_inline() {
+    fn ring_p256_sender_tag_is_inline() {
         let pk = SigningKey::new().pubkey();
         let resolved = pk.confidential_view_tag().unwrap();
         assert_eq!(

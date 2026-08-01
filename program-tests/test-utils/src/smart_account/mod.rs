@@ -7,7 +7,7 @@
 //! and the standard five-role account layout the SPP tests share, built on the
 //! role table in [`roles`]: the localnet fixture `ProgramConfig` starts at
 //! index 0, so the roles sit at seeds 1..=5 in `Role::ALL` creation order
-//! (protocol, tree, zone, merge, forester). `xtask init-protocol` deploys the
+//! (protocol, tree, ring, merge, forester). `xtask init-protocol` deploys the
 //! same roles in the same order without sharing this table -- see [`roles`].
 
 use std::{fs, path::Path};
@@ -63,8 +63,8 @@ pub struct StandardAccounts {
     pub merge_vault: Pubkey,
     pub tree_settings: Pubkey,
     pub tree_vault: Pubkey,
-    pub zone_settings: Pubkey,
-    pub zone_vault: Pubkey,
+    pub ring_settings: Pubkey,
+    pub ring_vault: Pubkey,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -73,12 +73,12 @@ pub struct StandardSigners {
     pub forester: Pubkey,
     pub merge: Pubkey,
     pub tree: Pubkey,
-    pub zone: Pubkey,
+    pub ring: Pubkey,
 }
 
 /// Derive the five standard role accounts from the shared role table
 /// (`zolana_smart_account_client::roles`) above the localnet fixture's base
-/// index 0: protocol/tree/zone/merge/forester at seeds 1..=5, the same table
+/// index 0: protocol/tree/ring/merge/forester at seeds 1..=5, the same table
 /// `xtask init-protocol` deploys with.
 pub fn standard_accounts() -> StandardAccounts {
     let (protocol_settings, _) = Role::Protocol.settings_pda(0);
@@ -89,8 +89,8 @@ pub fn standard_accounts() -> StandardAccounts {
     let (merge_vault, _) = smart_account_pda(&merge_settings, 0);
     let (tree_settings, _) = Role::Tree.settings_pda(0);
     let (tree_vault, _) = smart_account_pda(&tree_settings, 0);
-    let (zone_settings, _) = Role::Zone.settings_pda(0);
-    let (zone_vault, _) = smart_account_pda(&zone_settings, 0);
+    let (ring_settings, _) = Role::Ring.settings_pda(0);
+    let (ring_vault, _) = smart_account_pda(&ring_settings, 0);
 
     StandardAccounts {
         protocol_settings,
@@ -101,8 +101,8 @@ pub fn standard_accounts() -> StandardAccounts {
         merge_vault,
         tree_settings,
         tree_vault,
-        zone_settings,
-        zone_vault,
+        ring_settings,
+        ring_vault,
     }
 }
 
@@ -115,7 +115,7 @@ impl StandardAccounts {
         [
             (Role::Protocol, None, signers.protocol),
             (Role::Tree, Some(self.protocol_vault), signers.tree),
-            (Role::Zone, Some(self.protocol_vault), signers.zone),
+            (Role::Ring, Some(self.protocol_vault), signers.ring),
             (Role::Merge, Some(self.protocol_vault), signers.merge),
             (Role::Forester, Some(self.protocol_vault), signers.forester),
         ]

@@ -1,5 +1,5 @@
 // Package shared holds the witness building blocks and constraints shared by
-// the default and policy-zone SPP merge circuits.
+// the default and policy-ring SPP merge circuits.
 package shared
 
 import (
@@ -19,12 +19,12 @@ const (
 )
 
 // Input contains the free per-slot merge witness. The circuit supplies the
-// shared owner, asset, data hash, and zone program when reconstructing its UTXO.
+// shared owner, asset, data hash, and ring program when reconstructing its UTXO.
 type Input struct {
 	Domain       frontend.Variable
 	Amount       frontend.Variable
 	Blinding     frontend.Variable
-	ZoneDataHash frontend.Variable
+	RingDataHash frontend.Variable
 
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
@@ -36,10 +36,10 @@ type Input struct {
 }
 
 // Output contains the merged output's only free leaf field. The circuit
-// derives its owner, asset, amount, domain, data hash, zone program, and
+// derives its owner, asset, amount, domain, data hash, ring program, and
 // blinding (see MergeOutputBlinding).
 type Output struct {
-	ZoneDataHash frontend.Variable
+	RingDataHash frontend.Variable
 }
 
 // CommonPublicInputs contains the prover-supplied public-input-hash components
@@ -58,8 +58,8 @@ type CommonPublicInputs struct {
 }
 
 // Transaction is the common merge statement over a wrapper-owned witness.
-// ZoneProgramID is 0 on the default rail and the zone's public signal on the
-// policy-zone rail.
+// RingProgramID is 0 on the default rail and the ring's public signal on the
+// policy-ring rail.
 type Transaction struct {
 	Inputs []Input
 	Output Output
@@ -71,7 +71,7 @@ type Transaction struct {
 	UserNullifierSecret frontend.Variable
 
 	Public        CommonPublicInputs
-	ZoneProgramID frontend.Variable
+	RingProgramID frontend.Variable
 }
 
 // Derived contains the owner identity a wrapper may publish in its
@@ -193,7 +193,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Asset,
 		t.Public.UtxoTreeRoots[0],
 		t.Public.NullifierTreeRoots[0],
-		t.ZoneProgramID,
+		t.RingProgramID,
 		frontend.Variable(0),
 		0,
 	)
@@ -206,7 +206,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 			t.Asset,
 			t.Public.UtxoTreeRoots[i],
 			t.Public.NullifierTreeRoots[i],
-			t.ZoneProgramID,
+			t.RingProgramID,
 			nullifiers[0],
 			i,
 		)
@@ -227,7 +227,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		userOwnerHash,
 		t.Asset,
 		sumInputs,
-		t.ZoneProgramID,
+		t.RingProgramID,
 	)
 
 	addressHashes := make([]frontend.Variable, len(inputHashes))

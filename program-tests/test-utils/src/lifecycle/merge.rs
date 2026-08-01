@@ -123,7 +123,7 @@ impl LifecycleHarness {
                 utxo: utxo.clone(),
                 nullifier_key: keypair.nullifier_key.clone(),
                 data_hash: None,
-                zone_data_hash: None,
+                ring_data_hash: None,
                 proof: Some(SpendProof {
                     state,
                     nullifier: nf,
@@ -152,14 +152,14 @@ impl LifecycleHarness {
                 asset,
                 amount: 0,
                 blinding: random_blinding(),
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             };
             spend_inputs.push(TransferSpendInput {
                 utxo,
                 nullifier_key: keypair.nullifier_key.clone(),
                 data_hash: None,
-                zone_data_hash: None,
+                ring_data_hash: None,
                 proof: None,
                 nullifier_proof: Some(dummy_nullifier_proof),
             });
@@ -173,8 +173,8 @@ impl LifecycleHarness {
             asset,
             amount: total,
             blinding: output_blinding,
-            zone_program_id: None,
-            zone_data_hash: None,
+            ring_program_id: None,
+            ring_data_hash: None,
             data_hash: None,
             owner_tag: None,
             data: Data::default(),
@@ -247,7 +247,7 @@ impl LifecycleHarness {
         }
 
         // The merged output carries the owner's signing-pubkey view tag (the
-        // confidential default-zone tag), so the indexed transaction is located by
+        // confidential default-ring tag), so the indexed transaction is located by
         // that tag and added to the synced stream; the owner's `Wallet::sync` then
         // rediscovers the consolidated output and marks the consumed inputs spent
         // from the transaction's nullifiers.
@@ -280,7 +280,7 @@ impl LifecycleHarness {
                 },
                 nullifier: input.nullifier(&input_hash, &keypair.nullifier_key)?,
                 data_hash: None,
-                zone_data_hash: None,
+                ring_data_hash: None,
                 spent: true,
             };
             let actor = self.actor_mut(name);

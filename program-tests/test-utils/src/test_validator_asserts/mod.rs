@@ -1,17 +1,19 @@
 pub mod create_spl_interface;
 pub mod deposit;
-pub mod merge_zone;
+pub mod merge_ring;
 pub mod protocol_config;
+pub mod ring_deposit;
+pub mod ring_transact;
 pub mod spl_deposit;
-pub mod zone_deposit;
-pub mod zone_transact;
 
 use std::time::{Duration, Instant};
 
 pub use create_spl_interface::assert_create_spl_interface;
 pub use deposit::{assert_deposit, DepositAssertArgs};
-pub use merge_zone::{assert_merge_zone, MergeZoneAssertArgs};
+pub use merge_ring::{assert_merge_ring, MergeRingAssertArgs};
 pub use protocol_config::assert_protocol_config;
+pub use ring_deposit::{assert_ring_deposit, RingDepositAssertArgs};
+pub use ring_transact::{assert_ring_transact, RingTransactAssertArgs};
 use solana_account::Account;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
@@ -23,8 +25,6 @@ use zolana_client::{
 };
 use zolana_interface::{instruction::AssetDeposit, state::state_root_offset};
 use zolana_program_test::DepositOutput;
-pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
-pub use zone_transact::{assert_zone_transact, ZoneTransactAssertArgs};
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -54,9 +54,9 @@ pub fn expected_deposit_view(
             amount: expected_amount,
             data_hash: data.utxo_data.as_ref().map(|p| p.data_hash),
             utxo_data: data.utxo_data.as_ref().map(|p| p.data.clone()),
-            zone_program_id: None,
-            zone_data_hash: None,
-            zone_data: None,
+            ring_program_id: None,
+            ring_data_hash: None,
+            ring_data: None,
             memo: None,
         },
     }

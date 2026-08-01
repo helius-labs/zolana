@@ -40,7 +40,7 @@ impl MergeHarness {
                 asset,
                 amount,
                 blinding: random_blinding(),
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             };
             let utxo_hash = utxo

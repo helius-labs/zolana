@@ -32,7 +32,7 @@ fn confidential_ciphertext(
             asset_id,
             amount: output.amount,
             blinding: output.blinding,
-            zone_program_id: output.zone_program_id,
+            ring_program_id: output.ring_program_id,
             data: output.data.clone(),
         },
         address.signing_pubkey.confidential_view_tag()?,

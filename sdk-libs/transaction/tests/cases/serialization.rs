@@ -17,12 +17,12 @@ pub(crate) fn recipient_plaintext_round_trips(_name: String) {
     for data in [
         Data::default(),
         Data::new(vec![
-            DataRecord::ZoneData(vec![9, 9, 9]),
+            DataRecord::RingData(vec![9, 9, 9]),
             DataRecord::UtxoData(vec![1]),
         ]),
         Data::new(vec![DataRecord::Memo(b"thanks".to_vec())]),
         Data::new(vec![
-            DataRecord::ZoneData(vec![9, 9, 9]),
+            DataRecord::RingData(vec![9, 9, 9]),
             DataRecord::UtxoData(vec![1]),
             DataRecord::Memo(vec![5; 300]),
         ]),
@@ -31,7 +31,7 @@ pub(crate) fn recipient_plaintext_round_trips(_name: String) {
             asset_id: 2,
             amount: 42,
             blinding: [1u8; 32],
-            zone_program_id: None,
+            ring_program_id: None,
             data,
         };
         let bytes = pt.serialize().unwrap();
@@ -47,10 +47,10 @@ pub(crate) fn duplicate_data_records_rejected(_name: String) {
         asset_id: 2,
         amount: 42,
         blinding: [1u8; 32],
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::new(vec![
-            DataRecord::ZoneData(vec![1]),
-            DataRecord::ZoneData(vec![2]),
+            DataRecord::RingData(vec![1]),
+            DataRecord::RingData(vec![2]),
         ]),
     };
     assert_eq!(
@@ -69,10 +69,10 @@ pub(crate) fn out_of_order_data_records_rejected(_name: String) {
         asset_id: 2,
         amount: 42,
         blinding: [1u8; 32],
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::new(vec![
             DataRecord::UtxoData(vec![1]),
-            DataRecord::ZoneData(vec![2]),
+            DataRecord::RingData(vec![2]),
         ]),
     };
     assert_eq!(

@@ -149,8 +149,8 @@ mod tests {
                 "Amount",
                 "Blinding",
                 "DataHash",
-                "ZoneDataHash",
-                "ZoneProgramID",
+                "RingDataHash",
+                "RingProgramID",
             ] {
                 expected.push(format!("{prefix}_{suffix}"));
             }

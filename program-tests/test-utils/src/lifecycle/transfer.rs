@@ -326,7 +326,7 @@ impl LifecycleHarness {
             asset,
             amount,
             blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
@@ -342,7 +342,7 @@ impl LifecycleHarness {
             output_context,
             nullifier,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             spent: false,
         })
     }

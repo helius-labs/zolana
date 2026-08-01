@@ -506,7 +506,7 @@ fn bench_transfer_shape(
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &zero,
+        ring_program_id: &zero,
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &signer_pk_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
@@ -568,7 +568,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
@@ -666,7 +666,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &zero,
+        ring_program_id: &zero,
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &signer_pk_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),

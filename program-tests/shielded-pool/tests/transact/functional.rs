@@ -13,7 +13,7 @@
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
 use shielded_pool_tests::support::transact::{
-    proof_env, tree_progress, tree_roots, write_zone_config_account, Pool,
+    proof_env, tree_progress, tree_roots, write_ring_config_account, Pool,
 };
 
 use num_bigint::BigUint;
@@ -42,8 +42,8 @@ use zolana_interface::{
         },
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
-    state::{discriminator::ZONE_CONFIG, ZoneConfig},
-    verifying_keys::{transfer_zone_2_3, transfer_zone_authority_2_2},
+    state::{discriminator::RING_CONFIG, RingConfig},
+    verifying_keys::{transfer_ring_2_3, transfer_ring_authority_2_2},
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
@@ -84,7 +84,7 @@ fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> Tra
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     env.rpc
@@ -178,7 +178,7 @@ fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> Tra
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &zero,
+        ring_program_id: &zero,
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
@@ -208,72 +208,72 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     build_valid_transact_ix_for_owner(env, input_owner)
 }
 
-/// Write a structurally valid zone config at a signer-controlled test address.
-fn write_signed_zone_config(env: &mut Pool, zone_program: Pubkey, enabled: bool) -> Keypair {
-    let zone_config = Keypair::new();
-    let config = ZoneConfig {
-        discriminator: ZONE_CONFIG,
+/// Write a structurally valid ring config at a signer-controlled test address.
+fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool) -> Keypair {
+    let ring_config = Keypair::new();
+    let config = RingConfig {
+        discriminator: RING_CONFIG,
         authority: Address::new_from_array(env.rpc.payer.pubkey().to_bytes()),
-        program_id: Address::new_from_array(zone_program.to_bytes()),
-        zone_authority_transact_is_enabled: u8::from(enabled),
+        program_id: Address::new_from_array(ring_program.to_bytes()),
+        ring_authority_transact_is_enabled: u8::from(enabled),
         bump: 0,
     };
-    write_zone_config_account(
+    write_ring_config_account(
         &mut env.rpc,
-        zone_config.pubkey(),
+        ring_config.pubkey(),
         Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         bytemuck::bytes_of(&config).to_vec(),
     );
-    zone_config
+    ring_config
 }
 
-/// The zone-rail `ExternalDataHash` for a pure shielded transfer: identical to
+/// The ring-rail `ExternalDataHash` for a pure shielded transfer: identical to
 /// the confidential one except for the instruction discriminator, which the
 /// program folds from the tag it dispatched on.
-fn zone_external_data_hash(transact_ix_data: &TransactIxData, discriminator: u8) -> [u8; 32] {
+fn ring_external_data_hash(transact_ix_data: &TransactIxData, discriminator: u8) -> [u8; 32] {
     let resolved = resolve_outputs(transact_ix_data).expect("resolve outputs");
     ExternalDataHash {
         spp_instruction_discriminator: discriminator,
         expiry_unix_ts: transact_ix_data.expiry_unix_ts,
         interface_transfers: &[],
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
         salt: &transact_ix_data.salt,
         outputs: &resolved,
         messages: &transact_ix_data.messages,
     }
     .hash()
-    .expect("zone external data hash")
+    .expect("ring external data hash")
 }
 
-/// Build valid zone-rail instruction data with a real proof bound to the zone
-/// test program: one real zero-value zone-owned input (a proofless zone
-/// deposit through the fixture zone program -- PR164 requires a real input for
-/// the dummy-participant gate and zone-owns every real input) plus one dummy
+/// Build valid ring-rail instruction data with a real proof bound to the ring
+/// test program: one real zero-value ring-owned input (a proofless ring
+/// deposit through the fixture ring program -- PR164 requires a real input for
+/// the dummy-participant gate and ring-owns every real input) plus one dummy
 /// input, and `n_outputs` dummy outputs tagged with the payer (the
-/// participant). The public `zone_program_id` element is the only
-/// zone-dependent value, so the same witness feeds the cross-zone negatives.
-fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
+/// participant). The public `ring_program_id` element is the only
+/// ring-dependent value, so the same witness feeds the cross-ring negatives.
+fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     env: &mut Pool,
-    zone_program: Pubkey,
+    ring_program: Pubkey,
     n_outputs: usize,
 ) -> TransactIxData {
-    // Zone-owned real input: load the fixture zone program and deposit zero
-    // lamports to the payer through it (the deposit's zone_config pins
-    // `zone_program_id` to the fixture program, which is what the proof binds).
+    // Ring-owned real input: load the fixture ring program and deposit zero
+    // lamports to the payer through it (the deposit's ring_config pins
+    // `ring_program_id` to the fixture program, which is what the proof binds).
     env.rpc
-        .load_zone_test_program()
-        .expect("load zone test program");
-    let zone_authority = env.authority.insecure_clone();
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_authority = env.authority.insecure_clone();
     env.rpc
-        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
-        .expect("create zone config");
+        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .expect("create ring config");
 
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
-    let zone = solana_address::Address::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID);
+    let ring = solana_address::Address::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
 
     let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
@@ -288,13 +288,13 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: Some(zone),
+        ring_program_id: Some(ring),
         data: Data::default(),
     };
-    let deposit_data = env.rpc.zone_sol_shield_data(0, owner_field, blinding);
+    let deposit_data = env.rpc.ring_sol_shield_data(0, owner_field, blinding);
     env.rpc
-        .zone_deposit(&env.tree.pubkey(), &payer, &deposit_data)
-        .expect("zone zero deposit");
+        .ring_deposit(&env.tree.pubkey(), &payer, &deposit_data)
+        .expect("ring zero deposit");
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
@@ -350,9 +350,9 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
         inline_outputs(&output_hashes, &view_tags),
     );
     transact_ix_data.circuit = if IS_AUTHORITY {
-        CircuitId::ZoneAuthority(2, n_outputs as u8, N_PUBLIC_SLOTS as u8)
+        CircuitId::RingAuthority(2, n_outputs as u8, N_PUBLIC_SLOTS as u8)
     } else {
-        CircuitId::ZoneEddsa(2, n_outputs as u8, N_PUBLIC_SLOTS as u8)
+        CircuitId::RingEddsa(2, n_outputs as u8, N_PUBLIC_SLOTS as u8)
     };
 
     let owner_pk_hashes =
@@ -361,11 +361,11 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &nullifier_pks);
 
     let discriminator = if IS_AUTHORITY {
-        tag::ZONE_AUTHORITY_TRANSACT
+        tag::RING_AUTHORITY_TRANSACT
     } else {
-        tag::ZONE_TRANSACT
+        tag::RING_TRANSACT
     };
-    let external_data_hash = zone_external_data_hash(&transact_ix_data, discriminator);
+    let external_data_hash = ring_external_data_hash(&transact_ix_data, discriminator);
     let private_output_hashes = vec![zero; n_outputs];
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
@@ -377,12 +377,12 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
 
     let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
     // The program folds `hash_bytes` of the SIGNING config's stored program id
-    // into the `zone_program_id` public-input element.
-    let zone_field = hash_bytes(&zone_program.to_bytes()).expect("zone program field");
+    // into the `ring_program_id` public-input element.
+    let ring_field = hash_bytes(&ring_program.to_bytes()).expect("ring program field");
 
     // Public-input layout: the 6-element base chain, the interleaved public
-    // transfer slots (all idle here), then zone/signer/dummy-policy, then the
-    // variant appendix (ZoneEddsa: the output-owner chain; ZoneAuthority:
+    // transfer slots (all idle here), then ring/signer/dummy-policy, then the
+    // variant appendix (RingEddsa: the output-owner chain; RingAuthority:
     // nothing — its signer element is the bare payer hash).
     let signer_hashes = [payer_hash, zero, zero];
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
@@ -400,17 +400,17 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
         chain.push(*amount);
     }
     if IS_AUTHORITY {
-        chain.extend_from_slice(&[zone_field, payer_hash, fe(1)]);
+        chain.extend_from_slice(&[ring_field, payer_hash, fe(1)]);
     } else {
-        // ZoneEddsa binds only CONFIDENTIAL-MARKED output owners; these outputs
+        // RingEddsa binds only CONFIDENTIAL-MARKED output owners; these outputs
         // carry `data: None` (unmarked), so every published owner slot is 0.
         let published_owners = vec![zero; n_outputs];
-        chain.push(zone_field);
+        chain.push(ring_field);
         chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
         chain.push(create_hash_chain_from_slice(&published_owners).expect("output owner chain"));
     }
-    let public_input_hash = create_hash_chain_from_slice(&chain).expect("zone public input hash");
+    let public_input_hash = create_hash_chain_from_slice(&chain).expect("ring public input hash");
 
     let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![real_input, dummy_input_1],
@@ -422,14 +422,14 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
         signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash,
     });
-    prover_inputs.zone_program_id = be(&zone_field);
+    prover_inputs.ring_program_id = be(&ring_field);
     if IS_AUTHORITY {
         // The authority rail proves no signatures: its witness carries only the
         // bare payer hash and publishes no output-owner hashes.
         prover_inputs.signer_pk_hashes = vec![be(&payer_hash)];
         prover_inputs.published_output_owner_pk_hashes = Vec::new();
     } else {
-        // ZoneEddsa publishes only confidential-marked owner tags; these
+        // RingEddsa publishes only confidential-marked owner tags; these
         // outputs are unmarked, so every published slot is 0.
         prover_inputs.published_output_owner_pk_hashes = vec![be(&zero); n_outputs];
     }
@@ -437,29 +437,29 @@ fn build_valid_zone_ix<const IS_AUTHORITY: bool>(
     let prover = ProverClient::local();
     let proof = if IS_AUTHORITY {
         prover
-            .prove_zone_authority(&prover_inputs)
-            .expect("prove zone authority transact")
+            .prove_ring_authority(&prover_inputs)
+            .expect("prove ring authority transact")
     } else {
         prover
-            .prove_transfer_zone(&prover_inputs)
-            .expect("prove zone transact")
+            .prove_transfer_ring(&prover_inputs)
+            .expect("prove ring transact")
     };
-    // Local pairing gate against the committed zone verifying key: the proof
+    // Local pairing gate against the committed ring verifying key: the proof
     // itself is valid, so an on-chain 7008 can only come from a binding
     // mismatch, not a bad proof.
     {
         let public_inputs = [public_input_hash];
         let verifying_key = if IS_AUTHORITY {
-            &transfer_zone_authority_2_2::VERIFYINGKEY
+            &transfer_ring_authority_2_2::VERIFYINGKEY
         } else {
-            &transfer_zone_2_3::VERIFYINGKEY
+            &transfer_ring_2_3::VERIFYINGKEY
         };
         let mut verifier =
             Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
-                .expect("construct zone verifier");
-        verifier.verify().expect("zone proof verifies locally");
+                .expect("construct ring verifier");
+        verifier.verify().expect("ring proof verifies locally");
     }
-    transact_ix_data.proof = pack_transact_proof(&proof).expect("pack zone proof");
+    transact_ix_data.proof = pack_transact_proof(&proof).expect("pack ring proof");
     transact_ix_data.private_tx_hash = private_tx;
     transact_ix_data
 }
@@ -934,22 +934,22 @@ fn transact_rejects_a_substituted_payer() {
 }
 
 /// INV-XC-15: a valid `transact` (tag 0) payload replayed byte-identically
-/// under the `zone_transact` tag (2) must fail proof verification — the
+/// under the `ring_transact` tag (2) must fail proof verification — the
 /// external-data-hash preimage starts with the instruction discriminator and
-/// the zone rail selects a different verifying-key family. The zone config is
+/// the ring rail selects a different verifying-key family. The ring config is
 /// fabricated at a keypair address (SPP-owned, exact size and discriminator)
 /// and signs, so every check before proof verification passes.
 #[test]
-fn transact_rejects_replay_under_the_zone_transact_tag() {
+fn transact_rejects_replay_under_the_ring_transact_tag() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
     let mut transact_ix_data = build_valid_transact_ix(&mut env);
-    // Select the zone circuit family so the replay reaches proof verification:
+    // Select the ring circuit family so the replay reaches proof verification:
     // the external-data hash the proof committed to uses the `transact`
     // discriminator, so verification must fail.
-    transact_ix_data.circuit = CircuitId::ZoneEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_tree: tree,
@@ -959,19 +959,19 @@ fn transact_rejects_replay_under_the_zone_transact_tag() {
         data: transact_ix_data,
     }
     .instruction();
-    *ix.data.first_mut().expect("instruction tag byte") = tag::ZONE_TRANSACT;
+    *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
-    // A structurally valid ZoneConfig at a keypair address: `load_zone_config`
-    // accepts it, and the keypair signs in place of a zone's `zone_auth` PDA.
-    // The zone loader reads it after the SPP + system-program prefix (index 5).
-    let zone_config = write_signed_zone_config(&mut env, Pubkey::new_unique(), true);
+    // A structurally valid RingConfig at a keypair address: `load_ring_config`
+    // accepts it, and the keypair signs in place of a ring's `ring_auth` PDA.
+    // The ring loader reads it after the SPP + system-program prefix (index 5).
+    let ring_config = write_signed_ring_config(&mut env, Pubkey::new_unique(), true);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(zone_config.pubkey(), true));
+        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
 
     let error = env
         .rpc
-        .create_and_send_default_payer_transaction(&[ix], &[&zone_config])
-        .expect_err("a transact proof replayed as zone_transact must be rejected");
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
+        .expect_err("a transact proof replayed as ring_transact must be rejected");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
@@ -982,24 +982,24 @@ fn transact_rejects_replay_under_the_zone_transact_tag() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// INV-ZONE-TRANSACT-03: the `zone_program_id` public input comes from the
-/// SIGNED ZoneConfig's stored `program_id`, never from instruction data. A
-/// valid zone proof bound to zone A submitted with zone B's signed config
+/// INV-RING-TRANSACT-03: the `ring_program_id` public input comes from the
+/// SIGNED RingConfig's stored `program_id`, never from instruction data. A
+/// valid ring proof bound to ring A submitted with ring B's signed config
 /// fails proof verification and rolls back; the byte-identical instruction
-/// with zone A's config succeeds, isolating the zone binding as the only
+/// with ring A's config succeeds, isolating the ring binding as the only
 /// difference.
 #[test]
-fn zone_transact_rejects_a_proof_bound_to_a_different_zone() {
+fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    // The fixture zone program is the only real zone the deposit can bind; the
-    // cross-zone negative uses an arbitrary second program id.
-    let zone_a = Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID);
-    let zone_b = Pubkey::new_unique();
+    // The fixture ring program is the only real ring the deposit can bind; the
+    // cross-ring negative uses an arbitrary second program id.
+    let ring_a = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let ring_b = Pubkey::new_unique();
 
-    let transact_ix_data = build_valid_zone_ix::<false>(&mut env, zone_a, 3);
+    let transact_ix_data = build_valid_ring_ix::<false>(&mut env, ring_a, 3);
     let mut base_ix = Transact {
         payer,
         input_tree: tree,
@@ -1009,55 +1009,55 @@ fn zone_transact_rejects_a_proof_bound_to_a_different_zone() {
         data: transact_ix_data,
     }
     .instruction();
-    *base_ix.data.first_mut().expect("instruction tag byte") = tag::ZONE_TRANSACT;
+    *base_ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
-    let config_b = write_signed_zone_config(&mut env, zone_b, true);
-    let mut wrong_zone_ix = base_ix.clone();
-    wrong_zone_ix
+    let config_b = write_signed_ring_config(&mut env, ring_b, true);
+    let mut wrong_ring_ix = base_ix.clone();
+    wrong_ring_ix
         .accounts
         .insert(5, AccountMeta::new_readonly(config_b.pubkey(), true));
     let error = env
         .rpc
-        .create_and_send_default_payer_transaction(&[wrong_zone_ix], &[&config_b])
-        .expect_err("a zone proof submitted under a different zone's config must be rejected");
+        .create_and_send_default_payer_transaction(&[wrong_ring_ix], &[&config_b])
+        .expect_err("a ring proof submitted under a different ring's config must be rejected");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
     assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
-        .expect("cross-zone transact transaction trace")
+        .expect("cross-ring transact transaction trace")
         .assert_rolled_back_except(&[payer]);
 
-    // Positive control: the same bytes with the bound zone's signed config.
-    let config_a = write_signed_zone_config(&mut env, zone_a, true);
+    // Positive control: the same bytes with the bound ring's signed config.
+    let config_a = write_signed_ring_config(&mut env, ring_a, true);
     base_ix
         .accounts
         .insert(5, AccountMeta::new_readonly(config_a.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
-        .expect("the same zone proof with the bound zone's config succeeds");
+        .expect("the same ring proof with the bound ring's config succeeds");
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 4, "deposit leaf plus three outputs appended");
     assert_eq!(nullifier_next, 2, "two nullifiers queued");
 }
 
-/// INV-ZONE-AUTH-07: `zone_authority_transact` binds the same
-/// `zone_program_id` public input from the signing config, so a zone authority
-/// cannot transition UTXOs proven for a different zone. A valid (2,2)
-/// zone-authority proof bound to zone A fails under zone B's signed config and
-/// succeeds under zone A's.
+/// INV-RING-AUTH-07: `ring_authority_transact` binds the same
+/// `ring_program_id` public input from the signing config, so a ring authority
+/// cannot transition UTXOs proven for a different ring. A valid (2,2)
+/// ring-authority proof bound to ring A fails under ring B's signed config and
+/// succeeds under ring A's.
 #[test]
-fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
+fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree.pubkey();
-    let zone_a = Pubkey::new_from_array(zolana_program_test::ZONE_TEST_PROGRAM_ID);
-    let zone_b = Pubkey::new_unique();
+    let ring_a = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let ring_b = Pubkey::new_unique();
 
-    // The zone-authority verifying keys cover only square shapes; use (2,2).
-    let transact_ix_data = build_valid_zone_ix::<true>(&mut env, zone_a, 2);
+    // The ring-authority verifying keys cover only square shapes; use (2,2).
+    let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring_a, 2);
     let mut base_ix = Transact {
         payer,
         input_tree: tree,
@@ -1067,35 +1067,35 @@ fn zone_authority_transact_rejects_a_proof_bound_to_a_different_zone() {
         data: transact_ix_data,
     }
     .instruction();
-    *base_ix.data.first_mut().expect("instruction tag byte") = tag::ZONE_AUTHORITY_TRANSACT;
+    *base_ix.data.first_mut().expect("instruction tag byte") = tag::RING_AUTHORITY_TRANSACT;
 
-    // The authority variant requires `zone_authority_transact_is_enabled`.
-    let config_b = write_signed_zone_config(&mut env, zone_b, true);
-    let mut wrong_zone_ix = base_ix.clone();
-    wrong_zone_ix
+    // The authority variant requires `ring_authority_transact_is_enabled`.
+    let config_b = write_signed_ring_config(&mut env, ring_b, true);
+    let mut wrong_ring_ix = base_ix.clone();
+    wrong_ring_ix
         .accounts
         .insert(5, AccountMeta::new_readonly(config_b.pubkey(), true));
     let error = env
         .rpc
-        .create_and_send_default_payer_transaction(&[wrong_zone_ix], &[&config_b])
-        .expect_err("a zone-authority proof under a different zone's config must be rejected");
+        .create_and_send_default_payer_transaction(&[wrong_ring_ix], &[&config_b])
+        .expect_err("a ring-authority proof under a different ring's config must be rejected");
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 1, "utxo tree must not advance past the deposit");
     assert_eq!(nullifier_next, 0, "nullifier queue must not advance");
     env.rpc
         .last_transaction_trace()
-        .expect("cross-zone authority transaction trace")
+        .expect("cross-ring authority transaction trace")
         .assert_rolled_back_except(&[payer]);
 
-    // Positive control: the same bytes with the bound zone's signed config.
-    let config_a = write_signed_zone_config(&mut env, zone_a, true);
+    // Positive control: the same bytes with the bound ring's signed config.
+    let config_a = write_signed_ring_config(&mut env, ring_a, true);
     base_ix
         .accounts
         .insert(5, AccountMeta::new_readonly(config_a.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
-        .expect("the same zone-authority proof with the bound zone's config succeeds");
+        .expect("the same ring-authority proof with the bound ring's config succeeds");
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 3, "deposit leaf plus two outputs appended");
     assert_eq!(nullifier_next, 2, "two nullifiers queued");

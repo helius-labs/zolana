@@ -122,7 +122,7 @@ struct UnsignedSpendInput {
     utxo_hash: [u8; 32],
     nullifier: [u8; 32],
     data_hash: Option<[u8; 32]>,
-    zone_data_hash: Option<[u8; 32]>,
+    ring_data_hash: Option<[u8; 32]>,
 }
 
 #[derive(Clone)]
@@ -339,7 +339,7 @@ pub struct SplitParams<'a> {
 /// Build a 1-input -> N-output self-split: spend one plain utxo and re-mint it
 /// as `parts` equal self-owned utxos. The input utxo is chosen by explicit
 /// commitment hash or, when omitted, as the largest unspent plain utxo of the
-/// asset on the single spend tree. The utxo must be plain (no zone binding, no
+/// asset on the single spend tree. The utxo must be plain (no ring binding, no
 /// attached data) and its amount evenly divisible into `parts`.
 pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientError> {
     // A split re-mints into 2..=8 equal utxos. Reject an out-of-range arity up
@@ -386,7 +386,7 @@ pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientErro
 }
 
 /// Select and validate the single input utxo a split spends, returning it with
-/// the per-output amount. Rejects utxos carrying zone bindings or data, and
+/// the per-output amount. Rejects utxos carrying ring bindings or data, and
 /// amounts that do not divide evenly into `parts`.
 fn select_split_utxo(
     wallet: &Wallet,
@@ -429,7 +429,7 @@ fn select_split_utxo(
                     && entry.utxo.asset == asset
                     && entry.output_context.tree == tree
                     // Apply the full eligibility predicate before picking the
-                    // largest, so a large zone-bound or data-carrying utxo never
+                    // largest, so a large ring-bound or data-carrying utxo never
                     // shadows a smaller plain candidate that could actually split.
                     && is_plain_utxo(entry)
             }) {
@@ -462,8 +462,8 @@ fn select_split_utxo(
     };
 
     let hash = candidate.output_context.hash;
-    if candidate.utxo.zone_program_id.is_some() {
-        return Err(ClientError::SplitInputZoneMismatch { hash });
+    if candidate.utxo.ring_program_id.is_some() {
+        return Err(ClientError::SplitInputRingMismatch { hash });
     }
     if !is_plain_utxo(candidate) {
         return Err(ClientError::SplitInputHasData { hash });
@@ -480,7 +480,7 @@ fn select_split_utxo(
             utxo_hash: hash,
             nullifier: candidate.nullifier,
             data_hash: candidate.data_hash,
-            zone_data_hash: candidate.zone_data_hash,
+            ring_data_hash: candidate.ring_data_hash,
         },
         amount / parts_u64,
     ))
@@ -527,7 +527,7 @@ pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientErro
     )?;
     let num_inputs = inputs.len();
     // `Merge::new` re-validates every input against the keypair (owner, nullifier
-    // key, rail, asset), rejects zone-bound or data-carrying utxos, and sums the
+    // key, rail, asset), rejects ring-bound or data-carrying utxos, and sums the
     // inputs into the single output amount (same overflow error).
     let prepared = Merge::new(request.keypair, inputs)?.prepare();
     Ok(CreatedMerge {
@@ -538,15 +538,15 @@ pub fn create_merge(request: MergeParams<'_>) -> Result<CreatedMerge, ClientErro
     })
 }
 
-/// Whether a wallet utxo is plain: no zone binding and no attached data. Only
+/// Whether a wallet utxo is plain: no ring binding and no attached data. Only
 /// plain utxos are mergeable or splittable; building a spend input drops the
 /// utxo's committed data hashes, which would desync the commitment from the tree
 /// otherwise. Option semantics: a `Some(_)` hash counts as data regardless of the
 /// hash value. Public so the CLI's `utxos` listing classifies `kind` with the
 /// exact predicate split/merge enforce, and the two cannot drift.
 pub fn is_plain_utxo(entry: &WalletUtxo) -> bool {
-    entry.utxo.zone_program_id.is_none()
-        && entry.zone_data_hash.is_none()
+    entry.utxo.ring_program_id.is_none()
+        && entry.ring_data_hash.is_none()
         && entry.data_hash.is_none()
         && entry.utxo.data.is_empty()
 }
@@ -559,8 +559,8 @@ fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofI
     if let Some(data_hash) = entry.data_hash {
         spend = spend.with_data_hash(data_hash);
     }
-    if let Some(zone_data_hash) = entry.zone_data_hash {
-        spend = spend.with_zone_data_hash(zone_data_hash);
+    if let Some(ring_data_hash) = entry.ring_data_hash {
+        spend = spend.with_ring_data_hash(ring_data_hash);
     }
     spend
 }
@@ -757,7 +757,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
             utxo: input.utxo,
             nullifier_key: nullifier_key.clone(),
             data_hash: input.data_hash,
-            zone_data_hash: input.zone_data_hash,
+            ring_data_hash: input.ring_data_hash,
         })
         .collect();
     let signed = match transaction.action {
@@ -1000,7 +1000,7 @@ fn named_input_tree(
 
 /// Resolve the single tree a spend of `asset` binds, considering only the utxos
 /// `eligible` accepts. Transfers and withdrawals can spend any utxo; split and
-/// merge only plain ones, so an ineligible zone-bound or data-carrying utxo
+/// merge only plain ones, so an ineligible ring-bound or data-carrying utxo
 /// sitting on another tree must not make their spend tree ambiguous.
 fn resolve_spend_tree(
     wallet: &Wallet,
@@ -1040,7 +1040,7 @@ fn select_inputs(
             utxo_hash: entry.output_context.hash,
             nullifier: entry.nullifier,
             data_hash: entry.data_hash,
-            zone_data_hash: entry.zone_data_hash,
+            ring_data_hash: entry.ring_data_hash,
         });
         available = available
             .checked_add(entry.utxo.amount)
@@ -1068,7 +1068,7 @@ fn validate_unsigned_inputs(
                 && entry.output_context.hash == input.utxo_hash
                 && entry.nullifier == input.nullifier
                 && entry.data_hash == input.data_hash
-                && entry.zone_data_hash == input.zone_data_hash
+                && entry.ring_data_hash == input.ring_data_hash
                 && entry.utxo == input.utxo
         });
         if !available {
@@ -1143,7 +1143,7 @@ mod tests {
             asset,
             amount,
             blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
@@ -1162,7 +1162,7 @@ mod tests {
             },
             nullifier,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             spent: false,
         });
         wallet
@@ -1920,7 +1920,7 @@ mod tests {
     }
 
     #[test]
-    fn create_split_rejects_named_zone_bound_utxo() {
+    fn create_split_rejects_named_ring_bound_utxo() {
         let sender = ShieldedKeypair::new().unwrap();
         let mut wallet = wallet_with_sol(sender, 800);
         let hash = wallet
@@ -1930,7 +1930,7 @@ mod tests {
             .output_context
             .hash;
         if let Some(entry) = wallet.utxos.first_mut() {
-            entry.utxo.zone_program_id = Some(Address::new_from_array([3u8; 32]));
+            entry.utxo.ring_program_id = Some(Address::new_from_array([3u8; 32]));
         }
 
         let error = match create_split(SplitParams {
@@ -1941,10 +1941,10 @@ mod tests {
             input: Some(hash),
         }) {
             Err(error) => error,
-            Ok(_) => panic!("a zone-bound utxo must be rejected"),
+            Ok(_) => panic!("a ring-bound utxo must be rejected"),
         };
 
-        assert!(matches!(error, ClientError::SplitInputZoneMismatch { .. }));
+        assert!(matches!(error, ClientError::SplitInputRingMismatch { .. }));
     }
 
     #[test]
@@ -1994,7 +1994,7 @@ mod tests {
             asset: SOL_MINT,
             amount,
             blinding: canonical_blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
@@ -2013,7 +2013,7 @@ mod tests {
             },
             nullifier,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             spent: false,
         });
         hash
@@ -2053,15 +2053,15 @@ mod tests {
     }
 
     #[test]
-    fn merge_auto_sweep_skips_zone_and_data_utxos() {
+    fn merge_auto_sweep_skips_ring_and_data_utxos() {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
         push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
-        // A zone-bound utxo and a data-carrying utxo must not be swept.
+        // A ring-bound utxo and a data-carrying utxo must not be swept.
         push_utxo(&mut wallet, &keypair, 30, [3u8; 31]);
         if let Some(entry) = wallet.utxos.last_mut() {
-            entry.utxo.zone_program_id = Some(Address::new_from_array([9u8; 32]));
+            entry.utxo.ring_program_id = Some(Address::new_from_array([9u8; 32]));
         }
         push_utxo(&mut wallet, &keypair, 40, [4u8; 31]);
         if let Some(entry) = wallet.utxos.last_mut() {
@@ -2272,7 +2272,7 @@ mod tests {
         ));
     }
 
-    /// An ineligible (zone-bound or data-carrying) utxo on a second tree must not
+    /// An ineligible (ring-bound or data-carrying) utxo on a second tree must not
     /// make the split/merge spend tree ambiguous: eligibility filters tree
     /// resolution.
     #[test]
@@ -2280,17 +2280,17 @@ mod tests {
         let keypair = ShieldedKeypair::new().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
-        let zone_bound = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
+        let ring_bound = push_utxo(&mut wallet, &keypair, 20, [2u8; 31]);
         let entry = wallet
             .utxos
             .iter_mut()
-            .find(|entry| entry.output_context.hash == zone_bound)
+            .find(|entry| entry.output_context.hash == ring_bound)
             .expect("pushed utxo");
         entry.output_context.tree = Address::new_from_array([9u8; 32]);
-        entry.utxo.zone_program_id = Some(Address::new_from_array([7u8; 32]));
+        entry.utxo.ring_program_id = Some(Address::new_from_array([7u8; 32]));
 
         let tree = resolve_spend_tree(&wallet, SOL_MINT, is_plain_utxo)
-            .expect("the zone utxo on another tree must not block a plain spend");
+            .expect("the ring utxo on another tree must not block a plain spend");
 
         assert_eq!(tree, Address::default());
     }

@@ -4,8 +4,8 @@ pub fn default_program_path() -> PathBuf {
     program_path("SHIELDED_POOL_PROGRAM_PATH", "shielded_pool_program.so")
 }
 
-pub fn default_zone_test_program_path() -> PathBuf {
-    program_path("ZONE_TEST_PROGRAM_PATH", "zone_test_program.so")
+pub fn default_ring_test_program_path() -> PathBuf {
+    program_path("RING_TEST_PROGRAM_PATH", "ring_test_program.so")
 }
 
 fn program_path(env_var: &str, file_name: &str) -> PathBuf {

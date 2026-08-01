@@ -136,8 +136,8 @@ fn protocol_config_instruction(authority: &Keypair) -> Instruction {
         tree_creation_authority: authority_bytes.into(),
         tree_creation_is_permissionless: false,
         forester_authority: authority_bytes.into(),
-        zone_creation_authority: authority_bytes.into(),
-        zone_creation_is_permissionless: false,
+        ring_creation_authority: authority_bytes.into(),
+        ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction()
@@ -332,7 +332,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &[0u8; 32],
+        ring_program_id: &[0u8; 32],
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
@@ -400,15 +400,15 @@ mod tests {
         );
         assert!(produces_shielded_events(shielded_pool, &direct));
 
-        let zone_wrapper = Message::new(
+        let ring_wrapper = Message::new(
             &[Instruction {
                 program_id: other_program,
                 accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-                data: vec![tag::ZONE_DEPOSIT],
+                data: vec![tag::RING_DEPOSIT],
             }],
             None,
         );
-        assert!(produces_shielded_events(shielded_pool, &zone_wrapper));
+        assert!(produces_shielded_events(shielded_pool, &ring_wrapper));
 
         let direct_transact = Message::new(
             &[Instruction {
@@ -420,28 +420,28 @@ mod tests {
         );
         assert!(produces_shielded_events(shielded_pool, &direct_transact));
 
-        let zone_transact_wrapper = Message::new(
+        let ring_transact_wrapper = Message::new(
             &[Instruction {
                 program_id: other_program,
                 accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-                data: vec![tag::ZONE_TRANSACT],
+                data: vec![tag::RING_TRANSACT],
             }],
             None,
         );
         assert!(produces_shielded_events(
             shielded_pool,
-            &zone_transact_wrapper
+            &ring_transact_wrapper
         ));
 
-        let zone_merge_wrapper = Message::new(
+        let ring_merge_wrapper = Message::new(
             &[Instruction {
                 program_id: other_program,
                 accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-                data: vec![tag::ZONE_MERGE_TRANSACT],
+                data: vec![tag::RING_MERGE_TRANSACT],
             }],
             None,
         );
-        assert!(produces_shielded_events(shielded_pool, &zone_merge_wrapper));
+        assert!(produces_shielded_events(shielded_pool, &ring_merge_wrapper));
 
         let false_positive = Message::new(
             &[Instruction {

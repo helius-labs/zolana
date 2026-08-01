@@ -1,6 +1,6 @@
 # Merge Invariants
 
-Covers `MergeTransact` (tag 12) and `ZoneMergeTransact` (tag 13). Shared invariants
+Covers `MergeTransact` (tag 12) and `RingMergeTransact` (tag 13). Shared invariants
 (expiry, pause, stale root, double-spend, rollback, external-hash domain separation)
 live in `cross-cutting.md`.
 
@@ -65,8 +65,8 @@ nullifiers.
 - [x] **INV-MERGE-18: merge account layout — two trees, signer payer, system program**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `rejects_invalid_system_program_with_specific_error`
   - Kind: precondition
-  - Statement: the `merge_transact` account layout is `input_tree` (writable), `output_tree` (writable), `payer` (signer), `user_record`, `system_program`; the `zone_merge_transact` layout is `input_tree`, `output_tree`, `zone_config` (signer), `payer` (signer), `system_program`; the trailing system-program account must be the system program (it is kept in the account keys so the forester-fee Transfer CPI resolves).
-  - Location: `programs/shielded-pool/src/instructions/merge/account.rs:19-36` (`fn validate_and_parse`), `merge_zone/account.rs:22-39`
+  - Statement: the `merge_transact` account layout is `input_tree` (writable), `output_tree` (writable), `payer` (signer), `user_record`, `system_program`; the `ring_merge_transact` layout is `input_tree`, `output_tree`, `ring_config` (signer), `payer` (signer), `system_program`; the trailing system-program account must be the system program (it is kept in the account keys so the forester-fee Transfer CPI resolves).
+  - Location: `programs/shielded-pool/src/instructions/merge/account.rs:19-36` (`fn validate_and_parse`), `merge_ring/account.rs:22-39`
   - Error: `ShieldedPoolError::InvalidSystemProgram = 7028`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
@@ -74,7 +74,7 @@ nullifiers.
 - [x] **INV-MERGE-17: a merge past the dummy-input capacity threshold fails at proof verification**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_dummy_inputs_after_capacity_threshold`
   - Kind: postcondition
-  - Statement: when the input tree's `allow_dummy_inputs()` is false, the on-chain public input recomputes with the flag 0 while merge proofs are always built with `allow_dummy_inputs = true`, so `merge_transact`/`zone_merge_transact` fail pairing before any queue insertion or append. (PR172 removed the explicit gate; `NullifierTreeTooFullForMerge = 7044` is a retired variant kept only for wire-code stability — no program path returns it.)
+  - Statement: when the input tree's `allow_dummy_inputs()` is false, the on-chain public input recomputes with the flag 0 while merge proofs are always built with `allow_dummy_inputs = true`, so `merge_transact`/`ring_merge_transact` fail pairing before any queue insertion or append. (PR172 removed the explicit gate; `NullifierTreeTooFullForMerge = 7044` is a retired variant kept only for wire-code stability — no program path returns it.)
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_core`, `allow_dummy_inputs` leg)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (availability)
@@ -114,7 +114,7 @@ nullifiers.
 - [x] **INV-MERGE-11: the merge proof is vanilla Groth16 with the variant's key**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007)
   - Kind: precondition
-  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against `merge_8_1::VERIFYINGKEY` (default rail) or `merge_zone_8_1::VERIFYINGKEY` (zone rail); a proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
+  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against `merge_8_1::VERIFYINGKEY` (default rail) or `merge_ring_8_1::VERIFYINGKEY` (ring rail); a proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:51-73` (`fn verify`)
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` / `TransactProofVerificationFailed = 7008`
   - Severity: Critical
@@ -176,121 +176,121 @@ nullifiers.
   - Severity: Critical
   - Suggested test: negative (victim's real nullifier placed in a dummy slot) + positive (derived dummies verify); harness: Go circuit tests (`go test ./circuits/spp_merge`)
 
-## ZoneMergeTransact
+## RingMergeTransact
 
 ### Account Constraints
 
-- [x] **INV-ZONE-MERGE-01: zone_config must sign**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_zone_rejects_an_unsigned_zone_config`
+- [x] **INV-RING-MERGE-01: ring_config must sign**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_an_unsigned_ring_config`
   - Kind: precondition
-  - Statement: `zone_merge_transact` can only succeed when the third account (`zone_config`) is a signer.
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/account.rs:26` (`fn validate_and_parse`)
+  - Statement: `ring_merge_transact` can only succeed when the third account (`ring_config`) is a signer.
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/account.rs:26` (`fn validate_and_parse`)
   - Error: account-checks signer error
-  - Severity: Critical (zone authorization)
+  - Severity: Critical (ring authorization)
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-MERGE-02: zone_config must be a valid SPP-owned ZoneConfig**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_zone_rejects_a_zone_config_with_a_wrong_owner`, `merge_zone_rejects_a_zone_config_with_a_wrong_discriminator`
+- [x] **INV-RING-MERGE-02: ring_config must be a valid SPP-owned RingConfig**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_a_ring_config_with_a_wrong_owner`, `merge_ring_rejects_a_ring_config_with_a_wrong_discriminator`
   - Kind: precondition
-  - Statement: the `zone_config` account must be owned by the shielded-pool program with `data_len` exactly 67 and discriminator 4; any violation returns Err.
-  - Location: `programs/shielded-pool/src/instructions/zone_config/loader.rs:14-20` (`fn load_zone_config`), `merge_zone/account.rs:27`
-  - Error: `ShieldedPoolError::InvalidZoneConfig = 7014`
+  - Statement: the `ring_config` account must be owned by the shielded-pool program with `data_len` exactly 67 and discriminator 4; any violation returns Err.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`), `merge_ring/account.rs:27`
+  - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-MERGE-03: payer must sign**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_zone_rejects_an_unsigned_payer`
+- [x] **INV-RING-MERGE-03: payer must sign**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_an_unsigned_payer`
   - Kind: precondition
-  - Statement: `zone_merge_transact` can only succeed when the fourth account (`payer`) is a signer.
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/account.rs:28` (`fn validate_and_parse`)
+  - Statement: `ring_merge_transact` can only succeed when the fourth account (`payer`) is a signer.
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/account.rs:28` (`fn validate_and_parse`)
   - Error: account-checks signer error
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-MERGE-04: no registry opt-in is consulted**
-  - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_consolidates_inputs`
+- [x] **INV-RING-MERGE-04: no registry opt-in is consulted**
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs`
   - Kind: precondition
-  - Statement: `zone_merge_transact` succeeds without a `user_record` account and regardless of any registry `merging_enabled` flag; authorization is exactly the zone_config signature.
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:25-70` (`fn process_merge_zone_ix`)
+  - Statement: `ring_merge_transact` succeeds without a `user_record` account and regardless of any registry `merging_enabled` flag; authorization is exactly the ring_config signature.
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:25-70` (`fn process_merge_ring_ix`)
   - Severity: High
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
 ### Instruction Data Validation
 
-- [x] **INV-ZONE-MERGE-05: shape checks equal merge_transact's**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_zone_rejects_a_wrong_input_count_shape_exactly` (7019)
+- [x] **INV-RING-MERGE-05: shape checks equal merge_transact's**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_a_wrong_input_count_shape_exactly` (7019)
   - Kind: precondition
-  - Statement: `zone_merge_transact` rejects, exactly as INV-MERGE-06, every embedded merge body whose element vectors are not length 8.
-  - Location: `program-libs/interface/src/instruction/instruction_data/merge_zone.rs` (`MergeZoneIxDataRef::from_bytes`), `merge_zone/processor.rs`
+  - Statement: `ring_merge_transact` rejects, exactly as INV-MERGE-06, every embedded merge body whose element vectors are not length 8.
+  - Location: `program-libs/interface/src/instruction/instruction_data/merge_ring.rs` (`MergeRingIxDataRef::from_bytes`), `merge_ring/processor.rs`
   - Error: `ShieldedPoolError::InvalidMergeShape = 7019`
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
 ### Proof Binding
 
-- [x] **INV-ZONE-MERGE-06: the proof binds the signing zone's program id**
-  - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_rejects_a_proof_bound_to_another_zone` (the same zone fixture is deployed under two program IDs; a proof built for zone A is submitted through zone B's valid signer/config and fails with 7008 while the tree remains unchanged).
+- [x] **INV-RING-MERGE-06: the proof binds the signing ring's program id**
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_rejects_a_proof_bound_to_another_ring` (the same ring fixture is deployed under two program IDs; a proof built for ring A is submitted through ring B's valid signer/config and fails with 7008 while the tree remains unchanged).
   - Kind: postcondition
-  - Statement: the zone-merge public-input hash folds `Poseidon(low, high)` of the signing `zone_config.program_id` as its final element; a proof built for a different zone fails verification.
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:42-52` (`fn process_merge_zone_ix`), `merge/verify.rs:101-110` (`fn public_input_hash`, `Zone` arm)
+  - Statement: the ring-merge public-input hash folds `Poseidon(low, high)` of the signing `ring_config.program_id` as its final element; a proof built for a different ring fails verification.
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:42-52` (`fn process_merge_ring_ix`), `merge/verify.rs:101-110` (`fn public_input_hash`, `Ring` arm)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
-  - Severity: Critical (cross-zone merge prevention)
+  - Severity: Critical (cross-ring merge prevention)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-ZONE-MERGE-07: zone merge verifies only against merge_zone_8_1**
-  - Partial coverage: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `invalid_proofs_and_disabled_authority_are_atomic` (zeroed proof -> 7008; a real `merge_8_1` proof cross-submitted to zone merge is not tested)
+- [ ] **INV-RING-MERGE-07: ring merge verifies only against merge_ring_8_1**
+  - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `invalid_proofs_and_disabled_authority_are_atomic` (zeroed proof -> 7008; a real `merge_8_1` proof cross-submitted to ring merge is not tested)
   - Kind: precondition
-  - Statement: `zone_merge_transact` verifies only against `merge_zone_8_1::VERIFYINGKEY`; a proof for the default `merge_8_1` circuit does not verify (the two key selections are mutually exclusive by owner-binding variant).
+  - Statement: `ring_merge_transact` verifies only against `merge_ring_8_1::VERIFYINGKEY`; a proof for the default `merge_8_1` circuit does not verify (the two key selections are mutually exclusive by owner-binding variant).
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:62-73` (`fn verify`, key selection and `verify_groth16` call)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-ZONE-MERGE-08: zone public-input shape is the 7-element prefix plus zone data and zone id**
-  - Partial coverage: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_consolidates_inputs` (successful end-to-end verification exercises the chain; no explicit element-count assertion)
+- [ ] **INV-RING-MERGE-08: ring public-input shape is the 7-element prefix plus ring data and ring id**
+  - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful end-to-end verification exercises the chain; no explicit element-count assertion)
   - Kind: state
-  - Statement: the `zone_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12) and then folds `output_zone_data_hash` and `zone_program_id`; it folds no signing or viewing key field (owner identity is omitted by design).
-  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`, `Zone` arm)
+  - Statement: the `ring_merge_transact` public-input hash chains the 7-element prefix (as in INV-MERGE-12) and then folds `output_ring_data_hash` and `ring_program_id`; it folds no signing or viewing key field (owner identity is omitted by design).
+  - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:84-115` (`fn public_input_hash`, `Ring` arm)
   - Severity: High
   - Suggested test: property (client-side comparison); harness: `cargo test -p`
 
 ### Success Postconditions
 
-- [ ] **INV-ZONE-MERGE-09: merge_view_tag is single-use**
-  - Not applicable post-PR164 (the `merge_view_tag` field was removed; replay protection comes from the queued proof-bound input nullifiers themselves -- INV-ZONE-MERGE-12).
+- [ ] **INV-RING-MERGE-09: merge_view_tag is single-use**
+  - Not applicable post-PR164 (the `merge_view_tag` field was removed; replay protection comes from the queued proof-bound input nullifiers themselves -- INV-RING-MERGE-12).
 
-- [x] **INV-ZONE-MERGE-10: the emitted output is indexed by the first input nullifier**
-  - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_consolidates_inputs`
+- [x] **INV-RING-MERGE-10: the emitted output is indexed by the first input nullifier**
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs`
   - Kind: postcondition
-  - Statement: after a successful `zone_merge_transact`, the emitted `GeneralEvent`'s single output is indexed by the first input's published nullifier (there is no instruction-supplied tag).
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:54-69` (`fn process_merge_zone_ix`), `merge/event.rs:15-42`
+  - Statement: after a successful `ring_merge_transact`, the emitted `GeneralEvent`'s single output is indexed by the first input's published nullifier (there is no instruction-supplied tag).
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:54-69` (`fn process_merge_ring_ix`), `merge/event.rs:15-42`
   - Severity: Medium
   - Suggested test: positive; harness: litesvm
 
-- [x] **INV-ZONE-MERGE-11: external hash uses the zone-merge discriminator**
-  - Covered by: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_rejects_a_default_merge_proof` (a valid discriminator-12 merge proof built from default-zone UTXOs is submitted unchanged through discriminator 13 and rejected atomically with 7008).
+- [x] **INV-RING-MERGE-11: external hash uses the ring-merge discriminator**
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_rejects_a_default_merge_proof` (a valid discriminator-12 merge proof built from default-ring UTXOs is submitted unchanged through discriminator 13 and rejected atomically with 7008).
   - Kind: postcondition
-  - Statement: the recomputed `external_data_hash` for `zone_merge_transact` uses `spp_instruction_discriminator` exactly 13 (`ZONE_MERGE_TRANSACT`), so a proof built for `merge_transact` (discriminator 12) with identical fields fails verification.
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:34-40` (`fn process_merge_zone_ix`)
+  - Statement: the recomputed `external_data_hash` for `ring_merge_transact` uses `spp_instruction_discriminator` exactly 13 (`RING_MERGE_TRANSACT`), so a proof built for `merge_transact` (discriminator 12) with identical fields fails verification.
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:34-40` (`fn process_merge_ring_ix`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-ZONE-MERGE-13: zone merge event publishes the output zone_data_hash**
-  - Partial coverage: `program-tests/zone-test-program/tests/zone_lifecycle.rs` `zone_merge_consolidates_inputs` (successful zone merge exercises the emit; the output `data` payload is not field-asserted)
+- [ ] **INV-RING-MERGE-13: ring merge event publishes the output ring_data_hash**
+  - Partial coverage: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_consolidates_inputs` (successful ring merge exercises the emit; the output `data` payload is not field-asserted)
   - Kind: postcondition
-  - Statement: the emitted `GeneralEvent`'s single output carries `output_zone_data_hash` as its `data` payload (default merge: empty data), and the proof binds that same hash (INV-ZONE-MERGE-08), so a relayer cannot alter the published zone binding.
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:57-69` (`fn process_merge_zone_ix`), `merge/event.rs:15-42` (`fn build_merge_event`)
+  - Statement: the emitted `GeneralEvent`'s single output carries `output_ring_data_hash` as its `data` payload (default merge: empty data), and the proof binds that same hash (INV-RING-MERGE-08), so a relayer cannot alter the published ring binding.
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:57-69` (`fn process_merge_ring_ix`), `merge/event.rs:15-42` (`fn build_merge_event`)
   - Severity: Medium (wallet reconstruction)
-  - Suggested test: positive (assert the event output `data` equals `output_zone_data_hash`); harness: litesvm
+  - Suggested test: positive (assert the event output `data` equals `output_ring_data_hash`); harness: litesvm
 
 ### Nullifier Integrity
 
-- [x] **INV-ZONE-MERGE-12: merge_zone queues exactly the proof-bound input nullifiers**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` shape tests; compile-level absence of the removed merge_view_tag field in `MergeZoneIxData` (`program-libs/interface/src/instruction/instruction_data/merge_zone.rs`)
+- [x] **INV-RING-MERGE-12: merge_ring queues exactly the proof-bound input nullifiers**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` shape tests; compile-level absence of the removed merge_view_tag field in `MergeRingIxData` (`program-libs/interface/src/instruction/instruction_data/merge_ring.rs`)
   - Kind: postcondition
-  - Statement: after a successful `zone_merge_transact`, exactly the proof's 8 input nullifiers are queued and nothing else: the single-use `merge_view_tag` field no longer exists, the emitted output is indexed by the first input nullifier, and `output_zone_data_hash` is proof-bound (eliminates the unvalidated-tag queue-poisoning class, F-02/F-09).
-  - Location: `programs/shielded-pool/src/instructions/merge_zone/processor.rs:57-69` (`fn process_merge_zone_ix`), `programs/shielded-pool/src/instructions/merge/verify.rs:23-27, 102-110` (`MergeOwnerBinding::Zone`)
+  - Statement: after a successful `ring_merge_transact`, exactly the proof's 8 input nullifiers are queued and nothing else: the single-use `merge_view_tag` field no longer exists, the emitted output is indexed by the first input nullifier, and `output_ring_data_hash` is proof-bound (eliminates the unvalidated-tag queue-poisoning class, F-02/F-09).
+  - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:57-69` (`fn process_merge_ring_ix`), `programs/shielded-pool/src/instructions/merge/verify.rs:23-27, 102-110` (`MergeOwnerBinding::Ring`)
   - Error: `ShieldedPoolError::NullifierTreeUpdateFailed = 7002` (replay), `TransactProofVerificationFailed = 7008` (binding mismatch)
   - Severity: Critical
-  - Suggested test: negative (replay) + negative (foreign-zone proof); harness: program-tests integration (`cargo test-sbf`)
+  - Suggested test: negative (replay) + negative (foreign-ring proof); harness: program-tests integration (`cargo test-sbf`)

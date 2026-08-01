@@ -54,8 +54,8 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 
 func (c *Circuit) checkEscrowOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.EscrowUtxo.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.EscrowUtxo.ZoneDataHash, 0)
-	api.AssertIsEqual(c.EscrowUtxo.ZoneProgramID, 0)
+	api.AssertIsEqual(c.EscrowUtxo.RingDataHash, 0)
+	api.AssertIsEqual(c.EscrowUtxo.RingProgramID, 0)
 	api.AssertIsEqual(c.EscrowUtxo.DataHash, c.Terms.DataHash(api))
 	api.AssertIsDifferent(c.EscrowUtxo.Amount, 0)
 	return spp.UtxoHashCircuit(api, c.EscrowUtxo)
@@ -63,8 +63,8 @@ func (c *Circuit) checkEscrowOutputUtxo(api frontend.API) frontend.Variable {
 
 func (c *Circuit) checkChangeOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.Change.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.Change.ZoneDataHash, 0)
-	api.AssertIsEqual(c.Change.ZoneProgramID, 0)
+	api.AssertIsEqual(c.Change.RingDataHash, 0)
+	api.AssertIsEqual(c.Change.RingProgramID, 0)
 	api.AssertIsEqual(c.Change.DataHash, 0)
 	api.AssertIsEqual(c.Change.Asset, c.EscrowUtxo.Asset)
 	api.AssertIsEqual(c.Change.Owner, c.Terms.OwnerHash)

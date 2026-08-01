@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
+	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
 
@@ -33,7 +33,7 @@ type ProofSystem struct {
 
 func Compile(shape protocol.Shape) (constraint.ConstraintSystem, error) {
 	txShape := txcircuit.Shape{NInputs: shape.NInputs, NOutputs: shape.NOutputs}
-	circuit, err := customzone.NewCustomZoneEddsaOnlyCircuit(txShape)
+	circuit, err := customring.NewCustomRingEddsaOnlyCircuit(txShape)
 	if err != nil {
 		return nil, err
 	}

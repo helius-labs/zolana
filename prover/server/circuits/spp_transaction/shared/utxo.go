@@ -14,19 +14,19 @@ type UtxoCircuitFields struct {
 	Amount        frontend.Variable
 	Blinding      frontend.Variable
 	DataHash      frontend.Variable
-	ZoneDataHash  frontend.Variable
-	ZoneProgramID frontend.Variable
+	RingDataHash  frontend.Variable
+	RingProgramID frontend.Variable
 }
 
 func (u UtxoCircuitFields) DefineGadget(api frontend.API) interface{} {
 	ownerUtxoHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.Owner, u.Blinding})
-	zoneHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.ZoneDataHash, u.ZoneProgramID})
+	ringHash := gadgetlib.PoseidonHash(api, []frontend.Variable{u.RingDataHash, u.RingProgramID})
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{
 		u.Domain,
 		u.Asset,
 		u.Amount,
 		u.DataHash,
-		zoneHash,
+		ringHash,
 		ownerUtxoHash,
 	})
 }
@@ -51,10 +51,10 @@ func (u UtxoCircuitFields) isUtxoOrAddress(api frontend.API) frontend.Variable {
 	return api.Sub(1, u.isDummy(api))
 }
 
-// assertInDefaultZone asserts the utxo is not a member of a zone.
-func (u UtxoCircuitFields) assertInDefaultZone(api frontend.API) {
-	api.AssertIsEqual(u.ZoneProgramID, 0)
-	api.AssertIsEqual(u.ZoneDataHash, 0)
+// assertInDefaultRing asserts the utxo is not a member of a ring.
+func (u UtxoCircuitFields) assertInDefaultRing(api frontend.API) {
+	api.AssertIsEqual(u.RingProgramID, 0)
+	api.AssertIsEqual(u.RingDataHash, 0)
 }
 
 // CheckDummy returns 1 iff every field except the domain and blinding is zero,
@@ -66,8 +66,8 @@ func (u UtxoCircuitFields) CheckDummy(api frontend.API) frontend.Variable {
 		u.Asset,
 		u.Amount,
 		u.DataHash,
-		u.ZoneDataHash,
-		u.ZoneProgramID,
+		u.RingDataHash,
+		u.RingProgramID,
 	)
 }
 

@@ -26,7 +26,7 @@ type externalDataHashVector struct {
 	ExpiryUnixTs             uint64                    `json:"expiry_unix_ts"`
 	InterfaceTransfers       []interfaceTransferVector `json:"interface_transfers"`
 	DataHash                 string                    `json:"data_hash"`
-	ZoneDataHash             string                    `json:"zone_data_hash"`
+	RingDataHash             string                    `json:"ring_data_hash"`
 	OutputHashes             []string                  `json:"output_hashes"`
 	EncryptedUtxos           string                    `json:"encrypted_utxos"`
 	Hash                     string                    `json:"hash"`
@@ -76,8 +76,8 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 		InterfaceTransfers:       vectorResolvedInterfaceTransfers(t, external.InterfaceTransfers),
 		DataHashPresent:          false,
 		DataHash:                 mustFieldBytes(t, external.DataHash),
-		ZoneDataHashPresent:      false,
-		ZoneDataHash:             mustFieldBytes(t, external.ZoneDataHash),
+		RingDataHashPresent:      false,
+		RingDataHash:             mustFieldBytes(t, external.RingDataHash),
 		TxViewingPk:              mustHex33(t, external.TxViewingPk),
 		Salt:                     mustHex16(t, external.Salt),
 		Outputs:                  outputs,

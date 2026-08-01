@@ -9,13 +9,13 @@ import (
 
 // CreateWitness assigns the pre-computed parameters onto the merge circuit. It
 // performs no hashing — every signal is taken verbatim from the client params.
-// The merge-zone rail (CircuitType == MergeZoneCircuitType) is assigned onto the
-// policy-zone circuit, which additionally carries the top-level
-// OutputZoneDataHash and ZoneProgramID; every other rail uses the default merge
+// The merge-ring rail (CircuitType == MergeRingCircuitType) is assigned onto the
+// policy-ring circuit, which additionally carries the top-level
+// OutputRingDataHash and RingProgramID; every other rail uses the default merge
 // circuit.
 func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
-	if p.CircuitType == common.MergeZoneCircuitType {
-		return p.createZoneWitness(), nil
+	if p.CircuitType == common.MergeRingCircuitType {
+		return p.createRingWitness(), nil
 	}
 	return p.createDefaultWitness(), nil
 }
@@ -42,14 +42,14 @@ func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 	}
 
 	circuit.Output = mergecircuit.Output{
-		ZoneDataHash: p.Output.ZoneDataHash,
+		RingDataHash: p.Output.RingDataHash,
 	}
 
 	return circuit
 }
 
-func (p *MergeParameters) createZoneWitness() *mergecircuit.ZoneCircuit {
-	circuit := mergecircuit.NewMergeZoneCircuit()
+func (p *MergeParameters) createRingWitness() *mergecircuit.RingCircuit {
+	circuit := mergecircuit.NewMergeRingCircuit()
 
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
@@ -59,8 +59,8 @@ func (p *MergeParameters) createZoneWitness() *mergecircuit.ZoneCircuit {
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
-	circuit.OutputZoneDataHash = p.OutputZoneDataHash
-	circuit.ZoneProgramID = p.ZoneProgramID
+	circuit.OutputRingDataHash = p.OutputRingDataHash
+	circuit.RingProgramID = p.RingProgramID
 	circuit.PublicInputHash = p.PublicInputHash
 
 	for i := range p.Inputs {
@@ -71,7 +71,7 @@ func (p *MergeParameters) createZoneWitness() *mergecircuit.ZoneCircuit {
 	}
 
 	circuit.Output = mergecircuit.Output{
-		ZoneDataHash: p.Output.ZoneDataHash,
+		RingDataHash: p.Output.RingDataHash,
 	}
 
 	return circuit
@@ -91,7 +91,7 @@ func (p *MergeParameters) inputAt(i int) mergecircuit.Input {
 		Domain:                   in.Domain,
 		Amount:                   in.Amount,
 		Blinding:                 in.Blinding,
-		ZoneDataHash:             in.ZoneDataHash,
+		RingDataHash:             in.RingDataHash,
 		StatePathElements:        statePath,
 		StatePathIndex:           in.StatePathIndex,
 		NullifierLowValue:        in.NullifierLowValue,

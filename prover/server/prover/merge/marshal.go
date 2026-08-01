@@ -11,7 +11,7 @@ type InputParamsJSON struct {
 	Domain                   string   `json:"domain"`
 	Amount                   string   `json:"amount"`
 	Blinding                 string   `json:"blinding"`
-	ZoneDataHash             string   `json:"zoneDataHash"`
+	RingDataHash             string   `json:"ringDataHash"`
 	StatePathElements        []string `json:"statePathElements"`
 	StatePathIndex           string   `json:"statePathIndex"`
 	NullifierLowValue        string   `json:"nullifierLowValue"`
@@ -24,7 +24,7 @@ type InputParamsJSON struct {
 }
 
 type OutputParamsJSON struct {
-	ZoneDataHash string `json:"zoneDataHash"`
+	RingDataHash string `json:"ringDataHash"`
 	Hash         string `json:"hash"`
 }
 
@@ -40,14 +40,14 @@ type MergeParametersJSON struct {
 	PrivateTxHash       string             `json:"privateTxHash"`
 	PublicInputHash     string             `json:"publicInputHash"`
 	AllowDummyInputs    string             `json:"allowDummyInputs"`
-	// OutputZoneDataHash is the zone-data hash the calling zone program carries
-	// in the merge_zone instruction/event, asserted against Output.ZoneDataHash.
-	// Emitted/consumed only on the merge-zone rail; zero on the default rail.
-	OutputZoneDataHash string `json:"outputZoneDataHash"`
-	// ZoneProgramID is the policy-zone merge circuit's top-level public input
-	// (the zone program's pk_field). Emitted/consumed only on the merge-zone rail;
+	// OutputRingDataHash is the ring-data hash the calling ring program carries
+	// in the merge_ring instruction/event, asserted against Output.RingDataHash.
+	// Emitted/consumed only on the merge-ring rail; zero on the default rail.
+	OutputRingDataHash string `json:"outputRingDataHash"`
+	// RingProgramID is the policy-ring merge circuit's top-level public input
+	// (the ring program's pk_field). Emitted/consumed only on the merge-ring rail;
 	// the default merge rail leaves it zero.
-	ZoneProgramID string `json:"zoneProgramId"`
+	RingProgramID string `json:"ringProgramId"`
 }
 
 func (p *MergeParameters) MarshalJSON() ([]byte, error) {
@@ -70,8 +70,8 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 	paramsJson := MergeParametersJSON{
 		CircuitType:         circuitType,
 		Asset:               feHex(p.Asset),
-		ZoneProgramID:       feHex(p.ZoneProgramID),
-		OutputZoneDataHash:  feHex(p.OutputZoneDataHash),
+		RingProgramID:       feHex(p.RingProgramID),
+		OutputRingDataHash:  feHex(p.OutputRingDataHash),
 		OwnerPkHash:         feHex(p.OwnerPkHash),
 		UserNullifierPk:     feHex(p.UserNullifierPk),
 		UserNullifierSecret: feHex(p.UserNullifierSecret),
@@ -87,7 +87,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 			Domain:                   feHex(in.Domain),
 			Amount:                   feHex(in.Amount),
 			Blinding:                 feHex(in.Blinding),
-			ZoneDataHash:             feHex(in.ZoneDataHash),
+			RingDataHash:             feHex(in.RingDataHash),
 			StatePathElements:        feHexSlice(in.StatePathElements),
 			StatePathIndex:           feHex(in.StatePathIndex),
 			NullifierLowValue:        feHex(in.NullifierLowValue),
@@ -101,7 +101,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 	}
 
 	paramsJson.Output = OutputParamsJSON{
-		ZoneDataHash: feHex(p.Output.ZoneDataHash),
+		RingDataHash: feHex(p.Output.RingDataHash),
 		Hash:         feHex(p.Output.Hash),
 	}
 
@@ -114,10 +114,10 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.CircuitType == "" {
 		p.CircuitType = common.MergeCircuitType
 	}
-	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
+	if p.RingProgramID, err = feFromHex(params.RingProgramID); err != nil {
 		return err
 	}
-	if p.OutputZoneDataHash, err = feFromHex(params.OutputZoneDataHash); err != nil {
+	if p.OutputRingDataHash, err = feFromHex(params.OutputRingDataHash); err != nil {
 		return err
 	}
 	if p.OwnerPkHash, err = feFromHex(params.OwnerPkHash); err != nil {
@@ -157,7 +157,7 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 		if input.Blinding, err = feFromHex(in.Blinding); err != nil {
 			return err
 		}
-		if input.ZoneDataHash, err = feFromHex(in.ZoneDataHash); err != nil {
+		if input.RingDataHash, err = feFromHex(in.RingDataHash); err != nil {
 			return err
 		}
 		if input.StatePathElements, err = feFromHexSlice(in.StatePathElements); err != nil {
@@ -191,7 +191,7 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	}
 
 	output := OutputParams{}
-	if output.ZoneDataHash, err = feFromHex(params.Output.ZoneDataHash); err != nil {
+	if output.RingDataHash, err = feFromHex(params.Output.RingDataHash); err != nil {
 		return err
 	}
 	if output.Hash, err = feFromHex(params.Output.Hash); err != nil {

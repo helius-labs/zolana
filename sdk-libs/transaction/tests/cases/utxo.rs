@@ -20,7 +20,7 @@ pub(crate) fn bare_utxo(world: &TransactionWorld, name: &str) -> Utxo {
         asset: Address::default(),
         amount: 1000,
         blinding: [3u8; 32],
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     }
 }
@@ -52,27 +52,27 @@ pub(crate) fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
         .nullifier_key
         .pubkey()
         .expect("nullifier public key");
-    let zone_program_id = Address::new_from_array([7u8; 32]);
+    let ring_program_id = Address::new_from_array([7u8; 32]);
     let mut utxo = bare_utxo(world, &name);
-    utxo.zone_program_id = Some(zone_program_id);
+    utxo.ring_program_id = Some(ring_program_id);
     let data_hash = [4u8; 32];
-    let zone_data_hash = [5u8; 32];
+    let ring_data_hash = [5u8; 32];
     let actual = utxo
-        .hash(&npk, &data_hash, &zone_data_hash)
+        .hash(&npk, &data_hash, &ring_data_hash)
         .expect("UTXO hash");
 
     let owner = owner_hash(&utxo.owner, &npk).expect("owner hash");
     let owner_utxo_hash = poseidon(&[&owner, &fe(utxo.blinding)]).expect("owner UTXO hash");
     let asset = hash_bytes(utxo.asset.as_array()).expect("asset field");
-    let zone_program_id_field =
-        hash_bytes(zone_program_id.as_array()).expect("zone program id field");
-    let zone_hash = poseidon(&[&zone_data_hash, &zone_program_id_field]).expect("zone hash");
+    let ring_program_id_field =
+        hash_bytes(ring_program_id.as_array()).expect("ring program id field");
+    let ring_hash = poseidon(&[&ring_data_hash, &ring_program_id_field]).expect("ring hash");
     let expected = poseidon(&[
         &fe(UTXO_DOMAIN.to_be_bytes()),
         &asset,
         &fe(utxo.amount.to_be_bytes()),
         &data_hash,
-        &zone_hash,
+        &ring_hash,
         &owner_utxo_hash,
     ])
     .expect("expected UTXO hash");
@@ -80,8 +80,8 @@ pub(crate) fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
     let from_helper = ProofInputUtxo::new(owner, &utxo.asset, utxo.amount, &utxo.blinding)
         .expect("proof input utxo")
         .with_data_hash(data_hash)
-        .with_zone(zone_data_hash, &utxo.zone_program_id)
-        .expect("zone fields")
+        .with_ring(ring_data_hash, &utxo.ring_program_id)
+        .expect("ring fields")
         .hash()
         .expect("UTXO hash helper");
     assert_eq!(actual, from_helper);

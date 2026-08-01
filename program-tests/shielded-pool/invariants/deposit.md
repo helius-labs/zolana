@@ -1,9 +1,9 @@
 # Deposit Invariants
 
-Covers `Deposit` (tag 1) and `ZoneDeposit` (tag 15). Shared invariants (pause,
+Covers `Deposit` (tag 1) and `RingDeposit` (tag 15). Shared invariants (pause,
 rollback, event self-CPI, lamports conservation) live in `cross-cutting.md`.
 
-SPEC_DIVERGENCE (resolved 2026-07-23): the spec's `DepositIxData`/`ZoneDepositIxData`
+SPEC_DIVERGENCE (resolved 2026-07-23): the spec's `DepositIxData`/`RingDepositIxData`
 previously carried an `Option<u64>` public-amount pair; `docs/spec.md` now matches the
 code. The instruction data is batched: `assets: Vec<DepositAssetKind>` declares the
 settlement groups (and their account layout) and `deposits: Vec<DepositEntry>` carries
@@ -144,7 +144,7 @@ each selecting its asset by `asset_index` into `assets`.
 - [x] **INV-DEPOSIT-18: an empty deposit batch is rejected**
   - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `deposit_batch_rejects_an_empty_batch`
   - Kind: precondition
-  - Statement: `deposit`/`zone_deposit` return Err whenever the `deposits` entry list is empty, before any account is parsed.
+  - Statement: `deposit`/`ring_deposit` return Err whenever the `deposits` entry list is empty, before any account is parsed.
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:70-73` (`fn process_deposit_internal`)
   - Error: `ShieldedPoolError::EmptyDepositBatch = 7029`
   - Severity: Medium
@@ -182,11 +182,11 @@ each selecting its asset by `asset_index` into `assets`.
 - [x] **INV-DEPOSIT-12: the appended leaf commits the deposit exactly**
   - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `sol_deposit_with_utxo_data_commits_the_data_hash`
   - Kind: postcondition
-  - Statement: after a successful `deposit`, one leaf per batch entry is appended to the UTXO tree whose value is `Poseidon(field(UTXO_DOMAIN=3), pk_field(asset), field(amount), data_hash, zone_hash, Poseidon(owner, blinding))` with `asset = [0;32]` on the SOL rail and the registry mint on the SPL rail, `data_hash` from `utxo_data` or `[0;32]`, `zone_hash = Poseidon(zone_data_hash, pk_field(zone_program_id))` as the 5th element, and the 31-byte `blinding` left-padded with one zero byte. (The batch-level append/settlement postconditions are INV-DEPOSIT-25.)
+  - Statement: after a successful `deposit`, one leaf per batch entry is appended to the UTXO tree whose value is `Poseidon(field(UTXO_DOMAIN=3), pk_field(asset), field(amount), data_hash, ring_hash, Poseidon(owner, blinding))` with `asset = [0;32]` on the SOL rail and the registry mint on the SPL rail, `data_hash` from `utxo_data` or `[0;32]`, `ring_hash = Poseidon(ring_data_hash, pk_field(ring_program_id))` as the 5th element, and the 31-byte `blinding` left-padded with one zero byte. (The batch-level append/settlement postconditions are INV-DEPOSIT-25.)
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:104-124` (`fn process_deposit_internal`)
   - Severity: Critical (note integrity)
   - Suggested test: positive with recomputed hash; harness: mollusk unit + `cargo test -p` reference vector
-  - Note: for the non-zone deposit both `zone_data_hash` and the zone id field are zero, so `zone_hash = Poseidon(0, 0)` per the spec rule "an absent zone_program_id is 0" (`docs/spec.md:491-495`).
+  - Note: for the non-ring deposit both `ring_data_hash` and the ring id field are zero, so `ring_hash = Poseidon(0, 0)` per the spec rule "an absent ring_program_id is 0" (`docs/spec.md:491-495`).
 
 - [x] **INV-DEPOSIT-13: UTXO tree next_index increases by exactly the entry count**
   - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync`
@@ -238,87 +238,87 @@ each selecting its asset by `asset_index` into `assets`.
   - Severity: High
   - Suggested test: positive; harness: mollusk unit (account snapshot compare)
 
-## ZoneDeposit
+## RingDeposit
 
 ### Account Constraints
 
-- [x] **INV-ZONE-DEPOSIT-01: depositor must sign**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `mollusk_zone_deposit_rejects_an_unsigned_depositor_exactly`
+- [x] **INV-RING-DEPOSIT-01: depositor must sign**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `mollusk_ring_deposit_rejects_an_unsigned_depositor_exactly`
   - Kind: precondition
-  - Statement: `zone_deposit` returns Err whenever the second account (index 1, `depositor`) is not a signer.
+  - Statement: `ring_deposit` returns Err whenever the second account (index 1, `depositor`) is not a signer.
   - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:69` (`iter.next_signer("depositor")` in `fn validate_and_parse`)
   - Error: `ProgramError::MissingRequiredSignature`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-DEPOSIT-02: fewer than 4 accounts is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `mollusk_zone_deposit_rejects_fewer_than_four_accounts_exactly`
+- [x] **INV-RING-DEPOSIT-02: fewer than 4 accounts is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `mollusk_ring_deposit_rejects_fewer_than_four_accounts_exactly`
   - Kind: precondition
-  - Statement: `zone_deposit` returns Err whenever fewer than 4 accounts are supplied; there is no explicit count comparison — the data-declared account layout is consumed through an iterator that fails with `NotEnoughAccountKeys`, so the real minimum is layout-driven (tree, depositor, zone_config, plus the settlement group and program accounts).
+  - Statement: `ring_deposit` returns Err whenever fewer than 4 accounts are supplied; there is no explicit count comparison — the data-declared account layout is consumed through an iterator that fails with `NotEnoughAccountKeys`, so the real minimum is layout-driven (tree, depositor, ring_config, plus the settlement group and program accounts).
   - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:65-82` (`AccountIterator` in `fn validate_and_parse`)
   - Error: `ProgramError::NotEnoughAccountKeys`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-DEPOSIT-03: zone_config must sign**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `zone_deposit_rejects_an_unsigned_zone_config`
+- [x] **INV-RING-DEPOSIT-03: ring_config must sign**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `ring_deposit_rejects_an_unsigned_ring_config`
   - Kind: precondition
-  - Statement: `zone_deposit` can only succeed when the `zone_config` account (third parsed account) is a signer.
-  - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:77` (`iter.next_signer("zone_config")` in `fn validate_and_parse`, `HAS_ZONE = true`)
+  - Statement: `ring_deposit` can only succeed when the `ring_config` account (third parsed account) is a signer.
+  - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:77` (`iter.next_signer("ring_config")` in `fn validate_and_parse`, `HAS_RING = true`)
   - Error: account-checks signer error
-  - Severity: Critical (zone authorization)
+  - Severity: Critical (ring authorization)
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-ZONE-DEPOSIT-04: zone_config must be a valid SPP-owned ZoneConfig**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `zone_deposit_rejects_a_signer_that_is_not_the_zone_authority`
+- [x] **INV-RING-DEPOSIT-04: ring_config must be a valid SPP-owned RingConfig**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `ring_deposit_rejects_a_signer_that_is_not_the_ring_authority`
   - Kind: precondition
-  - Statement: the `zone_config` account must be owned by the shielded-pool program, have `data_len` exactly 67, and discriminator byte exactly 4; any violation returns Err.
-  - Location: `programs/shielded-pool/src/instructions/zone_config/loader.rs:14-20` (`fn load_zone_config`)
-  - Error: `ShieldedPoolError::InvalidZoneConfig = 7014`
+  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly 67, and discriminator byte exactly 4; any violation returns Err.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`)
+  - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
 
 ### Instruction Data Validation
 
-- [x] **INV-ZONE-DEPOSIT-05: malformed payload is rejected with 7000**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `zone_deposit_rejects_malformed_payload_exactly`
+- [x] **INV-RING-DEPOSIT-05: malformed payload is rejected with 7000**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `ring_deposit_rejects_malformed_payload_exactly`
   - Kind: precondition
-  - Statement: every payload that `ZoneDepositIxData::deserialize` fails to parse exactly makes `zone_deposit` return Err.
-  - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:50-51` (`fn process_zone_deposit`)
+  - Statement: every payload that `RingDepositIxData::deserialize` fails to parse exactly makes `ring_deposit` return Err.
+  - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:50-51` (`fn process_ring_deposit`)
   - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
   - Severity: Medium
   - Suggested test: fuzz + negative; harness: mollusk unit
 
 ### Success Postconditions
 
-- [x] **INV-ZONE-DEPOSIT-06: the appended leaf commits the zone binding**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `zone_sol_deposit_settles_and_indexes_the_exact_output`
+- [x] **INV-RING-DEPOSIT-06: the appended leaf commits the ring binding**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_sol_deposit_settles_and_indexes_the_exact_output`
   - Kind: postcondition
-  - Statement: after a successful `zone_deposit`, each appended leaf's `zone_hash` component is exactly `Poseidon(zone_data_hash, pk_field(zone_config.program_id))`, where `program_id` is read from the signing `zone_config` account and never from instruction data.
+  - Statement: after a successful `ring_deposit`, each appended leaf's `ring_hash` component is exactly `Poseidon(ring_data_hash, pk_field(ring_config.program_id))`, where `program_id` is read from the signing `ring_config` account and never from instruction data.
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:111-115, 211-217` (`fn process_deposit_internal`, `fn hash_with_program_id`), `deposit/account.rs:76-82`
-  - Severity: Critical (zone binding integrity)
+  - Severity: Critical (ring binding integrity)
   - Suggested test: positive with recomputed hash; harness: mollusk unit
 
-- [x] **INV-ZONE-DEPOSIT-07: the emitted proofless output carries the zone fields**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `zone_sol_deposit_settles_and_indexes_the_exact_output`, `zone_deposit_event_carries_the_zone_data_preimage_verbatim`
+- [x] **INV-RING-DEPOSIT-07: the emitted proofless output carries the ring fields**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_sol_deposit_settles_and_indexes_the_exact_output`, `ring_deposit_event_carries_the_ring_data_preimage_verbatim`
   - Kind: postcondition
-  - Statement: after a successful `zone_deposit`, each emitted `ProoflessOutput` payload carries exactly `zone_program_id = Some(zone_config.program_id)`, the entry's `zone_data_hash`, and the `zone_data` preimage.
+  - Statement: after a successful `ring_deposit`, each emitted `ProoflessOutput` payload carries exactly `ring_program_id = Some(ring_config.program_id)`, the entry's `ring_data_hash`, and the `ring_data` preimage.
   - Location: `programs/shielded-pool/src/instructions/deposit/event.rs:16-46` (`fn proofless_output_utxo`), `processor.rs:142-150`
-  - Severity: Medium (indexer/zone discovery)
+  - Severity: Medium (indexer/ring discovery)
   - Suggested test: positive; harness: litesvm
 
-- [x] **INV-ZONE-DEPOSIT-08: settlement and tree postconditions equal the plain deposit's**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `zone_sol_deposit_settles_and_indexes_the_exact_output`
+- [x] **INV-RING-DEPOSIT-08: settlement and tree postconditions equal the plain deposit's**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_sol_deposit_settles_and_indexes_the_exact_output`
   - Kind: postcondition
-  - Statement: after a successful `zone_deposit`, the settlement transfer and the UTXO-tree `next_index` change are exactly those of INV-DEPOSIT-13/14/15 (the zone adds authorization and hash inputs, not settlement behavior).
+  - Statement: after a successful `ring_deposit`, the settlement transfer and the UTXO-tree `next_index` change are exactly those of INV-DEPOSIT-13/14/15 (the ring adds authorization and hash inputs, not settlement behavior).
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:65-209` (`fn process_deposit_internal`)
   - Severity: High
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-ZONE-DEPOSIT-09: zone batch binds per-entry zone data**
-  - Partial coverage: `program-tests/shielded-pool/tests/deposit/functional.rs` `zone_deposit_event_carries_the_zone_data_preimage_verbatim` (single-entry zone batches only).
+- [ ] **INV-RING-DEPOSIT-09: ring batch binds per-entry ring data**
+  - Partial coverage: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_deposit_event_carries_the_ring_data_preimage_verbatim` (single-entry ring batches only).
   - Kind: postcondition
-  - Statement: on the zone rail every entry carries its own `zone_data_hash`/`zone_data`; each leaf's `zone_hash` is `Poseidon(entry.zone_data_hash, pk_field(zone_config.program_id))`, and INV-DEPOSIT-18..25 apply unchanged (shared `process_deposit_internal<true>`).
-  - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:49-63, 111-115` (`fn process_zone_deposit`, `fn process_deposit_internal`)
+  - Statement: on the ring rail every entry carries its own `ring_data_hash`/`ring_data`; each leaf's `ring_hash` is `Poseidon(entry.ring_data_hash, pk_field(ring_config.program_id))`, and INV-DEPOSIT-18..25 apply unchanged (shared `process_deposit_internal<true>`).
+  - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:49-63, 111-115` (`fn process_ring_deposit`, `fn process_deposit_internal`)
   - Severity: High
-  - Suggested test: positive (multi-entry zone batch with distinct zone data); harness: program-tests integration (`cargo test-sbf`)
+  - Suggested test: positive (multi-entry ring batch with distinct ring data); harness: program-tests integration (`cargo test-sbf`)

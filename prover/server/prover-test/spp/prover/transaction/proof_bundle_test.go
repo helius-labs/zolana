@@ -48,7 +48,7 @@ func TestBuildProofAssignmentRejectsNonCanonicalShape(t *testing.T) {
 	}
 }
 
-func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
+func TestBuildProofAssignmentRejectsRingFields(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	for _, tc := range []struct {
@@ -56,10 +56,10 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 		mutate func(tx *ProofTransactionRequest)
 	}{
 		{"tx data_hash", func(tx *ProofTransactionRequest) { tx.DataHash = proofFieldInput(big.NewInt(1)) }},
-		{"tx zone_data_hash", func(tx *ProofTransactionRequest) { tx.ZoneDataHash = proofFieldInput(big.NewInt(1)) }},
+		{"tx ring_data_hash", func(tx *ProofTransactionRequest) { tx.RingDataHash = proofFieldInput(big.NewInt(1)) }},
 		{"output data_hash", func(tx *ProofTransactionRequest) { tx.Outputs[0].DataHash = proofFieldInput(big.NewInt(1)) }},
-		{"output zone_data_hash", func(tx *ProofTransactionRequest) { tx.Outputs[0].ZoneDataHash = proofFieldInput(big.NewInt(1)) }},
-		{"output zone_program_id", func(tx *ProofTransactionRequest) { tx.Outputs[0].ZoneProgramID = proofFieldInput(big.NewInt(1)) }},
+		{"output ring_data_hash", func(tx *ProofTransactionRequest) { tx.Outputs[0].RingDataHash = proofFieldInput(big.NewInt(1)) }},
+		{"output ring_program_id", func(tx *ProofTransactionRequest) { tx.Outputs[0].RingProgramID = proofFieldInput(big.NewInt(1)) }},
 		{"input data_hash", func(tx *ProofTransactionRequest) { tx.Inputs[0].Utxo.DataHash = proofFieldInput(big.NewInt(1)) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -177,8 +177,8 @@ func TestParseProofInputRequiresOwnerComponents(t *testing.T) {
 			Amount:        proofFieldInput(big.NewInt(4)),
 			Blinding:      proofFieldInput(big.NewInt(5)),
 			DataHash:      proofFieldInput(big.NewInt(0)),
-			ZoneDataHash:  proofFieldInput(big.NewInt(0)),
-			ZoneProgramID: proofFieldInput(big.NewInt(0)),
+			RingDataHash:  proofFieldInput(big.NewInt(0)),
+			RingProgramID: proofFieldInput(big.NewInt(0)),
 		},
 		NullifierSecret: proofFieldInput(big.NewInt(9)),
 	})
@@ -195,8 +195,8 @@ func TestParseProofUtxoNormalizesRequestFieldsAsPrefixedHex(t *testing.T) {
 		Amount:        "0x03",
 		Blinding:      "0x04",
 		DataHash:      "0x00",
-		ZoneDataHash:  "0x00",
-		ZoneProgramID: "0x00",
+		RingDataHash:  "0x00",
+		RingProgramID: "0x00",
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -210,11 +210,11 @@ func TestParseProofUtxoNormalizesRequestFieldsAsPrefixedHex(t *testing.T) {
 	}
 }
 
-// TestProofUtxoJSONUsesZoneFields pins the JSON tags of the zone fields: each
+// TestProofUtxoJSONUsesRingFields pins the JSON tags of the ring fields: each
 // key must land in its own struct field (a swapped tag would surface as the
 // wrong field name in the rejection error), and zero values must parse. The
-// default transact pipeline rejects non-zero zone fields outright.
-func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
+// default transact pipeline rejects non-zero ring fields outright.
+func TestProofUtxoJSONUsesRingFields(t *testing.T) {
 	const baseJSON = `{
 		"domain":"0x01",
 		"owner":"0x02",
@@ -222,8 +222,8 @@ func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
 		"amount":"0x04",
 		"blinding":"0x05",
 		"data_hash":"%s",
-		"zone_data_hash":"%s",
-		"zone_program_id":"%s"
+		"ring_data_hash":"%s",
+		"ring_program_id":"%s"
 	}`
 
 	var request ProofUtxoRequest
@@ -231,7 +231,7 @@ func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := parseProofUtxo(request, nil); err != nil {
-		t.Fatalf("zero zone fields should parse: %v", err)
+		t.Fatalf("zero ring fields should parse: %v", err)
 	}
 
 	for _, tc := range []struct {
@@ -239,8 +239,8 @@ func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
 		values [3]string
 	}{
 		{"data_hash", [3]string{"0x06", "0x00", "0x00"}},
-		{"zone_data_hash", [3]string{"0x00", "0x07", "0x00"}},
-		{"zone_program_id", [3]string{"0x00", "0x00", "0x08"}},
+		{"ring_data_hash", [3]string{"0x00", "0x07", "0x00"}},
+		{"ring_program_id", [3]string{"0x00", "0x00", "0x08"}},
 	} {
 		var request ProofUtxoRequest
 		blob := fmt.Sprintf(baseJSON, tc.values[0], tc.values[1], tc.values[2])
@@ -256,7 +256,7 @@ func TestProofUtxoJSONUsesZoneFields(t *testing.T) {
 
 func TestExternalDataFieldHashMatchesVector(t *testing.T) {
 	// Known-answer vector for the canonical Rust ExternalDataHash layout:
-	// counted direction-tagged transfers, absent optional zone hashes, the
+	// counted direction-tagged transfers, absent optional ring hashes, the
 	// transaction encryption context, counted resolved outputs with Some/None
 	// data, and an empty counted message section.
 	data := externalDataPreimage{
@@ -380,10 +380,10 @@ func TestExternalDataFieldHashBindsEncryptionContextAndOptionalHashPresence(t *t
 		t.Fatal("external_data_hash collapsed absent data_hash and present zero data_hash")
 	}
 
-	zoneDataHashPresent := base
-	zoneDataHashPresent.ZoneDataHashPresent = true
-	if externalDataFieldHash(zoneDataHashPresent).Cmp(baseHash) == 0 {
-		t.Fatal("external_data_hash collapsed absent zone_data_hash and present zero zone_data_hash")
+	ringDataHashPresent := base
+	ringDataHashPresent.RingDataHashPresent = true
+	if externalDataFieldHash(ringDataHashPresent).Cmp(baseHash) == 0 {
+		t.Fatal("external_data_hash collapsed absent ring_data_hash and present zero ring_data_hash")
 	}
 }
 

@@ -8,13 +8,13 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        CreateAssetCounter, CreateProtocolConfig, CreateProtocolConfigData, CreateTree,
-        CreateZoneConfig, UpdateProtocolConfigData,
+        CreateAssetCounter, CreateProtocolConfig, CreateProtocolConfigData, CreateRingConfig,
+        CreateTree, UpdateProtocolConfigData,
     },
     pda,
-    state::{address_tree_params, ZoneConfig},
+    state::{address_tree_params, RingConfig},
 };
-use zolana_program_test::{system_create_account_ix, Rejection, Rpc, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{system_create_account_ix, Rejection, Rpc, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::mollusk::{
     empty_placeholder_account, expect_err_exact, mollusk_pubkey, sweep_account_matrix,
     AccountMutation, Expected,
@@ -53,8 +53,8 @@ fn protocol_config_rejects_a_signer_that_names_other_authorities() {
         tree_creation_authority: named.into(),
         tree_creation_is_permissionless: false,
         forester_authority: named.into(),
-        zone_creation_authority: named.into(),
-        zone_creation_is_permissionless: false,
+        ring_creation_authority: named.into(),
+        ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();
@@ -222,10 +222,10 @@ fn protocol_authority_rotation_revokes_old_authority() {
 }
 
 #[test]
-fn zone_config_owner_rotation_revokes_old_authority() {
+fn ring_config_owner_rotation_revokes_old_authority() {
     let mut rpc = program_test();
-    rpc.load_zone_test_program()
-        .expect("load zone test program");
+    rpc.load_ring_test_program()
+        .expect("load ring test program");
     let admin = Keypair::new();
     rpc.create_protocol_config_permissionless(&admin)
         .expect("create permissionless protocol config");
@@ -233,41 +233,41 @@ fn zone_config_owner_rotation_revokes_old_authority() {
     rpc.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("fund payer");
     let authority = Keypair::new();
-    let zone_config = rpc
-        .create_zone_config(&payer, &authority.pubkey(), true)
-        .expect("create zone config");
-    rpc.update_zone_config(&authority, &zone_config, false)
-        .expect("disable zone authority transact");
+    let ring_config = rpc
+        .create_ring_config(&payer, &authority.pubkey(), true)
+        .expect("create ring config");
+    rpc.update_ring_config(&authority, &ring_config, false)
+        .expect("disable ring authority transact");
     let next = Keypair::new();
-    rpc.update_zone_config_owner(&authority, &zone_config, &next)
-        .expect("rotate zone config owner");
+    rpc.update_ring_config_owner(&authority, &ring_config, &next)
+        .expect("rotate ring config owner");
 
     let err = rpc
-        .update_zone_config(&authority, &zone_config, true)
-        .expect_err("old zone authority must be revoked");
+        .update_ring_config(&authority, &ring_config, true)
+        .expect_err("old ring authority must be revoked");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
 }
 
 #[test]
-fn zone_config_rejects_a_noncanonical_zone_authority_account() {
+fn ring_config_rejects_a_noncanonical_ring_authority_account() {
     let mut rpc = program_test();
     let payer = Keypair::new();
     rpc.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("fund payer");
-    let mut ix = CreateZoneConfig {
+    let mut ix = CreateRingConfig {
         payer: payer.pubkey(),
-        program_id: ZONE_TEST_PROGRAM_ID.into(),
+        program_id: RING_TEST_PROGRAM_ID.into(),
         authority: payer.pubkey().to_bytes().into(),
-        zone_authority_transact_is_enabled: true,
+        ring_authority_transact_is_enabled: true,
     }
     .instruction()
-    .expect("derive zone config PDA");
-    ix.accounts.get_mut(2).expect("zone config account").pubkey = payer.pubkey();
+    .expect("derive ring config PDA");
+    ix.accounts.get_mut(2).expect("ring config account").pubkey = payer.pubkey();
 
     let err = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&payer])
-        .expect_err("noncanonical zone config must fail");
-    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
+        .expect_err("noncanonical ring config must fail");
+    Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_litesvm(err);
 }
 
 #[test]
@@ -556,66 +556,66 @@ fn tree_creation_rejects_trailing_instruction_bytes() {
 }
 
 #[test]
-fn zone_config_creation_rejects_an_unsigned_zone_config() {
+fn ring_config_creation_rejects_an_unsigned_ring_config() {
     let mut rpc = program_test();
     let authority = Keypair::new();
     rpc.create_protocol_config(&authority)
         .expect("create protocol config");
-    // Direct SPP call: the zone config account IS the zone's `zone_auth` PDA,
-    // and its signature (which only the zone program's `invoke_signed` can
-    // supply) is the sole proof the zone program authorized the creation.
+    // Direct SPP call: the ring config account IS the ring's `ring_auth` PDA,
+    // and its signature (which only the ring program's `invoke_signed` can
+    // supply) is the sole proof the ring program authorized the creation.
     // With the flag cleared the pool rejects the config itself as
-    // `InvalidZoneConfig` — not a generic missing-signer error.
-    let mut ix = CreateZoneConfig {
+    // `InvalidRingConfig` — not a generic missing-signer error.
+    let mut ix = CreateRingConfig {
         payer: authority.pubkey(),
-        program_id: ZONE_TEST_PROGRAM_ID.into(),
+        program_id: RING_TEST_PROGRAM_ID.into(),
         authority: authority.pubkey().to_bytes().into(),
-        zone_authority_transact_is_enabled: true,
+        ring_authority_transact_is_enabled: true,
     }
     .instruction()
-    .expect("build create zone config");
-    ix.accounts.get_mut(2).expect("zone config meta").is_signer = false;
+    .expect("build create ring config");
+    ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
 
     let err = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&authority])
-        .expect_err("unsigned zone config must fail");
-    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
+        .expect_err("unsigned ring config must fail");
+    Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_litesvm(err);
 }
 
 #[test]
-fn zone_config_creation_rejects_an_unconfigured_payer_when_permissioned() {
+fn ring_config_creation_rejects_an_unconfigured_payer_when_permissioned() {
     let mut pool = Pool::initialized();
     pool.rpc
-        .load_zone_test_program()
-        .expect("load zone test program");
+        .load_ring_test_program()
+        .expect("load ring test program");
     let impostor = pool.funded_signer(1_000_000_000);
 
     // The protocol config is permissioned (the default), so a payer that is
-    // not the zone-creation authority must be rejected even though the zone
+    // not the ring-creation authority must be rejected even though the ring
     // program signs for the config PDA.
     let err = pool
         .rpc
-        .create_zone_config(&impostor, &impostor.pubkey(), true)
-        .expect_err("impostor zone creation must fail");
+        .create_ring_config(&impostor, &impostor.pubkey(), true)
+        .expect_err("impostor ring creation must fail");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
 }
 
 #[test]
-fn zone_owner_rotation_binds_the_new_owner_to_the_co_signing_account() {
+fn ring_owner_rotation_binds_the_new_owner_to_the_co_signing_account() {
     let mut pool = Pool::initialized();
     pool.rpc
-        .load_zone_test_program()
-        .expect("load zone test program");
-    let zone_config = pool
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_config = pool
         .rpc
-        .create_zone_config(&pool.authority, &pool.authority.pubkey(), true)
-        .expect("create zone config");
+        .create_ring_config(&pool.authority, &pool.authority.pubkey(), true)
+        .expect("create ring config");
     let impostor = pool.funded_signer(1_000_000_000);
     let next = Keypair::new();
 
-    let mut ix = zolana_interface::instruction::UpdateZoneConfigOwner {
+    let mut ix = zolana_interface::instruction::UpdateRingConfigOwner {
         authority: pool.authority.pubkey(),
-        zone_config,
+        ring_config,
         new_authority: next.pubkey().to_bytes().into(),
     }
     .instruction();
@@ -627,26 +627,26 @@ fn zone_owner_rotation_binds_the_new_owner_to_the_co_signing_account() {
     pool.rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority, &impostor])
         .expect("rotation to the co-signing account succeeds");
-    let bytes = pool.rpc.account_data(&zone_config).expect("zone config");
-    let config: &ZoneConfig = bytemuck::from_bytes(&bytes);
+    let bytes = pool.rpc.account_data(&ring_config).expect("ring config");
+    let config: &RingConfig = bytemuck::from_bytes(&bytes);
     assert_eq!(config.authority.to_bytes(), impostor.pubkey().to_bytes());
 }
 
 #[test]
-fn zone_owner_rotation_rejects_an_unsigned_co_signer() {
+fn ring_owner_rotation_rejects_an_unsigned_co_signer() {
     let mut pool = Pool::initialized();
     pool.rpc
-        .load_zone_test_program()
-        .expect("load zone test program");
-    let zone_config = pool
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_config = pool
         .rpc
-        .create_zone_config(&pool.authority, &pool.authority.pubkey(), true)
-        .expect("create zone config");
+        .create_ring_config(&pool.authority, &pool.authority.pubkey(), true)
+        .expect("create ring config");
     let next = Keypair::new();
 
-    let mut ix = zolana_interface::instruction::UpdateZoneConfigOwner {
+    let mut ix = zolana_interface::instruction::UpdateRingConfigOwner {
         authority: pool.authority.pubkey(),
-        zone_config,
+        ring_config,
         new_authority: next.pubkey().to_bytes().into(),
     }
     .instruction();
@@ -663,24 +663,24 @@ fn zone_owner_rotation_rejects_an_unsigned_co_signer() {
 }
 
 #[test]
-fn zone_update_rejects_a_cosplay_config_account() {
+fn ring_update_rejects_a_cosplay_config_account() {
     let mut pool = Pool::initialized();
     let impostor_config = Pubkey::new_unique();
     pool.rpc
         .airdrop(&impostor_config, 1_000_000)
         .expect("fund impostor config");
 
-    let ix = zolana_interface::instruction::UpdateZoneConfig {
+    let ix = zolana_interface::instruction::UpdateRingConfig {
         authority: pool.authority.pubkey(),
-        zone_config: impostor_config,
-        zone_authority_transact_is_enabled: false,
+        ring_config: impostor_config,
+        ring_authority_transact_is_enabled: false,
     }
     .instruction();
     let err = pool
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&pool.authority])
         .expect_err("a non-config account in the config slot must fail");
-    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
+    Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_litesvm(err);
 }
 
 #[test]

@@ -119,7 +119,7 @@ mod tests {
             asset: SOL_MINT,
             amount: input_amount,
             blinding: crate::shared::test_blinding(5),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
@@ -254,7 +254,7 @@ mod tests {
             asset: SOL_MINT,
             amount,
             blinding: crate::shared::test_blinding(6),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);

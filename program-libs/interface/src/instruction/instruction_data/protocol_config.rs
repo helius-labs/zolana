@@ -11,8 +11,8 @@ pub struct CreateProtocolConfigData {
     pub tree_creation_authority: Address,
     pub tree_creation_is_permissionless: u8,
     pub forester_authority: Address,
-    pub zone_creation_authority: Address,
-    pub zone_creation_is_permissionless: u8,
+    pub ring_creation_authority: Address,
+    pub ring_creation_is_permissionless: u8,
     pub spl_interface_creation_is_permissionless: u8,
 }
 
@@ -22,9 +22,9 @@ pub enum UpdateProtocolConfigData {
     ProtocolAuthority(Address),
     TreeCreationAuthority(Address),
     ForesterAuthority(Address),
-    ZoneCreationAuthority(Address),
+    RingCreationAuthority(Address),
     TreeCreationPermissionless(bool),
-    ZoneCreationPermissionless(bool),
+    RingCreationPermissionless(bool),
     SplInterfaceCreationPermissionless(bool),
 }
 

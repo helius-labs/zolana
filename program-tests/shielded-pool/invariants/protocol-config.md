@@ -75,7 +75,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 - [x] **INV-CREATE-PC-06: every config field is initialized from instruction data**
   - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_and_update_protocol_config`
   - Kind: postcondition
-  - Statement: after a successful `create_protocol_config`, the config account has discriminator exactly 3 and each of the seven remaining fields (`protocol_authority`, `tree_creation_authority`, `tree_creation_is_permissionless`, `forester_authority`, `zone_creation_authority`, `zone_creation_is_permissionless`, `spl_interface_creation_is_permissionless`) exactly equal to the corresponding instruction-data field.
+  - Statement: after a successful `create_protocol_config`, the config account has discriminator exactly 3 and each of the seven remaining fields (`protocol_authority`, `tree_creation_authority`, `tree_creation_is_permissionless`, `forester_authority`, `ring_creation_authority`, `ring_creation_is_permissionless`, `spl_interface_creation_is_permissionless`) exactly equal to the corresponding instruction-data field.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:46-55` (`fn process_create_protocol_config`), `protocol_config/init.rs:20-39` (`fn ProtocolConfigInitParams::init`)
   - Severity: High
   - Suggested test: positive (full struct compare); harness: mollusk unit

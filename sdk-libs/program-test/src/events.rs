@@ -3,9 +3,9 @@ use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
-    decode_encrypted_zone_deposit_output_data, encode_encrypted_zone_deposit_output,
+    decode_encrypted_ring_deposit_output_data, encode_encrypted_ring_deposit_output,
     event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
-    proofless_outputs, EncryptedZoneDepositOutput, EventKind, GeneralEvent, ProoflessOutput,
+    proofless_outputs, EncryptedRingDepositOutput, EventKind, GeneralEvent, ProoflessOutput,
 };
 pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
 use zolana_transaction::ShieldedTransaction;
@@ -55,15 +55,15 @@ impl DepositOutput {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ZoneDepositOutput {
+pub struct RingDepositOutput {
     pub view_tag: [u8; 32],
     pub utxo_hash: [u8; 32],
     pub output_tree: [u8; 32],
     pub leaf_index: u64,
-    pub output: EncryptedZoneDepositOutput,
+    pub output: EncryptedRingDepositOutput,
 }
 
-impl ZoneDepositOutput {
+impl RingDepositOutput {
     pub fn to_shielded_transaction(&self, tx_signature: Signature) -> ShieldedTransaction {
         shielded_transaction_from_general_event(tx_signature, &self.to_general_event(), true)
     }
@@ -74,7 +74,7 @@ impl ZoneDepositOutput {
             outputs: vec![zolana_event::OutputUtxo {
                 view_tag: self.view_tag,
                 utxo_hash: self.utxo_hash,
-                data: encode_encrypted_zone_deposit_output(self.output.clone()),
+                data: encode_encrypted_ring_deposit_output(self.output.clone()),
             }],
             messages: Vec::new(),
             tx_viewing_pk: [0u8; 33],
@@ -229,9 +229,9 @@ pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, 
         .ok_or_else(|| ProgramTestError::Event("proofless deposit event has no output slot".into()))
 }
 
-pub fn zone_deposit_outputs_from_event(
+pub fn ring_deposit_outputs_from_event(
     event: &IndexedEvent,
-) -> Result<Vec<ZoneDepositOutput>, ProgramTestError> {
+) -> Result<Vec<RingDepositOutput>, ProgramTestError> {
     let general_event = general_event_from_indexed(event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid shielded-pool event tag={} payload_len={} error={err:?}",
@@ -244,9 +244,9 @@ pub fn zone_deposit_outputs_from_event(
         .iter()
         .enumerate()
         .map(|(offset, slot)| {
-            let output = decode_encrypted_zone_deposit_output_data(&slot.data).map_err(|err| {
+            let output = decode_encrypted_ring_deposit_output_data(&slot.data).map_err(|err| {
                 ProgramTestError::Event(format!(
-                    "invalid encrypted zone output tag={} payload_len={} error={err:?}",
+                    "invalid encrypted ring output tag={} payload_len={} error={err:?}",
                     event.tag,
                     event.payload.len()
                 ))
@@ -255,9 +255,9 @@ pub fn zone_deposit_outputs_from_event(
                 .first_output_leaf_index
                 .checked_add(offset as u64)
                 .ok_or_else(|| {
-                    ProgramTestError::Event("zone deposit output leaf index overflowed".into())
+                    ProgramTestError::Event("ring deposit output leaf index overflowed".into())
                 })?;
-            Ok(ZoneDepositOutput {
+            Ok(RingDepositOutput {
                 view_tag: slot.view_tag,
                 utxo_hash: slot.utxo_hash,
                 output_tree: general_event.output_tree,
@@ -268,18 +268,18 @@ pub fn zone_deposit_outputs_from_event(
         .collect()
 }
 
-pub fn zone_deposit_output_from_event(
+pub fn ring_deposit_output_from_event(
     event: &IndexedEvent,
-) -> Result<ZoneDepositOutput, ProgramTestError> {
-    let mut outputs = zone_deposit_outputs_from_event(event)?;
+) -> Result<RingDepositOutput, ProgramTestError> {
+    let mut outputs = ring_deposit_outputs_from_event(event)?;
     if outputs.len() != 1 {
         return Err(ProgramTestError::Event(format!(
-            "expected one encrypted zone deposit output, event carries {}",
+            "expected one encrypted ring deposit output, event carries {}",
             outputs.len()
         )));
     }
     outputs.pop().ok_or_else(|| {
-        ProgramTestError::Event("encrypted zone deposit event has no output slot".into())
+        ProgramTestError::Event("encrypted ring deposit event has no output slot".into())
     })
 }
 
@@ -297,8 +297,8 @@ pub fn index_events(
                         indexer.record_deposit(&deposit)?;
                     }
                 } else {
-                    for deposit in zone_deposit_outputs_from_event(event)? {
-                        indexer.record_zone_deposit(&deposit)?;
+                    for deposit in ring_deposit_outputs_from_event(event)? {
+                        indexer.record_ring_deposit(&deposit)?;
                     }
                 }
                 indexer.record_transaction(

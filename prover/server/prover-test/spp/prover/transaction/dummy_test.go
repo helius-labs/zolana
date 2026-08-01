@@ -46,8 +46,8 @@ func solOutput(owner *big.Int, amount, blinding int64) ProofUtxoRequest {
 		Amount:               proofFieldInput(big.NewInt(amount)),
 		Blinding:             proofFieldInput(big.NewInt(blinding)),
 		DataHash:             proofFieldInput(big.NewInt(0)),
-		ZoneDataHash:         proofFieldInput(big.NewInt(0)),
-		ZoneProgramID:        proofFieldInput(big.NewInt(0)),
+		RingDataHash:         proofFieldInput(big.NewInt(0)),
+		RingProgramID:        proofFieldInput(big.NewInt(0)),
 	}
 }
 
@@ -88,12 +88,12 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		{
 			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
 			Amount: big.NewInt(60), Blinding: big.NewInt(1000),
-			DataHash: big.NewInt(0), ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
+			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
 		},
 		{
 			Domain: big.NewInt(protocol.UtxoDomain), Owner: owner, Asset: protocol.SolAsset(),
 			Amount: big.NewInt(40), Blinding: big.NewInt(1001),
-			DataHash: big.NewInt(0), ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
+			DataHash: big.NewInt(0), RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
 		},
 	}
 
@@ -113,8 +113,8 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 				Amount:            proofFieldInput(input.Amount),
 				Blinding:          proofFieldInput(input.Blinding),
 				DataHash:          proofFieldInput(input.DataHash),
-				ZoneDataHash:      proofFieldInput(input.ZoneDataHash),
-				ZoneProgramID:     proofFieldInput(input.ZoneProgramID),
+				RingDataHash:      proofFieldInput(input.RingDataHash),
+				RingProgramID:     proofFieldInput(input.RingProgramID),
 			},
 			LeafIndex:       uint64(i),
 			NullifierSecret: proofFieldInput(nullifierSecret),
@@ -127,7 +127,7 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 		SenderViewTag:            proofFieldInput(big.NewInt(9)),
 		EncryptedUtxos:           "00",
 		DataHash:                 proofFieldInput(big.NewInt(0)),
-		ZoneDataHash:             proofFieldInput(big.NewInt(0)),
+		RingDataHash:             proofFieldInput(big.NewInt(0)),
 		StateEntries:             stateEntries,
 		Inputs:                   inputs,
 		Outputs: []ProofUtxoRequest{
@@ -157,7 +157,7 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 		}},
 		EncryptedUtxos: "00",
 		DataHash:       proofFieldInput(big.NewInt(0)),
-		ZoneDataHash:   proofFieldInput(big.NewInt(0)),
+		RingDataHash:   proofFieldInput(big.NewInt(0)),
 		Outputs: []ProofUtxoRequest{
 			solOutput(owner, 60, 2000),
 			solOutput(owner, 40, 2001),

@@ -1719,7 +1719,7 @@ mod tests {
             asset: SOL_MINT,
             amount,
             blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let nullifier_key = &keypair.nullifier_key;
@@ -1737,7 +1737,7 @@ mod tests {
             },
             nullifier,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             spent: false,
         });
         wallet

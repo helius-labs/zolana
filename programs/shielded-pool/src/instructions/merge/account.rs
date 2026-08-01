@@ -41,7 +41,7 @@ impl<'a> MergeTransactAccounts<'a> {
 /// into the recomputed public-input hash binds the proof to the registered key.
 ///
 /// `signing_view_tag` is the owner-pubkey index tag for the merged output (the
-/// confidential default-zone tag): the signing key's 32-byte x-coordinate for a
+/// confidential default-ring tag): the signing key's 32-byte x-coordinate for a
 /// P256 owner, or the full ed25519 key. Rail-selected like `signing_pk_field`.
 pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],

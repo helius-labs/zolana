@@ -66,7 +66,7 @@ pub const SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
 /// program creates and address-checks; a substituted config can't name a new
 /// authority.
 pub const SPP_PROTOCOL_CONFIG_PDA_SEED: &[u8] = b"protocol_config";
-pub const ZONE_AUTH_PDA_SEED: &[u8] = b"zone_auth";
+pub const RING_AUTH_PDA_SEED: &[u8] = b"ring_auth";
 pub const SPL_ASSET_COUNTER_PDA_SEED: &[u8] = b"spl_asset_counter";
 pub const SPL_ASSET_REGISTRY_PDA_SEED: &[u8] = b"spl_asset_registry";
 // The bytes are part of the deployed PDA derivation and intentionally retain

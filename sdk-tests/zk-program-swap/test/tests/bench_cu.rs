@@ -372,7 +372,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         asset: SOL_MINT,
         amount: INPUT_AMOUNT,
         blinding: input_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
@@ -553,7 +553,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
         asset: SOL_MINT,
         amount: DESTINATION_AMOUNT,
         blinding: taker_in_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
@@ -700,7 +700,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         asset: SOL_MINT,
         amount: DESTINATION_AMOUNT,
         blinding: taker_in_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);

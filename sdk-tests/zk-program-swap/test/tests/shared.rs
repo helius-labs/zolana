@@ -127,13 +127,13 @@ pub fn setup() -> Result<TestEnv> {
     let forester_authority = Keypair::new();
     let merge_authority = Keypair::new();
     let tree_creation_authority = Keypair::new();
-    let zone_creation_authority = Keypair::new();
+    let ring_creation_authority = Keypair::new();
     rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
     rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
     rpc.airdrop(&forester_authority.pubkey(), 1_000_000_000)?;
     rpc.airdrop(&merge_authority.pubkey(), 1_000_000_000)?;
     rpc.airdrop(&tree_creation_authority.pubkey(), 1_000_000_000)?;
-    rpc.airdrop(&zone_creation_authority.pubkey(), 1_000_000_000)?;
+    rpc.airdrop(&ring_creation_authority.pubkey(), 1_000_000_000)?;
 
     let payer_address = payer.pubkey();
 
@@ -145,7 +145,7 @@ pub fn setup() -> Result<TestEnv> {
             forester: forester_authority.pubkey(),
             merge: merge_authority.pubkey(),
             tree: tree_creation_authority.pubkey(),
-            zone: zone_creation_authority.pubkey(),
+            ring: ring_creation_authority.pubkey(),
         },
     ) {
         rpc.create_and_send_transaction(&[ix], payer_address, &[&payer])?;
@@ -159,8 +159,8 @@ pub fn setup() -> Result<TestEnv> {
         tree_creation_authority: accounts.tree_vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: accounts.forester_vault.to_bytes().into(),
-        zone_creation_authority: accounts.zone_vault.to_bytes().into(),
-        zone_creation_is_permissionless: false,
+        ring_creation_authority: accounts.ring_vault.to_bytes().into(),
+        ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();
@@ -279,7 +279,7 @@ pub fn setup() -> Result<TestEnv> {
             asset: spl_mint,
             amount: MAKER_SHIELD_SPL,
             blinding: maker_deposit.deposit.blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         },
         order_nullifier_key,

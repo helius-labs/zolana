@@ -60,7 +60,7 @@ pub(crate) fn build_anonymous_transfer(
             asset: registry.resolve(sender_plaintext.spl_asset_id).unwrap(),
             amount: sender_plaintext.spl_amount,
             blinding: zolana_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 0),
-            zone_program_id: None,
+            ring_program_id: None,
             data: sender_plaintext.spl_data.clone(),
         });
     }
@@ -69,13 +69,13 @@ pub(crate) fn build_anonymous_transfer(
         asset: zolana_transaction::SOL_MINT,
         amount: sender_plaintext.sol_amount,
         blinding: zolana_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 1),
-        zone_program_id: None,
+        ring_program_id: None,
         data: sender_plaintext.sol_data.clone(),
     });
     let sender_owner_cx = OwnerCx {
         owner: sender_kp.signing_pubkey(),
         assets: registry,
-        zone_program_id: None,
+        ring_program_id: None,
     };
     let sender_ciphertext = AnonymousSenderBundle::encode(
         &encode_change,
@@ -119,13 +119,13 @@ pub(crate) fn build_anonymous_transfer(
             asset: spec.asset,
             amount: spec.amount,
             blinding: spec.blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: spec.data.clone(),
         };
         let recipient_owner_cx = OwnerCx {
             owner: utxo.owner,
             assets: registry,
-            zone_program_id: None,
+            ring_program_id: None,
         };
         let ciphertext = AnonymousRecipient::encode(
             core::slice::from_ref(&utxo),
@@ -282,7 +282,7 @@ pub(crate) fn build_zero(world: &mut TransactionWorld, sender: String) {
 pub(crate) fn build_with_data(world: &mut TransactionWorld, sender: String, a: String) {
     world.sender_name = Some(sender);
     let data = Data::new(vec![
-        DataRecord::ZoneData(vec![10, 11, 12]),
+        DataRecord::RingData(vec![10, 11, 12]),
         DataRecord::UtxoData(vec![20, 21]),
     ]);
     build(world, vec![(a, 1000, data)]);

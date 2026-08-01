@@ -10,7 +10,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     constants::{
-        CTR_NONCE_LEN, ENC_INFO_TRANSFER, ENC_INFO_ZONE_DEPOSIT, HPKE_PREFIX, P256_PUBKEY_LEN,
+        CTR_NONCE_LEN, ENC_INFO_RING_DEPOSIT, ENC_INFO_TRANSFER, HPKE_PREFIX, P256_PUBKEY_LEN,
         SALT_LEN,
     },
     error::KeypairError,
@@ -90,7 +90,7 @@ pub(crate) fn encrypt_utxo(
     )
 }
 
-pub(crate) fn encrypt_zone_deposit(
+pub(crate) fn encrypt_ring_deposit(
     ephemeral_secret_key: &SecretKey,
     recipient_pubkey: &P256Pubkey,
     plaintext: &[u8],
@@ -102,7 +102,7 @@ pub(crate) fn encrypt_zone_deposit(
         plaintext,
         salt,
         0,
-        ENC_INFO_ZONE_DEPOSIT,
+        ENC_INFO_RING_DEPOSIT,
     )
 }
 
@@ -140,7 +140,7 @@ pub(crate) fn decrypt_utxo(
     )
 }
 
-pub(crate) fn decrypt_zone_deposit(
+pub(crate) fn decrypt_ring_deposit(
     viewing_secret_key: &SecretKey,
     ephemeral_pubkey: &P256Pubkey,
     ciphertext: &[u8],
@@ -152,7 +152,7 @@ pub(crate) fn decrypt_zone_deposit(
         ciphertext,
         salt,
         0,
-        ENC_INFO_ZONE_DEPOSIT,
+        ENC_INFO_RING_DEPOSIT,
     )
 }
 

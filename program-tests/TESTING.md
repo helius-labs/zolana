@@ -10,7 +10,7 @@ end-to-end check.
 | LiteSVM | Real SBF dispatch, state transitions, signatures, balances, and exact errors | `just test-program-fast` |
 | Mollusk | Exact malformed-input failures, account-contract mutations, and deterministic execution for shielded-pool and swap SBF | `just test-program-mollusk` |
 | Groth16 integration | Every supported transfer/merge shape and ownership rail proves and verifies | `just test-program-proofs` |
-| Validator + Photon | RPC submission, CPI, indexing, wallet sync, lifecycle rollback, and seed-replayable randomized workloads | `just test-spp-validator`, `just test-zone-validator` |
+| Validator + Photon | RPC submission, CPI, indexing, wallet sync, lifecycle rollback, and seed-replayable randomized workloads | `just test-spp-validator`, `just test-ring-validator` |
 | Cross-program swap | Swap, shielded pool, registry, smart-account, prover, and indexer compose correctly | `just test-swap-validator` |
 
 ## Coverage map
@@ -22,8 +22,8 @@ end-to-end check.
 | P256 and EdDSA transfers | ✓ | malformed dispatch | every supported shape | ✓ |
 | Mixed public SOL/SPL amounts | ✓ | malformed dispatch | fixed-shape matrices | ✓ |
 | Withdrawals | ✓ | malformed dispatch | SOL/SPL matrices | ✓ |
-| Merge and merge-zone | ✓ | malformed dispatch | padding and both rails | ✓ |
-| Zone authority and policy gates | ✓ | account mutations | shapes, owners, boundary | ✓ |
+| Merge and merge-ring | ✓ | malformed dispatch | padding and both rails | ✓ |
+| Ring authority and policy gates | ✓ | account mutations | shapes, owners, boundary | ✓ |
 | Rejected-transaction atomicity | full account snapshots | not asserted; failures return input copies | — | full account snapshots |
 | Wallet/indexer consistency | — | — | fixture indexer | ✓ |
 
@@ -40,7 +40,7 @@ validator tiers) are the rest of the behavioral program coverage.
 | deposit | `deposit_functional` | `deposit_rejection`, `deposit_edge_cases` | `deposit_model`, `deposit_mutation` |
 | dispatch | `dispatch_functional` | `dispatch_rejection` | — |
 | SPL interface | `spl_interface_contract` | `spl_interface_rejection` | — |
-| zone config | `zone_config_contract` | `admin_rejection` | — |
+| ring config | `ring_config_contract` | `admin_rejection` | — |
 | transact | `transact_functional` | `transact_settlement` | — |
 | withdrawal | `transact_withdrawal` | `transact_settlement` | — |
 | expiry and replay | `transact_withdrawal`, proof/validator transact suites | proof/validator nullifier and merge-tag replay | — |
@@ -115,17 +115,17 @@ but only under the manual `just bench-shielded-pool` run (it needs the
 profiling SBF build); CI does not execute those transact ceilings. There is no
 separate split instruction: `1x8` is the widest split-shaped transact.
 
-P256 commitment verification and policy-zone CPI behavior require the real
+P256 commitment verification and policy-ring CPI behavior require the real
 validator; Mollusk's pairing stubs are not treated as authoritative CU data. The
-focused `proof_cu` binaries therefore pin P256 transact, zone EdDSA/P256
-transact, P256 and zone withdrawals, zone-authority transact, maximal `8x1`
-merge, and maximal `8x1` merge-zone using confirmed transaction metadata. This is an orthogonal matrix:
+focused `proof_cu` binaries therefore pin P256 transact, ring EdDSA/P256
+transact, P256 and ring withdrawals, ring-authority transact, maximal `8x1`
+merge, and maximal `8x1` merge-ring using confirmed transaction metadata. This is an orthogonal matrix:
 the EdDSA profiler covers shape-dependent input/output work, while validator
 tests cover each extra proof rail and CPI boundary. The Photon forester lifecycle
 also pins every submitted batch nullifier-tree update when the in-test
 forester drives the batches; the `FORESTER_BIN` end-to-end mode asserts only
 the final root index. Run these focused checks
-with `just test-spp-validator-proof-cu`, `just test-zone-validator-proof-cu`, and
+with `just test-spp-validator-proof-cu`, `just test-ring-validator-proof-cu`, and
 `just test-nullifier-batch-proof-cu`.
 
 Shared setup is owned by the `shielded_pool_tests` support library under

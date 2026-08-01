@@ -31,10 +31,10 @@ func SetupMerge() (*common.TransferProofSystem, error) {
 	return mergeSystem(common.MergeCircuitType, pk, vk, ccs), nil
 }
 
-// SetupMergeZone runs trusted setup for the policy-zone merge circuit (merge_zone).
-func SetupMergeZone() (*common.TransferProofSystem, error) {
-	fmt.Println("Setting up merge-zone: nInputs", MergeNInputs, "nOutputs", MergeNOutputs)
-	ccs, err := R1CSMergeZone()
+// SetupMergeRing runs trusted setup for the policy-ring merge circuit (merge_ring).
+func SetupMergeRing() (*common.TransferProofSystem, error) {
+	fmt.Println("Setting up merge-ring: nInputs", MergeNInputs, "nOutputs", MergeNOutputs)
+	ccs, err := R1CSMergeRing()
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func SetupMergeZone() (*common.TransferProofSystem, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mergeSystem(common.MergeZoneCircuitType, pk, vk, ccs), nil
+	return mergeSystem(common.MergeRingCircuitType, pk, vk, ccs), nil
 }
 
 func mergeSystem(circuitType common.CircuitType, pk groth16.ProvingKey, vk groth16.VerifyingKey, ccs constraint.ConstraintSystem) *common.TransferProofSystem {

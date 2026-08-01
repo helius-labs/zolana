@@ -103,7 +103,7 @@ fn dummy_external_data(owner_tag: [u8; 32], n_outputs: usize) -> ExternalData {
         expiry_unix_ts: 0,
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         outputs: (0..n_outputs)
@@ -135,7 +135,7 @@ fn real_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
@@ -166,7 +166,7 @@ fn real_input() -> TransferSpendInput {
         utxo,
         nullifier_key,
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         proof: Some(proof),
         nullifier_proof: None,
     }
@@ -184,7 +184,7 @@ fn dummy_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let mut spend = SppProofInputUtxo::new_dummy();
@@ -195,7 +195,7 @@ fn dummy_input() -> TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         proof: None,
         nullifier_proof: Some(nullifier_proof),
     }

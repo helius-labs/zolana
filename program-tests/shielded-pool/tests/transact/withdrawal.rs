@@ -142,7 +142,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
@@ -284,7 +284,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &zero,
+        ring_program_id: &zero,
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
@@ -439,9 +439,9 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         amount: AMOUNT,
         data_hash: None,
         utxo_data: None,
-        zone_program_id: None,
-        zone_data_hash: None,
-        zone_data: None,
+        ring_program_id: None,
+        ring_data_hash: None,
+        ring_data: None,
         memo: None,
     };
     let mut plaintext_blob = vec![OutputDataEncoding::PLAINTEXT_TAG];
@@ -494,7 +494,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &zero,
+        ring_program_id: &zero,
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
@@ -636,9 +636,9 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         amount: SPL_AMOUNT,
         data_hash: None,
         utxo_data: None,
-        zone_program_id: None,
-        zone_data_hash: None,
-        zone_data: None,
+        ring_program_id: None,
+        ring_data_hash: None,
+        ring_data: None,
         memo: None,
     };
     let mut plaintext = vec![OutputDataEncoding::PLAINTEXT_TAG];
@@ -680,7 +680,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &zero,
+        ring_program_id: &zero,
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &[payer_hash, zero, zero],
         output_owner_pk_hashes: Some(&output_owner_hashes),
@@ -801,7 +801,7 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
         asset: SOL_MINT,
         amount: AMOUNT,
         blinding: payer_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let payer_owner_pk_hash = payer_utxo
@@ -980,7 +980,7 @@ fn phase_transfer_to_recipient(
             assets: transfer_public_slot_assets,
             amounts: transfer_public_slot_amounts,
         },
-        zone_program_id: &zero,
+        ring_program_id: &zero,
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&transfer_owner_pk_hashes),
@@ -1073,7 +1073,7 @@ fn phase_withdraw_recipient_utxo(
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     assert_eq!(
@@ -1187,7 +1187,7 @@ fn phase_withdraw_recipient_utxo(
             assets: public_slot_assets,
             amounts: public_slot_amounts,
         },
-        zone_program_id: &zero,
+        ring_program_id: &zero,
         allow_dummy_inputs: &fe(1),
         signer_pk_hashes: &[recipient_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&withdraw_owner_pk_hashes),

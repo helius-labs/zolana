@@ -8,12 +8,12 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        tag, DepositAsset, DepositAssetKind, DepositEntry, EncryptedZoneDepositData,
-        ZoneAssetDeposit, ZoneDeposit,
+        tag, DepositAsset, DepositAssetKind, DepositEntry, EncryptedRingDepositData,
+        RingAssetDeposit, RingDeposit,
     },
     pda, PROGRAM_ID_PUBKEY,
 };
-use zolana_program_test::{test_blinding, Rejection, ZolanaProgramTest, ZONE_TEST_PROGRAM_ID};
+use zolana_program_test::{test_blinding, Rejection, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 
 use zolana_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, snapshot_instruction_accounts, sweep_account_matrix,
@@ -360,15 +360,15 @@ fn paused_tree_rejects_sol_deposit() {
 }
 
 #[test]
-fn paused_tree_rejects_zone_deposit() {
+fn paused_tree_rejects_ring_deposit() {
     let mut pool = Pool::initialized();
     pool.rpc
-        .load_zone_test_program()
-        .expect("load zone test program");
-    let zone_authority = pool.authority.insecure_clone();
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_zone_config(&zone_authority, &zone_authority.pubkey(), true)
-        .expect("create zone config");
+        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .expect("create ring config");
     let depositor = pool.funded_signer(2_000_000_000);
     let tree = pool.tree.pubkey();
     pool.rpc
@@ -376,12 +376,12 @@ fn paused_tree_rejects_zone_deposit() {
         .expect("pause tree");
     let data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
+        .ring_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
 
     let err = pool
         .rpc
-        .zone_deposit(&tree, &depositor, &data)
-        .expect_err("paused tree zone deposit must fail");
+        .ring_deposit(&tree, &depositor, &data)
+        .expect_err("paused tree ring deposit must fail");
     Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(err);
     pool.rpc
         .last_transaction_trace()
@@ -390,31 +390,31 @@ fn paused_tree_rejects_zone_deposit() {
 }
 
 #[test]
-fn zone_deposit_rejects_a_signer_that_is_not_the_zone_authority() {
+fn ring_deposit_rejects_a_signer_that_is_not_the_ring_authority() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
     let tree = pool.tree.pubkey();
     let data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
-    let mut ix = ZoneDeposit {
+        .ring_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
+    let mut ix = RingDeposit {
         tree,
         depositor: depositor.pubkey(),
-        zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         deposits: vec![data],
     }
     .cpi_instruction()
-    .expect("zone deposit instruction");
+    .expect("ring deposit instruction");
     ix.accounts
         .get_mut(2)
-        .expect("zone authority account")
+        .expect("ring authority account")
         .pubkey = depositor.pubkey();
 
     let err = pool
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
-        .expect_err("wrong zone signer must fail");
-    Rejection::pool(ShieldedPoolError::InvalidZoneConfig).assert_litesvm(err);
+        .expect_err("wrong ring signer must fail");
+    Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_litesvm(err);
     pool.rpc
         .last_transaction_trace()
         .expect("rejected transaction trace")
@@ -422,33 +422,33 @@ fn zone_deposit_rejects_a_signer_that_is_not_the_zone_authority() {
 }
 
 #[test]
-fn zone_deposit_rejects_an_unsigned_zone_config() {
+fn ring_deposit_rejects_an_unsigned_ring_config() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
     let tree = pool.tree.pubkey();
     let data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
-    let mut ix = ZoneDeposit {
+        .ring_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
+    let mut ix = RingDeposit {
         tree,
         depositor: depositor.pubkey(),
-        zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         deposits: vec![data],
     }
     .cpi_instruction()
-    .expect("zone deposit instruction");
-    // The canonical `zone_auth` PDA address, but without a signature: only the
-    // zone program's `invoke_signed` can supply one, and the flag is checked
+    .expect("ring deposit instruction");
+    // The canonical `ring_auth` PDA address, but without a signature: only the
+    // ring program's `invoke_signed` can supply one, and the flag is checked
     // before the account is even loaded.
     ix.accounts
         .get_mut(2)
-        .expect("zone authority account")
+        .expect("ring authority account")
         .is_signer = false;
 
     let err = pool
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&depositor])
-        .expect_err("unsigned zone config must fail");
+        .expect_err("unsigned ring config must fail");
     Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(err);
     pool.rpc
         .last_transaction_trace()
@@ -457,26 +457,26 @@ fn zone_deposit_rejects_an_unsigned_zone_config() {
 }
 
 #[test]
-fn zone_deposit_rejects_malformed_payload_exactly() {
+fn ring_deposit_rejects_malformed_payload_exactly() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
     let tree = pool.tree.pubkey();
     let data = pool
         .rpc
-        .zone_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
-    let mut ix = ZoneDeposit {
+        .ring_sol_shield_data(1_000_000, [3u8; 32], [4u8; 32]);
+    let mut ix = RingDeposit {
         tree,
         depositor: depositor.pubkey(),
-        zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
+        ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         deposits: vec![data],
     }
     .cpi_instruction()
-    .expect("zone deposit instruction");
-    // Parsing runs before any account or signer check, so the zone_config
+    .expect("ring deposit instruction");
+    // Parsing runs before any account or signer check, so the ring_config
     // signature is irrelevant here (and impossible at transaction level).
     ix.accounts
         .get_mut(2)
-        .expect("zone authority account")
+        .expect("ring authority account")
         .is_signer = false;
 
     let mut truncated = ix.clone();
@@ -484,7 +484,7 @@ fn zone_deposit_rejects_malformed_payload_exactly() {
     let err = pool
         .rpc
         .create_and_send_default_payer_transaction(&[truncated], &[&depositor])
-        .expect_err("truncated zone deposit payload must fail");
+        .expect_err("truncated ring deposit payload must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
     pool.rpc
         .last_transaction_trace()
@@ -496,7 +496,7 @@ fn zone_deposit_rejects_malformed_payload_exactly() {
     let err = pool
         .rpc
         .create_and_send_default_payer_transaction(&[trailing], &[&depositor])
-        .expect_err("trailing zone deposit payload byte must fail");
+        .expect_err("trailing ring deposit payload byte must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
     pool.rpc
         .last_transaction_trace()
@@ -504,27 +504,27 @@ fn zone_deposit_rejects_malformed_payload_exactly() {
         .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 }
 
-/// SPP-shaped zone SOL deposit instruction (as a zone program would CPI it,
-/// zone_config marked signer) with placeholder accounts. Only usable for
+/// SPP-shaped ring SOL deposit instruction (as a ring program would CPI it,
+/// ring_config marked signer) with placeholder accounts. Only usable for
 /// checks that fire before any account content is loaded.
-fn mollusk_zone_deposit_fixture() -> (
+fn mollusk_ring_deposit_fixture() -> (
     mollusk_svm::Mollusk,
     Instruction,
     Vec<(Pubkey, MolluskAccount)>,
 ) {
     let (mollusk, program_id) = setup_mollusk();
-    let ix = ZoneDeposit {
+    let ix = RingDeposit {
         tree: Pubkey::new_unique(),
         depositor: Pubkey::new_unique(),
-        zone_program_id: Pubkey::new_from_array(ZONE_TEST_PROGRAM_ID),
-        deposits: vec![ZoneAssetDeposit {
+        ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
+        deposits: vec![RingAssetDeposit {
             asset: DepositAsset::Sol,
             view_tag: [1u8; 32],
             owner_utxo_hash: [2u8; 32],
             amount: 1_000_000,
             data_hash: None,
-            zone_data_hash: [0u8; 32],
-            encrypted: EncryptedZoneDepositData {
+            ring_data_hash: [0u8; 32],
+            encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [0u8; 33],
                 salt: [0u8; 16],
                 ciphertext: Vec::new(),
@@ -532,15 +532,15 @@ fn mollusk_zone_deposit_fixture() -> (
         }],
     }
     .cpi_instruction()
-    .expect("zone deposit instruction");
+    .expect("ring deposit instruction");
     let accounts = snapshot_instruction_accounts(&ix, (&PROGRAM_ID_PUBKEY, program_id), |_| None);
     (mollusk, ix, accounts)
 }
 
 #[test]
-fn mollusk_zone_deposit_rejects_an_unsigned_depositor_exactly() {
-    let (mollusk, mut ix, accounts) = mollusk_zone_deposit_fixture();
-    // zone_config (index 2) stays signed; the depositor signer check runs
+fn mollusk_ring_deposit_rejects_an_unsigned_depositor_exactly() {
+    let (mollusk, mut ix, accounts) = mollusk_ring_deposit_fixture();
+    // ring_config (index 2) stays signed; the depositor signer check runs
     // first, before any account is loaded.
     ix.accounts.get_mut(1).expect("depositor account").is_signer = false;
 
@@ -553,18 +553,18 @@ fn mollusk_zone_deposit_rejects_an_unsigned_depositor_exactly() {
 }
 
 #[test]
-fn mollusk_zone_deposit_rejects_fewer_than_four_accounts_exactly() {
-    let (mollusk, mut ix, accounts) = mollusk_zone_deposit_fixture();
+fn mollusk_ring_deposit_rejects_fewer_than_four_accounts_exactly() {
+    let (mollusk, mut ix, accounts) = mollusk_ring_deposit_fixture();
     ix.accounts.truncate(3);
 
-    // The zone_config loader fires before the settlement accounts are needed,
-    // so truncation surfaces as an InvalidZoneConfig rejection, not a bare
+    // The ring_config loader fires before the settlement accounts are needed,
+    // so truncation surfaces as an InvalidRingConfig rejection, not a bare
     // account-count error.
     expect_err_exact(
         &mollusk,
         &ix,
         &accounts,
-        ProgramError::Custom(ShieldedPoolError::InvalidZoneConfig as u32),
+        ProgramError::Custom(ShieldedPoolError::InvalidRingConfig as u32),
     );
 }
 

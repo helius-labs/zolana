@@ -141,11 +141,11 @@ pub struct ExternalData {
     pub instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
     pub interface_transfers: Vec<SettlementTransfer>,
-    /// Optional transaction-level UTXO- and zone-specific external data
-    /// digests folded into `external_data_hash`; `None` for a default-zone
+    /// Optional transaction-level UTXO- and ring-specific external data
+    /// digests folded into `external_data_hash`; `None` for a default-ring
     /// `transact`.
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
     /// All `M` outputs in tree-append order (SPL change, SOL change, recipients
@@ -172,7 +172,7 @@ impl ExternalData {
             expiry_unix_ts: u64::MAX, // default no expiry, not necessary for confidential transfers
             interface_transfers: Vec::new(),
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk,
             salt,
             outputs,
@@ -212,16 +212,16 @@ impl ExternalData {
         Ok(self)
     }
 
-    pub fn with_zone_hashes(
+    pub fn with_ring_hashes(
         mut self,
         data_hash: [u8; 32],
-        zone_data_hash: [u8; 32],
+        ring_data_hash: [u8; 32],
     ) -> Result<Self, TransactionError> {
-        if self.data_hash.is_some() || self.zone_data_hash.is_some() {
-            return Err(TransactionError::ZoneHashesAlreadySet);
+        if self.data_hash.is_some() || self.ring_data_hash.is_some() {
+            return Err(TransactionError::RingHashesAlreadySet);
         }
         self.data_hash = Some(data_hash);
-        self.zone_data_hash = Some(zone_data_hash);
+        self.ring_data_hash = Some(ring_data_hash);
         Ok(self)
     }
 
@@ -256,7 +256,7 @@ impl ExternalData {
             expiry_unix_ts: self.expiry_unix_ts,
             interface_transfers: &interface_transfers,
             data_hash: self.data_hash,
-            zone_data_hash: self.zone_data_hash,
+            ring_data_hash: self.ring_data_hash,
             tx_viewing_pk: &self.tx_viewing_pk,
             salt: &self.salt,
             outputs: &resolved,

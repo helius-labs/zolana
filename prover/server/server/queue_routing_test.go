@@ -14,11 +14,11 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 	}{
 		{common.BatchAddressAppendCircuitType, "zk_address_append_queue"},
 		{common.TransferConfidentialCircuitType, "zk_transfer_queue"},
-		{common.TransferZoneCircuitType, "zk_transfer_queue"},
-		{common.TransferP256ZoneCircuitType, "zk_transfer_queue"},
-		{common.TransferZoneAuthorityCircuitType, "zk_transfer_queue"},
+		{common.TransferRingCircuitType, "zk_transfer_queue"},
+		{common.TransferP256RingCircuitType, "zk_transfer_queue"},
+		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
-		{common.MergeZoneCircuitType, "zk_transfer_queue"},
+		{common.MergeRingCircuitType, "zk_transfer_queue"},
 		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {

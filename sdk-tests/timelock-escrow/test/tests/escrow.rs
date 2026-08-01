@@ -150,7 +150,7 @@ fn escrow_then_withdraw() -> Result<()> {
         asset: SOL_MINT,
         amount: change_amount,
         blinding: change_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     assert_eq!(
@@ -251,7 +251,7 @@ fn escrow_then_withdraw() -> Result<()> {
         asset: SOL_MINT,
         amount: LOCK_AMOUNT,
         blinding: source_output_blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     assert_eq!(

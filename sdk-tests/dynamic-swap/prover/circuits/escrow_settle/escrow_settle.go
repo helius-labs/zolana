@@ -218,24 +218,24 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 
 func (c *Circuit) checkOrderInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.OrderIn.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.OrderIn.ZoneDataHash, 0)
-	api.AssertIsEqual(c.OrderIn.ZoneProgramID, 0)
+	api.AssertIsEqual(c.OrderIn.RingDataHash, 0)
+	api.AssertIsEqual(c.OrderIn.RingProgramID, 0)
 	api.AssertIsEqual(c.OrderIn.Amount, c.OrderAmount)
 	return spp.UtxoHashCircuit(api, c.OrderIn)
 }
 
 func (c *Circuit) checkReservationInputUtxo(api frontend.API, reserved frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(c.ReservationIn.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.ReservationIn.ZoneDataHash, 0)
-	api.AssertIsEqual(c.ReservationIn.ZoneProgramID, 0)
+	api.AssertIsEqual(c.ReservationIn.RingDataHash, 0)
+	api.AssertIsEqual(c.ReservationIn.RingProgramID, 0)
 	api.AssertIsEqual(c.ReservationIn.Amount, reserved)
 	return spp.UtxoHashCircuit(api, c.ReservationIn)
 }
 
 func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, amount, asset frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(c.RecipientOut.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.RecipientOut.ZoneDataHash, 0)
-	api.AssertIsEqual(c.RecipientOut.ZoneProgramID, 0)
+	api.AssertIsEqual(c.RecipientOut.RingDataHash, 0)
+	api.AssertIsEqual(c.RecipientOut.RingProgramID, 0)
 	api.AssertIsEqual(c.RecipientOut.DataHash, 0)
 	api.AssertIsEqual(c.RecipientOut.Asset, asset)
 	api.AssertIsEqual(c.RecipientOut.Amount, amount)
@@ -249,8 +249,8 @@ func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, amount, asset front
 // pool_in + remainder. Asset is the reservation's (destination) asset.
 func (c *Circuit) checkMakerCounterOutputUtxo(api frontend.API, remainder frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(c.MakerCounter.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.MakerCounter.ZoneDataHash, 0)
-	api.AssertIsEqual(c.MakerCounter.ZoneProgramID, 0)
+	api.AssertIsEqual(c.MakerCounter.RingDataHash, 0)
+	api.AssertIsEqual(c.MakerCounter.RingProgramID, 0)
 	api.AssertIsEqual(c.MakerCounter.DataHash, 0)
 	api.AssertIsEqual(c.MakerCounter.Asset, c.ReservationIn.Asset)
 	api.AssertIsEqual(c.MakerCounter.Owner, c.Public.AuthorityOwnerHash)
@@ -267,8 +267,8 @@ func (c *Circuit) checkMakerCounterOutputUtxo(api frontend.API, remainder fronte
 // outcomes) but carries no value.
 func (c *Circuit) checkMakerSourceOutputUtxo(api frontend.API, amount frontend.Variable) frontend.Variable {
 	api.AssertIsEqual(c.MakerSource.Domain, spp.UtxoDomain)
-	api.AssertIsEqual(c.MakerSource.ZoneDataHash, 0)
-	api.AssertIsEqual(c.MakerSource.ZoneProgramID, 0)
+	api.AssertIsEqual(c.MakerSource.RingDataHash, 0)
+	api.AssertIsEqual(c.MakerSource.RingProgramID, 0)
 	api.AssertIsEqual(c.MakerSource.DataHash, 0)
 	api.AssertIsEqual(c.MakerSource.Asset, c.OrderIn.Asset)
 	api.AssertIsEqual(c.MakerSource.Amount, amount)

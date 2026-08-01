@@ -13,8 +13,8 @@ type UtxoParams struct {
 	Amount        *big.Int
 	Blinding      *big.Int
 	DataHash      *big.Int
-	ZoneDataHash  *big.Int
-	ZoneProgramID *big.Int
+	RingDataHash  *big.Int
+	RingProgramID *big.Int
 }
 
 // InputParams mirrors txcircuit.Input. Every value is pre-computed client-side;
@@ -67,13 +67,13 @@ type TransferParameters struct {
 	// length shared.NPublicSlots.
 	PublicAssets                 []*big.Int
 	PublicAmounts                []*big.Int
-	ZoneProgramID                *big.Int
+	RingProgramID                *big.Int
 	SignerPkHashes               []*big.Int
 	AllowDummyInputs             *big.Int
 	PublishedOutputOwnerPkHashes []*big.Int
 
-	// Variant selects the Solana-only instantiation: confidential default-zone,
-	// confidential custom-zone, or zone-authority (anonymous, input owners
+	// Variant selects the Solana-only instantiation: confidential default-ring,
+	// confidential custom-ring, or ring-authority (anonymous, input owners
 	// private, no signature).
 	Variant Variant
 
