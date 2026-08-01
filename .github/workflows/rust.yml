@@ -281,11 +281,14 @@ jobs:
       - run: just test-user-registry-litesvm
 
 
-  # Line/region coverage over the host-instrumentable kernels + SDK. Informational
-  # (prints the summary in the log); code executed inside the SVM is not measured
-  # here (see the `coverage` just recipe). The lcov report is uploaded as a build
-  # artifact; there is no `--fail-under-lines` gate yet — add one when the team
-  # picks a target.
+  # Line/region coverage over every library and binary crate: the program-libs,
+  # the SDK crates, the CLI, forester, photon, and xtask. Informational (prints
+  # the summary in the log). The on-chain programs and the test/example crates
+  # are excluded, and zolana-client is collected `--lib` only, so the job stays
+  # hermetic — no prover, validator, or database (see the `coverage` just
+  # recipe for why). Code executed inside the SVM is not measured here. The lcov
+  # report is uploaded as a build artifact; there is no `--fail-under-lines`
+  # gate yet — add one when the team picks a target.
   coverage:
     name: coverage (llvm-cov)
     runs-on: ubuntu-latest

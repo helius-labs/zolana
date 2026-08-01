@@ -138,20 +138,47 @@ test-sdk-libs:
 test-photon:
     cargo nextest run -p photon-indexer
 
-# Line/region coverage for the host-instrumentable kernels + SDK via
-# cargo-llvm-cov. Default prints a summary; `just coverage --html` writes
-# target/llvm-cov/html, `just coverage --lcov --output-path lcov.info` for CI
-# upload. Scoped to crates whose tests run in-process: llvm-cov instruments the
-# host build, so code executed inside the SVM (the program's on-chain paths, via
-# litesvm/mollusk) is NOT measured here — that surface is covered by the
-# exact-error negative suites. Proof/validator tiers are excluded (external
-# services, dominate runtime).
+# Line/region coverage via cargo-llvm-cov over every library and binary crate.
+# Default prints a summary; `just coverage --html` writes target/llvm-cov/html,
+# `just coverage --lcov --output-path lcov.info` for CI upload. `{{args}}` reaches
+# the report step, so the two collection passes stay fixed.
+#
+# Two categories are excluded, both because llvm-cov instruments the HOST build:
+#
+#   - The on-chain programs (`shielded-pool-program`, `zolana-user-registry`).
+#     Their logic executes inside the SVM under litesvm/mollusk, which is not
+#     instrumented, and their host-side unit tests moved into program-tests. So
+#     including them would contribute an all-but-uncovered denominator that
+#     measures nothing. That surface is covered by the exact-error negative
+#     suites instead.
+#   - The test and example crates under program-tests/, sdk-tests/, and bench/.
+#     They are the harness, not the code under test; their coverage of
+#     themselves is meaningless, and the proof/validator tiers need external
+#     services.
+#
+# `zolana-client` runs as its own pass restricted to `--lib`: its integration
+# targets (transaction_proving, merge_proving, …) declare no required-features,
+# so a plain `-p zolana-client` would build and run them and they need a live
+# prover server. Keeping this hermetic means no prover, validator, or network.
 coverage *args="--summary-only":
-    cargo llvm-cov {{args}} \
-        -p zolana-interface -p zolana-tree -p zolana-bloom-filter \
-        -p zolana-hasher -p zolana-indexed-array \
-        -p zolana-keypair -p zolana-transaction \
+    cargo llvm-cov clean --workspace
+    cargo llvm-cov --no-report --workspace \
+        --exclude shielded-pool-program --exclude zolana-user-registry \
+        --exclude shielded-pool-tests --exclude spp-test-validator \
+        --exclude zolana-test-utils --exclude user-registry-tests \
+        --exclude zone-test-program --exclude client-example \
+        --exclude dynamic-swap-program --exclude dynamic-swap-prover \
+        --exclude dynamic-swap-sdk --exclude dynamic-swap-test \
+        --exclude rfq-test \
+        --exclude timelock-escrow-program --exclude timelock-escrow-prover \
+        --exclude timelock-escrow-sdk --exclude timelock-escrow-test \
+        --exclude swap-program --exclude swap-prover \
+        --exclude swap-sdk --exclude swap-test-validator \
+        --exclude bloom-filter-bench --exclude tree-bench \
+        --exclude zolana-client \
         --features zolana-interface/solana
+    cargo llvm-cov --no-report -p zolana-client --lib --all-features
+    cargo llvm-cov report {{args}}
 
 # All zolana-client tests (lib unit tests and the proving/integration test
 # binaries). The proving tests spawn the prover server
