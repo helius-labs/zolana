@@ -2453,3 +2453,28 @@ Sender and recipient wallets both support shielded transfers.
 | 6 | **Single player** · sender supports shielded · registry miss · sender has no shielded funds | SPL transfer | Public | Public | Public | Public | Yes |
 | 7 | **Advanced** · both wallets shielded · sender has shielded funds · transfers via a policy ring | Anonymous shielded transfer | Private | Private | Private | Private | No |
 | 8 | **Advanced** · both wallets shielded · sender has no shielded funds | Deposit to recipient (with proof) | Public | Private | Public | Public | Partial — sender visible entering pool |
+
+
+### Privacy
+
+**General Properties:**
+1. unlinkability of UTXOs - Public nullifiers do not reveal a deterministic link to the UTXO commitments they spend.
+2. Confidentiality - for eddsa signers in the default and custom ring.
+3. Anonymity - for p256 signers in custom rings with a relayer.
+
+**Default:**
+1. Deposit (`deposit`) - Public: SOL/SPL account, amount, asset, and recipient.
+2. Deposit with proof (`transact`) - Public: SOL/SPL account, deposited amount, asset, and recipient. Private: shielded input amounts and change, if present.
+3. Transfer - Public: sender and recipient. Private: amount, asset, shielded input amounts, and change.
+4. Withdrawal - Public: sender, recipient, withdrawn amount, and asset. Private: shielded input amounts and change.
+
+**Ring:**
+
+The ring program and transaction accounts are public.
+
+1. Deposit (`ring_deposit`) - Public: SOL/SPL account, amount, asset. Private: ring recipient.
+2. Deposit with proof (`ring_transact`) - Public: SOL/SPL account, amount, asset. Private: relayed P256 sender, ring recipient, shielded balance.
+3. Transfer - Public: EdDSA sender or relayer. Private: relayed P256 sender, ring recipient, amount, asset.
+4. Withdrawal - Public: EdDSA sender or relayer, amount, asset, recipient. Private: relayed P256 sender, shielded balance.
+5. Default to ring - Public: default-ring sender. Private: ring recipient, amount, asset.
+6. Ring to default - Public: EdDSA sender or relayer, default-ring recipient. Private: relayed P256 sender, amount, asset.
