@@ -9,8 +9,6 @@ use zolana_interface::{
     SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR,
 };
 
-/// Write a freshly created registry account: discriminator, mint, and the
-/// assigned asset id. Refuses to touch a non-zeroed buffer.
 pub struct RegistryInitParams {
     pub mint: Address,
     pub asset_id: u64,
