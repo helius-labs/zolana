@@ -10,19 +10,22 @@ use zolana_interface::{
 use zolana_keypair::{
     hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey,
 };
-use zolana_program_test::{test_blinding, DepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use zolana_program_test::{
+    test_blinding, DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID,
+};
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_ring_deposit, DepositAssertArgs, RingDepositAssertArgs,
     SolDepositOracle,
 };
 use zolana_transaction::{
-    owner_utxo_hash, serialization::RingDepositPlaintext, AssetRegistry, Data,
+    derive_blinding, owner_utxo_hash, serialization::RingDepositPlaintext, AssetRegistry, Data,
     LocalWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 
 use shielded_pool_tests::support::{
     fixtures::{register_mint, spl_depositor, Pool},
     mollusk::deposit_fixture,
+    transact::tree_progress,
 };
 
 #[test]
@@ -429,6 +432,115 @@ fn ring_deposit_event_carries_the_ring_data_preimage_verbatim() {
         event.output.ring_program_id, RING_TEST_PROGRAM_ID,
         "emitted output carries the signing ring's program id"
     );
+}
+
+#[test]
+fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
+    const AMOUNTS: [u64; 3] = [1_000_000, 2_000_000, 3_000_000];
+    const BLINDING_SEED: [u8; 32] = [8u8; 32];
+
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_authority = pool.authority.insecure_clone();
+    pool.rpc
+        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .expect("create ring config");
+
+    let tree = pool.tree.pubkey();
+    let depositor = pool.funded_signer(2_000_000_000);
+    let recipient_key = ShieldedKeypair::new().expect("recipient keypair");
+    let recipient = recipient_key
+        .shielded_address()
+        .expect("recipient shielded address");
+    let first_leaf_index = tree_progress(&pool.rpc, &tree).0;
+    let ring_program_id = Address::new_from_array(RING_TEST_PROGRAM_ID);
+    let interface_before = sol_interface_lamports(&pool.rpc);
+    let total_amount = AMOUNTS.into_iter().sum::<u64>();
+
+    let mut deposits = Vec::with_capacity(AMOUNTS.len());
+    let mut expected_outputs = Vec::with_capacity(AMOUNTS.len());
+    for (offset, amount) in AMOUNTS.into_iter().enumerate() {
+        let position = u8::try_from(offset).expect("small ring deposit batch");
+        let blinding = derive_blinding(&BLINDING_SEED, position);
+        let ring_data_hash = [position.checked_add(1).expect("ring-data seed"); 32];
+        let ring_data = vec![position, position.checked_add(10).expect("ring-data byte")];
+        let mut data = ZolanaProgramTest::wallet_ring_sol_shield_data(
+            amount,
+            &recipient,
+            &BLINDING_SEED,
+            position,
+        )
+        .expect("ring deposit data");
+        data.ring_data_hash = ring_data_hash;
+        data.encrypted = RingDepositPlaintext {
+            blinding,
+            utxo_data: None,
+            memo: None,
+            ring_data,
+        }
+        .encrypt(&recipient.viewing_pubkey)
+        .expect("encrypt ring deposit data");
+
+        let expected_utxo = Utxo {
+            owner: recipient.signing_pubkey,
+            asset: SOL_MINT,
+            amount,
+            blinding,
+            ring_program_id: Some(ring_program_id),
+            data: Data::default(),
+        };
+        let utxo_hash = expected_utxo
+            .hash(&recipient.nullifier_pubkey, &[0u8; 32], &ring_data_hash)
+            .expect("ring-bound UTXO hash");
+        expected_outputs.push(RingDepositOutput {
+            view_tag: data.view_tag,
+            utxo_hash,
+            output_tree: tree.to_bytes(),
+            leaf_index: first_leaf_index
+                .checked_add(u64::try_from(offset).expect("small ring deposit batch"))
+                .expect("ring deposit leaf index"),
+            output: zolana_event::EncryptedRingDepositOutput {
+                owner_utxo_hash: data.owner_utxo_hash,
+                asset: [0u8; 32],
+                amount,
+                data_hash: data.data_hash,
+                ring_program_id: RING_TEST_PROGRAM_ID,
+                ring_data_hash,
+                encrypted: zolana_event::EncryptedRingDepositData {
+                    tx_viewing_pk: data.encrypted.tx_viewing_pk,
+                    salt: data.encrypted.salt,
+                    ciphertext: data.encrypted.ciphertext.clone(),
+                },
+            },
+        });
+        deposits.push(data);
+    }
+
+    let batch = pool
+        .rpc
+        .ring_deposit_batch(&tree, &depositor, deposits)
+        .expect("ring deposit batch");
+    assert_eq!(
+        batch.outputs, expected_outputs,
+        "ring deposit batch event must bind every entry to its ring program and ring-data hash"
+    );
+    assert_eq!(
+        batch.spl_transfers,
+        vec![SplTransfer {
+            is_deposit: true,
+            amount: total_amount,
+            asset: None,
+        }],
+        "ring deposit batch settles SOL once"
+    );
+    assert_eq!(
+        sol_interface_lamports(&pool.rpc) - interface_before,
+        total_amount,
+        "ring deposit batch settles the summed amount"
+    );
+    assert_batch_root_matches_reference(&pool.rpc, &tree);
 }
 
 #[test]

@@ -324,8 +324,8 @@ each selecting its asset by `asset_index` into `assets`.
   - Severity: High
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-RING-DEPOSIT-09: ring batch binds per-entry ring data**
-  - Partial coverage: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_deposit_event_carries_the_ring_data_preimage_verbatim` (single-entry ring batches only).
+- [x] **INV-RING-DEPOSIT-10: ring batch binds per-entry ring data**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_deposit_batch_binds_distinct_ring_data_per_entry`
   - Kind: postcondition
   - Statement: on the ring rail every entry carries its own `ring_data_hash`/`ring_data`; each leaf's `ring_hash` is `Poseidon(entry.ring_data_hash, pk_field(ring_config.program_id))`, and INV-DEPOSIT-18..25 apply unchanged (shared `process_deposit_internal<true>`).
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:49-63, 111-115` (`fn process_ring_deposit`, `fn process_deposit_internal`)

@@ -17,7 +17,7 @@ use shielded_pool_tests::support::{fixtures::Pool, transact::write_ring_config_a
 
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
-use solana_instruction::{error::InstructionError, Instruction};
+use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
@@ -651,6 +651,32 @@ fn ring_authority_transact_rejects_a_paused_tree() {
         ix,
         &[&ring_config],
         Rejection::pool(ShieldedPoolError::TreePaused),
+    );
+}
+
+#[test]
+fn ring_authority_transact_rejects_an_owner_signer() {
+    let mut env = Pool::initialized();
+    let ring_config = write_ring_config(
+        &mut env,
+        pda::shielded_pool_program_id(),
+        RING_CONFIG,
+        true,
+        false,
+    );
+    let owner_signer = Keypair::new();
+    env.rpc
+        .airdrop(&owner_signer.pubkey(), 1_000_000)
+        .expect("fund unexpected owner signer");
+
+    let mut ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 2));
+    ix.accounts
+        .insert(6, AccountMeta::new_readonly(owner_signer.pubkey(), true));
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config, &owner_signer],
+        Rejection::pool(ShieldedPoolError::InvalidTransactShape),
     );
 }
 
