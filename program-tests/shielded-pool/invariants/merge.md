@@ -1,6 +1,6 @@
 # Merge Invariants
 
-Covers `MergeTransact` (tag 12) and `RingMergeTransact` (tag 13). Shared invariants
+Covers `MergeTransact` (tag 13) and `RingMergeTransact` (tag 16). Shared invariants
 (expiry, pause, stale root, double-spend, rollback, external-hash domain separation)
 live in `cross-cutting.md`.
 
@@ -192,11 +192,20 @@ nullifiers.
 - [x] **INV-RING-MERGE-02: ring_config must be a valid SPP-owned RingConfig**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_a_ring_config_with_a_wrong_owner`, `merge_ring_rejects_a_ring_config_with_a_wrong_discriminator`
   - Kind: precondition
-  - Statement: the `ring_config` account must be owned by the shielded-pool program with `data_len` exactly 67 and discriminator 4; any violation returns Err.
+  - Statement: the `ring_config` account must be owned by the shielded-pool program with `data_len` exactly 68 and discriminator 4; any violation returns Err.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`), `merge_ring/account.rs:27`
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-RING-MERGE-14: a paused ring cannot merge**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_a_paused_ring_config`
+  - Kind: precondition
+  - Statement: after signer and structural validation, `ring_merge_transact` returns `RingPaused` whenever `ring_config.paused` is nonzero and performs no state mutation.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`), `merge_ring/account.rs` (`fn validate_and_parse`)
+  - Error: `ShieldedPoolError::RingPaused = 7047`
+  - Severity: Critical
+  - Suggested test: negative; harness: litesvm
 
 - [x] **INV-RING-MERGE-03: payer must sign**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_an_unsigned_payer`
@@ -268,9 +277,9 @@ nullifiers.
   - Suggested test: positive; harness: litesvm
 
 - [x] **INV-RING-MERGE-11: external hash uses the ring-merge discriminator**
-  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_rejects_a_default_merge_proof` (a valid discriminator-12 merge proof built from default-ring UTXOs is submitted unchanged through discriminator 13 and rejected atomically with 7008).
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_rejects_a_default_merge_proof` (a valid discriminator-13 merge proof built from default-ring UTXOs is submitted unchanged through discriminator 16 and rejected atomically with 7008).
   - Kind: postcondition
-  - Statement: the recomputed `external_data_hash` for `ring_merge_transact` uses `spp_instruction_discriminator` exactly 13 (`RING_MERGE_TRANSACT`), so a proof built for `merge_transact` (discriminator 12) with identical fields fails verification.
+  - Statement: the recomputed `external_data_hash` for `ring_merge_transact` uses `spp_instruction_discriminator` exactly 16 (`RING_MERGE_TRANSACT`), so a proof built for `merge_transact` (discriminator 13) with identical fields fails verification.
   - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:34-40` (`fn process_merge_ring_ix`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)

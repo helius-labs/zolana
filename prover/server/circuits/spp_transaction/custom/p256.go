@@ -10,6 +10,13 @@ import (
 	gnarkecdsa "github.com/consensys/gnark/std/signature/ecdsa"
 )
 
+// Properties:
+// 1. Public: EdDSA input owners, default-ring input and output owners, and public asset transfers.
+// 2. Private: custom-ring P256 input owners, custom-ring output owners, UTXO amounts, and UTXO assets.
+// 3. The circuit verifies the shared P256 signature; the Solana runtime verifies EdDSA co-signers.
+// 4. Dummy slots are indistinguishable from real UTXO and address slots.
+// 5. Input nullifiers are distinct and balances are preserved.
+
 const p256MessageLimbBits = 128
 
 type (

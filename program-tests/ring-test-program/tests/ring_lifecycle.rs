@@ -12,12 +12,14 @@ use zolana_transaction::SOL_MINT;
 fn ring_config_admin_enforces_updates_rotation_and_authority() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;
-    harness.assert_ring_config(true)?;
+    harness.assert_ring_config(true, false)?;
 
-    harness.update_ring_config(false)?;
-    harness.assert_ring_config(false)?;
+    harness.update_ring_config(false, true)?;
+    harness.assert_ring_config(false, true)?;
     harness.rotate_ring_config_owner()?;
-    harness.assert_ring_config(false)?;
+    harness.assert_ring_config(false, true)?;
+    harness.update_ring_config(false, false)?;
+    harness.assert_ring_config(false, false)?;
     harness.old_owner_update_rejected()?;
     harness.create_invalid_ring_authority_rejected()?;
     Ok(())
@@ -64,8 +66,8 @@ fn eddsa_ring_transfer_updates_recipient_wallet() -> Result<()> {
 fn ring_transact_succeeds_while_ring_authority_transact_is_disabled() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;
-    harness.update_ring_config(false)?;
-    harness.assert_ring_config(false)?;
+    harness.update_ring_config(false, false)?;
+    harness.assert_ring_config(false, false)?;
     harness.make_payer_actor("alice")?;
     for _ in 0..2 {
         harness.ring_shield_sol("alice", 1_000_000_000)?;

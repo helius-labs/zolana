@@ -94,11 +94,13 @@ impl ZolanaProgramTest {
         authority: &Keypair,
         ring_config: &Pubkey,
         ring_authority_transact_is_enabled: bool,
+        paused: bool,
     ) -> Result<(), ProgramTestError> {
         let ix = UpdateRingConfig {
             authority: authority.pubkey(),
             ring_config: *ring_config,
             ring_authority_transact_is_enabled,
+            paused,
         }
         .instruction();
         self.send(&[ix], &[authority])

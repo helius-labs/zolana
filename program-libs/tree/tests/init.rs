@@ -5,7 +5,7 @@ use zolana_tree::{
     TreeAccount, INITIALIZED,
 };
 
-// Must equal the pool's `POOL_UTXO_HEIGHT` (lib.rs) — `TreeAccount::init`
+// Must equal the pool's `UTXO_TREE_HEIGHT` (lib.rs) — `TreeAccount::init`
 // rejects any other height with `HeightTooLarge`.
 const HEIGHT: u8 = 32;
 const DISCRIMINATOR: u8 = 7;

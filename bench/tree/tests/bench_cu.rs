@@ -24,9 +24,9 @@ use zolana_batched_merkle_tree::{
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, POOL_UTXO_HEIGHT};
+use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 
-const HEIGHT: u8 = POOL_UTXO_HEIGHT as u8;
+const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;
 const DISCRIMINATOR: u8 = 7;
 
 const OP_BATCH_ADDRESS_UPDATE: u8 = 5;

@@ -13,8 +13,11 @@ pub struct RingConfig {
     /// (where the `ring_auth` PDA derivation is checked) and thereafter only read
     /// — e.g. as the UTXO's `ring_program_id` — never re-derived.
     pub program_id: Address,
-    /// 0/1 -- bool isn't `Pod`.
+    /// Whether ring-authority transact is enabled, encoded as 0/1 because bool
+    /// isn't `Pod`.
     pub ring_authority_transact_is_enabled: u8,
+    /// Whether all operational ring instructions are paused, encoded as 0/1.
+    pub paused: u8,
     pub bump: u8,
 }
 
@@ -23,6 +26,10 @@ impl RingConfig {
 
     pub fn enabled(&self) -> bool {
         self.ring_authority_transact_is_enabled != 0
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused != 0
     }
 
     pub fn has_discriminator(&self) -> bool {
@@ -34,5 +41,5 @@ impl RingConfig {
         address_eq(&self.authority, authority)
     }
 }
-const _: () = assert!(RingConfig::SIZE == 67);
+const _: () = assert!(RingConfig::SIZE == 68);
 const _: () = assert!(core::mem::align_of::<RingConfig>() == 1);

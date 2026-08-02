@@ -51,35 +51,35 @@ fn ring_config_create_update_and_owner_rotation() {
         .rpc
         .create_ring_config(&backend.authority, &backend.authority.pubkey(), true)
         .expect("create ring config");
-    let config = read_ring_config(&backend, &ring_config);
+    let bump = pda::ring_auth(&ring_program()).1;
     assert_eq!(
-        config.authority.to_bytes(),
-        backend.authority.pubkey().to_bytes(),
-        "create stores the named authority"
-    );
-    assert_eq!(
-        config.program_id.to_bytes(),
-        RING_TEST_PROGRAM_ID,
-        "create stores the ring program id"
-    );
-    assert_eq!(
-        config.ring_authority_transact_is_enabled, 1,
-        "create enables ring authority transact"
+        read_ring_config(&backend, &ring_config),
+        RingConfig {
+            discriminator: RING_CONFIG,
+            authority: backend.authority.pubkey().to_bytes().into(),
+            program_id: RING_TEST_PROGRAM_ID.into(),
+            ring_authority_transact_is_enabled: 1,
+            paused: 0,
+            bump,
+        },
+        "create initializes the complete active config"
     );
 
     backend
         .rpc
-        .update_ring_config(&backend.authority, &ring_config, false)
-        .expect("disable ring authority execution");
-    let config = read_ring_config(&backend, &ring_config);
+        .update_ring_config(&backend.authority, &ring_config, false, true)
+        .expect("disable ring authority execution and pause the ring");
     assert_eq!(
-        config.ring_authority_transact_is_enabled, 0,
-        "update disables ring authority transact"
-    );
-    assert_eq!(
-        config.authority.to_bytes(),
-        backend.authority.pubkey().to_bytes(),
-        "update leaves the authority untouched"
+        read_ring_config(&backend, &ring_config),
+        RingConfig {
+            discriminator: RING_CONFIG,
+            authority: backend.authority.pubkey().to_bytes().into(),
+            program_id: RING_TEST_PROGRAM_ID.into(),
+            ring_authority_transact_is_enabled: 0,
+            paused: 1,
+            bump,
+        },
+        "update changes only the two control flags"
     );
 
     let next = Keypair::new();
@@ -87,30 +87,34 @@ fn ring_config_create_update_and_owner_rotation() {
         .rpc
         .update_ring_config_owner(&backend.authority, &ring_config, &next)
         .expect("rotate ring owner");
-    let config = read_ring_config(&backend, &ring_config);
     assert_eq!(
-        config.authority.to_bytes(),
-        next.pubkey().to_bytes(),
-        "rotation installs the new authority"
-    );
-    assert_eq!(
-        config.ring_authority_transact_is_enabled, 0,
-        "rotation leaves the enabled flag untouched"
+        read_ring_config(&backend, &ring_config),
+        RingConfig {
+            discriminator: RING_CONFIG,
+            authority: next.pubkey().to_bytes().into(),
+            program_id: RING_TEST_PROGRAM_ID.into(),
+            ring_authority_transact_is_enabled: 0,
+            paused: 1,
+            bump,
+        },
+        "rotation changes only the authority while paused"
     );
 
     backend
         .rpc
-        .update_ring_config(&next, &ring_config, true)
-        .expect("new owner update");
-    let config = read_ring_config(&backend, &ring_config);
+        .update_ring_config(&next, &ring_config, true, false)
+        .expect("new owner enables authority execution and unpauses the ring");
     assert_eq!(
-        config.ring_authority_transact_is_enabled, 1,
-        "new owner re-enables ring authority transact"
-    );
-    assert_eq!(
-        config.authority.to_bytes(),
-        next.pubkey().to_bytes(),
-        "new owner update leaves the authority untouched"
+        read_ring_config(&backend, &ring_config),
+        RingConfig {
+            discriminator: RING_CONFIG,
+            authority: next.pubkey().to_bytes().into(),
+            program_id: RING_TEST_PROGRAM_ID.into(),
+            ring_authority_transact_is_enabled: 1,
+            paused: 0,
+            bump,
+        },
+        "new owner update restores the complete active config"
     );
 }
 
@@ -235,6 +239,7 @@ fn ring_config_creation_initializes_the_exact_account_state() {
             authority: authority.pubkey().to_bytes().into(),
             program_id: RING_TEST_PROGRAM_ID.into(),
             ring_authority_transact_is_enabled: 1,
+            paused: 0,
             bump: pda::ring_auth(&ring_program()).1,
         },
         "config after create"
@@ -396,7 +401,7 @@ fn ring_owner_rotation_rejects_a_legacy_payload() {
 }
 
 #[test]
-fn ring_config_update_rejects_a_truncated_payload() {
+fn ring_config_update_rejects_a_legacy_single_bool_payload() {
     let mut backend = ring_backend();
     let ring_config = backend
         .rpc
@@ -406,15 +411,17 @@ fn ring_config_update_rejects_a_truncated_payload() {
         authority: backend.authority.pubkey(),
         ring_config,
         ring_authority_transact_is_enabled: false,
+        paused: false,
     }
     .instruction();
-    // Only the tag remains; the borsh bool payload is missing entirely.
-    ix.data.truncate(1);
+    // Keep the tag and the pre-pause enabled bool. The new paused bool is
+    // mandatory, so the former one-bool payload must not be accepted.
+    ix.data.truncate(2);
 
     let err = backend
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&backend.authority])
-        .expect_err("truncated payload must fail");
+        .expect_err("legacy one-bool payload must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(err);
     backend
         .rpc
@@ -432,7 +439,7 @@ fn ring_owner_burn_freezes_the_toggle_for_the_old_authority() {
         .expect("create ring config");
     backend
         .rpc
-        .update_ring_config(&backend.authority, &ring_config, false)
+        .update_ring_config(&backend.authority, &ring_config, false, false)
         .expect("disable ring authority transact");
 
     // A rotation to Address::default() is unreachable by construction: the
@@ -468,7 +475,7 @@ fn ring_owner_burn_freezes_the_toggle_for_the_old_authority() {
         .expect("burn rotation");
     let err = backend
         .rpc
-        .update_ring_config(&backend.authority, &ring_config, true)
+        .update_ring_config(&backend.authority, &ring_config, true, false)
         .expect_err("old authority toggle must fail after the burn");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
     backend

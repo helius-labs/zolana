@@ -14,4 +14,5 @@ pub struct CreateRingConfigData {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateRingConfigData {
     pub ring_authority_transact_is_enabled: bool,
+    pub paused: bool,
 }

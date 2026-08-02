@@ -21,6 +21,7 @@ use num_bigint::BigUint;
 use groth16_solana::groth16::Groth16Verifier;
 use shielded_pool_program::testing::MAX_SIGNERS;
 use solana_address::Address;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{error::InstructionError, AccountMeta};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -43,17 +44,16 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
-    verifying_keys::{transfer_ring_2_3, transfer_ring_authority_2_2},
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, Rejection};
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, resolve_outputs,
-    set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs, TransferProverInputsArgs,
+    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo, fe,
+    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    pack_transact_proof, prove_and_verify_transfer, resolve_outputs, set_output_owner_tags,
+    sol_public_slots, spend_input, SpendInputArgs, TransferProverInputsArgs,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -63,7 +63,11 @@ use zolana_tree::TreeAccount;
 /// PR164 requires at least one real input for the dummy-participant gate) plus
 /// one dummy input, and three dummy outputs, bound to the on-chain roots and
 /// the payer. Shared by the positive and negative scenarios.
-fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> TransactIxData {
+fn build_valid_transact_ix_for_owner_with_discriminator(
+    env: &mut Pool,
+    input_owner: Pubkey,
+    discriminator: u8,
+) -> TransactIxData {
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let input_owner_bytes = input_owner.to_bytes();
@@ -147,8 +151,7 @@ fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> Tra
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
 
-    let external_data_hash =
-        external_data_hash(&transact_ix_data, &[]).expect("external data hash");
+    let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
 
     // The real input contributes its utxo hash to private_tx_hash; the dummy
     // input and all outputs contribute zero.
@@ -203,6 +206,10 @@ fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> Tra
     transact_ix_data
 }
 
+fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> TransactIxData {
+    build_valid_transact_ix_for_owner_with_discriminator(env, input_owner, tag::TRANSACT)
+}
+
 fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     let input_owner = env.rpc.payer.pubkey();
     build_valid_transact_ix_for_owner(env, input_owner)
@@ -216,6 +223,7 @@ fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool)
         authority: Address::new_from_array(env.rpc.payer.pubkey().to_bytes()),
         program_id: Address::new_from_array(ring_program.to_bytes()),
         ring_authority_transact_is_enabled: u8::from(enabled),
+        paused: 0,
         bump: 0,
     };
     write_ring_config_account(
@@ -230,7 +238,10 @@ fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool)
 /// The ring-rail `ExternalDataHash` for a pure shielded transfer: identical to
 /// the confidential one except for the instruction discriminator, which the
 /// program folds from the tag it dispatched on.
-fn ring_external_data_hash(transact_ix_data: &TransactIxData, discriminator: u8) -> [u8; 32] {
+fn external_data_hash_for_discriminator(
+    transact_ix_data: &TransactIxData,
+    discriminator: u8,
+) -> [u8; 32] {
     let resolved = resolve_outputs(transact_ix_data).expect("resolve outputs");
     ExternalDataHash {
         spp_instruction_discriminator: discriminator,
@@ -250,15 +261,17 @@ fn ring_external_data_hash(transact_ix_data: &TransactIxData, discriminator: u8)
 /// Build valid ring-rail instruction data with a real proof bound to the ring
 /// test program: one real zero-value ring-owned input (a proofless ring
 /// deposit through the fixture ring program -- PR164 requires a real input for
-/// the dummy-participant gate and ring-owns every real input) plus one dummy
-/// input, and `n_outputs` dummy outputs tagged with the payer (the
-/// participant). The public `ring_program_id` element is the only
+/// the dummy-participant gate and ring-owns every real input) plus enough dummy
+/// inputs and outputs to fill the requested shape. Outputs are tagged with the
+/// payer (the participant). The public `ring_program_id` element is the only
 /// ring-dependent value, so the same witness feeds the cross-ring negatives.
 fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     env: &mut Pool,
     ring_program: Pubkey,
+    n_inputs: usize,
     n_outputs: usize,
 ) -> TransactIxData {
+    assert!(n_inputs > 0, "ring proof needs at least one input");
     // Ring-owned real input: load the fixture ring program and deposit zero
     // lamports to the payer through it (the deposit's ring_config pins
     // `ring_program_id` to the fixture program, which is what the proof binds).
@@ -315,8 +328,6 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .expect("non-inclusion proof");
 
     let roots = (utxo_root, nullifier_root);
-    let (dummy_input_1, dummy_nullifier) =
-        dummy_input(&[12u8; 31], &nf_tree, roots).expect("dummy input");
     let real_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -329,35 +340,49 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         nullifier_key: &nullifier_key,
     })
     .expect("real input");
+    let mut prover_inputs = vec![real_input];
+    let mut nullifiers = vec![nullifier];
+    for offset in 0..n_inputs - 1 {
+        let seed = 12u8
+            .checked_add(u8::try_from(offset).expect("supported ring input count"))
+            .expect("dummy-input seed");
+        let (input, dummy_nullifier) =
+            dummy_input(&[seed; 31], &nf_tree, roots).expect("dummy input");
+        prover_inputs.push(input);
+        nullifiers.push(dummy_nullifier);
+    }
 
     // Dummy outputs with distinct blindings, tagged with the payer (the
     // participant every input binds to).
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .take(n_outputs)
-        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
+    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = (1..=n_outputs)
+        .map(|position| {
+            let seed = u8::try_from(position).expect("supported ring output count");
+            dummy_transfer_output(&[seed; 31]).expect("dummy output")
+        })
         .collect();
     let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
     let view_tags: Vec<[u8; 32]> = (0..n_outputs).map(|_| payer_bytes).collect();
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
-        ],
+        nullifiers
+            .iter()
+            .map(|nullifier| eddsa_input_utxo(*nullifier, 1))
+            .collect(),
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
     );
+    let n_inputs = u8::try_from(n_inputs).expect("supported ring input count");
+    let n_outputs = u8::try_from(n_outputs).expect("supported ring output count");
     transact_ix_data.circuit = if IS_AUTHORITY {
-        CircuitId::RingAuthority(2, n_outputs as u8, N_PUBLIC_SLOTS as u8)
+        CircuitId::RingAuthority(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
     } else {
-        CircuitId::RingEddsa(2, n_outputs as u8, N_PUBLIC_SLOTS as u8)
+        CircuitId::RingEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
     };
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    let nullifier_pks = vec![zero; n_outputs];
+    let nullifier_pks = vec![zero; usize::from(n_outputs)];
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &nullifier_pks);
 
     let discriminator = if IS_AUTHORITY {
@@ -365,10 +390,13 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     } else {
         tag::RING_TRANSACT
     };
-    let external_data_hash = ring_external_data_hash(&transact_ix_data, discriminator);
-    let private_output_hashes = vec![zero; n_outputs];
+    let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
+    let private_input_hashes: Vec<[u8; 32]> = std::iter::once(utxo_hash)
+        .chain(std::iter::repeat(zero).take(usize::from(n_inputs) - 1))
+        .collect();
+    let private_output_hashes = vec![zero; usize::from(n_outputs)];
     let private_tx = PrivateTxHash::new(
-        &[utxo_hash, zero],
+        &private_input_hashes,
         &private_output_hashes,
         &external_data_hash,
     )
@@ -384,13 +412,16 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     // transfer slots (all idle here), then ring/signer/dummy-policy, then the
     // variant appendix (RingEddsa: the output-owner chain; RingAuthority:
     // nothing — its signer element is the bare payer hash).
-    let signer_hashes = [payer_hash, zero, zero];
+    let signer_hashes: Vec<[u8; 32]> = std::iter::once(payer_hash)
+        .chain(std::iter::repeat(zero).take(usize::from(n_inputs)))
+        .collect();
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let mut chain = vec![
-        create_hash_chain_from_slice(&[nullifier, dummy_nullifier]).expect("nullifier chain"),
+        create_hash_chain_from_slice(&nullifiers).expect("nullifier chain"),
         create_hash_chain_from_slice(&output_hashes).expect("output chain"),
-        create_hash_chain_from_slice(&[utxo_root, utxo_root]).expect("utxo root chain"),
-        create_hash_chain_from_slice(&[nullifier_root, nullifier_root])
+        create_hash_chain_from_slice(&vec![utxo_root; usize::from(n_inputs)])
+            .expect("utxo root chain"),
+        create_hash_chain_from_slice(&vec![nullifier_root; usize::from(n_inputs)])
             .expect("nullifier root chain"),
         private_tx,
         external_data_hash,
@@ -404,7 +435,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     } else {
         // RingEddsa binds only CONFIDENTIAL-MARKED output owners; these outputs
         // carry `data: None` (unmarked), so every published owner slot is 0.
-        let published_owners = vec![zero; n_outputs];
+        let published_owners = vec![zero; usize::from(n_outputs)];
         chain.push(ring_field);
         chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
@@ -413,13 +444,13 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let public_input_hash = create_hash_chain_from_slice(&chain).expect("ring public input hash");
 
     let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![real_input, dummy_input_1],
+        inputs: prover_inputs,
         outputs,
         external_data_hash,
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        signer_pk_hashes: signer_hashes.to_vec(),
+        signer_pk_hashes: signer_hashes,
         public_input_hash,
     });
     prover_inputs.ring_program_id = be(&ring_field);
@@ -431,7 +462,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     } else {
         // RingEddsa publishes only confidential-marked owner tags; these
         // outputs are unmarked, so every published slot is 0.
-        prover_inputs.published_output_owner_pk_hashes = vec![be(&zero); n_outputs];
+        prover_inputs.published_output_owner_pk_hashes = vec![be(&zero); usize::from(n_outputs)];
     }
 
     let prover = ProverClient::local();
@@ -449,11 +480,10 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     // mismatch, not a bad proof.
     {
         let public_inputs = [public_input_hash];
-        let verifying_key = if IS_AUTHORITY {
-            &transfer_ring_authority_2_2::VERIFYINGKEY
-        } else {
-            &transfer_ring_2_3::VERIFYINGKEY
-        };
+        let verifying_key = transact_ix_data
+            .circuit
+            .verifying_key()
+            .expect("supported ring verifying key");
         let mut verifier =
             Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
                 .expect("construct ring verifier");
@@ -933,8 +963,8 @@ fn transact_rejects_a_substituted_payer() {
         .assert_rolled_back_except(&[fee_payer]);
 }
 
-/// INV-XC-15: a valid `transact` (tag 0) payload replayed byte-identically
-/// under the `ring_transact` tag (2) must fail proof verification — the
+/// INV-XC-15: a valid `transact` (tag 12) payload replayed byte-identically
+/// under the `ring_transact` tag (15) must fail proof verification — the
 /// external-data-hash preimage starts with the instruction discriminator and
 /// the ring rail selects a different verifying-key family. The ring config is
 /// fabricated at a keypair address (SPP-owned, exact size and discriminator)
@@ -982,6 +1012,48 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
         .assert_rolled_back_except(&[payer]);
 }
 
+/// INV-RING-TRANSACT-04: even when a confidential proof commits to the ring
+/// instruction discriminator, it cannot be verified by the anonymous ring key
+/// family. The signed RingConfig is valid, so the instruction reaches pairing.
+#[test]
+fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
+    let mut env = proof_env();
+
+    let payer = env.rpc.payer.pubkey();
+    let tree = env.tree.pubkey();
+    let mut transact_ix_data =
+        build_valid_transact_ix_for_owner_with_discriminator(&mut env, payer, tag::RING_TRANSACT);
+    transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+    let mut ix = Transact {
+        payer,
+        input_tree: tree,
+        output_tree: tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+    *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
+
+    let ring_config = write_signed_ring_config(&mut env, Pubkey::new_unique(), true);
+    ix.accounts
+        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+    let error = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
+        .expect_err("a confidential proof must not verify on the ring rail");
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
+    assert_eq!(
+        tree_progress(&env.rpc, &tree),
+        (1, 0),
+        "rejected cross-family proof must roll back outputs and nullifiers"
+    );
+    env.rpc
+        .last_transaction_trace()
+        .expect("cross-family proof transaction trace")
+        .assert_rolled_back_except(&[payer]);
+}
+
 /// INV-RING-TRANSACT-03: the `ring_program_id` public input comes from the
 /// SIGNED RingConfig's stored `program_id`, never from instruction data. A
 /// valid ring proof bound to ring A submitted with ring B's signed config
@@ -999,7 +1071,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let ring_a = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
     let ring_b = Pubkey::new_unique();
 
-    let transact_ix_data = build_valid_ring_ix::<false>(&mut env, ring_a, 3);
+    let transact_ix_data = build_valid_ring_ix::<false>(&mut env, ring_a, 2, 3);
     let mut base_ix = Transact {
         payer,
         input_tree: tree,
@@ -1057,7 +1129,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let ring_b = Pubkey::new_unique();
 
     // The ring-authority verifying keys cover only square shapes; use (2,2).
-    let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring_a, 2);
+    let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring_a, 2, 2);
     let mut base_ix = Transact {
         payer,
         input_tree: tree,
@@ -1099,6 +1171,40 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let (utxo_next, nullifier_next) = tree_progress(&env.rpc, &tree);
     assert_eq!(utxo_next, 3, "deposit leaf plus two outputs appended");
     assert_eq!(nullifier_next, 2, "two nullifiers queued");
+}
+
+#[test]
+fn ring_authority_transact_accepts_the_maximum_square_shape() {
+    let mut env = proof_env();
+
+    let payer = env.rpc.payer.pubkey();
+    let tree = env.tree.pubkey();
+    let ring = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring, 4, 4);
+    let mut ix = Transact {
+        payer,
+        input_tree: tree,
+        output_tree: tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+    *ix.data.first_mut().expect("instruction tag byte") = tag::RING_AUTHORITY_TRANSACT;
+
+    let ring_config = write_signed_ring_config(&mut env, ring, true);
+    ix.accounts
+        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    env.rpc
+        .create_and_send_default_payer_transaction(&[budget, ix], &[&ring_config])
+        .expect("maximum-shape ring-authority transact");
+
+    assert_eq!(
+        tree_progress(&env.rpc, &tree),
+        (5, 4),
+        "one deposit plus four outputs and four queued nullifiers"
+    );
 }
 
 #[test]

@@ -65,6 +65,9 @@ pub struct UpdateRingConfig {
     pub authority: Pubkey,
     pub ring_config: Pubkey,
     pub ring_authority_transact_is_enabled: bool,
+    /// Pauses every operational ring instruction while leaving config updates
+    /// and authority rotation available.
+    pub paused: bool,
 }
 
 impl UpdateRingConfig {
@@ -79,6 +82,7 @@ impl UpdateRingConfig {
                 tag::UPDATE_RING_CONFIG,
                 &UpdateRingConfigData {
                     ring_authority_transact_is_enabled: self.ring_authority_transact_is_enabled,
+                    paused: self.paused,
                 },
             ),
         }

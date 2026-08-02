@@ -9,7 +9,8 @@ use crate::instructions::shared::{load_config, load_config_mut};
 
 /// Load a ring config read-only: owned by SPP, correct size and discriminator.
 /// The create-time `ring_auth` derivation already bound the account to its
-/// program, so callers add only an `is_signer` check -- never re-deriving.
+/// program. Administrative callers use this loader directly; operational ring
+/// callers add a signer check and use [`load_active_ring_config`].
 #[inline(always)]
 pub fn load_ring_config(account: &AccountView) -> Result<Ref<'_, RingConfig>, ProgramError> {
     load_config(
@@ -17,6 +18,18 @@ pub fn load_ring_config(account: &AccountView) -> Result<Ref<'_, RingConfig>, Pr
         ShieldedPoolError::InvalidRingConfig,
         RingConfig::has_discriminator,
     )
+}
+
+/// Load a signed ring config for an operational ring instruction and reject it
+/// when the ring owner has paused the ring. Callers must perform the signer
+/// check before invoking this loader.
+#[inline(always)]
+pub fn load_active_ring_config(account: &AccountView) -> Result<Ref<'_, RingConfig>, ProgramError> {
+    let config = load_ring_config(account)?;
+    if config.is_paused() {
+        return Err(ShieldedPoolError::RingPaused.into());
+    }
+    Ok(config)
 }
 
 #[inline(always)]

@@ -2,13 +2,14 @@ use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::error::ShieldedPoolError;
 
-use crate::instructions::ring_config::loader::load_ring_config;
+use crate::instructions::ring_config::loader::load_active_ring_config;
 
 /// Validated accounts for `merge_ring`, in loader order: `input_tree` and
 /// `output_tree` (writable), `ring_config` (the ring's `ring_auth` PDA, signer),
-/// `payer` (signer). The `ring_config` must sign and be a valid SPP-owned config:
-/// only the ring program can sign for its `ring_auth` PDA, so the signature plus
-/// the owner + discriminator check is the ring's authorization.
+/// `payer` (signer). The `ring_config` must sign, be unpaused, and be a valid
+/// SPP-owned config: only the ring program can sign for its `ring_auth` PDA, so
+/// the signature plus the owner + discriminator + active-state check is the
+/// ring's authorization.
 pub struct MergeRingAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
@@ -24,7 +25,7 @@ impl<'a> MergeRingAccounts<'a> {
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
         let ring_config = iter.next_signer("ring_config")?;
-        let ring_program_id = load_ring_config(ring_config)?.program_id;
+        let ring_program_id = load_active_ring_config(ring_config)?.program_id;
         let payer = iter.next_signer("payer")?;
         let system_program = iter.next_account("system_program")?;
         if !pinocchio_system::check_id(system_program.address()) {

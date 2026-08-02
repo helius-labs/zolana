@@ -10,7 +10,7 @@ use zolana_interface::{
     MAX_INTERFACE_TRANSFERS,
 };
 
-use crate::instructions::ring_config::loader::load_ring_config;
+use crate::instructions::ring_config::loader::load_active_ring_config;
 use crate::instructions::settlement::{
     validate_sol_settlement, validate_spl_deposit_settlement, validate_spl_withdrawal_settlement,
     Settlement, SettlementAccountsSol, SplDepositAccounts, SplWithdrawalAccounts,
@@ -171,9 +171,9 @@ impl RingTransactAccounts {
     /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `RingConfig`
     /// account (the ring's `ring_auth` PDA), then owner signers and settlement
     /// accounts. Returns the parsed transact accounts and the ring's
-    /// `program_id`, read from the validated `RingConfig` (never re-derived; the
-    /// create-time `ring_auth` derivation already bound it). `require_enabled`
-    /// additionally requires
+    /// `program_id`, read from the validated, unpaused `RingConfig` (never
+    /// re-derived; the create-time `ring_auth` derivation already bound it).
+    /// `require_enabled` additionally requires
     /// `ring_authority_transact_is_enabled` (only `ring_authority_transact` sets it).
     pub fn validate_and_parse<'a>(
         accounts: &'a mut [AccountView],
@@ -186,11 +186,11 @@ impl RingTransactAccounts {
         let output_tree = iter.next_mut("output_tree")?;
         validate_program_prefix(&mut iter)?;
         // The `ring_config` must sign (only the ring program can sign for its
-        // `ring_auth` PDA); validate owner / discriminator and read the bound ring
-        // `program_id`.
+        // `ring_auth` PDA); validate owner / discriminator / active state and
+        // read the bound ring `program_id`.
         let ring_config = iter.next_signer("ring_config")?;
         let (ring_program_id, ring_authority_is_enabled) = {
-            let config = load_ring_config(ring_config)?;
+            let config = load_active_ring_config(ring_config)?;
             (config.program_id.to_bytes(), config.enabled())
         };
         if require_ring_authority_enabled && !ring_authority_is_enabled {

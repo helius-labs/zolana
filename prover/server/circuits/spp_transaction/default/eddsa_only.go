@@ -8,24 +8,40 @@ import (
 )
 
 // Properties:
-// 1. Confidentiality - Input and output UTXO owner pubkeys are public inputs.
-// 2. Dummy public inputs are indistinguishable from UTXO and address public inputs.
-// 3. Solana program enforces eddsa signatures.
-// 4. Nullifiers of UTXOs, dummies, addresses cannot collide.
-// 5. Balances are preserved.
+// 1. Public: EdDSA input and output owners, and public asset transfers.
+// 2. Private: UTXO amounts and UTXO assets.
+// 3. The Solana runtime verifies EdDSA signatures; the circuit binds each real input owner to the public signer set.
+// 4. All real input and output UTXOs belong to the default ring.
+// 5. Dummy slots are indistinguishable from real UTXO and address slots.
+// 6. Input nullifiers are distinct and balances are preserved.
 
 type DefaultRingEddsaOnlyPublic struct {
-	Nullifiers          []frontend.Variable
-	OutputHashes        []frontend.Variable
-	UtxoTreeRoots       []frontend.Variable
-	NullifierTreeRoots  []frontend.Variable
-	PrivateTxHash       frontend.Variable
-	ExternalDataHash    frontend.Variable
-	PublicAssets        [shared.NPublicSlots]frontend.Variable
-	PublicAmounts       [shared.NPublicSlots]frontend.Variable
-	AllowDummyInputs    frontend.Variable
-	SignerPkHashes      []frontend.Variable // Payer followed by input owners.
-	OutputOwnerPkHashes []frontend.Variable // Output owners
+	// Nullifiers for UTXO, address, and dummy input slots.
+	Nullifiers []frontend.Variable
+	// New output UTXO hashes.
+	OutputHashes []frontend.Variable
+	// UTXO tree roots to prove inclusion of real input UTXOs.
+	UtxoTreeRoots []frontend.Variable
+	// Nullifier tree roots to prove non-inclusion of input nullifiers.
+	NullifierTreeRoots []frontend.Variable
+	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
+	// Dummy UTXOs are represented as zero.
+	PrivateTxHash frontend.Variable
+	// Hash that ties arbitrary data to the proof.
+	ExternalDataHash frontend.Variable
+	// Assets in public asset transfers.
+	PublicAssets [shared.NPublicSlots]frontend.Variable
+	// Signed amounts in public asset transfers.
+	PublicAmounts [shared.NPublicSlots]frontend.Variable
+	// Whether dummy input UTXOs are allowed.
+	// Dummy input UTXOs are not allowed once the nullifier tree capacity
+	// is less than remaining state tree capacity.
+	AllowDummyInputs frontend.Variable
+	// Hashed EdDSA signer pubkeys, with the fee payer first.
+	SignerPkHashes []frontend.Variable
+	// Owner pubkey hashes for all output slots. Real outputs publish their owners;
+	// dummy outputs must name a transaction participant.
+	OutputOwnerPkHashes []frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -121,7 +137,7 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 		c.Private.InputOwnerPkHashes,
 		authorized,
 	)
-	// If an output UTXO holds data the input must have signed a transaction.
+	// An output containing program data must be owned by an authorized signer.
 	outputPubkeyIsSigner := authorized.ContainsEach(api, c.Public.OutputOwnerPkHashes)
 	// Every dummy tag must name a real input signer or real output owner.
 	if err := shared.AssertDummyTags(

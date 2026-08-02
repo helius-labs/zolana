@@ -29,7 +29,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `every_first_byte_dispatches_or_is_rejected_exactly` (full 256-byte sweep)
   - Kind: precondition
   - Affects: all 18 instructions
-  - Statement: for every first byte outside the set {0..16, 51}, `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
+  - Statement: for every first byte outside the set {0..=17}, `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
   - Location: `programs/shielded-pool/src/lib.rs:45-75` (`fn process_instruction`), `program-libs/event/src/tag.rs:54-79` (`impl TryFrom<u8> for InstructionTag`)
   - Error: `ProgramError::InvalidInstructionData`
   - Severity: Medium
@@ -159,7 +159,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_replay_under_the_ring_transact_tag` (a valid transact payload replayed under the RING_TRANSACT tag fails verification)
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
-  - Statement: the recomputed `external_data_hash` preimage begins with exactly the invoking instruction's tag byte (0, 2, 3, 12, or 13), so an otherwise identical payload proven for one instruction fails verification under any other.
+  - Statement: the recomputed `external_data_hash` preimage begins with exactly the invoking instruction's tag byte (12, 13, 15, 16, or 17), so an otherwise identical payload proven for one instruction fails verification under any other.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:100-112` (`spp_instruction_discriminator: instruction as u8`), `merge/processor.rs:54-60`, `merge_ring/processor.rs:34-40`; preimages `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348, 351` (`struct ExternalDataHash`, `fn hash`), `merge_transact.rs:123-137`
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)
@@ -260,30 +260,30 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/tests/state_props.rs` `state_sizes_and_discriminators_are_stable`
   - Kind: state
   - Affects: CreateProtocolConfig, UpdateProtocolConfig, CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner, CreateAssetCounter, CreateSplInterface, CreateTree
-  - Statement: `ProtocolConfig::SIZE` is exactly 132 with discriminator 3, `RingConfig::SIZE` exactly 67 with discriminator 4, `SplAssetCounter::SIZE` exactly 16 with discriminator 6, `SplAssetRegistry::SIZE` exactly 48 with discriminator 5, and the tree discriminator is exactly 1; each created account's `data_len` equals exactly its struct's SIZE.
+  - Statement: `ProtocolConfig::SIZE` is exactly 132 with discriminator 3, `RingConfig::SIZE` exactly 68 with discriminator 4, `SplAssetCounter::SIZE` exactly 16 with discriminator 6, `SplAssetRegistry::SIZE` exactly 48 with discriminator 5, and the tree discriminator is exactly 1; each created account's `data_len` equals exactly its struct's SIZE.
   - Location: `program-libs/interface/src/state/protocol_config.rs:66-67`, `ring_config.rs:37-38`, `spl_asset_counter.rs:58-59`, `spl_asset_registry.rs:64-65`, `discriminator.rs:1-5`
   - Severity: Medium (compile-time asserts exist; runtime pin catches layout drift)
   - Suggested test: positive (const asserts exist; add explicit pin test mirroring `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
 
 ## Ring Authorization Pattern
 
-- [x] **INV-XC-26: ring instructions authorize by ring_config signature, never re-derivation**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `ring_deposit_rejects_an_unsigned_ring_config` (plus the unsigned-config tests on ring_transact and ring merge cited in their files)
+- [x] **INV-XC-26: ring instructions require a signed, active ring_config and never re-derive it**
+  - Covered by: the unsigned and paused-config rejection tests in `deposit/rejection.rs`, `transact/guard.rs`, and `merge/contract.rs`
   - Kind: precondition
   - Affects: RingTransact, RingAuthorityTransact, RingDeposit, RingMergeTransact
-  - Statement: each ring instruction requires the `ring_config` account to be a signer and validates it only by owner + size + discriminator (the `ring_auth` derivation is checked exactly once, at `create_ring_config`); consequently a valid, signed config of ring A can never authorize an operation attributed to ring B, because the bound `program_id` is read from the signing account itself.
+  - Statement: each operational ring instruction requires the `ring_config` account to be a signer, validates owner + size + discriminator, and requires `paused == 0` (the `ring_auth` derivation is checked exactly once, at `create_ring_config`); consequently a valid, signed config of ring A can never authorize an operation attributed to ring B, and a paused ring cannot mutate protocol state. Administrative config update and rotation remain available while paused.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:140-163` (`RingTransactAccounts::validate_and_parse`), `deposit/account.rs:77-78`, `merge_ring/account.rs:22-39`, `ring_config/loader.rs:14-20`
-  - Error: `ShieldedPoolError::InvalidRingConfig = 7014` / signer errors
+  - Error: `ShieldedPoolError::InvalidRingConfig = 7014` / `ShieldedPoolError::RingPaused = 7047` / signer errors
   - Severity: Critical
   - Suggested test: negative (unsigned config; config faked with correct bytes but wrong owner); harness: mollusk unit
 
 ## Events
 
 - [ ] **INV-XC-27: every successful state-changing instruction emits its event by self-CPI**
-  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (transact and deposit events asserted with exact content; the ring/merge/batch variants and the tag-14/zero-accounts inner-instruction structure are not asserted)
+  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (transact and deposit events asserted with exact content; the ring/merge/batch variants and the tag-10/zero-accounts inner-instruction structure are not asserted)
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, Deposit, RingDeposit, MergeTransact, RingMergeTransact, BatchUpdateNullifierTree (conditional)
-  - Statement: after each of these instructions succeeds, the transaction contains exactly one inner instruction to the shielded-pool program itself with first byte `EMIT_EVENT` (14) and zero accounts, carrying the encoded event (for `batch_update_nullifier_tree`: exactly when the update produced an event).
+  - Statement: after each of these instructions succeeds, the transaction contains exactly one inner instruction to the shielded-pool program itself with first byte `EMIT_EVENT` (10) and zero accounts, carrying the encoded event (for `batch_update_nullifier_tree`: exactly when the update produced an event).
   - Location: `programs/shielded-pool/src/instructions/event.rs:11-19` (`fn emit_encoded_event`)
   - Severity: Medium (indexer completeness)
   - Suggested test: positive per instruction; harness: litesvm (inner-instruction inspection)
@@ -293,7 +293,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-28: error codes are stable**
   - Kind: state
   - Affects: all instructions
-  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7045 — 42 variants, incl. PR172's `ZeroNetInterfaceTransferAmount = 7045`; 7020/7021/7023/7024 retired; 7044 retired in place, kept for wire-code stability; 7046 `SplAssetCounterAlreadyInitialized` lands with the security/spp-config-init-gate branch), pinned one-by-one with a compiler-exhaustive variant match and a count assert.
+  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7047 — 44 variants, including `ZeroNetInterfaceTransferAmount = 7045`, `SplAssetCounterAlreadyInitialized = 7046`, and `RingPaused = 7047`; 7020/7021/7023/7024 retired; 7044 retired in place, kept for wire-code stability), pinned one-by-one with a compiler-exhaustive variant match and a count assert.
   - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
   - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
@@ -303,7 +303,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/tests/error_conversions.rs` `interface_error_conversions_are_stable`, `tree_error_conversions_are_stable` (full per-variant tables incl. the catch-all enumeration)
   - Kind: state
   - Affects: all instructions using loaders or trees
-  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001. (The `AlreadyInitialized -> 7046` `SplAssetCounterAlreadyInitialized` row lands with the security/spp-config-init-gate branch, like the other forward references in this ledger.)
+  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001.
   - Location: `program-libs/interface/src/error.rs:128-151` (`impl From<InterfaceError>`, `impl From<TreeError>`)
   - Severity: Medium
   - Suggested test: none remaining (table test exists)

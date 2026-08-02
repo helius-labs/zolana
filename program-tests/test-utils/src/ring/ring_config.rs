@@ -31,6 +31,7 @@ struct RingConfigState {
     authority: Pubkey,
     program_id: Pubkey,
     ring_authority_transact_is_enabled: bool,
+    paused: bool,
     bump: u8,
 }
 
@@ -66,12 +67,13 @@ impl RingHarness {
             authority: Pubkey::new_from_array(cfg.authority.to_bytes()),
             program_id: Pubkey::new_from_array(cfg.program_id.to_bytes()),
             ring_authority_transact_is_enabled: cfg.enabled(),
+            paused: cfg.is_paused(),
             bump: cfg.bump,
         })
     }
 
     /// Full-struct assert of the freshly created, enabled ring config.
-    pub fn assert_ring_config(&self, enabled: bool) -> Result<()> {
+    pub fn assert_ring_config(&self, enabled: bool, paused: bool) -> Result<()> {
         let authority = self
             .ring_authority
             .as_ref()
@@ -84,14 +86,15 @@ impl RingHarness {
                 authority,
                 program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
                 ring_authority_transact_is_enabled: enabled,
+                paused,
                 bump,
             }
         );
         Ok(())
     }
 
-    /// Update the enabled flag, signed by the current authority.
-    pub fn update_ring_config(&mut self, enabled: bool) -> Result<()> {
+    /// Update the enabled and paused flags, signed by the current authority.
+    pub fn update_ring_config(&mut self, enabled: bool, paused: bool) -> Result<()> {
         let authority = self
             .ring_authority
             .as_ref()
@@ -102,6 +105,7 @@ impl RingHarness {
             authority: authority.pubkey(),
             ring_config,
             ring_authority_transact_is_enabled: enabled,
+            paused,
         }
         .instruction();
         let payer = self.payer.insecure_clone();
@@ -151,6 +155,7 @@ impl RingHarness {
             authority: stale.pubkey(),
             ring_config,
             ring_authority_transact_is_enabled: true,
+            paused: false,
         }
         .instruction();
         let payer = self.payer.insecure_clone();

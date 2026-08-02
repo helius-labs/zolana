@@ -236,14 +236,14 @@ fn ring_config_owner_rotation_revokes_old_authority() {
     let ring_config = rpc
         .create_ring_config(&payer, &authority.pubkey(), true)
         .expect("create ring config");
-    rpc.update_ring_config(&authority, &ring_config, false)
+    rpc.update_ring_config(&authority, &ring_config, false, false)
         .expect("disable ring authority transact");
     let next = Keypair::new();
     rpc.update_ring_config_owner(&authority, &ring_config, &next)
         .expect("rotate ring config owner");
 
     let err = rpc
-        .update_ring_config(&authority, &ring_config, true)
+        .update_ring_config(&authority, &ring_config, true, false)
         .expect_err("old ring authority must be revoked");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
 }
@@ -674,6 +674,7 @@ fn ring_update_rejects_a_cosplay_config_account() {
         authority: pool.authority.pubkey(),
         ring_config: impostor_config,
         ring_authority_transact_is_enabled: false,
+        paused: false,
     }
     .instruction();
     let err = pool

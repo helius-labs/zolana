@@ -339,7 +339,7 @@ fn transfer_round_trip_outputs_and_slots() {
     assert_eq!(
         prover.external_data,
         ExternalData {
-            instruction_discriminator: 0,
+            instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
             expiry_unix_ts: u64::MAX,
             interface_transfers: Vec::new(),
             data_hash: None,
@@ -650,7 +650,7 @@ fn withdrawal_sets_external_data_and_change() {
     assert_eq!(
         prover.external_data,
         ExternalData {
-            instruction_discriminator: 0,
+            instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
             expiry_unix_ts: u64::MAX,
             interface_transfers: vec![SettlementTransfer::Sol {
                 is_deposit: false,

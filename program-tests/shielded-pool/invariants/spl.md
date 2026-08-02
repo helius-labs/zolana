@@ -1,10 +1,10 @@
 # SPL Interface Invariants
 
-Covers `CreateAssetCounter` (tag 16) and `CreateSplInterface` (tag 4). Shared
+Covers `CreateAssetCounter` (tag 5) and `CreateSplInterface` (tag 6). Shared
 invariants (PDA cold path, canonical bump, rollback) live in `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously omitted
-`create_asset_counter` (tag 16); `docs/spec.md` now lists it.
+`create_asset_counter` (tag 5); `docs/spec.md` now lists it.
 
 ## CreateAssetCounter
 
@@ -74,7 +74,7 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
   - Kind: precondition
   - Statement: `create_asset_counter` on a counter whose discriminator byte is not 0 returns Err and leaves `next_id` unchanged (a second init cannot reset the id sequence).
   - Location: `program-libs/interface/src/state/spl_asset_counter.rs:35-37` (`fn init`)
-  - Error: `ShieldedPoolError::SplAssetCounterAlreadyInitialized = 7046` (via `InterfaceError::AlreadyInitialized`, `program-libs/interface/src/error.rs`; 7045 is PR172's `ZeroNetInterfaceTransferAmount`)
+  - Error: `ShieldedPoolError::SplAssetCounterAlreadyInitialized = 7046`.
   - Severity: Critical (asset-id reuse would alias distinct mints)
   - Suggested test: negative (call twice); harness: program-tests integration (`cargo test-sbf`)
 

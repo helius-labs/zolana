@@ -1,12 +1,12 @@
 # Tree Invariants
 
-Covers `CreateTree` (tag 5), `BatchUpdateNullifierTree` (tag 51), `PauseTree` (tag 8).
+Covers `CreateTree` (tag 2), `BatchUpdateNullifierTree` (tag 4), `PauseTree` (tag 3).
 Shared invariants (pause semantics across write paths, rollback) live in
 `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously stated UTXO tree height 26
 and omitted `batch_update_nullifier_tree` from the instruction table; `docs/spec.md`
-now states H=32 and lists tag 51.
+now states H=32 and lists tag 4.
 
 ## CreateTree
 
@@ -166,7 +166,7 @@ now states H=32 and lists tag 51.
 - [~] **INV-BATCH-NULL-07: Photon records a batch update only from an authenticated emitted event**
   - Cross-branch coverage: the event-sourced parser and its tests live on the security/photon-batch-event-sourcing branch, landing before this one — the `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs` test module there (`drops_forged_batch_update_cpi_without_event`, `drops_successful_batch_update_without_event`, `drops_event_with_foreign_parent`, `drops_event_under_non_batch_update_parent`, `parses_batch_update_from_emitted_event`, `records_event_root_not_instruction_root`; on THIS branch the parser is reverted to the instruction-intent form)
   - Kind: postcondition (indexer)
-  - Statement: Photon ingests a nullifier-tree batch update only from a `BatchAddressAppendEvent` carried by an `EMIT_EVENT` inner instruction whose stack-height parent is a shielded-pool `BATCH_UPDATE_NULLIFIER_TREE` instruction (the program emits the event only when an update actually applied). A forged tag-51 CPI that fails the on-chain forester-authority check, a successful no-op update, and a forged `EMIT_EVENT` with a foreign parent all record nothing; the tree and new root are taken from the event, never from instruction data (F-04).
+  - Statement: Photon ingests a nullifier-tree batch update only from a `BatchAddressAppendEvent` carried by an `EMIT_EVENT` inner instruction whose stack-height parent is a shielded-pool `BATCH_UPDATE_NULLIFIER_TREE` instruction (the program emits the event only when an update actually applied). A forged tag-4 CPI that fails the on-chain forester-authority check, a successful no-op update, and a forged `EMIT_EVENT` with a foreign parent all record nothing; the tree and new root are taken from the event, never from instruction data (F-04).
   - Location: `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs` (`fn parse_nullifier_tree_batch_update`)
   - Severity: Critical (permissionless indexer halt)
   - Suggested test: negative + positive; harness: photon parser unit tests

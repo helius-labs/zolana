@@ -1,6 +1,6 @@
 # Protocol Config Invariants
 
-Covers `CreateProtocolConfig` (tag 6) and `UpdateProtocolConfig` (tag 7). Shared
+Covers `CreateProtocolConfig` (tag 0) and `UpdateProtocolConfig` (tag 1). Shared
 invariants (PDA cold path, canonical bump, loader checks, rollback) live in
 `cross-cutting.md`.
 

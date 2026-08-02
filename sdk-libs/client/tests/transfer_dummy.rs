@@ -99,7 +99,7 @@ fn async_queue_result_count() -> Option<u64> {
 
 fn dummy_external_data(owner_tag: [u8; 32], n_outputs: usize) -> ExternalData {
     ExternalData {
-        instruction_discriminator: 0,
+        instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
         expiry_unix_ts: 0,
         interface_transfers: Vec::new(),
         data_hash: None,

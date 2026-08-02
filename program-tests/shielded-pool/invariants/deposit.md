@@ -1,6 +1,6 @@
 # Deposit Invariants
 
-Covers `Deposit` (tag 1) and `RingDeposit` (tag 15). Shared invariants (pause,
+Covers `Deposit` (tag 11) and `RingDeposit` (tag 14). Shared invariants (pause,
 rollback, event self-CPI, lamports conservation) live in `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec's `DepositIxData`/`RingDepositIxData`
@@ -272,11 +272,20 @@ each selecting its asset by `asset_index` into `assets`.
 - [x] **INV-RING-DEPOSIT-04: ring_config must be a valid SPP-owned RingConfig**
   - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `ring_deposit_rejects_a_signer_that_is_not_the_ring_authority`
   - Kind: precondition
-  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly 67, and discriminator byte exactly 4; any violation returns Err.
+  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly 68, and discriminator byte exactly 4; any violation returns Err.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`)
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-RING-DEPOSIT-09: a paused ring cannot deposit**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `paused_ring_rejects_ring_deposit_and_unpause_restores_it`
+  - Kind: precondition
+  - Statement: after signer and structural validation, `ring_deposit` returns `RingPaused` whenever `ring_config.paused` is nonzero, mutates no state, and succeeds again after the config authority clears the flag.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`), `deposit/account.rs` (`fn validate_and_parse`)
+  - Error: `ShieldedPoolError::RingPaused = 7047`
+  - Severity: Critical
+  - Suggested test: pause/reject/unpause/succeed; harness: litesvm
 
 ### Instruction Data Validation
 
@@ -315,8 +324,8 @@ each selecting its asset by `asset_index` into `assets`.
   - Severity: High
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-RING-DEPOSIT-09: ring batch binds per-entry ring data**
-  - Partial coverage: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_deposit_event_carries_the_ring_data_preimage_verbatim` (single-entry ring batches only).
+- [x] **INV-RING-DEPOSIT-10: ring batch binds per-entry ring data**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_deposit_batch_binds_distinct_ring_data_per_entry`
   - Kind: postcondition
   - Statement: on the ring rail every entry carries its own `ring_data_hash`/`ring_data`; each leaf's `ring_hash` is `Poseidon(entry.ring_data_hash, pk_field(ring_config.program_id))`, and INV-DEPOSIT-18..25 apply unchanged (shared `process_deposit_internal<true>`).
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:49-63, 111-115` (`fn process_ring_deposit`, `fn process_deposit_internal`)

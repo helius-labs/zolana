@@ -207,6 +207,53 @@ func TestCustomRingP256Solves(t *testing.T) {
 	)
 }
 
+func TestCustomRingP256PublicInputHashBindsEveryField(t *testing.T) {
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	var messageDigest [32]byte
+	authorization.high.FillBytes(messageDigest[:16])
+	authorization.low.FillBytes(messageDigest[16:])
+	refreshHash := func() {
+		refreshCustomRingP256PublicInputHash(t, assignment, messageDigest, authorization.pkHash)
+	}
+	extraMutations := []publicInputHashMutation{
+		{name: "p256_message_hash_low", run: func() {
+			changed := messageDigest
+			changed[31] ^= 1
+			refreshCustomRingP256PublicInputHash(t, assignment, changed, authorization.pkHash)
+		}},
+		{name: "p256_message_hash_high", run: func() {
+			changed := messageDigest
+			changed[0] ^= 1
+			refreshCustomRingP256PublicInputHash(t, assignment, changed, authorization.pkHash)
+		}},
+		{name: "default_p256_owner_pk_hash", run: func() {
+			original := assignment.Inputs[0].Utxo.RingProgramID
+			assignment.Inputs[0].Utxo.RingProgramID = assignment.RingProgramID
+			refreshHash()
+			assignment.Inputs[0].Utxo.RingProgramID = original
+		}},
+	}
+	assertPublicInputHashBindsEveryField(
+		t,
+		circuit,
+		assignment,
+		func() frontend.Circuit { return asCustomRingP256(assignment, authorization) },
+		refreshHash,
+		publicInputHashBindingOptions{
+			includeRingProgramID:       true,
+			includeOutputOwnerPkHashes: true,
+			signerWidth:                len(assignment.SignerPkHashes),
+			extraMutations:             extraMutations,
+		},
+	)
+}
+
 func TestCustomRingP256KeepsRingOnlyOwnerPrivate(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

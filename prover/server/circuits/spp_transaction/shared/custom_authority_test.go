@@ -12,6 +12,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend"
+	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
 )
 
@@ -48,6 +49,25 @@ func TestCustomRingAuthorityProves(t *testing.T) {
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
+	)
+}
+
+func TestCustomRingAuthorityPublicInputHashBindsEveryField(t *testing.T) {
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	assignment := buildRingAuthorityAssignment(t, shape)
+	refreshHash := func() { refreshRingAuthorityPublicInputHash(t, assignment) }
+
+	assertPublicInputHashBindsEveryField(
+		t,
+		circuit,
+		assignment,
+		func() frontend.Circuit { return asCustomRingAuthority(assignment) },
+		refreshHash,
+		publicInputHashBindingOptions{
+			includeRingProgramID: true,
+			signerWidth:          1,
+		},
 	)
 }
 

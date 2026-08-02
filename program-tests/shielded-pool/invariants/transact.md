@@ -1,6 +1,6 @@
 # Transact Invariants
 
-Covers `Transact` (tag 0), `RingTransact` (tag 2), `RingAuthorityTransact` (tag 3).
+Covers `Transact` (tag 12), `RingTransact` (tag 15), `RingAuthorityTransact` (tag 17).
 Invariants shared with other instructions (expiry, pause, stale root, double-spend,
 rollback, rail/vk separation, external_data_hash, settlement amount semantics) live
 in `cross-cutting.md`.
@@ -436,11 +436,20 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-RING-TRANSACT-02: ring_config must be a valid SPP-owned RingConfig**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_transact_rejects_a_ring_config_with_a_wrong_owner`, `ring_transact_rejects_a_ring_config_with_a_wrong_discriminator`
   - Kind: precondition
-  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly `RingConfig::SIZE` (67), and discriminator byte exactly 4; any violation returns Err.
+  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly `RingConfig::SIZE` (68), and discriminator byte exactly 4; any violation returns Err.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`)
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-RING-TRANSACT-08: a paused ring cannot transact**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_transact_rejects_a_paused_ring_config`, `ring_authority_transact_prioritizes_paused_over_disabled`
+  - Kind: precondition
+  - Statement: both ring transact variants return `RingPaused` whenever the valid signing config has a nonzero `paused` field. For `ring_authority_transact`, this check precedes `ring_authority_transact_is_enabled`.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`), `transact/account.rs` (`fn validate_and_parse`)
+  - Error: `ShieldedPoolError::RingPaused = 7047`
+  - Severity: Critical
+  - Suggested test: negative; harness: litesvm
 
 ### Proof Binding
 
@@ -453,8 +462,8 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical (cross-ring spend prevention)
   - Suggested test: negative (proof for ring A submitted with ring B's config); harness: program-tests integration (`cargo test-sbf`)
 
-- [ ] **INV-RING-TRANSACT-04: ring variant uses the anonymous key family**
-  - Partial coverage: `program-libs/interface/tests/vk_fingerprint.rs` `verifying_key_fingerprint_is_pinned` (all 26 committed keys are pinned; no test submits a confidential proof on the ring rail and asserts the 7008 rejection)
+- [x] **INV-RING-TRANSACT-04: ring variant uses the anonymous key family**
+  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag`, `program-libs/interface/tests/vk_fingerprint.rs` `verifying_key_fingerprint_is_pinned`
   - Kind: precondition
   - Statement: `ring_transact` verifies only against `transfer_ring_*` keys; a proof generated for the confidential (`transfer_confidential_*`) circuit of the same shape does not verify.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:96-118` (`fn verify`), `program-libs/interface/src/verifying_keys/circuit.rs:98-161` (`fn verifying_key`)
@@ -509,18 +518,19 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical (authority containment)
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-RING-AUTH-03: no input-owner signature is required**
-  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_authority_transfer_reowns_a_utxo`
+- [x] **INV-RING-AUTH-03: no input-owner signature is accepted or required**
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_authority_transfer_reowns_a_utxo`, `program-tests/shielded-pool/tests/transact/guard.rs` `ring_authority_transact_rejects_an_owner_signer`
   - Kind: precondition
-  - Statement: `ring_authority_transact` succeeds without any input-owner account signing; input-signer checks are skipped entirely for this variant (the ring_config signature is the sole spend authorization).
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:52-54, 60-62` (`fn process_transact_ix`, `CircuitId::RingAuthority` arm, `requires_input_signatures() == false`)
+  - Statement: `ring_authority_transact` succeeds without any input-owner account signing, and rejects an owner-signer account run as `InvalidTransactShape`; the ring_config signature is the sole spend authorization.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:52-54, 60-62` (`fn process_transact_ix`, `CircuitId::RingAuthority` arm, `requires_input_signatures() == false`), `transact/account.rs:197`
+  - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Critical
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
 ### Proof Binding
 
 - [x] **INV-RING-AUTH-04: ring-authority verifying keys cover exactly the square shapes**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_authority_transact_rejects_a_non_square_shape`
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_authority_transact_rejects_a_non_square_shape`, `program-tests/shielded-pool/tests/transact/functional.rs` `ring_authority_transact_accepts_the_maximum_square_shape`
   - Kind: precondition
   - Statement: `ring_authority_transact` verifies only for shapes `(1,1)`, `(2,2)`, `(3,3)`, `(4,4)`; every other `(inputs.len(), outputs.len())` returns Err.
   - Location: `program-libs/interface/src/verifying_keys/circuit.rs:92-94` (`fn is_supported`, `RingAuthority` arm)
