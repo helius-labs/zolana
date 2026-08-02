@@ -98,6 +98,10 @@ name = "protocol_config_contract"
 path = "tests/protocol_config/contract.rs"
 
 [[test]]
+name = "protocol_config_gate"
+path = "tests/protocol_config/gate.rs"
+
+[[test]]
 name = "tree_contract"
 path = "tests/tree/contract.rs"
 
