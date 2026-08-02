@@ -1,6 +1,6 @@
 {
   "external_data_hash": {
-    "instruction_discriminator": 0,
+    "instruction_discriminator": 12,
     "sender_view_tag": "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
     "tx_viewing_pk": "0x909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0",
     "salt": "0xf0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
@@ -30,7 +30,7 @@
       "0x02"
     ],
     "encrypted_utxos": "0x80818283848586878889aabbccddeeff",
-    "hash": "0x009e597b4c7ce3cd7f8132a5128a2a15b57dccaab88d5c0918d08697962ddf64"
+    "hash": "0x00918dfed17bdc997e7d1536e958402ad33e099693709dfe6e6f3c55739c5a87"
   },
   "solana_pk_hash": {
     "pubkey": "0x00112233445566778899aabbccddeeff102132435465768798a9babbdcddedef",

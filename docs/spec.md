@@ -1183,30 +1183,34 @@ Usage by instruction:
 
 ## Instructions
 
+Tags 0–9 cover administration and maintenance, tag 10 is the internal event
+hook, tags 11–13 are default-ring operations, and tags 14–17 are policy-ring
+operations.
+
 | Instruction | Description |
 | --- | --- |
-| transact | Tag 0; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
-| deposit | Tag 1; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`deposit`](#deposit). |
-| ring_transact | Tag 2; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
-| ring_authority_transact | Tag 3; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
-| create_spl_interface | Tag 4; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
-| create_tree | Tag 5; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
-| create_protocol_config | Tag 6; the transaction signer must equal the `protocol_authority` it writes; on an upgradeable loader-v3 deployment the signer must also be the program's deploy upgrade authority (read from the loader-v3 `ProgramData` account), so initialization cannot be front-run. The instruction takes the program account and its `ProgramData` account as trailing read-only inputs; non-upgradeable deployments and an unset or zeroed upgrade authority skip the binding. |
-| update_protocol_config | Tag 7; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
-| pause_tree | Tag 8; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
-| create_ring_config | Tag 9; creates the ring's `ring_config` (the `ring_auth` PDA), which must sign its own creation; the payer must equal `protocol_config.ring_creation_authority` unless `ring_creation_is_permissionless`. See [Ring Accounts](#ring-accounts). |
-| update_ring_config_owner | Tag 10; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
-| update_ring_config | Tag 11; sets `ring_config.ring_authority_transact_is_enabled` and `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused. |
-| merge_transact | Tag 12; consolidates the 8 input slots of the fixed 8-in/1-out merge shape (same owner, same asset; dummy slots pad a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
-| merge_ring | Tag 13; CPI from an active ring program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
-| emit_event | Tag 14; no-op carrying event bytes in instruction data; SPP self-CPI only. |
-| ring_deposit | Tag 15; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
-| create_asset_counter | Tag 16; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
-| batch_update_nullifier_tree | Tag 51; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. |
+| create_protocol_config | Tag 0; the transaction signer must equal the `protocol_authority` it writes; on an upgradeable loader-v3 deployment the signer must also be the program's deploy upgrade authority (read from the loader-v3 `ProgramData` account), so initialization cannot be front-run. The instruction takes the program account and its `ProgramData` account as trailing read-only inputs; non-upgradeable deployments and an unset or zeroed upgrade authority skip the binding. |
+| update_protocol_config | Tag 1; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
+| create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
+| pause_tree | Tag 3; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
+| batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. |
+| create_asset_counter | Tag 5; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
+| create_spl_interface | Tag 6; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
+| create_ring_config | Tag 7; creates the ring's `ring_config` (the `ring_auth` PDA), which must sign its own creation; the payer must equal `protocol_config.ring_creation_authority` unless `ring_creation_is_permissionless`. See [Ring Accounts](#ring-accounts). |
+| update_ring_config | Tag 8; sets `ring_config.ring_authority_transact_is_enabled` and `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused. |
+| update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
+| emit_event | Tag 10; no-op carrying event bytes in instruction data; SPP self-CPI only. |
+| deposit | Tag 11; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`deposit`](#deposit). |
+| transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
+| merge_transact | Tag 13; consolidates the 8 input slots of the fixed 8-in/1-out merge shape (same owner, same asset; dummy slots pad a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
+| ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
+| ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
+| merge_ring | Tag 16; CPI from an active ring program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
+| ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
 
 ### `transact`
 
-**Discriminator:** 0
+**Discriminator:** 12
 
 **Description.** Implements deposit, withdraw, or shielded transfer. Verifies the proof, nullifies input UTXOs by inserting nullifiers into the nullifier queue, and appends output UTXOs to the UTXO tree.
 
@@ -1452,7 +1456,7 @@ public-amount direction proven by the proof (`true` for a deposit).
 
 ### `deposit`
 
-**Discriminator:** 1
+**Discriminator:** 11
 
 **Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) and a fresh `blinding` in the clear, and the program recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
 
@@ -1690,7 +1694,7 @@ struct Movement {
 
 ### `ring_deposit`
 
-**Discriminator:** 15
+**Discriminator:** 14
 
 **Description.** Batched policy-ring analog of [`deposit`](#deposit): a public
 deposit without a proof that creates UTXOs owned by the calling ring program.
@@ -1747,7 +1751,7 @@ Every entry's `blinding` is a fresh CSPRNG value sent in the clear, as in
 
 ### `merge_transact`
 
-**Discriminator:** 12
+**Discriminator:** 13
 
 **Description.** Consolidates the 8 input slots of the fixed 8-in/1-out merge shape -- all of a single owner and a single asset, with dummy slots (distinct in-window nullifiers) padding a shorter merge -- into one output UTXO of the same owner, asset, and total amount. Permitted whenever the owner's registry record has `merging_enabled == true`; any account may run the merge (there is no per-user authority and no signer check beyond paying fees). SPP nullifies the inputs and appends the output to the UTXO tree. The output carries no ciphertext: its blinding is derived deterministically from the owner's nullifier secret and the first input nullifier (`merge_output_blinding`), and the emitted event tags the output with the owner signing pubkey like every confidential default-ring output — see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag). The wallet reconstructs the merged output on sync without decryption.
 
@@ -1807,7 +1811,7 @@ With discriminator, `N = 8`: `493 B`; with `~206 B` transaction overhead: `~699 
 
 ### `merge_ring`
 
-**Discriminator:** 13
+**Discriminator:** 16
 
 **Description.** Policy-ring analog of [`merge_transact`](#merge_transact), invoked via CPI from a ring program. The relationship to `merge_transact` parallels how [`ring_authority_transact`](#ring_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `ring_program_id` (matching `ring_config.program_id`) into one output UTXO that preserves `ring_program_id`. The ring program runs its own authorization, including any rules over the input `ring_data_hash` values and its explicitly selected output `ring_data_hash`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the ring program (the `ring_config` signer); SPP does **not** check the registry `merging_enabled` flag for `merge_ring`.
 

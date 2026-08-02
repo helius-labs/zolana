@@ -1,7 +1,7 @@
 # Ring Config Invariants
 
-Covers `CreateRingConfig` (tag 9), `UpdateRingConfigOwner` (tag 10),
-`UpdateRingConfig` (tag 11). The shared ring-authorization pattern (signer +
+Covers `CreateRingConfig` (tag 7), `UpdateRingConfigOwner` (tag 9),
+`UpdateRingConfig` (tag 8). The shared ring-authorization pattern (signer +
 owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 `cross-cutting.md`.
 

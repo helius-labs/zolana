@@ -1,10 +1,10 @@
 # SPL Interface Invariants
 
-Covers `CreateAssetCounter` (tag 16) and `CreateSplInterface` (tag 4). Shared
+Covers `CreateAssetCounter` (tag 5) and `CreateSplInterface` (tag 6). Shared
 invariants (PDA cold path, canonical bump, rollback) live in `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously omitted
-`create_asset_counter` (tag 16); `docs/spec.md` now lists it.
+`create_asset_counter` (tag 5); `docs/spec.md` now lists it.
 
 ## CreateAssetCounter
 

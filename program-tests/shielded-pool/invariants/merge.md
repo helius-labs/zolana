@@ -1,6 +1,6 @@
 # Merge Invariants
 
-Covers `MergeTransact` (tag 12) and `RingMergeTransact` (tag 13). Shared invariants
+Covers `MergeTransact` (tag 13) and `RingMergeTransact` (tag 16). Shared invariants
 (expiry, pause, stale root, double-spend, rollback, external-hash domain separation)
 live in `cross-cutting.md`.
 
@@ -277,9 +277,9 @@ nullifiers.
   - Suggested test: positive; harness: litesvm
 
 - [x] **INV-RING-MERGE-11: external hash uses the ring-merge discriminator**
-  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_rejects_a_default_merge_proof` (a valid discriminator-12 merge proof built from default-ring UTXOs is submitted unchanged through discriminator 13 and rejected atomically with 7008).
+  - Covered by: `program-tests/ring-test-program/tests/ring_lifecycle.rs` `ring_merge_rejects_a_default_merge_proof` (a valid discriminator-13 merge proof built from default-ring UTXOs is submitted unchanged through discriminator 16 and rejected atomically with 7008).
   - Kind: postcondition
-  - Statement: the recomputed `external_data_hash` for `ring_merge_transact` uses `spp_instruction_discriminator` exactly 13 (`RING_MERGE_TRANSACT`), so a proof built for `merge_transact` (discriminator 12) with identical fields fails verification.
+  - Statement: the recomputed `external_data_hash` for `ring_merge_transact` uses `spp_instruction_discriminator` exactly 16 (`RING_MERGE_TRANSACT`), so a proof built for `merge_transact` (discriminator 13) with identical fields fails verification.
   - Location: `programs/shielded-pool/src/instructions/merge_ring/processor.rs:34-40` (`fn process_merge_ring_ix`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)

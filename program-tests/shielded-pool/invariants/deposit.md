@@ -1,6 +1,6 @@
 # Deposit Invariants
 
-Covers `Deposit` (tag 1) and `RingDeposit` (tag 15). Shared invariants (pause,
+Covers `Deposit` (tag 11) and `RingDeposit` (tag 14). Shared invariants (pause,
 rollback, event self-CPI, lamports conservation) live in `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec's `DepositIxData`/`RingDepositIxData`

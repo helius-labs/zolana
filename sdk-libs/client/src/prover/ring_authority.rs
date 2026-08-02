@@ -42,7 +42,7 @@ pub struct RingAuthorityProver {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     /// Transaction-level public data; its `instruction_discriminator` must be
-    /// `RING_AUTHORITY_TRANSACT` (Tag 3) so `external_data_hash` matches on-chain.
+    /// `RING_AUTHORITY_TRANSACT` (tag 17) so `external_data_hash` matches on-chain.
     pub external_data: ExternalData,
     pub public_transfers: PublicTransfers,
     pub payer: Address,

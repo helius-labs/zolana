@@ -358,7 +358,7 @@ impl OutputAssertions<'_> {
         assert_eq!(
             external_data,
             &ExternalData {
-                instruction_discriminator: 0,
+                instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
                 expiry_unix_ts: u64::MAX,
                 interface_transfers,
                 data_hash: None,

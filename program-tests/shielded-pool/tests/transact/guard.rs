@@ -1,4 +1,4 @@
-//! Proof soundness guards on the `transact` rails (tags 0, 2, 3). Every case
+//! Proof soundness guards on the `transact` rails (tags 12, 15, 17). Every case
 //! fires in an on-chain guard clause, before any pairing runs, so no real
 //! proof (and no prover) is needed:
 //!
@@ -585,7 +585,7 @@ fn ring_transact_rejects_a_paused_tree() {
 #[test]
 fn ring_authority_transact_rejects_an_unsigned_ring_config() {
     let mut env = Pool::initialized();
-    // INV-RING-AUTH-01: tag 3 shares the ring loader, so the missing
+    // INV-RING-AUTH-01: tag 17 shares the ring loader, so the missing
     // `ring_config` signature is rejected before the config is even loaded.
     let mut ix = RingAuthorityTransact {
         payer: env.rpc.payer.pubkey(),

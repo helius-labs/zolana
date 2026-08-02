@@ -1,6 +1,6 @@
 # Event Invariants
 
-Covers `EmitEvent` (tag 14). The event-emission postconditions of the
+Covers `EmitEvent` (tag 10). The event-emission postconditions of the
 state-changing instructions live in their own files and in INV-XC-27.
 
 ## EmitEvent

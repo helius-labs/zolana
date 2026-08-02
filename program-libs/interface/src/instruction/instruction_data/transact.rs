@@ -710,7 +710,7 @@ mod tests {
             MAX_INTERFACE_TRANSFERS + 1
         ];
         let result = ExternalDataHash::<MessageData> {
-            spp_instruction_discriminator: 2,
+            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
             expiry_unix_ts: 3,
             interface_transfers: &resolved,
             data_hash: None,
@@ -772,7 +772,7 @@ mod tests {
 
     fn hash_of(outputs: &[ResolvedOutput], messages: &[MessageData]) -> [u8; 32] {
         ExternalDataHash {
-            spp_instruction_discriminator: 0,
+            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
             expiry_unix_ts: 0,
             interface_transfers: &[],
             data_hash: None,
@@ -788,7 +788,7 @@ mod tests {
 
     fn hash_with_transfers(interface_transfers: &[ResolvedInterfaceTransfer]) -> [u8; 32] {
         ExternalDataHash::<MessageData> {
-            spp_instruction_discriminator: 2,
+            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
             expiry_unix_ts: 3,
             interface_transfers,
             data_hash: None,
@@ -809,7 +809,7 @@ mod tests {
         salt: &[u8; 16],
     ) -> [u8; 32] {
         ExternalDataHash::<MessageData> {
-            spp_instruction_discriminator: 0,
+            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
             expiry_unix_ts: 0,
             interface_transfers: &[],
             data_hash,
@@ -959,7 +959,7 @@ mod tests {
             },
         ];
         let got = ExternalDataHash::<MessageData> {
-            spp_instruction_discriminator: 0,
+            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
             expiry_unix_ts: 1_234_567_890,
             interface_transfers: &transfers,
             data_hash: None,
@@ -974,8 +974,8 @@ mod tests {
         assert_eq!(
             got,
             [
-                0, 158, 89, 123, 76, 124, 227, 205, 127, 129, 50, 165, 18, 138, 42, 21, 181, 125,
-                204, 170, 184, 141, 92, 9, 24, 208, 134, 151, 150, 45, 223, 100,
+                0, 145, 141, 254, 209, 123, 220, 153, 126, 125, 21, 54, 233, 88, 64, 42, 211, 62,
+                9, 150, 147, 112, 157, 254, 110, 111, 60, 85, 115, 156, 90, 135,
             ]
         );
     }

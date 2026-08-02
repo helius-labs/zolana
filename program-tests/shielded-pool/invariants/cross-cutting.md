@@ -29,7 +29,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `every_first_byte_dispatches_or_is_rejected_exactly` (full 256-byte sweep)
   - Kind: precondition
   - Affects: all 18 instructions
-  - Statement: for every first byte outside the set {0..16, 51}, `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
+  - Statement: for every first byte outside the set {0..=17}, `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
   - Location: `programs/shielded-pool/src/lib.rs:45-75` (`fn process_instruction`), `program-libs/event/src/tag.rs:54-79` (`impl TryFrom<u8> for InstructionTag`)
   - Error: `ProgramError::InvalidInstructionData`
   - Severity: Medium
@@ -159,7 +159,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_replay_under_the_ring_transact_tag` (a valid transact payload replayed under the RING_TRANSACT tag fails verification)
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
-  - Statement: the recomputed `external_data_hash` preimage begins with exactly the invoking instruction's tag byte (0, 2, 3, 12, or 13), so an otherwise identical payload proven for one instruction fails verification under any other.
+  - Statement: the recomputed `external_data_hash` preimage begins with exactly the invoking instruction's tag byte (12, 13, 15, 16, or 17), so an otherwise identical payload proven for one instruction fails verification under any other.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:100-112` (`spp_instruction_discriminator: instruction as u8`), `merge/processor.rs:54-60`, `merge_ring/processor.rs:34-40`; preimages `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348, 351` (`struct ExternalDataHash`, `fn hash`), `merge_transact.rs:123-137`
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)
@@ -280,10 +280,10 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 ## Events
 
 - [ ] **INV-XC-27: every successful state-changing instruction emits its event by self-CPI**
-  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (transact and deposit events asserted with exact content; the ring/merge/batch variants and the tag-14/zero-accounts inner-instruction structure are not asserted)
+  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (transact and deposit events asserted with exact content; the ring/merge/batch variants and the tag-10/zero-accounts inner-instruction structure are not asserted)
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, Deposit, RingDeposit, MergeTransact, RingMergeTransact, BatchUpdateNullifierTree (conditional)
-  - Statement: after each of these instructions succeeds, the transaction contains exactly one inner instruction to the shielded-pool program itself with first byte `EMIT_EVENT` (14) and zero accounts, carrying the encoded event (for `batch_update_nullifier_tree`: exactly when the update produced an event).
+  - Statement: after each of these instructions succeeds, the transaction contains exactly one inner instruction to the shielded-pool program itself with first byte `EMIT_EVENT` (10) and zero accounts, carrying the encoded event (for `batch_update_nullifier_tree`: exactly when the update produced an event).
   - Location: `programs/shielded-pool/src/instructions/event.rs:11-19` (`fn emit_encoded_event`)
   - Severity: Medium (indexer completeness)
   - Suggested test: positive per instruction; harness: litesvm (inner-instruction inspection)

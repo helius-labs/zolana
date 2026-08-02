@@ -934,8 +934,8 @@ fn transact_rejects_a_substituted_payer() {
         .assert_rolled_back_except(&[fee_payer]);
 }
 
-/// INV-XC-15: a valid `transact` (tag 0) payload replayed byte-identically
-/// under the `ring_transact` tag (2) must fail proof verification — the
+/// INV-XC-15: a valid `transact` (tag 12) payload replayed byte-identically
+/// under the `ring_transact` tag (15) must fail proof verification — the
 /// external-data-hash preimage starts with the instruction discriminator and
 /// the ring rail selects a different verifying-key family. The ring config is
 /// fabricated at a keypair address (SPP-owned, exact size and discriminator)

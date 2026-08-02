@@ -1,6 +1,6 @@
 # Transact Invariants
 
-Covers `Transact` (tag 0), `RingTransact` (tag 2), `RingAuthorityTransact` (tag 3).
+Covers `Transact` (tag 12), `RingTransact` (tag 15), `RingAuthorityTransact` (tag 17).
 Invariants shared with other instructions (expiry, pause, stale root, double-spend,
 rollback, rail/vk separation, external_data_hash, settlement amount semantics) live
 in `cross-cutting.md`.

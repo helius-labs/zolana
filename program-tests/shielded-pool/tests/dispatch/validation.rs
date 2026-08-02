@@ -89,31 +89,32 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
     .expect("transact payload serialization is infallible")
 }
 
-/// INV-XC-03: every first byte outside the implemented tag set {0..=16, 51} is
+/// INV-XC-03: every first byte outside the implemented tag set {0..=17} is
 /// rejected at dispatch with exactly the bare `InvalidInstructionData`; every
 /// byte inside the set dispatches to its processor.
 #[test]
 fn every_first_byte_dispatches_or_is_rejected_exactly() {
     const KNOWN_TAGS: [u8; 18] = [
-        tag::TRANSACT,
-        tag::DEPOSIT,
-        tag::RING_TRANSACT,
-        tag::RING_AUTHORITY_TRANSACT,
-        tag::CREATE_SPL_INTERFACE,
-        tag::CREATE_TREE,
         tag::CREATE_PROTOCOL_CONFIG,
         tag::UPDATE_PROTOCOL_CONFIG,
+        tag::CREATE_TREE,
         tag::PAUSE_TREE,
-        tag::CREATE_RING_CONFIG,
-        tag::UPDATE_RING_CONFIG_OWNER,
-        tag::UPDATE_RING_CONFIG,
-        tag::MERGE_TRANSACT,
-        tag::RING_MERGE_TRANSACT,
-        tag::EMIT_EVENT,
-        tag::RING_DEPOSIT,
-        tag::CREATE_ASSET_COUNTER,
         tag::BATCH_UPDATE_NULLIFIER_TREE,
+        tag::CREATE_ASSET_COUNTER,
+        tag::CREATE_SPL_INTERFACE,
+        tag::CREATE_RING_CONFIG,
+        tag::UPDATE_RING_CONFIG,
+        tag::UPDATE_RING_CONFIG_OWNER,
+        tag::EMIT_EVENT,
+        tag::DEPOSIT,
+        tag::TRANSACT,
+        tag::MERGE_TRANSACT,
+        tag::RING_DEPOSIT,
+        tag::RING_TRANSACT,
+        tag::RING_MERGE_TRANSACT,
+        tag::RING_AUTHORITY_TRANSACT,
     ];
+    assert_eq!(KNOWN_TAGS, core::array::from_fn(|tag| tag as u8));
     let transact_payload =
         transfer_payload(CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8));
     let ring_transact_payload = transfer_payload(CircuitId::RingEddsa(1, 1, N_PUBLIC_SLOTS as u8));

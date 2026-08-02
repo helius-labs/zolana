@@ -48,24 +48,24 @@ from all three rows. The same holds for `Deposit`/`RingDeposit`
 
 | Instruction | File | Accounts | Data | Authz | Success | Rollback | Frame |
 |---|---|---|---|---|---|---|---|
-| EmitEvent (14) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
-| Transact (0) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-TRANSACT-40, INV-TRANSACT-41, INV-TRANSACT-43, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31..38, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20, INV-TRANSACT-39 | INV-TRANSACT-23..28, INV-TRANSACT-42, INV-TRANSACT-44, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
-| RingTransact (2) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
-| RingAuthorityTransact (3) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
-| CreateTree (5) | `tree.md` | INV-CREATE-TREE-03, INV-CREATE-TREE-04 | INV-CREATE-TREE-05, INV-CREATE-TREE-06 | INV-CREATE-TREE-01, INV-CREATE-TREE-02 | INV-CREATE-TREE-07, INV-CREATE-TREE-08 | INV-XC-04 | INV-CREATE-TREE-09 |
-| BatchUpdateNullifierTree (51) | `tree.md` | INV-XC-24, INV-XC-08 | INV-BATCH-NULL-03 | INV-BATCH-NULL-01, INV-BATCH-NULL-02 | INV-BATCH-NULL-05, INV-BATCH-NULL-08 | INV-BATCH-NULL-04, INV-XC-04 | INV-BATCH-NULL-06, INV-BATCH-NULL-09 |
-| Deposit (1) | `deposit.md` | INV-DEPOSIT-01..09, INV-DEPOSIT-20, INV-DEPOSIT-23, INV-DEPOSIT-24 | INV-DEPOSIT-10, INV-DEPOSIT-11, INV-DEPOSIT-18, INV-DEPOSIT-19, INV-DEPOSIT-21, INV-DEPOSIT-22 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16, INV-DEPOSIT-25 | INV-XC-04 | INV-DEPOSIT-17 |
-| RingDeposit (15) | `deposit.md` | INV-RING-DEPOSIT-01..04 | INV-RING-DEPOSIT-05, INV-DEPOSIT-11, INV-DEPOSIT-18..25 | INV-RING-DEPOSIT-01, INV-RING-DEPOSIT-03, INV-XC-26 | INV-RING-DEPOSIT-06..09 | INV-XC-04 | INV-DEPOSIT-17 |
-| CreateAssetCounter (16) | `spl.md` | INV-CREATE-AC-03, INV-CREATE-AC-04 | INV-CREATE-AC-05 | INV-CREATE-AC-01, INV-CREATE-AC-02 | INV-CREATE-AC-06, INV-CREATE-AC-07 | INV-XC-04 | INV-CREATE-AC-08 |
-| CreateSplInterface (4) | `spl.md` | INV-CREATE-SPL-03..05, INV-CREATE-SPL-08, INV-CREATE-SPL-13, INV-CREATE-SPL-14 | INV-CREATE-SPL-06 | INV-CREATE-SPL-01, INV-CREATE-SPL-02 | INV-CREATE-SPL-07, INV-CREATE-SPL-09..11 | INV-XC-04 | INV-CREATE-SPL-12 |
-| CreateProtocolConfig (6) | `protocol-config.md` | INV-CREATE-PC-03, INV-CREATE-PC-04 | INV-CREATE-PC-05 | INV-CREATE-PC-01, INV-CREATE-PC-02, INV-CREATE-PC-10 | INV-CREATE-PC-06..08 | INV-XC-04 | INV-CREATE-PC-09 |
-| UpdateProtocolConfig (7) | `protocol-config.md` | INV-UPDATE-PC-03 | INV-UPDATE-PC-04 | INV-UPDATE-PC-01, INV-UPDATE-PC-02 | INV-UPDATE-PC-05, INV-UPDATE-PC-07 | INV-XC-04 | INV-UPDATE-PC-06 |
-| PauseTree (8) | `tree.md` | INV-XC-24 | INV-PAUSE-TREE-02 | INV-PAUSE-TREE-01 | INV-PAUSE-TREE-03, INV-PAUSE-TREE-04 | INV-XC-04 | INV-PAUSE-TREE-05 |
-| CreateRingConfig (9) | `ring-config.md` | INV-CREATE-ZC-04, INV-CREATE-ZC-05 | INV-CREATE-ZC-06 | INV-CREATE-ZC-01..03 | INV-CREATE-ZC-07, INV-CREATE-ZC-08 | INV-XC-04 | INV-CREATE-ZC-09 |
-| UpdateRingConfigOwner (10) | `ring-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-OWNER-05 | INV-UPDATE-ZC-OWNER-01, INV-UPDATE-ZC-OWNER-02 | INV-UPDATE-ZC-OWNER-03 | INV-XC-04 | INV-UPDATE-ZC-OWNER-04 |
-| UpdateRingConfig (11) | `ring-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-06 | INV-UPDATE-ZC-01 | INV-UPDATE-ZC-03, INV-UPDATE-ZC-05 | INV-XC-04 | INV-UPDATE-ZC-04 |
-| MergeTransact (12) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
-| RingMergeTransact (13) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18 | INV-RING-MERGE-05 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-XC-26 | INV-RING-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| CreateProtocolConfig (0) | `protocol-config.md` | INV-CREATE-PC-03, INV-CREATE-PC-04 | INV-CREATE-PC-05 | INV-CREATE-PC-01, INV-CREATE-PC-02, INV-CREATE-PC-10 | INV-CREATE-PC-06..08 | INV-XC-04 | INV-CREATE-PC-09 |
+| UpdateProtocolConfig (1) | `protocol-config.md` | INV-UPDATE-PC-03 | INV-UPDATE-PC-04 | INV-UPDATE-PC-01, INV-UPDATE-PC-02 | INV-UPDATE-PC-05, INV-UPDATE-PC-07 | INV-XC-04 | INV-UPDATE-PC-06 |
+| CreateTree (2) | `tree.md` | INV-CREATE-TREE-03, INV-CREATE-TREE-04 | INV-CREATE-TREE-05, INV-CREATE-TREE-06 | INV-CREATE-TREE-01, INV-CREATE-TREE-02 | INV-CREATE-TREE-07, INV-CREATE-TREE-08 | INV-XC-04 | INV-CREATE-TREE-09 |
+| PauseTree (3) | `tree.md` | INV-XC-24 | INV-PAUSE-TREE-02 | INV-PAUSE-TREE-01 | INV-PAUSE-TREE-03, INV-PAUSE-TREE-04 | INV-XC-04 | INV-PAUSE-TREE-05 |
+| BatchUpdateNullifierTree (4) | `tree.md` | INV-XC-24, INV-XC-08 | INV-BATCH-NULL-03 | INV-BATCH-NULL-01, INV-BATCH-NULL-02 | INV-BATCH-NULL-05, INV-BATCH-NULL-08 | INV-BATCH-NULL-04, INV-XC-04 | INV-BATCH-NULL-06, INV-BATCH-NULL-09 |
+| CreateAssetCounter (5) | `spl.md` | INV-CREATE-AC-03, INV-CREATE-AC-04 | INV-CREATE-AC-05 | INV-CREATE-AC-01, INV-CREATE-AC-02 | INV-CREATE-AC-06, INV-CREATE-AC-07 | INV-XC-04 | INV-CREATE-AC-08 |
+| CreateSplInterface (6) | `spl.md` | INV-CREATE-SPL-03..05, INV-CREATE-SPL-08, INV-CREATE-SPL-13, INV-CREATE-SPL-14 | INV-CREATE-SPL-06 | INV-CREATE-SPL-01, INV-CREATE-SPL-02 | INV-CREATE-SPL-07, INV-CREATE-SPL-09..11 | INV-XC-04 | INV-CREATE-SPL-12 |
+| CreateRingConfig (7) | `ring-config.md` | INV-CREATE-ZC-04, INV-CREATE-ZC-05 | INV-CREATE-ZC-06 | INV-CREATE-ZC-01..03 | INV-CREATE-ZC-07, INV-CREATE-ZC-08 | INV-XC-04 | INV-CREATE-ZC-09 |
+| UpdateRingConfig (8) | `ring-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-06 | INV-UPDATE-ZC-01 | INV-UPDATE-ZC-03, INV-UPDATE-ZC-05 | INV-XC-04 | INV-UPDATE-ZC-04 |
+| UpdateRingConfigOwner (9) | `ring-config.md` | INV-UPDATE-ZC-02 | INV-UPDATE-ZC-OWNER-05 | INV-UPDATE-ZC-OWNER-01, INV-UPDATE-ZC-OWNER-02 | INV-UPDATE-ZC-OWNER-03 | INV-XC-04 | INV-UPDATE-ZC-OWNER-04 |
+| EmitEvent (10) | `event.md` | INV-EMIT-EVENT-03 | INV-EMIT-EVENT-02 | permissionless by design (INV-EMIT-EVENT-01 bounds the risk) | INV-EMIT-EVENT-02, INV-EMIT-EVENT-04 | INV-XC-04 | INV-EMIT-EVENT-01 |
+| Deposit (11) | `deposit.md` | INV-DEPOSIT-01..09, INV-DEPOSIT-20, INV-DEPOSIT-23, INV-DEPOSIT-24 | INV-DEPOSIT-10, INV-DEPOSIT-11, INV-DEPOSIT-18, INV-DEPOSIT-19, INV-DEPOSIT-21, INV-DEPOSIT-22 | INV-DEPOSIT-01, INV-DEPOSIT-03, INV-DEPOSIT-05 | INV-DEPOSIT-12..16, INV-DEPOSIT-25 | INV-XC-04 | INV-DEPOSIT-17 |
+| Transact (12) | `transact.md` | INV-TRANSACT-01..04, INV-TRANSACT-13..16, INV-TRANSACT-40, INV-TRANSACT-41, INV-TRANSACT-43, INV-XC-24 | INV-TRANSACT-07..12, INV-TRANSACT-31..38, INV-XC-02 | INV-TRANSACT-04..06, INV-TRANSACT-20, INV-TRANSACT-39 | INV-TRANSACT-23..28, INV-TRANSACT-42, INV-TRANSACT-44, INV-XC-18, INV-XC-27 | INV-XC-04, INV-XC-05 | INV-TRANSACT-29, INV-TRANSACT-30 |
+| MergeTransact (13) | `merge.md` | INV-MERGE-01..03, INV-MERGE-17, INV-MERGE-18 | INV-MERGE-06, INV-MERGE-07, INV-MERGE-16 | INV-MERGE-02, INV-MERGE-04, INV-MERGE-05, INV-MERGE-08 | INV-MERGE-13, INV-MERGE-14, INV-MERGE-19 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| RingDeposit (14) | `deposit.md` | INV-RING-DEPOSIT-01..04 | INV-RING-DEPOSIT-05, INV-DEPOSIT-11, INV-DEPOSIT-18..25 | INV-RING-DEPOSIT-01, INV-RING-DEPOSIT-03, INV-XC-26 | INV-RING-DEPOSIT-06..09 | INV-XC-04 | INV-DEPOSIT-17 |
+| RingTransact (15) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| RingMergeTransact (16) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18 | INV-RING-MERGE-05 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-XC-26 | INV-RING-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
+| RingAuthorityTransact (17) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
 
 Cross-cutting rows that apply to every proof-bearing instruction (Transact,
 RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact) and are not
@@ -99,8 +99,8 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   2. Transact public amounts signed `Option<i64>`; exactly the absolute value settles (fee folded prover-side) (INV-XC-18).
   3. Merge fixed 8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
   4. UTXO tree height 32.
-  5. Duplicate `ring_deposit` "Tag 1" row removed from the instruction table.
-  6. `create_asset_counter` (tag 16) and `batch_update_nullifier_tree` (tag 51) added to the instruction table.
+  5. Duplicate `ring_deposit` row removed from the instruction table.
+  6. `create_asset_counter` (tag 5) and `batch_update_nullifier_tree` (tag 4) added to the instruction table.
   7. UpdateProtocolConfig: one field per call plus new-authority co-signature.
   8. GeneralEvent `tx_viewing_pk`/`salt` non-optional (all-zero on proofless deposits); `OutputUtxo.view_tag` naming; `OutputDataEncoding` wrapper; `ProoflessOutput.owner` + `memo`.
 - INSUFFICIENT_INFO items:
@@ -203,7 +203,7 @@ Status of the audit findings against the current (post-PR164) tree:
   `nullifier_tree_batch_update_parser` now sources updates exclusively from the
   emitted `BatchAddressAppendEvent` (emitted only when an update actually
   applied), authenticated by stack-height parentage to a shielded-pool
-  `BATCH_UPDATE_NULLIFIER_TREE` instruction -- forged tag-51 CPIs and no-op
+  `BATCH_UPDATE_NULLIFIER_TREE` instruction -- forged tag-4 CPIs and no-op
   successes record nothing. Regression tests
   `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs`
   `drops_forged_batch_update_cpi_without_event`,

@@ -43,8 +43,8 @@ struct MergeRingOptions {
     /// Expect SPP to reject the transaction on proof verification (7008),
     /// leaving the tree untouched.
     expect_proof_rejection: bool,
-    /// Build the proof on the default merge rail (tag 12) and submit it
-    /// unchanged through `merge_ring` (tag 13); see
+    /// Build the proof on the default merge rail (tag 13) and submit it
+    /// unchanged through `merge_ring` (tag 16); see
     /// [`Self::merge_transact_proof_replayed_as_ring_rejected`].
     prove_for_default_merge: bool,
 }
@@ -110,8 +110,8 @@ impl RingHarness {
     }
 
     /// INV-RING-MERGE-11: build a real default-rail merge proof
-    /// (`merge_transact`, instruction tag 12) from default-shielded (non-ring)
-    /// UTXOs and submit it unchanged through `merge_ring` (tag 13). SPP
+    /// (`merge_transact`, instruction tag 13) from default-shielded (non-ring)
+    /// UTXOs and submit it unchanged through `merge_ring` (tag 16). SPP
     /// recomputes `external_data_hash` with the ring-merge tag, so the proof
     /// no longer matches and the instruction fails on-chain with
     /// `TransactProofVerificationFailed` (7008), leaving the tree untouched.
@@ -252,8 +252,8 @@ impl RingHarness {
         // Both rails share the 8-in/1-out merge witness (see
         // [`Self::merge_transact_proof_replayed_as_ring_rejected`]). For the
         // cross-rail replay the proof is built by the default `MergeProver`
-        // (tag 12), then wrapped in the `merge_ring` instruction data
-        // (tag 13) unchanged.
+        // (tag 13), then wrapped in the `merge_ring` instruction data
+        // (tag 16) unchanged.
         let (data, output_hash, input_nullifiers) = if prove_for_default_merge {
             let result = MergeProver {
                 inputs: spend_inputs,
