@@ -8,12 +8,13 @@ import (
 )
 
 // Properties:
-// 1. Anonymity - public inputs do not reveal owners of UTXOs.
-// 2. Dummy public inputs are indistinguishable from UTXO and address public inputs.
-// 3. Solana program enforce the signature of the ring authority. The ring is free to implement its own signature.
-// 4. All input and output UTXOs must be owned with the ring.
-// 5. Nullifiers of UTXOs, dummies, addresses cannot collide.
-// 6. Balances are preserved.
+// 1. Public: ring program, public asset transfers, nullifiers, and output UTXO hashes.
+// 2. Private: input and output UTXO owners, UTXO amounts, and UTXO assets.
+// 3. The Solana program requires the ring authority signature; the ring may enforce additional authorization.
+// 4. All real input and output UTXOs belong to the ring.
+// 5. Address inputs are not allowed.
+// 6. Dummy slots are indistinguishable from real UTXO slots.
+// 7. Input nullifiers are distinct and balances are preserved.
 
 type CustomRingAuthorityPublic struct {
 	Nullifiers         []frontend.Variable

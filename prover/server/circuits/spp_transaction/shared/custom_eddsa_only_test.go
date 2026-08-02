@@ -12,6 +12,7 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend"
+	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
 )
 
@@ -38,6 +39,27 @@ func TestCustomRingEddsaOnlySolves(t *testing.T) {
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
+	)
+}
+
+func TestCustomRingEddsaOnlyPublicInputHashBindsEveryField(t *testing.T) {
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	refreshHash := func() { refreshPublicInputHash(t, assignment) }
+	refreshHash()
+
+	assertPublicInputHashBindsEveryField(
+		t,
+		circuit,
+		assignment,
+		func() frontend.Circuit { return asCustomRingEddsaOnly(assignment) },
+		refreshHash,
+		publicInputHashBindingOptions{
+			includeRingProgramID:       true,
+			includeOutputOwnerPkHashes: true,
+			signerWidth:                len(assignment.SignerPkHashes),
+		},
 	)
 }
 
