@@ -39,6 +39,9 @@ pub const UNINITIALIZED: u8 = 0;
 pub const INITIALIZED: u8 = 1;
 pub const PAUSED: u8 = 2;
 
+/// Bytes reserved in the account header for future tree metadata.
+pub const TREE_RESERVED_BYTES: usize = 64;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct TreeAccountLayout<
@@ -51,6 +54,7 @@ pub struct TreeAccountLayout<
     pub discriminator: u8,
     pub state: u8,
     pub _padding: [u8; 6],
+    pub _reserved: [u8; TREE_RESERVED_BYTES],
     pub utxo: UtxoTreeLayout<UTXO_HEIGHT>,
     pub nullifier: NullifierLayout<RH, NUM_ITERS, BLOOM, ZKP>,
 }
@@ -162,6 +166,7 @@ impl<'a> TreeAccount<'a> {
         }
         layout.discriminator = discriminator;
         layout.state = INITIALIZED;
+        layout._reserved = [0u8; TREE_RESERVED_BYTES];
 
         layout.utxo.init(utxo_tree_height as usize)?;
 
@@ -345,32 +350,70 @@ fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
 mod layout_equivalence {
     use super::*;
 
-    const HEADER_LEN: usize = 8;
+    const STATIC_METADATA_LEN: usize = 8;
+    const HEADER_LEN: usize = STATIC_METADATA_LEN + TREE_RESERVED_BYTES;
+    const EXPECTED_ACCOUNT_SIZE: usize = 1_185_728;
+    const EXPECTED_NULLIFIER_OFFSET: usize = 7_544;
+    const EXPECTED_STATE_ROOT_OFFSET: usize = 80;
 
-    fn old_utxo_size(height: usize) -> usize {
+    fn aligned_utxo_size(height: usize) -> usize {
         UtxoTreeLayout::<0>::serialized_size(height).next_multiple_of(8)
     }
 
     #[test]
-    fn size_and_offset_match_old_layout() {
-        let old_account_size = HEADER_LEN
-            + old_utxo_size(UTXO_TREE_HEIGHT)
+    fn size_and_offsets_include_reserved_header() {
+        let account_size_without_reserved = STATIC_METADATA_LEN
+            + aligned_utxo_size(UTXO_TREE_HEIGHT)
             + size_of::<
                 NullifierLayout<NULLIFIER_RH, NULLIFIER_NUM_ITERS, NULLIFIER_BLOOM, NULLIFIER_ZKP>,
             >();
-        assert_eq!(size_of::<SppTreeLayout>(), old_account_size);
-
-        let old_nullifier_offset = HEADER_LEN + old_utxo_size(UTXO_TREE_HEIGHT);
+        assert_eq!(size_of::<SppTreeLayout>(), EXPECTED_ACCOUNT_SIZE);
         assert_eq!(
-            core::mem::offset_of!(SppTreeLayout, nullifier),
-            old_nullifier_offset
+            size_of::<SppTreeLayout>(),
+            account_size_without_reserved + TREE_RESERVED_BYTES
         );
 
+        let nullifier_offset = HEADER_LEN + aligned_utxo_size(UTXO_TREE_HEIGHT);
+        assert_eq!(nullifier_offset, EXPECTED_NULLIFIER_OFFSET);
+        assert_eq!(
+            core::mem::offset_of!(SppTreeLayout, nullifier),
+            nullifier_offset
+        );
+
+        assert_eq!(
+            core::mem::offset_of!(SppTreeLayout, _reserved),
+            STATIC_METADATA_LEN
+        );
         assert_eq!(core::mem::offset_of!(SppTreeLayout, utxo), HEADER_LEN);
+        assert_eq!(TreeAccount::state_root_offset(), EXPECTED_STATE_ROOT_OFFSET);
+        assert_eq!(EXPECTED_STATE_ROOT_OFFSET, HEADER_LEN + smt::ROOT_OFFSET);
         assert_eq!(
             size_of::<UtxoTreeLayout<UTXO_TREE_HEIGHT>>(),
             UtxoTreeLayout::<UTXO_TREE_HEIGHT>::serialized_size(UTXO_TREE_HEIGHT)
         );
+    }
+
+    #[test]
+    fn init_zeroes_reserved_header() {
+        let mut bytes = vec![0u8; size_of::<SppTreeLayout>()];
+        {
+            let layout: &mut SppTreeLayout =
+                wincode::deserialize_mut(&mut bytes).expect("cast layout");
+            layout._reserved.fill(0xa5);
+        }
+
+        TreeAccount::init(
+            &mut bytes,
+            7,
+            UTXO_TREE_HEIGHT as u8,
+            [2u8; 32],
+            InitAddressTreeAccountsInstructionData::default(),
+        )
+        .expect("initialize tree");
+
+        let layout: &mut SppTreeLayout =
+            wincode::deserialize_mut(&mut bytes).expect("reload layout");
+        assert_eq!(layout._reserved, [0u8; TREE_RESERVED_BYTES]);
     }
 
     #[test]
