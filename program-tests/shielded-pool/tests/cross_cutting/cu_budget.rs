@@ -145,10 +145,10 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         .create_ring_config(&authority, &authority.pubkey(), true)
         .expect("create ring config");
     assert_last_under(&test, "create ring config", CREATE_RING_CONFIG_CU_CEILING);
-    test.update_ring_config(&authority, &ring_config, false)
+    test.update_ring_config(&authority, &ring_config, false, false)
         .expect("update ring config");
     assert_last_under(&test, "update ring config", UPDATE_RING_CONFIG_CU_CEILING);
-    test.update_ring_config(&authority, &ring_config, true)
+    test.update_ring_config(&authority, &ring_config, true, false)
         .expect("re-enable ring config");
 
     let ring_data = test.ring_sol_shield_data(1_000_000, [5; 32], [6; 32]);

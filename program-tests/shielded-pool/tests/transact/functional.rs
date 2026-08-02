@@ -216,6 +216,7 @@ fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool)
         authority: Address::new_from_array(env.rpc.payer.pubkey().to_bytes()),
         program_id: Address::new_from_array(ring_program.to_bytes()),
         ring_authority_transact_is_enabled: u8::from(enabled),
+        paused: 0,
         bump: 0,
     };
     write_ring_config_account(

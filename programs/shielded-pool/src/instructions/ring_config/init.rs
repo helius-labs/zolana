@@ -27,6 +27,7 @@ impl RingConfigInitParams {
             authority: self.authority,
             program_id: self.program_id,
             ring_authority_transact_is_enabled: u8::from(self.ring_authority_transact_is_enabled),
+            paused: 0,
             bump: self.bump,
         };
         Ok(())

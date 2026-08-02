@@ -359,7 +359,7 @@ impl RingHarness {
         if self.ring_config.is_none() {
             self.create_enabled_ring_config()?;
         }
-        self.update_ring_config(false)?;
+        self.update_ring_config(false, false)?;
         self.ensure_fresh_actor(name)?;
         self.sync(name)?;
 

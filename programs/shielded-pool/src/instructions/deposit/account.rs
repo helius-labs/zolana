@@ -12,7 +12,7 @@ use zolana_interface::{
 };
 
 use crate::instructions::{
-    ring_config::loader::load_ring_config,
+    ring_config::loader::load_active_ring_config,
     settlement::{
         validate_sol_settlement, validate_spl_deposit_settlement, Settlement,
         SettlementAccountsSol, SplDepositAccounts, ValidatedSplSettlement,
@@ -69,13 +69,14 @@ impl<'a> DepositAccounts<'a> {
         let depositor = iter.next_signer("depositor")?;
 
         // `ring_deposit` passes the `RingConfig` account (the ring's `ring_auth`
-        // PDA) first. It must sign and is validated by owner/discriminator -- the
-        // create-time derivation already bound it to its program -- and its stored
-        // `program_id` becomes the UTXO's `ring_program_id`. The plain `deposit`
-        // has no ring; its program data is authorized by the depositor signer.
+        // PDA) first. It must sign, be unpaused, and pass owner/discriminator
+        // validation -- the create-time derivation already bound it to its
+        // program -- and its stored `program_id` becomes the UTXO's
+        // `ring_program_id`. The plain `deposit` has no ring; its program data is
+        // authorized by the depositor signer.
         let ring_program_id = if HAS_RING {
             let account = iter.next_signer("ring_config")?;
-            let config = load_ring_config(account)?;
+            let config = load_active_ring_config(account)?;
             Some(config.program_id.to_bytes())
         } else {
             None

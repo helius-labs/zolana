@@ -35,6 +35,7 @@ fn account_named<'a>(accounts: &'a [(Pubkey, Account)], key: &Pubkey) -> &'a Acc
 struct RingConfigState {
     authority: Pubkey,
     enabled: bool,
+    paused: bool,
     bump: u8,
 }
 
@@ -46,6 +47,7 @@ fn read_ring_config(rpc: &ZolanaProgramTest, address: &Pubkey) -> RingConfigStat
     RingConfigState {
         authority: Pubkey::new_from_array(config.authority.to_bytes()),
         enabled: config.enabled(),
+        paused: config.is_paused(),
         bump: config.bump,
     }
 }
@@ -261,6 +263,7 @@ fn ring_config_creation_initializes_complete_state() {
         RingConfigState {
             authority: authority.pubkey(),
             enabled: true,
+            paused: false,
             bump: pda::ring_auth(&Pubkey::new_from_array(RING_TEST_PROGRAM_ID)).1,
         }
     );
@@ -282,13 +285,14 @@ fn ring_config_update_changes_enabled_state() {
         .create_ring_config(&payer, &authority.pubkey(), true)
         .expect("create ring config");
 
-    rpc.update_ring_config(&authority, &ring_config, false)
+    rpc.update_ring_config(&authority, &ring_config, false, false)
         .expect("disable ring authority transact");
     assert_eq!(
         read_ring_config(&rpc, &ring_config),
         RingConfigState {
             authority: authority.pubkey(),
             enabled: false,
+            paused: false,
             bump: pda::ring_auth(&Pubkey::new_from_array(RING_TEST_PROGRAM_ID)).1,
         }
     );
@@ -309,7 +313,7 @@ fn ring_config_owner_rotation_updates_authority() {
     let ring_config = rpc
         .create_ring_config(&payer, &authority.pubkey(), true)
         .expect("create ring config");
-    rpc.update_ring_config(&authority, &ring_config, false)
+    rpc.update_ring_config(&authority, &ring_config, false, false)
         .expect("disable ring authority transact");
 
     let next = Keypair::new();
@@ -336,13 +340,13 @@ fn new_ring_config_authority_can_update_config() {
     let ring_config = rpc
         .create_ring_config(&payer, &authority.pubkey(), true)
         .expect("create ring config");
-    rpc.update_ring_config(&authority, &ring_config, false)
+    rpc.update_ring_config(&authority, &ring_config, false, false)
         .expect("disable ring authority transact");
     let next = Keypair::new();
     rpc.update_ring_config_owner(&authority, &ring_config, &next)
         .expect("rotate ring config owner");
 
-    rpc.update_ring_config(&next, &ring_config, true)
+    rpc.update_ring_config(&next, &ring_config, true, false)
         .expect("new ring authority updates config");
     assert!(read_ring_config(&rpc, &ring_config).enabled);
 }

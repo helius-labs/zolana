@@ -74,7 +74,7 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
   - Kind: precondition
   - Statement: `create_asset_counter` on a counter whose discriminator byte is not 0 returns Err and leaves `next_id` unchanged (a second init cannot reset the id sequence).
   - Location: `program-libs/interface/src/state/spl_asset_counter.rs:35-37` (`fn init`)
-  - Error: `ShieldedPoolError::SplAssetCounterAlreadyInitialized = 7046` (via `InterfaceError::AlreadyInitialized`, `program-libs/interface/src/error.rs`; 7045 is PR172's `ZeroNetInterfaceTransferAmount`)
+  - Error: `ShieldedPoolError::SplAssetCounterAlreadyInitialized = 7046`.
   - Severity: Critical (asset-id reuse would alias distinct mints)
   - Suggested test: negative (call twice); harness: program-tests integration (`cargo test-sbf`)
 

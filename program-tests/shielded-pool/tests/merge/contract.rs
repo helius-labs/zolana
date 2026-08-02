@@ -461,14 +461,28 @@ fn merge_ring_cpi_instruction(
 
 /// A valid-shaped `RingConfig` account written at a keypair address, so the
 /// "ring_config" can sign a LiteSVM transaction without a ring program CPI.
-/// Only the owner + size + discriminator checks apply (INV-XC-26); the stored
-/// fields are never validated against a derivation.
-fn write_fake_ring_config(rpc: &mut ZolanaProgramTest, address: Pubkey, discriminator: u8) {
-    let mut data = vec![0u8; RingConfig::SIZE];
-    if let Some(first) = data.first_mut() {
-        *first = discriminator;
-    }
-    write_ring_config_account(rpc, address, rpc.program_id, data);
+/// Only the owner + size + discriminator + active-state checks apply
+/// (INV-XC-26); the stored fields are never validated against a derivation.
+fn write_fake_ring_config(
+    rpc: &mut ZolanaProgramTest,
+    address: Pubkey,
+    discriminator: u8,
+    paused: bool,
+) {
+    let config = RingConfig {
+        discriminator,
+        authority: [0u8; 32].into(),
+        program_id: zolana_program_test::RING_TEST_PROGRAM_ID.into(),
+        ring_authority_transact_is_enabled: 1,
+        paused: u8::from(paused),
+        bump: 0,
+    };
+    write_ring_config_account(
+        rpc,
+        address,
+        rpc.program_id,
+        bytemuck::bytes_of(&config).to_vec(),
+    );
 }
 
 #[test]
@@ -495,7 +509,7 @@ fn merge_ring_rejects_a_ring_config_with_a_wrong_discriminator() {
     let (mut rpc, tree) = merge_env();
     // SPP-owned and correctly sized, but the discriminator byte is wrong.
     let fake = Keypair::new();
-    write_fake_ring_config(&mut rpc, fake.pubkey(), RING_CONFIG + 1);
+    write_fake_ring_config(&mut rpc, fake.pubkey(), RING_CONFIG + 1, false);
 
     let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(91));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = fake.pubkey();
@@ -514,7 +528,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
     // Valid signed ring config, so the payer signer check (third account) is
     // the branch that fires.
     let ring_config_signer = Keypair::new();
-    write_fake_ring_config(&mut rpc, ring_config_signer.pubkey(), RING_CONFIG);
+    write_fake_ring_config(&mut rpc, ring_config_signer.pubkey(), RING_CONFIG, false);
 
     let outsider = Pubkey::new_unique();
     let mut ix = MergeRing {
@@ -535,6 +549,23 @@ fn merge_ring_rejects_an_unsigned_payer() {
         zolana_account_checks::AccountError::InvalidSigner,
     ))
     .assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
+}
+
+#[test]
+fn merge_ring_rejects_a_paused_ring_config() {
+    let (mut rpc, tree) = merge_env();
+    let ring_config = Keypair::new();
+    write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, true);
+
+    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(94));
+    ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
+        .expect_err("a paused ring config must reject ring merge");
+    Rejection::pool(ShieldedPoolError::RingPaused).assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("rejected transaction trace")
         .assert_rolled_back_except(&[rpc.payer.pubkey()]);

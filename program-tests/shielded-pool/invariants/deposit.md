@@ -272,11 +272,20 @@ each selecting its asset by `asset_index` into `assets`.
 - [x] **INV-RING-DEPOSIT-04: ring_config must be a valid SPP-owned RingConfig**
   - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `ring_deposit_rejects_a_signer_that_is_not_the_ring_authority`
   - Kind: precondition
-  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly 67, and discriminator byte exactly 4; any violation returns Err.
+  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly 68, and discriminator byte exactly 4; any violation returns Err.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`)
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-RING-DEPOSIT-09: a paused ring cannot deposit**
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `paused_ring_rejects_ring_deposit_and_unpause_restores_it`
+  - Kind: precondition
+  - Statement: after signer and structural validation, `ring_deposit` returns `RingPaused` whenever `ring_config.paused` is nonzero, mutates no state, and succeeds again after the config authority clears the flag.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`), `deposit/account.rs` (`fn validate_and_parse`)
+  - Error: `ShieldedPoolError::RingPaused = 7047`
+  - Severity: Critical
+  - Suggested test: pause/reject/unpause/succeed; harness: litesvm
 
 ### Instruction Data Validation
 

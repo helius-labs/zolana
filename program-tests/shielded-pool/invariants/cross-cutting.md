@@ -260,20 +260,20 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/tests/state_props.rs` `state_sizes_and_discriminators_are_stable`
   - Kind: state
   - Affects: CreateProtocolConfig, UpdateProtocolConfig, CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner, CreateAssetCounter, CreateSplInterface, CreateTree
-  - Statement: `ProtocolConfig::SIZE` is exactly 132 with discriminator 3, `RingConfig::SIZE` exactly 67 with discriminator 4, `SplAssetCounter::SIZE` exactly 16 with discriminator 6, `SplAssetRegistry::SIZE` exactly 48 with discriminator 5, and the tree discriminator is exactly 1; each created account's `data_len` equals exactly its struct's SIZE.
+  - Statement: `ProtocolConfig::SIZE` is exactly 132 with discriminator 3, `RingConfig::SIZE` exactly 68 with discriminator 4, `SplAssetCounter::SIZE` exactly 16 with discriminator 6, `SplAssetRegistry::SIZE` exactly 48 with discriminator 5, and the tree discriminator is exactly 1; each created account's `data_len` equals exactly its struct's SIZE.
   - Location: `program-libs/interface/src/state/protocol_config.rs:66-67`, `ring_config.rs:37-38`, `spl_asset_counter.rs:58-59`, `spl_asset_registry.rs:64-65`, `discriminator.rs:1-5`
   - Severity: Medium (compile-time asserts exist; runtime pin catches layout drift)
   - Suggested test: positive (const asserts exist; add explicit pin test mirroring `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
 
 ## Ring Authorization Pattern
 
-- [x] **INV-XC-26: ring instructions authorize by ring_config signature, never re-derivation**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `ring_deposit_rejects_an_unsigned_ring_config` (plus the unsigned-config tests on ring_transact and ring merge cited in their files)
+- [x] **INV-XC-26: ring instructions require a signed, active ring_config and never re-derive it**
+  - Covered by: the unsigned and paused-config rejection tests in `deposit/rejection.rs`, `transact/guard.rs`, and `merge/contract.rs`
   - Kind: precondition
   - Affects: RingTransact, RingAuthorityTransact, RingDeposit, RingMergeTransact
-  - Statement: each ring instruction requires the `ring_config` account to be a signer and validates it only by owner + size + discriminator (the `ring_auth` derivation is checked exactly once, at `create_ring_config`); consequently a valid, signed config of ring A can never authorize an operation attributed to ring B, because the bound `program_id` is read from the signing account itself.
+  - Statement: each operational ring instruction requires the `ring_config` account to be a signer, validates owner + size + discriminator, and requires `paused == 0` (the `ring_auth` derivation is checked exactly once, at `create_ring_config`); consequently a valid, signed config of ring A can never authorize an operation attributed to ring B, and a paused ring cannot mutate protocol state. Administrative config update and rotation remain available while paused.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:140-163` (`RingTransactAccounts::validate_and_parse`), `deposit/account.rs:77-78`, `merge_ring/account.rs:22-39`, `ring_config/loader.rs:14-20`
-  - Error: `ShieldedPoolError::InvalidRingConfig = 7014` / signer errors
+  - Error: `ShieldedPoolError::InvalidRingConfig = 7014` / `ShieldedPoolError::RingPaused = 7047` / signer errors
   - Severity: Critical
   - Suggested test: negative (unsigned config; config faked with correct bytes but wrong owner); harness: mollusk unit
 
@@ -293,7 +293,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-28: error codes are stable**
   - Kind: state
   - Affects: all instructions
-  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7045 — 42 variants, incl. PR172's `ZeroNetInterfaceTransferAmount = 7045`; 7020/7021/7023/7024 retired; 7044 retired in place, kept for wire-code stability; 7046 `SplAssetCounterAlreadyInitialized` lands with the security/spp-config-init-gate branch), pinned one-by-one with a compiler-exhaustive variant match and a count assert.
+  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7047 — 44 variants, including `ZeroNetInterfaceTransferAmount = 7045`, `SplAssetCounterAlreadyInitialized = 7046`, and `RingPaused = 7047`; 7020/7021/7023/7024 retired; 7044 retired in place, kept for wire-code stability), pinned one-by-one with a compiler-exhaustive variant match and a count assert.
   - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
   - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
@@ -303,7 +303,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/tests/error_conversions.rs` `interface_error_conversions_are_stable`, `tree_error_conversions_are_stable` (full per-variant tables incl. the catch-all enumeration)
   - Kind: state
   - Affects: all instructions using loaders or trees
-  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001. (The `AlreadyInitialized -> 7046` `SplAssetCounterAlreadyInitialized` row lands with the security/spp-config-init-gate branch, like the other forward references in this ledger.)
+  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, and every other variant -> 7001.
   - Location: `program-libs/interface/src/error.rs:128-151` (`impl From<InterfaceError>`, `impl From<TreeError>`)
   - Severity: Medium
   - Suggested test: none remaining (table test exists)

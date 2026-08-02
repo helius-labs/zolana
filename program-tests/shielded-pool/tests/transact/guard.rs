@@ -11,6 +11,7 @@
 //! - a duplicate nullifier inside one instruction (7002)
 //! - a negative clock (7005) and a paused tree on the ring rails (7013)
 //! - ring-config defects on the ring rails (7014 / signer error)
+//! - paused ring configs on both ring transact rails (7047)
 
 use shielded_pool_tests::support::{fixtures::Pool, transact::write_ring_config_account};
 
@@ -90,15 +91,22 @@ fn expect_ix_rejection(env: &mut Pool, ix: Instruction, signers: &[&Keypair], ex
 
 /// Materialize a `RingConfig` at a fresh keypair address so tests can
 /// produce the signature the ring rails require without the ring program's
-/// `invoke_signed`. `load_ring_config` validates only owner, size, and
-/// discriminator (the `ring_auth` derivation is bound once, at creation),
-/// so a signing keypair account stands in for the canonical PDA.
-fn write_ring_config(env: &mut Pool, owner: Pubkey, discriminator: u8, enabled: bool) -> Keypair {
+/// `invoke_signed`. The operational loader validates owner, size,
+/// discriminator, and active state (the `ring_auth` derivation is bound once,
+/// at creation), so a signing keypair account stands in for the canonical PDA.
+fn write_ring_config(
+    env: &mut Pool,
+    owner: Pubkey,
+    discriminator: u8,
+    enabled: bool,
+    paused: bool,
+) -> Keypair {
     let config = RingConfig {
         discriminator,
         authority: Address::new_from_array([9u8; 32]),
         program_id: Address::new_from_array(RING_TEST_PROGRAM_ID),
         ring_authority_transact_is_enabled: u8::from(enabled),
+        paused: u8::from(paused),
         bump: 255,
     };
     let keypair = Keypair::new();
@@ -505,7 +513,7 @@ fn ring_transact_rejects_a_ring_config_with_a_wrong_owner() {
     let mut env = Pool::initialized();
     // INV-RING-TRANSACT-02: correct RingConfig bytes at a signed but
     // system-owned account cannot authorize a ring.
-    let ring_config = write_ring_config(&mut env, Pubkey::default(), RING_CONFIG, true);
+    let ring_config = write_ring_config(&mut env, Pubkey::default(), RING_CONFIG, true, false);
     let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
     expect_ix_rejection(
         &mut env,
@@ -520,13 +528,32 @@ fn ring_transact_rejects_a_ring_config_with_a_wrong_discriminator() {
     let mut env = Pool::initialized();
     // INV-RING-TRANSACT-02: program-owned and signed, but the first byte is
     // not exactly the RingConfig discriminator (4).
-    let ring_config = write_ring_config(&mut env, pda::shielded_pool_program_id(), 0, true);
+    let ring_config = write_ring_config(&mut env, pda::shielded_pool_program_id(), 0, true, false);
     let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
     expect_ix_rejection(
         &mut env,
         ix,
         &[&ring_config],
         Rejection::pool(ShieldedPoolError::InvalidRingConfig),
+    );
+}
+
+#[test]
+fn ring_transact_rejects_a_paused_ring_config() {
+    let mut env = Pool::initialized();
+    let ring_config = write_ring_config(
+        &mut env,
+        pda::shielded_pool_program_id(),
+        RING_CONFIG,
+        true,
+        true,
+    );
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::RingPaused),
     );
 }
 
@@ -543,6 +570,7 @@ fn ring_transact_rejects_a_paused_tree() {
         &mut env,
         pda::shielded_pool_program_id(),
         RING_CONFIG,
+        false,
         false,
     );
     let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
@@ -584,6 +612,25 @@ fn ring_authority_transact_rejects_an_unsigned_ring_config() {
 }
 
 #[test]
+fn ring_authority_transact_prioritizes_paused_over_disabled() {
+    let mut env = Pool::initialized();
+    let ring_config = write_ring_config(
+        &mut env,
+        pda::shielded_pool_program_id(),
+        RING_CONFIG,
+        false,
+        true,
+    );
+    let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 2));
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::RingPaused),
+    );
+}
+
+#[test]
 fn ring_authority_transact_rejects_a_paused_tree() {
     let mut env = Pool::initialized();
     let authority = env.authority.insecure_clone();
@@ -591,8 +638,13 @@ fn ring_authority_transact_rejects_a_paused_tree() {
         .pause_tree(&authority, &env.tree, true)
         .expect("pause tree");
     // INV-XC-08: even an enabled ring authority cannot write a paused tree.
-    let ring_config =
-        write_ring_config(&mut env, pda::shielded_pool_program_id(), RING_CONFIG, true);
+    let ring_config = write_ring_config(
+        &mut env,
+        pda::shielded_pool_program_id(),
+        RING_CONFIG,
+        true,
+        false,
+    );
     let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 2));
     expect_ix_rejection(
         &mut env,
@@ -608,8 +660,13 @@ fn ring_authority_transact_rejects_a_non_square_shape() {
     // INV-RING-AUTH-04: the ring-authority keys cover exactly the square
     // shapes (1,1)..(4,4); (2 inputs, 3 outputs) is wire-valid (and a
     // supported ring_transact shape) but must fail key selection here.
-    let ring_config =
-        write_ring_config(&mut env, pda::shielded_pool_program_id(), RING_CONFIG, true);
+    let ring_config = write_ring_config(
+        &mut env,
+        pda::shielded_pool_program_id(),
+        RING_CONFIG,
+        true,
+        false,
+    );
     let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 3));
     expect_ix_rejection(
         &mut env,

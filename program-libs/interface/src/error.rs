@@ -124,6 +124,8 @@ pub enum ShieldedPoolError {
     ZeroNetInterfaceTransferAmount = 7045,
     #[error("SPL asset counter is already initialized")]
     SplAssetCounterAlreadyInitialized = 7046,
+    #[error("ring is paused")]
+    RingPaused = 7047,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -212,6 +214,7 @@ mod tests {
                 NullifierTreeTooFullForMerge => 7044,
                 ZeroNetInterfaceTransferAmount => 7045,
                 SplAssetCounterAlreadyInitialized => 7046,
+                RingPaused => 7047,
             }
         }
 
@@ -260,6 +263,8 @@ mod tests {
             UnsupportedToken2022Extension,
             NullifierTreeTooFullForMerge,
             ZeroNetInterfaceTransferAmount,
+            SplAssetCounterAlreadyInitialized,
+            RingPaused,
         ];
         for variant in variants {
             assert_eq!(
@@ -268,9 +273,7 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 42 variants on this branch (7046
-        // `SplAssetCounterAlreadyInitialized` lands with the
-        // security/spp-config-init-gate branch).
-        assert_eq!(variants.len(), 42, "variant count drifted");
+        // The live wire surface is exactly 44 variants on this branch.
+        assert_eq!(variants.len(), 44, "variant count drifted");
     }
 }

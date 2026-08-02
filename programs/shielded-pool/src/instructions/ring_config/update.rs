@@ -14,5 +14,6 @@ pub fn process_update_ring_config(accounts: &mut [AccountView], data: &[u8]) -> 
 
     let mut current = load_and_validate_ring_authority_mut(config, authority)?;
     current.ring_authority_transact_is_enabled = u8::from(data.ring_authority_transact_is_enabled);
+    current.paused = u8::from(data.paused);
     Ok(())
 }

@@ -192,11 +192,20 @@ nullifiers.
 - [x] **INV-RING-MERGE-02: ring_config must be a valid SPP-owned RingConfig**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_a_ring_config_with_a_wrong_owner`, `merge_ring_rejects_a_ring_config_with_a_wrong_discriminator`
   - Kind: precondition
-  - Statement: the `ring_config` account must be owned by the shielded-pool program with `data_len` exactly 67 and discriminator 4; any violation returns Err.
+  - Statement: the `ring_config` account must be owned by the shielded-pool program with `data_len` exactly 68 and discriminator 4; any violation returns Err.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`), `merge_ring/account.rs:27`
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-RING-MERGE-14: a paused ring cannot merge**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_a_paused_ring_config`
+  - Kind: precondition
+  - Statement: after signer and structural validation, `ring_merge_transact` returns `RingPaused` whenever `ring_config.paused` is nonzero and performs no state mutation.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`), `merge_ring/account.rs` (`fn validate_and_parse`)
+  - Error: `ShieldedPoolError::RingPaused = 7047`
+  - Severity: Critical
+  - Suggested test: negative; harness: litesvm
 
 - [x] **INV-RING-MERGE-03: payer must sign**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_an_unsigned_payer`

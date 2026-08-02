@@ -436,11 +436,20 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-RING-TRANSACT-02: ring_config must be a valid SPP-owned RingConfig**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_transact_rejects_a_ring_config_with_a_wrong_owner`, `ring_transact_rejects_a_ring_config_with_a_wrong_discriminator`
   - Kind: precondition
-  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly `RingConfig::SIZE` (67), and discriminator byte exactly 4; any violation returns Err.
+  - Statement: the `ring_config` account must be owned by the shielded-pool program, have `data_len` exactly `RingConfig::SIZE` (68), and discriminator byte exactly 4; any violation returns Err.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`)
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical
   - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-RING-TRANSACT-08: a paused ring cannot transact**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_transact_rejects_a_paused_ring_config`, `ring_authority_transact_prioritizes_paused_over_disabled`
+  - Kind: precondition
+  - Statement: both ring transact variants return `RingPaused` whenever the valid signing config has a nonzero `paused` field. For `ring_authority_transact`, this check precedes `ring_authority_transact_is_enabled`.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`), `transact/account.rs` (`fn validate_and_parse`)
+  - Error: `ShieldedPoolError::RingPaused = 7047`
+  - Severity: Critical
+  - Suggested test: negative; harness: litesvm
 
 ### Proof Binding
 

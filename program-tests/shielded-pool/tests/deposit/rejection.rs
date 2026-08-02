@@ -390,6 +390,51 @@ fn paused_tree_rejects_ring_deposit() {
 }
 
 #[test]
+fn paused_ring_rejects_ring_deposit_and_unpause_restores_it() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let ring_authority = pool.authority.insecure_clone();
+    let ring_config = pool
+        .rpc
+        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .expect("create ring config");
+    pool.rpc
+        .update_ring_config(&ring_authority, &ring_config, true, true)
+        .expect("pause ring config");
+
+    let depositor = pool.funded_signer(2_000_000_000);
+    let tree = pool.tree.pubkey();
+    let tree_before = pool.rpc.account_data(&tree).expect("tree data");
+    let data = pool
+        .rpc
+        .ring_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
+
+    let err = pool
+        .rpc
+        .ring_deposit(&tree, &depositor, &data)
+        .expect_err("paused ring deposit must fail");
+    Rejection::pool(ShieldedPoolError::RingPaused).assert_litesvm(err);
+    assert_eq!(
+        pool.rpc.account_data(&tree).expect("tree data"),
+        tree_before,
+        "paused ring deposit must not mutate the tree"
+    );
+    pool.rpc
+        .last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
+
+    pool.rpc
+        .update_ring_config(&ring_authority, &ring_config, true, false)
+        .expect("unpause ring config");
+    pool.rpc
+        .ring_deposit(&tree, &depositor, &data)
+        .expect("ring deposit succeeds after unpause");
+}
+
+#[test]
 fn ring_deposit_rejects_a_signer_that_is_not_the_ring_authority() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
