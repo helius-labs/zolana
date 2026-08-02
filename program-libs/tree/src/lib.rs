@@ -27,7 +27,7 @@ use zolana_batched_merkle_tree::{
 /// Height of the pool's UTXO state tree. `TreeAccount::init` rejects any
 /// other height; exported so programs/tests initialize trees with the same
 /// value instead of pinning a literal by comment.
-pub const POOL_UTXO_HEIGHT: usize = 32;
+pub const UTXO_TREE_HEIGHT: usize = 32;
 
 const NULLIFIER_RH: usize = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN as usize;
 const NULLIFIER_NUM_ITERS: usize = ADDRESS_BLOOM_FILTER_NUM_HASHES as usize;
@@ -88,7 +88,7 @@ unsafe impl<
 }
 
 type SppTreeLayout = TreeAccountLayout<
-    POOL_UTXO_HEIGHT,
+    UTXO_TREE_HEIGHT,
     NULLIFIER_RH,
     NULLIFIER_NUM_ITERS,
     NULLIFIER_BLOOM,
@@ -129,7 +129,7 @@ impl<'a> TreeAccount<'a> {
         pubkey: [u8; 32],
         nullifier_params: InitAddressTreeAccountsInstructionData,
     ) -> Result<Self, TreeError> {
-        if utxo_tree_height as usize != POOL_UTXO_HEIGHT {
+        if utxo_tree_height as usize != UTXO_TREE_HEIGHT {
             return Err(TreeError::HeightTooLarge);
         }
         // Validate before dividing: the params are untrusted instruction data,
@@ -256,7 +256,7 @@ impl<'a> TreeAccount<'a> {
         }
     }
 
-    pub fn utxo_tree(&mut self) -> &mut UtxoTreeLayout<POOL_UTXO_HEIGHT> {
+    pub fn utxo_tree(&mut self) -> &mut UtxoTreeLayout<UTXO_TREE_HEIGHT> {
         &mut self.layout_mut().utxo
     }
 
@@ -333,7 +333,7 @@ const fn dummy_inputs_allowed(nullifier_remaining: u64, state_remaining: u64) ->
 }
 
 fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
-    if layout.utxo.subtrees_len as usize != POOL_UTXO_HEIGHT
+    if layout.utxo.subtrees_len as usize != UTXO_TREE_HEIGHT
         || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
     {
         return Err(TreeError::Deserialize);
@@ -354,13 +354,13 @@ mod layout_equivalence {
     #[test]
     fn size_and_offset_match_old_layout() {
         let old_account_size = HEADER_LEN
-            + old_utxo_size(POOL_UTXO_HEIGHT)
+            + old_utxo_size(UTXO_TREE_HEIGHT)
             + size_of::<
                 NullifierLayout<NULLIFIER_RH, NULLIFIER_NUM_ITERS, NULLIFIER_BLOOM, NULLIFIER_ZKP>,
             >();
         assert_eq!(size_of::<SppTreeLayout>(), old_account_size);
 
-        let old_nullifier_offset = HEADER_LEN + old_utxo_size(POOL_UTXO_HEIGHT);
+        let old_nullifier_offset = HEADER_LEN + old_utxo_size(UTXO_TREE_HEIGHT);
         assert_eq!(
             core::mem::offset_of!(SppTreeLayout, nullifier),
             old_nullifier_offset
@@ -368,8 +368,8 @@ mod layout_equivalence {
 
         assert_eq!(core::mem::offset_of!(SppTreeLayout, utxo), HEADER_LEN);
         assert_eq!(
-            size_of::<UtxoTreeLayout<POOL_UTXO_HEIGHT>>(),
-            UtxoTreeLayout::<POOL_UTXO_HEIGHT>::serialized_size(POOL_UTXO_HEIGHT)
+            size_of::<UtxoTreeLayout<UTXO_TREE_HEIGHT>>(),
+            UtxoTreeLayout::<UTXO_TREE_HEIGHT>::serialized_size(UTXO_TREE_HEIGHT)
         );
     }
 
@@ -378,7 +378,7 @@ mod layout_equivalence {
         let mut bytes = vec![0u8; size_of::<SppTreeLayout>()];
         {
             let layout: &mut SppTreeLayout = wincode::deserialize_mut(&mut bytes).expect("cast");
-            layout.utxo.init(POOL_UTXO_HEIGHT).unwrap();
+            layout.utxo.init(UTXO_TREE_HEIGHT).unwrap();
             let mut leaf = [0u8; 32];
             leaf[31] = 9;
             layout.utxo.append(leaf).unwrap();
