@@ -1,10 +1,7 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
-use zolana_keypair::{
-    hash::{sha256, sha256_be},
-    SignatureType, ViewingKey, ViewingKeyTrait,
-};
+use zolana_keypair::{hash::sha256, SignatureType, ViewingKey, ViewingKeyTrait};
 
 use super::{
     shape::{Shape, SPP_SUPPORTED_SHAPES},
@@ -80,16 +77,17 @@ pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
     Ok(keypair.get_transaction_viewing_key(&first_nullifier)?)
 }
 
-/// Uniform public movement slots: ordered interface transfers are accumulated per
-/// asset in first-appearance order. Once assigned, a slot remains occupied even
-/// if its net amount returns to zero; only never-assigned slots are `(0, 0)`.
+/// Uniform public transfer slots: ordered interface transfers are accumulated per
+/// asset in first-appearance order. The circuit pins an idle slot to `(0, 0)`, so
+/// legs whose net for one asset returns to zero are rejected (they could never be
+/// proven); only never-assigned slots stay `(0, 0)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PublicMovements {
+pub struct PublicTransfers {
     pub assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub amounts: [[u8; 32]; N_PUBLIC_SLOTS],
 }
 
-impl PublicMovements {
+impl PublicTransfers {
     pub fn interleaved(&self) -> [[u8; 32]; 2 * N_PUBLIC_SLOTS] {
         core::array::from_fn(|index| {
             let slot = index / 2;
@@ -107,7 +105,7 @@ pub struct SppProofInputs {
     pub input_utxos: Vec<SppProofInputUtxo>,
     pub output_utxos: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub payer_pubkey_hash: [u8; 32],
+    pub payer: Address,
 }
 
 impl SppProofInputs {
@@ -121,8 +119,51 @@ impl SppProofInputs {
             input_utxos,
             output_utxos,
             external_data,
-            payer_pubkey_hash: sha256_be(payer.as_array()),
+            payer,
         }
+    }
+
+    /// Unique non-payer Ed25519 input owners in first-input order. This is the
+    /// account vector appended by the high-level instruction builder; the
+    /// program applies the same payer-seeded first-occurrence normalization.
+    pub fn owner_signer_pubkeys(&self) -> Result<Vec<Address>, TransactionError> {
+        let mut signers = Vec::new();
+        let mut signer_hashes: Vec<[u8; 32]> = Vec::new();
+        for spend in self.input_utxos.iter().filter(|spend| !spend.is_dummy()) {
+            if spend.utxo.owner.signature_type()? == SignatureType::P256 {
+                continue;
+            }
+            let address = Address::new_from_array(spend.utxo.owner.as_ed25519()?);
+            let hash = spend.utxo.owner.owner_proof_input_hash()?;
+            if address == self.payer || signer_hashes.contains(&hash) {
+                continue;
+            }
+            signer_hashes.push(hash);
+            signers.push(address);
+        }
+        Ok(signers)
+    }
+
+    /// Fixed-width signer identity vector committed by the circuit. The payer
+    /// occupies slot zero, followed by unique non-payer input owners.
+    pub fn signer_pk_hashes(&self, width: usize) -> Result<Vec<[u8; 32]>, TransactionError> {
+        let mut hashes = vec![zolana_hasher::primitives::hash_bytes(
+            self.payer.as_array(),
+        )?];
+        hashes.extend(
+            self.owner_signer_pubkeys()?
+                .iter()
+                .map(|signer| zolana_hasher::primitives::hash_bytes(signer.as_array()))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        if hashes.len() > width {
+            return Err(TransactionError::UnsupportedShape {
+                n_in: self.input_utxos.len(),
+                n_out: self.output_utxos.len(),
+            });
+        }
+        hashes.resize(width, [0u8; 32]);
+        Ok(hashes)
     }
 
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {
@@ -134,7 +175,7 @@ impl SppProofInputs {
             .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
     }
 
-    pub fn public_movements(&self) -> Result<PublicMovements, TransactionError> {
+    pub fn public_transfers(&self) -> Result<PublicTransfers, TransactionError> {
         if self.external_data.interface_transfers.len() > MAX_INTERFACE_TRANSFERS {
             return Err(TransactionError::TooManyInterfaceTransfers {
                 got: self.external_data.interface_transfers.len(),
@@ -164,12 +205,15 @@ impl SppProofInputs {
             {
                 *total = total
                     .checked_add(signed)
-                    .ok_or(TransactionError::PublicMovementOverflow { asset })?;
+                    .ok_or(TransactionError::PublicTransferOverflow { asset })?;
                 u64::try_from(total.unsigned_abs())
-                    .map_err(|_| TransactionError::PublicMovementOverflow { asset })?;
+                    .map_err(|_| TransactionError::PublicTransferOverflow { asset })?;
             } else {
                 aggregated.push((asset, signed));
             }
+        }
+        if let Some((asset, _)) = aggregated.iter().find(|(_, total)| *total == 0) {
+            return Err(TransactionError::ZeroNetInterfaceTransferAmount { asset: *asset });
         }
         if aggregated.len() > N_PUBLIC_SLOTS {
             return Err(TransactionError::TooManyPublicAssets {
@@ -178,15 +222,15 @@ impl SppProofInputs {
             });
         }
 
-        let mut movements = PublicMovements::default();
-        for ((asset_slot, amount_slot), (asset, amount)) in movements
+        let mut transfers = PublicTransfers::default();
+        for ((asset_slot, amount_slot), (asset, amount)) in transfers
             .assets
             .iter_mut()
-            .zip(movements.amounts.iter_mut())
+            .zip(transfers.amounts.iter_mut())
             .zip(aggregated)
         {
             let magnitude = u64::try_from(amount.unsigned_abs())
-                .map_err(|_| TransactionError::PublicMovementOverflow { asset })?;
+                .map_err(|_| TransactionError::PublicTransferOverflow { asset })?;
             *asset_slot = if asset == SOL_MINT {
                 SOL_ASSET_FIELD
             } else {
@@ -194,7 +238,7 @@ impl SppProofInputs {
             };
             *amount_slot = signed_magnitude_to_field(amount > 0, magnitude);
         }
-        Ok(movements)
+        Ok(transfers)
     }
 
     /// Nullifiers of the padding (dummy) input slots, in slot order. The circuit
@@ -247,5 +291,84 @@ impl SppProofInputs {
         let private_tx =
             PrivateTxHash::new(&input_hashes, &output_hashes, &external_data_hash).hash()?;
         Ok(sha256(&private_tx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_keypair::{ShieldedKeypair, ViewingKey};
+
+    use super::*;
+    use crate::{Data, Utxo};
+
+    fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
+        ShieldedKeypair::from_ed25519(&[seed; 32], ViewingKey::new()).expect("Ed25519 keypair")
+    }
+
+    fn input(keypair: &ShieldedKeypair) -> SppProofInputUtxo {
+        SppProofInputUtxo::new(
+            Utxo {
+                owner: keypair.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 1,
+                blinding: [7u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            keypair,
+        )
+    }
+
+    #[test]
+    fn signer_vector_is_payer_seeded_deduplicated_and_zero_padded() {
+        let payer = ed25519_keypair(3);
+        let other = ed25519_keypair(9);
+        let payer_address = Address::new_from_array(
+            payer
+                .signing_pubkey()
+                .as_ed25519()
+                .expect("payer Ed25519 pubkey"),
+        );
+        let proof_inputs = SppProofInputs::new(
+            vec![
+                input(&payer),
+                input(&other),
+                input(&other),
+                SppProofInputUtxo::new_dummy(),
+            ],
+            Vec::new(),
+            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new()),
+            payer_address,
+        );
+
+        let signers = proof_inputs.owner_signer_pubkeys().unwrap();
+        assert_eq!(signers.len(), 1);
+        assert_eq!(
+            signers[0],
+            Address::new_from_array(
+                other
+                    .signing_pubkey()
+                    .as_ed25519()
+                    .expect("other Ed25519 pubkey"),
+            )
+        );
+
+        let hashes = proof_inputs.signer_pk_hashes(5).unwrap();
+        assert_eq!(
+            hashes,
+            vec![
+                payer
+                    .signing_pubkey()
+                    .owner_proof_input_hash()
+                    .expect("payer owner hash"),
+                other
+                    .signing_pubkey()
+                    .owner_proof_input_hash()
+                    .expect("other owner hash"),
+                [0u8; 32],
+                [0u8; 32],
+                [0u8; 32],
+            ]
+        );
     }
 }

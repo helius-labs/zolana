@@ -21,9 +21,10 @@ use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use rand::RngCore;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
-    spawn_prover, InputUtxoContext, ProverClient, PublicMovements, Rpc, Shape, TransferProver,
+    spawn_prover, InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},
     verifying_keys::{
@@ -98,11 +99,11 @@ fn async_queue_result_count() -> Option<u64> {
 
 fn dummy_external_data(owner_tag: [u8; 32], n_outputs: usize) -> ExternalData {
     ExternalData {
-        instruction_discriminator: 0,
+        instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
         expiry_unix_ts: 0,
         interface_transfers: Vec::new(),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
         outputs: (0..n_outputs)
@@ -134,7 +135,7 @@ fn real_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
@@ -165,7 +166,7 @@ fn real_input() -> TransferSpendInput {
         utxo,
         nullifier_key,
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         proof: Some(proof),
         nullifier_proof: None,
     }
@@ -183,7 +184,7 @@ fn dummy_input() -> TransferSpendInput {
         asset: SOL_MINT,
         amount: 0,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let mut spend = SppProofInputUtxo::new_dummy();
@@ -194,7 +195,7 @@ fn dummy_input() -> TransferSpendInput {
         utxo,
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
-        zone_data_hash: None,
+        ring_data_hash: None,
         proof: None,
         nullifier_proof: Some(nullifier_proof),
     }
@@ -244,13 +245,15 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         inputs.push(dummy_input());
     }
     let outputs = (0..n_out).map(|_| dummy_output(owner_tag)).collect();
+    let mut signer_pk_hashes = vec![[0u8; 32]; n_in + 1];
+    signer_pk_hashes[1] = hash_bytes(&owner_tag).expect("owner signer hash");
 
     let prover = TransferProver {
         inputs,
         outputs,
         external_data: dummy_external_data(owner_tag, n_out),
-        public_movements: PublicMovements::default(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: PublicTransfers::default(),
+        signer_pk_hashes,
         allow_dummy_inputs: true,
         shape: Some(Shape::new(n_in, n_out)),
     };
@@ -317,8 +320,12 @@ fn dummy_transfer_2_3_proof_verifies() {
             dummy_output(owner_tag),
         ],
         external_data: dummy_external_data(owner_tag, 3),
-        public_movements: PublicMovements::default(),
-        payer_pubkey_hash: [0u8; 32],
+        public_transfers: PublicTransfers::default(),
+        signer_pk_hashes: vec![
+            [0u8; 32],
+            hash_bytes(&owner_tag).expect("owner signer hash"),
+            [0u8; 32],
+        ],
         allow_dummy_inputs: true,
         shape: Some(Shape::new(2, 3)),
     };

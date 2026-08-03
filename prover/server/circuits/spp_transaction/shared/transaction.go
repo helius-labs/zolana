@@ -19,7 +19,7 @@ import (
 //  1. view its witness as a Transaction    (per-variant transaction method)
 //  2. validate the layout                  (Transaction.ValidateLayout plus the
 //     variant's own slices)
-//  3. assert its zone rule                 (zone.go) and its ZoneProgramID value
+//  3. assert its ring rule                 (ring.go) and its RingProgramID value
 //  4. assert its published owner-tag rules (owner_tags.go)
 //  5. resolve who signed into Signers      (signers.go; the P256 rails first
 //     verify their one shared P256 signature)
@@ -32,7 +32,7 @@ import (
 //     6.5. public input hash, ending in the variant's preimage tail
 
 // Transaction is the transaction every variant proves, over one variant's
-// already-allocated witness. It runs no signer, zone, or owner-tag check: the
+// already-allocated witness. It runs no signer, ring, or owner-tag check: the
 // variant asserts those and resolves who signed, then hands the results to
 // Constrain. What is left is shared by all five variants.
 //
@@ -50,22 +50,26 @@ type Transaction struct {
 	Inputs  []Input
 	Outputs []UtxoCircuitFields
 
-	PrivateTxHash    frontend.Variable
-	ExternalDataHash frontend.Variable
-	PublicAssets     [NPublicSlots]frontend.Variable
-	PublicAmounts    [NPublicSlots]frontend.Variable
-	ZoneProgramID    frontend.Variable
-	PayerPubkeyHash  frontend.Variable
-	AllowDummyInputs frontend.Variable
-	PublicInputHash  frontend.Variable
+	PrivateTxHash     frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PublicAssets      [NPublicSlots]frontend.Variable
+	PublicAmounts     [NPublicSlots]frontend.Variable
+	RingProgramID     frontend.Variable
+	SignerPkHashChain frontend.Variable
+	AllowDummyInputs  frontend.Variable
+	PublicInputHash   frontend.Variable
+
+	// PreimageAfterPrivateTxHash contains variant-specific fields inserted
+	// immediately after PrivateTxHash in the public-input-hash preimage.
+	PreimageAfterPrivateTxHash []frontend.Variable
 
 	// PreimageTail ends the public-input-hash preimage with everything that is
 	// variant-dependent, in this order and count, mirroring the program's
 	// recomputation (transact/verify.rs):
 	//
-	//	default zone:      input owner chain, output owner chain
-	//	custom zone:       input owner chain
-	//	zone authority:    owner tags stay private
+	//	default ring:      output owner chain
+	//	owner-signed ring: masked output owner chain
+	//	ring authority:    owner tags stay private
 	//
 	// Constrain only chains these, never reads them: the count varies, so naming
 	// them as fields would need nil-means-omit branching in here instead.
@@ -82,7 +86,7 @@ type LengthCheck struct {
 // ValidateLayout checks every slice the transaction indexes against the length
 // the compiled skeleton was sized with, plus the variant's own slices. It must
 // run before anything indexes them, so a variant calls it before asserting its
-// zone rule or resolving its signers.
+// ring rule or resolving its signers.
 func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 	if err := validateInputs(t.Shape.NInputs, t.Inputs); err != nil {
 		return err
@@ -165,10 +169,11 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 		gadget.HashChain(api, t.UtxoTreeRoots),
 		gadget.HashChain(api, t.NullifierTreeRoots),
 		t.PrivateTxHash,
-		t.ExternalDataHash,
 	}
+	fields = append(fields, t.PreimageAfterPrivateTxHash...)
+	fields = append(fields, t.ExternalDataHash)
 	fields = append(fields, publicSlots(t.PublicAssets, t.PublicAmounts)...)
-	fields = append(fields, t.ZoneProgramID, t.PayerPubkeyHash, t.AllowDummyInputs)
+	fields = append(fields, t.RingProgramID, t.SignerPkHashChain, t.AllowDummyInputs)
 	fields = append(fields, t.PreimageTail...)
 	return gadget.HashChain(api, fields)
 }

@@ -16,8 +16,8 @@ type externalDataPreimage struct {
 	InterfaceTransfers       []resolvedInterfaceTransfer
 	DataHashPresent          bool
 	DataHash                 [32]byte
-	ZoneDataHashPresent      bool
-	ZoneDataHash             [32]byte
+	RingDataHashPresent      bool
+	RingDataHash             [32]byte
 	TxViewingPk              [33]byte
 	Salt                     [16]byte
 	Outputs                  []resolvedOutput
@@ -47,12 +47,12 @@ type resolvedMessage struct {
 type externalValues struct {
 	hash        *big.Int
 	publicSlots publicSlots
-	// zoneProgramID is the single per-tx zone program identifier (public input).
-	// Zero on default transact. dataHash / zoneDataHash are the tx-level
-	// program/zone data hashes folded into external_data_hash.
-	zoneProgramID *big.Int
+	// ringProgramID is the single per-tx ring program identifier (public input).
+	// Zero on default transact. dataHash / ringDataHash are the tx-level
+	// program/ring data hashes folded into external_data_hash.
+	ringProgramID *big.Int
 	dataHash      *big.Int
-	zoneDataHash  *big.Int
+	ringDataHash  *big.Int
 }
 
 func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (externalValues, error) {
@@ -87,27 +87,27 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 	if err != nil {
 		return externalValues{}, fmt.Errorf("data_hash: %w", err)
 	}
-	zoneDataHash, err := parse.OptionalField(tx.ZoneDataHash)
+	ringDataHash, err := parse.OptionalField(tx.RingDataHash)
 	if err != nil {
-		return externalValues{}, fmt.Errorf("zone_data_hash: %w", err)
+		return externalValues{}, fmt.Errorf("ring_data_hash: %w", err)
 	}
-	// This harness builds only bare default-zone transfers: every UTXO's
-	// program/zone fields are zero, so the tx-level program/zone values must be
+	// This harness builds only bare default-ring transfers: every UTXO's
+	// program/ring fields are zero, so the tx-level program/ring values must be
 	// zero too. Reject early with a clear error instead of failing inside the
 	// constraint solver.
 	if dataHash.Sign() != 0 {
-		return externalValues{}, fmt.Errorf("data_hash must be zero: this harness builds only bare default-zone transfers")
+		return externalValues{}, fmt.Errorf("data_hash must be zero: this harness builds only bare default-ring transfers")
 	}
-	if zoneDataHash.Sign() != 0 {
-		return externalValues{}, fmt.Errorf("zone_data_hash must be zero: this harness builds only bare default-zone transfers")
+	if ringDataHash.Sign() != 0 {
+		return externalValues{}, fmt.Errorf("ring_data_hash must be zero: this harness builds only bare default-ring transfers")
 	}
 	dataHashBytes, err := parse.FieldBytes(dataHash)
 	if err != nil {
 		return externalValues{}, fmt.Errorf("data_hash: %w", err)
 	}
-	zoneDataHashBytes, err := parse.FieldBytes(zoneDataHash)
+	ringDataHashBytes, err := parse.FieldBytes(ringDataHash)
 	if err != nil {
-		return externalValues{}, fmt.Errorf("zone_data_hash: %w", err)
+		return externalValues{}, fmt.Errorf("ring_data_hash: %w", err)
 	}
 	txViewingPkBytes, err := fixedHexBytes(tx.TxViewingPk, 33)
 	if err != nil {
@@ -130,27 +130,27 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 			InstructionDiscriminator: tx.InstructionDiscriminator,
 			ExpiryUnixTs:             tx.ExpiryUnixTs,
 			InterfaceTransfers:       interfaceTransfers,
-			// This harness only accepts bare default-zone transfers, so both
+			// This harness only accepts bare default-ring transfers, so both
 			// transaction-level optional hashes are canonically None. The
 			// parsed zero values above are their circuit field values, not
 			// present Option values.
 			DataHashPresent:     false,
 			DataHash:            dataHashBytes,
-			ZoneDataHashPresent: false,
-			ZoneDataHash:        zoneDataHashBytes,
+			RingDataHashPresent: false,
+			RingDataHash:        ringDataHashBytes,
 			TxViewingPk:         txViewingPk,
 			Salt:                salt,
 			Outputs:             outputs,
 			Messages:            nil,
 		}),
 		publicSlots: slots,
-		// The custom-zone circuits assert the public zone id is
-		// nonzero: on-chain they are reachable only via zone_transact, whose
-		// zone id comes from the validated ZoneConfig and is never 0. The
+		// The custom-ring circuits assert the public ring id is
+		// nonzero: on-chain they are reachable only via ring_transact, whose
+		// ring id comes from the validated RingConfig and is never 0. The
 		// harness models bare UTXOs, which stay member-or-free under any id.
-		zoneProgramID: big.NewInt(1),
+		ringProgramID: big.NewInt(1),
 		dataHash:      dataHash,
-		zoneDataHash:  zoneDataHash,
+		ringDataHash:  ringDataHash,
 	}, nil
 }
 
@@ -274,8 +274,8 @@ func externalDataFieldHash(data externalDataPreimage) *big.Int {
 		legSection,
 		[]byte{byteFromBool(data.DataHashPresent)},
 		data.DataHash[:],
-		[]byte{byteFromBool(data.ZoneDataHashPresent)},
-		data.ZoneDataHash[:],
+		[]byte{byteFromBool(data.RingDataHashPresent)},
+		data.RingDataHash[:],
 		data.TxViewingPk[:],
 		data.Salt[:],
 		outputSection,

@@ -7,14 +7,14 @@ import (
 )
 
 // InputParams mirrors merge.Input. Only the free per-slot UTXO fields are
-// carried; the shared owner/asset and the constant data/zone-program fields are
+// carried; the shared owner/asset and the constant data/ring-program fields are
 // reconstructed in-circuit. Every value is pre-computed client-side; the prover
 // only assigns them onto circuit signals.
 type InputParams struct {
 	Domain       *big.Int
 	Amount       *big.Int
 	Blinding     *big.Int
-	ZoneDataHash *big.Int
+	RingDataHash *big.Int
 
 	StatePathElements []*big.Int // len StateTreeHeight
 	StatePathIndex    *big.Int
@@ -32,7 +32,7 @@ type InputParams struct {
 // OutputParams mirrors merge.Output: only the free leaf field plus the
 // committed hash.
 type OutputParams struct {
-	ZoneDataHash *big.Int
+	RingDataHash *big.Int
 	Hash         *big.Int
 }
 
@@ -42,7 +42,7 @@ type OutputParams struct {
 // and the public-input hash) and sends them here.
 type MergeParameters struct {
 	// CircuitType selects the rail: MergeCircuitType (default) or
-	// MergeZoneCircuitType (policy zone). It chooses which circuit the witness is
+	// MergeRingCircuitType (policy ring). It chooses which circuit the witness is
 	// assigned onto.
 	CircuitType common.CircuitType
 
@@ -52,11 +52,11 @@ type MergeParameters struct {
 	// Asset is the single asset shared by every real input and the merged output.
 	Asset *big.Int
 
-	// ZoneProgramID is the policy-zone merge circuit's top-level public
-	// ZoneProgramID input (the zone program's pk_field). Every real input and the
-	// output UTXO must carry this same value in their per-UTXO ZoneProgramID. It is
+	// RingProgramID is the policy-ring merge circuit's top-level public
+	// RingProgramID input (the ring program's pk_field). Every real input and the
+	// output UTXO must carry this same value in their per-UTXO RingProgramID. It is
 	// unused (and zero) on the default merge rail.
-	ZoneProgramID *big.Int
+	RingProgramID *big.Int
 
 	// Shared owner identity: the owner's pk_field and the nullifier
 	// secret/commitment.
@@ -64,11 +64,11 @@ type MergeParameters struct {
 	UserNullifierPk     *big.Int
 	UserNullifierSecret *big.Int
 
-	// OutputZoneDataHash is the zone-data hash the calling zone program carries
-	// in the merge_zone instruction/event. The zone circuit asserts it against
-	// Output.ZoneDataHash and folds it into the public-input hash. Zero on the
+	// OutputRingDataHash is the ring-data hash the calling ring program carries
+	// in the merge_ring instruction/event. The ring circuit asserts it against
+	// Output.RingDataHash and folds it into the public-input hash. Zero on the
 	// default rail.
-	OutputZoneDataHash *big.Int
+	OutputRingDataHash *big.Int
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int

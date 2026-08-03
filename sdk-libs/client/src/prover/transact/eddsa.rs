@@ -1,6 +1,6 @@
 use num_bigint::BigUint;
 use zolana_transaction::{
-    instructions::transact::{PrivateTxHash, PublicMovements},
+    instructions::transact::{PrivateTxHash, PublicTransfers},
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -20,8 +20,8 @@ pub struct TransferProver {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
-    pub public_movements: PublicMovements,
-    pub payer_pubkey_hash: [u8; 32],
+    pub public_transfers: PublicTransfers,
+    pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
     pub shape: Option<Shape>,
 }
@@ -38,7 +38,13 @@ pub struct TransferProofResult {
 
 impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
-        resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
+        if self.signer_pk_hashes.len() != shape.n_inputs() + 1 {
+            return Err(ClientError::WitnessInputCountMismatch {
+                got: self.signer_pk_hashes.len(),
+                expected: shape.n_inputs() + 1,
+            });
+        }
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
@@ -55,12 +61,11 @@ impl TransferProver {
             nullifier_tree_roots: &assembled_inputs.nullifier_tree_roots,
             private_tx: &private_tx,
             external_data_hash: &external_data_hash,
-            public_movements: &self.public_movements,
-            zone_program_id: &[0u8; 32],
-            payer_pubkey_hash: &self.payer_pubkey_hash,
+            public_transfers: &self.public_transfers,
+            ring_program_id: &[0u8; 32],
             allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
-            input_owner_pk_hashes: &assembled_inputs.input_owner_pk_hashes,
-            output_owner_pk_hashes: &assembled_outputs.output_owner_pk_hashes,
+            signer_pk_hashes: &self.signer_pk_hashes,
+            output_owner_pk_hashes: Some(&assembled_outputs.output_owner_pk_hashes),
         }
         .hash()?;
 
@@ -69,11 +74,16 @@ impl TransferProver {
             outputs: assembled_outputs.outputs,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
-            public_assets: self.public_movements.assets.map(|asset| be(&asset)),
-            public_amounts: self.public_movements.amounts.map(|amount| be(&amount)),
-            zone_program_id: BigUint::ZERO,
-            payer_pubkey_hash: be(&self.payer_pubkey_hash),
+            public_assets: self.public_transfers.assets.map(|asset| be(&asset)),
+            public_amounts: self.public_transfers.amounts.map(|amount| be(&amount)),
+            ring_program_id: BigUint::ZERO,
+            signer_pk_hashes: self.signer_pk_hashes.iter().map(be).collect(),
             allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
+            published_output_owner_pk_hashes: assembled_outputs
+                .output_owner_pk_hashes
+                .iter()
+                .map(be)
+                .collect(),
             public_input_hash: be(&public_input),
         };
 

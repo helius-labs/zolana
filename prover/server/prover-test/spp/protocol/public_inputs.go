@@ -21,10 +21,9 @@ var publicInputNames = [...]string{
 	"public_amount_1",
 	"public_asset_2",
 	"public_amount_2",
-	"zone_program_id",
-	"payer_pubkey_hash",
+	"ring_program_id",
+	"signer_pk_hashes",
 	"allow_dummy_inputs",
-	"input_owner_pk_hashes",
 	"output_owner_pk_hashes",
 }
 
@@ -44,20 +43,14 @@ type PublicInputs struct {
 	ExternalDataHash   *big.Int
 	PublicAssets       [NPublicSlots]*big.Int
 	PublicAmounts      [NPublicSlots]*big.Int
-	ZoneProgramID      *big.Int
-	PayerPubkeyHash    *big.Int
+	RingProgramID      *big.Int
+	SignerPkHashes     []*big.Int
 	AllowDummyInputs   *big.Int
-	InputOwnerPkHashes []*big.Int
 
-	// Confidential appends the output owner tag chain to the preimage for both
-	// default-zone and custom-zone confidential transfers.
-	Confidential        bool
+	// BindOutputOwnerTags appends the output-owner chain for owner-signed rails.
+	// Custom-ring values are masked to zero for anonymous outputs.
+	BindOutputOwnerTags bool
 	OutputOwnerPkHashes []*big.Int
-
-	// ZoneAuthority omits the input owner pk_field chain from the preimage: the
-	// zone-authority variant keeps input owners private (anonymous) since the zone
-	// authority controls the UTXOs and no signer check needs them on-chain.
-	ZoneAuthority bool
 }
 
 func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
@@ -90,21 +83,16 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	}
 	// Everything from here on is variant-dependent, so the preimage keeps the
 	// owner tags each variant publishes at the end.
+	solanaOwnerChain, err := RightHashChain(inputs.SignerPkHashes)
+	if err != nil {
+		return nil, fmt.Errorf("spp: public input hash solana owner chain: %w", err)
+	}
 	fields = append(fields,
-		inputs.ZoneProgramID,
-		inputs.PayerPubkeyHash,
+		inputs.RingProgramID,
+		solanaOwnerChain,
 		inputs.AllowDummyInputs,
 	)
-	// The zone-authority variant keeps input owner pk_fields private; every other
-	// variant commits them so SPP can route the per-input signer check.
-	if !inputs.ZoneAuthority {
-		solanaOwnerChain, err := HashChain(inputs.InputOwnerPkHashes)
-		if err != nil {
-			return nil, fmt.Errorf("spp: public input hash solana owner chain: %w", err)
-		}
-		fields = append(fields, solanaOwnerChain)
-	}
-	if inputs.Confidential {
+	if inputs.BindOutputOwnerTags {
 		outputOwnerChain, err := HashChain(inputs.OutputOwnerPkHashes)
 		if err != nil {
 			return nil, fmt.Errorf("spp: public input hash output owner chain: %w", err)

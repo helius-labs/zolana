@@ -30,3 +30,8 @@ docs/spec.pdf
 docs/squads_policy_program.pdf
 build
 target-linux-x64/
+
+# `just coverage` / the CI coverage job write these at the repo root.
+/lcov.info
+/coverage.json
+/coverage-html/

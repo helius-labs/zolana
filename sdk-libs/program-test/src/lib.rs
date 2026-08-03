@@ -31,8 +31,9 @@ mod admin;
 pub mod events;
 pub use events::{
     deposit_output_from_event, deposit_outputs_from_event, index_events, indexed_events_from_meta,
-    parsed_instruction_from_compiled, parsed_instruction_groups_from_meta, single_deposit_view,
-    DepositOutput, IndexedEvent, InstructionGroup, ParsedInstruction,
+    parsed_instruction_from_compiled, parsed_instruction_groups_from_meta,
+    ring_deposit_output_from_event, ring_deposit_outputs_from_event, single_deposit_view,
+    DepositOutput, IndexedEvent, InstructionGroup, ParsedInstruction, RingDepositOutput,
 };
 pub mod indexer;
 pub use indexer::{
@@ -41,18 +42,25 @@ pub use indexer::{
 };
 pub mod instructions;
 pub use instructions::{
-    create_tree_instructions, rpc_state_root, system_create_account_ix, ZONE_TEST_PROGRAM_ID,
+    create_tree_instructions, rpc_state_root, system_create_account_ix, RING_TEST_PROGRAM_ID,
 };
 mod paths;
+mod rejection;
 use paths::default_program_path;
 mod proofless;
 pub use proofless::DepositBatch;
 pub mod rpc;
+pub use rejection::Rejection;
 pub use rpc::IndexedTransaction;
+mod transaction_trace;
+pub use transaction_trace::{
+    AccountSnapshot, AccountTransition, InstructionTrace, TransactionOutcome, TransactionTrace,
+};
 pub use zolana_client::Rpc;
+mod ring;
 mod spl;
 mod wallet_data;
-mod zone;
+pub use ring::RingDepositBatch;
 
 /// Build the canonical 32-byte field representation of a repeated legacy
 /// 31-byte test blinding.
@@ -68,6 +76,8 @@ pub enum ProgramTestError {
     MissingProgram(PathBuf),
     #[error("litesvm failure: {0}")]
     Litesvm(String),
+    #[error("transaction failed: {0:?}")]
+    TransactionFailure(Box<litesvm::types::FailedTransactionMetadata>),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("transaction: {0}")]
@@ -90,6 +100,12 @@ impl From<ClientError> for ProgramTestError {
     }
 }
 
+impl From<litesvm::types::FailedTransactionMetadata> for ProgramTestError {
+    fn from(error: litesvm::types::FailedTransactionMetadata) -> Self {
+        Self::TransactionFailure(Box::new(error))
+    }
+}
+
 pub struct ZolanaProgramTest {
     pub svm: LiteSVM,
     pub payer: Keypair,
@@ -98,6 +114,7 @@ pub struct ZolanaProgramTest {
     /// Counter mixed into deterministic tree seeds so repeated `create_tree`
     /// calls produce distinct reproducible addresses.
     tree_counter: u64,
+    transaction_traces: Vec<TransactionTrace>,
 }
 
 impl ZolanaProgramTest {
@@ -131,6 +148,7 @@ impl ZolanaProgramTest {
             program_id,
             indexer: TestIndexer::new(),
             tree_counter: 0,
+            transaction_traces: Vec::new(),
         })
     }
 
@@ -147,16 +165,32 @@ impl ZolanaProgramTest {
         &self.indexer
     }
 
+    /// All submissions made through this backend, including rejected ones.
+    pub fn transaction_traces(&self) -> &[TransactionTrace] {
+        &self.transaction_traces
+    }
+
+    /// Diagnostics and automatic pre/post snapshots for the last submission.
+    pub fn last_transaction_trace(&self) -> Option<&TransactionTrace> {
+        self.transaction_traces.last()
+    }
+
     pub fn warp_to_slot(&mut self, slot: u64) -> Result<(), ProgramTestError> {
         self.svm.warp_to_slot(slot);
         Ok(())
     }
 
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<(), ProgramTestError> {
+        // Deliberately does NOT expire the blockhash: LiteSVM accepts only the
+        // single current latest_blockhash, so expiring here would invalidate any
+        // transaction signed before the airdrop (`BlockhashNotFound`). Freshness
+        // against AlreadyProcessed dedup lives in the signing path
+        // (`create_and_send_transaction` expires immediately before fetching the
+        // blockhash for a new transaction).
         self.svm
             .airdrop(pubkey, lamports)
             .map(|_| ())
-            .map_err(|err| ProgramTestError::Litesvm(format!("airdrop: {err:?}")))
+            .map_err(ProgramTestError::from)
     }
 
     /// The on-chain state sub-tree root of a pool tree account.

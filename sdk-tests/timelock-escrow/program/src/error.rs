@@ -9,7 +9,7 @@ pub enum TimelockEscrowError {
     ProofVerificationFailed = 9000,
     #[error("instruction data is invalid")]
     InvalidInstructionData = 9001,
-    #[error("trailing account is not the shielded-pool program")]
+    #[error("shielded-pool program account is invalid")]
     InvalidShieldedPoolProgram = 9002,
     #[error("escrow-authority account is missing from the transact account list")]
     MissingEscrowAuthority = 9003,

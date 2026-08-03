@@ -1,7 +1,10 @@
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
 
-use crate::{tag, EventKind, GeneralEvent, ProoflessOutput};
+use crate::{
+    tag, EncryptedRingDepositOutput, EventKind, GeneralEvent, OutputDataEncoding, ProoflessOutput,
+    ENCRYPTED_RING_DEPOSIT_SCHEME,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedInstruction {
@@ -75,9 +78,8 @@ pub fn decode_event_payload(payload: &[u8]) -> Result<GeneralEvent, EventDecodeE
 }
 
 pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeError> {
-    let crate::OutputDataEncoding::Plaintext(blob) =
-        crate::OutputDataEncoding::try_from_slice(data)
-            .map_err(|_| EventDecodeError::InvalidOutputData)?
+    let OutputDataEncoding::Plaintext(blob) = OutputDataEncoding::try_from_slice(data)
+        .map_err(|_| EventDecodeError::InvalidOutputData)?
     else {
         return Err(EventDecodeError::InvalidOutputData);
     };
@@ -88,6 +90,24 @@ pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeErr
         return Err(EventDecodeError::InvalidOutputData);
     }
     ProoflessOutput::try_from_slice(body).map_err(|_| EventDecodeError::InvalidOutputData)
+}
+
+pub fn decode_encrypted_ring_deposit_output_data(
+    data: &[u8],
+) -> Result<EncryptedRingDepositOutput, EventDecodeError> {
+    let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(data)
+        .map_err(|_| EventDecodeError::InvalidOutputData)?
+    else {
+        return Err(EventDecodeError::InvalidOutputData);
+    };
+    let (&scheme, body) = blob
+        .split_first()
+        .ok_or(EventDecodeError::InvalidOutputData)?;
+    if scheme != ENCRYPTED_RING_DEPOSIT_SCHEME {
+        return Err(EventDecodeError::InvalidOutputData);
+    }
+    EncryptedRingDepositOutput::try_from_slice(body)
+        .map_err(|_| EventDecodeError::InvalidOutputData)
 }
 
 pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessOutput, EventDecodeError> {
@@ -166,7 +186,7 @@ pub fn instruction_may_emit_events(
     instruction: &ParsedInstruction,
 ) -> bool {
     is_event_source(shielded_pool_program_id, instruction)
-        || is_zone_wrapper_event_source(shielded_pool_program_id, instruction)
+        || is_ring_wrapper_event_source(shielded_pool_program_id, instruction)
 }
 
 fn indexed_event(data: &[u8]) -> IndexedEvent {
@@ -203,12 +223,12 @@ fn is_general_event_source_tag(tag_byte: u8) -> bool {
     matches!(
         tag_byte,
         tag::DEPOSIT
-            | tag::ZONE_DEPOSIT
+            | tag::RING_DEPOSIT
             | tag::TRANSACT
-            | tag::ZONE_TRANSACT
-            | tag::ZONE_AUTHORITY_TRANSACT
+            | tag::RING_TRANSACT
+            | tag::RING_AUTHORITY_TRANSACT
             | tag::MERGE_TRANSACT
-            | tag::ZONE_MERGE_TRANSACT
+            | tag::RING_MERGE_TRANSACT
     )
 }
 
@@ -221,19 +241,19 @@ fn is_event_source(shielded_pool_program_id: Pubkey, instruction: &ParsedInstruc
             .is_some_and(is_general_event_source_tag)
 }
 
-/// Zone programs CPI into SPP with a zone instruction tag; SPP is listed in the
+/// Ring programs CPI into SPP with a ring instruction tag; SPP is listed in the
 /// account list for the `emit_event` self-CPI.
-fn is_zone_wrapper_event_source(
+fn is_ring_wrapper_event_source(
     shielded_pool_program_id: Pubkey,
     instruction: &ParsedInstruction,
 ) -> bool {
     matches!(
         instruction.data.first().copied(),
         Some(
-            tag::ZONE_DEPOSIT
-                | tag::ZONE_TRANSACT
-                | tag::ZONE_AUTHORITY_TRANSACT
-                | tag::ZONE_MERGE_TRANSACT
+            tag::RING_DEPOSIT
+                | tag::RING_TRANSACT
+                | tag::RING_AUTHORITY_TRANSACT
+                | tag::RING_MERGE_TRANSACT
         )
     ) && instruction.accounts.contains(&shielded_pool_program_id)
 }

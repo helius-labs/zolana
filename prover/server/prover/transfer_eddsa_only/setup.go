@@ -14,10 +14,10 @@ func SetupTransferCircuit(circuit common.CircuitType, nInputs uint32, nOutputs u
 	switch circuit {
 	case common.TransferConfidentialCircuitType:
 		return SetupTransfer(nInputs, nOutputs, ConfidentialVariant)
-	case common.TransferZoneCircuitType:
-		return SetupTransfer(nInputs, nOutputs, ZoneVariant)
-	case common.TransferZoneAuthorityCircuitType:
-		return SetupTransfer(nInputs, nOutputs, ZoneAuthorityVariant)
+	case common.TransferRingCircuitType:
+		return SetupTransfer(nInputs, nOutputs, RingVariant)
+	case common.TransferRingAuthorityCircuitType:
+		return SetupTransfer(nInputs, nOutputs, RingAuthorityVariant)
 	default:
 		return nil, fmt.Errorf("invalid transfer circuit: %s", circuit)
 	}
@@ -39,7 +39,7 @@ func SetupTransfer(nInputs uint32, nOutputs uint32, variant Variant) (*common.Tr
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		RequiresP256:     false,
-		Confidential:     variant != ZoneAuthorityVariant,
+		Confidential:     variant != RingAuthorityVariant,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,
 		ConstraintSystem: ccs,

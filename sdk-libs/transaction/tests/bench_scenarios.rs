@@ -269,7 +269,7 @@ impl Scenario {
                     asset: SOL_MINT,
                     amount: asset_amount,
                     blinding: zolana_transaction::derive_blinding(&blinding_seed, i),
-                    zone_program_id: None,
+                    ring_program_id: None,
                     data: Data::default(),
                 })
                 .collect();
@@ -277,7 +277,7 @@ impl Scenario {
             let owner_cx = OwnerCx {
                 owner: self.alice.signing_pubkey(),
                 assets: &self.assets,
-                zone_program_id: None,
+                ring_program_id: None,
             };
             let cx = SplitEncode {
                 tx: tx_key,

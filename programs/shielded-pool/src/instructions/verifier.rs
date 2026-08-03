@@ -15,6 +15,7 @@ pub struct CompressedGroth16Proof<'a> {
     pub a: &'a [u8; 32],
     pub b: &'a [u8; 64],
     pub c: &'a [u8; 32],
+    pub commitment: Option<(&'a [u8; 32], &'a [u8; 32])>,
 }
 
 /// Decompress the compressed proof points and verify them against `verifying_key`
@@ -33,9 +34,29 @@ pub fn verify_groth16(
     let proof_c = decompress_g1(proof.c).map_err(|_| encoding_err)?;
     let public_inputs = [public_input_hash];
 
-    let mut verifier =
-        Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, verifying_key)
+    match (proof.commitment, verifying_key.vk_commitment.is_some()) {
+        (Some((commitment, commitment_pok)), true) => {
+            let commitment = decompress_g1(commitment).map_err(|_| encoding_err)?;
+            let commitment_pok = decompress_g1(commitment_pok).map_err(|_| encoding_err)?;
+            let mut verifier = Groth16Verifier::new_with_commitment(
+                &proof_a,
+                &proof_b,
+                &proof_c,
+                &commitment,
+                &commitment_pok,
+                &public_inputs,
+                verifying_key,
+            )
             .map_err(|_| verify_err)?;
-    verifier.verify().map_err(|_| verify_err)?;
+            verifier.verify().map_err(|_| verify_err)?;
+        }
+        (None, false) => {
+            let mut verifier =
+                Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, verifying_key)
+                    .map_err(|_| verify_err)?;
+            verifier.verify().map_err(|_| verify_err)?;
+        }
+        _ => return Err(verify_err.into()),
+    }
     Ok(())
 }

@@ -15,8 +15,8 @@ pub struct TransactSolTransferAccounts {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactSplDepositAccounts {
     pub mint: Pubkey,
-    pub vault: Pubkey,
-    pub depositor: Pubkey,
+    pub spl_interface: Pubkey,
+    pub token_authority: Pubkey,
     pub user_token_account: Pubkey,
     pub token_program: Pubkey,
 }
@@ -24,7 +24,7 @@ pub struct TransactSplDepositAccounts {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactSplWithdrawalAccounts {
     pub mint: Pubkey,
-    pub vault: Pubkey,
+    pub spl_interface: Pubkey,
     pub user_token_account: Pubkey,
     pub token_program: Pubkey,
 }
@@ -38,12 +38,13 @@ pub enum TransactInterfaceTransferAccounts {
 
 /// Builder for the `transact` instruction. The account layout mirrors the
 /// program loader (`TransactAccounts::validate_and_parse`): `payer`,
-/// `input_tree`, `output_tree`, the ordered interface-transfer account groups, and the
-/// program account last for the `emit_event` self-CPI.
+/// `input_tree`, `output_tree`, the SPP and System Program accounts, owner
+/// signers, then the ordered interface-transfer account groups.
 pub struct Transact {
     pub payer: Pubkey,
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
+    pub owner_signers: Vec<Pubkey>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     pub data: TransactIxData,
 }
@@ -55,7 +56,7 @@ pub(super) fn append_interface_transfer_accounts(
 ) {
     assert!(
         interface_transfers.len() <= MAX_INTERFACE_TRANSFERS,
-        "interface transfer count exceeds the u8 wire encoding"
+        "interface transfer count exceeds the protocol maximum"
     );
     assert_eq!(
         interface_transfers.len(),
@@ -81,8 +82,8 @@ pub(super) fn append_interface_transfer_accounts(
                 TransactInterfaceTransferAccounts::SplDeposit(spl),
             ) => {
                 accounts.push(AccountMeta::new_readonly(spl.mint, false));
-                accounts.push(AccountMeta::new(spl.vault, false));
-                accounts.push(AccountMeta::new_readonly(spl.depositor, true));
+                accounts.push(AccountMeta::new(spl.spl_interface, false));
+                accounts.push(AccountMeta::new_readonly(spl.token_authority, true));
                 accounts.push(AccountMeta::new(spl.user_token_account, false));
                 accounts.push(AccountMeta::new_readonly(spl.token_program, false));
             }
@@ -95,7 +96,7 @@ pub(super) fn append_interface_transfer_accounts(
                     false,
                 ));
                 accounts.push(AccountMeta::new_readonly(spl.mint, false));
-                accounts.push(AccountMeta::new(spl.vault, false));
+                accounts.push(AccountMeta::new(spl.spl_interface, false));
                 accounts.push(AccountMeta::new(spl.user_token_account, false));
                 accounts.push(AccountMeta::new_readonly(spl.token_program, false));
             }
@@ -104,10 +105,6 @@ pub(super) fn append_interface_transfer_accounts(
             }
         }
     }
-
-    // Required for the forester-fee collection CPI and, when present, native
-    // SOL public settlement.
-    accounts.push(AccountMeta::new_readonly(Pubkey::default(), false));
 }
 
 impl Transact {
@@ -124,14 +121,20 @@ impl Transact {
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.input_tree, false),
             AccountMeta::new(self.output_tree, false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
         ];
+        accounts.extend(
+            self.owner_signers
+                .iter()
+                .copied()
+                .map(|signer| AccountMeta::new_readonly(signer, true)),
+        );
         append_interface_transfer_accounts(
             &mut accounts,
             &self.data.interface_transfers,
             &self.interface_transfer_accounts,
         );
-        accounts.push(AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false));
-
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts,
@@ -156,7 +159,7 @@ mod tests {
             inputs: Vec::new(),
             interface_transfers,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             outputs: Vec::new(),
             messages: Vec::new(),
         }
@@ -165,10 +168,12 @@ mod tests {
     #[test]
     fn single_sol_withdrawal_preserves_account_indices() {
         let recipient = Pubkey::new_unique();
+        let owner_signer = Pubkey::new_unique();
         let builder = Transact {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
+            owner_signers: vec![owner_signer],
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts { recipient },
             )],
@@ -183,20 +188,22 @@ mod tests {
                 builder.payer,
                 builder.input_tree,
                 builder.output_tree,
+                PROGRAM_ID_PUBKEY,
+                Pubkey::default(),
+                owner_signer,
                 SOL_INTERFACE_PUBKEY,
                 recipient,
-                Pubkey::default(),
-                PROGRAM_ID_PUBKEY,
             ]
         );
-        assert!(!ix.accounts[4].is_signer);
+        assert!(ix.accounts[5].is_signer);
+        assert!(!ix.accounts[7].is_signer);
     }
 
     #[test]
     fn single_spl_withdrawal_preserves_account_indices() {
         let spl = TransactSplWithdrawalAccounts {
             mint: Pubkey::new_unique(),
-            vault: Pubkey::new_unique(),
+            spl_interface: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
         };
@@ -204,12 +211,13 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
                 spl,
             )],
             data: empty_data(vec![InterfaceTransfer::SplWithdrawal {
                 amount: 7,
-                vault_bump: 42,
+                spl_interface_bump: 42,
             }]),
         };
 
@@ -221,13 +229,13 @@ mod tests {
                 builder.payer,
                 builder.input_tree,
                 builder.output_tree,
+                PROGRAM_ID_PUBKEY,
+                Pubkey::default(),
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
                 spl.mint,
-                spl.vault,
+                spl.spl_interface,
                 spl.user_token_account,
                 spl.token_program,
-                Pubkey::default(),
-                PROGRAM_ID_PUBKEY,
             ]
         );
     }
@@ -237,7 +245,7 @@ mod tests {
         let sol_depositor = Pubkey::new_unique();
         let spl = TransactSplWithdrawalAccounts {
             mint: Pubkey::new_unique(),
-            vault: Pubkey::new_unique(),
+            spl_interface: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
         };
@@ -246,6 +254,7 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
             interface_transfer_accounts: vec![
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
                     recipient: sol_depositor,
@@ -259,7 +268,7 @@ mod tests {
                 InterfaceTransfer::SolDeposit { amount: 3 },
                 InterfaceTransfer::SplWithdrawal {
                     amount: 5,
-                    vault_bump: 42,
+                    spl_interface_bump: 42,
                 },
                 InterfaceTransfer::SolWithdrawal { amount: 2 },
             ]),
@@ -273,30 +282,30 @@ mod tests {
                 builder.payer,
                 builder.input_tree,
                 builder.output_tree,
+                PROGRAM_ID_PUBKEY,
+                Pubkey::default(),
                 SOL_INTERFACE_PUBKEY,
                 sol_depositor,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
                 spl.mint,
-                spl.vault,
+                spl.spl_interface,
                 spl.user_token_account,
                 spl.token_program,
                 SOL_INTERFACE_PUBKEY,
                 sol_recipient,
-                Pubkey::default(),
-                PROGRAM_ID_PUBKEY,
             ]
         );
-        assert!(ix.accounts[4].is_signer);
-        assert!(!ix.accounts[8].is_signer);
-        assert!(!ix.accounts[11].is_signer);
+        assert!(ix.accounts[6].is_signer);
+        assert!(!ix.accounts[10].is_signer);
+        assert!(!ix.accounts[13].is_signer);
     }
 
     #[test]
     fn spl_deposit_omits_cpi_authority_and_marks_depositor_signer() {
         let spl = TransactSplDepositAccounts {
             mint: Pubkey::new_unique(),
-            vault: Pubkey::new_unique(),
-            depositor: Pubkey::new_unique(),
+            spl_interface: Pubkey::new_unique(),
+            token_authority: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
         };
@@ -304,18 +313,19 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(spl)],
             data: empty_data(vec![InterfaceTransfer::SplDeposit {
                 amount: 7,
-                vault_bump: 42,
+                spl_interface_bump: 42,
             }]),
         };
 
         let ix = builder.instruction();
-        assert_eq!(ix.accounts[3].pubkey, spl.mint);
-        assert_eq!(ix.accounts[4].pubkey, spl.vault);
-        assert_eq!(ix.accounts[5].pubkey, spl.depositor);
-        assert!(ix.accounts[5].is_signer);
+        assert_eq!(ix.accounts[5].pubkey, spl.mint);
+        assert_eq!(ix.accounts[6].pubkey, spl.spl_interface);
+        assert_eq!(ix.accounts[7].pubkey, spl.token_authority);
+        assert!(ix.accounts[7].is_signer);
     }
 
     #[test]
@@ -325,6 +335,7 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),
         }
@@ -338,6 +349,7 @@ mod tests {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
                     recipient: Pubkey::new_unique(),
@@ -345,7 +357,7 @@ mod tests {
             )],
             data: empty_data(vec![InterfaceTransfer::SplWithdrawal {
                 amount: 1,
-                vault_bump: 42,
+                spl_interface_bump: 42,
             }]),
         }
         .instruction();

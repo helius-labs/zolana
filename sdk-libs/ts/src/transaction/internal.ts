@@ -112,6 +112,16 @@ export function hashChain(values: readonly Bytes32[]): Bytes32 {
   return hash;
 }
 
+export function rightHashChain(values: readonly Bytes32[]): Bytes32 {
+  const last = values.at(-1);
+  if (!last) return copy(ZERO_32);
+  let hash = copy(last);
+  for (let index = values.length - 2; index >= 0; index -= 1) {
+    hash = poseidon([values[index] as Bytes32, hash]);
+  }
+  return hash;
+}
+
 export function sha256Bytes(bytes: Uint8Array): Bytes32 {
   return sha256(bytes) as Bytes32;
 }

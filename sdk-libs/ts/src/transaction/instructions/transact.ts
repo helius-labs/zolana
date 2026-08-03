@@ -33,7 +33,6 @@ import {
   hashChain,
   hashField,
   poseidon,
-  sha256Be,
   sha256Bytes,
 } from "../internal.js";
 import { EncryptedScheme, encodeOutputData, encryptConfidential } from "../serialization/codecs.js";
@@ -232,7 +231,7 @@ export interface ExternalDataInit {
 }
 
 /** The `transact` tag, which Rust `ExternalData::new` takes from `tag::TRANSACT`. */
-const TRANSACT_DISCRIMINATOR = 0;
+const TRANSACT_DISCRIMINATOR = 12;
 /** Rust's default expiry: `u64::MAX`, meaning no expiry. */
 const NO_EXPIRY = 0xffff_ffff_ffff_ffffn;
 function externalDataHash(data: ExternalDataFields): Bytes32 {
@@ -618,7 +617,7 @@ export class ConfidentialTransfer {
     });
     this.#owner = owner;
     this.#inputs = [...inputs];
-    this.#payerPublicKeyHash = sha256Be(decodeAddress(payer));
+    this.#payerPublicKeyHash = hashField(decodeAddress(payer));
   }
 
   withShape(shape: Shape): this {
@@ -806,7 +805,7 @@ function finalizeTransfer(
     });
   }
   const senderResolved = prepared.owner.confidentialViewTag();
-  const senderTag: OwnerTag = equal(sha256Be(senderResolved), prepared.payerPublicKeyHash)
+  const senderTag: OwnerTag = equal(hashField(senderResolved), prepared.payerPublicKeyHash)
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
@@ -857,7 +856,7 @@ function finalizeTransfer(
     }
   }
   const externalData = createExternalData({
-    instructionDiscriminator: 0,
+    instructionDiscriminator: TRANSACT_DISCRIMINATOR,
     expiryUnixTs: 0xffff_ffff_ffff_ffffn,
     interfaceTransfers: prepared.interfaceTransfers,
     txViewingPublicKey: encrypted.txViewingPublicKey,

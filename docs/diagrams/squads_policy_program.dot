@@ -6,7 +6,7 @@
 // Smart Accounts and the Pocket RPC are HTML-label tables with matching row
 // heights so the cross arrows between corresponding ports are horizontal.
 // Mirrors the style of docs/diagrams/architecture.dot but specific to the
-// Squads policy zone.
+// Squads policy ring.
 digraph G {
     compound=true;
     rankdir=LR;
@@ -39,18 +39,18 @@ digraph G {
         </TABLE>
     >];
 
-    // Solana side: the Squads Zone Program, its program-owned accounts, the
+    // Solana side: the Squads Ring Program, its program-owned accounts, the
     // CPI into SPP, and the SPP-owned SPL interface and tree accounts.
     Solana [shape=plaintext, label=<
         <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="6" CELLPADDING="0" BGCOLOR="#FFFFFF" COLOR="#CBD5E1" STYLE="ROUNDED">
             <TR><TD COLSPAN="3" HEIGHT="18"><FONT COLOR="#0F172A" POINT-SIZE="12">Solana</FONT></TD></TR>
             <TR>
-                <TD PORT="policy" HEIGHT="40" WIDTH="150" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Squads Zone Program</FONT></TD>
+                <TD PORT="policy" HEIGHT="40" WIDTH="150" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Squads Ring Program</FONT></TD>
                 <TD HEIGHT="40" WIDTH="56"><FONT COLOR="#475569" POINT-SIZE="10">CPI &#x2192;</FONT></TD>
                 <TD ROWSPAN="4" PORT="spp" WIDTH="150" BGCOLOR="#EEF2FF" COLOR="#6366F1" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#1E1B4B" POINT-SIZE="10">Solana Privacy Program<BR/>(SPP)</FONT></TD>
             </TR>
             <TR>
-                <TD PORT="cfg" HEIGHT="30" WIDTH="150" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">Zone config</FONT></TD>
+                <TD PORT="cfg" HEIGHT="30" WIDTH="150" BGCOLOR="#E0F2FE" COLOR="#0284C7" STYLE="ROUNDED" BORDER="1"><FONT COLOR="#0C4A6E" POINT-SIZE="10">Ring config</FONT></TD>
                 <TD HEIGHT="30" WIDTH="56" BORDER="0"></TD>
             </TR>
             <TR>

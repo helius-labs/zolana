@@ -29,7 +29,7 @@ import {
 } from "./assembly.js";
 import type { Field, MergeInputs, TransferInput } from "./types.js";
 
-const MERGE_INSTRUCTION_TAG = 12;
+const MERGE_INSTRUCTION_TAG = 13;
 
 export interface MergeMaterialInput {
   readonly signingPublicKey: ShieldedPublicKey;
@@ -144,13 +144,7 @@ function assembleMergeUnchecked(
           details: { proofTree: proof.merkleContext.tree, submitTree: tree },
         });
       }
-      const converted = createDummyTransferInput(
-        input,
-        first.utxoTreeRoot,
-        proof,
-        first.ownerPublicKeyHash,
-        nullifier,
-      );
+      const converted = createDummyTransferInput(input, first.utxoTreeRoot, proof, nullifier);
       inputs.push(converted);
       inputHashes.push(0n);
       nullifiers.push(new Uint8Array(nullifier) as Bytes32);

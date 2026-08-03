@@ -59,7 +59,6 @@ export interface InputUtxo {
   readonly nullifierHash: Bytes32;
   readonly nullifierTreeRootIndex: number;
   readonly utxoTreeRootIndex: number;
-  readonly eddsaSignerIndex: number;
 }
 
 export type OwnerTag =

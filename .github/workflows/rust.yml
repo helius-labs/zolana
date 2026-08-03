@@ -29,6 +29,9 @@ env:
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-D warnings"
   SBF_TOOLS_VERSION: v1.54
+  # Activate .config/nextest.toml's [profile.ci]: retries = 2 (flaky localnet /
+  # prover tests get two retries, reported FLAKY on pass) and fail-fast = false.
+  NEXTEST_PROFILE: ci
 
 jobs:
   fmt:
@@ -45,6 +48,7 @@ jobs:
       - name: Install workspace Rust toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check
+      - run: ./tools/check-test-hygiene.sh
 
   machete:
     name: cargo-machete
@@ -103,10 +107,6 @@ jobs:
       AGAVE_VERSION: v4.0.2
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: prover/server/go.mod
-          cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: litesvm
@@ -117,12 +117,7 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: Install pinned SBF platform tools
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
-      - name: Cache proving keys
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: prover/server/proving-keys
-          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - run: just test-shielded-pool
+      - run: just test-program-fast
 
   test-sdk-libs:
     name: tests / sdk-libs
@@ -162,7 +157,7 @@ jobs:
         with:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
-      - run: just test-programs
+      - run: just test-program-proofs-programs-only
 
   build-photon:
     name: build / photon
@@ -200,8 +195,10 @@ jobs:
             recipe: test-spp-validator-merge
           - name: spp randomized
             recipe: test-spp-validator-randomized
-          - name: zone lifecycle
-            recipe: test-zone-validator
+          - name: spp proof cu
+            recipe: test-spp-validator-proof-cu
+          - name: ring lifecycle
+            recipe: test-ring-validator
           - name: swap and escrow lifecycle
             recipe: test-swap-and-escrow-validator
           - name: dynamic-swap lifecycle
@@ -283,6 +280,46 @@ jobs:
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - run: just test-user-registry-litesvm
 
+  # Line/region coverage over the library and binary crates: the program-libs,
+  # the SDK crates, the CLI, forester, and photon. Informational — it renders a
+  # summary table into the run's job summary and uploads lcov/HTML reports, but
+  # there is no `--fail-under-lines` gate yet; add one when the team picks a
+  # target. The on-chain programs, the test/example crates, and xtask are
+  # excluded, and zolana-client is collected `--lib` only, so the job stays
+  # hermetic — no prover, validator, or database. See tools/coverage-packages.py
+  # for what is measured and why. Code executed inside the SVM is not measured.
+  coverage:
+    name: coverage (llvm-cov)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: coverage
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
+        with:
+          tool: cargo-llvm-cov
+      # Collect once, then re-render from the same profile data: `report` only
+      # reads what the two passes wrote, so the extra formats are nearly free.
+      - run: just coverage --lcov --output-path lcov.info
+      - name: Render coverage reports
+        run: |
+          just coverage-report --html --output-dir coverage-html
+          just coverage-report --json --summary-only --output-path coverage.json
+      - name: Publish coverage summary
+        run: python3 tools/coverage-summary.py coverage.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage report
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: coverage
+          path: |
+            lcov.info
+            coverage.json
+            coverage-html
+          if-no-files-found: error
+
   test-client-integration:
     name: tests / client integration
     runs-on: ubuntu-latest
@@ -306,3 +343,4 @@ jobs:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-client-integration
+

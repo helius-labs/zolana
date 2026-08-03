@@ -107,7 +107,7 @@ impl EscrowUtxo {
             asset: self.asset,
             amount: self.amount,
             blinding: self.blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         Ok(SppProofInputUtxo::new(utxo, Self::nullifier_key())

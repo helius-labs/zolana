@@ -1,29 +1,26 @@
 use pinocchio::ProgramResult;
 use zolana_interface::{
-    event::{encode_output_data_ref, EventKind, GeneralEvent, ProoflessOutputRef, SplTransfer},
-    instruction::{DepositEntryRef, OutputUtxo},
+    event::{
+        encode_encrypted_ring_deposit_output_ref, encode_output_data_ref,
+        EncryptedRingDepositDataRef as EventEncryptedRingDepositDataRef,
+        EncryptedRingDepositOutputRef, EventKind, GeneralEvent, ProoflessOutputRef, SplTransfer,
+    },
+    instruction::{DepositEntryRef, OutputUtxo, RingDepositEntryRef},
 };
 
-use super::processor::ZoneData;
 use crate::instructions::event::emit_general_event;
 
 pub(crate) struct ProoflessOutputCtx {
     pub utxo_hash: [u8; 32],
     pub asset: [u8; 32],
-    pub zone_program_id: Option<[u8; 32]>,
 }
 
 pub(crate) fn proofless_output_utxo<'a>(
     entry: DepositEntryRef<'a>,
-    zone: Option<ZoneData<'a>>,
     ctx: ProoflessOutputCtx,
 ) -> OutputUtxo {
     let (data_hash, utxo_data) = match entry.utxo_data {
         Some(record) => (Some(record.data_hash), Some(record.data)),
-        None => (None, None),
-    };
-    let (zone_data_hash, zone_data) = match zone {
-        Some(zone) => (Some(zone.data_hash), Some(zone.data)),
         None => (None, None),
     };
     let data = encode_output_data_ref(ProoflessOutputRef {
@@ -33,10 +30,35 @@ pub(crate) fn proofless_output_utxo<'a>(
         amount: entry.amount,
         data_hash,
         utxo_data,
-        zone_program_id: ctx.zone_program_id.as_ref(),
-        zone_data_hash,
-        zone_data,
+        ring_program_id: None,
+        ring_data_hash: None,
+        ring_data: None,
         memo: entry.memo,
+    });
+    OutputUtxo {
+        view_tag: *entry.view_tag,
+        utxo_hash: ctx.utxo_hash,
+        data,
+    }
+}
+
+pub(crate) fn encrypted_ring_output_utxo(
+    entry: RingDepositEntryRef<'_>,
+    ctx: ProoflessOutputCtx,
+    ring_program_id: [u8; 32],
+) -> OutputUtxo {
+    let data = encode_encrypted_ring_deposit_output_ref(EncryptedRingDepositOutputRef {
+        owner_utxo_hash: entry.owner_utxo_hash,
+        asset: &ctx.asset,
+        amount: entry.amount,
+        data_hash: entry.data_hash,
+        ring_program_id: &ring_program_id,
+        ring_data_hash: entry.ring_data_hash,
+        encrypted: EventEncryptedRingDepositDataRef {
+            tx_viewing_pk: entry.encrypted.tx_viewing_pk,
+            salt: entry.encrypted.salt,
+            ciphertext: entry.encrypted.ciphertext,
+        },
     });
     OutputUtxo {
         view_tag: *entry.view_tag,

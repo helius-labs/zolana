@@ -13,7 +13,7 @@ pub struct ConfidentialOutputPlaintext {
     pub asset_id: u64,
     pub amount: u64,
     pub blinding: [u8; 32],
-    pub zone_program_id: Option<Address>,
+    pub ring_program_id: Option<Address>,
     pub data: Data,
 }
 
@@ -34,15 +34,15 @@ impl ConfidentialOutputPlaintext {
         owner: PublicKey,
         assets: &AssetRegistry,
     ) -> Result<Utxo, TransactionError> {
-        if self.data.zone_data().is_some() && self.zone_program_id.is_none() {
-            return Err(TransactionError::MissingZoneProgramId);
+        if self.data.ring_data().is_some() && self.ring_program_id.is_none() {
+            return Err(TransactionError::MissingRingProgramId);
         }
         Ok(Utxo {
             owner,
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding: self.blinding,
-            zone_program_id: self.zone_program_id,
+            ring_program_id: self.ring_program_id,
             data: self.data,
         })
     }
@@ -125,7 +125,7 @@ impl UtxoSerialization for Confidential {
             asset_id: owner.assets.asset_id(&first.asset)?,
             amount: first.amount,
             blinding: first.blinding,
-            zone_program_id: first.zone_program_id,
+            ring_program_id: first.ring_program_id,
             data: first.data.clone(),
         })
     }
@@ -161,7 +161,7 @@ mod tests {
             asset_id: SOL_ASSET_ID,
             amount: 42,
             blinding: [7u8; 32],
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         }
     }

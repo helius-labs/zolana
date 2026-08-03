@@ -22,9 +22,9 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
         amount,
         data_hash: Some(data_hash),
         utxo_data: None,
-        zone_program_id: None,
-        zone_data_hash: None,
-        zone_data: None,
+        ring_program_id: None,
+        ring_data_hash: None,
+        ring_data: None,
         memo: Some(b"deposit memo".to_vec()),
     };
 
@@ -77,7 +77,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
     let discovered = wallet.utxos.first().expect("discovered utxo");
     assert_eq!(discovered.output_context.hash, deposit_hash);
     assert_eq!(discovered.data_hash, Some([14u8; 32]));
-    assert_eq!(discovered.zone_data_hash, None);
+    assert_eq!(discovered.ring_data_hash, None);
     assert!(!discovered.spent);
     assert_eq!(
         discovered.utxo.data.memo(),

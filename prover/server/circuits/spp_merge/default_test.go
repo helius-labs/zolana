@@ -186,7 +186,7 @@ func TestMergeCircuitRejectsInvalidDomain(t *testing.T) {
 	}
 }
 
-func TestMergeCircuitRejectsNonzeroDefaultZoneData(t *testing.T) {
+func TestMergeCircuitRejectsNonzeroDefaultRingData(t *testing.T) {
 	tests := []struct {
 		name    string
 		options mergeFixtureOptions
@@ -194,13 +194,13 @@ func TestMergeCircuitRejectsNonzeroDefaultZoneData(t *testing.T) {
 		{
 			name: "real input",
 			options: mergeFixtureOptions{
-				inputZoneData: []*big.Int{big.NewInt(1), big.NewInt(0)},
+				inputRingData: []*big.Int{big.NewInt(1), big.NewInt(0)},
 			},
 		},
 		{
 			name: "output",
 			options: mergeFixtureOptions{
-				outputZoneData: big.NewInt(1),
+				outputRingData: big.NewInt(1),
 			},
 		},
 	}
@@ -209,15 +209,15 @@ func TestMergeCircuitRejectsNonzeroDefaultZoneData(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a := buildDefaultWitness(t, tc.options)
 			if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
-				t.Fatal("expected default-zone data assertion to fail, got solved")
+				t.Fatal("expected default-ring data assertion to fail, got solved")
 			}
 		})
 	}
 }
 
-func TestMergeCircuitRejectsNonzeroDummyZoneData(t *testing.T) {
+func TestMergeCircuitRejectsNonzeroDummyRingData(t *testing.T) {
 	a := buildValidWitness(t)
-	a.Inputs[2].ZoneDataHash = big.NewInt(1)
+	a.Inputs[2].RingDataHash = big.NewInt(1)
 	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected canonical-dummy failure, got solved")
 	}

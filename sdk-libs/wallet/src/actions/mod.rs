@@ -17,7 +17,8 @@ pub use deposit::{
 pub use submit::{submit_merge_transaction, SubmitMergeTransaction, SubmittedMerge};
 pub use transaction::{
     build_private_transaction, build_private_transaction_sync, sign_private_transaction,
-    sign_private_transaction_sync,
+    sign_private_transaction_sync, sign_private_transaction_sync_with_signers,
+    sign_private_transaction_with_signers,
 };
 pub use transaction::{
     create_merge, create_split, create_transfer, create_transfer_sync, create_withdrawal,

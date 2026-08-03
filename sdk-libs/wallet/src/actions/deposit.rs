@@ -145,7 +145,7 @@ pub fn build_deposit_transaction_sync<R: Rpc>(
     ))
 }
 
-/// Build and send a direct (non-zone) proofless shield: a public deposit
+/// Build and send a direct (non-ring) proofless shield: a public deposit
 /// that appends a recipient-hidden UTXO without a proof.
 ///
 /// `payer` funds the transaction fee; `depositor` signs the deposit and is the

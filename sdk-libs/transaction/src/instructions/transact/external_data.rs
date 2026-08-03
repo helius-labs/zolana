@@ -14,7 +14,7 @@ use crate::{error::TransactionError, SOL_MINT};
 
 /// One ordered interface transfer, including the accounts committed by the
 /// canonical external-data hash. SPL legs retain their mint so proof public
-/// movements can be derived without inspecting private inputs or outputs.
+/// transfers can be derived without inspecting private inputs or outputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SettlementTransfer {
     Sol {
@@ -68,11 +68,17 @@ impl SettlementTransfer {
                 amount,
                 ..
             } => {
-                let vault_bump = pda::spl_asset_vault_bump(mint.as_array());
+                let spl_interface_bump = pda::spl_interface_bump(mint.as_array());
                 if is_deposit {
-                    InterfaceTransfer::SplDeposit { amount, vault_bump }
+                    InterfaceTransfer::SplDeposit {
+                        amount,
+                        spl_interface_bump,
+                    }
                 } else {
-                    InterfaceTransfer::SplWithdrawal { amount, vault_bump }
+                    InterfaceTransfer::SplWithdrawal {
+                        amount,
+                        spl_interface_bump,
+                    }
                 }
             }
         }
@@ -108,13 +114,13 @@ impl SettlementTransfer {
                     ResolvedInterfaceTransfer::SplDeposit {
                         amount,
                         user_token_account: *user_spl_token.as_array(),
-                        vault: *spl_token_interface.as_array(),
+                        spl_interface: *spl_token_interface.as_array(),
                     }
                 } else {
                     ResolvedInterfaceTransfer::SplWithdrawal {
                         amount,
                         user_token_account: *user_spl_token.as_array(),
-                        vault: *spl_token_interface.as_array(),
+                        spl_interface: *spl_token_interface.as_array(),
                     }
                 }
             }
@@ -135,11 +141,11 @@ pub struct ExternalData {
     pub instruction_discriminator: u8,
     pub expiry_unix_ts: u64,
     pub interface_transfers: Vec<SettlementTransfer>,
-    /// Optional transaction-level UTXO- and zone-specific external data
-    /// digests folded into `external_data_hash`; `None` for a default-zone
+    /// Optional transaction-level UTXO- and ring-specific external data
+    /// digests folded into `external_data_hash`; `None` for a default-ring
     /// `transact`.
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
     /// All `M` outputs in tree-append order (SPL change, SOL change, recipients
@@ -166,7 +172,7 @@ impl ExternalData {
             expiry_unix_ts: u64::MAX, // default no expiry, not necessary for confidential transfers
             interface_transfers: Vec::new(),
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             tx_viewing_pk,
             salt,
             outputs,
@@ -206,16 +212,16 @@ impl ExternalData {
         Ok(self)
     }
 
-    pub fn with_zone_hashes(
+    pub fn with_ring_hashes(
         mut self,
         data_hash: [u8; 32],
-        zone_data_hash: [u8; 32],
+        ring_data_hash: [u8; 32],
     ) -> Result<Self, TransactionError> {
-        if self.data_hash.is_some() || self.zone_data_hash.is_some() {
-            return Err(TransactionError::ZoneHashesAlreadySet);
+        if self.data_hash.is_some() || self.ring_data_hash.is_some() {
+            return Err(TransactionError::RingHashesAlreadySet);
         }
         self.data_hash = Some(data_hash);
-        self.zone_data_hash = Some(zone_data_hash);
+        self.ring_data_hash = Some(ring_data_hash);
         Ok(self)
     }
 
@@ -250,7 +256,7 @@ impl ExternalData {
             expiry_unix_ts: self.expiry_unix_ts,
             interface_transfers: &interface_transfers,
             data_hash: self.data_hash,
-            zone_data_hash: self.zone_data_hash,
+            ring_data_hash: self.ring_data_hash,
             tx_viewing_pk: &self.tx_viewing_pk,
             salt: &self.salt,
             outputs: &resolved,

@@ -1,17 +1,19 @@
 pub mod create_spl_interface;
 pub mod deposit;
-pub mod merge_zone;
+pub mod merge_ring;
 pub mod protocol_config;
+pub mod ring_deposit;
+pub mod ring_transact;
 pub mod spl_deposit;
-pub mod zone_deposit;
-pub mod zone_transact;
 
 use std::time::{Duration, Instant};
 
 pub use create_spl_interface::assert_create_spl_interface;
 pub use deposit::{assert_deposit, DepositAssertArgs};
-pub use merge_zone::{assert_merge_zone, MergeZoneAssertArgs};
+pub use merge_ring::{assert_merge_ring, MergeRingAssertArgs};
 pub use protocol_config::assert_protocol_config;
+pub use ring_deposit::{assert_ring_deposit, RingDepositAssertArgs};
+pub use ring_transact::{assert_ring_transact, RingTransactAssertArgs};
 use solana_account::Account;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
@@ -19,11 +21,10 @@ use solana_signature::Signature;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
+    SolanaRpc,
 };
 use zolana_interface::{instruction::AssetDeposit, state::state_root_offset};
 use zolana_program_test::DepositOutput;
-pub use zone_deposit::{assert_zone_deposit, ZoneDepositAssertArgs};
-pub use zone_transact::{assert_zone_transact, ZoneTransactAssertArgs};
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -53,9 +54,9 @@ pub fn expected_deposit_view(
             amount: expected_amount,
             data_hash: data.utxo_data.as_ref().map(|p| p.data_hash),
             utxo_data: data.utxo_data.as_ref().map(|p| p.data.clone()),
-            zone_program_id: None,
-            zone_data_hash: None,
-            zone_data: None,
+            ring_program_id: None,
+            ring_data_hash: None,
+            ring_data: None,
             memo: None,
         },
     }
@@ -104,6 +105,62 @@ pub fn fetch_account<R: Rpc>(rpc: &R, pubkey: &Pubkey) -> Result<Account, Client
     Ok(rpc
         .get_account(to_address(pubkey))?
         .expect("account exists"))
+}
+
+pub fn fetch_optional_account<R: Rpc>(
+    rpc: &R,
+    pubkey: &Pubkey,
+) -> Result<Option<Account>, ClientError> {
+    rpc.get_account(to_address(pubkey))
+}
+
+/// Read the runtime's confirmed transaction metadata and pin a proof-bearing
+/// transaction to an explicit compute-unit ceiling.
+#[track_caller]
+pub fn assert_transaction_compute_units(
+    rpc: &SolanaRpc,
+    signature: &Signature,
+    label: &str,
+    limit: u64,
+) -> Result<u64, ClientError> {
+    let transaction = rpc.fetch_confirmed_transaction(signature)?;
+    let meta = transaction.transaction.meta.ok_or_else(|| {
+        ClientError::Rpc(format!("{label}: confirmed transaction has no metadata"))
+    })?;
+    let consumed = meta
+        .compute_units_consumed
+        .expect("confirmed transaction metadata must include compute units");
+    assert!(
+        consumed <= limit,
+        "{label} consumed {consumed} CU (limit {limit})"
+    );
+    println!("{label}: {consumed} CU (limit {limit})");
+    Ok(consumed)
+}
+
+/// Verify rollback after a rejected transaction by comparing the complete
+/// account, including lamports, owner, flags, rent epoch, and data.
+#[track_caller]
+pub fn assert_account_unchanged<R: Rpc>(
+    rpc: &R,
+    pubkey: &Pubkey,
+    before: &Account,
+) -> Result<(), ClientError> {
+    let after = fetch_account(rpc, pubkey)?;
+    assert_eq!(&after, before, "account {pubkey} changed after rejection");
+    Ok(())
+}
+
+/// Verify that an account remains byte-for-byte identical or remains absent.
+#[track_caller]
+pub fn assert_optional_account_unchanged<R: Rpc>(
+    rpc: &R,
+    pubkey: &Pubkey,
+    before: &Option<Account>,
+) -> Result<(), ClientError> {
+    let after = fetch_optional_account(rpc, pubkey)?;
+    assert_eq!(&after, before, "account {pubkey} changed after rejection");
+    Ok(())
 }
 
 #[track_caller]
@@ -205,9 +262,20 @@ pub fn wait_for_non_inclusion_proof<I: Rpc>(
 pub fn wait_for_nullifier_present<I: Rpc>(indexer: &I, tree: Address, leaf: [u8; 32]) {
     wait_for("nullifier present in tree", || {
         match indexer.get_non_inclusion_proofs(tree, vec![leaf], None) {
+            // Photon refuses a non-inclusion proof for a nullifier that is
+            // used or queued ("Nullifier leaf .. is already used or queued",
+            // get_non_inclusion_proofs.rs); that specific refusal is the
+            // positive signal. Any other error (transport, indexer restart)
+            // retries until the deadline instead of silently counting as
+            // success, and both non-terminal states surface as the "last
+            // indexer error" on timeout.
+            Err(error) if format!("{error:?}").contains("already used or queued") => Ok(Some(())),
             Ok(response) if response.proofs.is_empty() => Ok(Some(())),
-            Ok(_) => Ok(None),
-            Err(_) => Ok(Some(())),
+            Ok(response) => Err(ClientError::Rpc(format!(
+                "non-inclusion proof still served ({} proofs)",
+                response.proofs.len()
+            ))),
+            Err(error) => Err(error),
         }
     });
 }
@@ -241,4 +309,27 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_instruction_error::InstructionError;
+    use solana_transaction_error::TransactionError;
+    use zolana_client::ClientError;
+    use zolana_interface::error::ShieldedPoolError;
+    use zolana_program_test::Rejection;
+
+    #[test]
+    fn rejection_assert_client_matches_code_and_instruction_index() {
+        let source = solana_rpc_client_api::client_error::Error::from(
+            TransactionError::InstructionError(2, InstructionError::Custom(7_008)),
+        );
+        let error = ClientError::SolanaRpcTransaction {
+            operation: "test",
+            source,
+        };
+        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+            .at(2)
+            .assert_client(&error);
+    }
 }

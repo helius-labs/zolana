@@ -32,6 +32,63 @@ func AssertOutputOwnerTags(
 	return nil
 }
 
+// AssertPublishedOutputOwners binds the public masked owner vector used by
+// owner-signed custom-ring rails. A real default-ring output publishes its
+// actual private owner identity; a real policy-ring output must publish zero.
+// Dummy slots are handled separately so they may choose either marker.
+func AssertPublishedOutputOwners(
+	api frontend.API,
+	outputs []UtxoCircuitFields,
+	ownerPkHashes []frontend.Variable,
+	publishedOwnerPkHashes []frontend.Variable,
+) error {
+	if err := ValidateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
+		return err
+	}
+	if err := ValidateLength("published output owner pk hash", len(publishedOwnerPkHashes), len(outputs)); err != nil {
+		return err
+	}
+	for i, utxo := range outputs {
+		isReal := utxo.isUtxo(api)
+		isDefaultRing := api.IsZero(utxo.RingProgramID)
+		expected := api.Mul(isDefaultRing, ownerPkHashes[i])
+		AssertWhen(api, isReal, api.IsZero(api.Sub(publishedOwnerPkHashes[i], expected)))
+	}
+	return nil
+}
+
+// AssertMaskedDummyOutputTags allows an anonymous (zero) dummy marker. When a
+// dummy opts into the confidential marker, its published identity must name a
+// real transaction participant. This preserves attribution safety for marked
+// dummies while keeping the anonymous and confidential schemes separated.
+func AssertMaskedDummyOutputTags(
+	api frontend.API,
+	outputs []UtxoCircuitFields,
+	ownerPkHashes []frontend.Variable,
+	publishedOwnerPkHashes []frontend.Variable,
+	signers Signers,
+) error {
+	if err := ValidateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
+		return err
+	}
+	if err := ValidateLength("published output owner pk hash", len(publishedOwnerPkHashes), len(outputs)); err != nil {
+		return err
+	}
+	participants := append(Signers(nil), signers...)
+	for i, utxo := range outputs {
+		participants = append(participants, api.Mul(utxo.isUtxo(api), ownerPkHashes[i]))
+	}
+	for i, utxo := range outputs {
+		isPublished := api.Sub(1, api.IsZero(publishedOwnerPkHashes[i]))
+		AssertWhen(
+			api,
+			api.Mul(utxo.isDummy(api), isPublished),
+			participants.Contains(api, publishedOwnerPkHashes[i]),
+		)
+	}
+	return nil
+}
+
 // AssertDummyTags constrains every dummy slot's public owner tag to name a
 // transaction participant: a real input signer or a real output owner. A pad
 // slot must be

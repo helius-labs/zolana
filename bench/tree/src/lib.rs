@@ -4,14 +4,14 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_batched_merkle_tree::merkle_tree::{
     BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
 };
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
+use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
 
-const HEIGHT: u8 = 26;
+const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;
 const DISCRIMINATOR: u8 = 7;
 
 const ADDRESS_RH: usize = 120;

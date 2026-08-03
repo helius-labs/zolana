@@ -27,16 +27,16 @@ type mergeFixtureRail uint8
 
 const (
 	defaultFixtureRail mergeFixtureRail = iota
-	zoneFixtureRail
+	ringFixtureRail
 )
 
 type mergeFixtureOptions struct {
 	rail              mergeFixtureRail
 	eddsa             bool
 	asset             *big.Int
-	zoneProgramID     *big.Int
-	inputZoneData     []*big.Int
-	outputZoneData    *big.Int
+	ringProgramID     *big.Int
+	inputRingData     []*big.Int
+	outputRingData    *big.Int
 	userSigningPkHash *big.Int
 	allowDummyInputs  *big.Int
 	// duplicateFirstInput fills input slot 1 with an exact copy of slot 0
@@ -55,8 +55,8 @@ type mergeWitnessFixture struct {
 	userNullifierSecret *big.Int
 	public              mergeshared.CommonPublicInputs
 	userSigningPkHash   *big.Int
-	outputZoneDataHash  *big.Int
-	zoneProgramID       *big.Int
+	outputRingDataHash  *big.Int
+	ringProgramID       *big.Int
 	publicInputHash     *big.Int
 }
 
@@ -66,14 +66,14 @@ func buildDefaultWitness(t *testing.T, options mergeFixtureOptions) *merge.Circu
 	return buildMergeFixture(t, options).defaultCircuit()
 }
 
-func buildZoneWitness(t *testing.T, zoneProgramID *big.Int) *merge.ZoneCircuit {
+func buildRingWitness(t *testing.T, ringProgramID *big.Int) *merge.RingCircuit {
 	t.Helper()
 	return buildMergeFixture(t, mergeFixtureOptions{
-		rail:           zoneFixtureRail,
-		zoneProgramID:  zoneProgramID,
-		inputZoneData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
-		outputZoneData: big.NewInt(0xD2),
-	}).zoneCircuit()
+		rail:           ringFixtureRail,
+		ringProgramID:  ringProgramID,
+		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
+		outputRingData: big.NewInt(0xD2),
+	}).ringCircuit()
 }
 
 func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessFixture {
@@ -116,23 +116,23 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	const numReal = 2
 	amounts := []*big.Int{big.NewInt(5), big.NewInt(7)}
 	blindings := []*big.Int{big.NewInt(0x1111), big.NewInt(0x2222)}
-	zoneData := []*big.Int{big.NewInt(0), big.NewInt(0)}
-	if options.inputZoneData != nil {
-		if len(options.inputZoneData) != numReal {
-			t.Fatalf("input zone data count: got %d want %d", len(options.inputZoneData), numReal)
+	ringData := []*big.Int{big.NewInt(0), big.NewInt(0)}
+	if options.inputRingData != nil {
+		if len(options.inputRingData) != numReal {
+			t.Fatalf("input ring data count: got %d want %d", len(options.inputRingData), numReal)
 		}
-		zoneData = options.inputZoneData
+		ringData = options.inputRingData
 	}
-	outputZoneData := big.NewInt(0)
-	if options.outputZoneData != nil {
-		outputZoneData = options.outputZoneData
+	outputRingData := big.NewInt(0)
+	if options.outputRingData != nil {
+		outputRingData = options.outputRingData
 	}
-	zoneProgramID := big.NewInt(0)
-	if options.rail == zoneFixtureRail {
-		if options.zoneProgramID == nil {
-			t.Fatal("zone fixture requires a zone program ID")
+	ringProgramID := big.NewInt(0)
+	if options.rail == ringFixtureRail {
+		if options.ringProgramID == nil {
+			t.Fatal("ring fixture requires a ring program ID")
 		}
-		zoneProgramID = options.zoneProgramID
+		ringProgramID = options.ringProgramID
 	}
 
 	// Real input UTXOs and their state-tree leaves. Slot 0 is always real: the
@@ -153,8 +153,8 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			Amount:        amounts[i],
 			Blinding:      blindings[i],
 			DataHash:      big.NewInt(0),
-			ZoneDataHash:  zoneData[i],
-			ZoneProgramID: zoneProgramID,
+			RingDataHash:  ringData[i],
+			RingProgramID: ringProgramID,
 		}
 		h, err := protocol.UtxoHash(inUtxos[i])
 		if err != nil {
@@ -213,8 +213,8 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		Amount:        outAmount,
 		Blinding:      outBlinding,
 		DataHash:      big.NewInt(0),
-		ZoneDataHash:  outputZoneData,
-		ZoneProgramID: zoneProgramID,
+		RingDataHash:  outputRingData,
+		RingProgramID: ringProgramID,
 	}
 	outHash, err := protocol.UtxoHash(outUtxo)
 	if err != nil {
@@ -303,11 +303,11 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			publicInputPreimage,
 			userSigningPkHash,
 		)
-	case zoneFixtureRail:
+	case ringFixtureRail:
 		publicInputPreimage = append(
 			publicInputPreimage,
-			outputZoneData,
-			zoneProgramID,
+			outputRingData,
+			ringProgramID,
 		)
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
@@ -330,7 +330,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			in.Domain = big.NewInt(protocol.UtxoDomain)
 			in.Amount = amounts[i]
 			in.Blinding = blindings[i]
-			in.ZoneDataHash = zoneData[i]
+			in.RingDataHash = ringData[i]
 			fillPath(in.StatePathElements, stateProofs[uint64(i)].PathElements)
 			in.StatePathIndex = big.NewInt(int64(stateProofs[uint64(i)].PathIndex))
 			in.NullifierLowValue = nfWitnesses[i].LowValue
@@ -341,7 +341,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			in.Domain = big.NewInt(protocol.DummyDomain)
 			in.Amount = big.NewInt(0)
 			in.Blinding = big.NewInt(0)
-			in.ZoneDataHash = big.NewInt(0)
+			in.RingDataHash = big.NewInt(0)
 			zeroPath(in.StatePathElements)
 			in.StatePathIndex = big.NewInt(0)
 			w := dummyNfWitnesses[i]
@@ -358,15 +358,15 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 
 	return &mergeWitnessFixture{
 		inputs:              inputs,
-		output:              merge.Output{ZoneDataHash: outputZoneData},
+		output:              merge.Output{RingDataHash: outputRingData},
 		asset:               asset,
 		ownerPkHash:         ownerKeyHash,
 		userNullifierPk:     userNullifierPk,
 		userNullifierSecret: nullifierSecret,
 		public:              public,
 		userSigningPkHash:   userSigningPkHash,
-		outputZoneDataHash:  outputZoneData,
-		zoneProgramID:       zoneProgramID,
+		outputRingDataHash:  outputRingData,
+		ringProgramID:       ringProgramID,
 		publicInputHash:     publicInputHash,
 	}
 }
@@ -385,8 +385,8 @@ func (f *mergeWitnessFixture) defaultCircuit() *merge.Circuit {
 	return assignment
 }
 
-func (f *mergeWitnessFixture) zoneCircuit() *merge.ZoneCircuit {
-	assignment := merge.NewMergeZoneCircuit()
+func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
+	assignment := merge.NewMergeRingCircuit()
 	assignment.Inputs = f.inputs
 	assignment.Output = f.output
 	assignment.Asset = f.asset
@@ -394,8 +394,8 @@ func (f *mergeWitnessFixture) zoneCircuit() *merge.ZoneCircuit {
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
 	assignment.CommonPublicInputs = f.public
-	assignment.OutputZoneDataHash = f.outputZoneDataHash
-	assignment.ZoneProgramID = f.zoneProgramID
+	assignment.OutputRingDataHash = f.outputRingDataHash
+	assignment.RingProgramID = f.ringProgramID
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }

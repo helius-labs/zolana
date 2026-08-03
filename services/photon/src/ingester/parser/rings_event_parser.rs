@@ -11,7 +11,7 @@ use crate::ingester::{
 };
 use solana_pubkey::Pubkey;
 use zolana_event::{
-    decode_event_payload, decode_output_data, tag, InstructionGroup as RingsInstructionGroup,
+    decode_event_payload, tag, InstructionGroup as RingsInstructionGroup,
     ParsedInstruction as RingsInstruction,
 };
 use zolana_interface::pda;
@@ -54,10 +54,10 @@ pub fn parse_rings_events(
             .filter(|salt| salt.iter().any(|byte| *byte != 0))
             .map(|salt| salt.to_vec());
 
-        let proofless = event
-            .outputs
-            .iter()
-            .any(|output| decode_output_data(&output.data).is_ok());
+        let proofless = matches!(
+            event_site.source_instruction_tag,
+            tag::DEPOSIT | tag::RING_DEPOSIT
+        );
 
         let outputs = event
             .outputs
@@ -254,9 +254,9 @@ fn event_parent(
 fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bool {
     // Keep this in sync with shielded-pool processors that call
     // `emit_general_event`, directly or via process_transact_core /
-    // process_merge_core. Self-emitting instructions: TRANSACT, ZONE_TRANSACT,
-    // ZONE_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, ZONE_MERGE_TRANSACT
-    // (merge core); DEPOSIT, ZONE_DEPOSIT (deposit). Missing a tag here silently
+    // process_merge_core. Self-emitting instructions: TRANSACT, RING_TRANSACT,
+    // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
+    // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
     // drops those transactions from the index (they never get a rings_transactions
     // row).
     instruction.program_id == rings_program_id
@@ -264,12 +264,12 @@ fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> 
             instruction.data.first().copied(),
             Some(
                 tag::TRANSACT
-                    | tag::ZONE_TRANSACT
-                    | tag::ZONE_AUTHORITY_TRANSACT
+                    | tag::RING_TRANSACT
+                    | tag::RING_AUTHORITY_TRANSACT
                     | tag::MERGE_TRANSACT
-                    | tag::ZONE_MERGE_TRANSACT
+                    | tag::RING_MERGE_TRANSACT
                     | tag::DEPOSIT
-                    | tag::ZONE_DEPOSIT
+                    | tag::RING_DEPOSIT
             )
         )
 }
@@ -287,7 +287,7 @@ mod tests {
         pda::shielded_pool_program_id()
     }
 
-    /// Stand-in for any foreign program (attacker contract, zone program).
+    /// Stand-in for any foreign program (attacker contract, ring program).
     fn foreign() -> Pubkey {
         Pubkey::new_from_array([9; 32])
     }
@@ -319,11 +319,11 @@ mod tests {
     }
 
     #[test]
-    fn accepts_zone_rail_event_nested_at_height_three() {
+    fn accepts_ring_rail_event_nested_at_height_three() {
         let groups = [InstructionGroup {
             outer: ix(foreign(), 0, 1),
             inner: vec![
-                ix(spp(), tag::ZONE_TRANSACT, 2),
+                ix(spp(), tag::RING_TRANSACT, 2),
                 ix(spp(), tag::EMIT_EVENT, 3),
             ],
         }];
@@ -331,7 +331,7 @@ mod tests {
         let sites = event_sites(&groups);
 
         assert_eq!(sites.len(), 1);
-        assert_eq!(sites[0].source_instruction_tag, tag::ZONE_TRANSACT);
+        assert_eq!(sites[0].source_instruction_tag, tag::RING_TRANSACT);
     }
 
     #[test]
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn drops_event_forged_under_a_foreign_inner_parent() {
         // Attacker nests one level deeper so the forged event's stack height
-        // matches the genuine zone-rail shape; the parent is still foreign.
+        // matches the genuine ring-rail shape; the parent is still foreign.
         let groups = [InstructionGroup {
             outer: ix(foreign(), 0, 1),
             inner: vec![ix(foreign(), 0, 2), ix(spp(), tag::EMIT_EVENT, 3)],

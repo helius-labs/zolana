@@ -41,6 +41,11 @@ pub fn process_batch_update_nullifier_tree(
     };
 
     // The emit self-CPI passes no accounts, so the tree borrow does not conflict.
+    // INVARIANT: the event emit must remain the LAST fallible operation in this
+    // processor. Photon's parser records batch updates from the emitted event in
+    // successful transactions only (its `tx.error` guard); an emit-then-fail
+    // shape would either drop a genuine update or wedge the indexer on a forged
+    // one. Keep every fallible step (including `reimburse_forester`) above it.
     if let Some(event) = event {
         reimburse_forester(tree, reimbursement_recipient, event.num_update)?;
         emit_batch_address_append_event(&event)?;

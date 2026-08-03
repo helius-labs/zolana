@@ -22,15 +22,16 @@ pub const DUMMY_DOMAIN: u16 = 1;
 pub const ADDRESS_DOMAIN: u16 = 2;
 pub const UTXO_DOMAIN: u16 = 3;
 
-/// Number of distinct public asset movement slots in every SPP transaction
+/// Number of distinct public asset transfer slots in every SPP transaction
 /// circuit. Ordered interface transfers are aggregated by resolved asset before
 /// filling these slots.
 pub const N_PUBLIC_SLOTS: usize = 3;
 
-/// Largest interface-transfer count representable by the instruction's
-/// `FixIntLen<u8>` wire prefix. This is an encoding bound, not a protocol
-/// transaction-shape limit; Solana's transaction size is normally tighter.
-pub const MAX_INTERFACE_TRANSFERS: usize = u8::MAX as usize;
+/// Protocol maximum number of interface-transfer legs in one transaction.
+///
+/// The wire format retains its `FixIntLen<u8>` prefix, but builders and the
+/// on-chain parser reject values above this bound.
+pub const MAX_INTERFACE_TRANSFERS: usize = 32;
 
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The
@@ -53,6 +54,19 @@ pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
 /// resolve test all reference one value and cannot drift.
 pub const DEFAULT_TREE_ADDRESS: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
 
+/// The upgradeable BPF loader. `create_protocol_config` binds one-time protocol
+/// initialization to the program's deploy upgrade authority: when the program
+/// account is owned by this loader and its `ProgramData` names an upgrade
+/// authority, only that authority may create the protocol config (front-run
+/// protection). Non-upgradeable deployments (localnet `--bpf-program`) and an
+/// unset authority (test harnesses, immutable programs) skip the check.
+pub const BPF_LOADER_UPGRADEABLE_ID: [u8; 32] =
+    pubkey_array!("BPFLoaderUpgradeab1e11111111111111111111111");
+
+/// [`BPF_LOADER_UPGRADEABLE_ID`] as a `Pubkey`, used by instruction builders.
+pub const BPF_LOADER_UPGRADEABLE_PUBKEY: solana_pubkey::Pubkey =
+    solana_pubkey::Pubkey::new_from_array(BPF_LOADER_UPGRADEABLE_ID);
+
 /// Seed for the native SOL interface account used by public SOL settlement.
 pub const SOL_INTERFACE_PDA_SEED: &[u8] = b"sol_interface";
 pub const DEFAULT_SOL_INTERFACE_INDEX_SEED: &[u8] = &[0];
@@ -65,10 +79,12 @@ pub const SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED: &[u8] = b"cpi_authority";
 /// program creates and address-checks; a substituted config can't name a new
 /// authority.
 pub const SPP_PROTOCOL_CONFIG_PDA_SEED: &[u8] = b"protocol_config";
-pub const ZONE_AUTH_PDA_SEED: &[u8] = b"zone_auth";
+pub const RING_AUTH_PDA_SEED: &[u8] = b"ring_auth";
 pub const SPL_ASSET_COUNTER_PDA_SEED: &[u8] = b"spl_asset_counter";
 pub const SPL_ASSET_REGISTRY_PDA_SEED: &[u8] = b"spl_asset_registry";
-pub const SPL_ASSET_VAULT_PDA_SEED: &[u8] = b"spl_asset_vault";
+// The bytes are part of the deployed PDA derivation and intentionally retain
+// the historical value while the API uses the canonical "SPL interface" name.
+pub const SPL_INTERFACE_PDA_SEED: &[u8] = b"spl_asset_vault";
 
 /// Canonical shielded-pool CPI authority PDA:
 /// `find_program_address(&[b"cpi_authority"], SHIELDED_POOL_PROGRAM_ID)`.

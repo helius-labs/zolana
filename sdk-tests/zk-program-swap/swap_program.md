@@ -83,7 +83,7 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 ## Privacy Model
 
 What is public and what is private. The confidentiality is inherited from the SPP confidential
-zone; the swap program does not try to hide which action ran.
+ring; the swap program does not try to hide which action ran.
 
 - **Public:** the maker's Solana signer pubkey, written into the marker at make (the taker resolves
   the maker's registered shielded address from it via the user registry) and revealed again at
@@ -156,10 +156,9 @@ maker-signed, to `maker_address`). The swap
 circuits leave the order UTXO owner a free witness; SPP enforces the PDA ownership at spend time, when
 the order UTXO input's owner must match the order-authority signer. The program derives the PDA via
 `find_program_address`, checks it is present among the forwarded SPP accounts, and flips it to a
-signer inside the SPP CPI to authorize the order UTXO spend (the client sets the order UTXO input's
-`eddsa_signer_index = 2`, the PDA's position in the forwarded SPP slice
-`[payer, tree, order_authority, spp_program]`); the PDA is a bare address and signs only inside
-the CPI.
+signer inside the SPP CPI to authorize the order UTXO spend. The PDA appears in the ordered owner
+signer section after the fixed `[payer, input_tree, output_tree, spp_program, system_program]`
+prefix; it is a bare address and signs only inside the CPI.
 
 `maker_address` is the committed destination for both outcomes: take pays the destination output
 there, cancel returns the source output there. Either way the maker recovers the bought output from
@@ -200,14 +199,15 @@ with the PDA owner, makes SPP spend it only through a swap circuit). The transac
 message tagged to the taker.
 
 The order UTXO output's recipient ciphertext (`TransferRecipientPlaintext { asset_id, amount, blinding,
-zone_program_id, data }`, with `data` = the order terms other than `maker_address`) is encrypted to
+ring_program_id, data }`, with `data` = the order terms other than `maker_address`) is encrypted to
 the taker's viewing pubkey, so the taker recovers the private order terms and the order UTXO `blinding`;
 the maker can decrypt the same slot via the transaction viewing key it holds. Those two parties are
 exactly who can decrypt the order. The taker resolves `maker_address`
 from the user registry via the marker's `maker_pubkey` and verifies the resolution by
-recomputing the order UTXO `utxo_hash`. The program requires exactly one transact message, with empty
-`data`, and writes a plaintext [`MarkerData`](#glossary) `{ order_utxo_hash,
-maker_pubkey }` into it (the order UTXO hash read from transact output index 1, the pubkey from the
+recomputing the order UTXO `utxo_hash`. The program requires exactly one transact message, with
+`data` equal to the 64-byte zeroed placeholder (`MARKER_PLACEHOLDER`), and overwrites it in place
+with the plaintext [`MarkerData`](#glossary) `{ order_utxo_hash,
+maker_pubkey }` (the order UTXO hash read from transact output index 1, the pubkey from the
 signer), so ordinary wallet sync finds the trade and
 can locate the matching order UTXO slot to decrypt. The message is committed in `private_tx_hash` via
 the external-data hash, so the SPP proof only verifies if the maker proved over the exact
@@ -401,7 +401,7 @@ by the SPP proof.
     addresses. The source input hash and external-data hash are free witnesses; the change slot
     contributes 0 when the change amount is 0.
   - The order UTXO output committed in `private_tx_hash` has `data_hash = Poseidon(order terms)`
-    with `maker_address` hashed in as a field element, zone fields 0, and a nonzero amount, so the
+    with `maker_address` hashed in as a field element, ring fields 0, and a nonzero amount, so the
     public SPP order UTXO output commits the terms.
   - The change output is constrained to the order UTXO's asset and to `maker_owner_hash`, with empty
     data.

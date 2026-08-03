@@ -1,0 +1,52 @@
+# cargo-nextest configuration for the Zolana workspace.
+# Docs: https://nexte.st/book/configuration.html
+#
+# Nextest runs each test in its own process, which matters here: many
+# integration tests spawn a local prover / test-validator / photon, so a hang in
+# one must not stall the whole run, and a genuinely flaky localnet test should be
+# retried rather than failing the suite.
+
+[profile.default]
+# Surface anything slower than 60s; terminate a test still running after 10 such
+# periods (~10 min). Proof-bearing and validator tests legitimately take
+# 100-240s, so the terminate threshold is set well above that to kill only
+# genuine hangs (e.g. a prover that never comes up), not slow-but-progressing
+# tests.
+slow-timeout = { period = "60s", terminate-after = 10 }
+# Print output of failing tests immediately and again in the final summary.
+failure-output = "immediate-final"
+# List slow tests in the final status line so regressions in test time show up.
+final-status-level = "slow"
+
+# CI: don't stop at the first failure (collect the full picture). The profile
+# itself is retry-free so deterministic suites are never masked by a retry that
+# passes; only the validator/localnet override group below retries (twice) to
+# absorb localnet/prover flakiness. A test that only passes on retry is
+# reported as FLAKY.
+[profile.ci]
+retries = 0
+fail-fast = false
+failure-output = "immediate-final"
+final-status-level = "slow"
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# Tests that spawn a solana-test-validator / photon / prover bind fixed ports
+# (RPC 8899, photon 8784, prover 3001). nextest runs each test in its own
+# process and in parallel, so these must be serialized to one-at-a-time or they
+# contend on those ports. `cargo test`'s in-binary parallelism happened to avoid
+# this per-recipe; nextest's process-per-test does not, so the group is required.
+[test-groups]
+serial-validator = { max-threads = 1 }
+
+# Assign every validator/localnet-spawning test to that group. Applied to both
+# profiles (nextest does not inherit overrides across profiles); only the ci
+# override retries, since these are the suites exposed to localnet/prover
+# flakiness.
+[[profile.default.overrides]]
+filter = "package(spp-test-validator) | package(ring-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | (package(shielded-pool-tests) & binary_id(/localnet/))"
+test-group = "serial-validator"
+
+[[profile.ci.overrides]]
+filter = "package(spp-test-validator) | package(ring-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | (package(shielded-pool-tests) & binary_id(/localnet/))"
+test-group = "serial-validator"
+retries = 2

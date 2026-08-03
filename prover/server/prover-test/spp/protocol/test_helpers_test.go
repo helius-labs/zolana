@@ -8,7 +8,7 @@ func sampleUtxo(base int) Utxo {
 		Amount:        fe(int64(base + 4)),
 		Blinding:      fe(int64(base + 5)),
 		DataHash:      fe(int64(base + 6)),
-		ZoneDataHash:  fe(int64(base + 7)),
-		ZoneProgramID: fe(int64(base + 8)),
+		RingDataHash:  fe(int64(base + 7)),
+		RingProgramID: fe(int64(base + 8)),
 	}
 }

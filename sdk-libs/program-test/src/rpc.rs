@@ -11,7 +11,8 @@ use zolana_client::{ClientError, Rpc};
 
 use crate::{
     events::{index_events, indexed_events_from_meta, IndexedEvent},
-    ProgramTestError, ZolanaProgramTest,
+    AccountSnapshot, AccountTransition, InstructionTrace, ProgramTestError, TransactionOutcome,
+    TransactionTrace, ZolanaProgramTest,
 };
 
 #[derive(Debug)]
@@ -28,6 +29,9 @@ impl ZolanaProgramTest {
         payer: &Pubkey,
         signers: &[&Keypair],
     ) -> Result<IndexedTransaction, ProgramTestError> {
+        // Each helper call represents a fresh RPC submission. LiteSVM otherwise
+        // deduplicates repeated instructions signed over the same blockhash.
+        self.svm.expire_blockhash();
         let blockhash = self.svm.latest_blockhash();
         let message = Message::new(ixs, Some(payer));
         let transaction = Transaction::new(signers, message, blockhash);
@@ -44,14 +48,73 @@ impl ZolanaProgramTest {
             .copied()
             .ok_or_else(|| ProgramTestError::Rpc("transaction has no signatures".into()))?;
         let message = transaction.message.clone();
-        let meta = match self.svm.send_transaction(transaction) {
-            Ok(meta) => meta,
-            Err(err) => {
-                return Err(ProgramTestError::Litesvm(format!(
-                    "send_transaction: {err:?}"
-                )));
-            }
+        let instructions: Vec<InstructionTrace> = message
+            .instructions
+            .iter()
+            .map(|compiled| InstructionTrace {
+                program_id: *message
+                    .account_keys
+                    .get(compiled.program_id_index as usize)
+                    .expect("compiled program id index points into the message keys"),
+                accounts: compiled
+                    .accounts
+                    .iter()
+                    .map(|index| {
+                        *message
+                            .account_keys
+                            .get(*index as usize)
+                            .expect("compiled account index points into the message keys")
+                    })
+                    .collect(),
+                data_len: compiled.data.len(),
+                discriminator: compiled.data.iter().take(8).copied().collect(),
+            })
+            .collect();
+        let before: Vec<_> = message
+            .account_keys
+            .iter()
+            .map(|address| {
+                (
+                    *address,
+                    self.svm
+                        .get_account(address)
+                        .map(AccountSnapshot::from_account),
+                )
+            })
+            .collect();
+        let result = self.svm.send_transaction(transaction);
+        let (logs, compute_units_consumed, outcome) = match &result {
+            Ok(meta) => (
+                meta.logs.clone(),
+                meta.compute_units_consumed,
+                TransactionOutcome::Succeeded,
+            ),
+            Err(failure) => (
+                failure.meta.logs.clone(),
+                failure.meta.compute_units_consumed,
+                TransactionOutcome::Failed(failure.err.clone()),
+            ),
         };
+        let accounts = before
+            .into_iter()
+            .map(|(address, before)| AccountTransition {
+                address,
+                before,
+                after: self
+                    .svm
+                    .get_account(&address)
+                    .map(AccountSnapshot::from_account),
+            })
+            .collect();
+        self.transaction_traces.push(TransactionTrace {
+            signature,
+            instructions,
+            accounts,
+            logs,
+            compute_units_consumed,
+            outcome,
+        });
+        let meta = result?;
         let events = indexed_events_from_meta(
             self.program_id,
             &message.account_keys,

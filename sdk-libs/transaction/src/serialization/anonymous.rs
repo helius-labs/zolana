@@ -6,7 +6,7 @@ use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{derive_blinding, resolve_zone_program_id, Utxo},
+    utxo::{derive_blinding, resolve_ring_program_id, Utxo},
     AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SOL_MINT,
 };
 
@@ -37,10 +37,10 @@ impl AnonymousTransferRecipientPlaintext {
     pub fn into_utxo(
         self,
         assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
+        ring_program_id: Option<Address>,
     ) -> Result<Utxo, TransactionError> {
-        // Anonymous recipients may carry a memo, but not zone or utxo data.
-        if self.data.zone_data().is_some() || self.data.utxo_data().is_some() {
+        // Anonymous recipients may carry a memo, but not ring or utxo data.
+        if self.data.ring_data().is_some() || self.data.utxo_data().is_some() {
             return Err(TransactionError::UnsupportedOutputData);
         }
         Ok(Utxo {
@@ -48,7 +48,7 @@ impl AnonymousTransferRecipientPlaintext {
             asset: assets.resolve(self.asset_id)?,
             amount: self.amount,
             blinding: self.blinding,
-            zone_program_id: resolve_zone_program_id(zone_program_id, &self.data)?,
+            ring_program_id: resolve_ring_program_id(ring_program_id, &self.data)?,
             data: self.data,
         })
     }
@@ -85,7 +85,7 @@ impl AnonymousTransferSenderPlaintext {
     pub fn into_utxos(
         self,
         assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
+        ring_program_id: Option<Address>,
     ) -> Result<Vec<Utxo>, TransactionError> {
         if self.spl_amount == 0 && !self.spl_data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
@@ -100,7 +100,7 @@ impl AnonymousTransferSenderPlaintext {
                 asset: assets.resolve(self.spl_asset_id)?,
                 amount: self.spl_amount,
                 blinding: derive_blinding(&self.blinding_seed, 0),
-                zone_program_id: resolve_zone_program_id(zone_program_id, &self.spl_data)?,
+                ring_program_id: resolve_ring_program_id(ring_program_id, &self.spl_data)?,
                 data: self.spl_data,
             });
         }
@@ -110,7 +110,7 @@ impl AnonymousTransferSenderPlaintext {
                 asset: SOL_MINT,
                 amount: self.sol_amount,
                 blinding: derive_blinding(&self.blinding_seed, 1),
-                zone_program_id: resolve_zone_program_id(zone_program_id, &self.sol_data)?,
+                ring_program_id: resolve_ring_program_id(ring_program_id, &self.sol_data)?,
                 data: self.sol_data,
             });
         }
@@ -148,7 +148,7 @@ impl UtxoSerialization for AnonymousRecipient {
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        Ok(vec![plaintext.into_utxo(cx.assets, cx.zone_program_id)?])
+        Ok(vec![plaintext.into_utxo(cx.assets, cx.ring_program_id)?])
     }
 
     fn from_utxos(
@@ -209,7 +209,7 @@ impl UtxoSerialization for AnonymousSenderBundle {
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        plaintext.into_utxos(cx.assets, cx.zone_program_id)
+        plaintext.into_utxos(cx.assets, cx.ring_program_id)
     }
 
     fn from_utxos(
@@ -285,11 +285,11 @@ mod tests {
     }
 
     #[test]
-    fn zone_or_utxo_data_recipient_is_rejected() {
+    fn ring_or_utxo_data_recipient_is_rejected() {
         let assets = AssetRegistry::default();
         for data in [
             Data::new(vec![DataRecord::UtxoData(vec![1])]),
-            Data::new(vec![DataRecord::ZoneData(vec![1])]),
+            Data::new(vec![DataRecord::RingData(vec![1])]),
         ] {
             assert_eq!(
                 plaintext(data).into_utxo(&assets, None).unwrap_err(),

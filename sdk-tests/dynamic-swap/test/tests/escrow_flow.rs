@@ -135,6 +135,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 payer: user_solana.pubkey(),
                 input_tree: env.tree,
                 output_tree: env.tree,
+                owner_signers: Vec::new(),
                 interface_transfer_accounts: Vec::new(),
                 data: split_transact,
             }
@@ -192,7 +193,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 asset: SOL_MINT,
                 amount: reserved,
                 blinding: deposit.deposit.blinding,
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             }
         };

@@ -5,8 +5,8 @@
 
 use borsh::BorshSerialize;
 use zolana_event::{
-    decode_output_data, encode_output_data, OutputDataEncoding, ProoflessOutput,
-    PLAINTEXT_OUTPUT_FIXED_LEN,
+    decode_output_data, encode_output_data, is_confidential_encrypted_output, OutputDataEncoding,
+    ProoflessOutput, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, PLAINTEXT_OUTPUT_FIXED_LEN,
 };
 
 /// The encoding `encode_output_data` replaced: serialize the scheme byte plus the
@@ -59,12 +59,35 @@ fn plaintext_fixed_len_covers_every_option() {
 fn variable_contents_extend_the_fixed_length() {
     let data = every_option_present();
     let variable = data.utxo_data.as_ref().map_or(0, Vec::len)
-        + data.zone_data.as_ref().map_or(0, Vec::len)
+        + data.ring_data.as_ref().map_or(0, Vec::len)
         + data.memo.as_ref().map_or(0, Vec::len);
     assert_eq!(
         encode_output_data(data).len(),
         PLAINTEXT_OUTPUT_FIXED_LEN + variable
     );
+}
+
+#[test]
+fn confidential_marker_requires_encrypted_encoding_and_exact_body_length() {
+    let marked = borsh::to_vec(&OutputDataEncoding::Encrypted(vec![
+        CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+        9,
+    ]))
+    .unwrap();
+    assert!(is_confidential_encrypted_output(&marked));
+
+    let wrong_scheme = borsh::to_vec(&OutputDataEncoding::Encrypted(vec![2, 9])).unwrap();
+    assert!(!is_confidential_encrypted_output(&wrong_scheme));
+    let plaintext = borsh::to_vec(&OutputDataEncoding::Plaintext(vec![
+        CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    ]))
+    .unwrap();
+    assert!(!is_confidential_encrypted_output(&plaintext));
+
+    let mut malformed = marked;
+    malformed[1] = malformed[1].saturating_add(1);
+    assert!(!is_confidential_encrypted_output(&malformed));
+    assert!(!is_confidential_encrypted_output(&[]));
 }
 
 fn minimal() -> ProoflessOutput {
@@ -75,9 +98,9 @@ fn minimal() -> ProoflessOutput {
         amount: 1_000,
         data_hash: None,
         utxo_data: None,
-        zone_program_id: None,
-        zone_data_hash: None,
-        zone_data: None,
+        ring_program_id: None,
+        ring_data_hash: None,
+        ring_data: None,
         memo: None,
     }
 }
@@ -90,9 +113,9 @@ fn every_option_present() -> ProoflessOutput {
         amount: u64::MAX,
         data_hash: Some([6u8; 32]),
         utxo_data: Some(vec![7u8; 200]),
-        zone_program_id: Some([8u8; 32]),
-        zone_data_hash: Some([9u8; 32]),
-        zone_data: Some(vec![10u8; 64]),
+        ring_program_id: Some([8u8; 32]),
+        ring_data_hash: Some([9u8; 32]),
+        ring_data: Some(vec![10u8; 64]),
         memo: Some(b"batched deposit".to_vec()),
     }
 }
@@ -101,10 +124,30 @@ fn every_option_present_but_empty() -> ProoflessOutput {
     ProoflessOutput {
         data_hash: Some([11u8; 32]),
         utxo_data: Some(Vec::new()),
-        zone_program_id: Some([12u8; 32]),
-        zone_data_hash: Some([13u8; 32]),
-        zone_data: Some(Vec::new()),
+        ring_program_id: Some([12u8; 32]),
+        ring_data_hash: Some([13u8; 32]),
+        ring_data: Some(Vec::new()),
         memo: Some(Vec::new()),
         ..minimal()
+    }
+}
+
+/// The `VerifiablyEncrypted` variant is reserved for upcoming auditor
+/// encryption flows (custom rings with auditor): pin its wire shape so the
+/// reservation cannot rot while it has no producer.
+#[test]
+fn verifiably_encrypted_round_trips_with_tag_byte_two() {
+    use borsh::BorshDeserialize;
+    use zolana_event::encode_verifiably_encrypted;
+
+    let blob = vec![1u8, 2, 3, 4, 5];
+    let encoded = encode_verifiably_encrypted(blob.clone());
+    assert_eq!(
+        encoded.first(),
+        Some(&OutputDataEncoding::VERIFIABLY_ENCRYPTED_TAG)
+    );
+    match OutputDataEncoding::try_from_slice(&encoded).expect("decode tag 2") {
+        OutputDataEncoding::VerifiablyEncrypted(out) => assert_eq!(out, blob),
+        other => panic!("expected VerifiablyEncrypted, got {other:?}"),
     }
 }

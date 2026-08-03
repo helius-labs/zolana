@@ -35,7 +35,7 @@ import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
 
 import { ClientError, fromClientCause, isClientError } from "./error.js";
-import { checkedServiceUrl, sha256Bytes } from "./internal.js";
+import { bigintToBytes, checkedServiceUrl, hashField } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
   buildUnsignedTransaction as buildKitUnsignedTransaction,
@@ -616,8 +616,9 @@ export class ZolanaClient {
     if (!isSignedPrivateTransaction(input.signed)) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
-    const payerHash = sha256Bytes(new Uint8Array(getAddressEncoder().encode(input.feePayer)));
-    payerHash[0] = 0;
+    const payerHash = bigintToBytes(
+      hashField(new Uint8Array(getAddressEncoder().encode(input.feePayer))),
+    );
     if (!equal(payerHash, input.signed.transaction.payerPublicKeyHash)) {
       throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
     }

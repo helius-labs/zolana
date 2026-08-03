@@ -1,25 +1,37 @@
-//! End-to-end BDD tests for the merge proof at shape (8,1). Each scenario
-//! consolidates 1..8 P256-owned inputs (rest dummy) into one output, proves it on
-//! the prover server, and verifies against the committed merge verifying key.
-//!
-//! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `merge_8_1.key` proving key available.
-//!
-//! Run with: `cargo test -p zolana-client --test merge_proving`
+mod harness;
+mod proving;
 
-mod steps;
-mod world;
-
-// Shared with the transfer runner; included by path since it lives at tests/.
+#[path = "../prover_bootstrap.rs"]
+mod prover_bootstrap;
 #[path = "../test_indexer.rs"]
 mod test_indexer;
 
-use cucumber::World as _;
+use harness::{MergeHarness, MergePlan};
 
-fn main() {
-    futures::executor::block_on(
-        world::MergeWorld::cucumber()
-            .fail_on_skipped()
-            .run_and_exit("tests/merge/features"),
-    );
+#[test]
+#[serial_test::serial]
+fn p256_merge_proofs_cover_every_real_input_count() {
+    for real_inputs in 1..=8 {
+        MergeHarness {
+            plan: MergePlan {
+                real_inputs,
+                eddsa: false,
+            },
+        }
+        .prove_and_verify_merge();
+    }
+}
+
+#[test]
+#[serial_test::serial]
+fn eddsa_merge_proofs_cover_minimum_middle_and_full_shapes() {
+    for real_inputs in [1, 4, 8] {
+        MergeHarness {
+            plan: MergePlan {
+                real_inputs,
+                eddsa: true,
+            },
+        }
+        .prove_and_verify_merge();
+    }
 }

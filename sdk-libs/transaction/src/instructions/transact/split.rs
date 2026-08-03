@@ -5,8 +5,8 @@ use zolana_interface::{
     shape::Shape,
 };
 use zolana_keypair::{
-    constants::SALT_LEN, hash::sha256_be, random_salt, shielded::ShieldedAddress,
-    viewing_key::random_blinding, P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
+    constants::SALT_LEN, random_salt, shielded::ShieldedAddress, viewing_key::random_blinding,
+    P256Pubkey, ShieldedKeypairTrait, SignatureType, ViewingKeyTrait,
 };
 
 use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
@@ -33,7 +33,7 @@ pub struct ConfidentialSplit {
     pub asset: Address,
     pub num_outputs: u8,
     pub per_output_amount: u64,
-    pub payer_pubkey_hash: [u8; 32],
+    pub payer: Address,
     pub blinding_seed: [u8; 32],
 }
 
@@ -41,7 +41,7 @@ const MIN_PARTS: u8 = 2;
 
 impl ConfidentialSplit {
     /// Validate the split shape and input before assembly: `num_outputs` in
-    /// `2..=8`, the input matches `asset`, the input is a plain utxo (no zone
+    /// `2..=8`, the input matches `asset`, the input is a plain utxo (no ring
     /// binding and no attached data), and `num_outputs * per_output_amount`
     /// equals the input amount so the circuit balance holds.
     pub fn new(
@@ -59,8 +59,8 @@ impl ConfidentialSplit {
         if input.utxo.asset != asset {
             return Err(TransactionError::SplitInputAssetMismatch);
         }
-        if input.utxo.zone_program_id.is_some() {
-            return Err(TransactionError::SplitInputZoneMismatch);
+        if input.utxo.ring_program_id.is_some() {
+            return Err(TransactionError::SplitInputRingMismatch);
         }
         if has_data(&input) {
             return Err(TransactionError::SplitInputHasData);
@@ -82,7 +82,7 @@ impl ConfidentialSplit {
             asset,
             num_outputs,
             per_output_amount,
-            payer_pubkey_hash: sha256_be(payer.as_array()),
+            payer,
             blinding_seed: random_blinding(),
         })
     }
@@ -124,7 +124,7 @@ impl ConfidentialSplit {
             per_output_amount: self.per_output_amount,
             num_outputs: self.num_outputs,
             blinding_seed: self.blinding_seed,
-            payer_pubkey_hash: self.payer_pubkey_hash,
+            payer: self.payer,
         })
     }
 
@@ -170,7 +170,7 @@ pub struct PreparedSplit {
     pub per_output_amount: u64,
     pub num_outputs: u8,
     pub blinding_seed: [u8; 32],
-    pub payer_pubkey_hash: [u8; 32],
+    pub payer: Address,
 }
 
 impl PreparedSplit {
@@ -218,7 +218,7 @@ impl PreparedSplit {
             owner,
             input,
             outputs,
-            payer_pubkey_hash,
+            payer,
             ..
         } = self;
         if owner.signing_pubkey.signature_type()? == SignatureType::P256 {
@@ -251,7 +251,7 @@ impl PreparedSplit {
             input_utxos: vec![input],
             output_utxos: outputs,
             external_data,
-            payer_pubkey_hash,
+            payer,
         })
     }
 }
@@ -273,7 +273,7 @@ mod tests {
             asset: SOL_MINT,
             amount,
             blinding: [5u8; 32],
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         SppProofInputUtxo::new(utxo, keypair)
@@ -430,7 +430,7 @@ mod tests {
         let owner_cx = OwnerCx {
             owner: keypair.signing_pubkey(),
             assets: &AssetRegistry::default(),
-            zone_program_id: None,
+            ring_program_id: None,
         };
         let recovered = Split::into_utxos(plaintext, &owner_cx).expect("into utxos");
         assert_eq!(recovered.len(), usize::from(parts));

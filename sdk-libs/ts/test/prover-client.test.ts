@@ -23,8 +23,9 @@ const INPUTS = {
     publicAssets: [0n, 0n, 0n],
     publicAmounts: [0n, 0n, 0n],
     zoneProgramId: 0n,
-    payerPublicKeyHash: 0n,
+    signerPublicKeyHashes: [0n],
     allowDummyInputs: 1n,
+    publishedOutputOwnerPublicKeyHashes: [],
     publicInputHash: 0n,
   },
 } as unknown as ProverInputs;
@@ -146,8 +147,10 @@ describe("dummy prover inputs", () => {
       rootIndex: 0,
     } as NonInclusionProof;
 
-    const utxo = circuitUtxo(createDummyTransferInput(input, 4n, proof, 5n));
+    const converted = createDummyTransferInput(input, 4n, proof);
+    const utxo = circuitUtxo(converted);
 
+    expect(converted.ownerPublicKeyHash).toBe(0n);
     expect(utxo).toEqual({
       domain: 1n,
       owner: 0n,

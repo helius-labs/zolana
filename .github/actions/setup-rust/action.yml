@@ -36,7 +36,9 @@ runs:
       with:
         shared-key: ${{ inputs.shared-key }}
         save-if: ${{ github.ref == 'refs/heads/main' }}
+    # `just` runs the test recipes and those now use `cargo nextest run`, so the
+    # runner needs both. nextest is installed for every job that sets up Rust.
     - if: inputs.install-just == 'true'
       uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
       with:
-        tool: just
+        tool: just,nextest

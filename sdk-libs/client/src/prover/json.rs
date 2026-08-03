@@ -4,6 +4,7 @@ use zolana_transaction::ProofInputUtxo;
 
 use crate::prover::inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+    TransferP256Inputs,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -28,10 +29,10 @@ pub(crate) struct UtxoParamsJson {
     pub blinding: String,
     #[serde(rename = "dataHash")]
     pub data_hash: String,
-    #[serde(rename = "zoneDataHash")]
-    pub zone_data_hash: String,
-    #[serde(rename = "zoneProgramId")]
-    pub zone_program_id: String,
+    #[serde(rename = "ringDataHash")]
+    pub ring_data_hash: String,
+    #[serde(rename = "ringProgramId")]
+    pub ring_program_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,12 +99,60 @@ pub(crate) struct TransferInputsJson {
     pub public_assets: Vec<String>,
     #[serde(rename = "publicAmounts")]
     pub public_amounts: Vec<String>,
-    #[serde(rename = "zoneProgramId")]
-    pub zone_program_id: String,
-    #[serde(rename = "payerPubkeyHash")]
-    pub payer_pubkey_hash: String,
+    #[serde(rename = "ringProgramId")]
+    pub ring_program_id: String,
+    #[serde(rename = "signerPkHashes")]
+    pub signer_pk_hashes: Vec<String>,
     #[serde(rename = "allowDummyInputs")]
     pub allow_dummy_inputs: String,
+    #[serde(rename = "publishedOutputOwnerPkHashes")]
+    pub published_output_owner_pk_hashes: Vec<String>,
+    #[serde(rename = "publicInputHash")]
+    pub public_input_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct TransferP256InputsJson {
+    #[serde(rename = "circuitType")]
+    pub circuit_type: String,
+    #[serde(rename = "nInputs")]
+    pub n_inputs: usize,
+    #[serde(rename = "nOutputs")]
+    pub n_outputs: usize,
+    #[serde(rename = "inputs")]
+    pub inputs: Vec<InputParamsJson>,
+    #[serde(rename = "outputs")]
+    pub outputs: Vec<OutputParamsJson>,
+    #[serde(rename = "externalDataHash")]
+    pub external_data_hash: String,
+    #[serde(rename = "privateTxHash")]
+    pub private_tx_hash: String,
+    #[serde(rename = "p256PubX")]
+    pub p256_pub_x: String,
+    #[serde(rename = "p256PubY")]
+    pub p256_pub_y: String,
+    #[serde(rename = "p256SigR")]
+    pub p256_sig_r: String,
+    #[serde(rename = "p256SigS")]
+    pub p256_sig_s: String,
+    #[serde(rename = "p256MessageHashLow")]
+    pub p256_message_hash_low: String,
+    #[serde(rename = "p256MessageHashHigh")]
+    pub p256_message_hash_high: String,
+    #[serde(rename = "defaultP256OwnerPkHash")]
+    pub default_p256_owner_pk_hash: String,
+    #[serde(rename = "publicAssets")]
+    pub public_assets: Vec<String>,
+    #[serde(rename = "publicAmounts")]
+    pub public_amounts: Vec<String>,
+    #[serde(rename = "ringProgramId")]
+    pub ring_program_id: String,
+    #[serde(rename = "signerPkHashes")]
+    pub signer_pk_hashes: Vec<String>,
+    #[serde(rename = "allowDummyInputs")]
+    pub allow_dummy_inputs: String,
+    #[serde(rename = "publishedOutputOwnerPkHashes")]
+    pub published_output_owner_pk_hashes: Vec<String>,
     #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
@@ -116,8 +165,8 @@ fn utxo_to_json(utxo: &ProofInputUtxo) -> UtxoParamsJson {
         amount: fe_to_string(&utxo.amount),
         blinding: fe_to_string(&utxo.blinding),
         data_hash: fe_to_string(&utxo.data_hash),
-        zone_data_hash: fe_to_string(&utxo.zone_data_hash),
-        zone_program_id: fe_to_string(&utxo.zone_program_id),
+        ring_data_hash: fe_to_string(&utxo.ring_data_hash),
+        ring_program_id: fe_to_string(&utxo.ring_program_id),
     }
 }
 
@@ -158,7 +207,7 @@ fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
 }
 
 /// Merge input slot. Only the free per-slot leaf fields are sent; the merge
-/// circuit reconstructs the shared owner/asset and the constant data/zone-program
+/// circuit reconstructs the shared owner/asset and the constant data/ring-program
 /// fields itself, so they are not transmitted (unlike the transfer shape).
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct MergeInputParamsJson {
@@ -168,8 +217,8 @@ pub(crate) struct MergeInputParamsJson {
     pub amount: String,
     #[serde(rename = "blinding")]
     pub blinding: String,
-    #[serde(rename = "zoneDataHash")]
-    pub zone_data_hash: String,
+    #[serde(rename = "ringDataHash")]
+    pub ring_data_hash: String,
     #[serde(rename = "statePathElements")]
     pub state_path_elements: Vec<String>,
     #[serde(rename = "statePathIndex")]
@@ -195,8 +244,8 @@ pub(crate) struct MergeInputParamsJson {
 /// owner/asset/domain/data are shared/constant.
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct MergeOutputParamsJson {
-    #[serde(rename = "zoneDataHash")]
-    pub zone_data_hash: String,
+    #[serde(rename = "ringDataHash")]
+    pub ring_data_hash: String,
     #[serde(rename = "hash")]
     pub hash: String,
 }
@@ -226,25 +275,25 @@ pub(crate) struct MergeParametersJson {
     pub public_input_hash: String,
     #[serde(rename = "allowDummyInputs")]
     pub allow_dummy_inputs: String,
-    /// Output zone-data hash carried by the merge_zone instruction; `0x0` for
+    /// Output ring-data hash carried by the merge_ring instruction; `0x0` for
     /// the default merge.
-    #[serde(rename = "outputZoneDataHash")]
-    pub output_zone_data_hash: String,
-    /// Top-level zone program pk_field; `0x0` for the default merge,
-    /// the zone's pk_field for merge-zone (the circuit's top-level public input).
-    #[serde(rename = "zoneProgramId")]
-    pub zone_program_id: String,
+    #[serde(rename = "outputRingDataHash")]
+    pub output_ring_data_hash: String,
+    /// Top-level ring program pk_field; `0x0` for the default merge,
+    /// the ring's pk_field for merge-ring (the circuit's top-level public input).
+    #[serde(rename = "ringProgramId")]
+    pub ring_program_id: String,
 }
 
 /// Serialize a merge witness under the given circuit type. The default merge and
-/// merge-zone share the witness shape and differ only by the circuit type and the
-/// `zoneProgramId` value (`0` for default merge).
+/// merge-ring share the witness shape and differ only by the circuit type and the
+/// `ringProgramId` value (`0` for default merge).
 fn merge_input_to_json(input: &TransferInput) -> MergeInputParamsJson {
     MergeInputParamsJson {
         domain: fe_to_string(&input.utxo.domain),
         amount: fe_to_string(&input.utxo.amount),
         blinding: fe_to_string(&input.utxo.blinding),
-        zone_data_hash: fe_to_string(&input.utxo.zone_data_hash),
+        ring_data_hash: fe_to_string(&input.utxo.ring_data_hash),
         state_path_elements: input
             .state_path_elements
             .iter()
@@ -267,7 +316,7 @@ fn merge_input_to_json(input: &TransferInput) -> MergeInputParamsJson {
 
 fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
     MergeOutputParamsJson {
-        zone_data_hash: fe_to_string(&output.utxo.zone_data_hash),
+        ring_data_hash: fe_to_string(&output.utxo.ring_data_hash),
         hash: big_uint_to_string(&output.hash),
     }
 }
@@ -285,8 +334,8 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
-        output_zone_data_hash: big_uint_to_string(&inputs.output_zone_data_hash),
-        zone_program_id: big_uint_to_string(&inputs.zone_program_id),
+        output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
+        ring_program_id: big_uint_to_string(&inputs.ring_program_id),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
@@ -296,10 +345,10 @@ pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
     merge_params_json(inputs, "merge")
 }
 
-/// Serialize the policy-zone merge witness; the prover server routes `"merge-zone"`
-/// to the merge-zone circuit and reads the top-level `zoneProgramId`.
-pub(crate) fn to_json_merge_zone(inputs: &MergeInputs) -> String {
-    merge_params_json(inputs, "merge-zone")
+/// Serialize the policy-ring merge witness; the prover server routes `"merge-ring"`
+/// to the merge-ring circuit and reads the top-level `ringProgramId`.
+pub(crate) fn to_json_merge_ring(inputs: &MergeInputs) -> String {
+    merge_params_json(inputs, "merge-ring")
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -367,7 +416,7 @@ pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) ->
 }
 
 /// Serialize a Solana-only transfer witness to the prover server's JSON request
-/// body under the given `circuit_type`. The eddsa transfer and zone-authority
+/// body under the given `circuit_type`. The eddsa transfer and ring-authority
 /// variants share the witness shape and differ only by the circuit type.
 fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
     let json = TransferInputsJson {
@@ -388,9 +437,18 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
             .iter()
             .map(big_uint_to_string)
             .collect(),
-        zone_program_id: big_uint_to_string(&inputs.zone_program_id),
-        payer_pubkey_hash: big_uint_to_string(&inputs.payer_pubkey_hash),
+        ring_program_id: big_uint_to_string(&inputs.ring_program_id),
+        signer_pk_hashes: inputs
+            .signer_pk_hashes
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
         allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        published_output_owner_pk_hashes: inputs
+            .published_output_owner_pk_hashes
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
     serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
@@ -402,16 +460,60 @@ pub(crate) fn to_json(inputs: &TransferInputs) -> String {
     transfer_inputs_json(inputs, "transfer-confidential")
 }
 
-/// Serialize the zone-authority witness to the prover server's JSON request body.
+/// Serialize the ring-authority witness to the prover server's JSON request body.
 /// Shares the Solana-only witness shape with [`to_json`]; only the circuit type and
 /// the embedded `public_input_hash` differ.
-pub(crate) fn to_json_zone_authority(inputs: &TransferInputs) -> String {
-    transfer_inputs_json(inputs, "transfer-zone-authority")
+pub(crate) fn to_json_ring_authority(inputs: &TransferInputs) -> String {
+    transfer_inputs_json(inputs, "transfer-ring-authority")
 }
 
-/// Serialize the eddsa confidential policy-zone transfer witness.
-pub(crate) fn to_json_zone(inputs: &TransferInputs) -> String {
-    transfer_inputs_json(inputs, "transfer-zone")
+/// Serialize the eddsa confidential policy-ring transfer witness.
+pub(crate) fn to_json_ring(inputs: &TransferInputs) -> String {
+    transfer_inputs_json(inputs, "transfer-ring")
+}
+
+/// Serialize a custom-ring P256 transfer witness.
+pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
+    let json = TransferP256InputsJson {
+        circuit_type: "transfer-p256-ring".to_string(),
+        n_inputs: inputs.inputs.len(),
+        n_outputs: inputs.outputs.len(),
+        inputs: inputs.inputs.iter().map(input_to_json).collect(),
+        outputs: inputs.outputs.iter().map(output_to_json).collect(),
+        external_data_hash: big_uint_to_string(&inputs.external_data_hash),
+        private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
+        p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
+        p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
+        p256_sig_r: big_uint_to_string(&inputs.p256_sig_r),
+        p256_sig_s: big_uint_to_string(&inputs.p256_sig_s),
+        p256_message_hash_low: big_uint_to_string(&inputs.p256_message_hash_low),
+        p256_message_hash_high: big_uint_to_string(&inputs.p256_message_hash_high),
+        default_p256_owner_pk_hash: big_uint_to_string(&inputs.default_p256_owner_pk_hash),
+        public_assets: inputs
+            .public_assets
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        public_amounts: inputs
+            .public_amounts
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        ring_program_id: big_uint_to_string(&inputs.ring_program_id),
+        signer_pk_hashes: inputs
+            .signer_pk_hashes
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        published_output_owner_pk_hashes: inputs
+            .published_output_owner_pk_hashes
+            .iter()
+            .map(big_uint_to_string)
+            .collect(),
+        public_input_hash: big_uint_to_string(&inputs.public_input_hash),
+    };
+    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
 }
 
 #[cfg(test)]
@@ -433,9 +535,43 @@ mod merge_tests {
             amount: fe(5),
             blinding: fe(7),
             data_hash: [0u8; 32],
-            zone_data_hash: [0u8; 32],
-            zone_program_id: [0u8; 32],
+            ring_data_hash: [0u8; 32],
+            ring_program_id: [0u8; 32],
         }
+    }
+
+    #[test]
+    fn to_json_p256_ring_shape() {
+        let inputs = TransferP256Inputs {
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            external_data_hash: BigUint::from(1u8),
+            private_tx_hash: BigUint::from(2u8),
+            p256_pub_x: BigUint::from(3u8),
+            p256_pub_y: BigUint::from(4u8),
+            p256_sig_r: BigUint::from(5u8),
+            p256_sig_s: BigUint::from(6u8),
+            p256_message_hash_low: BigUint::from(7u8),
+            p256_message_hash_high: BigUint::from(8u8),
+            default_p256_owner_pk_hash: BigUint::from(13u8),
+            public_assets: core::array::from_fn(|_| BigUint::ZERO),
+            public_amounts: core::array::from_fn(|_| BigUint::ZERO),
+            ring_program_id: BigUint::from(9u8),
+            signer_pk_hashes: vec![BigUint::from(10u8), BigUint::from(12u8)],
+            allow_dummy_inputs: BigUint::from(1u8),
+            published_output_owner_pk_hashes: vec![BigUint::from(14u8)],
+            public_input_hash: BigUint::from(11u8),
+        };
+
+        let value: serde_json::Value =
+            serde_json::from_str(&to_json_p256_ring(&inputs)).expect("valid JSON");
+        assert_eq!(value["circuitType"], "transfer-p256-ring");
+        assert_eq!(value["p256PubX"], "0x3");
+        assert_eq!(value["p256MessageHashHigh"], "0x8");
+        assert_eq!(value["defaultP256OwnerPkHash"], "0xd");
+        assert_eq!(value["publishedOutputOwnerPkHashes"][0], "0xe");
+        assert_eq!(value["ringProgramId"], "0x9");
+        assert!(value.get("p256SigningPkField").is_none());
     }
 
     // Guards the wire-format field names against the Go server
@@ -474,8 +610,8 @@ mod merge_tests {
             private_tx_hash: BigUint::from(7u8),
             allow_dummy_inputs: BigUint::from(1u8),
             public_input_hash: BigUint::from(8u8),
-            output_zone_data_hash: BigUint::ZERO,
-            zone_program_id: BigUint::ZERO,
+            output_ring_data_hash: BigUint::ZERO,
+            ring_program_id: BigUint::ZERO,
         };
 
         let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
@@ -491,8 +627,8 @@ mod merge_tests {
             "privateTxHash",
             "allowDummyInputs",
             "publicInputHash",
-            "outputZoneDataHash",
-            "zoneProgramId",
+            "outputRingDataHash",
+            "ringProgramId",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
         }
@@ -502,7 +638,7 @@ mod merge_tests {
             "domain",
             "amount",
             "blinding",
-            "zoneDataHash",
+            "ringDataHash",
             "statePathElements",
             "statePathIndex",
             "nullifierLowValue",
@@ -519,7 +655,7 @@ mod merge_tests {
             value["output"]["blinding"].is_null(),
             "merge output blinding is derived in-circuit"
         );
-        assert_eq!(value["output"]["zoneDataHash"], "0x0");
+        assert_eq!(value["output"]["ringDataHash"], "0x0");
         assert_eq!(value["output"]["hash"], "0xabc");
         assert!(
             in0["utxo"].is_null(),
@@ -527,11 +663,11 @@ mod merge_tests {
         );
     }
 
-    // Guards the zone-authority request against the Go server: it must carry the
-    // "transfer-zone-authority" circuit type and the Solana-only transfer key set
+    // Guards the ring-authority request against the Go server: it must carry the
+    // "transfer-ring-authority" circuit type and the Solana-only transfer key set
     // (no P256 fields).
     #[test]
-    fn to_json_zone_authority_shape() {
+    fn to_json_ring_authority_shape() {
         let input = TransferInput {
             utxo: sample_utxo(),
             is_dummy: BigUint::ZERO,
@@ -560,15 +696,16 @@ mod merge_tests {
             private_tx_hash: BigUint::from(7u8),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
-            zone_program_id: BigUint::from(0x55u8),
-            payer_pubkey_hash: BigUint::from(8u8),
+            ring_program_id: BigUint::from(0x55u8),
+            signer_pk_hashes: vec![BigUint::from(8u8)],
             allow_dummy_inputs: BigUint::from(1u8),
+            published_output_owner_pk_hashes: Vec::new(),
             public_input_hash: BigUint::from(9u8),
         };
 
         let value: serde_json::Value =
-            serde_json::from_str(&to_json_zone_authority(&inputs)).unwrap();
-        assert_eq!(value["circuitType"], "transfer-zone-authority");
+            serde_json::from_str(&to_json_ring_authority(&inputs)).unwrap();
+        assert_eq!(value["circuitType"], "transfer-ring-authority");
         for key in [
             "nInputs",
             "nOutputs",
@@ -578,9 +715,10 @@ mod merge_tests {
             "privateTxHash",
             "publicAssets",
             "publicAmounts",
-            "zoneProgramId",
-            "payerPubkeyHash",
+            "ringProgramId",
+            "signerPkHashes",
             "allowDummyInputs",
+            "publishedOutputOwnerPkHashes",
             "publicInputHash",
         ] {
             assert!(!value[key].is_null(), "missing top-level key {key}");
@@ -595,7 +733,7 @@ mod merge_tests {
         );
         // Solana-only rail: no P256 fields on the request.
         assert!(value.get("p256PubX").is_none());
-        assert_eq!(value["zoneProgramId"], "0x55");
+        assert_eq!(value["ringProgramId"], "0x55");
         assert_eq!(value["nInputs"], 1);
     }
 

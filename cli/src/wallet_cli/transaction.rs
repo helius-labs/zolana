@@ -81,8 +81,8 @@ pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
         // Classify with the exact predicate split/merge enforce (`is_plain_utxo`),
         // so a memo-only utxo (inline `utxo.data`, no data hash) reads as `data`
         // here rather than as `plain` that those actions would then reject.
-        let kind = if entry.utxo.zone_program_id.is_some() {
-            "zone"
+        let kind = if entry.utxo.ring_program_id.is_some() {
+            "ring"
         } else if !is_plain_utxo(entry) {
             "data"
         } else {

@@ -40,7 +40,7 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 	params := sampleParams()
 	for _, circuitType := range []common.CircuitType{
 		common.MergeCircuitType,
-		common.MergeZoneCircuitType,
+		common.MergeRingCircuitType,
 	} {
 		t.Run(string(circuitType), func(t *testing.T) {
 			params.CircuitType = circuitType
@@ -62,7 +62,7 @@ func sampleParams() *MergeParameters {
 			Domain:                   big.NewInt(3),
 			Amount:                   big.NewInt(5),
 			Blinding:                 big.NewInt(7),
-			ZoneDataHash:             big.NewInt(0),
+			RingDataHash:             big.NewInt(0),
 			StatePathElements:        zeros(transaction.StateTreeHeight),
 			StatePathIndex:           big.NewInt(0),
 			NullifierLowValue:        big.NewInt(0),
@@ -76,17 +76,17 @@ func sampleParams() *MergeParameters {
 	}
 	return &MergeParameters{
 		Inputs:              inputs,
-		Output:              OutputParams{ZoneDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
+		Output:              OutputParams{RingDataHash: big.NewInt(0), Hash: big.NewInt(0x9999)},
 		Asset:               big.NewInt(1),
 		OwnerPkHash:         big.NewInt(0x1212),
 		UserNullifierPk:     big.NewInt(0x3333),
 		UserNullifierSecret: big.NewInt(0x4444),
-		OutputZoneDataHash:  big.NewInt(0),
+		OutputRingDataHash:  big.NewInt(0),
 		ExternalDataHash:    big.NewInt(0x6666),
 		PrivateTxHash:       big.NewInt(0x7777),
 		AllowDummyInputs:    big.NewInt(1),
 		PublicInputHash:     big.NewInt(0x8888),
-		ZoneProgramID:       big.NewInt(0),
+		RingProgramID:       big.NewInt(0),
 	}
 }
 

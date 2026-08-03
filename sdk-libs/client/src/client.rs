@@ -23,7 +23,6 @@ use solana_transaction_status_client_types::TransactionStatus;
 use zolana_interface::instruction::{
     InterfaceTransfer, Transact, TransactInterfaceTransferAccounts, TransactIxData,
 };
-use zolana_keypair::hash::sha256_be;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
 use crate::{
@@ -218,7 +217,8 @@ impl<R: Rpc> ZolanaClient<R> {
         fee_payer: Pubkey,
         recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
-        validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
+        validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
+        let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs = fetch_spend_proofs(
             self.blocking_indexer(),
@@ -237,13 +237,16 @@ impl<R: Rpc> ZolanaClient<R> {
         let proof = self.blocking_prover().prove_transfer(inputs)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
-            self.cu_limit,
-            self.cu_price_micro_lamports,
+            ComputeBudgetConfig {
+                cu_limit: self.cu_limit,
+                cu_price_micro_lamports: self.cu_price_micro_lamports,
+            },
             fee_payer,
             TransactTrees {
                 input_tree: signed.input_tree,
                 output_tree: self.output_tree,
             },
+            owner_signers,
             signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
@@ -258,7 +261,8 @@ impl<R: Rpc> ZolanaClient<R> {
         recent_blockhash: Hash,
         prove: impl FnOnce(&ProverInputs) -> Result<ProofCompressed, ClientError>,
     ) -> Result<SolanaTransaction, ClientError> {
-        validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
+        validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
+        let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs = fetch_spend_proofs(
             self.blocking_indexer(),
@@ -275,13 +279,16 @@ impl<R: Rpc> ZolanaClient<R> {
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
         build_unsigned_solana_transaction(
-            self.cu_limit,
-            self.cu_price_micro_lamports,
+            ComputeBudgetConfig {
+                cu_limit: self.cu_limit,
+                cu_price_micro_lamports: self.cu_price_micro_lamports,
+            },
             fee_payer,
             TransactTrees {
                 input_tree: signed.input_tree,
                 output_tree: self.output_tree,
             },
+            owner_signers,
             signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
@@ -306,7 +313,8 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         fee_payer: Pubkey,
         recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
-        validate_fee_payer_pubkey(&signed.transaction.payer_pubkey_hash, fee_payer)?;
+        validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
+        let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs_async(&self.async_indexer, signed.input_tree, &commitments, None)
@@ -323,13 +331,16 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         let proof = self.async_prover.prove_transfer(inputs).await?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
-            self.cu_limit,
-            self.cu_price_micro_lamports,
+            ComputeBudgetConfig {
+                cu_limit: self.cu_limit,
+                cu_price_micro_lamports: self.cu_price_micro_lamports,
+            },
             fee_payer,
             TransactTrees {
                 input_tree: signed.input_tree,
                 output_tree: self.output_tree,
             },
+            owner_signers,
             signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
             recent_blockhash,
@@ -883,11 +894,16 @@ struct TransactTrees {
     output_tree: Address,
 }
 
-fn build_unsigned_solana_transaction(
+struct ComputeBudgetConfig {
     cu_limit: u32,
     cu_price_micro_lamports: Option<u64>,
+}
+
+fn build_unsigned_solana_transaction(
+    compute_budget: ComputeBudgetConfig,
     fee_payer: Pubkey,
     trees: TransactTrees,
+    owner_signers: Vec<Pubkey>,
     settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
@@ -897,11 +913,16 @@ fn build_unsigned_solana_transaction(
         payer: fee_payer,
         input_tree: trees.input_tree,
         output_tree: trees.output_tree,
+        owner_signers,
         interface_transfer_accounts: settlement_transfers,
         data: transact_data,
     }
     .instruction();
-    let instructions = submit_instructions(cu_limit, cu_price_micro_lamports, transact_ix);
+    let instructions = submit_instructions(
+        compute_budget.cu_limit,
+        compute_budget.cu_price_micro_lamports,
+        transact_ix,
+    );
     let mut message = Message::new(&instructions, Some(&fee_payer));
     message.recent_blockhash = recent_blockhash;
     Ok(SolanaTransaction::new_unsigned(message))
@@ -942,11 +963,10 @@ fn validate_settlement_transfers(
 }
 
 fn validate_fee_payer_pubkey(
-    expected_payer_hash: &[u8; 32],
+    expected_payer: &Address,
     fee_payer: Pubkey,
 ) -> Result<(), ClientError> {
-    let actual_payer_hash = sha256_be(&fee_payer.to_bytes());
-    if *expected_payer_hash != actual_payer_hash {
+    if expected_payer.to_bytes() != fee_payer.to_bytes() {
         return Err(ClientError::FeePayerMismatch);
     }
     Ok(())
@@ -1242,8 +1262,8 @@ mod tests {
     fn settlement_accounts_accept_duplicate_sol_recipients_and_mixed_directions() {
         let spl = TransactSplDepositAccounts {
             mint: Pubkey::new_unique(),
-            vault: Pubkey::new_unique(),
-            depositor: Pubkey::new_unique(),
+            spl_interface: Pubkey::new_unique(),
+            token_authority: Pubkey::new_unique(),
             user_token_account: Pubkey::new_unique(),
             token_program: Pubkey::new_unique(),
         };
@@ -1251,7 +1271,7 @@ mod tests {
             InterfaceTransfer::SolWithdrawal { amount: 7 },
             InterfaceTransfer::SplDeposit {
                 amount: 11,
-                vault_bump: 42,
+                spl_interface_bump: 42,
             },
             InterfaceTransfer::SolWithdrawal { amount: 3 },
         ];
@@ -1285,7 +1305,7 @@ mod tests {
             validate_settlement_transfers(
                 &[InterfaceTransfer::SplWithdrawal {
                     amount: 1,
-                    vault_bump: 42,
+                    spl_interface_bump: 42,
                 }],
                 &[sol_accounts],
             ),
@@ -1384,12 +1404,12 @@ mod tests {
     #[test]
     fn submit_validation_binds_fee_payer() {
         let payer = Keypair::new();
-        let payer_hash = sha256_be(&payer.pubkey().to_bytes());
-        validate_fee_payer_pubkey(&payer_hash, payer.pubkey()).expect("matching payer");
+        let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
+        validate_fee_payer_pubkey(&payer_address, payer.pubkey()).expect("matching payer");
 
         let other_payer = Keypair::new();
         assert!(matches!(
-            validate_fee_payer_pubkey(&payer_hash, other_payer.pubkey()),
+            validate_fee_payer_pubkey(&payer_address, other_payer.pubkey()),
             Err(ClientError::FeePayerMismatch)
         ));
     }
@@ -1699,7 +1719,7 @@ mod tests {
             asset: SOL_MINT,
             amount,
             blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let nullifier_key = &keypair.nullifier_key;
@@ -1717,7 +1737,7 @@ mod tests {
             },
             nullifier,
             data_hash: None,
-            zone_data_hash: None,
+            ring_data_hash: None,
             spent: false,
         });
         wallet

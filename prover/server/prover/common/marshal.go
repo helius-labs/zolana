@@ -79,11 +79,10 @@ func (p *Proof) MarshalJSON() ([]byte, error) {
 
 func (p *Proof) UnmarshalJSON(data []byte) error {
 	var proofJson ProofJSON
-	err := json.Unmarshal(data, &proofJson)
-	if err != nil {
+	if err := json.Unmarshal(data, &proofJson); err != nil {
 		return err
 	}
-	proofHexNumbers := [8]string{
+	proofHexNumbers := []string{
 		proofJson.Ar[0],
 		proofJson.Ar[1],
 		proofJson.Bs[0][0],
@@ -93,46 +92,66 @@ func (p *Proof) UnmarshalJSON(data []byte) error {
 		proofJson.Krs[0],
 		proofJson.Krs[1],
 	}
-	proofInts := [8]big.Int{}
-	for i := 0; i < 8; i++ {
-		err = FromHex(&proofInts[i], proofHexNumbers[i])
+
+	hasCommitment := len(proofJson.ProofCommitment) != 0
+	hasCommitmentPok := len(proofJson.ProofCommitmentPok) != 0
+	if hasCommitment != hasCommitmentPok {
+		return fmt.Errorf("proof_commitment and proof_commitment_pok must both be present")
+	}
+	if hasCommitment {
+		if len(proofJson.ProofCommitment) != 2 {
+			return fmt.Errorf("proof_commitment must contain exactly 2 coordinates, got %d", len(proofJson.ProofCommitment))
+		}
+		if len(proofJson.ProofCommitmentPok) != 2 {
+			return fmt.Errorf("proof_commitment_pok must contain exactly 2 coordinates, got %d", len(proofJson.ProofCommitmentPok))
+		}
+	}
+
+	const fpSize = 32
+	appendCoordinates := func(dst []byte, coordinates []string) ([]byte, error) {
+		for _, coordinate := range coordinates {
+			var value big.Int
+			if err := FromHex(&value, coordinate); err != nil {
+				return nil, err
+			}
+			fieldBytes := make([]byte, fpSize)
+			intBytes := value.Bytes()
+			if len(intBytes) > fpSize {
+				intBytes = intBytes[len(intBytes)-fpSize:]
+			}
+			copy(fieldBytes[fpSize-len(intBytes):], intBytes)
+			dst = append(dst, fieldBytes...)
+		}
+		return dst, nil
+	}
+
+	proofBytes, err := appendCoordinates(nil, proofHexNumbers)
+	if err != nil {
+		return err
+	}
+
+	var commitmentCount [4]byte
+	if hasCommitment {
+		binary.BigEndian.PutUint32(commitmentCount[:], 1)
+	}
+	proofBytes = append(proofBytes, commitmentCount[:]...)
+
+	if hasCommitment {
+		proofBytes, err = appendCoordinates(proofBytes, proofJson.ProofCommitment)
 		if err != nil {
 			return err
 		}
-	}
-	const fpSize = 32
-	proofBytes := make([]byte, 8*fpSize)
-	for i := 0; i < 8; i++ {
-		intBytes := proofInts[i].Bytes()
-		// Pad with leading zeros to ensure exactly 32 bytes
-		if len(intBytes) <= fpSize {
-			copy(proofBytes[i*fpSize+fpSize-len(intBytes):(i+1)*fpSize], intBytes)
-		} else {
-			// If somehow longer than 32 bytes, take the last 32 bytes
-			copy(proofBytes[i*fpSize:(i+1)*fpSize], intBytes[len(intBytes)-fpSize:])
+		proofBytes, err = appendCoordinates(proofBytes, proofJson.ProofCommitmentPok)
+		if err != nil {
+			return err
 		}
+	} else {
+		// gnark always serializes CommitmentPok, even when there are no commitments.
+		proofBytes = append(proofBytes, make([]byte, 2*fpSize)...)
 	}
 
 	p.Proof = groth16.NewProof(ecc.BN254)
-
-	// For gnark v0.14 compatibility: proofs now include Commitments and CommitmentPok fields
-	// We need to append empty commitment data to make ReadFrom work
-	var fullProofBuf bytes.Buffer
-	fullProofBuf.Write(proofBytes)
-
-	tempProof := groth16.NewProof(ecc.BN254)
-	var tempBuf bytes.Buffer
-	tempProof.WriteRawTo(&tempBuf)
-	expectedSize := tempBuf.Len()
-
-	// If gnark expects more than 256 bytes, pad with zeros for commitment fields
-	if expectedSize > len(proofBytes) {
-		padding := make([]byte, expectedSize-len(proofBytes))
-		fullProofBuf.Write(padding)
-	}
-
-	_, err = p.Proof.ReadFrom(bytes.NewReader(fullProofBuf.Bytes()))
-	if err != nil {
+	if _, err := p.Proof.ReadFrom(bytes.NewReader(proofBytes)); err != nil {
 		return err
 	}
 	return nil
@@ -239,23 +258,25 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		// The RequiresP256 header flag is legacy: the P256 ownership rail is
-		// removed. Both the default and custom-zone transfer rails bind public
-		// output owner tags; only zone-authority keeps owners anonymous.
-		zone := strings.Contains(strings.ToLower(path), "zone")
-		// Zone-authority keys are named transfer_zone_authority_*.key (Solana-only,
-		// anonymous). Detect it before the plain "zone" case: the name contains both
-		// "transfer" (matched this branch) and "zone".
-		zoneAuthority := strings.Contains(strings.ToLower(path), "zone_authority")
+		// Transfer variants are resolved from canonical key filenames. The
+		// RequiresP256 header is retained as a consistency check for P256 keys.
+		ring := strings.Contains(strings.ToLower(path), "ring")
+		p256Ring := strings.Contains(strings.ToLower(path), "p256_ring")
+		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
+		// anonymous). Detect it before the plain "ring" case: the name contains both
+		// "transfer" (matched this branch) and "ring".
+		ringAuthority := strings.Contains(strings.ToLower(path), "ring_authority")
 		switch {
-		case zoneAuthority:
-			ps.CircuitType = TransferZoneAuthorityCircuitType
-		case zone:
-			ps.CircuitType = TransferZoneCircuitType
+		case ringAuthority:
+			ps.CircuitType = TransferRingAuthorityCircuitType
+		case p256Ring:
+			ps.CircuitType = TransferP256RingCircuitType
+		case ring:
+			ps.CircuitType = TransferRingCircuitType
 		default:
 			ps.CircuitType = TransferConfidentialCircuitType
 		}
-		ps.Confidential = !zoneAuthority
+		ps.Confidential = !ringAuthority
 		return ps, nil
 	} else if strings.Contains(strings.ToLower(path), "merge") {
 		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
@@ -271,10 +292,10 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		// merge_zone_8_1.key is the policy-zone variant; the default merge file is
+		// merge_ring_8_1.key is the policy-ring variant; the default merge file is
 		// merge_8_1.key.
-		if strings.Contains(strings.ToLower(path), "zone") {
-			ps.CircuitType = MergeZoneCircuitType
+		if strings.Contains(strings.ToLower(path), "ring") {
+			ps.CircuitType = MergeRingCircuitType
 		} else {
 			ps.CircuitType = MergeCircuitType
 		}

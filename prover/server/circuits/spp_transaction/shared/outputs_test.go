@@ -14,9 +14,9 @@ import (
 func TestCircuitRejectsBadOutputHash(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomZoneEddsaOnlyCircuit(Shape(shape))
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Outputs[0].Hash = spptest.Fe(999)
 
-	assert.SolvingFailed(circuit, asCustomZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

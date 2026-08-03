@@ -7,7 +7,7 @@ import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js
 
 import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
-import { checked, decodeAddress, equal, sha256Be } from "../internal.js";
+import { checked, decodeAddress, equal, hashField } from "../internal.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
@@ -260,7 +260,7 @@ export class ConfidentialSplit {
     this.#asset = input.asset;
     this.#numOutputs = input.numOutputs;
     this.#perOutputAmount = perOutputAmount;
-    this.#payerHash = sha256Be(decodeAddress(input.payer));
+    this.#payerHash = hashField(decodeAddress(input.payer));
   }
 
   prepare(): PreparedSplit {

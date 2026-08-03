@@ -515,7 +515,10 @@ impl Rpc for SolanaRpc {
     fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
         self.client
             .send_and_confirm_transaction(transaction)
-            .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "send_transaction",
+                source,
+            })
     }
 
     fn send_transaction_with_config(
@@ -529,7 +532,10 @@ impl Rpc for SolanaRpc {
                 CommitmentConfig::confirmed(),
                 config,
             )
-            .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "send_transaction_with_config",
+                source,
+            })
     }
 
     fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
@@ -653,7 +659,10 @@ impl AsyncRpc for AsyncSolanaRpc {
         self.client
             .send_and_confirm_transaction(transaction)
             .await
-            .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "send_transaction",
+                source,
+            })
     }
 
     async fn send_transaction_with_config(
@@ -668,7 +677,10 @@ impl AsyncRpc for AsyncSolanaRpc {
                 config,
             )
             .await
-            .map_err(|err| ClientError::Rpc(format!("send_transaction: {err}")))
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "send_transaction_with_config",
+                source,
+            })
     }
 
     async fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {

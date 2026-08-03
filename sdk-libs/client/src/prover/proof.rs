@@ -3,7 +3,8 @@ use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
 use zolana_interface::instruction::instruction_data::{
-    merge_transact::MergeProof, transact::TransactProof,
+    merge_transact::MergeProof,
+    transact::{Bsb22Commitment, TransactProof},
 };
 
 use crate::error::ClientError;
@@ -83,6 +84,27 @@ impl ProofCompressed {
             b: self.b,
             c: self.c,
         }
+    }
+
+    /// Split a committed custom-ring proof into the unchanged transact proof
+    /// triple and the BSB22 payload embedded in `CircuitId::RingP256`.
+    pub fn into_ring_p256_transact_parts(
+        self,
+    ) -> Result<(TransactProof, Bsb22Commitment), ClientError> {
+        let commitment = self.commitment.ok_or_else(|| {
+            ClientError::ProofParse("P256 ring proof is missing its BSB22 commitment".to_string())
+        })?;
+        Ok((
+            TransactProof {
+                a: self.a,
+                b: self.b,
+                c: self.c,
+            },
+            Bsb22Commitment {
+                commitment: commitment.commitment,
+                commitment_pok: commitment.commitment_pok,
+            },
+        ))
     }
 
     /// The merge proof: a vanilla Groth16 triple ([`MergeProof`]). The merge
@@ -212,6 +234,32 @@ mod tests {
         let error = proof_with_commitment()
             .to_merge_proof()
             .expect_err("a committed proof is not a merge proof");
+
+        assert!(matches!(error, ClientError::ProofParse(_)));
+    }
+
+    #[test]
+    fn p256_transact_parts_keep_the_existing_proof_and_extract_commitment() {
+        let (proof, commitment) = proof_with_commitment()
+            .into_ring_p256_transact_parts()
+            .expect("committed P256 proof maps");
+
+        assert_eq!(proof.a, [1u8; 32]);
+        assert_eq!(proof.b, [2u8; 64]);
+        assert_eq!(proof.c, [3u8; 32]);
+        assert_eq!(commitment.commitment, [4u8; 32]);
+        assert_eq!(commitment.commitment_pok, [5u8; 32]);
+    }
+
+    #[test]
+    fn p256_transact_parts_reject_vanilla_proof() {
+        let vanilla = ProofCompressed {
+            commitment: None,
+            ..proof_with_commitment()
+        };
+        let error = vanilla
+            .into_ring_p256_transact_parts()
+            .expect_err("vanilla proof is not a P256 ring proof");
 
         assert!(matches!(error, ClientError::ProofParse(_)));
     }

@@ -888,8 +888,8 @@ mod tests {
             "Pool111111111111111111111111111111111111111",
             "target/deploy/pool.so",
             "--sbf-program",
-            "Zone111111111111111111111111111111111111111",
-            "target/deploy/zone.so",
+            "Ring111111111111111111111111111111111111111",
+            "target/deploy/ring.so",
         ]);
 
         assert!(!opts.use_surfpool_backend());
@@ -916,14 +916,14 @@ mod tests {
             "Pool111111111111111111111111111111111111111"
         );
         assert_eq!(pool_program.path, "target/deploy/pool.so");
-        let Some(zone_program) = programs.next() else {
-            panic!("expected zone program");
+        let Some(ring_program) = programs.next() else {
+            panic!("expected ring program");
         };
         assert_eq!(
-            zone_program.address,
-            "Zone111111111111111111111111111111111111111"
+            ring_program.address,
+            "Ring111111111111111111111111111111111111111"
         );
-        assert_eq!(zone_program.path, "target/deploy/zone.so");
+        assert_eq!(ring_program.path, "target/deploy/ring.so");
         assert!(programs.next().is_none());
     }
 

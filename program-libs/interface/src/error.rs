@@ -16,6 +16,7 @@ pub enum InterfaceError {
     /// mapping reports `InvalidProtocolConfig` (7012) rather than the
     /// SPL-registry code.
     InvalidProtocolConfigData,
+    AlreadyInitialized,
 }
 
 /// Program errors surfaced on-chain as `ProgramError::Custom(code)`.
@@ -54,8 +55,8 @@ pub enum ShieldedPoolError {
     InvalidProtocolConfig = 7012,
     #[error("pool tree is paused")]
     TreePaused = 7013,
-    #[error("zone config account is invalid")]
-    InvalidZoneConfig = 7014,
+    #[error("ring config account is invalid")]
+    InvalidRingConfig = 7014,
     #[error("nullifier root index references a zeroed (stale) root-history slot")]
     StaleNullifierRoot = 7015,
     #[error("account address does not match its canonical PDA derivation")]
@@ -71,8 +72,9 @@ pub enum ShieldedPoolError {
     // derived, so there is no ciphertext scheme to check.
     // 7021 retired: was `MismatchedTransactProofVariant`; transact proofs no
     // longer have rail-specific variants.
-    #[error("zone_authority_transact is disabled for this zone")]
-    ZoneAuthorityTransactDisabled = 7022,
+    #[error("ring_authority_transact is disabled for this ring")]
+    RingAuthorityTransactDisabled = 7022,
+    // 7023 retired.
     // 7024 retired.
     #[error("output owner tag account index is out of range")]
     OwnerTagAccountMissing = 7025,
@@ -105,15 +107,25 @@ pub enum ShieldedPoolError {
     #[error("circuit selector type does not match the dispatched instruction")]
     MismatchedCircuitType = 7039,
     #[error("SPL deposit authority must sign")]
-    SplDepositorMustSign = 7040,
+    SplTokenAuthorityMustSign = 7040,
     #[error("SPL token program is not supported")]
     UnsupportedSplTokenProgram = 7041,
     #[error("SPL token mint account is invalid")]
     InvalidSplTokenMint = 7042,
     #[error("Token-2022 mint extension is not supported")]
     UnsupportedToken2022Extension = 7043,
+    // Retired (PR172): the explicit capacity gate was removed; a merge past the
+    // dummy-input threshold now fails at proof verification (7008) because the
+    // on-chain `allow_dummy_inputs` flag flips to false. The variant stays so
+    // the wire-code table never reuses 7044.
     #[error("nullifier tree is too full to process a merge")]
     NullifierTreeTooFullForMerge = 7044,
+    #[error("transact interface transfers for one asset must not net to zero")]
+    ZeroNetInterfaceTransferAmount = 7045,
+    #[error("SPL asset counter is already initialized")]
+    SplAssetCounterAlreadyInitialized = 7046,
+    #[error("ring is paused")]
+    RingPaused = 7047,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -129,6 +141,9 @@ impl From<InterfaceError> for ShieldedPoolError {
             InterfaceError::Unauthorized => ShieldedPoolError::UnauthorizedCaller,
             InterfaceError::InvalidAccountData => ShieldedPoolError::InvalidSplAssetRegistry,
             InterfaceError::InvalidProtocolConfigData => ShieldedPoolError::InvalidProtocolConfig,
+            InterfaceError::AlreadyInitialized => {
+                ShieldedPoolError::SplAssetCounterAlreadyInitialized
+            }
         }
     }
 }
@@ -146,56 +161,119 @@ impl From<TreeError> for ShieldedPoolError {
 
 #[cfg(test)]
 mod tests {
-    use super::ShieldedPoolError::*;
+    use super::{ShieldedPoolError, ShieldedPoolError::*};
 
     /// Pin every on-chain error code for this program version.
     #[test]
     fn error_codes_are_stable() {
-        let table = [
-            (InvalidInstructionData as u32, 7000),
-            (InvalidTreeAccounts as u32, 7001),
-            (NullifierTreeUpdateFailed as u32, 7002),
-            (UnauthorizedCaller as u32, 7003),
-            (StateAppendFailed as u32, 7004),
-            (ExpiredTransaction as u32, 7005),
-            (InvalidTransactShape as u32, 7006),
-            (InvalidTransactProofEncoding as u32, 7007),
-            (TransactProofVerificationFailed as u32, 7008),
-            (InvalidSettlementAccounts as u32, 7009),
-            (PublicSettlementFailed as u32, 7010),
-            (InvalidSplAssetRegistry as u32, 7011),
-            (InvalidProtocolConfig as u32, 7012),
-            (TreePaused as u32, 7013),
-            (InvalidZoneConfig as u32, 7014),
-            (StaleNullifierRoot as u32, 7015),
-            (InvalidPda as u32, 7016),
-            (MergeDisabled as u32, 7017),
-            (InvalidUserRecord as u32, 7018),
-            (InvalidMergeShape as u32, 7019),
-            (ZoneAuthorityTransactDisabled as u32, 7022),
-            (OwnerTagAccountMissing as u32, 7025),
-            (InvalidForesterFee as u32, 7026),
-            (InsufficientForesterFeeBalance as u32, 7027),
-            (InvalidSystemProgram as u32, 7028),
-            (EmptyDepositBatch as u32, 7029),
-            (InvalidDepositAssetIndex as u32, 7030),
-            (DuplicateDepositAsset as u32, 7031),
-            (DepositAmountOverflow as u32, 7032),
-            (UnreferencedDepositAsset as u32, 7033),
-            (TooManyDepositAssets as u32, 7034),
-            (TooManyInterfaceTransfers as u32, 7035),
-            (ZeroInterfaceTransferAmount as u32, 7036),
-            (TooManyPublicAssets as u32, 7037),
-            (PublicAssetAmountOverflow as u32, 7038),
-            (MismatchedCircuitType as u32, 7039),
-            (SplDepositorMustSign as u32, 7040),
-            (UnsupportedSplTokenProgram as u32, 7041),
-            (InvalidSplTokenMint as u32, 7042),
-            (UnsupportedToken2022Extension as u32, 7043),
-            (NullifierTreeTooFullForMerge as u32, 7044),
-        ];
-        for (got, want) in table {
-            assert_eq!(got, want, "error code drifted");
+        /// Maps every enum variant to its pinned code with NO wildcard: a new
+        /// variant makes this match non-exhaustive and fails to compile, so
+        /// the pin cannot silently go stale.
+        fn expected_code(error: ShieldedPoolError) -> u32 {
+            match error {
+                InvalidInstructionData => 7000,
+                InvalidTreeAccounts => 7001,
+                NullifierTreeUpdateFailed => 7002,
+                UnauthorizedCaller => 7003,
+                StateAppendFailed => 7004,
+                ExpiredTransaction => 7005,
+                InvalidTransactShape => 7006,
+                InvalidTransactProofEncoding => 7007,
+                TransactProofVerificationFailed => 7008,
+                InvalidSettlementAccounts => 7009,
+                PublicSettlementFailed => 7010,
+                InvalidSplAssetRegistry => 7011,
+                InvalidProtocolConfig => 7012,
+                TreePaused => 7013,
+                InvalidRingConfig => 7014,
+                StaleNullifierRoot => 7015,
+                InvalidPda => 7016,
+                MergeDisabled => 7017,
+                InvalidUserRecord => 7018,
+                InvalidMergeShape => 7019,
+                RingAuthorityTransactDisabled => 7022,
+                OwnerTagAccountMissing => 7025,
+                InvalidForesterFee => 7026,
+                InsufficientForesterFeeBalance => 7027,
+                InvalidSystemProgram => 7028,
+                EmptyDepositBatch => 7029,
+                InvalidDepositAssetIndex => 7030,
+                DuplicateDepositAsset => 7031,
+                DepositAmountOverflow => 7032,
+                UnreferencedDepositAsset => 7033,
+                TooManyDepositAssets => 7034,
+                TooManyInterfaceTransfers => 7035,
+                ZeroInterfaceTransferAmount => 7036,
+                TooManyPublicAssets => 7037,
+                PublicAssetAmountOverflow => 7038,
+                MismatchedCircuitType => 7039,
+                SplTokenAuthorityMustSign => 7040,
+                UnsupportedSplTokenProgram => 7041,
+                InvalidSplTokenMint => 7042,
+                UnsupportedToken2022Extension => 7043,
+                NullifierTreeTooFullForMerge => 7044,
+                ZeroNetInterfaceTransferAmount => 7045,
+                SplAssetCounterAlreadyInitialized => 7046,
+                RingPaused => 7047,
+            }
         }
+
+        // Every live wire variant, in code order. The exhaustive match above
+        // fails to compile if a variant is missing here.
+        let variants = [
+            InvalidInstructionData,
+            InvalidTreeAccounts,
+            NullifierTreeUpdateFailed,
+            UnauthorizedCaller,
+            StateAppendFailed,
+            ExpiredTransaction,
+            InvalidTransactShape,
+            InvalidTransactProofEncoding,
+            TransactProofVerificationFailed,
+            InvalidSettlementAccounts,
+            PublicSettlementFailed,
+            InvalidSplAssetRegistry,
+            InvalidProtocolConfig,
+            TreePaused,
+            InvalidRingConfig,
+            StaleNullifierRoot,
+            InvalidPda,
+            MergeDisabled,
+            InvalidUserRecord,
+            InvalidMergeShape,
+            RingAuthorityTransactDisabled,
+            OwnerTagAccountMissing,
+            InvalidForesterFee,
+            InsufficientForesterFeeBalance,
+            InvalidSystemProgram,
+            EmptyDepositBatch,
+            InvalidDepositAssetIndex,
+            DuplicateDepositAsset,
+            DepositAmountOverflow,
+            UnreferencedDepositAsset,
+            TooManyDepositAssets,
+            TooManyInterfaceTransfers,
+            ZeroInterfaceTransferAmount,
+            TooManyPublicAssets,
+            PublicAssetAmountOverflow,
+            MismatchedCircuitType,
+            SplTokenAuthorityMustSign,
+            UnsupportedSplTokenProgram,
+            InvalidSplTokenMint,
+            UnsupportedToken2022Extension,
+            NullifierTreeTooFullForMerge,
+            ZeroNetInterfaceTransferAmount,
+            SplAssetCounterAlreadyInitialized,
+            RingPaused,
+        ];
+        for variant in variants {
+            assert_eq!(
+                variant as u32,
+                expected_code(variant),
+                "error code drifted: {variant:?}"
+            );
+        }
+        // The live wire surface is exactly 44 variants on this branch.
+        assert_eq!(variants.len(), 44, "variant count drifted");
     }
 }

@@ -3,7 +3,7 @@
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::AssetDeposit;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
-use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use zolana_transaction::{SyncWalletAuthority, Wallet};
 
 /// Verify a settled SPL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -13,23 +13,39 @@ use zolana_transaction::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 ///
 /// `vault_before` / `user_token_before` are the token balances captured before
 /// the deposit; `root_before` is the on-chain state root captured before it.
+pub struct SplDepositAssertArgs<'a, A: ?Sized> {
+    pub tree: &'a Pubkey,
+    pub mint: &'a Pubkey,
+    pub vault: &'a Pubkey,
+    pub user_token: &'a Pubkey,
+    pub event: &'a DepositOutput,
+    pub data: &'a AssetDeposit,
+    pub expected_amount: u64,
+    pub vault_before: u64,
+    pub user_token_before: u64,
+    pub root_before: [u8; 32],
+    pub authority: &'a A,
+}
+
 #[track_caller]
-#[allow(clippy::too_many_arguments)]
 pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
     program_test: &mut ZolanaProgramTest,
-    tree: &Pubkey,
-    mint: &Pubkey,
-    vault: &Pubkey,
-    user_token: &Pubkey,
-    event: &DepositOutput,
-    data: &AssetDeposit,
-    expected_amount: u64,
-    vault_before: u64,
-    user_token_before: u64,
-    root_before: [u8; 32],
-    authority: &A,
     recipient: &mut Wallet,
+    args: SplDepositAssertArgs<'_, A>,
 ) {
+    let SplDepositAssertArgs {
+        tree,
+        mint,
+        vault,
+        user_token,
+        event,
+        data,
+        expected_amount,
+        vault_before,
+        user_token_before,
+        root_before,
+        authority,
+    } = args;
     assert_eq!(event.output.amount, expected_amount, "event amount");
     assert_eq!(
         event.output.asset,
@@ -39,6 +55,10 @@ pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
     assert_eq!(event.output.owner, data.owner, "owner");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
     assert_eq!(event.output.blinding, data.blinding, "blinding");
+    assert_eq!(
+        event.output.memo, data.memo,
+        "event memo mirrors instruction data"
+    );
 
     assert_eq!(
         program_test.token_balance(vault),
@@ -59,28 +79,25 @@ pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
         "indexer root must track the on-chain root"
     );
 
-    let before = recipient.utxos.len();
-    recipient
-        .sync(
-            authority,
-            &[event.to_shielded_transaction(solana_signature::Signature::default())],
-            0,
-            DEFAULT_TAG_WINDOW,
-        )
-        .expect("wallet discovery");
+    let by_tag: Vec<_> = program_test
+        .indexer()
+        .fetch_by_view_tag(&data.view_tag)
+        .collect();
+    assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
+    let indexed = by_tag.first().expect("one indexed deposit");
     assert_eq!(
-        recipient.utxos.len(),
-        before + 1,
-        "recipient wallet must discover the SPL deposit"
+        indexed.proofless().expect("proofless deposit").owner,
+        data.owner,
+        "indexed record owner"
     );
-    let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(
-        utxo.output_context.hash, event.utxo_hash,
-        "wallet UTXO hash"
-    );
-    assert_eq!(
-        utxo.utxo.asset.to_bytes(),
-        mint.to_bytes(),
-        "wallet UTXO asset is the mint"
+
+    crate::wallet_discovery::assert_wallet_discovers(
+        recipient,
+        authority,
+        event,
+        solana_signature::Signature::default(),
+        &data.memo,
+        Some(mint),
+        "SPL deposit",
     );
 }

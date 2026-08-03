@@ -10,7 +10,10 @@ use zolana_keypair::{
     viewing_key::ViewTag, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair, SignatureType,
 };
 use zolana_user_registry_interface::{
-    instruction::{register, update_keys, RegisterData, UpdateKeysData},
+    instruction::{
+        p256_key_binding_message, p256_verify_instruction, register, update_keys, RegisterData,
+        UpdateKeysData, P256_KEY_BINDING_MESSAGE_LEN,
+    },
     user_record_pda, user_registry_program_id, UserRecord,
 };
 
@@ -19,6 +22,28 @@ use zolana_client::{
     error::ClientError,
     rpc::{AsyncRpc, Rpc},
 };
+
+/// Compact low-S P-256 ECDSA signature (`r || s`) over SHA-256 of the message
+/// returned by [`p256_registration_proof_message`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct P256KeyBindingProof {
+    pub signature: [u8; 64],
+}
+
+/// Return the exact durable association message an external P-256 signer/HSM
+/// must sign before the key can be stored in `owner`'s registry record.
+pub fn p256_registration_proof_message(
+    owner: Pubkey,
+    address: &ShieldedAddress,
+) -> Result<[u8; P256_KEY_BINDING_MESSAGE_LEN], ClientError> {
+    let owner_p256 = address.signing_pubkey.as_p256()?;
+    let user_record = user_record_pda(&owner).0;
+    Ok(p256_key_binding_message(
+        &user_record,
+        &owner,
+        owner_p256.as_bytes(),
+    ))
+}
 
 /// Derive the on-chain registry record fields from a shielded keypair: the
 /// P256 owner key (only for P256-owned wallets), nullifier pubkey, and viewing
@@ -65,25 +90,19 @@ pub fn ensure_registered<R: Rpc>(
         {
             return Ok(None);
         }
-        let ix = update_keys(
-            user_record,
-            owner,
-            UpdateKeysData {
-                owner_p256: data.owner_p256,
-                nullifier_pubkey: data.nullifier_pubkey,
-                viewing_pubkey: data.viewing_pubkey,
-            },
-        );
+        let proof = key_binding_proof(owner, keypair)?;
+        let ixs = update_key_instructions(user_record, owner, &data, proof)?;
         return Ok(Some(rpc.create_and_send_transaction(
-            &[ix],
+            &ixs,
             owner_address,
             &[funding],
         )?));
     }
 
-    let ix = register(user_record, owner, data);
+    let proof = key_binding_proof(owner, keypair)?;
+    let ixs = register_instructions(user_record, owner, data, proof)?;
     Ok(Some(rpc.create_and_send_transaction(
-        &[ix],
+        &ixs,
         owner_address,
         &[funding],
     )?))
@@ -135,9 +154,10 @@ pub fn register_if_absent<R: Rpc>(
         });
     }
 
-    let ix = register(user_record, owner, data);
+    let proof = key_binding_proof(owner, keypair)?;
+    let ixs = register_instructions(user_record, owner, data, proof)?;
     let signature = rpc.create_and_send_transaction(
-        &[ix],
+        &ixs,
         Address::new_from_array(owner.to_bytes()),
         &[funding],
     )?;
@@ -146,57 +166,67 @@ pub fn register_if_absent<R: Rpc>(
 
 /// Build an unsigned register/update transaction for an external Solana signer.
 ///
+/// P-256 addresses must supply a signature over
+/// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
+///
 /// Returns `Ok(None)` when the on-chain record already matches `address`.
 pub async fn build_registration_transaction<R: AsyncRpc>(
     rpc: &R,
     owner: Pubkey,
     address: &ShieldedAddress,
+    proof: Option<P256KeyBindingProof>,
 ) -> Result<Option<SolanaTransaction>, ClientError> {
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
-    let Some(instruction) = registration_instruction(owner, data, existing) else {
+    let Some(instructions) = registration_instructions(owner, data, existing, proof)? else {
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash().await?;
     Ok(Some(unsigned_registration_transaction(
         owner,
-        instruction,
+        instructions,
         blockhash,
     )))
 }
 
 /// Blocking adapter for building an unsigned register/update transaction.
+///
+/// P-256 addresses must supply a signature over
+/// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
 pub fn build_registration_transaction_sync<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
     address: &ShieldedAddress,
+    proof: Option<P256KeyBindingProof>,
 ) -> Result<Option<SolanaTransaction>, ClientError> {
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked(rpc, owner)?;
-    let Some(instruction) = registration_instruction(owner, data, existing) else {
+    let Some(instructions) = registration_instructions(owner, data, existing, proof)? else {
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash()?;
     Ok(Some(unsigned_registration_transaction(
         owner,
-        instruction,
+        instructions,
         blockhash,
     )))
 }
 
-fn registration_instruction(
+fn registration_instructions(
     owner: Pubkey,
     data: RegisterData,
     existing: Option<UserRecord>,
-) -> Option<Instruction> {
+    proof: Option<P256KeyBindingProof>,
+) -> Result<Option<Vec<Instruction>>, ClientError> {
     let (user_record, _bump) = user_record_pda(&owner);
-    match existing {
+    let owner_p256 = data.owner_p256;
+    let registry_instruction = match existing {
         Some(record)
             if record.owner_p256 == data.owner_p256
                 && record.nullifier_pubkey == data.nullifier_pubkey
                 && record.viewing_pubkey == data.viewing_pubkey =>
         {
-            None
+            return Ok(None);
         }
         Some(_) => Some(update_keys(
             user_record,
@@ -209,16 +239,89 @@ fn registration_instruction(
         )),
         None => Some(register(user_record, owner, data)),
     }
+    .expect("non-current registration always has an instruction");
+
+    Ok(Some(compose_key_binding_instructions(
+        user_record,
+        owner,
+        registry_instruction,
+        owner_p256,
+        proof,
+    )?))
 }
 
 fn unsigned_registration_transaction(
     owner: Pubkey,
-    instruction: Instruction,
+    instructions: Vec<Instruction>,
     blockhash: solana_hash::Hash,
 ) -> SolanaTransaction {
-    let mut message = Message::new(&[instruction], Some(&owner));
+    let mut message = Message::new(&instructions, Some(&owner));
     message.recent_blockhash = blockhash;
     SolanaTransaction::new_unsigned(message)
+}
+
+fn key_binding_proof(
+    owner: Pubkey,
+    keypair: &ShieldedKeypair,
+) -> Result<Option<P256KeyBindingProof>, ClientError> {
+    if keypair.signing_pubkey().signature_type()? == SignatureType::Ed25519 {
+        return Ok(None);
+    }
+    let address = keypair.shielded_address()?;
+    let message = p256_registration_proof_message(owner, &address)?;
+    Ok(Some(P256KeyBindingProof {
+        signature: keypair.signing_key.sign_p256_message(&message)?,
+    }))
+}
+
+fn compose_key_binding_instructions(
+    user_record: Pubkey,
+    owner: Pubkey,
+    registry_instruction: Instruction,
+    owner_p256: Option<[u8; 33]>,
+    proof: Option<P256KeyBindingProof>,
+) -> Result<Vec<Instruction>, ClientError> {
+    match (owner_p256, proof) {
+        (Some(owner_p256), Some(proof)) => {
+            let message = p256_key_binding_message(&user_record, &owner, &owner_p256);
+            Ok(vec![
+                p256_verify_instruction(&message, &proof.signature, &owner_p256),
+                registry_instruction,
+            ])
+        }
+        (Some(_), None) => Err(ClientError::MissingRegistryP256Proof),
+        (None, Some(_)) => Err(ClientError::UnexpectedRegistryP256Proof),
+        (None, None) => Ok(vec![registry_instruction]),
+    }
+}
+
+fn update_key_instructions(
+    user_record: Pubkey,
+    owner: Pubkey,
+    data: &RegisterData,
+    proof: Option<P256KeyBindingProof>,
+) -> Result<Vec<Instruction>, ClientError> {
+    let ix = update_keys(
+        user_record,
+        owner,
+        UpdateKeysData {
+            owner_p256: data.owner_p256,
+            nullifier_pubkey: data.nullifier_pubkey,
+            viewing_pubkey: data.viewing_pubkey,
+        },
+    );
+    compose_key_binding_instructions(user_record, owner, ix, data.owner_p256, proof)
+}
+
+fn register_instructions(
+    user_record: Pubkey,
+    owner: Pubkey,
+    data: RegisterData,
+    proof: Option<P256KeyBindingProof>,
+) -> Result<Vec<Instruction>, ClientError> {
+    let owner_p256 = data.owner_p256;
+    let ix = register(user_record, owner, data);
+    compose_key_binding_instructions(user_record, owner, ix, owner_p256, proof)
 }
 
 pub fn fetch_user_record_checked<R: Rpc>(
@@ -553,10 +656,23 @@ mod tests {
     fn registration_builder_returns_unsigned_transaction_for_external_signer() {
         let owner = Pubkey::new_unique();
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let proof = P256KeyBindingProof {
+            signature: keypair
+                .signing_key
+                .sign_p256_message(
+                    &p256_registration_proof_message(
+                        owner,
+                        &keypair.shielded_address().expect("shielded address"),
+                    )
+                    .expect("proof message"),
+                )
+                .expect("proof signature"),
+        };
         let transaction = build_registration_transaction_sync(
             &MockRpc::default(),
             owner,
             &keypair.shielded_address().expect("shielded address"),
+            Some(proof),
         )
         .expect("build registration")
         .expect("registration required");
@@ -567,6 +683,45 @@ mod tests {
             solana_hash::Hash::new_from_array([9u8; 32])
         );
         assert_eq!(transaction.signatures, vec![Signature::default()]);
+        assert_eq!(transaction.message.instructions.len(), 2);
+        let precompile_program = transaction.message.account_keys
+            [usize::from(transaction.message.instructions[0].program_id_index)];
+        let registry_program = transaction.message.account_keys
+            [usize::from(transaction.message.instructions[1].program_id_index)];
+        assert_eq!(
+            precompile_program.to_bytes(),
+            zolana_user_registry_interface::SECP256R1_PROGRAM_ID
+        );
+        assert_eq!(registry_program, user_registry_program_id());
+    }
+
+    #[test]
+    fn registration_builder_requires_p256_proof() {
+        let owner = Pubkey::new_unique();
+        let keypair = ShieldedKeypair::new().expect("shielded keypair");
+        let address = keypair.shielded_address().expect("shielded address");
+
+        let error = build_registration_transaction_sync(&MockRpc::default(), owner, &address, None)
+            .expect_err("P256 registration without proof must fail");
+
+        assert!(matches!(error, ClientError::MissingRegistryP256Proof));
+    }
+
+    #[test]
+    fn registration_builder_rejects_proof_for_ed25519_address() {
+        let owner = Pubkey::new_unique();
+        let keypair =
+            ShieldedKeypair::from_ed25519(&[7u8; 32], ViewingKey::new()).expect("ed25519 keypair");
+        let address = keypair.shielded_address().expect("shielded address");
+        let proof = P256KeyBindingProof {
+            signature: [0u8; 64],
+        };
+
+        let error =
+            build_registration_transaction_sync(&MockRpc::default(), owner, &address, Some(proof))
+                .expect_err("Ed25519 registration with P256 proof must fail");
+
+        assert!(matches!(error, ClientError::UnexpectedRegistryP256Proof));
     }
 
     #[tokio::test]
@@ -575,7 +730,15 @@ mod tests {
         let keypair = ShieldedKeypair::new().expect("shielded keypair");
         let rpc = MockRpc::default();
         let address = keypair.shielded_address().expect("shielded address");
-        let future = build_registration_transaction(&rpc, owner, &address);
+        let proof = P256KeyBindingProof {
+            signature: keypair
+                .signing_key
+                .sign_p256_message(
+                    &p256_registration_proof_message(owner, &address).expect("proof message"),
+                )
+                .expect("proof signature"),
+        };
+        let future = build_registration_transaction(&rpc, owner, &address, Some(proof));
         fn assert_send<T: Send>(value: T) -> T {
             value
         }
@@ -848,13 +1011,17 @@ mod tests {
     }
 
     fn ensure_registered_ix_tag(rpc: &SendMockRpc) -> u8 {
-        // First byte of the single instruction's data = the user-registry tag.
-        rpc.sent
-            .borrow()
-            .as_ref()
-            .expect("a tx was sent")
+        let transaction = rpc.sent.borrow();
+        let transaction = transaction.as_ref().expect("a tx was sent");
+        transaction
             .message
-            .instructions[0]
+            .instructions
+            .iter()
+            .find(|instruction| {
+                transaction.message.account_keys[usize::from(instruction.program_id_index)]
+                    == user_registry_program_id()
+            })
+            .expect("registry instruction")
             .data[0]
     }
 

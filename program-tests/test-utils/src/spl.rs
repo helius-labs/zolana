@@ -151,7 +151,7 @@ pub fn create_spl_interface<R: Rpc>(
     mint: &Pubkey,
 ) -> Result<(Pubkey, Pubkey), ClientError> {
     let registry = pda::spl_asset_registry(mint);
-    let vault = pda::spl_asset_vault(mint);
+    let vault = pda::spl_interface(mint);
     let ix = CreateSplInterface {
         authority: authority.pubkey(),
         mint: *mint,

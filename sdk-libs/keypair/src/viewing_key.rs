@@ -277,6 +277,26 @@ impl ViewingKey {
         self.encrypt_utxo(recipient_pubkey, plaintext, &salt, slot_index)
     }
 
+    /// Encrypts one self-contained ring-deposit plaintext to `recipient_pubkey`.
+    pub fn encrypt_ring_deposit(
+        &self,
+        recipient_pubkey: &P256Pubkey,
+        plaintext: &[u8],
+        salt: Salt,
+    ) -> Result<Vec<u8>, KeypairError> {
+        encryption::encrypt_ring_deposit(&self.secret, recipient_pubkey, plaintext, &salt)
+    }
+
+    /// Decrypts one self-contained ring-deposit ciphertext.
+    pub fn decrypt_ring_deposit(
+        &self,
+        ciphertext: &[u8],
+        tx_viewing_pubkey: &P256Pubkey,
+        salt: Salt,
+    ) -> Result<Vec<u8>, KeypairError> {
+        encryption::decrypt_ring_deposit(&self.secret, tx_viewing_pubkey, ciphertext, &salt)
+    }
+
     pub fn decrypt_slot_ephemeral(
         &self,
         recipient_pubkey: &P256Pubkey,

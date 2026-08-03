@@ -1,4 +1,4 @@
-package defaultzone
+package defaultring
 
 import (
 	"zolana/prover/circuits/gadget"
@@ -8,64 +8,81 @@ import (
 )
 
 // Properties:
-// 1. Confidentiality - Input and output UTXO owner pubkeys are public inputs.
-// 2. Dummy public inputs are indistinguishable from UTXO and address public inputs.
-// 3. Solana program enforces eddsa signatures.
-// 4. Nullifiers of UTXOs, dummies, addresses cannot collide.
-// 5. Balances are preserved.
+// 1. Public: EdDSA input and output owners, and public asset transfers.
+// 2. Private: UTXO amounts and UTXO assets.
+// 3. The Solana runtime verifies EdDSA signatures; the circuit binds each real input owner to the public signer set.
+// 4. All real input and output UTXOs belong to the default ring.
+// 5. Dummy slots are indistinguishable from real UTXO and address slots.
+// 6. Input nullifiers are distinct and balances are preserved.
 
-type DefaultZoneEddsaOnlyPublic struct {
-	Nullifiers          []frontend.Variable
-	OutputHashes        []frontend.Variable
-	UtxoTreeRoots       []frontend.Variable
-	NullifierTreeRoots  []frontend.Variable
-	PrivateTxHash       frontend.Variable
-	ExternalDataHash    frontend.Variable
-	PublicAssets        [shared.NPublicSlots]frontend.Variable
-	PublicAmounts       [shared.NPublicSlots]frontend.Variable
-	PayerPubkeyHash     frontend.Variable
-	AllowDummyInputs    frontend.Variable
-	InputOwnerPkHashes  []frontend.Variable
+type DefaultRingEddsaOnlyPublic struct {
+	// Nullifiers for UTXO, address, and dummy input slots.
+	Nullifiers []frontend.Variable
+	// New output UTXO hashes.
+	OutputHashes []frontend.Variable
+	// UTXO tree roots to prove inclusion of real input UTXOs.
+	UtxoTreeRoots []frontend.Variable
+	// Nullifier tree roots to prove non-inclusion of input nullifiers.
+	NullifierTreeRoots []frontend.Variable
+	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
+	// Dummy UTXOs are represented as zero.
+	PrivateTxHash frontend.Variable
+	// Hash that ties arbitrary data to the proof.
+	ExternalDataHash frontend.Variable
+	// Assets in public asset transfers.
+	PublicAssets [shared.NPublicSlots]frontend.Variable
+	// Signed amounts in public asset transfers.
+	PublicAmounts [shared.NPublicSlots]frontend.Variable
+	// Whether dummy input UTXOs are allowed.
+	// Dummy input UTXOs are not allowed once the nullifier tree capacity
+	// is less than remaining state tree capacity.
+	AllowDummyInputs frontend.Variable
+	// Hashed EdDSA signer pubkeys, with the fee payer first.
+	SignerPkHashes []frontend.Variable
+	// Owner pubkey hashes for all output slots. Real outputs publish their owners;
+	// dummy outputs must name a transaction participant.
 	OutputOwnerPkHashes []frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-type DefaultZoneEddsaOnlyPrivate struct {
+type DefaultRingEddsaOnlyPrivate struct {
 	Inputs             []shared.Input
+	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
 	OutputNullifierPks []frontend.Variable
 }
 
-type DefaultZoneEddsaOnlyCircuit struct {
+type DefaultRingEddsaOnlyCircuit struct {
 	Shape   shared.Shape `gnark:"-"`
-	Public  DefaultZoneEddsaOnlyPublic
-	Private DefaultZoneEddsaOnlyPrivate
+	Public  DefaultRingEddsaOnlyPublic
+	Private DefaultRingEddsaOnlyPrivate
 }
 
-func NewDefaultZoneEddsaOnlyCircuit(shape shared.Shape) (*DefaultZoneEddsaOnlyCircuit, error) {
+func NewDefaultRingEddsaOnlyCircuit(shape shared.Shape) (*DefaultRingEddsaOnlyCircuit, error) {
 	if err := shape.Validate(); err != nil {
 		return nil, err
 	}
-	return &DefaultZoneEddsaOnlyCircuit{
+	return &DefaultRingEddsaOnlyCircuit{
 		Shape: shape,
-		Public: DefaultZoneEddsaOnlyPublic{
+		Public: DefaultRingEddsaOnlyPublic{
 			Nullifiers:          make([]frontend.Variable, shape.NInputs),
 			OutputHashes:        make([]frontend.Variable, shape.NOutputs),
 			UtxoTreeRoots:       make([]frontend.Variable, shape.NInputs),
 			NullifierTreeRoots:  make([]frontend.Variable, shape.NInputs),
-			InputOwnerPkHashes:  make([]frontend.Variable, shape.NInputs),
+			SignerPkHashes:      make([]frontend.Variable, shape.NInputs+1),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
-		Private: DefaultZoneEddsaOnlyPrivate{
+		Private: DefaultRingEddsaOnlyPrivate{
 			Inputs:             shared.NewInputs(shape.NInputs),
+			InputOwnerPkHashes: make([]frontend.Variable, shape.NInputs),
 			Outputs:            make([]shared.UtxoCircuitFields, shape.NOutputs),
 			OutputNullifierPks: make([]frontend.Variable, shape.NOutputs),
 		},
 	}, nil
 }
 
-func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Transaction {
+func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
 		Shape:              c.Shape,
 		Nullifiers:         c.Public.Nullifiers,
@@ -78,32 +95,32 @@ func (c *DefaultZoneEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,
-		ZoneProgramID:      frontend.Variable(0),
-		PayerPubkeyHash:    c.Public.PayerPubkeyHash,
+		RingProgramID:      frontend.Variable(0),
+		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
 		AllowDummyInputs:   c.Public.AllowDummyInputs,
 		PublicInputHash:    c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
-			gadget.HashChain(api, c.Public.InputOwnerPkHashes),
 			gadget.HashChain(api, c.Public.OutputOwnerPkHashes),
 		},
 	}
 }
 
-func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
+func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	tx := c.newTransaction(api)
 	if err := tx.ValidateLayout(
-		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Public.InputOwnerPkHashes), Want: c.Shape.NInputs},
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.NInputs + 1},
+		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Public.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
 		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},
 	); err != nil {
 		return err
 	}
-	// Assert that all input and output UTXOs are in the default zone.
-	shared.AssertInDefaultZone(api, tx.Inputs, tx.Outputs)
+	// Assert that all input and output UTXOs are in the default ring.
+	shared.AssertInDefaultRing(api, tx.Inputs, tx.Outputs)
 	// Enforce confidentiality:
 	// 1. Input utxos pubkeys are part of public inputs.
 	// 2. Output UTXOs pubkeys are part of public input.
-	// 3. All dummy UTXO tags must name a real transaction participant.
+	// 3. All dummy UTXO tags must be a real transaction participant.
 	if err := shared.AssertOutputOwnerTags(
 		api,
 		tx.Outputs,
@@ -113,20 +130,26 @@ func (c *DefaultZoneEddsaOnlyCircuit) Define(api frontend.API) error {
 		return err
 	}
 
-	signers := shared.EddsaOnlySigners(api, tx.Inputs, c.Public.InputOwnerPkHashes)
-	// If an output UTXO holds data the input must have signed a transaction.
-	outputPubkeyIsSigner := signers.ContainsEach(api, c.Public.OutputOwnerPkHashes)
+	authorized := shared.Signers(c.Public.SignerPkHashes)
+	inputOwners := shared.AuthorizedEddsaInputOwners(
+		api,
+		tx.Inputs,
+		c.Private.InputOwnerPkHashes,
+		authorized,
+	)
+	// An output containing program data must be owned by an authorized signer.
+	outputPubkeyIsSigner := authorized.ContainsEach(api, c.Public.OutputOwnerPkHashes)
 	// Every dummy tag must name a real input signer or real output owner.
 	if err := shared.AssertDummyTags(
 		api,
 		tx.Inputs,
 		tx.Outputs,
-		c.Public.InputOwnerPkHashes,
+		nil,
 		c.Public.OutputOwnerPkHashes,
-		signers,
+		authorized,
 	); err != nil {
 		return err
 	}
 
-	return tx.Constrain(api, signers, outputPubkeyIsSigner)
+	return tx.Constrain(api, inputOwners, outputPubkeyIsSigner)
 }

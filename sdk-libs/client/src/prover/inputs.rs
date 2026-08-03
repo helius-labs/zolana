@@ -93,13 +93,13 @@ pub struct MergeInputs {
     /// guard is `1` here.
     pub allow_dummy_inputs: BigUint,
     pub public_input_hash: BigUint,
-    /// Policy-zone merge only: the output zone-data hash the calling zone
+    /// Policy-ring merge only: the output ring-data hash the calling ring
     /// program carries in the instruction/event, asserted against
-    /// `Output.ZoneDataHash`. `0` for the default merge.
-    pub output_zone_data_hash: BigUint,
-    /// Policy-zone merge only: the zone program's `pk_field`, the merge-zone
+    /// `Output.RingDataHash`. `0` for the default merge.
+    pub output_ring_data_hash: BigUint,
+    /// Policy-ring merge only: the ring program's `pk_field`, the merge-ring
     /// circuit's top-level public input. `0` for the default merge.
-    pub zone_program_id: BigUint,
+    pub ring_program_id: BigUint,
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree
@@ -131,12 +131,40 @@ pub struct TransferInputs {
     pub outputs: Vec<TransferOutput>,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
-    /// Uniform public movement slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
+    /// Uniform public transfer slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
     /// slots are (0, 0).
     pub public_assets: [BigUint; N_PUBLIC_SLOTS],
     pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
-    pub zone_program_id: BigUint,
-    pub payer_pubkey_hash: BigUint,
+    pub ring_program_id: BigUint,
+    pub signer_pk_hashes: Vec<BigUint>,
     pub allow_dummy_inputs: BigUint,
+    pub published_output_owner_pk_hashes: Vec<BigUint>,
+    pub public_input_hash: BigUint,
+}
+
+/// Flat witness for the custom-ring P256 transaction circuit.
+#[derive(Debug, Clone)]
+pub struct TransferP256Inputs {
+    pub inputs: Vec<TransferInput>,
+    pub outputs: Vec<TransferOutput>,
+    pub external_data_hash: BigUint,
+    pub private_tx_hash: BigUint,
+    pub p256_pub_x: BigUint,
+    pub p256_pub_y: BigUint,
+    pub p256_sig_r: BigUint,
+    pub p256_sig_s: BigUint,
+    /// Full SHA-256 digest split into big-endian 128-bit limbs. The low limb is
+    /// the final 16 digest bytes; the high limb is the first 16 bytes.
+    pub p256_message_hash_low: BigUint,
+    pub p256_message_hash_high: BigUint,
+    /// Program-derived public hash of the P256 x-coordinate when the shared
+    /// owner has a real default-ring input/address; zero for ring-only P256.
+    pub default_p256_owner_pk_hash: BigUint,
+    pub public_assets: [BigUint; N_PUBLIC_SLOTS],
+    pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
+    pub ring_program_id: BigUint,
+    pub signer_pk_hashes: Vec<BigUint>,
+    pub allow_dummy_inputs: BigUint,
+    pub published_output_owner_pk_hashes: Vec<BigUint>,
     pub public_input_hash: BigUint,
 }

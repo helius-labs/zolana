@@ -283,9 +283,10 @@ function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> 
     privateTxHash: hex(payload.privateTxHash),
     publicAssets: payload.publicAssets.map(hex),
     publicAmounts: payload.publicAmounts.map(hex),
-    zoneProgramId: hex(payload.zoneProgramId),
-    payerPubkeyHash: hex(payload.payerPublicKeyHash),
+    ringProgramId: hex(payload.zoneProgramId),
+    signerPkHashes: payload.signerPublicKeyHashes.map(hex),
     allowDummyInputs: hex(payload.allowDummyInputs),
+    publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
     publicInputHash: hex(payload.publicInputHash),
   });
 }
@@ -327,8 +328,8 @@ function utxoJson(value: object): Readonly<Record<string, unknown>> {
     amount: hex(utxo.amount),
     blinding: hex(utxo.blinding),
     dataHash: hex(utxo.dataHash),
-    zoneDataHash: hex(utxo.zoneDataHash),
-    zoneProgramId: hex(utxo.zoneProgramId),
+    ringDataHash: hex(utxo.zoneDataHash),
+    ringProgramId: hex(utxo.zoneProgramId),
   });
 }
 

@@ -16,8 +16,8 @@ type UtxoParamsJSON struct {
 	Amount        string `json:"amount"`
 	Blinding      string `json:"blinding"`
 	DataHash      string `json:"dataHash"`
-	ZoneDataHash  string `json:"zoneDataHash"`
-	ZoneProgramID string `json:"zoneProgramId"`
+	RingDataHash  string `json:"ringDataHash"`
+	RingProgramID string `json:"ringProgramId"`
 }
 
 type InputParamsJSON struct {
@@ -45,19 +45,20 @@ type OutputParamsJSON struct {
 }
 
 type TransferParametersJSON struct {
-	CircuitType      common.CircuitType `json:"circuitType"`
-	NInputs          uint32             `json:"nInputs"`
-	NOutputs         uint32             `json:"nOutputs"`
-	Inputs           []InputParamsJSON  `json:"inputs"`
-	Outputs          []OutputParamsJSON `json:"outputs"`
-	ExternalDataHash string             `json:"externalDataHash"`
-	PrivateTxHash    string             `json:"privateTxHash"`
-	PublicAssets     []string           `json:"publicAssets"`
-	PublicAmounts    []string           `json:"publicAmounts"`
-	ZoneProgramID    string             `json:"zoneProgramId"`
-	PayerPubkeyHash  string             `json:"payerPubkeyHash"`
-	AllowDummyInputs string             `json:"allowDummyInputs"`
-	PublicInputHash  string             `json:"publicInputHash"`
+	CircuitType                  common.CircuitType `json:"circuitType"`
+	NInputs                      uint32             `json:"nInputs"`
+	NOutputs                     uint32             `json:"nOutputs"`
+	Inputs                       []InputParamsJSON  `json:"inputs"`
+	Outputs                      []OutputParamsJSON `json:"outputs"`
+	ExternalDataHash             string             `json:"externalDataHash"`
+	PrivateTxHash                string             `json:"privateTxHash"`
+	PublicAssets                 []string           `json:"publicAssets"`
+	PublicAmounts                []string           `json:"publicAmounts"`
+	RingProgramID                string             `json:"ringProgramId"`
+	SignerPkHashes               []string           `json:"signerPkHashes"`
+	AllowDummyInputs             string             `json:"allowDummyInputs"`
+	PublishedOutputOwnerPkHashes []string           `json:"publishedOutputOwnerPkHashes"`
+	PublicInputHash              string             `json:"publicInputHash"`
 }
 
 func (p *TransferParameters) MarshalJSON() ([]byte, error) {
@@ -75,17 +76,18 @@ func (p *TransferParameters) UnmarshalJSON(data []byte) error {
 func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJSON {
 	circuitType := p.Variant.CircuitType()
 	paramsJson := TransferParametersJSON{
-		CircuitType:      circuitType,
-		NInputs:          p.NInputs,
-		NOutputs:         p.NOutputs,
-		ExternalDataHash: feHex(p.ExternalDataHash),
-		PrivateTxHash:    feHex(p.PrivateTxHash),
-		PublicAssets:     feHexSlice(p.PublicAssets),
-		PublicAmounts:    feHexSlice(p.PublicAmounts),
-		ZoneProgramID:    feHex(p.ZoneProgramID),
-		PayerPubkeyHash:  feHex(p.PayerPubkeyHash),
-		AllowDummyInputs: feHex(p.AllowDummyInputs),
-		PublicInputHash:  feHex(p.PublicInputHash),
+		CircuitType:                  circuitType,
+		NInputs:                      p.NInputs,
+		NOutputs:                     p.NOutputs,
+		ExternalDataHash:             feHex(p.ExternalDataHash),
+		PrivateTxHash:                feHex(p.PrivateTxHash),
+		PublicAssets:                 feHexSlice(p.PublicAssets),
+		PublicAmounts:                feHexSlice(p.PublicAmounts),
+		RingProgramID:                feHex(p.RingProgramID),
+		SignerPkHashes:               feHexSlice(p.SignerPkHashes),
+		AllowDummyInputs:             feHex(p.AllowDummyInputs),
+		PublishedOutputOwnerPkHashes: feHexSlice(p.PublishedOutputOwnerPkHashes),
+		PublicInputHash:              feHex(p.PublicInputHash),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -145,13 +147,16 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.PublicAmounts, err = feFromHexSlice(params.PublicAmounts); err != nil {
 		return err
 	}
-	if p.ZoneProgramID, err = feFromHex(params.ZoneProgramID); err != nil {
+	if p.RingProgramID, err = feFromHex(params.RingProgramID); err != nil {
 		return err
 	}
-	if p.PayerPubkeyHash, err = feFromHex(params.PayerPubkeyHash); err != nil {
+	if p.SignerPkHashes, err = feFromHexSlice(params.SignerPkHashes); err != nil {
 		return err
 	}
 	if p.AllowDummyInputs, err = feFromHex(params.AllowDummyInputs); err != nil {
+		return err
+	}
+	if p.PublishedOutputOwnerPkHashes, err = feFromHexSlice(params.PublishedOutputOwnerPkHashes); err != nil {
 		return err
 	}
 	if p.PublicInputHash, err = feFromHex(params.PublicInputHash); err != nil {
@@ -237,8 +242,8 @@ func utxoParamsToJSON(u UtxoParams) UtxoParamsJSON {
 		Amount:        feHex(u.Amount),
 		Blinding:      feHex(u.Blinding),
 		DataHash:      feHex(u.DataHash),
-		ZoneDataHash:  feHex(u.ZoneDataHash),
-		ZoneProgramID: feHex(u.ZoneProgramID),
+		RingDataHash:  feHex(u.RingDataHash),
+		RingProgramID: feHex(u.RingProgramID),
 	}
 }
 
@@ -263,10 +268,10 @@ func utxoParamsFromJSON(u UtxoParamsJSON) (UtxoParams, error) {
 	if out.DataHash, err = feFromHex(u.DataHash); err != nil {
 		return out, err
 	}
-	if out.ZoneDataHash, err = feFromHex(u.ZoneDataHash); err != nil {
+	if out.RingDataHash, err = feFromHex(u.RingDataHash); err != nil {
 		return out, err
 	}
-	if out.ZoneProgramID, err = feFromHex(u.ZoneProgramID); err != nil {
+	if out.RingProgramID, err = feFromHex(u.RingProgramID); err != nil {
 		return out, err
 	}
 	return out, nil

@@ -111,7 +111,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
         asset: source_mint,
         amount: 1_000_000,
         blinding: test_blinding(5),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let spend = SppProofInputUtxo::new(input_utxo, &maker_keypair);

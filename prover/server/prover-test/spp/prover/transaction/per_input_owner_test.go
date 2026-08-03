@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
+	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
@@ -31,8 +31,8 @@ func refreshStateEntry(t *testing.T, tx *ProofTransactionRequest, i int) {
 }
 
 // mustNewSolanaCircuit builds the Solana-only circuit and panics on error.
-func mustNewSolanaCircuit(shape txcircuit.Shape) *customzone.CustomZoneEddsaOnlyCircuit {
-	circuit, err := customzone.NewCustomZoneEddsaOnlyCircuit(shape)
+func mustNewSolanaCircuit(shape txcircuit.Shape) *customring.CustomRingEddsaOnlyCircuit {
+	circuit, err := customring.NewCustomRingEddsaOnlyCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -47,8 +47,8 @@ func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) 
 	}
 }
 
-// Spec UTXO Ownership: Ed25519 owners may differ per input. Each input's
-// input_owner_pk_hashes entry carries its own owner's pk_field.
+// Spec UTXO Ownership: Ed25519 owners may differ per input. The owner tags stay
+// private while the public signer transcript contains each non-payer owner.
 func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	tx, payerHash, err := benchmarkTransaction(shape)
@@ -66,12 +66,15 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("distinct Solana owners must build: %v", err)
 	}
-	entries := built.publicInputs.InputOwnerPkHashes
-	if entries[0].Sign() == 0 || entries[1].Sign() == 0 {
-		t.Fatalf("both entries must be non-zero, got %v / %v", entries[0], entries[1])
+	entries := built.publicInputs.SignerPkHashes
+	if entries[0].Sign() == 0 {
+		t.Fatalf("payer signer entry must be non-zero, got %v", entries[0])
 	}
-	if entries[0].Cmp(entries[1]) == 0 {
-		t.Fatal("entries must differ for distinct owners")
+	if entries[1].Sign() == 0 {
+		t.Fatalf("non-payer signer entry must be non-zero, got %v", entries[1])
+	}
+	if entries[2].Sign() != 0 {
+		t.Fatalf("unused signer entry must be zero, got %v", entries[2])
 	}
 	if built.transcript.solanaOwnerPubkeys[0] == built.transcript.solanaOwnerPubkeys[1] {
 		t.Fatal("transcript owner pubkeys must differ")

@@ -10,8 +10,8 @@ pub struct ProtocolConfigInitParams {
     pub tree_creation_authority: Address,
     pub tree_creation_is_permissionless: u8,
     pub forester_authority: Address,
-    pub zone_creation_authority: Address,
-    pub zone_creation_is_permissionless: u8,
+    pub ring_creation_authority: Address,
+    pub ring_creation_is_permissionless: u8,
     pub spl_interface_creation_is_permissionless: u8,
 }
 
@@ -30,9 +30,9 @@ impl ProtocolConfigInitParams {
             protocol_authority: self.protocol_authority,
             tree_creation_authority: self.tree_creation_authority,
             forester_authority: self.forester_authority,
-            zone_creation_authority: self.zone_creation_authority,
+            ring_creation_authority: self.ring_creation_authority,
             tree_creation_is_permissionless: self.tree_creation_is_permissionless,
-            zone_creation_is_permissionless: self.zone_creation_is_permissionless,
+            ring_creation_is_permissionless: self.ring_creation_is_permissionless,
             spl_interface_creation_is_permissionless: self.spl_interface_creation_is_permissionless,
         };
         Ok(())

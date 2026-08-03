@@ -5,7 +5,7 @@ use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
     report::{CuBenchmark, ReadmeConfig},
 };
-use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
+use mollusk_svm::{result::Check, Mollusk};
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use solana_account::Account;
@@ -24,9 +24,9 @@ use zolana_batched_merkle_tree::{
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount};
+use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
 
-const HEIGHT: u8 = 26;
+const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;
 const DISCRIMINATOR: u8 = 7;
 
 const OP_BATCH_ADDRESS_UPDATE: u8 = 5;
@@ -349,7 +349,7 @@ fn bench_cu_tree() {
     let program_id = Pubkey::new_unique();
     let mut mollusk = Mollusk::default();
     register_profiling_syscalls(&mut mollusk);
-    mollusk.add_program(&program_id, "tree_bench", &LOADER_V3);
+    mollusk.add_program(&program_id, "tree_bench");
 
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "Tree -- CU Benchmark".into(),
@@ -449,7 +449,7 @@ fn address_batch_update_executes_under_mollusk() {
     let program_id = Pubkey::new_unique();
     let mut mollusk = Mollusk::default();
     register_profiling_syscalls(&mut mollusk);
-    mollusk.add_program(&program_id, "tree_bench", &LOADER_V3);
+    mollusk.add_program(&program_id, "tree_bench");
 
     let num_batches = 1usize;
     let fixture = build_address_update_fixture(num_batches, 0);

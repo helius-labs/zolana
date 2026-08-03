@@ -4,6 +4,16 @@
 # already exist in target/deploy (run `just build-programs` first) and that
 # the local config keypair is the current upgrade authority for each program.
 #
+# DEPLOYMENT NOTES for the protocol-config initialization gate
+# (INV-CREATE-PC-10):
+# - Run `cargo run -p xtask -- init-protocol` BEFORE renouncing the upgrade
+#   authority. Once the program is made immutable (`solana program
+#   set-upgrade-authority --final`), the on-chain gate no longer restricts who
+#   may create the singleton config, and the first caller wins every role.
+# - The gate reads the upgradeable loader (loader-v3) state. A deployment
+#   that is not loader-v3 (e.g. a future loader-v4/native deploy) silently
+#   skips the check; init before any such migration.
+#
 # A program's first-ever deploy to its fixed address needs that address's
 # private keypair (not just the pubkey), since the account has to be created
 # at that exact address. Set ZOLANA_DEVNET_KEYS_DIR to a directory laid out

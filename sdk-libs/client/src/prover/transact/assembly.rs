@@ -1,8 +1,9 @@
 use num_bigint::BigUint;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_event::is_confidential_encrypted_output;
+use zolana_hasher::hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice};
 use zolana_keypair::{NullifierKey, SignatureType};
 use zolana_transaction::{
-    instructions::transact::PublicMovements, ProofInputUtxo, SppProofOutputUtxo, Utxo,
+    instructions::transact::PublicTransfers, ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{
@@ -20,7 +21,7 @@ pub struct TransferSpendInput {
     pub utxo: Utxo,
     pub nullifier_key: NullifierKey,
     pub data_hash: Option<[u8; 32]>,
-    pub zone_data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
     /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy mirrors
     /// the first real input's state root, so it has no state proof of its own.
     pub proof: Option<SpendProof>,
@@ -36,7 +37,6 @@ pub(crate) struct AssembledInputs {
     pub nullifiers: Vec<[u8; 32]>,
     pub utxo_roots: Vec<[u8; 32]>,
     pub nullifier_tree_roots: Vec<[u8; 32]>,
-    pub input_owner_pk_hashes: Vec<[u8; 32]>,
     /// Per-slot `(utxo_tree_root_index, nullifier_tree_root_index)`, length
     /// `n_inputs`. Real slots take the index from their `SpendProof`; padded
     /// dummy slots mirror the first real input's UTXO root index and take their
@@ -56,26 +56,61 @@ pub(crate) struct AssembledOutputs {
     pub output_owner_pk_hashes: Vec<[u8; 32]>,
 }
 
-/// Selects how each input's owner `pk_field` is derived for the witness and the
-/// public-input chain. A P256-owned input is treated differently per mode; an
+/// Derive the public per-slot owner vector for owner-signed custom-ring
+/// circuits. Only structurally confidential-encrypted slots publish the hash
+/// of their resolved owner tag; every other slot contributes zero.
+pub(crate) fn confidential_marked_output_owner_pk_hashes(
+    external_data: &ExternalData,
+) -> Result<Vec<[u8; 32]>, ClientError> {
+    if external_data.outputs.len() != external_data.resolved_owner_tags.len() {
+        return Err(ClientError::OutputOwnerTagCountMismatch {
+            outputs: external_data.outputs.len(),
+            owner_tags: external_data.resolved_owner_tags.len(),
+        });
+    }
+    external_data
+        .outputs
+        .iter()
+        .zip(external_data.resolved_owner_tags.iter())
+        .map(|(output, owner_tag)| {
+            if output
+                .data
+                .as_deref()
+                .is_some_and(is_confidential_encrypted_output)
+            {
+                Ok(zolana_hasher::primitives::hash_bytes(owner_tag)?)
+            } else {
+                Ok([0u8; 32])
+            }
+        })
+        .collect()
+}
+
+/// Selects how each input's private owner `pk_field` is derived for the witness.
+/// A P256-owned input is treated differently per mode; an
 /// ed25519-owned input always uses its own `owner_pk_field()`.
 pub(crate) enum OwnerMode {
     /// Confidential Solana-only rail: P256-owned inputs are rejected (the rail has
     /// no P256 gadget); ed25519 uses its `pk_field`.
     ConfidentialEddsa,
+    /// Custom-ring P256 rail: P256-owned inputs contribute the zero sentinel
+    /// consumed by the circuit's shared P256 authorization; ed25519 inputs keep
+    /// their normal public owner hash.
+    RingP256,
     /// Merge: the circuit uses a single shared owner, so a P256 input contributes
     /// the `0` sentinel here (the per-input value is ignored); ed25519 uses its
     /// `pk_field`.
     Merge,
-    /// Zone authority (anonymous, pubkey-agnostic): every owner uses its own
+    /// Ring authority (anonymous, pubkey-agnostic): every owner uses its own
     /// `owner_pk_field()` as a private witness, regardless of scheme.
-    ZoneAuthority,
+    RingAuthority,
 }
 
 /// Convert the already-padded inputs into circuit witness fields. Makes no padding
 /// decisions: each slot with a [`SpendProof`] is a real spend; each slot without one
-/// is a dummy that mirrors the first real input's UTXO root, UTXO-root index, and
-/// owner hash while using its own nullifier non-inclusion root and index. A
+/// is a dummy that mirrors the first real input's UTXO root and UTXO-root index,
+/// uses a zero private owner hash, and uses its own nullifier non-inclusion root
+/// and index. A
 /// transaction must spend at least one real input to supply the mirrored values.
 pub(crate) fn assemble_inputs(
     spends: &[TransferSpendInput],
@@ -92,7 +127,7 @@ pub(crate) fn assemble_inputs(
     for (index, spend) in spends.iter().enumerate() {
         let Some(proof) = &spend.proof else {
             let utxo_root = *utxo_roots.first().ok_or(ClientError::NoInputs)?;
-            let owner = *input_owner_pk_hashes.first().ok_or(ClientError::NoInputs)?;
+            let owner = [0u8; 32];
             let &(ur_index, first_nr_index) = root_indices.first().ok_or(ClientError::NoInputs)?;
             let (nf_root, nr_index) = match &spend.nullifier_proof {
                 Some(nf) => (nf.root, nf.root_index),
@@ -121,12 +156,12 @@ pub(crate) fn assemble_inputs(
         };
 
         let data_hash = spend.data_hash.unwrap_or([0u8; 32]);
-        let zone_data_hash = spend.zone_data_hash.unwrap_or([0u8; 32]);
+        let ring_data_hash = spend.ring_data_hash.unwrap_or([0u8; 32]);
 
         let nullifier_pubkey = spend.nullifier_key.pubkey()?;
         let utxo_inputs = spend
             .utxo
-            .proof_input(&nullifier_pubkey, &data_hash, &zone_data_hash)?;
+            .proof_input(&nullifier_pubkey, &data_hash, &ring_data_hash)?;
         let utxo_hash = utxo_inputs.hash()?;
         let nullifier = spend
             .nullifier_key
@@ -137,11 +172,11 @@ pub(crate) fn assemble_inputs(
         // depends on the mode (see OwnerMode); an ed25519 owner always uses
         // its own pk_field.
         let owner_pk_hash = match (owner_mode, is_p256) {
-            (OwnerMode::Merge, true) => [0u8; 32],
+            (OwnerMode::Merge | OwnerMode::RingP256, true) => [0u8; 32],
             (OwnerMode::ConfidentialEddsa, true) => {
                 return Err(ClientError::EddsaInputNotSolanaOwned { index })
             }
-            (OwnerMode::ZoneAuthority, true) => spend.utxo.owner.owner_proof_input_hash()?,
+            (OwnerMode::RingAuthority, true) => spend.utxo.owner.owner_proof_input_hash()?,
             (_, false) => spend.utxo.owner.owner_proof_input_hash()?,
         };
 
@@ -181,7 +216,6 @@ pub(crate) fn assemble_inputs(
         nullifiers,
         utxo_roots,
         nullifier_tree_roots,
-        input_owner_pk_hashes,
         root_indices,
     })
 }
@@ -242,45 +276,53 @@ pub(crate) fn assemble_outputs(
     })
 }
 
-pub(crate) struct PublicInputs<'a> {
+pub struct PublicInputs<'a> {
     pub nullifiers: &'a [[u8; 32]],
     pub output_hashes: &'a [[u8; 32]],
     pub utxo_roots: &'a [[u8; 32]],
     pub nullifier_tree_roots: &'a [[u8; 32]],
     pub private_tx: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
-    pub public_movements: &'a PublicMovements,
-    /// Per-tx zone program (pk_field-encoded); 0 on default transact.
-    pub zone_program_id: &'a [u8; 32],
-    pub payer_pubkey_hash: &'a [u8; 32],
+    pub public_transfers: &'a PublicTransfers,
+    /// Per-tx ring program (pk_field-encoded); 0 on default transact.
+    pub ring_program_id: &'a [u8; 32],
     pub allow_dummy_inputs: &'a [u8; 32],
-    pub input_owner_pk_hashes: &'a [[u8; 32]],
-    /// Appended by both confidential rails as
-    /// `HashChain(output_owner_pk_hashes)`.
-    pub output_owner_pk_hashes: &'a [[u8; 32]],
+    /// Payer first, then unique appended owner signers, then zero padding.
+    pub signer_pk_hashes: &'a [[u8; 32]],
+    /// Appended by owner-signed rails. The default rail publishes every slot;
+    /// custom-ring rails publish only confidential-encryption-marked slots.
+    pub output_owner_pk_hashes: Option<&'a [[u8; 32]]>,
 }
 
 impl PublicInputs<'_> {
-    pub(crate) fn hash(&self) -> Result<[u8; 32], ClientError> {
-        let slots = self.public_movements.interleaved();
-        let mut elements = Vec::with_capacity(12 + slots.len());
+    pub fn hash(&self) -> Result<[u8; 32], ClientError> {
+        self.hash_with_after_private_tx(&[])
+    }
+
+    pub(crate) fn hash_with_after_private_tx(
+        &self,
+        after_private_tx: &[[u8; 32]],
+    ) -> Result<[u8; 32], ClientError> {
+        let slots = self.public_transfers.interleaved();
+        let mut elements = Vec::with_capacity(12 + after_private_tx.len() + slots.len());
         elements.extend([
             create_hash_chain_from_slice(self.nullifiers)?,
             create_hash_chain_from_slice(self.output_hashes)?,
             create_hash_chain_from_slice(self.utxo_roots)?,
             create_hash_chain_from_slice(self.nullifier_tree_roots)?,
             *self.private_tx,
-            *self.external_data_hash,
         ]);
+        elements.extend_from_slice(after_private_tx);
+        elements.push(*self.external_data_hash);
         elements.extend(slots);
         elements.extend([
-            *self.zone_program_id,
-            *self.payer_pubkey_hash,
+            *self.ring_program_id,
+            create_right_hash_chain_from_slice(self.signer_pk_hashes)?,
             *self.allow_dummy_inputs,
-            create_hash_chain_from_slice(self.input_owner_pk_hashes)?,
-            // Confidential output-owner chain.
-            create_hash_chain_from_slice(self.output_owner_pk_hashes)?,
         ]);
+        if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
+            elements.push(create_hash_chain_from_slice(output_owner_pk_hashes)?);
+        }
         Ok(create_hash_chain_from_slice(&elements)?)
     }
 }

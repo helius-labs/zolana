@@ -1,6 +1,6 @@
 use zolana_interface::instruction::{
-    DepositAssetKind, DepositEntry, DepositIxData, DepositIxDataRef, UtxoData, ZoneDepositEntry,
-    ZoneDepositIxData, ZoneDepositIxDataRef,
+    DepositAssetKind, DepositEntry, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
+    RingDepositEntry, RingDepositIxData, RingDepositIxDataRef, UtxoData,
 };
 
 fn entry(seed: u8) -> DepositEntry {
@@ -56,25 +56,44 @@ fn deposit_ref_borrows_variable_payloads() {
 }
 
 #[test]
-fn zone_deposit_ref_borrows_zone_payload() {
-    let owned = ZoneDepositIxData {
-        assets: vec![DepositAssetKind::Spl { vault_bump: 42 }],
-        deposits: vec![ZoneDepositEntry {
-            deposit: entry(9),
-            zone_data_hash: [10; 32],
-            zone_data: vec![11, 12, 13],
+fn ring_deposit_ref_borrows_ring_payload() {
+    let owned = RingDepositIxData {
+        assets: vec![DepositAssetKind::Spl {
+            spl_interface_bump: 42,
+        }],
+        deposits: vec![RingDepositEntry {
+            asset_index: 0,
+            view_tag: [9; 32],
+            owner_utxo_hash: [10; 32],
+            amount: 12,
+            data_hash: Some([13; 32]),
+            ring_data_hash: [10; 32],
+            encrypted: EncryptedRingDepositData {
+                tx_viewing_pk: [8; 33],
+                salt: [9; 16],
+                ciphertext: vec![11, 12, 13],
+            },
         }],
     };
     let bytes = owned.serialize().unwrap();
-    let borrowed = ZoneDepositIxDataRef::from_bytes(&bytes).unwrap();
+    let borrowed = RingDepositIxDataRef::from_bytes(&bytes).unwrap();
 
     assert_eq!(borrowed.assets, owned.assets);
     assert_eq!(borrowed.deposits.len(), 1);
     let actual = borrowed.deposits[0];
-    assert_eq!(actual.zone_data_hash, &owned.deposits[0].zone_data_hash);
-    assert_eq!(actual.zone_data, owned.deposits[0].zone_data);
-    assert!(aliases(&bytes, actual.zone_data_hash));
-    assert!(aliases(&bytes, actual.zone_data));
+    assert_eq!(actual.owner_utxo_hash, &owned.deposits[0].owner_utxo_hash);
+    assert_eq!(actual.ring_data_hash, &owned.deposits[0].ring_data_hash);
+    assert_eq!(
+        actual.encrypted.tx_viewing_pk,
+        &owned.deposits[0].encrypted.tx_viewing_pk
+    );
+    assert_eq!(actual.encrypted.salt, &owned.deposits[0].encrypted.salt);
+    assert_eq!(
+        actual.encrypted.ciphertext,
+        owned.deposits[0].encrypted.ciphertext
+    );
+    assert!(aliases(&bytes, actual.ring_data_hash));
+    assert!(aliases(&bytes, actual.encrypted.ciphertext));
 }
 
 #[test]

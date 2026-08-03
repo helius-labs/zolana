@@ -1,18 +1,17 @@
 //! Real-proof coverage for transactions with multiple ordered interface transfers.
 
-#[path = "../common/setup.rs"]
-mod common;
-#[path = "../common/transact.rs"]
-mod transact_common;
+use shielded_pool_tests::support::transact::{proof_env, tree_roots, Pool};
 
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{TransferInput, TransferOutput, STATE_TREE_HEIGHT};
+use zolana_client::{
+    PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
+};
 use zolana_event::{general_event_from_indexed, SplTransfer};
-use zolana_hasher::{sha256::Sha256BE, Hasher, Poseidon};
+use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -26,46 +25,19 @@ use zolana_interface::{
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, ZolanaProgramTest};
+use zolana_test_utils::transact::{
+    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
+    output_owner_pk_hashes, prove_and_verify_transfer, real_output, set_output_owner_tags,
+    spend_input, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+};
 use zolana_transaction::{
     instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
     Data, Utxo, SOL_MINT,
 };
-use zolana_tree::TreeAccount;
-
-use crate::transact_common::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, prove_and_verify_transfer, public_input_hash, real_output,
-    set_output_owner_tags, spend_input, start_prover, transfer_output, SpendInputArgs,
-    TransferProverInputsArgs,
-};
 
 const SOL_SPLIT_TOTAL: u64 = 1_000_000_000;
 const SPL_SPLIT_TOTAL: u64 = 1_000;
-
-struct TransactEnv {
-    rpc: ZolanaProgramTest,
-    authority: Keypair,
-    tree: Keypair,
-}
-
-impl TransactEnv {
-    fn boot() -> Option<Self> {
-        let mut rpc = common::program_test()?;
-        start_prover().expect("start prover");
-        let authority = Keypair::new();
-        rpc.create_protocol_config(&authority)
-            .expect("create protocol config");
-        let tree = rpc
-            .create_tree(common::tree_account_size(), &authority)
-            .expect("create tree");
-        Some(Self {
-            rpc,
-            authority,
-            tree,
-        })
-    }
-}
 
 struct SpendNote {
     input: TransferInput,
@@ -74,7 +46,6 @@ struct SpendNote {
     nullifier: [u8; 32],
     dummy_nullifier: [u8; 32],
     roots: ([u8; 32], [u8; 32]),
-    owner_pk_hash: [u8; 32],
     nullifier_pk: [u8; 32],
 }
 
@@ -86,17 +57,8 @@ struct WitnessOutput {
     view_tag: [u8; 32],
 }
 
-fn on_chain_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
-    let mut data = rpc.account_data(tree).expect("tree account");
-    let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
-    (
-        account.get_utxo_tree_root(utxo_index).expect("utxo root"),
-        account.get_nullifier_tree_root(0).expect("nullifier root"),
-    )
-}
-
 fn build_spend_note(
-    env: &TransactEnv,
+    env: &Pool,
     utxo: Utxo,
     nullifier_key: NullifierKey,
     utxo_hash: [u8; 32],
@@ -104,7 +66,7 @@ fn build_spend_note(
     let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
-    let roots = on_chain_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let roots = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
 
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -123,7 +85,7 @@ fn build_spend_note(
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
         .expect("non inclusion proof");
     let (dummy_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots, &owner_pk_hash).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
     let input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -144,12 +106,11 @@ fn build_spend_note(
         nullifier,
         dummy_nullifier,
         roots,
-        owner_pk_hash,
         nullifier_pk,
     }
 }
 
-fn deposit_sol_note(env: &mut TransactEnv, amount: u64) -> SpendNote {
+fn deposit_sol_note(env: &mut Pool, amount: u64) -> SpendNote {
     let payer = env.rpc.payer.insecure_clone();
     let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
@@ -159,7 +120,7 @@ fn deposit_sol_note(env: &mut TransactEnv, amount: u64) -> SpendNote {
         asset: SOL_MINT,
         amount,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
@@ -173,16 +134,12 @@ fn deposit_sol_note(env: &mut TransactEnv, amount: u64) -> SpendNote {
     build_spend_note(env, utxo, nullifier_key, utxo_hash)
 }
 
-fn deposit_spl_note(
-    env: &mut TransactEnv,
-    mint: Pubkey,
-    amount: u64,
-) -> (SpendNote, Pubkey, Pubkey) {
+fn deposit_spl_note(env: &mut Pool, mint: Pubkey, amount: u64) -> (SpendNote, Pubkey, Pubkey) {
     deposit_spl_note_with_program(env, mint, amount, ZolanaProgramTest::token_program_id())
 }
 
 fn deposit_spl_note_with_program(
-    env: &mut TransactEnv,
+    env: &mut Pool,
     mint: Pubkey,
     amount: u64,
     token_program: Pubkey,
@@ -211,7 +168,7 @@ fn deposit_spl_note_with_program(
         asset: Address::new_from_array(mint.to_bytes()),
         amount,
         blinding,
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
@@ -301,7 +258,7 @@ fn public_slots(
 }
 
 fn prove_spend(
-    env: &TransactEnv,
+    env: &Pool,
     note: SpendNote,
     interface_transfers: Vec<InterfaceTransfer>,
     resolved_transfers: &[ResolvedInterfaceTransfer],
@@ -353,20 +310,26 @@ fn prove_spend(
     .expect("private tx hash");
     let (public_slot_assets, public_slot_amounts) = public_slots(public_movements);
     let payer_pubkey_hash =
-        Sha256BE::hash(&env.rpc.payer.pubkey().to_bytes()).expect("payer pubkey hash");
-    let public_hash = public_input_hash(
-        &[note.nullifier, note.dummy_nullifier],
-        &output_hashes,
-        &[note.roots.0, note.roots.0],
-        &[note.roots.1, note.roots.1],
-        &private_tx,
-        &external_hash,
-        &public_slot_assets,
-        &public_slot_amounts,
-        &payer_pubkey_hash,
-        &[note.owner_pk_hash, note.owner_pk_hash],
-        &output_owner_pk_hashes,
-    );
+        hash_bytes(&env.rpc.payer.pubkey().to_bytes()).expect("payer pubkey hash");
+    let signer_hashes = [payer_pubkey_hash, [0u8; 32], [0u8; 32]];
+    let public_hash = PublicInputs {
+        nullifiers: &[note.nullifier, note.dummy_nullifier],
+        output_hashes: &output_hashes,
+        utxo_roots: &[note.roots.0, note.roots.0],
+        nullifier_tree_roots: &[note.roots.1, note.roots.1],
+        private_tx: &private_tx,
+        external_data_hash: &external_hash,
+        public_transfers: &PublicTransfers {
+            assets: public_slot_assets,
+            amounts: public_slot_amounts,
+        },
+        ring_program_id: &[0u8; 32],
+        allow_dummy_inputs: &fe(1),
+        signer_pk_hashes: &signer_hashes,
+        output_owner_pk_hashes: Some(&output_owner_pk_hashes),
+    }
+    .hash()
+    .expect("public input hash");
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![note.input, note.dummy_input],
         outputs: transfer_outputs,
@@ -374,7 +337,7 @@ fn prove_spend(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        payer_pubkey_hash,
+        signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash: public_hash,
     });
     ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "multi-leg transact")
@@ -384,9 +347,7 @@ fn prove_spend(
 }
 
 fn sol_split_case(reorder_recipients: bool) {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = proof_env();
     let payer = env.rpc.payer.insecure_clone();
     let note = deposit_sol_note(&mut env, SOL_SPLIT_TOTAL);
     let user_amount = 700_000_000u64;
@@ -435,6 +396,7 @@ fn sol_split_case(reorder_recipients: bool) {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: user }),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
@@ -517,9 +479,7 @@ fn reordered_same_asset_account_groups_fail_closed() {
 }
 
 fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = proof_env();
     let payer = env.rpc.payer.insecure_clone();
     let mint = env
         .rpc
@@ -539,27 +499,27 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         .expect("second recipient token account");
     let vault_before = env.rpc.token_balance(&vault).expect("vault balance");
     let mint_field = zolana_hasher::primitives::hash_bytes(&mint.to_bytes()).expect("mint field");
-    let vault_bump = pda::spl_asset_vault_with_bump(&mint).1;
+    let spl_interface_bump = pda::spl_interface_with_bump(&mint).1;
     let interface_transfers = vec![
         InterfaceTransfer::SplWithdrawal {
             amount: first_amount,
-            vault_bump,
+            spl_interface_bump,
         },
         InterfaceTransfer::SplWithdrawal {
             amount: second_amount,
-            vault_bump,
+            spl_interface_bump,
         },
     ];
     let resolved_transfers = [
         ResolvedInterfaceTransfer::SplWithdrawal {
             amount: first_amount,
             user_token_account: first_token.to_bytes(),
-            vault: vault.to_bytes(),
+            spl_interface: vault.to_bytes(),
         },
         ResolvedInterfaceTransfer::SplWithdrawal {
             amount: second_amount,
             user_token_account: second_token.to_bytes(),
-            vault: vault.to_bytes(),
+            spl_interface: vault.to_bytes(),
         },
     ];
     let data = prove_spend(
@@ -576,7 +536,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
     let spl_transfer = |user_token_account| {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             mint,
-            vault,
+            spl_interface: vault,
             user_token_account,
             token_program,
         })
@@ -585,6 +545,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![spl_transfer(first_token), spl_transfer(second_token)],
         data,
     }
@@ -631,9 +592,7 @@ fn token_2022_withdrawals_settle_independently() {
 
 #[test]
 fn three_distinct_assets_support_opposite_public_directions() {
-    let Some(mut env) = TransactEnv::boot() else {
-        return;
-    };
+    let mut env = proof_env();
     let payer = env.rpc.payer.insecure_clone();
     let withdraw_mint = env.rpc.create_mint().expect("withdraw mint");
     let (note, withdraw_vault, _) = deposit_spl_note(&mut env, withdraw_mint, SPL_SPLIT_TOTAL);
@@ -681,21 +640,21 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let interface_transfers = vec![
         InterfaceTransfer::SplWithdrawal {
             amount: SPL_SPLIT_TOTAL,
-            vault_bump: pda::spl_asset_vault_with_bump(&withdraw_mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&withdraw_mint).1,
         },
         InterfaceTransfer::SolDeposit {
             amount: sol_deposit_amount,
         },
         InterfaceTransfer::SplDeposit {
             amount: spl_deposit_amount,
-            vault_bump: pda::spl_asset_vault_with_bump(&deposit_mint).1,
+            spl_interface_bump: pda::spl_interface_with_bump(&deposit_mint).1,
         },
     ];
     let resolved_transfers = [
         ResolvedInterfaceTransfer::SplWithdrawal {
             amount: SPL_SPLIT_TOTAL,
             user_token_account: withdraw_token.to_bytes(),
-            vault: withdraw_vault.to_bytes(),
+            spl_interface: withdraw_vault.to_bytes(),
         },
         ResolvedInterfaceTransfer::SolDeposit {
             amount: sol_deposit_amount,
@@ -704,7 +663,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         ResolvedInterfaceTransfer::SplDeposit {
             amount: spl_deposit_amount,
             user_token_account: deposit_token.to_bytes(),
-            vault: deposit_vault.to_bytes(),
+            spl_interface: deposit_vault.to_bytes(),
         },
     ];
     let withdraw_field = zolana_hasher::primitives::hash_bytes(&withdraw_mint.to_bytes())
@@ -726,7 +685,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let spl_withdrawal = |vault, user_token_account| {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             mint: withdraw_mint,
-            vault,
+            spl_interface: vault,
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
@@ -734,8 +693,8 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let spl_deposit = |vault, user_token_account| {
         TransactInterfaceTransferAccounts::SplDeposit(TransactSplDepositAccounts {
             mint: deposit_mint,
-            vault,
-            depositor: payer.pubkey(),
+            spl_interface: vault,
+            token_authority: payer.pubkey(),
             user_token_account,
             token_program: ZolanaProgramTest::token_program_id(),
         })
@@ -746,6 +705,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         payer: payer.pubkey(),
         input_tree: env.tree.pubkey(),
         output_tree: env.tree.pubkey(),
+        owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             spl_withdrawal(withdraw_vault, withdraw_token),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {

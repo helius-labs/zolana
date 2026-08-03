@@ -28,10 +28,16 @@ impl SplAssetCounter {
     }
 
     /// Initialize a freshly created (zeroed) counter: stamp the discriminator
-    /// and seed `next_id` with [`Self::FIRST_ASSET_ID`].
-    pub fn init(&mut self) {
+    /// and seed `next_id` with [`Self::FIRST_ASSET_ID`]. Rejects an
+    /// already-initialized counter ([`InterfaceError::AlreadyInitialized`]) so a
+    /// second `init` cannot reset the id sequence back to the floor.
+    pub fn init(&mut self) -> Result<(), InterfaceError> {
+        if self.discriminator != 0 {
+            return Err(InterfaceError::AlreadyInitialized);
+        }
         self.discriminator = SPL_ASSET_COUNTER;
         self.next_id = Self::FIRST_ASSET_ID;
+        Ok(())
     }
 
     /// Hand out the next asset id and advance the counter. Rejects a counter

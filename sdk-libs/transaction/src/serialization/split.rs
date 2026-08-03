@@ -6,7 +6,7 @@ use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{derive_blinding, resolve_zone_program_id, Utxo},
+    utxo::{derive_blinding, resolve_ring_program_id, Utxo},
     AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SPLIT,
 };
 
@@ -50,12 +50,12 @@ impl SplitBundlePlaintext {
     pub fn into_utxos(
         self,
         assets: &AssetRegistry,
-        zone_program_id: Option<Address>,
+        ring_program_id: Option<Address>,
     ) -> Result<Vec<Utxo>, TransactionError> {
         if self.num_outputs == 0 && !self.data.is_empty() {
             return Err(TransactionError::DataWithoutOutput);
         }
-        let zone_program_id = resolve_zone_program_id(zone_program_id, &self.data)?;
+        let ring_program_id = resolve_ring_program_id(ring_program_id, &self.data)?;
         let asset = assets.resolve(self.asset_id)?;
         Ok((0..self.num_outputs)
             .map(|i| Utxo {
@@ -63,7 +63,7 @@ impl SplitBundlePlaintext {
                 asset,
                 amount: self.asset_amount,
                 blinding: derive_blinding(&self.blinding_seed, i),
-                zone_program_id,
+                ring_program_id,
                 data: self.data.clone(),
             })
             .collect())
@@ -116,7 +116,7 @@ impl UtxoSerialization for Split {
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        plaintext.into_utxos(cx.assets, cx.zone_program_id)
+        plaintext.into_utxos(cx.assets, cx.ring_program_id)
     }
 
     fn from_utxos(

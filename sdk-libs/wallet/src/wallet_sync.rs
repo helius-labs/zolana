@@ -5,7 +5,9 @@ use std::{
 
 use solana_address::Address;
 use zolana_interface::{
-    event::decode_output_data, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID,
+    event::{decode_encrypted_ring_deposit_output_data, decode_output_data},
+    state::SplAssetRegistry,
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
@@ -326,7 +328,7 @@ fn wallet_query_tags(
     }
 
     let mut tags = HashSet::new();
-    // Confidential default-zone outputs (sender change, recipients, merge) are all
+    // Confidential default-ring outputs (sender change, recipients, merge) are all
     // tagged by the owner signing pubkey.
     tags.insert(identity.signing_pubkey.confidential_view_tag()?);
     for key in viewing_keys {
@@ -591,7 +593,9 @@ fn proofless_deposit_from_indexed_match(
     // The wallet deserializes the `ProoflessOutput` from the slot payload itself;
     // here we only confirm the payload is a decodable proofless output before
     // wrapping the slot into a proofless `ShieldedTransaction`.
-    if decode_output_data(&item.output_slot.payload).is_err() {
+    if decode_output_data(&item.output_slot.payload).is_err()
+        && decode_encrypted_ring_deposit_output_data(&item.output_slot.payload).is_err()
+    {
         return Ok(None);
     }
 
@@ -1371,7 +1375,7 @@ mod tests {
             asset: prepared.output.asset,
             amount: prepared.output.amount,
             blinding: prepared.output.blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let output_hash = output
@@ -1452,7 +1456,7 @@ mod tests {
                 },
                 nullifier,
                 data_hash: None,
-                zone_data_hash: None,
+                ring_data_hash: None,
                 spent: false,
             });
         }
@@ -1467,7 +1471,7 @@ mod tests {
             asset,
             amount,
             blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         }
     }
@@ -1482,9 +1486,9 @@ mod tests {
             amount,
             data_hash: None,
             utxo_data: None,
-            zone_program_id: None,
-            zone_data_hash: None,
-            zone_data: None,
+            ring_program_id: None,
+            ring_data_hash: None,
+            ring_data: None,
             memo: None,
         }
     }
@@ -1512,17 +1516,17 @@ mod tests {
         let owner_cx = OwnerCx {
             owner: keypair.signing_pubkey(),
             assets: &assets,
-            zone_program_id: None,
+            ring_program_id: None,
         };
         let data_hash = output.data_hash.unwrap_or([0u8; 32]);
-        let zone_data_hash = output.zone_data_hash.unwrap_or([0u8; 32]);
+        let ring_data_hash = output.ring_data_hash.unwrap_or([0u8; 32]);
         let utxo = Proofless::into_utxos(output.clone(), &owner_cx)
             .expect("proofless into utxos")
             .into_iter()
             .next()
             .expect("proofless utxo");
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
-        utxo.hash(&nullifier_pk, &data_hash, &zone_data_hash)
+        utxo.hash(&nullifier_pk, &data_hash, &ring_data_hash)
             .expect("proofless leaf hash")
     }
 

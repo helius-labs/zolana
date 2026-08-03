@@ -46,7 +46,7 @@ solana-rpc-client = { workspace = true, optional = true }
 solana-commitment-config = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
-solana-transaction = { workspace = true, features = ["bincode"] }
+solana-transaction = { workspace = true, features = ["serde"] }
 solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["time", "rt", "macros"] }
 
@@ -56,33 +56,27 @@ borsh = { workspace = true }
 bs58 = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
 zolana-merkle-tree = { workspace = true }
-cucumber = { workspace = true }
-futures = { workspace = true }
 rand = { workspace = true }
+serial_test = { workspace = true }
 
 [[test]]
 name = "transaction_proving"
-harness = false
 
 [[test]]
 name = "merge_proving"
 path = "tests/merge/main.rs"
-harness = false
 
 [[test]]
-name = "zone_authority_proving"
-path = "tests/zone_authority/main.rs"
-harness = false
+name = "ring_authority_proving"
+path = "tests/ring_authority/main.rs"
 
 [[test]]
-name = "merge_zone_proving"
-path = "tests/merge_zone/main.rs"
-harness = false
+name = "merge_ring_proving"
+path = "tests/merge_ring/main.rs"
 
 [[test]]
-name = "zone_transfer_proving"
-path = "tests/zone_transfer/main.rs"
-harness = false
+name = "ring_transfer_proving"
+path = "tests/ring_transfer/main.rs"
 
 [[test]]
 name = "transfer_dummy"

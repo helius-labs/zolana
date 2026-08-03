@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	defaultring "zolana/prover/circuits/spp_transaction/default"
 	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"zolana/prover/prover-test/spp/protocol"
@@ -12,11 +12,12 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend"
+	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
 )
 
-func MustNewDefaultZoneEddsaOnlyCircuit(shape Shape) *defaultzone.DefaultZoneEddsaOnlyCircuit {
-	circuit, err := defaultzone.NewDefaultZoneEddsaOnlyCircuit(shape)
+func MustNewDefaultRingEddsaOnlyCircuit(shape Shape) *defaultring.DefaultRingEddsaOnlyCircuit {
+	circuit, err := defaultring.NewDefaultRingEddsaOnlyCircuit(shape)
 	if err != nil {
 		panic(err)
 	}
@@ -31,23 +32,23 @@ func defaultOutputOwnerTag(t testing.TB) (*big.Int, *big.Int) {
 	return testSolanaPkField(t), spptest.MustNullifierPk(t, spptest.Fe(99))
 }
 
-// makeDefaultZone turns an anonymous assignment whose outputs all carry the
-// default owner into a valid default-zone one: tag every output and refresh the
-// default-zone public-input hash.
-func makeDefaultZone(t testing.TB, assignment *testAssignment) {
+// makeDefaultRing turns an anonymous assignment whose outputs all carry the
+// default owner into a valid default-ring one: tag every output and refresh the
+// default-ring public-input hash.
+func makeDefaultRing(t testing.TB, assignment *testAssignment) {
 	t.Helper()
 	pkField, nullifierPk := defaultOutputOwnerTag(t)
 	for i := range assignment.Outputs {
 		assignment.Outputs[i].OwnerPkHash = pkField
 		assignment.Outputs[i].NullifierPk = nullifierPk
 	}
-	refreshDefaultZonePublicInputHash(t, assignment)
+	refreshDefaultRingPublicInputHash(t, assignment)
 }
 
-func refreshDefaultZonePublicInputHash(t testing.TB, assignment *testAssignment) {
-	// The shared builder defaults to a nonzero zone id for the custom-zone
-	// circuits; the default-zone variants pin it to 0.
-	assignment.ZoneProgramID = spptest.Fe(0)
+func refreshDefaultRingPublicInputHash(t testing.TB, assignment *testAssignment) {
+	// The shared builder defaults to a nonzero ring id for the custom-ring
+	// circuits; the default-ring variants pin it to 0.
+	assignment.RingProgramID = spptest.Fe(0)
 	refreshPublicInputHashVariant(t, assignment, true, false)
 }
 
@@ -61,18 +62,18 @@ func emptyOutputUtxo() protocol.Utxo {
 		Amount:        spptest.Fe(0),
 		Blinding:      spptest.Fe(777),
 		DataHash:      spptest.Fe(0),
-		ZoneDataHash:  spptest.Fe(0),
-		ZoneProgramID: spptest.Fe(0),
+		RingDataHash:  spptest.Fe(0),
+		RingProgramID: spptest.Fe(0),
 	}
 }
 
-func buildDefaultZoneEddsaOnlyAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
+func buildDefaultRingEddsaOnlyAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
 	inputs, outputs := defaultBalancedUtxos(t, shape)
-	return buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	return buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
 }
 
-func buildDefaultZoneEddsaOnlyAssignmentFromUtxos(
+func buildDefaultRingEddsaOnlyAssignmentFromUtxos(
 	t testing.TB,
 	shape protocol.Shape,
 	inputUtxos []protocol.Utxo,
@@ -80,59 +81,78 @@ func buildDefaultZoneEddsaOnlyAssignmentFromUtxos(
 ) *testAssignment {
 	t.Helper()
 	assignment := buildCircuitAssignmentFromUtxos(t, shape, inputUtxos, outputUtxos)
-	makeDefaultZone(t, assignment)
+	makeDefaultRing(t, assignment)
 	return assignment
 }
 
-// The Solana-only default-zone circuit binds every output owner to its public
+// The Solana-only default-ring circuit binds every output owner to its public
 // pk_field tag and proves end to end.
-func TestDefaultZoneEddsaOnlySolves(t *testing.T) {
+func TestDefaultRingEddsaOnlySolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assignment := buildDefaultZoneEddsaOnlyAssignment(t, shape)
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
 
-	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 	assert.ProverSucceeded(
 		circuit,
-		asDefaultZoneEddsaOnly(assignment),
+		asDefaultRingEddsaOnly(assignment),
 		test.WithBackends(backend.GROTH16),
 		test.WithCurves(ecc.BN254),
 		test.NoSerializationChecks(),
 	)
 }
 
+func TestDefaultRingEddsaOnlyPublicInputHashBindsEveryField(t *testing.T) {
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
+	refreshHash := func() { refreshDefaultRingPublicInputHash(t, assignment) }
+
+	assertPublicInputHashBindsEveryField(
+		t,
+		circuit,
+		assignment,
+		func() frontend.Circuit { return asDefaultRingEddsaOnly(assignment) },
+		refreshHash,
+		publicInputHashBindingOptions{
+			includeOutputOwnerPkHashes: true,
+			signerWidth:                len(assignment.SignerPkHashes),
+		},
+	)
+}
+
 // A mistagged output owner (OwnerPkHash that does not recompute the output
-// owner_hash) fails the default-zone binding even with a consistent public hash.
-func TestDefaultZoneEddsaOnlyRejectsMistaggedOutput(t *testing.T) {
+// owner_hash) fails the default-ring binding even with a consistent public hash.
+func TestDefaultRingEddsaOnlyRejectsMistaggedOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assignment := buildDefaultZoneEddsaOnlyAssignment(t, shape)
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
 	assignment.Outputs[0].OwnerPkHash = spptest.Fe(424242)
-	refreshDefaultZonePublicInputHash(t, assignment)
+	refreshDefaultRingPublicInputHash(t, assignment)
 
-	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A data-carrying output whose public owner tag is one of the signers solves:
 // the signer array holds the input owner tags, and output 0 carries the same one.
-func TestDefaultZoneEddsaOnlyAcceptsDataHashOnSignerOwnedOutput(t *testing.T) {
+func TestDefaultRingEddsaOnlyAcceptsDataHashOnSignerOwnedOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
-	assignment := buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment := buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
 
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The data check is on the signing key, not on the full owner identity: a
 // data-carrying output owned by the signer under a different nullifier pubkey
 // (a different derived identity of the same signer) solves.
-func TestDefaultZoneEddsaOnlyAcceptsDataHashOnSignerOwnedOutputWithOtherNullifierPk(t *testing.T) {
+func TestDefaultRingEddsaOnlyAcceptsDataHashOnSignerOwnedOutputWithOtherNullifierPk(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
@@ -142,18 +162,18 @@ func TestDefaultZoneEddsaOnlyAcceptsDataHashOnSignerOwnedOutputWithOtherNullifie
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
 	outputs[0].Owner = spptest.MustOwnerHash(t, pkField, otherNullifierPk)
-	assignment := buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment := buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.Outputs[0].NullifierPk = otherNullifierPk
-	refreshDefaultZonePublicInputHash(t, assignment)
+	refreshDefaultRingPublicInputHash(t, assignment)
 
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A data-carrying output owned by a key that did not sign must not solve, even
 // though its public owner tag correctly recomputes the output owner_hash: the
 // tag is not in the signer array.
-func TestDefaultZoneEddsaOnlyRejectsDataHashOnNonSignerOwnedOutput(t *testing.T) {
+func TestDefaultRingEddsaOnlyRejectsDataHashOnNonSignerOwnedOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 
@@ -163,18 +183,18 @@ func TestDefaultZoneEddsaOnlyRejectsDataHashOnNonSignerOwnedOutput(t *testing.T)
 	inputs, outputs := defaultBalancedUtxos(t, shape)
 	outputs[0].DataHash = spptest.Fe(0x99)
 	outputs[0].Owner = spptest.MustOwnerHash(t, otherPkField, nullifierPk)
-	assignment := buildDefaultZoneEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
+	assignment := buildDefaultRingEddsaOnlyAssignmentFromUtxos(t, shape, inputs, outputs)
 	assignment.Outputs[0].OwnerPkHash = otherPkField
-	refreshDefaultZonePublicInputHash(t, assignment)
+	refreshDefaultRingPublicInputHash(t, assignment)
 
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // A dummy output skips the owner binding, but its public tag must still name
 // a transaction participant (AssertDummyTags): a third party's pk_field would
 // read as a payment to someone uninvolved in the transaction.
-func TestDefaultZoneEddsaOnlyRejectsDummyOutputThirdPartyTag(t *testing.T) {
+func TestDefaultRingEddsaOnlyRejectsDummyOutputThirdPartyTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -184,13 +204,13 @@ func TestDefaultZoneEddsaOnlyRejectsDummyOutputThirdPartyTag(t *testing.T) {
 	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
 	refreshDummyOutputHashes(t, assignment)
 
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // The same dummy output solves when tagged with a signer: the pad then reads as
 // a change output, attributing the transaction only to a participant.
-func TestDefaultZoneEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
+func TestDefaultRingEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
@@ -200,24 +220,23 @@ func TestDefaultZoneEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
 	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
 	refreshDummyOutputHashes(t, assignment)
 
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingSucceeded(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// PayerPubkeyHash is SHA-256 over the payer address, while an owner tag is the
-// proof-input hash of the resolved owner tag. It is not a valid owner identity
-// fallback for a dummy slot.
-func TestDefaultZoneEddsaOnlyRejectsDummyOutputPayerHashTag(t *testing.T) {
+// The payer identity uses the same owner-tag encoding and is always an
+// authorized transaction signer.
+func TestDefaultRingEddsaOnlyAcceptsDummyOutputPayerHashTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
 
-	assignment.Outputs[1].OwnerPkHash = assignment.PayerPubkeyHash
+	assignment.Outputs[1].OwnerPkHash = assignment.TransactionSignerPkHashes()[0]
 	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
 	refreshDummyOutputHashes(t, assignment)
 
-	circuit := MustNewDefaultZoneEddsaOnlyCircuit(Shape(shape))
-	assert.SolvingFailed(circuit, asDefaultZoneEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func dummyOutputAssignment(t *testing.T, shape protocol.Shape) *testAssignment {
@@ -253,5 +272,5 @@ func refreshDummyOutputHashes(t *testing.T, assignment *testAssignment) {
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	)
 	assignment.PrivateTxHash = privateTxHash
-	refreshDefaultZonePublicInputHash(t, assignment)
+	refreshDefaultRingPublicInputHash(t, assignment)
 }

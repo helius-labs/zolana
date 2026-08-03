@@ -291,8 +291,8 @@ mod tests {
             "Pool111111111111111111111111111111111111111",
             "target/deploy/pool.so",
             "--sbf-program",
-            "Zone111111111111111111111111111111111111111",
-            "target/deploy/zone.so",
+            "Ring111111111111111111111111111111111111111",
+            "target/deploy/ring.so",
         ]);
 
         let actual = solana_validator_args(&opts).expect("build solana validator args");
@@ -309,8 +309,8 @@ mod tests {
             "Pool111111111111111111111111111111111111111",
             "target/deploy/pool.so",
             "--bpf-program",
-            "Zone111111111111111111111111111111111111111",
-            "target/deploy/zone.so",
+            "Ring111111111111111111111111111111111111111",
+            "target/deploy/ring.so",
         ]);
 
         assert_eq!(actual, expected);

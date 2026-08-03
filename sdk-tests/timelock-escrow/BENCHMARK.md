@@ -18,13 +18,13 @@ Regenerate with `just bench-escrow`.
 
 | Function                  |   Total CU |     Net CU |
 | ------------------------- | ---------- | ---------- |
-| `cpi_spp_transact`        |    162,178 |    162,178 |
-| `process_escrow_ix`       |    257,763 |     95,585 |
+| `cpi_spp_transact`        |    162,070 |    162,070 |
+| `process_escrow_ix`       |    257,655 |     95,585 |
 
 **Proving Time**
 | SPP transfer proof | Escrow circuit proof | Total  |
 | ------------------ | -------------------- | ------ |
-|             112 ms |                15 ms | 127 ms |
+|             113 ms |                17 ms | 130 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx  | v0 + ALT Tx |
@@ -35,13 +35,13 @@ Regenerate with `just bench-escrow`.
 
 | Function                  |   Total CU |     Net CU |
 | ------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed` |    155,219 |    155,219 |
-| `process_withdraw_ix`     |    252,567 |     97,348 |
+| `cpi_spp_transact_signed` |    155,112 |    155,112 |
+| `process_withdraw_ix`     |    252,460 |     97,348 |
 
 **Proving Time**
 | SPP transfer proof | Escrow circuit proof | Total |
 | ------------------ | -------------------- | ----- |
-|              59 ms |                15 ms | 74 ms |
+|              61 ms |                15 ms | 77 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | Legacy Tx | v0 + ALT Tx |

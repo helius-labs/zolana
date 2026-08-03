@@ -44,8 +44,9 @@ export interface TransferInputs {
   readonly publicAssets: readonly Field[];
   readonly publicAmounts: readonly Field[];
   readonly zoneProgramId: Field;
-  readonly payerPublicKeyHash: Field;
+  readonly signerPublicKeyHashes: readonly Field[];
   readonly allowDummyInputs: Field;
+  readonly publishedOutputOwnerPublicKeyHashes: readonly Field[];
   readonly publicInputHash: Field;
 }
 

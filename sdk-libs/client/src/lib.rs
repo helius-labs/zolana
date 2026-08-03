@@ -30,17 +30,18 @@ pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
     canonical_shape,
     merge::MergeWitness,
-    resolve_shape, spawn_prover,
+    resolve_shape, spawn_prover, spawn_prover_with_artifacts,
     transact::{
         assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, MergeProofResult, MergeProver, MergeZoneProver, MergeZoneWitness, Proof,
-    ProofCompressed, ProofInputUtxo, ProverClient, PublicMovements, Shape, TransferInput,
-    TransferInputs, TransferOutput, TransferProofResult, TransferProver, TransferSpendInput,
-    ZoneAuthorityProofResult, ZoneAuthorityProver, ZoneAuthorityWitness, ZoneTransferProofResult,
-    ZoneTransferProver, SPP_SUPPORTED_SHAPES,
+    CompressedCommitments, MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof,
+    ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers,
+    RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
+    RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
+    RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
+    TransferProofResult, TransferProver, TransferSpendInput, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
@@ -56,10 +57,10 @@ pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
 pub use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MERGE_INPUTS},
-        merge_zone::{MergeZone, PreparedMergeZone},
+        merge_ring::{MergeRing, PreparedMergeRing},
+        ring_authority::PreparedRingAuthority,
         transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},
         types::{InputUtxoContext, SppProofInputUtxo},
-        zone_authority::PreparedZoneAuthority,
     },
     AssetBalance, PrivateTransaction, PrivateTransactionDirection, PrivateTransactionId,
     PrivateTransactionKind, PrivateTransactionStatus,

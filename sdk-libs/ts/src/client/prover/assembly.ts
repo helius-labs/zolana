@@ -20,6 +20,7 @@ import {
   hashChain,
   hashField,
   poseidon,
+  rightHashChain,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
 import type {
@@ -90,17 +91,10 @@ function assembleUnchecked(
   const realInputs = proofInputs.inputUtxos.filter((input) => !input.isDummy());
   if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
 
-  const {
-    transferInputs,
-    inputHashes,
-    nullifiers,
-    utxoRoots,
-    nullifierRoots,
-    inputOwnerFields,
-    rootIndexes,
-  } = assembleSlots(proofInputs, spendProofs, dummyNullifierProofs, (input) =>
-    bytesField(input.utxo.owner.ownerPublicKeyField(), "owner public key"),
-  );
+  const { transferInputs, inputHashes, nullifiers, utxoRoots, nullifierRoots, rootIndexes } =
+    assembleSlots(proofInputs, spendProofs, dummyNullifierProofs, (input) =>
+      bytesField(input.utxo.owner.ownerPublicKeyField(), "owner public key"),
+    );
 
   const transferOutputs = proofInputs.outputs.map(createOutput);
   const outputHashes = proofInputs.outputs.map((output) => bytesToBigInt(output.hash()));
@@ -121,6 +115,10 @@ function assembleUnchecked(
     movements.amounts[index] ?? 0n,
   ]);
   const payerPublicKeyHash = bytesField(proofInputs.payerPublicKeyHash, "payer public key hash");
+  const signerPublicKeyHashes = [
+    payerPublicKeyHash,
+    ...Array.from({ length: inputHashes.length }, () => 0n),
+  ];
   const allowDummyInputs = 1n;
   const publicInputHash = hashChain([
     hashChain(nullifiers.map(bytesToBigInt)),
@@ -131,9 +129,8 @@ function assembleUnchecked(
     externalDataHash,
     ...publicSlots,
     0n,
-    payerPublicKeyHash,
+    rightHashChain(signerPublicKeyHashes),
     allowDummyInputs,
-    hashChain(inputOwnerFields),
     hashChain(outputOwnerFields),
   ]);
   const common: TransferInputs = Object.freeze({
@@ -144,8 +141,9 @@ function assembleUnchecked(
     publicAssets: Object.freeze(movements.assets.map(asField)),
     publicAmounts: Object.freeze(movements.amounts.map(asField)),
     zoneProgramId: asField(0n),
-    payerPublicKeyHash: asField(payerPublicKeyHash),
+    signerPublicKeyHashes: Object.freeze(signerPublicKeyHashes.map(asField)),
     allowDummyInputs: asField(allowDummyInputs),
+    publishedOutputOwnerPublicKeyHashes: Object.freeze(outputOwnerFields.map(asField)),
     publicInputHash: asField(publicInputHash),
   });
   const proverInputs: ProverInputs = Object.freeze({ circuit: "transfer", payload: common });
@@ -178,7 +176,6 @@ function assembleUnchecked(
           nullifierHash: nullifier,
           nullifierTreeRootIndex: roots[1],
           utxoTreeRootIndex: roots[0],
-          eddsaSignerIndex: 0,
         });
       }),
     ),
@@ -283,12 +280,7 @@ export function assembleSlots(
         });
       }
       validateDummyNullifierProof(input, proof, index);
-      const converted = createDummyTransferInput(
-        input,
-        first.utxoTreeRoot,
-        proof,
-        first.ownerPublicKeyHash,
-      );
+      const converted = createDummyTransferInput(input, first.utxoTreeRoot, proof);
       transferInputs.push(converted);
       inputHashes.push(0n);
       nullifiers.push(bigintToBytes(converted.nullifier) as Bytes32);
@@ -358,7 +350,6 @@ export function createDummyTransferInput(
   input: ProofInputUtxo,
   utxoRoot: bigint,
   proof: NonInclusionProof,
-  owner: bigint,
   nullifier = input.nullifier(),
 ): TransferInput {
   const value = Object.freeze({
@@ -375,7 +366,7 @@ export function createDummyTransferInput(
     utxoTreeRoot: asField(utxoRoot),
     nullifierTreeRoot: asField(bytesField(proof.root, "dummy nullifier root")),
     nullifier: asField(bytesField(nullifier, "dummy nullifier")),
-    ownerPublicKeyHash: asField(owner),
+    ownerPublicKeyHash: asField(0n),
     nullifierSecret: asField(0n),
   });
   CIRCUIT_UTXOS.set(value, inputCircuitUtxo(input, true));

@@ -42,7 +42,7 @@
 4. verifiable encryption
 5. a dummy input is permitted only when the proof-wide public boolean `allow_dummy_inputs` is true
 
-### Zone Authority Circuit
+### Ring Authority Circuit
 
 1. no signer check
 2. input, output, balance check same as transfer circuit

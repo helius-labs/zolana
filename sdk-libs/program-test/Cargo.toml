@@ -14,6 +14,7 @@ default = []
 
 [dependencies]
 litesvm = { workspace = true }
+sha2 = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
 solana-hash = { workspace = true }
@@ -24,6 +25,7 @@ solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
+solana-transaction-error = { workspace = true }
 thiserror = { workspace = true }
 zolana-client = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }

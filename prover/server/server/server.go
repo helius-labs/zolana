@@ -1096,10 +1096,11 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 	case common.BatchAddressAppendCircuitType:
 		return "zk_address_append_queue"
 	case common.TransferConfidentialCircuitType,
-		common.TransferZoneCircuitType,
-		common.TransferZoneAuthorityCircuitType,
+		common.TransferRingCircuitType,
+		common.TransferP256RingCircuitType,
+		common.TransferRingAuthorityCircuitType,
 		common.MergeCircuitType,
-		common.MergeZoneCircuitType:
+		common.MergeRingCircuitType:
 		return "zk_transfer_queue"
 	default:
 		return ""
@@ -1110,6 +1111,8 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
+	case common.TransferP256RingCircuitType:
+		return "30-180 seconds"
 	default:
 		return "1-3 seconds"
 	}
@@ -1119,9 +1122,11 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return 30
-	case common.TransferConfidentialCircuitType, common.TransferZoneCircuitType, common.TransferZoneAuthorityCircuitType:
+	case common.TransferP256RingCircuitType:
+		return 180
+	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
-	case common.MergeCircuitType, common.MergeZoneCircuitType:
+	case common.MergeCircuitType, common.MergeRingCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
 		return 60
 	default:
@@ -1139,13 +1144,15 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 	case common.BatchAddressAppendCircuitType:
 		return handler.batchAddressAppendProof(buf)
 	case common.TransferConfidentialCircuitType,
-		common.TransferZoneCircuitType,
-		common.TransferZoneAuthorityCircuitType:
+		common.TransferRingCircuitType,
+		common.TransferRingAuthorityCircuitType:
 		return handler.transferEddsaProof(buf)
+	case common.TransferP256RingCircuitType:
+		return handler.transferP256Proof(buf)
 	case common.MergeCircuitType:
 		return handler.mergeProof(buf)
-	case common.MergeZoneCircuitType:
-		return handler.mergeZoneProof(buf)
+	case common.MergeRingCircuitType:
+		return handler.mergeRingProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1172,7 +1179,7 @@ func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
 	return proof, nil
 }
 
-func (handler proveHandler) mergeZoneProof(buf []byte) (*common.Proof, *Error) {
+func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 	var params mergeprover.MergeParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		logging.Logger().Info().Msg("error Unmarshal")
@@ -1180,9 +1187,9 @@ func (handler proveHandler) mergeZoneProof(buf []byte) (*common.Proof, *Error) {
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeZoneCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	ps, err := handler.keyManager.GetTransferSystem(common.MergeRingCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
 	if err != nil {
-		return nil, provingError(fmt.Errorf("merge-zone: %w", err))
+		return nil, provingError(fmt.Errorf("merge-ring: %w", err))
 	}
 
 	proof, err := mergeprover.ProveMerge(ps, &params)
@@ -1233,6 +1240,27 @@ func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Erro
 	}
 
 	proof, err := transfereddsaonly.ProveTransfer(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) transferP256Proof(buf []byte) (*common.Proof, *Error) {
+	var params transfereddsaonly.P256TransferParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetTransferSystem(
+		common.TransferP256RingCircuitType,
+		params.NInputs,
+		params.NOutputs,
+	)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
+	}
+	proof, err := transfereddsaonly.ProveP256Transfer(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)

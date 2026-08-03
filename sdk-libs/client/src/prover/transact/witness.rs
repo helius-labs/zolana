@@ -4,7 +4,6 @@ use zolana_interface::{
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_keypair::SignatureType;
 use zolana_transaction::instructions::{
     transact::{inputs_require_p256, SppProofInputs},
     types::SppProofInputUtxo,
@@ -30,7 +29,7 @@ pub struct SpendProof {
 /// input (non-zero owner) consumes the next spend proof, each dummy slot consumes
 /// the next dummy non-inclusion proof (the transact circuit checks non-inclusion
 /// for every slot). Shared by every witness builder (transact, merge,
-/// merge-zone, zone-authority).
+/// merge-ring, ring-authority).
 pub(crate) fn attach_input_proofs(
     inputs: Vec<SppProofInputUtxo>,
     proofs: &[SpendProof],
@@ -56,7 +55,7 @@ pub(crate) fn attach_input_proofs(
             utxo: spend.utxo,
             nullifier_key: spend.nullifier_key,
             data_hash: spend.data_hash,
-            zone_data_hash: spend.zone_data_hash,
+            ring_data_hash: spend.ring_data_hash,
             proof,
             nullifier_proof,
         });
@@ -72,9 +71,6 @@ pub enum ProverVariant {
 pub struct BuiltCircuit {
     pub circuit: ProverVariant,
 }
-
-/// Default eddsa signer account index for a Solana-owned input.
-const DEFAULT_EDDSA_SIGNER_INDEX: u8 = 0;
 
 /// Witness for a supported transaction circuit, ready for the prover client.
 pub enum ProverInputs {
@@ -166,12 +162,12 @@ pub fn into_prover_with_dummy_policy(
         return Err(ClientError::P256TransactUnsupported);
     }
     let shape = proof_inputs.check_shape()?;
-    let public_movements = proof_inputs.public_movements()?;
+    let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.n_inputs() + 1)?;
+    let public_transfers = proof_inputs.public_transfers()?;
     let SppProofInputs {
         input_utxos: inputs,
         output_utxos: outputs,
         external_data,
-        payer_pubkey_hash,
         ..
     } = proof_inputs;
 
@@ -181,8 +177,8 @@ pub fn into_prover_with_dummy_policy(
         inputs: spends,
         outputs,
         external_data,
-        public_movements,
-        payer_pubkey_hash,
+        public_transfers,
+        signer_pk_hashes,
         allow_dummy_inputs,
         shape: Some(shape),
     });
@@ -215,24 +211,11 @@ pub fn assemble_with_dummy_policy(
         return Err(ClientError::P256TransactUnsupported);
     }
 
-    // Signer indices for the real inputs only; dummies (zero owner) inherit the
-    // first real input's signer below. A zero owner reads as P256, so it must
-    // never reach `signature_type`.
-    let mut real_signer_indices: Vec<u8> = Vec::new();
-    for spend in proof_inputs
-        .input_utxos
-        .iter()
-        .filter(|spend| !spend.is_dummy())
-    {
-        debug_assert_ne!(spend.utxo.owner.signature_type()?, SignatureType::P256);
-        real_signer_indices.push(DEFAULT_EDDSA_SIGNER_INDEX);
-    }
-
     let zolana_transaction::ExternalData {
         expiry_unix_ts,
         interface_transfers,
         data_hash,
-        zone_data_hash,
+        ring_data_hash,
         tx_viewing_pk,
         salt,
         outputs,
@@ -273,10 +256,6 @@ pub fn assemble_with_dummy_policy(
         });
     }
 
-    let dummy_signer = real_signer_indices
-        .first()
-        .copied()
-        .unwrap_or(DEFAULT_EDDSA_SIGNER_INDEX);
     let mut inputs = Vec::with_capacity(shape.n_inputs());
     for i in 0..shape.n_inputs() {
         let nullifier_hash = *nullifiers
@@ -292,15 +271,10 @@ pub fn assemble_with_dummy_policy(
                     got: root_indices.len(),
                     expected: shape.n_inputs(),
                 })?;
-        let eddsa_signer_index = match real_signer_indices.get(i) {
-            Some(&signer) => signer,
-            None => dummy_signer,
-        };
         inputs.push(InputUtxo {
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-            eddsa_signer_index,
         });
     }
 
@@ -312,7 +286,7 @@ pub fn assemble_with_dummy_policy(
         inputs,
         interface_transfers,
         data_hash,
-        zone_data_hash,
+        ring_data_hash,
         tx_viewing_pk,
         salt,
         outputs,
@@ -365,7 +339,7 @@ mod tests {
                 asset: SOL_MINT,
                 amount: 1,
                 blinding: [1u8; 32],
-                zone_program_id: None,
+                ring_program_id: None,
                 data: Data::default(),
             },
             &keypair,
@@ -384,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn spl_only_movement_occupies_public_slot_zero() {
+    fn spl_only_transfer_occupies_public_slot_zero() {
         let mint = Address::new_from_array([41u8; 32]);
         let external_data =
             ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
@@ -406,11 +380,11 @@ mod tests {
         let built = into_prover(proof_inputs, &[], &[]).expect("assemble prover");
         let ProverVariant::Eddsa(prover) = built.circuit;
         assert_eq!(
-            prover.public_movements.assets.first().copied(),
+            prover.public_transfers.assets.first().copied(),
             Some(asset_field(&mint).expect("asset field"))
         );
         assert!(prover
-            .public_movements
+            .public_transfers
             .assets
             .iter()
             .skip(1)

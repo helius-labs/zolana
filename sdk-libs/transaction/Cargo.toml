@@ -27,13 +27,11 @@ parallel = ["dep:rayon"]
 
 [dev-dependencies]
 criterion = { workspace = true }
-cucumber = { workspace = true }
-tokio = { workspace = true }
 proptest = { workspace = true }
 
 [[test]]
-name = "bdd"
-harness = false
+name = "behavior"
+path = "tests/behavior.rs"
 
 [[bench]]
 name = "wallet_ops"

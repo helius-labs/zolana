@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+server_dir="$(cd "$(dirname "$0")/.." && pwd)"
+repo_root="$(cd "$server_dir/../.." && pwd)"
+cd "$server_dir"
 
 keys_dir="${1:-./proving-keys}"
-vkey_dir="../../program-libs/interface/src/verifying_keys"
+vkey_dir="$repo_root/program-libs/interface/src/verifying_keys"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 go build -o light-prover .
+(cd "$repo_root" && cargo build -q -p xtask)
+xtask="$repo_root/target/debug/xtask"
 
 keys="$(find "$keys_dir" -maxdepth 1 -type f \( -name 'transfer_*.key' -o -name 'merge_*.key' \) | sort)"
 if [ -z "$keys" ]; then
@@ -28,8 +32,8 @@ for key in $keys; do
         continue
     fi
 
-    if (cd ../.. && cargo run -q -p xtask -- bsb22-vk \
-        "$vk_bin" "program-libs/interface/src/verifying_keys" "${module}.rs"); then
+    if "$xtask" bsb22-vk \
+        "$vk_bin" "$vkey_dir" "${module}.rs"; then
         modules="${modules}${module}"$'\n'
     else
         echo "WARN: vk codegen failed, skipping $stem"
@@ -38,7 +42,7 @@ done
 
 {
     echo "mod circuit;"
-    echo "pub use circuit::CircuitId;"
+    echo "pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData};"
     echo
     echo "$modules" | sort -u | while read -r module; do
         if [ -n "$module" ]; then

@@ -11,10 +11,12 @@ pub mod anonymous;
 pub mod confidential;
 pub mod plaintext;
 pub mod proofless;
+pub mod ring_deposit;
 pub mod scheme;
 pub mod split;
 
 pub use proofless::{Proofless, ProoflessEncode};
+pub use ring_deposit::RingDepositPlaintext;
 pub use split::{Split, SplitBundlePlaintext, SplitEncryptedUtxos};
 
 pub struct DecodeCx<'a> {
@@ -44,7 +46,7 @@ impl<'a> DecodeCx<'a> {
 pub struct OwnerCx<'a> {
     pub owner: PublicKey,
     pub assets: &'a AssetRegistry,
-    pub zone_program_id: Option<Address>,
+    pub ring_program_id: Option<Address>,
 }
 
 pub trait UtxoSerialization {

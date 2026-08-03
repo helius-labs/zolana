@@ -7,12 +7,7 @@ use spl_token_2022_interface::{
     extension::{BaseStateWithExtensions, ExtensionType, PodStateWithExtensions},
     pod::{PodAccount, PodMint},
 };
-use zolana_interface::{
-    error::ShieldedPoolError, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_LEN,
-    SPL_TOKEN_MINT_ACCOUNT_LEN, SPL_TOKEN_PROGRAM_ID,
-};
-
-const SPL_TOKEN_MINT_INITIALIZED_OFFSET: usize = 45;
+use zolana_interface::{error::ShieldedPoolError, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID};
 
 #[derive(Clone, Copy)]
 pub struct ValidatedTokenMint {
@@ -23,11 +18,9 @@ pub fn validate_token_mint_for_interface(
     mint: &AccountView,
     token_program: &Address,
 ) -> Result<ValidatedTokenMint, ProgramError> {
-    let is_token_2022 = if address_eq(token_program, &Address::from(SPL_TOKEN_PROGRAM_ID)) {
-        false
-    } else if address_eq(token_program, &Address::from(SPL_TOKEN_2022_PROGRAM_ID)) {
-        true
-    } else {
+    if !address_eq(token_program, &Address::from(SPL_TOKEN_PROGRAM_ID))
+        && !address_eq(token_program, &Address::from(SPL_TOKEN_2022_PROGRAM_ID))
+    {
         return Err(ShieldedPoolError::UnsupportedSplTokenProgram.into());
     };
 
@@ -37,17 +30,6 @@ pub fn validate_token_mint_for_interface(
     let data = mint
         .try_borrow()
         .map_err(|_| ShieldedPoolError::InvalidSplTokenMint)?;
-
-    if !is_token_2022 {
-        if data.len() != SPL_TOKEN_MINT_ACCOUNT_LEN
-            || data.get(SPL_TOKEN_MINT_INITIALIZED_OFFSET).copied() != Some(1)
-        {
-            return Err(ShieldedPoolError::InvalidSplTokenMint.into());
-        }
-        return Ok(ValidatedTokenMint {
-            token_account_len: SPL_TOKEN_ACCOUNT_LEN,
-        });
-    }
 
     let state = PodStateWithExtensions::<PodMint>::unpack(&data)
         .map_err(|_| ShieldedPoolError::InvalidSplTokenMint)?;
@@ -72,8 +54,7 @@ pub fn validate_token_mint_for_interface(
 fn is_allowed_mint_extension(extension: &ExtensionType) -> bool {
     matches!(
         extension,
-        ExtensionType::MintCloseAuthority
-            | ExtensionType::InterestBearingConfig
+        ExtensionType::InterestBearingConfig
             | ExtensionType::MetadataPointer
             | ExtensionType::TokenMetadata
             | ExtensionType::GroupPointer

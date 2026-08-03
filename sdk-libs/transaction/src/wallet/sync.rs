@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
+use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::OutputDataEncoding;
+use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_keypair::{
-    viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey, ViewingKey,
+    hash::owner_hash, viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey,
+    ViewingKey,
 };
 
 use super::state::{
@@ -22,6 +24,7 @@ use crate::{
         confidential::Confidential,
         plaintext::PlaintextTransfer,
         proofless::Proofless,
+        ring_deposit::RingDepositPlaintext,
         split::Split,
         DecodeCx, OwnerCx, UtxoSerialization,
     },
@@ -75,7 +78,8 @@ impl TxIndex {
                     | EncryptedScheme::Confidential
                     | EncryptedScheme::Proofless
                     | EncryptedScheme::PlaintextTransfer
-                    | EncryptedScheme::Merge => {
+                    | EncryptedScheme::Merge
+                    | EncryptedScheme::RingDeposit => {
                         recipient_sites
                             .entry(slot.view_tag)
                             .or_default()
@@ -125,14 +129,14 @@ impl SyncCtx<'_> {
         output_context: OutputContext,
         nullifier: [u8; 32],
         data_hash: Option<[u8; 32]>,
-        zone_data_hash: Option<[u8; 32]>,
+        ring_data_hash: Option<[u8; 32]>,
     ) {
         self.utxos.push(WalletUtxo {
             utxo,
             output_context,
             nullifier,
             data_hash,
-            zone_data_hash,
+            ring_data_hash,
             spent: false,
         });
         self.report.stored_utxos += 1;
@@ -143,7 +147,7 @@ impl SyncCtx<'_> {
         utxo: Utxo,
         output_context: OutputContext,
         data_hash: Option<[u8; 32]>,
-        zone_data_hash: Option<[u8; 32]>,
+        ring_data_hash: Option<[u8; 32]>,
     ) -> Result<bool, TransactionError> {
         if utxo.owner != self.owner {
             return Ok(false);
@@ -156,7 +160,7 @@ impl SyncCtx<'_> {
             return Ok(false);
         }
         let nullifier = utxo.nullifier(&output_context.hash, self.nullifier_key)?;
-        self.push(utxo, output_context, nullifier, data_hash, zone_data_hash);
+        self.push(utxo, output_context, nullifier, data_hash, ring_data_hash);
         Ok(true)
     }
 
@@ -338,20 +342,20 @@ impl SyncCtx<'_> {
         utxos: Vec<Utxo>,
         output_context: &OutputContext,
         data_hash: Option<[u8; 32]>,
-        zone_data_hash: Option<[u8; 32]>,
+        ring_data_hash: Option<[u8; 32]>,
     ) -> Result<bool, TransactionError> {
         let mut stored = false;
         for utxo in utxos {
             let hash = utxo.hash(
                 &self.nullifier_pk,
                 &data_hash.unwrap_or([0u8; 32]),
-                &zone_data_hash.unwrap_or([0u8; 32]),
+                &ring_data_hash.unwrap_or([0u8; 32]),
             )?;
             if hash != output_context.hash {
                 self.report.undecryptable_candidates += 1;
                 continue;
             }
-            self.store(utxo, output_context.clone(), data_hash, zone_data_hash)?;
+            self.store(utxo, output_context.clone(), data_hash, ring_data_hash)?;
             stored = true;
         }
         Ok(stored)
@@ -488,7 +492,7 @@ impl SyncCtx<'_> {
         let owner_cx = OwnerCx {
             owner: self.owner,
             assets,
-            zone_program_id: None,
+            ring_program_id: None,
         };
         match output_data {
             OutputDataEncoding::Plaintext(blob) => {
@@ -507,7 +511,7 @@ impl SyncCtx<'_> {
                             return Ok(outcome);
                         };
                         let data_hash = plaintext.data_hash;
-                        let zone_data_hash = plaintext.zone_data_hash;
+                        let ring_data_hash = plaintext.ring_data_hash;
                         let Ok(utxos) = Proofless::into_utxos(plaintext, &owner_cx) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(outcome);
@@ -516,7 +520,7 @@ impl SyncCtx<'_> {
                             utxos.clone(),
                             &output_context,
                             data_hash,
-                            zone_data_hash,
+                            ring_data_hash,
                         )? {
                             self.processed_slots.insert(site);
                             if let Some(utxo) = utxos.first() {
@@ -556,6 +560,39 @@ impl SyncCtx<'_> {
                     return Ok(outcome);
                 };
                 match scheme {
+                    EncryptedScheme::RingDeposit => {
+                        let Ok(output) = EncryptedRingDepositOutput::try_from_slice(body) else {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(outcome);
+                        };
+                        let Ok(plaintext) = RingDepositPlaintext::decrypt(&output.encrypted, key)
+                        else {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(outcome);
+                        };
+                        let owner = owner_hash(&self.owner, &self.nullifier_pk)?;
+                        let actual_owner_utxo_hash =
+                            crate::owner_utxo_hash(&owner, &plaintext.blinding)?;
+                        if actual_owner_utxo_hash != output.owner_utxo_hash {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(outcome);
+                        }
+                        let utxo = plaintext.into_utxo(
+                            self.owner,
+                            Address::new_from_array(output.asset),
+                            output.amount,
+                            Address::new_from_array(output.ring_program_id),
+                        );
+                        if self.store_recipient_utxos(
+                            vec![utxo.clone()],
+                            &output_context,
+                            output.data_hash,
+                            Some(output.ring_data_hash),
+                        )? {
+                            self.processed_slots.insert(site);
+                            self.record_deposit(tx, &output_context, &utxo);
+                        }
+                    }
                     EncryptedScheme::AnonymousRecipient => {
                         let Ok(plaintext) = AnonymousRecipient::decode(body, &cx) else {
                             self.report.undecryptable_candidates += 1;
@@ -715,10 +752,10 @@ impl SyncCtx<'_> {
                 wallet_utxo.utxo.asset,
                 wallet_utxo.utxo.amount,
                 wallet_utxo.utxo.blinding,
-                wallet_utxo.utxo.zone_program_id,
+                wallet_utxo.utxo.ring_program_id,
             ));
         }
-        let Some(&(asset, _, _, zone_program_id)) = matched.first() else {
+        let Some(&(asset, _, _, ring_program_id)) = matched.first() else {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
         };
@@ -733,8 +770,8 @@ impl SyncCtx<'_> {
                 .ok_or(TransactionError::SelectedBalanceOverflow)?;
         }
         let blinding = merge_output_blinding(self.nullifier_key, first_nullifier)?;
-        // A zone merge publishes the output zone-data hash as the slot payload.
-        let zone_data_hash: Option<[u8; 32]> = if zone_program_id.is_some() {
+        // A ring merge publishes the output ring-data hash as the slot payload.
+        let ring_data_hash: Option<[u8; 32]> = if ring_program_id.is_some() {
             let Ok(hash) = <&[u8; 32]>::try_from(slot.payload.as_slice()) else {
                 self.report.undecryptable_candidates += 1;
                 return Ok(outcome);
@@ -748,10 +785,10 @@ impl SyncCtx<'_> {
             asset,
             amount,
             blinding,
-            zone_program_id,
+            ring_program_id,
             data: Data::default(),
         };
-        if self.store_recipient_utxos(vec![utxo.clone()], &output_context, None, zone_data_hash)? {
+        if self.store_recipient_utxos(vec![utxo.clone()], &output_context, None, ring_data_hash)? {
             self.processed_slots.insert(site);
             self.record_merge(tx, &output_context, &utxo);
         }
@@ -860,7 +897,7 @@ impl Wallet {
                 continue;
             };
 
-            // Anonymous policy-zone bootstrap scan (recipient viewing-pubkey
+            // Anonymous policy-ring bootstrap scan (recipient viewing-pubkey
             // x-coordinate); also catches proofless deposits.
             let bootstrap = key.recipient_bootstrap_view_tag();
             if let Some(sites) = index.recipient_sites.get(&bootstrap) {
@@ -871,7 +908,7 @@ impl Wallet {
                     }
                 }
             }
-            // Confidential default-zone scan: a confidential output is tagged by the
+            // Confidential default-ring scan: a confidential output is tagged by the
             // owner signing pubkey, so the owner's own change, received recipient
             // slots, and merge outputs all live in `recipient_sites` under that tag.
             // A split bundle the wallet created is tagged the same way and sits in

@@ -32,7 +32,7 @@ type ProofTransactionRequest struct {
 	NullifierTreeRootIndex   []uint16                   `json:"nullifier_tree_root_index"`
 	NullifierEntries         []string                   `json:"nullifier_entries"`
 	DataHash                 string                     `json:"data_hash"`
-	ZoneDataHash             string                     `json:"zone_data_hash"`
+	RingDataHash             string                     `json:"ring_data_hash"`
 }
 
 type InterfaceTransferRequest struct {
@@ -65,8 +65,8 @@ type ProofUtxoRequest struct {
 	Amount               string `json:"amount"`
 	Blinding             string `json:"blinding"`
 	DataHash             string `json:"data_hash"`
-	ZoneDataHash         string `json:"zone_data_hash"`
-	ZoneProgramID        string `json:"zone_program_id"`
+	RingDataHash         string `json:"ring_data_hash"`
+	RingProgramID        string `json:"ring_program_id"`
 }
 
 type ProofBundle struct {
@@ -166,7 +166,10 @@ func BuildProofBundle(ps *ProofSystem, request ProofBundleRequest) (*ProofBundle
 	if err != nil {
 		return nil, fmt.Errorf("spp: payer pubkey: %w", err)
 	}
-	payerHash := protocol.Sha256BEField(payerPubkey[:])
+	payerHash, err := protocol.SolanaPkField(payerPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("spp: payer pubkey hash: %w", err)
+	}
 	out := &ProofBundle{
 		Shape:          ps.Shape,
 		PayerPubkeyHex: parse.BytesHex(payerPubkey[:]),
@@ -189,7 +192,10 @@ func BuildProofSigningPayload(ps *ProofSystem, request ProofBundleRequest) (*Pro
 	if err != nil {
 		return nil, fmt.Errorf("spp: payer pubkey: %w", err)
 	}
-	payerHash := protocol.Sha256BEField(payerPubkey[:])
+	payerHash, err := protocol.SolanaPkField(payerPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("spp: payer pubkey hash: %w", err)
+	}
 	out := &ProofSigningPayloadBundle{
 		Shape:          ps.Shape,
 		PayerPubkeyHex: parse.BytesHex(payerPubkey[:]),

@@ -97,8 +97,7 @@ function writeInput(writer: Writer, value: InputUtxo): void {
   writer
     .bytes(value.nullifierHash, 32, "input.nullifierHash")
     .u16(value.nullifierTreeRootIndex, "input.nullifierTreeRootIndex")
-    .u16(value.utxoTreeRootIndex, "input.utxoTreeRootIndex")
-    .u8(value.eddsaSignerIndex, "input.eddsaSignerIndex");
+    .u16(value.utxoTreeRootIndex, "input.utxoTreeRootIndex");
 }
 
 function writeOwnerTag(writer: Writer, value: OwnerTag): void {

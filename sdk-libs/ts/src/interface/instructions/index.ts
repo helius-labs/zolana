@@ -201,26 +201,25 @@ async function depositAccounts(
   depositor: SignerAccount,
   layout: DepositLayout,
 ): Promise<Readonly<{ accounts: Meta[]; vaultBumps: number[] }>> {
-  const accounts = [meta(tree, false, true), meta(depositor, true, true)];
+  const accounts = [
+    meta(tree, false, true),
+    meta(depositor, true, true),
+    meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+  ];
   if (layout.hasSol) {
     accounts.push(meta(SYSTEM_PROGRAM, false, false), meta(solInterfaceAddress(), false, true));
   }
   const vaultBumps: number[] = [];
   for (const spl of layout.splGroups) {
-    const [[vault, bump], registry] = await Promise.all([
-      splAssetVaultPda(spl.mint),
-      splAssetRegistryAddress(spl.mint),
-    ]);
+    const [vault, bump] = await splAssetVaultPda(spl.mint);
     vaultBumps.push(bump);
     accounts.push(
       meta(spl.tokenProgram, false, false),
       meta(spl.mint, false, false),
       meta(spl.userToken, false, true),
       meta(vault, false, true),
-      meta(registry, false, false),
     );
   }
-  accounts.push(meta(SHIELDED_POOL_PROGRAM_ID, false, false));
   return Object.freeze({ accounts, vaultBumps });
 }
 
@@ -280,12 +279,10 @@ function transactAccounts(
     meta(payer, true, true),
     meta(inputTree, false, true),
     meta(outputTree, false, true),
+    meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+    meta(SYSTEM_PROGRAM, false, false),
   ];
   accounts.push(...settlementAccounts(withdrawal));
-  // System program for the forester-fee collection CPI and, on the native SOL
-  // rail, public settlement.
-  accounts.push(meta(SYSTEM_PROGRAM, false, false));
-  accounts.push(meta(SHIELDED_POOL_PROGRAM_ID, false, false));
   return accounts;
 }
 

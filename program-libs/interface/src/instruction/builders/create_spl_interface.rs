@@ -19,7 +19,7 @@ impl CreateSplInterface {
                 AccountMeta::new(pda::spl_asset_counter(), false),
                 AccountMeta::new(pda::spl_asset_registry(&self.mint), false),
                 AccountMeta::new_readonly(self.mint, false),
-                AccountMeta::new(pda::spl_asset_vault(&self.mint), false),
+                AccountMeta::new(pda::spl_interface(&self.mint), false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 AccountMeta::new_readonly(self.token_program, false),
             ],

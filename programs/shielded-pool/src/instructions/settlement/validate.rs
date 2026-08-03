@@ -5,7 +5,7 @@ use pinocchio::{
 };
 use spl_token_2022_interface::{extension::PodStateWithExtensions, pod::PodAccount};
 use zolana_interface::{
-    error::ShieldedPoolError, SHIELDED_POOL_CPI_AUTHORITY, SOL_INTERFACE, SPL_ASSET_VAULT_PDA_SEED,
+    error::ShieldedPoolError, SHIELDED_POOL_CPI_AUTHORITY, SOL_INTERFACE, SPL_INTERFACE_PDA_SEED,
     SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_PROGRAM_ID,
 };
 
@@ -22,7 +22,7 @@ struct TokenMintState {
 pub(crate) struct ValidatedSplSettlement {
     pub mint: [u8; 32],
     pub decimals: u8,
-    pub user_token_account_owner: [u8; 32],
+    pub user_token_account_authority: [u8; 32],
 }
 
 #[inline(always)]
@@ -32,7 +32,7 @@ fn validate_token_program(token_program: &Address) -> Result<(), ProgramError> {
     {
         Ok(())
     } else {
-        Err(ShieldedPoolError::UnsupportedSplTokenProgram.into())
+        Err(ShieldedPoolError::InvalidSettlementAccounts.into())
     }
 }
 
@@ -54,8 +54,8 @@ fn read_token_mint(mint: &AccountView) -> Result<TokenMintState, ProgramError> {
     })
 }
 
-/// Validate accounts common to SOL deposits and withdrawals and return the
-/// interface bump needed to sign withdrawals.
+/// 1. sol interface address is correct pda, owned by system program and writable
+/// 2. recipient is writable
 #[inline(always)]
 pub(crate) fn validate_sol_settlement(
     sol_interface: &AccountView,
@@ -74,50 +74,98 @@ pub(crate) fn validate_sol_settlement(
 }
 
 #[inline(always)]
-pub(crate) fn validate_cpi_authority(account: &AccountView) -> Result<&AccountView, ProgramError> {
+fn validate_cpi_authority(account: &AccountView) -> Result<(), ProgramError> {
     let expected = Address::from(SHIELDED_POOL_CPI_AUTHORITY);
     if !address_eq(account.address(), &expected) {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
-    Ok(account)
+    Ok(())
 }
 
-pub(crate) fn validate_spl_settlement(
+fn validate_spl_settlement(
     mint_account: &AccountView,
-    vault: &AccountView,
-    user_token_account: &AccountView,
+    spl_interface_account: &AccountView,
+    sender_token_account: &AccountView,
     token_program: &AccountView,
-    vault_bump: u8,
+    interface_pda_bump: u8,
 ) -> Result<ValidatedSplSettlement, ProgramError> {
-    if !vault.is_writable() || !user_token_account.is_writable() {
+    if !spl_interface_account.is_writable() || !sender_token_account.is_writable() {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let vault_state = read_token_account(vault, token_program.address())?;
-    let user_state = read_token_account(user_token_account, token_program.address())?;
+    let spl_interface_pda_state =
+        read_token_account(spl_interface_account, token_program.address())?;
+    let sender_state = read_token_account(sender_token_account, token_program.address())?;
     let mint_state = read_token_mint(mint_account)?;
 
-    if mint_state.mint != vault_state.mint
-        || vault_state.mint != user_state.mint
-        || vault_state.owner != SHIELDED_POOL_CPI_AUTHORITY
+    // 1. Mint must match token accounts mints
+    // 2. spl interface account must be owned by authority pda
+    if mint_state.mint != spl_interface_pda_state.mint
+        || spl_interface_pda_state.mint != sender_state.mint
+        || spl_interface_pda_state.owner != SHIELDED_POOL_CPI_AUTHORITY
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
-    let expected_vault = Address::derive_address(
-        &[SPL_ASSET_VAULT_PDA_SEED, vault_state.mint.as_slice()],
-        Some(vault_bump),
+    let expected_interface_pda = Address::derive_address(
+        &[
+            SPL_INTERFACE_PDA_SEED,
+            spl_interface_pda_state.mint.as_slice(),
+        ],
+        Some(interface_pda_bump),
         &crate::ID,
     );
-    if !address_eq(vault.address(), &expected_vault) {
+    if !address_eq(spl_interface_account.address(), &expected_interface_pda) {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
 
     Ok(ValidatedSplSettlement {
         mint: mint_state.mint,
         decimals: mint_state.decimals,
-        user_token_account_owner: user_state.owner,
+        user_token_account_authority: sender_state.owner,
     })
+}
+
+pub(crate) fn validate_spl_deposit_settlement(
+    mint_account: &AccountView,
+    spl_interface_account: &AccountView,
+    user_token_account: &AccountView,
+    token_program_account: &AccountView,
+    interface_pda_bump: u8,
+    token_authority_account: &AccountView,
+) -> Result<ValidatedSplSettlement, ProgramError> {
+    if !token_authority_account.is_signer() {
+        return Err(ShieldedPoolError::SplTokenAuthorityMustSign.into());
+    }
+    let settlement = validate_spl_settlement(
+        mint_account,
+        spl_interface_account,
+        user_token_account,
+        token_program_account,
+        interface_pda_bump,
+    )?;
+    if settlement.user_token_account_authority != token_authority_account.address().to_bytes() {
+        return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+    }
+    Ok(settlement)
+}
+
+pub(crate) fn validate_spl_withdrawal_settlement(
+    cpi_authority_account: &AccountView,
+    mint_account: &AccountView,
+    spl_interface_account: &AccountView,
+    user_token_account: &AccountView,
+    token_program_account: &AccountView,
+    interface_pda_bump: u8,
+) -> Result<ValidatedSplSettlement, ProgramError> {
+    validate_cpi_authority(cpi_authority_account)?;
+    validate_spl_settlement(
+        mint_account,
+        spl_interface_account,
+        user_token_account,
+        token_program_account,
+        interface_pda_bump,
+    )
 }
 
 pub(crate) struct TokenAccountState {

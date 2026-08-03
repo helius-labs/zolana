@@ -4,13 +4,9 @@ use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
     report::{CuBenchmark, ReadmeConfig, SectionTable},
 };
-use mollusk_solana_account::Account as MolluskAccount;
-use mollusk_solana_instruction::{
-    AccountMeta as MolluskAccountMeta, Instruction as MolluskInstruction,
-};
-use mollusk_solana_pubkey::Pubkey as MolluskPubkey;
-use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
+use mollusk_svm::{result::Check, Mollusk};
 use num_bigint::BigUint;
+use solana_account::Account;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
@@ -49,7 +45,6 @@ use zolana_tree::TreeAccount;
 const SELL_SOL: u64 = 250_000_000;
 const BUY_USDC: u64 = 100_000_000;
 const USDC_ASSET_ID: u64 = 2;
-const TAKER_SIGNER_INDEX: u8 = 3;
 
 const PROFILING_SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/rfq-bench");
 const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/BENCHMARK.md");
@@ -58,17 +53,17 @@ const PROVER_KEYS_DIR: &str = concat!(
     "/../../prover/server/proving-keys"
 );
 
-fn to_mollusk_pubkey(key: &Pubkey) -> MolluskPubkey {
-    MolluskPubkey::new_from_array(key.to_bytes())
+fn to_mollusk_pubkey(key: &Pubkey) -> Pubkey {
+    Pubkey::new_from_array(key.to_bytes())
 }
 
-fn to_mollusk_instruction(ix: &Instruction) -> MolluskInstruction {
-    MolluskInstruction {
+fn to_mollusk_instruction(ix: &Instruction) -> Instruction {
+    Instruction {
         program_id: to_mollusk_pubkey(&ix.program_id),
         accounts: ix
             .accounts
             .iter()
-            .map(|meta| MolluskAccountMeta {
+            .map(|meta| AccountMeta {
                 pubkey: to_mollusk_pubkey(&meta.pubkey),
                 is_signer: meta.is_signer,
                 is_writable: meta.is_writable,
@@ -78,25 +73,22 @@ fn to_mollusk_instruction(ix: &Instruction) -> MolluskInstruction {
     }
 }
 
-fn mollusk_program_account(program_id: &MolluskPubkey) -> (MolluskPubkey, MolluskAccount) {
+fn mollusk_program_account(program_id: &Pubkey) -> (Pubkey, Account) {
     let account = mollusk_svm::program::create_program_account_loader_v3(program_id);
     (*program_id, account)
 }
 
-fn system_owned_account(lamports: u64) -> MolluskAccount {
-    MolluskAccount {
+fn system_owned_account(lamports: u64) -> Account {
+    Account {
         lamports,
         data: Vec::new(),
-        owner: MolluskPubkey::new_from_array([0u8; 32]),
+        owner: Pubkey::new_from_array([0u8; 32]),
         executable: false,
         rent_epoch: 0,
     }
 }
 
-fn build_tree_fixture(
-    tree: &Pubkey,
-    leaves: &[[u8; 32]],
-) -> (MolluskAccount, [u8; 32], [u8; 32], u16) {
+fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32], [u8; 32], u16) {
     let mut tree_account_bytes = vec![0u8; tree_account_size()];
     let root_index = leaves.len() as u16;
     let (utxo_root, nullifier_root) = {
@@ -116,10 +108,10 @@ fn build_tree_fixture(
             account.get_nullifier_tree_root(0).expect("nullifier root"),
         )
     };
-    let fixture = MolluskAccount {
+    let fixture = Account {
         lamports: 1_000_000_000_000,
         data: tree_account_bytes,
-        owner: MolluskPubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        owner: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
         executable: false,
         rent_epoch: 0,
     };
@@ -198,9 +190,9 @@ fn build_spend_proofs(
 
 fn assemble_accounts(
     ix: &Instruction,
-    spp_id: &MolluskPubkey,
-    fixtures: &[(Pubkey, MolluskAccount)],
-) -> Vec<(MolluskPubkey, MolluskAccount)> {
+    spp_id: &Pubkey,
+    fixtures: &[(Pubkey, Account)],
+) -> Vec<(Pubkey, Account)> {
     let spp = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     ix.accounts
         .iter()
@@ -317,11 +309,11 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
 fn bench_cu_rfq() {
     std::env::set_var("SBF_OUT_DIR", PROFILING_SBF_DIR);
 
-    let spp_id = MolluskPubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let spp_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
     let mut mollusk = Mollusk::default();
     register_profiling_syscalls(&mut mollusk);
-    mollusk.add_program(&spp_id, "shielded_pool_program", &LOADER_V3);
+    mollusk.add_program(&spp_id, "shielded_pool_program");
 
     let mut bench = CuBenchmark::new(ReadmeConfig {
         title: "RFQ Settlement -- CU Benchmark".into(),
@@ -349,7 +341,7 @@ fn bench_cu_rfq() {
     bench.generate().expect("write BENCHMARK.md");
 }
 
-fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut CuBenchmark) {
+fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
     let tree = Keypair::new().pubkey();
     let maker_payer = Keypair::new();
     let taker_payer = Keypair::new();
@@ -365,7 +357,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
         asset: SOL_MINT,
         amount: SELL_SOL,
         blinding: random_blinding(),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
     let taker_usdc_utxo = Utxo {
@@ -373,7 +365,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
         asset: usdc_mint,
         amount: BUY_USDC,
         blinding: random_blinding(),
-        zone_program_id: None,
+        ring_program_id: None,
         data: Data::default(),
     };
 
@@ -435,23 +427,17 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &MolluskPubkey, bench: &mut C
     );
 
     let prover = ProverClient::local();
-    let (mut transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
-    transact
-        .inputs
-        .get_mut(1)
-        .expect("taker input")
-        .eddsa_signer_index = TAKER_SIGNER_INDEX;
+    let (transact, spp_dur) = prove_transact_timed(spp_proof_inputs, &spend_proofs, &prover);
 
-    let mut ix = Transact {
+    let ix = Transact {
         payer: maker_payer.pubkey(),
         input_tree: tree,
         output_tree: tree,
+        owner_signers: vec![taker_payer.pubkey()],
         interface_transfer_accounts: Vec::new(),
         data: transact,
     }
     .instruction();
-    ix.accounts
-        .push(AccountMeta::new_readonly(taker_payer.pubkey(), true));
 
     let fixtures = vec![
         (tree, tree_account),

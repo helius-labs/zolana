@@ -43,10 +43,10 @@ pub enum TransactionError {
     #[error("data records out of canonical order")]
     NonCanonicalDataOrder,
 
-    #[error("zone data present without zone program id")]
-    MissingZoneProgramId,
+    #[error("ring data present without ring program id")]
+    MissingRingProgramId,
 
-    #[error("program/zone data on this output cannot be processed yet")]
+    #[error("program/ring data on this output cannot be processed yet")]
     UnsupportedOutputData,
 
     #[error("poseidon hash failed: {0}")]
@@ -73,17 +73,20 @@ pub enum TransactionError {
     #[error("interface transfer amount must be nonzero")]
     ZeroInterfaceTransferAmount,
 
+    #[error("interface transfers for asset {asset} must not net to zero")]
+    ZeroNetInterfaceTransferAmount { asset: Address },
+
     #[error("settlement target type does not match asset {asset}")]
     SettlementTargetMismatch { asset: Address },
 
-    #[error("public movement sum overflow for asset {asset}")]
-    PublicMovementOverflow { asset: Address },
+    #[error("public transfer sum overflow for asset {asset}")]
+    PublicTransferOverflow { asset: Address },
 
     #[error("too many active public assets: got {got}, max {max}")]
     TooManyPublicAssets { got: usize, max: usize },
 
-    #[error("zone hashes already set")]
-    ZoneHashesAlreadySet,
+    #[error("ring hashes already set")]
+    RingHashesAlreadySet,
 
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
@@ -115,13 +118,13 @@ pub enum TransactionError {
     #[error("merge input {index} has a different asset")]
     MergeInputAssetMismatch { index: usize },
 
-    #[error("merge input {index} has a different zone program id")]
-    MergeInputZoneMismatch { index: usize },
+    #[error("merge input {index} has a different ring program id")]
+    MergeInputRingMismatch { index: usize },
 
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 
-    #[error("merge input {index} carries program or zone data, which is not supported")]
+    #[error("merge input {index} carries program or ring data, which is not supported")]
     MergeInputHasData { index: usize },
 
     #[error("split part count {num_outputs} is out of range (2..=8)")]
@@ -133,8 +136,8 @@ pub enum TransactionError {
     #[error("split input carries program or utxo data, which is not supported")]
     SplitInputHasData,
 
-    #[error("split input is bound to a zone, which is not supported")]
-    SplitInputZoneMismatch,
+    #[error("split input is bound to a ring, which is not supported")]
+    SplitInputRingMismatch,
 
     #[error(
         "split amount mismatch: {num_outputs} parts of {per_output} do not sum to input {input}"

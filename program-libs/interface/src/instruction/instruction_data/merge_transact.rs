@@ -8,8 +8,7 @@ pub const MERGE_INPUT_COUNT: usize = 8;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 128 bytes on the wire (compressed points, G1 -> 32 bytes, G2 -> 64 bytes).
-/// The merge circuit carries no P256 gadget, so there is no BSB22 commitment
-/// (unlike `transact`'s P256 rail).
+/// The merge circuit carries no P256 gadget, so there is no BSB22 commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeProof {
     pub a: [u8; 32],
@@ -101,7 +100,7 @@ impl<'a> MergeTransactIxDataRef<'a> {
         Ok(parsed)
     }
 
-    /// Enforce the fixed 8-in/1-out merge shape. Shared with `merge_zone`,
+    /// Enforce the fixed 8-in/1-out merge shape. Shared with `merge_ring`,
     /// which embeds a `MergeTransactIxDataRef`.
     pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
         if self.nullifiers.len() != MERGE_INPUT_COUNT
@@ -115,9 +114,9 @@ impl<'a> MergeTransactIxDataRef<'a> {
 }
 
 /// `external_data_hash` public input for the merge instructions. Domain-separated
-/// by the instruction's discriminator (`merge_transact` or `merge_zone`) so a
+/// by the instruction's discriminator (`merge_transact` or `merge_ring`) so a
 /// preimage cannot be reused across instructions. Computed identically by the
-/// client and the program. For `merge_zone`, the output `zone_data_hash` is
+/// client and the program. For `merge_ring`, the output `ring_data_hash` is
 /// bound directly as a public-input-hash element, so it does not enter this
 /// preimage.
 pub struct MergeExternalDataHash<'a> {
@@ -216,7 +215,7 @@ mod tests {
         );
         assert_ne!(
             base,
-            hash_of(crate::instruction::tag::ZONE_MERGE_TRANSACT, 1, &[1u8; 32])
+            hash_of(crate::instruction::tag::RING_MERGE_TRANSACT, 1, &[1u8; 32])
         );
     }
 }

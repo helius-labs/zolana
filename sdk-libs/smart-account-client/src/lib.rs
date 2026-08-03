@@ -1,5 +1,5 @@
 //! Client for the Squads smart-account program used by Zolana to gate protocol
-//! authorities (protocol, forester, tree, zone) behind multisig vaults.
+//! authorities (protocol, forester, tree, ring) behind multisig vaults.
 //!
 //! Provides the program id, PDA derivations, and instruction builders
 //! (`create_smart_account_ix`, `execute_sync_ix`) needed to create smart
@@ -11,6 +11,9 @@
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+
+pub mod roles;
+pub mod settings;
 
 pub const SMART_ACCOUNT_PROGRAM_ID: Pubkey =
     solana_pubkey::pubkey!("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");

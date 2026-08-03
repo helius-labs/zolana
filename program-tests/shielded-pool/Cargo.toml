@@ -5,15 +5,20 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+autotests = false
 
 [features]
 default = []
 localnet = ["zolana-client/indexer-api", "zolana-client/solana-rpc"]
+# Gates the Groth16-backed test binaries that spawn the local prover, so a
+# plain `cargo test -p shielded-pool-tests` stays hermetic by construction.
+proofs = []
 
 [dependencies]
 anyhow = { workspace = true }
 solana-instruction = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
+solana-clock = { workspace = true }
 serial_test = { workspace = true }
 solana-address = { workspace = true }
 solana-keypair = { workspace = true }
@@ -23,74 +28,235 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 spl-token-2022-interface = { workspace = true }
+solana-system-interface = { workspace = true }
+spl-token = { workspace = true }
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+pinocchio = { workspace = true }
+shielded-pool-program = { workspace = true, features = ["test-sbf"] }
 zolana-interface = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-keypair = { workspace = true }
 zolana-client = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-transaction = { workspace = true }
-
-[dev-dependencies]
-bytemuck = { workspace = true }
-cucumber = { workspace = true }
-groth16-solana = { workspace = true }
+# Support-library dependencies. The `src/support` layer is compiled as a normal
+# library (test binaries link against it), so everything it uses must be a
+# normal dependency rather than a dev-dependency. The `forester` support module
+# additionally requires the `localnet` feature for zolana-client's indexer/RPC
+# surfaces.
+solana-account = { workspace = true }
+num-bigint = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
-num-bigint = { workspace = true }
+zolana-smart-account-client = { workspace = true }
+zolana-test-utils = { workspace = true, features = ["mollusk"] }
+zolana-tree = { workspace = true }
+mollusk-svm = { workspace = true }
+
+[dev-dependencies]
+wincode = { workspace = true }
+borsh = { workspace = true }
+bytemuck = { workspace = true }
+zolana-user-registry-interface = { workspace = true }
+groth16-solana = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
 tokio = { workspace = true }
-zolana-smart-account-client = { workspace = true }
-zolana-test-utils = { workspace = true }
-zolana-tree = { workspace = true }
 zolana-wallet = { workspace = true }
-mollusk-svm = "0.3.0"
+mollusk-svm = { workspace = true }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
-mollusk-solana-account = { package = "solana-account", version = "2.2" }
-mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
-mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
+solana-account = { workspace = true }
+solana-instruction = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-program-error = { workspace = true }
+proptest = { workspace = true }
+
+# Test targets are declared explicitly (`autotests = false`): each `[[test]]`
+# maps one binary directly to its leaf file under `tests/<domain>/<intent>.rs`,
+# mirroring the domain-first layout. Shared setup lives in the `src/support`
+# library, imported as `shielded_pool_tests::support::*` -- there are no thin
+# `#[path]` wrapper entrypoints. Groupings below match the test tiers the
+# justfile and CI select.
+
+# --- Fast functional / rejection (hermetic LiteSVM + Mollusk) ---
 
 [[test]]
-name = "bench_cu"
-path = "tests/bench_cu.rs"
+name = "admin_functional"
+path = "tests/admin/functional.rs"
 
 [[test]]
-name = "bdd"
-harness = false
+name = "admin_rejection"
+path = "tests/admin/rejection.rs"
 
 [[test]]
-name = "localnet_e2e"
-path = "tests/localnet_e2e.rs"
-required-features = ["localnet"]
+name = "admin_edge_cases"
+path = "tests/admin/edge_cases.rs"
 
 [[test]]
-name = "localnet_deposit"
-path = "tests/localnet_deposit.rs"
-required-features = ["localnet"]
+name = "protocol_config_contract"
+path = "tests/protocol_config/contract.rs"
 
 [[test]]
-name = "localnet_photon_e2e"
-path = "tests/localnet_photon_e2e.rs"
-required-features = ["localnet"]
+name = "protocol_config_gate"
+path = "tests/protocol_config/gate.rs"
 
 [[test]]
-name = "localnet_wallet_cli_e2e"
-path = "tests/localnet_wallet_cli_e2e.rs"
-required-features = ["localnet"]
+name = "tree_contract"
+path = "tests/tree/contract.rs"
 
 [[test]]
-name = "transact"
-path = "tests/transact/transact.rs"
+name = "spl_interface_contract"
+path = "tests/spl_interface/contract.rs"
 
 [[test]]
-name = "shield_withdraw"
-path = "tests/transact/shield_withdraw.rs"
+name = "spl_interface_functional"
+path = "tests/spl_interface/functional.rs"
+
+[[test]]
+name = "spl_interface_rejection"
+path = "tests/spl_interface/rejection.rs"
+
+[[test]]
+name = "ring_config_contract"
+path = "tests/ring_config/contract.rs"
+
+[[test]]
+name = "ring_config_update_owner"
+path = "tests/ring_config/update_owner.rs"
+
+[[test]]
+name = "deposit_functional"
+path = "tests/deposit/functional.rs"
+
+[[test]]
+name = "deposit_rejection"
+path = "tests/deposit/rejection.rs"
+
+[[test]]
+name = "deposit_edge_cases"
+path = "tests/deposit/edge_cases.rs"
+
+[[test]]
+name = "dispatch_functional"
+path = "tests/dispatch/functional.rs"
+
+[[test]]
+name = "dispatch_rejection"
+path = "tests/dispatch/rejection.rs"
+
+[[test]]
+name = "transact_guard"
+path = "tests/transact/guard.rs"
+
+# --- Behavioral model and cross-cutting contracts ---
+
+[[test]]
+name = "deposit_model"
+path = "tests/deposit/model.rs"
+
+[[test]]
+name = "cross_cutting_cu_budget"
+path = "tests/cross_cutting/cu_budget.rs"
+
+[[test]]
+name = "nullifier_batch"
+path = "tests/nullifier/batch.rs"
+
+[[test]]
+name = "merge_contract"
+path = "tests/merge/contract.rs"
+
+# Proof-backed (spawns the local prover and proves the real 8-in/1-out merge
+# circuit), so it sits in the proofs tier with the other Groth16-backed binaries.
+[[test]]
+name = "merge_functional"
+path = "tests/merge/functional.rs"
+required-features = ["proofs"]
+
+# --- Mollusk mutation coverage ---
+
+[[test]]
+name = "deposit_mutation"
+path = "tests/deposit/mutation.rs"
+
+# --- Proof-backed integration (spawns the local prover) ---
+
+[[test]]
+name = "transact_functional"
+path = "tests/transact/functional.rs"
+required-features = ["proofs"]
+
+[[test]]
+name = "transact_withdrawal"
+path = "tests/transact/withdrawal.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "interface_transfers"
 path = "tests/transact/interface_transfers.rs"
 
+# Proof-backed (spawns the local prover and proves with the real circuits), so
+# it sits in the proofs tier with the other Groth16-backed binaries.
 [[test]]
 name = "mixed_interface_transfers"
 path = "tests/transact/mixed_interface_transfers.rs"
+required-features = ["proofs"]
+
+[[test]]
+name = "transact_settlement"
+path = "tests/transact/settlement.rs"
+required-features = ["proofs"]
+
+# --- Localnet / Photon (needs a running validator + indexer) ---
+
+[[test]]
+name = "localnet_e2e"
+path = "tests/localnet/e2e.rs"
+required-features = ["localnet"]
+
+[[test]]
+name = "localnet_deposit"
+path = "tests/localnet/deposit.rs"
+required-features = ["localnet"]
+
+[[test]]
+name = "localnet_photon"
+path = "tests/localnet/photon.rs"
+required-features = ["localnet"]
+
+[[test]]
+name = "localnet_wallet_cli"
+path = "tests/localnet/wallet_cli.rs"
+required-features = ["localnet"]
+
+# --- Benchmarks (CU profiling; run with `-- --ignored`) ---
+
+[[test]]
+name = "bench_cu"
+path = "tests/bench/cu.rs"
+required-features = ["proofs"]
+
+[[test]]
+name = "transact_circuit_vectors"
+path = "tests/transact/circuit_vectors.rs"
+
+[[test]]
+name = "transact_signer_run"
+path = "tests/transact/signer_run.rs"
+
+[[test]]
+name = "transact_public_slots"
+path = "tests/transact/public_slots.rs"
+
+[[test]]
+name = "transact_validate_circuit"
+path = "tests/transact/validate_circuit.rs"
+
+[[test]]
+name = "spl_interface_validation"
+path = "tests/spl_interface/validation.rs"
+
+[[test]]
+name = "dispatch_validation"
+path = "tests/dispatch/validation.rs"

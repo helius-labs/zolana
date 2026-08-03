@@ -110,7 +110,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             asset: env.spl_mint,
             amount: USER_SPL_SHIELD,
             blinding: env.user_spl_blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let source_in = SppProofInputUtxo::new(source_utxo, &env.user.keypair);
@@ -153,6 +153,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             payer: user_solana.pubkey(),
             input_tree: env.tree,
             output_tree: env.tree,
+            owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: split_transact,
         }
@@ -167,7 +168,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             asset: env.spl_mint,
             amount: ORDER_AMOUNT,
             blinding: split_blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         }
     };
@@ -207,7 +208,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             asset: SOL_MINT,
             amount: reserved,
             blinding: deposit.deposit.blinding,
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         }
     };

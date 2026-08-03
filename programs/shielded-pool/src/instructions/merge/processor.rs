@@ -46,7 +46,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 
     let signing_pk_field = pk_fields.signing_pk_field;
     // Owner-indexing view tag for the merged output: the owner signing pubkey (the
-    // confidential default-zone tag, like every other confidential output). The
+    // confidential default-ring tag, like every other confidential output). The
     // proof binds `signing_pk_field` to the same registered key, so a relayer cannot
     // alter it.
     let output_view_tag = pk_fields.signing_view_tag;
@@ -71,12 +71,12 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     )
 }
 
-/// Shared tail for `merge_transact` and `merge_zone`: read roots, nullify the
+/// Shared tail for `merge_transact` and `merge_ring`: read roots, nullify the
 /// inputs, append the output, verify the proof, and emit the event. The
 /// tree-derived dummy-input policy is
 /// captured before any queue insertion or state append.
 /// `output_data` is the event's output payload: empty for `merge_transact`, the
-/// output `zone_data_hash` for `merge_zone`.
+/// output `ring_data_hash` for `merge_ring`.
 #[inline(never)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_merge_core(
@@ -98,12 +98,6 @@ pub(crate) fn process_merge_core(
         )
         .map_err(tree_error)?;
         let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
-        // Merge proofs are currently built with `allow_dummy_inputs = true`.
-        // Keep the explicit capacity error instead of letting proof verification
-        // fail opaquely when the tree disables dummy inputs.
-        if !allow_dummy_inputs {
-            return Err(ShieldedPoolError::NullifierTreeTooFullForMerge.into());
-        }
         let mut derived = MergeProofInputs {
             utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
             nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],

@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"testing"
 
-	customzone "zolana/prover/circuits/spp_transaction/custom"
-	defaultzone "zolana/prover/circuits/spp_transaction/default"
+	customring "zolana/prover/circuits/spp_transaction/custom"
+	defaultring "zolana/prover/circuits/spp_transaction/default"
 	. "zolana/prover/circuits/spp_transaction/shared"
 
 	"zolana/prover/prover-test/spp/protocol"
@@ -55,9 +55,9 @@ type testAssignment struct {
 	PrivateTxHash    frontend.Variable
 	PublicAssets     [NPublicSlots]frontend.Variable
 	PublicAmounts    [NPublicSlots]frontend.Variable
-	ZoneProgramID    frontend.Variable
-	PayerPubkeyHash  frontend.Variable
+	RingProgramID    frontend.Variable
 	AllowDummyInputs frontend.Variable
+	SignerPkHashes   []frontend.Variable
 
 	PublicInputHash frontend.Variable
 }
@@ -94,6 +94,24 @@ func (a *testAssignment) InputOwnerPkHashes() []frontend.Variable {
 	return out
 }
 
+func (a *testAssignment) TransactionSignerPkHashes() []frontend.Variable {
+	if a.SignerPkHashes != nil {
+		return a.SignerPkHashes
+	}
+	out := make([]frontend.Variable, a.Shape.NInputs+1)
+	out[0] = testPayerPkHash()
+	for i := range out {
+		if i != 0 {
+			out[i] = 0
+		}
+	}
+	return out
+}
+
+func (a *testAssignment) AuthoritySignerPkHashes() []frontend.Variable {
+	return a.TransactionSignerPkHashes()[:1]
+}
+
 func (a *testAssignment) OutputHashes() []frontend.Variable {
 	out := make([]frontend.Variable, len(a.Outputs))
 	for i := range a.Outputs {
@@ -106,6 +124,18 @@ func (a *testAssignment) OutputOwnerPkHashes() []frontend.Variable {
 	out := make([]frontend.Variable, len(a.Outputs))
 	for i := range a.Outputs {
 		out[i] = a.Outputs[i].OwnerPkHash
+	}
+	return out
+}
+
+func (a *testAssignment) PublishedOutputOwnerPkHashes() []frontend.Variable {
+	out := make([]frontend.Variable, len(a.Outputs))
+	for i := range a.Outputs {
+		if spptest.AsBigInt(a.Outputs[i].Utxo.RingProgramID).Sign() == 0 {
+			out[i] = a.Outputs[i].OwnerPkHash
+		} else {
+			out[i] = 0
+		}
 	}
 	return out
 }
@@ -134,35 +164,36 @@ func (a *testAssignment) outputNullifierPks() []frontend.Variable {
 	return out
 }
 
-func asCustomZoneEddsaOnly(a *testAssignment) frontend.Circuit {
-	return &customzone.CustomZoneEddsaOnlyCircuit{
-		Public: customzone.CustomZoneEddsaOnlyPublic{
-			Nullifiers:          a.InputNullifiers(),
-			OutputHashes:        a.OutputHashes(),
-			UtxoTreeRoots:       a.InputUtxoRoots(),
-			NullifierTreeRoots:  a.InputNullifierTreeRoots(),
-			PrivateTxHash:       a.PrivateTxHash,
-			ExternalDataHash:    a.ExternalDataHash,
-			PublicAssets:        a.PublicAssets,
-			PublicAmounts:       a.PublicAmounts,
-			ZoneProgramID:       a.ZoneProgramID,
-			PayerPubkeyHash:     a.PayerPubkeyHash,
-			AllowDummyInputs:    a.AllowDummyInputs,
-			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
-			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
-			PublicInputHash:     a.PublicInputHash,
+func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
+	return &customring.CustomRingEddsaOnlyCircuit{
+		Public: customring.CustomRingEddsaOnlyPublic{
+			Nullifiers:                   a.InputNullifiers(),
+			OutputHashes:                 a.OutputHashes(),
+			UtxoTreeRoots:                a.InputUtxoRoots(),
+			NullifierTreeRoots:           a.InputNullifierTreeRoots(),
+			PrivateTxHash:                a.PrivateTxHash,
+			ExternalDataHash:             a.ExternalDataHash,
+			PublicAssets:                 a.PublicAssets,
+			PublicAmounts:                a.PublicAmounts,
+			RingProgramID:                a.RingProgramID,
+			AllowDummyInputs:             a.AllowDummyInputs,
+			SignerPkHashes:               a.TransactionSignerPkHashes(),
+			PublishedOutputOwnerPkHashes: a.PublishedOutputOwnerPkHashes(),
+			PublicInputHash:              a.PublicInputHash,
 		},
-		Private: customzone.CustomZoneEddsaOnlyPrivate{
-			Inputs:             a.coreInputs(),
-			Outputs:            a.outputUtxos(),
-			OutputNullifierPks: a.outputNullifierPks(),
+		Private: customring.CustomRingEddsaOnlyPrivate{
+			Inputs:              a.coreInputs(),
+			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
+			Outputs:             a.outputUtxos(),
+			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
+			OutputNullifierPks:  a.outputNullifierPks(),
 		},
 	}
 }
 
-func asCustomZoneAuthority(a *testAssignment) frontend.Circuit {
-	return &customzone.CustomZoneAuthorityCircuit{
-		Public: customzone.CustomZoneAuthorityPublic{
+func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
+	return &customring.CustomRingAuthorityCircuit{
+		Public: customring.CustomRingAuthorityPublic{
 			Nullifiers:         a.InputNullifiers(),
 			OutputHashes:       a.OutputHashes(),
 			UtxoTreeRoots:      a.InputUtxoRoots(),
@@ -171,12 +202,12 @@ func asCustomZoneAuthority(a *testAssignment) frontend.Circuit {
 			ExternalDataHash:   a.ExternalDataHash,
 			PublicAssets:       a.PublicAssets,
 			PublicAmounts:      a.PublicAmounts,
-			ZoneProgramID:      a.ZoneProgramID,
-			PayerPubkeyHash:    a.PayerPubkeyHash,
+			RingProgramID:      a.RingProgramID,
+			SignerPkHashes:     a.AuthoritySignerPkHashes(),
 			AllowDummyInputs:   a.AllowDummyInputs,
 			PublicInputHash:    a.PublicInputHash,
 		},
-		Private: customzone.CustomZoneAuthorityPrivate{
+		Private: customring.CustomRingAuthorityPrivate{
 			Inputs:             a.coreInputs(),
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
@@ -184,9 +215,9 @@ func asCustomZoneAuthority(a *testAssignment) frontend.Circuit {
 	}
 }
 
-func asDefaultZoneEddsaOnly(a *testAssignment) frontend.Circuit {
-	return &defaultzone.DefaultZoneEddsaOnlyCircuit{
-		Public: defaultzone.DefaultZoneEddsaOnlyPublic{
+func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
+	return &defaultring.DefaultRingEddsaOnlyCircuit{
+		Public: defaultring.DefaultRingEddsaOnlyPublic{
 			Nullifiers:          a.InputNullifiers(),
 			OutputHashes:        a.OutputHashes(),
 			UtxoTreeRoots:       a.InputUtxoRoots(),
@@ -195,14 +226,14 @@ func asDefaultZoneEddsaOnly(a *testAssignment) frontend.Circuit {
 			ExternalDataHash:    a.ExternalDataHash,
 			PublicAssets:        a.PublicAssets,
 			PublicAmounts:       a.PublicAmounts,
-			PayerPubkeyHash:     a.PayerPubkeyHash,
 			AllowDummyInputs:    a.AllowDummyInputs,
-			InputOwnerPkHashes:  a.InputOwnerPkHashes(),
+			SignerPkHashes:      a.TransactionSignerPkHashes(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			PublicInputHash:     a.PublicInputHash,
 		},
-		Private: defaultzone.DefaultZoneEddsaOnlyPrivate{
+		Private: defaultring.DefaultRingEddsaOnlyPrivate{
 			Inputs:             a.coreInputs(),
+			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
 			OutputNullifierPks: a.outputNullifierPks(),
 		},
@@ -280,7 +311,11 @@ func buildCircuitAssignmentExact(
 	for i := 0; i < shape.NInputs; i++ {
 		utxo := inputUtxos[i]
 		nullifierSecrets[i] = spptest.Fe(99)
-		inputOwnerPkHashes[i] = testSolanaPkField(t)
+		if utxo.Domain.Cmp(big.NewInt(protocol.DummyDomain)) == 0 {
+			inputOwnerPkHashes[i] = big.NewInt(0)
+		} else {
+			inputOwnerPkHashes[i] = testSolanaPkField(t)
+		}
 		inputCircuitUtxos[i] = fieldsFromUtxo(utxo)
 		inputHash := spptest.MustUtxoHash(t, utxo)
 		inputHashes[i] = inputHash
@@ -334,7 +369,29 @@ func buildCircuitAssignmentExact(
 
 	externalDataHash := spptest.Fe(300)
 	privateTxHash := spptest.MustPrivateTxHash(t, inputHashes, OutputHashes, noAddressHashes(shape.NInputs), externalDataHash)
-	payerPubkeyHash := testPayerPubkeyHash()
+	payerPkHash := testPayerPkHash()
+	signerPkHashes := zeroFields(shape.NInputs + 1)
+	signerPkHashes[0] = new(big.Int).Set(payerPkHash)
+	nextSigner := 1
+	seenSigners := []*big.Int{payerPkHash}
+	for _, owner := range inputOwnerPkHashes {
+		if owner.Sign() == 0 {
+			continue
+		}
+		seen := false
+		for _, existing := range seenSigners {
+			if existing.Cmp(owner) == 0 {
+				seen = true
+				break
+			}
+		}
+		if seen {
+			continue
+		}
+		seenSigners = append(seenSigners, owner)
+		signerPkHashes[nextSigner] = new(big.Int).Set(owner)
+		nextSigner++
+	}
 
 	signedAmounts := [NPublicSlots]*big.Int{}
 	for i := 0; i < NPublicSlots; i++ {
@@ -349,15 +406,22 @@ func buildCircuitAssignmentExact(
 		ExternalDataHash:   externalDataHash,
 		PublicAssets:       publicAssets,
 		PublicAmounts:      signedAmounts,
-		// Nonzero test zone id: the custom-zone circuits assert ZoneProgramID
-		// != 0; the default-zone refresh overrides it back to 0.
-		ZoneProgramID:       spptest.Fe(0x5A),
-		PayerPubkeyHash:     payerPubkeyHash,
+		// Nonzero test ring id: the custom-ring circuits assert RingProgramID
+		// != 0; the default-ring refresh overrides it back to 0.
+		RingProgramID:       spptest.Fe(0x5A),
 		AllowDummyInputs:    spptest.Fe(1),
-		InputOwnerPkHashes:  inputOwnerPkHashes,
-		Confidential:        true,
-		OutputOwnerPkHashes: outputOwnerPkHashes,
+		SignerPkHashes:      signerPkHashes,
+		BindOutputOwnerTags: true,
 	}
+	publishedOutputOwnerPkHashes := make([]*big.Int, len(outputOwnerPkHashes))
+	for i := range outputOwnerPkHashes {
+		if outputUtxos[i].RingProgramID.Sign() == 0 {
+			publishedOutputOwnerPkHashes[i] = outputOwnerPkHashes[i]
+		} else {
+			publishedOutputOwnerPkHashes[i] = big.NewInt(0)
+		}
+	}
+	publicInputs.OutputOwnerPkHashes = publishedOutputOwnerPkHashes
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
 	publicInputHash := spptest.MustHash(t, publicInputHashValue, err)
 
@@ -396,9 +460,9 @@ func buildCircuitAssignmentExact(
 		Outputs:          outputs,
 		ExternalDataHash: externalDataHash,
 		PrivateTxHash:    privateTxHash,
-		ZoneProgramID:    publicInputs.ZoneProgramID,
-		PayerPubkeyHash:  publicInputs.PayerPubkeyHash,
+		RingProgramID:    publicInputs.RingProgramID,
 		AllowDummyInputs: publicInputs.AllowDummyInputs,
+		SignerPkHashes:   asFrontendVariables(publicInputs.SignerPkHashes),
 		PublicInputHash:  publicInputHash,
 	}
 	for i := 0; i < NPublicSlots; i++ {
@@ -406,6 +470,22 @@ func buildCircuitAssignmentExact(
 		circuit.PublicAmounts[i] = publicInputs.PublicAmounts[i]
 	}
 	return circuit
+}
+
+func zeroFields(length int) []*big.Int {
+	out := make([]*big.Int, length)
+	for i := range out {
+		out[i] = big.NewInt(0)
+	}
+	return out
+}
+
+func asFrontendVariables(values []*big.Int) []frontend.Variable {
+	out := make([]frontend.Variable, len(values))
+	for i, value := range values {
+		out[i] = value
+	}
+	return out
 }
 
 func defaultStateLeafIndex(i int) uint64 {
@@ -429,28 +509,32 @@ func refreshPublicInputHash(t testing.TB, assignment *testAssignment) {
 	refreshPublicInputHashVariant(t, assignment, true, false)
 }
 
-func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, confidential, zoneAuthority bool) {
+func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, bindOutputOwnerTags, ringAuthority bool) {
 	t.Helper()
+	// Every owner-signed rail now appends an output-owner chain. Custom-ring
+	// assignments use the masked vector; authority is the sole omitted mode.
+	bindOutputOwnerTags = !ringAuthority
 	publicInputs := protocol.PublicInputs{
-		Nullifiers:         spptest.ToBigInts(assignment.InputNullifiers()),
-		OutputUtxoHashes:   spptest.ToBigInts(assignment.OutputHashes()),
-		UtxoTreeRoots:      spptest.ToBigInts(assignment.InputUtxoRoots()),
-		NullifierTreeRoots: spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
-		PrivateTxHash:      spptest.AsBigInt(assignment.PrivateTxHash),
-		ExternalDataHash:   spptest.AsBigInt(assignment.ExternalDataHash),
-		ZoneProgramID:      spptest.AsBigInt(assignment.ZoneProgramID),
-		PayerPubkeyHash:    spptest.AsBigInt(assignment.PayerPubkeyHash),
-		AllowDummyInputs:   spptest.AsBigInt(assignment.AllowDummyInputs),
-		InputOwnerPkHashes: spptest.ToBigInts(assignment.InputOwnerPkHashes()),
-		Confidential:       confidential,
-		ZoneAuthority:      zoneAuthority,
+		Nullifiers:          spptest.ToBigInts(assignment.InputNullifiers()),
+		OutputUtxoHashes:    spptest.ToBigInts(assignment.OutputHashes()),
+		UtxoTreeRoots:       spptest.ToBigInts(assignment.InputUtxoRoots()),
+		NullifierTreeRoots:  spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
+		PrivateTxHash:       spptest.AsBigInt(assignment.PrivateTxHash),
+		ExternalDataHash:    spptest.AsBigInt(assignment.ExternalDataHash),
+		RingProgramID:       spptest.AsBigInt(assignment.RingProgramID),
+		AllowDummyInputs:    spptest.AsBigInt(assignment.AllowDummyInputs),
+		SignerPkHashes:      spptest.ToBigInts(assignment.TransactionSignerPkHashes()),
+		BindOutputOwnerTags: bindOutputOwnerTags,
+	}
+	if ringAuthority {
+		publicInputs.SignerPkHashes = publicInputs.SignerPkHashes[:1]
 	}
 	for i := 0; i < NPublicSlots; i++ {
 		publicInputs.PublicAssets[i] = spptest.AsBigInt(assignment.PublicAssets[i])
 		publicInputs.PublicAmounts[i] = spptest.AsBigInt(assignment.PublicAmounts[i])
 	}
-	if confidential {
-		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.OutputOwnerPkHashes())
+	if bindOutputOwnerTags {
+		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes())
 	}
 	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
 	assignment.PublicInputHash = spptest.MustHash(t, publicInputHashValue, err)
@@ -499,8 +583,8 @@ func sampleUtxo(base int) protocol.Utxo {
 		Amount:        spptest.Fe(int64(base + 4)),
 		Blinding:      spptest.Fe(int64(base + 5)),
 		DataHash:      spptest.Fe(0),
-		ZoneDataHash:  spptest.Fe(0),
-		ZoneProgramID: spptest.Fe(0),
+		RingDataHash:  spptest.Fe(0),
+		RingProgramID: spptest.Fe(0),
 	}
 }
 
@@ -523,6 +607,12 @@ func rewriteInputAsSolanaOwner(
 	}
 	assignment.Inputs[inputIndex].Utxo.Owner = owner
 	assignment.Inputs[inputIndex].OwnerPkHash = pkField
+	for i := range assignment.SignerPkHashes {
+		if spptest.AsBigInt(assignment.SignerPkHashes[i]).Sign() == 0 {
+			assignment.SignerPkHashes[i] = pkField
+			break
+		}
+	}
 	assignment.Inputs[inputIndex].NullifierSecret = nullifierSecret
 	rebuildAfterOwnerChange(t, assignment)
 }
@@ -583,7 +673,7 @@ func testOwnerHashForNullifierSecret(nullifierSecret *big.Int) *big.Int {
 	return owner
 }
 
-func testPayerPubkeyHash() *big.Int {
+func testPayerPkHash() *big.Int {
 	return protocol.Sha256BEField(testSolanaPubkey())
 }
 
@@ -626,8 +716,8 @@ func fieldsFromUtxo(u protocol.Utxo) UtxoCircuitFields {
 		Amount:        u.Amount,
 		Blinding:      u.Blinding,
 		DataHash:      u.DataHash,
-		ZoneDataHash:  u.ZoneDataHash,
-		ZoneProgramID: u.ZoneProgramID,
+		RingDataHash:  u.RingDataHash,
+		RingProgramID: u.RingProgramID,
 	}
 }
 
@@ -639,7 +729,7 @@ func circuitFieldsToUtxo(fields UtxoCircuitFields) protocol.Utxo {
 		Amount:        spptest.AsBigInt(fields.Amount),
 		Blinding:      spptest.AsBigInt(fields.Blinding),
 		DataHash:      spptest.AsBigInt(fields.DataHash),
-		ZoneDataHash:  spptest.AsBigInt(fields.ZoneDataHash),
-		ZoneProgramID: spptest.AsBigInt(fields.ZoneProgramID),
+		RingDataHash:  spptest.AsBigInt(fields.RingDataHash),
+		RingProgramID: spptest.AsBigInt(fields.RingProgramID),
 	}
 }

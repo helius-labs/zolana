@@ -48,12 +48,6 @@ impl Make {
         if let Some(marker) = spp_proof.messages.first_mut() {
             marker.data = Vec::new();
         }
-        // The padded dummy mirrors the real source input's owner in the proof,
-        // so both slots must resolve to the order-authority PDA on-chain.
-        for input in &mut spp_proof.inputs {
-            input.eddsa_signer_index = 4;
-        }
-
         let serialized_ix = wincode::serialize(&MakeIxData {
             proof: make_proof,
             transact: spp_proof,
@@ -65,9 +59,9 @@ impl Make {
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
+            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(order_authority_pda(), false),
-            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
         ];
         let mut instruction_data = vec![tag::MAKE];
         instruction_data.extend_from_slice(&serialized_ix);
@@ -125,7 +119,7 @@ mod tests {
             asset: SOL_MINT,
             amount: input_amount,
             blinding: crate::shared::test_blinding(5),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);
@@ -260,7 +254,7 @@ mod tests {
             asset: SOL_MINT,
             amount,
             blinding: crate::shared::test_blinding(6),
-            zone_program_id: None,
+            ring_program_id: None,
             data: Data::default(),
         };
         let spend = SppProofInputUtxo::new(input_utxo, &owner_keypair);

@@ -142,6 +142,16 @@ export function hashChain(values: readonly bigint[]): bigint {
   return result;
 }
 
+export function rightHashChain(values: readonly bigint[]): bigint {
+  const last = values.at(-1);
+  if (last === undefined) return 0n;
+  let result = last;
+  for (let index = values.length - 2; index >= 0; index -= 1) {
+    result = poseidon([values[index] as bigint, result]);
+  }
+  return result;
+}
+
 export function hashField(bytes: Uint8Array): bigint {
   if (bytes.length !== 32) {
     throw new ClientError("CLIENT_INVALID_LENGTH", {

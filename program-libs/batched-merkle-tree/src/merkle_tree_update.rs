@@ -48,9 +48,8 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     /// 1. Validate the zkp batch index and that its hash chain is finalized.
     /// 2. Return `false` if the update is already applied, then reconstruct the
     ///    proof's StartIndex, the tree next index this zkp batch writes at.
-    /// 3. Return `false` if the update is already cached.
-    /// 4. Rebuild the public input hash and verify the proof.
-    /// 5. Store the cached update, keyed by StartIndex, at its zkp batch index.
+    /// 3. Rebuild the public input hash and verify the proof.
+    /// 4. Store the cached update, keyed by StartIndex, at its zkp batch index.
     fn verify_proof_cache_update(
         &mut self,
         instruction_data: &InstructionDataAddressAppendInputs,
@@ -97,22 +96,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .and_then(|offset| self.next_index.checked_add(offset))
             .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
 
-        // 3. Skip when already cached (this zkp batch slot is occupied). The
-        //    slot index is derived from this proof's StartIndex, so an occupied
-        //    slot can only hold a proof for the same StartIndex.
-        let already_cached = self
-            .layout
-            .cached_tree_updates
-            .get(pending_batch_index)
-            .ok_or(BatchedMerkleTreeError::CachedTreeUpdateIndexOutOfRange)?
-            .get(zkp_batch_index)
-            .map(|cached_update| cached_update.is_occupied())
-            .unwrap_or(false);
-        if already_cached {
-            return Ok(false);
-        }
-
-        // 4. Rebuild the public input hash and verify the proof.
+        // 3. Rebuild the public input hash and verify the proof.
         let leaves_hash_chain = *self
             .layout
             .hash_chains
@@ -133,7 +117,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             &instruction_data.compressed_proof,
         )?;
 
-        // 5. Store the cached update at its zkp batch index. old_root is the
+        // 4. Store the cached update at its zkp batch index. old_root is the
         //    prover's public input; apply checks it against the account tree
         //    root before applying.
         let cached_update = self
