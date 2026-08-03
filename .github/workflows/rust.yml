@@ -48,7 +48,6 @@ jobs:
       - name: Install workspace Rust toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check
-      - run: ./tools/check-test-hygiene.sh
 
   machete:
     name: cargo-machete
@@ -87,6 +86,10 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just check-all
+      # Rides with `check` rather than `rustfmt`: this job already builds the
+      # workspace, so compiling xtask is nearly free here, whereas `rustfmt`
+      # runs no cargo build at all and would pay for one.
+      - run: just check-test-hygiene
 
   test-cli:
     name: tests / cli

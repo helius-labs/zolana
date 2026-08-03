@@ -7,6 +7,7 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+mod check_tests;
 mod create_release;
 mod init_protocol;
 mod update_protocol_config;
@@ -14,6 +15,12 @@ mod update_protocol_config;
 fn main() {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
+        Some("check-tests") => {
+            if let Err(error) = check_tests::run() {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
         Some("create-verifying-keys") => {
             let options = CreateVerifyingKeysOptions::parse(args.collect());
             create_verifying_keys(options);

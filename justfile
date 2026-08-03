@@ -1069,8 +1069,14 @@ fmt-check:
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
 
+# Structural invariants over the test suites: no orphaned test leaves, no
+# retired scenario-framework remnants, and an invariants ledger whose citations
+# and tallies still hold. These answer questions the compiler cannot -- an
+# undeclared file under `tests/` is never compiled, linted, or run, so cargo and
+# clippy both ignore it and a suite that never executes looks like one that
+# passes.
 check-test-hygiene:
-    ./tools/check-test-hygiene.sh
+    cargo run -q -p xtask -- check-tests
 
 # === Prover server ===
 

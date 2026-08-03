@@ -173,6 +173,7 @@ bs58 = "0.5.1"
 bytemuck = { version = "1.19.0", features = ["derive"] }
 bytes = "1.12.0"
 cadence = "1.8.0"
+cargo_metadata = "0.23"
 cadence-macros = "1.8.0"
 chrono = "0.4"
 clap = { version = "4.5.53", features = ["derive", "env"] }
@@ -199,6 +200,7 @@ proc-macro2 = "1.0"
 quote = "1.0"
 rand = "0.8.5"
 rayon = "1"
+regex = "1.13"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 s3 = { package = "rust-s3", version = "0.37.2", default-features = false, features = ["fail-on-err", "tags", "tokio-rustls-tls"] }
 sea-orm = { version = "1.1.20", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
@@ -217,6 +219,7 @@ tinyvec = "1.10.0"
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.0", default-features = false, features = ["cors"] }
+walkdir = "2.5"
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
