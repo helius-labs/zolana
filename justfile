@@ -138,6 +138,50 @@ test-sdk-libs:
 test-photon:
     cargo nextest run -p photon-indexer
 
+# Paths dropped at report time. Single source of truth for `coverage-report`,
+# which both `just coverage` and the CI job go through.
+coverage-ignore-paths := '(program-tests|sdk-tests|bench)/'
+
+# Line/region coverage via cargo-llvm-cov over the library and binary crates.
+# Default prints a summary; `just coverage --html` writes target/llvm-cov/html,
+# `just coverage --lcov --output-path lcov.info` for CI upload. `{{args}}` reaches
+# the report step, so the two collection passes stay fixed.
+#
+# Which crates are measured is decided by manifest PATH in
+# tools/coverage-packages.py, not by a list of names here: #181 renamed
+# zone-test-program to ring-test-program, a name-based `--exclude` stopped
+# matching, and a test crate silently entered the coverage set and failed the
+# job. See that script for what each excluded directory is and why.
+#
+# `zolana-client` runs as its own pass restricted to `--lib`: its integration
+# targets (transaction_proving, merge_proving, …) declare no required-features,
+# so a plain `-p zolana-client` would build and run them and they need a live
+# prover server. Keeping this hermetic means no prover, validator, or network.
+coverage *args="--summary-only":
+    #!/usr/bin/env bash
+    # `set -e` matters here: without it a failing coverage-packages.py expands to
+    # no `-p` flags at all, cargo silently falls back to the workspace's
+    # default-members (forester, zolana-interface, shielded-pool-program), and
+    # the job reports that as a successful coverage run.
+    set -euo pipefail
+    packages="$(python3 tools/coverage-packages.py)"
+    cargo llvm-cov clean --workspace
+    # Unquoted on purpose: the flags must word-split into separate arguments.
+    cargo llvm-cov --no-report $packages --features zolana-interface/solana
+    cargo llvm-cov --no-report -p zolana-client --lib --all-features
+    just coverage-report {{args}}
+
+# Re-render the collected profile data. Split out so `just coverage` and the CI
+# job share one definition of the path filter rather than repeating it per
+# output format.
+#
+# The filter is needed because selecting crates with `-p` keeps a crate's own
+# tests from running but still instruments its source wherever a covered binary
+# links it, so the harness crates would otherwise land in the report at ~0% and
+# depress the total while measuring nothing shipped.
+coverage-report *args="--summary-only":
+    cargo llvm-cov report --ignore-filename-regex '{{ coverage-ignore-paths }}' {{args}}
+
 # All zolana-client tests (lib unit tests and the proving/integration test
 # binaries). The proving tests spawn the prover server
 # (via the zolana CLI), which lazily downloads any missing proving keys from

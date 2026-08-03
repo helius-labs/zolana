@@ -280,6 +280,46 @@ jobs:
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - run: just test-user-registry-litesvm
 
+  # Line/region coverage over the library and binary crates: the program-libs,
+  # the SDK crates, the CLI, forester, and photon. Informational — it renders a
+  # summary table into the run's job summary and uploads lcov/HTML reports, but
+  # there is no `--fail-under-lines` gate yet; add one when the team picks a
+  # target. The on-chain programs, the test/example crates, and xtask are
+  # excluded, and zolana-client is collected `--lib` only, so the job stays
+  # hermetic — no prover, validator, or database. See tools/coverage-packages.py
+  # for what is measured and why. Code executed inside the SVM is not measured.
+  coverage:
+    name: coverage (llvm-cov)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: coverage
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2
+        with:
+          tool: cargo-llvm-cov
+      # Collect once, then re-render from the same profile data: `report` only
+      # reads what the two passes wrote, so the extra formats are nearly free.
+      - run: just coverage --lcov --output-path lcov.info
+      - name: Render coverage reports
+        run: |
+          just coverage-report --html --output-dir coverage-html
+          just coverage-report --json --summary-only --output-path coverage.json
+      - name: Publish coverage summary
+        run: python3 tools/coverage-summary.py coverage.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage report
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: coverage
+          path: |
+            lcov.info
+            coverage.json
+            coverage-html
+          if-no-files-found: error
+
   test-client-integration:
     name: tests / client integration
     runs-on: ubuntu-latest
