@@ -19,6 +19,10 @@ out_dir="${1:-$repo_root/target/prover-wasm}"
 shim_dir="${2:-$out_dir}"
 
 mkdir -p "$out_dir" "$shim_dir"
+# Resolved to absolute now, because the build below cd's into the server
+# directory; a relative argument would otherwise land somewhere unintended.
+out_dir="$(cd "$out_dir" && pwd)"
+shim_dir="$(cd "$shim_dir" && pwd)"
 
 goroot="$(go env GOROOT)"
 # Go moved the wasm support files from misc/wasm to lib/wasm in 1.24.
