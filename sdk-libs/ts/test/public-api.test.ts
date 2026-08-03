@@ -17,6 +17,7 @@ import {
   SPL_TOKEN_PROGRAM_ID,
   USER_REGISTRY_PROGRAM_ID,
   Wallet,
+  buildDepositTransaction,
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
   createZolanaClient,
@@ -83,6 +84,94 @@ describe("public package surface", () => {
     expect(sdk).not.toHaveProperty("split");
     expect(sdk).not.toHaveProperty("merge");
     expect(sdk).not.toHaveProperty("signPrivateTransaction");
+  });
+
+  it("resolves a registered Solana deposit recipient through the public builder", async () => {
+    const keypair = ShieldedKeypair.fromEd25519(new Uint8Array(32).fill(9) as Bytes32, 0);
+    const recipient = keypair.shieldedAddress().solanaAddress();
+    const pda = await internalUserRecordPda(recipient);
+    const data = Uint8Array.of(
+      1,
+      ...getAddressEncoder().encode(recipient),
+      pda.bump,
+      0,
+      ...keypair.nullifierPublicKey(),
+      ...keypair.viewingPublicKey().toBytes(),
+      0,
+    );
+    const getAccount = vi.fn(async () => ({
+      owner: USER_REGISTRY_PROGRAM_ID,
+      data,
+      lamports: 1n,
+    }));
+    const getLatestBlockhash = vi.fn(async () => ({
+      blockhash: BLOCKHASH,
+      lastValidBlockHeight: 1n,
+    }));
+
+    const transaction = await buildDepositTransaction({
+      client: {
+        tree: DEFAULT_TREE_ADDRESS,
+        getAccount,
+        getLatestBlockhash,
+      } as never,
+      feePayer: OWNER,
+      recipient,
+      amount: 42n,
+    });
+
+    expect(getAccount).toHaveBeenCalledOnce();
+    expect(getLatestBlockhash).toHaveBeenCalledOnce();
+    expect(Object.keys(transaction.signatures)).toEqual([OWNER]);
+  });
+
+  it("rejects an unregistered Solana deposit recipient before blockhash lookup", async () => {
+    const getAccount = vi.fn(async () => undefined);
+    const getLatestBlockhash = vi.fn(async () => ({
+      blockhash: BLOCKHASH,
+      lastValidBlockHeight: 1n,
+    }));
+
+    await expect(
+      buildDepositTransaction({
+        client: {
+          tree: DEFAULT_TREE_ADDRESS,
+          getAccount,
+          getLatestBlockhash,
+        } as never,
+        feePayer: OWNER,
+        recipient: OWNER,
+        amount: 42n,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_RECIPIENT_NOT_REGISTERED",
+      details: { recipient: OWNER },
+    });
+    expect(getAccount).toHaveBeenCalledOnce();
+    expect(getLatestBlockhash).not.toHaveBeenCalled();
+  });
+
+  it("bypasses registry lookup for a direct shielded deposit recipient", async () => {
+    const getAccount = vi.fn(async () => undefined);
+    const getLatestBlockhash = vi.fn(async () => ({
+      blockhash: BLOCKHASH,
+      lastValidBlockHeight: 1n,
+    }));
+
+    await expect(
+      buildDepositTransaction({
+        client: {
+          tree: DEFAULT_TREE_ADDRESS,
+          getAccount,
+          getLatestBlockhash,
+        } as never,
+        feePayer: OWNER,
+        recipient: ShieldedKeypair.generate().shieldedAddress(),
+        amount: 42n,
+      }),
+    ).resolves.toBeDefined();
+    expect(getAccount).not.toHaveBeenCalled();
+    expect(getLatestBlockhash).toHaveBeenCalledOnce();
   });
 
   it("does not expose partial zone builders", async () => {

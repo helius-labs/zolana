@@ -133,6 +133,9 @@ await submit(deposit, feePayer);
 The standard SPL Token program is used by default. For Token-2022, also pass
 `splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`.
 
+The SDK automatically resolves a registered Solana public key to its shielded
+address. Passing a `ShieldedAddress` directly bypasses the lookup.
+
 ### Confidential transfer
 
 A transfer normally targets the recipient's registered Solana public key.
@@ -153,9 +156,6 @@ const transfer = await buildTransferTransaction({
 await submit(transfer, feePayer);
 await syncWallet({ client, wallet, authority, config: { waitForIndexer: true } });
 ```
-
-The SDK automatically resolves the recipient's registered shielded address. To
-bypass that lookup, you can also pass a `ShieldedAddress` directly. Note that this will also bypass the isRegistered check, so bypass with caution. 
 
 Pass `asset: mint` for an SPL or Token-2022 balance.
 

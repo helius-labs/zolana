@@ -328,7 +328,7 @@ describe.sequential("live SDK lifecycle", () => {
     await deposit({
       client: harness.client,
       feePayer: alice.signer,
-      recipient: alice.keypair.shieldedAddress(),
+      recipient: alice.signer.address,
       amount: 100_000_000n,
     });
     await sync(harness.client, alice);
