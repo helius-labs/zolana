@@ -272,10 +272,15 @@ function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
 
 function transactAccounts(
   payer: SignerAccount,
-  tree: Address,
+  inputTree: Address,
+  outputTree: Address,
   withdrawal?: TransactWithdrawal,
 ): Meta[] {
-  const accounts = [meta(payer, true, true), meta(tree, false, true), meta(tree, false, true)];
+  const accounts = [
+    meta(payer, true, true),
+    meta(inputTree, false, true),
+    meta(outputTree, false, true),
+  ];
   accounts.push(...settlementAccounts(withdrawal));
   // System program for the forester-fee collection CPI and, on the native SOL
   // rail, public settlement.
@@ -287,14 +292,15 @@ function transactAccounts(
 export function transactInstruction(
   input: Readonly<{
     payer: SignerAccount;
-    tree: Address;
+    inputTree: Address;
+    outputTree: Address;
     withdrawal?: TransactWithdrawal;
     data: TransactInstructionData;
   }>,
 ): Instruction {
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    transactAccounts(input.payer, input.tree, input.withdrawal),
+    transactAccounts(input.payer, input.inputTree, input.outputTree, input.withdrawal),
   );
 }
 

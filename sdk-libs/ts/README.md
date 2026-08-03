@@ -123,7 +123,8 @@ Serialized state contains private note plaintext and must be encrypted at rest.
 - `@zolana/sdk/client`, `/interface`, `/keypair`, `/transaction`, `/wallet` —
   advanced protocol surfaces
 
-`createZolanaClient` initializes the shipped Poseidon WASM once. Applications
-that only use cryptographic primitives can call `initializePoseidon()` directly.
+`createZolanaClient` initializes the dependency-backed Poseidon hasher once.
+Applications that only use cryptographic primitives can call
+`initializePoseidon()` directly.
 Indexer and prover endpoints must use HTTPS; HTTP is accepted only for loopback
 hosts during local development.

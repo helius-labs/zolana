@@ -6,7 +6,7 @@ import {
   getBase64Decoder,
   getBase64Encoder,
 } from "@solana/kit";
-import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/core.js";
+import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
 import type {
   Address,

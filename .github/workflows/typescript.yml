@@ -27,13 +27,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - uses: ./.github/actions/setup-rust
-        with:
-          shared-key: typescript-wasm
-          install-just: "false"
-      - run: rustup target add wasm32-unknown-unknown
       - run: npm ci
-      - run: npm run verify:wasm --workspace @zolana/sdk
       - run: npm run check:ts
       - name: Verify the published package
         run: |

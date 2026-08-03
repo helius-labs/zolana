@@ -1,6 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { getAddressDecoder, getAddressEncoder, getBase58Encoder } from "@solana/kit";
-import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/core.js";
+import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../interface/types.js";
 export { hashField, sha256Be } from "../keypair/hash.js";

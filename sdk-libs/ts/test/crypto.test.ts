@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import fixture from "../vectors/poseidon-parity-v1.json" with { type: "json" };
-import { HasherWasmError, MAX_POSEIDON_INPUTS, poseidon } from "../src/hasher/core.js";
+import { HasherWasmError, MAX_POSEIDON_INPUTS, poseidon } from "../src/hasher/index.js";
 import {
   ShieldedKeypair,
   SigningKey,
@@ -18,7 +18,7 @@ function hex(value: Uint8Array): string {
   return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-describe("Rust Poseidon WASM", () => {
+describe("Poseidon parity with Rust", () => {
   for (const vector of fixture.vectors) {
     it(vector.id, () => {
       expect(hex(poseidon(vector.inputsBytes.map(bytes)))).toBe(vector.expectedBytes);

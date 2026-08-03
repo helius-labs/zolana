@@ -549,7 +549,8 @@ export class ZolanaClient {
         ? {}
         : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
       feePayer: input.feePayer,
-      tree: input.signed.tree,
+      inputTree: input.signed.tree,
+      outputTree: this.tree,
       ...(input.setupInstructions === undefined
         ? {}
         : { setupInstructions: input.setupInstructions }),
@@ -587,7 +588,8 @@ export class ZolanaClient {
             ? {}
             : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
           payer: input.feePayer.address,
-          tree: input.signed.tree,
+          inputTree: input.signed.tree,
+          outputTree: this.tree,
           ...(input.setupInstructions === undefined
             ? {}
             : { setupInstructions: input.setupInstructions }),
@@ -666,7 +668,8 @@ export function buildUnsignedTransaction(
     computeUnitLimit: number;
     computeUnitPriceMicroLamports?: bigint;
     feePayer: Address;
-    tree: Address;
+    inputTree: Address;
+    outputTree: Address;
     setupInstructions?: readonly Instruction[];
     withdrawal?: TransactWithdrawal;
     data: TransactInstructionData;
@@ -674,7 +677,8 @@ export function buildUnsignedTransaction(
   }>,
 ): Transaction {
   checkedAddress(input.feePayer, "feePayer");
-  checkedAddress(input.tree, "tree");
+  checkedAddress(input.inputTree, "inputTree");
+  checkedAddress(input.outputTree, "outputTree");
   const instructions = privateTransactionInstructions({ ...input, payer: input.feePayer });
   return checkedTransactionSize(
     compileKitTransaction(input.feePayer, input.lifetime, instructions),
@@ -690,13 +694,15 @@ function privateTransactionInstructions(
     computeUnitLimit: number;
     computeUnitPriceMicroLamports?: bigint;
     payer: Address;
-    tree: Address;
+    inputTree: Address;
+    outputTree: Address;
     setupInstructions?: readonly Instruction[];
     withdrawal?: TransactWithdrawal;
     data: TransactInstructionData;
   }>,
 ): readonly Instruction[] {
-  checkedAddress(input.tree, "tree");
+  checkedAddress(input.inputTree, "inputTree");
+  checkedAddress(input.outputTree, "outputTree");
   checkedU32(input.computeUnitLimit, "computeUnitLimit");
   checkedComputeUnitPrice(input.computeUnitPriceMicroLamports);
   return [
@@ -711,7 +717,8 @@ function privateTransactionInstructions(
     ...(input.setupInstructions ?? []),
     transactInstruction({
       payer: input.payer,
-      tree: input.tree,
+      inputTree: input.inputTree,
+      outputTree: input.outputTree,
       data: input.data,
       ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
     }),

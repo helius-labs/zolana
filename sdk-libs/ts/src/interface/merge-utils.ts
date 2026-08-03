@@ -1,4 +1,4 @@
-import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/core.js";
+import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
 import { InterfaceError } from "./errors.js";
 import { copyBytes } from "./internal.js";

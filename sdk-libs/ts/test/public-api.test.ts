@@ -31,8 +31,15 @@ import {
   getCreateSplInterfaceInstructionAsync,
   getCreateTreeInstructionAsync,
   getDepositInstructionAsync,
+  getTransactInstruction,
 } from "../src/instructions.js";
-import { InstructionTag, type Bytes32 } from "../src/interface/index.js";
+import {
+  InstructionTag,
+  type Bytes16,
+  type Bytes32,
+  type Bytes33,
+  type Bytes64,
+} from "../src/interface/index.js";
 import { internalUserRecordPda } from "../src/wallet/registry.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
@@ -222,5 +229,44 @@ describe("address and instruction builders", () => {
         })
       ).accounts?.at(-1)?.address,
     ).toBe(SPL_TOKEN_PROGRAM_ID);
+  });
+
+  it("keeps input and output trees explicit in the transact builder", () => {
+    const payer = { address: OWNER } as TransactionSigner;
+    const instruction = getTransactInstruction({
+      payer,
+      inputTree: DEFAULT_TREE_ADDRESS,
+      outputTree: OWNER,
+      data: {
+        expiryUnixTs: 0n,
+        privateTxHash: new Uint8Array(32) as Bytes32,
+        circuit: {
+          kind: "confidentialEddsa",
+          inputs: 0,
+          outputs: 0,
+          publicAssetSlots: 3,
+        },
+        txViewingPk: new Uint8Array(33) as Bytes33,
+        salt: new Uint8Array(16) as Bytes16,
+        proof: {
+          a: new Uint8Array(32) as Bytes32,
+          b: new Uint8Array(64) as Bytes64,
+          c: new Uint8Array(32) as Bytes32,
+        },
+        inputs: [],
+        interfaceTransfers: [],
+        outputs: [],
+        messages: [],
+      },
+    });
+
+    expect(instruction.accounts?.[1]).toMatchObject({
+      address: DEFAULT_TREE_ADDRESS,
+      role: AccountRole.WRITABLE,
+    });
+    expect(instruction.accounts?.[2]).toMatchObject({
+      address: OWNER,
+      role: AccountRole.WRITABLE,
+    });
   });
 });

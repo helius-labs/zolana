@@ -1,45 +1,103 @@
-import {
-  initializePoseidon as initializeFromArtifact,
-  initializePoseidonLazy,
-  type PoseidonArtifact,
-} from "./slim/index.js";
+import { WasmFactory, type LightWasm } from "@lightprotocol/hasher.rs";
 
-export {
-  HasherWasmError,
-  isPoseidonInitialized,
-  MAX_POSEIDON_INPUTS,
-  poseidon,
-  resetPoseidonForTests,
-} from "./core.js";
+/** A rejection from the Poseidon runtime, carrying the matching Rust hasher code. */
+export class HasherWasmError extends Error {
+  readonly code: number;
 
-async function defaultArtifact(): Promise<PoseidonArtifact> {
-  const url = new URL("./poseidon.wasm", import.meta.url);
-  if (url.protocol === "file:") {
-    if (typeof process === "undefined" || process.getBuiltinModule === undefined) {
-      throw new Error("pass the Poseidon WASM bytes when loading from a file URL");
-    }
-    const fileSystem = process.getBuiltinModule(
-      "node:fs/promises",
-    ) as typeof import("node:fs/promises");
-    return fileSystem.readFile(url);
+  constructor(code: number, message: string) {
+    super(message);
+    this.name = "HasherWasmError";
+    this.code = code;
   }
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`failed to load Poseidon WASM (${String(response.status)})`);
-  }
-  return response;
 }
 
-/**
- * Loads the package's sibling WASM asset in Node or a browser. A custom source
- * can be supplied by hosts that relocate package assets.
- */
-export async function initializePoseidon(
-  artifact?: PoseidonArtifact | Promise<PoseidonArtifact>,
-): Promise<void> {
-  if (artifact === undefined) {
-    await initializePoseidonLazy(defaultArtifact);
-  } else {
-    await initializeFromArtifact(artifact);
+const FIELD_BYTES = 32;
+
+/** The widest digest supported by both the runtime and the Solana verifier. */
+export const MAX_POSEIDON_INPUTS = 12;
+
+const ERROR_ARITY = 1;
+const ERROR_UNINITIALIZED = 2;
+const ERROR_POSEIDON = 7002;
+const ERROR_INVALID_INPUT_LENGTH = 7005;
+
+let loaded: LightWasm | undefined;
+let loading: Promise<LightWasm> | undefined;
+
+/** Loads the dependency-backed hasher once while keeping hashing synchronous. */
+export async function initializePoseidon(): Promise<void> {
+  if (loaded !== undefined) return;
+  loading ??= WasmFactory.loadHasher();
+  try {
+    loaded = await loading;
+  } catch (error) {
+    loading = undefined;
+    throw error;
   }
+}
+
+/** Whether `poseidon` can be called. */
+export function isPoseidonInitialized(): boolean {
+  return loaded !== undefined;
+}
+
+/** @internal Drops the loaded module so tests can exercise initialization. */
+export function resetPoseidonForTests(): void {
+  loaded = undefined;
+  loading = undefined;
+  WasmFactory.resetModule();
+}
+
+/** Hashes one to twelve unsigned big-endian field elements. */
+export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
+  const active = loaded;
+  if (active === undefined) {
+    throw new HasherWasmError(
+      ERROR_UNINITIALIZED,
+      "the Poseidon hasher is not loaded; await initializePoseidon() once before hashing",
+    );
+  }
+  if (inputs.length === 0 || inputs.length > MAX_POSEIDON_INPUTS) {
+    throw new HasherWasmError(
+      ERROR_ARITY,
+      `Poseidon takes 1 to ${String(MAX_POSEIDON_INPUTS)} inputs, received ${String(inputs.length)}`,
+    );
+  }
+
+  const decimalInputs = inputs.map((input, index) => {
+    if (input.length > FIELD_BYTES) {
+      throw new HasherWasmError(
+        ERROR_INVALID_INPUT_LENGTH,
+        `Poseidon input ${String(index)} is ${String(input.length)} bytes, the field takes 32`,
+      );
+    }
+    let value = 0n;
+    for (const byte of input) value = (value << 8n) | BigInt(byte);
+    return value.toString();
+  });
+  try {
+    return new Uint8Array(active.poseidonHash(decimalInputs));
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new HasherWasmError(ERROR_POSEIDON, `Poseidon rejected the input: ${reason}`);
+  }
+}
+
+/** Packs fixed-size bytes into 31-byte fields and folds them like Rust `hash_bytes`. */
+export function hashBytes(bytes: Uint8Array): Uint8Array {
+  if (bytes.length === 0) return new Uint8Array(FIELD_BYTES);
+  let offset = 0;
+  let result = packed(bytes.subarray(0, 31));
+  offset = 31;
+  while (offset < bytes.length) {
+    result = poseidon([result, packed(bytes.subarray(offset, offset + 31))]);
+    offset += 31;
+  }
+  return result;
+}
+
+function packed(bytes: Uint8Array): Uint8Array {
+  const field = new Uint8Array(FIELD_BYTES);
+  field.set(bytes, FIELD_BYTES - bytes.length);
+  return field;
 }
