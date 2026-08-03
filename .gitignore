@@ -35,3 +35,11 @@ target-linux-x64/
 /lcov.info
 /coverage.json
 /coverage-html/
+
+# PoC generated artifacts: the wasm prover, its Go shim, and linked proving keys.
+poc/web/public/prover/
+poc/web/public/keys/
+poc/web/dist/
+poc/core/src/vendor/
+# `go build ./cmd/prover-wasm/` without -o drops an 18MB module here.
+prover/server/prover-wasm

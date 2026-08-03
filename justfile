@@ -199,6 +199,115 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
 
 test-ts-all: test-ts test-ts-e2e
 
+# --- PoC UIs (poc/web, poc/native) -------------------------------------------
+
+# Compile the browser proving module: Zolana's gnark Groth16 path as js/wasm,
+# plus the matching wasm_exec.js shim from the same Go toolchain.
+# The .wasm is fetched at runtime so it goes in public/; the shim is imported by
+# the worker and Vite refuses to import out of public/, so it is vendored into the
+# shared core and bundled.
+build-prover-wasm:
+    prover/server/scripts/build_prover_wasm.sh poc/web/public/prover poc/core/src/vendor
+
+# Stage proving keys where the web PoC can fetch them same-origin. Hardlinked,
+# not symlinked: Vite's static middleware does not follow a symlink out of the
+# app directory and answers its SPA fallback instead, and not copied either
+# because the keys are 7.6-37MB each. Falls back to a copy across filesystems.
+poc-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    keys_dir="{{spp-keys-dir}}"
+    [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
+    if [[ ! -d "$keys_dir" ]]; then
+      echo "no proving keys at $keys_dir -- run 'just build-prover-server' or the key download first" >&2
+      exit 1
+    fi
+    dest="poc/web/public/keys"
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    shopt -s nullglob
+    linked=0
+    for key in "$keys_dir"/transfer_confidential_*.key "$keys_dir"/merge_8_1.key; do
+      # merge_8_1.key is a literal path, so nullglob does not drop it when the
+      # key has not been downloaded. Only the glob above is self-skipping.
+      [[ -f "$key" ]] || continue
+      target="$dest/$(basename "$key")"
+      ln "$key" "$target" 2>/dev/null || cp "$key" "$target"
+      linked=$((linked + 1))
+    done
+    # The manifest is what the browser validates a downloaded key against. It is
+    # generated here rather than copied into source: the pinned key version moves
+    # with the branch, so every size and digest changes across a rebase.
+    node -e '
+      const fs = require("fs");
+      const lock = JSON.parse(
+        fs.readFileSync("prover/server/prover/provingkeys/proving-keys.lock", "utf8"),
+      );
+      const out = {};
+      for (const [name, entry] of Object.entries(lock.keys)) {
+        if (!/^transfer_confidential_|^merge_8_1/.test(name)) continue;
+        if (!fs.existsSync(`poc/web/public/keys/${name}`)) continue;
+        out[name] = { size: entry.size, sha256: entry.sha256 };
+      }
+      fs.writeFileSync("poc/web/public/keys/manifest.json", JSON.stringify(out, null, 2));
+      console.log(`manifest pins ${Object.keys(out).length} key(s) from ${lock.prefix}`);
+    '
+    echo "staged $linked proving key(s) into $dest"
+    echo "a key absent from the manifest reports a mismatch in the UI, which is expected"
+
+# Typecheck and build both PoC packages.
+poc-check: build-prover-wasm
+    npm run poc:typecheck
+    npm run poc:build
+
+# Vite dev server for the web PoC. Needs `just poc-keys` for local proving and a
+# running stack (`just poc-up`) for the shield/transfer/unshield run.
+poc-web: build-prover-wasm
+    VITE_ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
+      VITE_ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      VITE_ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
+      VITE_ZOLANA_TREE="${ZOLANA_TREE:-}" \
+      npm run poc:dev
+
+# Bring up the same stack `test-ts-e2e` uses and print the env the PoC needs.
+# Leaves the validator, Photon, and prover running; re-run to reset.
+poc-up: build-programs build-prover-server build-cli ensure-photon
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    bin="target/debug/zolana"
+    workdir="target/poc-stack"
+    rm -rf "$workdir"
+    mkdir -p "$workdir"
+    export ZOLANA_CONFIG_DIR="$PWD/$workdir"
+    photon_bin="{{photon-bin}}"
+    [[ "$photon_bin" = /* ]] || photon_bin="$PWD/$photon_bin"
+    keys_dir="{{spp-keys-dir}}"
+    [[ "$keys_dir" = /* ]] || keys_dir="$PWD/$keys_dir"
+    export ZOLANA_PHOTON_BIN="$photon_bin"
+    export ZOLANA_PROVER_KEYS_DIR="$keys_dir"
+    lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    sleep 2
+    "$bin" dev start --with-photon --no-use-surfpool \
+      --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
+      --photon-port {{localnet-photon-port}} \
+      --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
+      --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so
+    "$bin" config set --rpc-url {{localnet-rpc-url}} \
+      --indexer-url {{localnet-photon-url}} --prover-url {{localnet-prover-url}} >/dev/null
+    "$bin" wallet new --outfile "$workdir/authority.json"
+    tree="$("$bin" dev pool create-tree --keypair "$workdir/authority.json" \
+      --tree-keypair "$workdir/tree.json" --airdrop-lamports 20000000000 \
+      | sed -n 's/^ok tree //p')"
+    test -n "$tree"
+    printf '\nstack is up. Export these for the PoC:\n\n'
+    printf '  export VITE_ZOLANA_LOCALNET_URL=%s\n' "{{localnet-rpc-url}}"
+    printf '  export VITE_ZOLANA_INDEXER_URL=%s\n' "{{localnet-photon-url}}"
+    printf '  export VITE_ZOLANA_PROVER_URL=%s\n' "{{localnet-prover-url}}"
+    printf '  export VITE_ZOLANA_TREE=%s\n\n' "$tree"
+
 # Photon unit and SQLite-backed integration tests. The Postgres migration smoke
 # test runs in CI where a database service is available.
 test-photon:
