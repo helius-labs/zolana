@@ -1,18 +1,32 @@
 # @zolana/sdk
 
-The production TypeScript client for Zolana. It is one npm package built on
-`@solana/kit`; protocol modules are exposed as subpath exports rather than
-separate packages.
+`@zolana/sdk` is the TypeScript SDK for Zolana shielded assets on Solana. Use it
+to:
+
+- shield SOL, SPL Token, and Token-2022 assets;
+- read private balances and transaction history;
+- send confidential transfers;
+- withdraw to public Solana addresses; and
+- split or merge private notes when needed.
+
+## Install
 
 ```sh
 npm install @zolana/sdk @solana/kit
 ```
 
-## Build, sign, send, sync
+Requirements:
 
-`ZolanaClient` owns protocol reads and proving. It does not sign, send, or
-confirm Solana transactions. Every transaction builder returns a normal,
-unsigned Solana Kit `Transaction`.
+- Node.js 24 or newer;
+- a Solana RPC endpoint;
+- a Zolana indexer endpoint; and
+- a Zolana prover endpoint for private spends.
+
+## Quick start
+
+This example creates a wallet, syncs it, shields SOL, and reads the resulting
+balance and history. For the purpose of this demo the application supplies the Solana signer and stores its
+seed.
 
 ```ts
 import {
@@ -20,15 +34,18 @@ import {
   getSignatureFromTransaction,
   sendAndConfirmTransactionFactory,
   signTransactionWithSigners,
+  type Address,
+  type KeyPairSigner,
+  type Transaction,
 } from "@solana/kit";
 import {
   LocalWalletAuthority,
   ShieldedKeypair,
+  SOL_MINT,
   Wallet,
   buildDepositTransaction,
-  buildRegistrationTransaction,
-  buildTransferTransaction,
   createZolanaClient,
+  getPrivateTransactions,
   syncWallet,
   type Bytes32,
 } from "@zolana/sdk";
@@ -39,146 +56,172 @@ const client = await createZolanaClient({
   proverUrl: "https://prover.example.com",
 });
 
-declare function loadEd25519Seed(name: string): Promise<Bytes32>;
+// Load this from the app wallet or key store.
+declare function loadOwnerSeed(): Promise<Bytes32>;
+const ownerSeed = await loadOwnerSeed();
 
-const fundingSeed = await loadEd25519Seed("funding");
-const recipientSeed = await loadEd25519Seed("recipient");
-const funding = await createKeyPairSignerFromPrivateKeyBytes(fundingSeed);
-const recipient = await createKeyPairSignerFromPrivateKeyBytes(recipientSeed);
+const feePayer = await createKeyPairSignerFromPrivateKeyBytes(ownerSeed);
+const keypair = ShieldedKeypair.fromEd25519(ownerSeed, 0);
+ownerSeed.fill(0);
+
+const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+const authority = new LocalWalletAuthority({
+  solanaPublicKey: feePayer.address,
+  keypair,
+});
+
 const sendAndConfirm = sendAndConfirmTransactionFactory({
   rpc: client.solanaRpc,
   rpcSubscriptions: client.solanaRpcSubscriptions,
 });
 
-async function submit(transaction, signers) {
-  const signed = await signTransactionWithSigners(signers, transaction);
+async function submit(transaction: Transaction, signer: KeyPairSigner) {
+  const signed = await signTransactionWithSigners([signer], transaction);
   await sendAndConfirm(signed, { commitment: "confirmed" });
   return getSignatureFromTransaction(signed);
 }
 
-const keypair = ShieldedKeypair.fromEd25519(fundingSeed, 0);
-const recipientKeypair = ShieldedKeypair.fromEd25519(recipientSeed, 0);
-const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-const authority = new LocalWalletAuthority({
-  solanaPublicKey: funding.address,
-  keypair,
-});
-
-const registration = await buildRegistrationTransaction({
+await syncWallet({
   client,
-  owner: funding.address,
-  address: keypair.shieldedAddress(),
+  wallet,
+  authority,
 });
-if (registration) await submit(registration, [funding]);
-
-const recipientRegistration = await buildRegistrationTransaction({
-  client,
-  owner: recipient.address,
-  address: recipientKeypair.shieldedAddress(),
-});
-if (recipientRegistration) await submit(recipientRegistration, [recipient]);
 
 const deposit = await buildDepositTransaction({
   client,
-  feePayer: funding.address,
+  feePayer: feePayer.address,
   recipient: keypair.shieldedAddress(),
   amount: 100_000_000n,
 });
-await submit(deposit, [funding]);
-await syncWallet({ client, wallet, authority });
+await submit(deposit, feePayer);
+
+await syncWallet({
+  client,
+  wallet,
+  authority,
+  config: { waitForIndexer: true },
+});
+
+console.log(wallet.balance(SOL_MINT).amount);
+console.log(getPrivateTransactions(wallet));
+```
+
+For an Ed25519 spending wallet, the shielded identity and Solana signer must use
+the same owner seed, as shown above.
+
+## Common transactions
+
+These snippets continue from the setup used in quickstart.
+
+### Deposit
+
+The quick start shows a SOL deposit. For an SPL token, provide its mint and the
+depositor's source token account:
+
+```ts
+const deposit = await buildDepositTransaction({
+  client,
+  feePayer: feePayer.address,
+  recipient: keypair.shieldedAddress(),
+  asset: mint,
+  splTokenAccount: sourceTokenAccount,
+  amount: 1_000_000n,
+});
+await submit(deposit, feePayer);
+```
+
+The standard SPL Token program is used by default. For Token-2022, also pass
+`splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`.
+
+### Confidential transfer
+
+A transfer normally targets the recipient's registered Solana public key.
+
+```ts
+import { buildTransferTransaction } from "@zolana/sdk";
+
+declare const recipientSolanaAddress: Address;
 
 const transfer = await buildTransferTransaction({
   client,
   wallet,
   authority,
-  feePayer: funding.address,
-  recipient: recipient.address,
+  feePayer: feePayer.address,
+  recipient: recipientSolanaAddress,
   amount: 25_000_000n,
 });
-await submit(transfer, [funding]);
-await syncWallet({ client, wallet, authority });
+await submit(transfer, feePayer);
+await syncWallet({ client, wallet, authority, config: { waitForIndexer: true } });
 ```
 
-The lean SDK supports Ed25519 signing identities for registration and ordinary
-transactions. `ShieldedKeypair.generate()` defaults to that rail, but a
-registered owner should derive its shielded keypair from the same 32-byte
-Ed25519 seed as its Solana signer, as shown above. Viewing keys remain P256.
-Explicit `ShieldedKeypair.generate("p256")` remains available for compatibility,
-but `buildRegistrationTransaction` rejects it because this SDK does not
-construct the required secp256r1 binding proof. Ordinary P256 transact/ring
-execution is also unsupported.
+The SDK automatically resolves the recipient's registered shielded address. To
+bypass that lookup, you can also pass a `ShieldedAddress` directly. Note that this will also bypass the isRegistered check, so bypass with caution. 
 
-There are two separate authorization layers:
+Pass `asset: mint` for an SPL or Token-2022 balance.
 
-1. `buildTransferTransaction`, `buildWithdrawalTransaction`,
-   `buildSplitTransaction`, and `buildMergeTransaction` ask the
-   `WalletAuthority` for private approval, encrypt outputs, retrieve proofs, and
-   assemble the protocol instruction.
-2. The application supplies the final Solana signature with ordinary Kit APIs,
-   then sends and confirms through its own RPC flow.
+### Withdrawal
 
-After a private transaction lands, call `syncWallet` before building the next
-spend. Builders intentionally do not reserve or mark notes as spent. Building
-concurrent spends from the same unsynchronized wallet snapshot creates
-conflicting transactions; on-chain nullifiers ensure that at most one can land.
-
-Wallet discovery uses two stable tag families: one confidential tag from the
-shielded identity signing public key, plus one deposit/bootstrap tag from each
-retained viewing public key. For the supported Ed25519 rail, the confidential
-tag is the signing public key itself; it is not derived from the Solana fee
-payer. Sync also looks up every stored note nullifier, including spent notes, so
-transactions submitted by another device can mark local notes spent. A second,
-bounded nullifier lookup covers notes first discovered during the same sync.
-
-Call `syncWallet` once when loading persisted wallet state and after each
-confirmed transaction. Applications that need unsolicited inbound payments to
-appear promptly can add their own polling schedule; the SDK does not start a
-background poller.
-
-The public transaction builders are `buildDepositTransaction`,
-`buildTransferTransaction`, `buildWithdrawalTransaction`,
-`buildSplitTransaction`, and `buildMergeTransaction`. SPL withdrawals include
-idempotent recipient ATA creation in the same transaction, including Token-2022
-when `splTokenProgram` is supplied.
-
-A transfer performs one user-record lookup when resolving a Solana recipient.
-An unregistered Solana recipient is rejected; use
-`buildWithdrawalTransaction` for public settlement.
-
-## Instruction builders
-
-Low-level builders follow the Solana program-client naming convention:
+Withdraw to a public Solana address:
 
 ```ts
-import {
-  getCreateTreeInstructionAsync,
-  getDepositInstructionAsync,
-  getTransactInstruction,
-} from "@zolana/sdk/instructions";
+import { buildWithdrawalTransaction } from "@zolana/sdk";
+
+const withdrawal = await buildWithdrawalTransaction({
+  client,
+  wallet,
+  authority,
+  feePayer: feePayer.address,
+  recipient: publicRecipient,
+  amount: 10_000_000n,
+});
+await submit(withdrawal, feePayer);
+await syncWallet({ client, wallet, authority, config: { waitForIndexer: true } });
 ```
 
-Builders ending in `Async` derive one or more PDAs. They do not perform network
-requests. Signer accounts accept Kit `TransactionSigner` objects, so their
-signers are carried into the transaction message automatically; an `Address`
-can still be supplied for offline or externally signed flows.
+For an SPL withdrawal, pass `asset: mint`. Token-2022 withdrawals also take
+`splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`; the recipient token account is
+created idempotently when needed.
 
-Policy-zone instructions and proving are not exposed by the TypeScript SDK.
-Zone metadata is still decoded and persisted for protocol compatibility, while
-wallet actions select only unbound notes.
+## Wallet sync and persistence
 
-Use `serializeWallet` and `deserializeWallet` to persist resumable wallet state.
-Serialized state contains private note plaintext and must be encrypted at rest.
+Call `syncWallet`:
 
-## Package subpaths
+- when loading a wallet;
+- after each confirmed deposit, transfer, withdrawal, split, or merge; and
+- optionally when the app regains focus or on a timer to discover inbound
+  transfers.
 
-- `@zolana/sdk` — common client, key material, wallet, and transaction builders
-- `@zolana/sdk/instructions` — instruction builders and instruction data types
-- `@zolana/sdk/addresses` — PDA and associated-token address helpers
-- `@zolana/sdk/client`, `/interface`, `/keypair`, `/transaction`, `/wallet` —
-  advanced protocol surfaces
+Do not build another private spend until the wallet has synced after the
+previous confirmed transaction.
 
-`createZolanaClient` initializes the dependency-backed Poseidon hasher once.
-Applications that only use cryptographic primitives can call
-`initializePoseidon()` directly.
-Indexer and prover endpoints must use HTTPS; HTTP is accepted only for loopback
-hosts during local development.
+Persist wallet state with `serializeWallet` and restore it with
+`deserializeWallet`. Persist key material separately. Serialized wallet state
+contains private note data and must be encrypted at rest.
+
+## Public API
+
+Common exports from `@zolana/sdk` include:
+
+- setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`,
+  `LocalWalletAuthority`;
+- transactions: `buildDepositTransaction`, `buildTransferTransaction`,
+  `buildWithdrawalTransaction`, `buildSplitTransaction`,
+  `buildMergeTransaction`;
+- state: `syncWallet`, `getPrivateTokenBalances`, `getPrivateTransactions`,
+  `serializeWallet`, `deserializeWallet`; and
+- registration: `buildRegistrationTransaction`.
+
+Advanced protocol users can import low-level instruction builders from
+`@zolana/sdk/instructions`. PDA helpers are available from
+`@zolana/sdk/addresses`; additional typed surfaces are exposed under
+`@zolana/sdk/client`, `/interface`, `/keypair`, `/transaction`, and `/wallet`.
+
+## Important notes
+
+- Ed25519 is the supported owner rail for registration and private
+  transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
+- Viewing keys are P256 on every wallet; this is expected and is separate from
+  unsupported P256 owner registration or spending.
+- Non-loopback indexer and prover URLs must use HTTPS.
+- Protect signer seeds and shielded key material. Encrypt serialized wallet
+  state and avoid logging private balances, notes, or keys.
