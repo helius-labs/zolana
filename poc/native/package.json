@@ -1,0 +1,23 @@
+{
+  "name": "@zolana/poc-native",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React Native (Expo) PoC: Zolana shape benchmarks with native or remote proving.",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "expo": "~54.0.0",
+    "expo-status-bar": "~3.0.0",
+    "react": "19.2.0",
+    "react-native": "0.82.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "typescript": "^7.0.2"
+  }
+}

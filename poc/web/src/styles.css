@@ -1,0 +1,190 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #14161a;
+  --muted: #5d646e;
+  --line: #dfe3e8;
+  --panel: #f7f8fa;
+  --accent: #2d6cdf;
+  --fail: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --fg: #e8eaed;
+    --muted: #9aa2ad;
+    --line: #2a2e35;
+    --panel: #1b1e24;
+    --accent: #7aa7f5;
+    --fail: #f2857c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    14px/1.5 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+h1 {
+  font-size: 1.35rem;
+  margin: 0 0 1.25rem;
+}
+
+h2 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.wrap {
+  overflow-wrap: anywhere;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.row label {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+label.inline {
+  color: var(--muted);
+}
+
+button {
+  font: inherit;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hint,
+.status,
+.empty {
+  color: var(--muted);
+  margin: 0.75rem 0 0;
+}
+
+/* Wide tables scroll inside their own box so the page never scrolls sideways. */
+.bench {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.bench th,
+.bench td {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.bench th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  color: var(--muted);
+}
+
+.indent {
+  padding-left: 1.75rem;
+  color: var(--muted);
+}
+
+tr.run td {
+  border-top: 1px solid var(--line);
+}
+
+tr.failed td {
+  color: var(--fail);
+}
+
+.tag {
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+
+.log {
+  margin: 0;
+  padding: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow-x: auto;
+  font:
+    12px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
