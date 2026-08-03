@@ -1,13 +1,7 @@
-import { getAddressEncoder, signTransactionWithSigners, type TransactionSigner } from "@solana/kit";
+import { getAddressEncoder } from "@solana/kit";
 
-export type { TransactionSigner } from "@solana/kit";
-
-import { isTransactionSignOnlySigner } from "../client/kit.js";
 import type { ZolanaClient } from "../client/client.js";
-import type { TransactionSignOnlySigner } from "../client/kit.js";
-import type { Address, Bytes32, RequestContext, Signature } from "../interface/types.js";
-import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
-import { associatedTokenAddress } from "../interface/pda/index.js";
+import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
 import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
@@ -19,42 +13,11 @@ import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey, equalBytes } from "./internal.js";
-import { internalMergeSubmissionRecord, type MergeSubmissionRecord } from "./registry.js";
+import { internalMergeRecord, type MergeRecord } from "./registry.js";
 
 const addressEncoder = getAddressEncoder();
 
-export async function createAssociatedTokenAccount(
-  input: Readonly<{
-    client: Pick<ZolanaClient, "signAndSendInstructions">;
-    payer: TransactionSigner;
-    owner: Address;
-    mint: Address;
-    tokenProgram?: Address | null;
-  }>,
-  context?: RequestContext,
-): Promise<Readonly<{ signature: Signature; address: Address }>> {
-  try {
-    const associatedAccount = await associatedTokenAddress(
-      input.owner,
-      input.mint,
-      input.tokenProgram,
-    );
-    const instruction = await createAssociatedTokenAccountInstruction({
-      payer: input.payer,
-      owner: input.owner,
-      mint: input.mint,
-      ...(input.tokenProgram === undefined ? {} : { tokenProgram: input.tokenProgram }),
-    });
-    const signature = await input.client.signAndSendInstructions(
-      { feePayer: input.payer, instructions: [instruction] },
-      context,
-    );
-    return Object.freeze({ signature, address: associatedAccount });
-  } catch (cause) {
-    throw wrapWalletError("WALLET_CREATE_ASSOCIATED_TOKEN_ACCOUNT", cause);
-  }
-}
-
+/** @internal */
 export interface MergeParams {
   readonly wallet: Wallet;
   readonly material: MergeMaterial;
@@ -62,6 +25,7 @@ export interface MergeParams {
   readonly inputs?: readonly Bytes32[];
 }
 
+/** @internal */
 export interface CreatedMerge {
   readonly prepared: PreparedMerge;
   readonly numInputs: number;
@@ -69,6 +33,7 @@ export interface CreatedMerge {
   readonly tree: Address;
 }
 
+/** @internal */
 export function createMerge(params: MergeParams): CreatedMerge {
   const eligible = params.wallet
     .utxos()
@@ -150,6 +115,7 @@ function selectMergeEntries(
   return selected;
 }
 
+/** @internal */
 export class MergeMaterial {
   readonly signingPublicKey: ShieldedPublicKey;
   readonly viewingPublicKey: P256PublicKey;
@@ -184,59 +150,61 @@ export class MergeMaterial {
   }
 }
 
-type MergeSubmissionClient = Pick<
-  ZolanaClient,
-  | "tree"
-  | "getAccount"
-  | "getInputMerkleProofs"
-  | "getNonInclusionProofs"
-  | "proveMerge"
-  | "finishMergeSubmissionUnsigned"
-  | "sendTransaction"
->;
-
-export interface SubmitMergeTransaction {
-  readonly client: MergeSubmissionClient;
-  readonly owner: Address;
-  readonly payer: TransactionSignOnlySigner;
-  readonly material: MergeMaterial;
-  readonly tree: Address;
-  readonly prepared: PreparedMerge;
-  readonly skipPreflight?: boolean;
-}
-
-export interface SubmittedMerge {
-  readonly signature: Signature;
-  readonly outputHash: Bytes32;
-  readonly outputTag: Bytes32;
-}
-
-export interface MergeActionParams {
-  readonly client: MergeSubmissionClient & Pick<ZolanaClient, "confirmPrivateTransaction">;
+export interface MergeTransactionParams {
+  readonly client: ZolanaClient;
   readonly wallet: Wallet;
   readonly authority: WalletAuthority;
-  readonly feePayer: TransactionSignOnlySigner;
+  readonly feePayer: Address;
   readonly asset?: Address;
   readonly inputs?: readonly Bytes32[];
-  readonly skipPreflight?: boolean;
-  readonly waitForIndexer?: boolean;
 }
 
-export interface SubmittedMergeAction extends SubmittedMerge {
-  readonly numInputs: number;
-  readonly mergedAmount: bigint;
+export async function buildMergeTransaction(
+  input: MergeTransactionParams,
+  context?: RequestContext,
+): Promise<Transaction> {
+  try {
+    const owner = input.authority.solanaPublicKey();
+    const material = MergeMaterial.fromSyncMaterial(await input.authority.syncMaterial());
+    const created = createMerge({
+      wallet: input.wallet,
+      material,
+      asset: input.asset ?? SOL_MINT,
+      ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
+    });
+    await input.authority.requestUserApproval({
+      solanaPublicKey: owner,
+      summary: `merge ${String(created.numInputs)} private inputs`,
+    });
+    const record = await internalMergeRecord({ rpc: input.client, owner }, context);
+    validateMergeBuild(record, owner, material);
+    if (input.client.tree !== created.tree) {
+      throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
+        details: { proofTree: input.client.tree, submitTree: created.tree },
+      });
+    }
+    const proved = await input.client.proveMerge(
+      {
+        prepared: created.prepared,
+        material,
+        indexer: treeCheckedIndexer(input.client, created.tree),
+      },
+      context,
+    );
+    return await input.client.assembleAuthorizedMergeTransaction(
+      {
+        proved,
+        feePayer: input.feePayer,
+        userRecord: record.recordAddress,
+      },
+      context,
+    );
+  } catch (cause) {
+    throw wrapWalletError("WALLET_BUILD_MERGE", cause);
+  }
 }
 
-/**
- * The registry record commits the identity the on-chain program checks, so a
- * mismatch can only fail after a proof has been paid for. Each key is reported
- * separately because they fail for unrelated reasons.
- */
-function validateMergeSubmission(
-  record: MergeSubmissionRecord,
-  owner: Address,
-  material: MergeMaterial,
-): void {
+function validateMergeBuild(record: MergeRecord, owner: Address, material: MergeMaterial): void {
   if (!record.mergingEnabled) {
     throw new WalletError("WALLET_MERGE_DISABLED", { details: { owner } });
   }
@@ -262,11 +230,6 @@ function validateMergeSubmission(
   }
 }
 
-/**
- * A merge proof only verifies against the tree its input proofs were resolved
- * from, so an indexer answering from another tree must be rejected before the
- * proof is paid for.
- */
 function treeCheckedIndexer(
   indexer: Pick<ZolanaClient, "getInputMerkleProofs" | "getNonInclusionProofs">,
   submitTree: Address,
@@ -278,12 +241,13 @@ function treeCheckedIndexer(
         for (const proofTree of [
           proof.state.merkleContext.tree,
           proof.nullifier.merkleContext.tree,
-        ])
+        ]) {
           if (proofTree !== submitTree) {
             throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
               details: { proofTree, submitTree },
             });
           }
+        }
       }
       return proofs;
     },
@@ -299,115 +263,4 @@ function treeCheckedIndexer(
       return response;
     },
   };
-}
-
-export async function submitMergeTransaction(
-  request: SubmitMergeTransaction,
-  context?: RequestContext,
-): Promise<SubmittedMerge> {
-  try {
-    if (!isTransactionSignOnlySigner(request.payer)) {
-      throw new WalletError("WALLET_UNSUPPORTED_TRANSACTION_SIGNER");
-    }
-    const record = await internalMergeSubmissionRecord(
-      { rpc: request.client, owner: request.owner },
-      context,
-    );
-    validateMergeSubmission(record, request.owner, request.material);
-    const client = request.client;
-    if (client.tree !== request.tree) {
-      throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-        details: { proofTree: client.tree, submitTree: request.tree },
-      });
-    }
-    const proved = await client.proveMerge(
-      {
-        prepared: request.prepared,
-        material: request.material,
-        indexer: treeCheckedIndexer(client, request.tree),
-      },
-      context,
-    );
-    const transaction = await client.finishMergeSubmissionUnsigned(
-      {
-        proved,
-        feePayer: request.payer.address,
-        userRecord: record.recordAddress,
-      },
-      context,
-    );
-    const signed = await signTransactionWithSigners(
-      [request.payer],
-      transaction,
-      context?.signal === undefined ? undefined : { abortSignal: context.signal },
-    );
-    const signature = await client.sendTransaction(
-      signed,
-      request.skipPreflight === undefined ? {} : { skipPreflight: request.skipPreflight },
-      context,
-    );
-    return Object.freeze({
-      signature,
-      outputHash: proved.outputHash,
-      outputTag: request.material.signingPublicKey.confidentialViewTag(),
-    });
-  } catch (cause) {
-    throw wrapWalletError("WALLET_SUBMIT_MERGE", cause);
-  }
-}
-
-export async function merge(
-  input: MergeActionParams,
-  context?: RequestContext,
-): Promise<SubmittedMergeAction> {
-  try {
-    if (!isTransactionSignOnlySigner(input.feePayer)) {
-      throw new WalletError("WALLET_UNSUPPORTED_TRANSACTION_SIGNER");
-    }
-    const owner = input.authority.solanaPublicKey();
-    const material = MergeMaterial.fromSyncMaterial(await input.authority.syncMaterial());
-    const created = createMerge({
-      wallet: input.wallet,
-      material,
-      asset: input.asset ?? SOL_MINT,
-      ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
-    });
-    const reservation = input.wallet._reserveSubmission(
-      created.prepared.inputUtxoHashes().map(({ utxoHash }) => utxoHash),
-    );
-    let committed = false;
-    try {
-      await input.authority.requestUserApproval({
-        solanaPublicKey: owner,
-        summary: `merge ${String(created.numInputs)} private inputs`,
-      });
-      const submitted = await submitMergeTransaction(
-        {
-          client: input.client,
-          owner,
-          payer: input.feePayer,
-          material,
-          tree: created.tree,
-          prepared: created.prepared,
-          ...(input.skipPreflight === undefined ? {} : { skipPreflight: input.skipPreflight }),
-        },
-        context,
-      );
-      input.wallet._commitSubmission(reservation);
-      committed = true;
-      if (input.waitForIndexer !== false) {
-        await input.client.confirmPrivateTransaction(submitted.signature, context);
-      }
-      return Object.freeze({
-        ...submitted,
-        numInputs: created.numInputs,
-        mergedAmount: created.mergedAmount,
-      });
-    } catch (cause) {
-      if (!committed) input.wallet._releaseSubmission(reservation);
-      throw cause;
-    }
-  } catch (cause) {
-    throw wrapWalletError("WALLET_SUBMIT_MERGE", cause);
-  }
 }

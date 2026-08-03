@@ -33,7 +33,6 @@ import { SOL_MINT, type AssetRegistry } from "./asset.js";
 import {
   SENDER_HISTORY_ROW_BASE,
   newViewingKeyEntry,
-  type CounterpartyCounter,
   type PrivateTransaction,
   type PrivateTransactionDirection,
   type PrivateTransactionId,
@@ -45,17 +44,9 @@ import {
   hex,
 } from "./state.js";
 
-/**
- * Tags queried past each family's stored counter. A counterparty that has run
- * ahead by fewer than this many tags stays reachable on the next sync, so
- * lowering it can strand a wallet behind a fast sender.
- */
-export const DEFAULT_TAG_WINDOW = 64n;
-
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
-export interface WalletSyncConfig {
-  readonly tagWindow?: bigint;
+interface DecryptTransactionsConfig {
   /** Recorded as `Wallet.lastSynced` once the sync commits, as `Wallet::sync` records `synced_at`. */
   readonly syncedAt?: bigint;
 }
@@ -141,34 +132,6 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
   return { senderSites, recipientSites, unparsedTransactions };
 }
 
-/**
- * Walk one tag family from zero in `window`-sized steps, extending as long as a
- * step still hits a slot, and return the highest index that did. Rescanning
- * from zero is required when a first pass could not decode an unknown asset:
- * after registry backfill, the same fetched transaction must be visited again.
- */
-function scanStream(
-  window: bigint,
-  derive: (index: bigint) => Bytes32,
-  visit: (tag: string) => boolean,
-): bigint | undefined {
-  let maxPresent: bigint | undefined;
-  for (let base = 0n; ; base += window) {
-    const end = base + window > U64_MAX ? U64_MAX : base + window;
-    let hit = false;
-    for (let n = base; n < end; n++) {
-      if (!visit(hex(derive(n)))) continue;
-      hit = true;
-      maxPresent = n;
-    }
-    if (!hit || base + window > U64_MAX) return maxPresent;
-  }
-}
-
-function nextCount(current: bigint, maxPresent: bigint | undefined): bigint {
-  return maxPresent === undefined ? current : maxPresent + 1n;
-}
-
 function compareBigints(left: bigint, right: bigint): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -180,7 +143,7 @@ function compareAssets(left: Address, right: Address): number {
   return leftBytes < rightBytes ? -1 : leftBytes > rightBytes ? 1 : 0;
 }
 
-/** A rotated-in viewing key starts scanning from zero. */
+/** Retain every viewing key the authority can still use after rotation. */
 function ensureViewingKeyEntries(
   history: readonly ViewingKeyEntry[],
   viewingKeys: readonly ViewingKeyLike[],
@@ -194,42 +157,6 @@ function ensureViewingKeyEntries(
     entries.push(newViewingKeyEntry(key.publicKey(), 0n));
   }
   return entries;
-}
-
-/** Counters keyed by counterparty, the shape `HashMap<P256Pubkey, u64>` holds. */
-class CounterpartyCounters {
-  readonly #counters = new Map<string, { counterparty: P256PublicKey; count: bigint }>();
-
-  constructor(known: readonly CounterpartyCounter[]) {
-    for (const entry of known) {
-      this.#counters.set(hex(entry.counterparty.toBytes()), { ...entry });
-    }
-  }
-
-  /** Adds a newly seen counterparty at zero, keeping a counter already held. */
-  discover(counterparty: P256PublicKey): void {
-    const id = hex(counterparty.toBytes());
-    if (this.#counters.has(id)) return;
-    this.#counters.set(id, { counterparty, count: 0n });
-  }
-
-  entries(): readonly CounterpartyCounter[] {
-    return [...this.#counters.values()].map((entry) => Object.freeze({ ...entry }));
-  }
-
-  advance(scan: (counterparty: P256PublicKey, count: bigint) => bigint | undefined): void {
-    // Snapshotted before the walk: a counterparty discovered by one shared-tag
-    // scan is only scanned on the next sync, as it is in Rust.
-    for (const entry of Array.from(this.#counters.values())) {
-      entry.count = nextCount(entry.count, scan(entry.counterparty, entry.count));
-    }
-  }
-}
-
-/** What one decoded slot revealed about who the wallet transacted with. */
-interface SlotOutcome {
-  sender?: P256PublicKey;
-  recipients: readonly P256PublicKey[];
 }
 
 function historyId(tx: IndexedShieldedTransaction, index: bigint): PrivateTransactionId {
@@ -568,12 +495,7 @@ class SyncPass {
    * slot with it: change slots net the spent inputs down, recipient slots
    * reveal the counterparties. Dummy slots fail the decrypt and are skipped.
    */
-  recordConfidentialSend(
-    tx: IndexedShieldedTransaction,
-    index: number,
-    key: ViewingKeyLike,
-    knownRecipients: CounterpartyCounters,
-  ): void {
+  recordConfidentialSend(tx: IndexedShieldedTransaction, index: number, key: ViewingKeyLike): void {
     const firstNullifier = tx.nullifiers[0];
     const salt = tx.salt;
     if (tx.txViewingPublicKey === undefined || firstNullifier === undefined || salt === undefined) {
@@ -611,7 +533,6 @@ class SyncPass {
       kind,
       recipientKeys.length === 1 ? recipientKeys[0] : undefined,
     );
-    for (const recipient of recipientKeys) knownRecipients.discover(recipient);
   }
 
   /**
@@ -620,25 +541,25 @@ class SyncPass {
    * committed leaf; the anonymous and split sender bundles, passed as slot 0,
    * store their change against the whole transaction.
    */
-  decodeSlot(key: ViewingKeyLike, site: Site): SlotOutcome {
-    const outcome: SlotOutcome = { recipients: [] };
+  decodeSlot(key: ViewingKeyLike, site: Site): void {
     const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
-    if (this.#processedSlots.has(siteKey)) return outcome;
+    if (this.#processedSlots.has(siteKey)) return;
     const tx = this.#transactions[site.transaction];
     const slot = tx?.outputSlots[site.slot];
     if (tx === undefined || slot === undefined) {
       this.undecryptableCandidates++;
-      return outcome;
+      return;
     }
     if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      return this.#reconstructMerge(tx, site, siteKey);
+      this.#reconstructMerge(tx, site, siteKey);
+      return;
     }
     let frame: ReturnType<typeof readOutputData>;
     try {
       frame = readOutputData(slot.payload);
     } catch {
       this.undecryptableCandidates++;
-      return outcome;
+      return;
     }
     const { outputContext } = slot;
     const { body } = frame;
@@ -651,7 +572,7 @@ class SyncPass {
         utxo = prooflessUtxo(deposit, this.#owner);
       } catch (error) {
         this.#noteUndecryptable(error, siteKey);
-        return outcome;
+        return;
       }
       this.#resolveAssetCandidate(siteKey);
       if (
@@ -660,7 +581,7 @@ class SyncPass {
         this.#processedSlots.add(siteKey);
         this.#recordDeposit(tx, outputContext, utxo);
       }
-      return outcome;
+      return;
     }
 
     if (frame.encoding === "plaintext" && frame.scheme === EncryptedScheme.plaintextTransfer) {
@@ -669,12 +590,12 @@ class SyncPass {
         utxos = plaintextTransferUtxos(decodePlaintextTransfer(body), this.#assets, SOL_MINT);
       } catch (error) {
         this.#noteUndecryptable(error, siteKey);
-        return outcome;
+        return;
       }
       this.#resolveAssetCandidate(siteKey);
       for (const utxo of utxos) this.#storeInTx(utxo, tx);
       this.#processedSlots.add(siteKey);
-      return outcome;
+      return;
     }
 
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousRecipient) {
@@ -686,15 +607,14 @@ class SyncPass {
         utxo = anonymousRecipientUtxo(plaintext, this.#assets);
       } catch (error) {
         this.#noteUndecryptable(error, siteKey);
-        return outcome;
+        return;
       }
       this.#resolveAssetCandidate(siteKey);
       if (this.#storeRecipientUtxos([utxo], outputContext, undefined, undefined)) {
         this.#processedSlots.add(siteKey);
-        outcome.sender = sender;
         this.#recordReceived(tx, site.slot, sender, utxo);
       }
-      return outcome;
+      return;
     }
 
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.confidential) {
@@ -708,7 +628,7 @@ class SyncPass {
         );
       } catch (error) {
         this.#noteUndecryptable(error, siteKey);
-        return outcome;
+        return;
       }
       this.#resolveAssetCandidate(siteKey);
       if (this.#storeRecipientUtxos([utxo], outputContext, undefined, undefined)) {
@@ -719,7 +639,7 @@ class SyncPass {
         // inbound receipt.
         if (!this.#authored(tx, key)) this.#recordReceived(tx, site.slot, undefined, utxo);
       }
-      return outcome;
+      return;
     }
 
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousSender) {
@@ -731,12 +651,11 @@ class SyncPass {
         change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT);
       } catch (error) {
         this.#noteUndecryptable(error, siteKey);
-        return outcome;
+        return;
       }
       this.#resolveAssetCandidate(siteKey);
       for (const utxo of change) this.#storeInTx(utxo, tx);
       this.#processedSlots.add(siteKey);
-      outcome.recipients = recipients;
       if (!this.#processedOutbound.has(site.transaction)) {
         this.#processedOutbound.add(site.transaction);
         const kind = recipients.length === 0 ? "publicWithdrawal" : "privateTransfer";
@@ -748,7 +667,7 @@ class SyncPass {
           recipients.length === 1 ? recipients[0] : undefined,
         );
       }
-      return outcome;
+      return;
     }
 
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.split) {
@@ -761,7 +680,7 @@ class SyncPass {
         );
       } catch (error) {
         this.#noteUndecryptable(error, siteKey);
-        return outcome;
+        return;
       }
       this.#resolveAssetCandidate(siteKey);
       for (const utxo of utxos) this.#storeInTx(utxo, tx);
@@ -770,16 +689,14 @@ class SyncPass {
         this.#processedOutbound.add(site.transaction);
         this.#recordSplit(tx, this.#spentAmounts(tx.nullifiers));
       }
-      return outcome;
+      return;
     }
 
     this.undecryptableCandidates++;
-    return outcome;
   }
 
   /** Reconstruct the ciphertext-free merge output from this wallet's spent inputs. */
-  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): SlotOutcome {
-    const outcome: SlotOutcome = { recipients: [] };
+  #reconstructMerge(tx: IndexedShieldedTransaction, site: Site, siteKey: string): void {
     const slot = tx.outputSlots[site.slot];
     const firstNullifier = tx.nullifiers[0];
     if (
@@ -788,7 +705,7 @@ class SyncPass {
       !this.#utxos.some((entry) => equal(entry.nullifier, firstNullifier))
     ) {
       this.undecryptableCandidates++;
-      return outcome;
+      return;
     }
 
     try {
@@ -800,14 +717,14 @@ class SyncPass {
         const entry = this.#utxos.find((candidate) => equal(candidate.nullifier, nullifier));
         if (entry === undefined) {
           this.undecryptableCandidates++;
-          return outcome;
+          return;
         }
         matched.push(entry);
       }
       const first = matched[0];
       if (first === undefined || matched.some((entry) => entry.utxo.asset !== first.utxo.asset)) {
         this.undecryptableCandidates++;
-        return outcome;
+        return;
       }
       let amount = 0n;
       for (const entry of matched) {
@@ -817,7 +734,7 @@ class SyncPass {
       const zoneProgramId = first.utxo.zoneProgramId;
       if (matched.some((entry) => entry.utxo.zoneProgramId !== zoneProgramId)) {
         this.undecryptableCandidates++;
-        return outcome;
+        return;
       }
       const zoneDataHash =
         zoneProgramId === undefined
@@ -827,7 +744,7 @@ class SyncPass {
             : null;
       if (zoneDataHash === null) {
         this.undecryptableCandidates++;
-        return outcome;
+        return;
       }
       const utxo = new Utxo({
         owner: this.#owner,
@@ -840,10 +757,9 @@ class SyncPass {
         this.#processedSlots.add(siteKey);
         this.#recordMerge(tx, slot.outputContext, utxo);
       }
-      return outcome;
+      return;
     } catch (error) {
       this.#noteUndecryptable(error, siteKey);
-      return outcome;
     }
   }
 
@@ -868,96 +784,27 @@ class SyncPass {
   }
 
   /**
-   * Walk every tag family of one viewing key over the fetched slots, in the
-   * order Rust walks them: the bootstrap and owner tags first, because what
-   * they open names the counterparties whose shared tags are scanned after.
+   * Open only the two stable discovery families: this viewing key's bootstrap
+   * tag and the shielded identity's signing tag.
    */
-  advance(
-    entry: ViewingKeyEntry,
+  processStableTags(
     key: ViewingKeyLike,
-    input: Readonly<{ window: bigint; index: TagIndex; ownerTag: Bytes32 }>,
-  ): ViewingKeyEntry {
-    const { window, index } = input;
-    const knownSenders = new CounterpartyCounters(entry.knownSenders);
-    const knownRecipients = new CounterpartyCounters(entry.knownRecipients);
+    input: Readonly<{ identityTag: Bytes32; index: TagIndex }>,
+  ): void {
+    const { index } = input;
     const recipientSites = (tag: string): readonly Site[] => index.recipientSites.get(tag) ?? [];
 
     for (const site of recipientSites(hex(key.recipientBootstrapViewTag()))) {
-      const { sender } = this.decodeSlot(key, site);
-      if (sender !== undefined) knownSenders.discover(sender);
+      this.decodeSlot(key, site);
     }
-    const ownerTag = hex(input.ownerTag);
-    for (const site of recipientSites(ownerTag)) this.decodeSlot(key, site);
-    for (const transaction of index.senderSites.get(ownerTag) ?? []) {
+    const identityTag = hex(input.identityTag);
+    for (const site of recipientSites(identityTag)) this.decodeSlot(key, site);
+    for (const transaction of index.senderSites.get(identityTag) ?? []) {
       this.decodeSlot(key, { transaction, slot: 0 });
     }
 
-    const txCount = nextCount(
-      entry.txCount,
-      scanStream(
-        window,
-        (n) => key.senderViewTag(n),
-        (tag) => {
-          const sites = index.senderSites.get(tag);
-          if (sites === undefined) return false;
-          for (const transaction of sites) {
-            for (const recipient of this.decodeSlot(key, { transaction, slot: 0 }).recipients) {
-              knownRecipients.discover(recipient);
-            }
-          }
-          return true;
-        },
-      ),
-    );
-
-    const requestCount = nextCount(
-      entry.requestCount,
-      scanStream(
-        window,
-        (n) => key.recipientRequestViewTag(n),
-        (tag) => {
-          const sites = index.recipientSites.get(tag);
-          if (sites === undefined) return false;
-          for (const site of sites) {
-            const { sender } = this.decodeSlot(key, site);
-            if (sender !== undefined) knownSenders.discover(sender);
-          }
-          return true;
-        },
-      ),
-    );
-
-    knownSenders.advance((counterparty) =>
-      scanStream(
-        window,
-        (n) => key.recipientSharedViewTag(counterparty, n),
-        (tag) => {
-          const sites = index.recipientSites.get(tag);
-          if (sites === undefined) return false;
-          for (const site of sites) this.decodeSlot(key, site);
-          return true;
-        },
-      ),
-    );
-
     this.#transactions.forEach((tx, position) => {
-      this.recordConfidentialSend(tx, position, key, knownRecipients);
-    });
-
-    knownRecipients.advance((counterparty) =>
-      scanStream(
-        window,
-        (n) => key.sendSharedViewTag(counterparty, n),
-        (tag) => index.recipientSites.has(tag),
-      ),
-    );
-
-    return Object.freeze({
-      ...entry,
-      txCount,
-      requestCount,
-      knownSenders: knownSenders.entries(),
-      knownRecipients: knownRecipients.entries(),
+      this.recordConfidentialSend(tx, position, key);
     });
   }
 }
@@ -967,13 +814,9 @@ export async function decryptTransactions(
     wallet: Wallet;
     authority: SyncWalletAuthority;
     transactions: readonly IndexedShieldedTransaction[];
-    config?: WalletSyncConfig;
+    config?: DecryptTransactionsConfig;
   }>,
 ): Promise<SyncReport> {
-  const window = input.config?.tagWindow ?? DEFAULT_TAG_WINDOW;
-  if (window <= 0n) {
-    throw new TransactionError("TRANSACTION_INVALID_TAG_WINDOW");
-  }
   const material = await input.authority.syncMaterial();
   validateMaterial(input.wallet, material);
   const current = input.wallet._state();
@@ -985,18 +828,19 @@ export async function decryptTransactions(
     utxos: current.utxos,
     rows: current.transactions,
   });
-  const ownerTag = material.identity.signingPublicKey.confidentialViewTag();
+  const identityTag = material.identity.signingPublicKey.confidentialViewTag();
 
   const viewingKeyHistory = ensureViewingKeyEntries(
     current.viewingKeyHistory,
     material.viewingKeys,
-  ).map((entry) => {
+  );
+  for (const entry of viewingKeyHistory) {
     const id = hex(entry.viewingPublicKey.toBytes());
     const key = material.viewingKeys.find(
       (candidate) => hex(candidate.publicKey().toBytes()) === id,
     );
-    return key === undefined ? entry : pass.advance(entry, key, { window, index, ownerTag });
-  });
+    if (key !== undefined) pass.processStableTags(key, { identityTag, index });
+  }
 
   const nullifiers = new Set(current.nullifiers);
   for (const tx of input.transactions) {

@@ -98,6 +98,34 @@ describe("transport configuration", () => {
     });
   });
 
+  it("encodes paginated nullifier lookups with the dedicated wire method", async () => {
+    const injected = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        success({
+          context: { block_time: 0 },
+          transactions: [],
+          next_cursor: "Ag==",
+        }),
+      ),
+    );
+    const api = new ZolanaApi({ url: "https://rpc.example.test", fetch: injected });
+
+    const response = await api.getShieldedTransactionsByNullifiers({
+      nullifiers: [HASH],
+      cursor: "AQ==",
+      limit: 1000n,
+    } as never);
+
+    expect(response.nextCursor).toBe("Ag==");
+    expect(String(injected.mock.calls[0]?.[0])).toBe(
+      "https://rpc.example.test/get_shielded_transactions_by_nullifiers",
+    );
+    expect(JSON.parse(String(injected.mock.calls[0]?.[1]?.body))).toMatchObject({
+      method: "get_shielded_transactions_by_nullifiers",
+      params: { nullifiers: [HASH], cursor: "AQ==", limit: 1000 },
+    });
+  });
+
   it.each([
     [{ url: "not a url" }, "url"],
     [{ url: "file:///tmp/indexer" }, "url"],

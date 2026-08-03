@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import fixture from "../vectors/poseidon-parity-v1.json" with { type: "json" };
 import { HasherWasmError, MAX_POSEIDON_INPUTS, poseidon } from "../src/hasher/index.js";
 import {
+  P256PublicKey,
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
@@ -51,6 +52,14 @@ describe("shielded key material", () => {
     const changed = message.slice();
     changed[0] = 8;
     expect(key.verify(changed, signature)).toBe(false);
+  });
+
+  it("defaults generated identities to the supported Ed25519 signing rail", () => {
+    const keypair = ShieldedKeypair.generate();
+    expect(keypair.curve()).toBe("ed25519");
+    expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
+    expect(keypair.viewingPublicKey()).toBeInstanceOf(P256PublicKey);
+    expect(ShieldedKeypair.generate("p256").curve()).toBe("p256");
   });
 
   it("derives symmetric ECDH secrets and authenticated viewing encryption", () => {

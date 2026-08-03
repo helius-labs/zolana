@@ -1,8 +1,9 @@
 import {
   AccountRole,
   address,
+  assertIsFullySignedTransaction,
   getAddressEncoder,
-  type Signature,
+  type Blockhash,
   type TransactionSigner,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
@@ -16,11 +17,10 @@ import {
   SPL_TOKEN_PROGRAM_ID,
   USER_REGISTRY_PROGRAM_ID,
   Wallet,
+  buildRegistrationTransaction,
+  buildSetMergingEnabledTransaction,
   createZolanaClient,
-  ensureRegistered,
-  setMergingEnabled,
 } from "../src/index.js";
-import type { ZolanaClient } from "../src/client/client.js";
 import {
   getAssociatedTokenAddress,
   getProtocolConfigAddress,
@@ -43,7 +43,7 @@ import {
 import { internalUserRecordPda } from "../src/wallet/registry.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
-const SIGNATURE = "1".repeat(64) as Signature;
+const BLOCKHASH = "11111111111111111111111111111111" as Blockhash;
 
 describe("public package surface", () => {
   it("creates the one configured client and initializes protocol crypto", async () => {
@@ -70,6 +70,21 @@ describe("public package surface", () => {
     expect(USER_REGISTRY_PROGRAM_ID).toBe("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
   });
 
+  it("exposes build-only actions and removes submission wrappers", async () => {
+    const sdk = await import("../src/index.js");
+    expect(sdk.buildDepositTransaction).toBeTypeOf("function");
+    expect(sdk.buildTransferTransaction).toBeTypeOf("function");
+    expect(sdk.buildWithdrawalTransaction).toBeTypeOf("function");
+    expect(sdk.buildSplitTransaction).toBeTypeOf("function");
+    expect(sdk.buildMergeTransaction).toBeTypeOf("function");
+    expect(sdk).not.toHaveProperty("deposit");
+    expect(sdk).not.toHaveProperty("transfer");
+    expect(sdk).not.toHaveProperty("withdraw");
+    expect(sdk).not.toHaveProperty("split");
+    expect(sdk).not.toHaveProperty("merge");
+    expect(sdk).not.toHaveProperty("signPrivateTransaction");
+  });
+
   it("does not expose partial zone builders", async () => {
     const [addresses, instructions, protocol, transaction] = await Promise.all([
       import("../src/addresses.js"),
@@ -90,65 +105,70 @@ describe("public package surface", () => {
     expect(protocol.decodeZoneConfig).toBeTypeOf("function");
   });
 
-  it("builds the merging opt-in with the owner signer", async () => {
-    const owner = { address: OWNER } as TransactionSigner;
-    const signAndSendInstructions = vi.fn(
-      async (_request: Parameters<ZolanaClient["signAndSendInstructions"]>[0]) => SIGNATURE,
-    );
-
-    await expect(
-      setMergingEnabled({
-        client: { signAndSendInstructions },
-        owner,
-        enabled: true,
-      }),
-    ).resolves.toBe(SIGNATURE);
-    const request = signAndSendInstructions.mock.calls[0]?.[0];
-    expect(request?.instructions[0]).toMatchObject({
-      programAddress: USER_REGISTRY_PROGRAM_ID,
-      data: Uint8Array.of(1, 1),
-      accounts: [
-        { role: AccountRole.WRITABLE },
-        { address: OWNER, role: AccountRole.READONLY_SIGNER, signer: owner },
-      ],
+  it("builds the merging opt-in as an unsigned transaction", async () => {
+    const transaction = await buildSetMergingEnabledTransaction({
+      client: {
+        getLatestBlockhash: vi.fn(async () => ({
+          blockhash: BLOCKHASH,
+          lastValidBlockHeight: 1n,
+        })),
+      },
+      owner: OWNER,
+      enabled: true,
     });
+
+    expect(() => assertIsFullySignedTransaction(transaction)).toThrow();
+    expect(Object.keys(transaction.signatures)).toEqual([OWNER]);
   });
 
-  it("keeps the owner read-only when updating registry keys", async () => {
-    const current = ShieldedKeypair.generate().shieldedAddress();
-    const replacement = ShieldedKeypair.generate();
-    const pda = await internalUserRecordPda(OWNER);
+  it("builds a key update without signing or sending it", async () => {
+    const seed = new Uint8Array(32).fill(1) as Bytes32;
+    const current = ShieldedKeypair.fromEd25519(seed, 1).shieldedAddress();
+    const replacement = ShieldedKeypair.fromEd25519(seed, 0);
+    const owner = replacement.shieldedAddress().solanaAddress();
+    const pda = await internalUserRecordPda(owner);
     const data = Uint8Array.of(
       1,
-      ...getAddressEncoder().encode(OWNER),
+      ...getAddressEncoder().encode(owner),
       pda.bump,
       0,
       ...current.nullifierPublicKey,
       ...current.viewingPublicKey.toBytes(),
       0,
     );
-    const owner = { address: OWNER } as TransactionSigner;
-    const signAndSendInstructions = vi.fn(
-      async (_request: Parameters<ZolanaClient["signAndSendInstructions"]>[0]) => SIGNATURE,
-    );
-
-    await ensureRegistered({
+    const transaction = await buildRegistrationTransaction({
       client: {
         getAccount: vi.fn(async () => ({ owner: USER_REGISTRY_PROGRAM_ID, data, lamports: 1n })),
-        signAndSendInstructions,
+        getLatestBlockhash: vi.fn(async () => ({
+          blockhash: BLOCKHASH,
+          lastValidBlockHeight: 1n,
+        })),
       },
-      funding: owner,
-      keypair: replacement,
+      owner,
+      address: replacement.shieldedAddress(),
     });
 
-    const instruction = signAndSendInstructions.mock.calls[0]?.[0].instructions[0];
-    expect(instruction?.data?.[0]).toBe(2);
-    expect(instruction).toMatchObject({
-      accounts: [
-        { role: AccountRole.WRITABLE },
-        { address: OWNER, role: AccountRole.READONLY_SIGNER },
-      ],
-    });
+    expect(transaction).toBeDefined();
+    expect(() => assertIsFullySignedTransaction(transaction!)).toThrow();
+    expect(Object.keys(transaction!.signatures)).toEqual([owner]);
+  });
+
+  it("rejects P256 registration before building or reading RPC state", async () => {
+    const getAccount = vi.fn(async () => undefined);
+    const getLatestBlockhash = vi.fn(async () => ({
+      blockhash: BLOCKHASH,
+      lastValidBlockHeight: 1n,
+    }));
+
+    await expect(
+      buildRegistrationTransaction({
+        client: { getAccount, getLatestBlockhash },
+        owner: OWNER,
+        address: ShieldedKeypair.generate("p256").shieldedAddress(),
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_P256_REGISTRATION_UNSUPPORTED" });
+    expect(getAccount).not.toHaveBeenCalled();
+    expect(getLatestBlockhash).not.toHaveBeenCalled();
   });
 });
 

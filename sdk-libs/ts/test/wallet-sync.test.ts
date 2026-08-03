@@ -14,6 +14,11 @@ import {
   Wallet,
   decryptTransactions,
 } from "../src/transaction/index.js";
+import {
+  EncryptedScheme,
+  encodeOutputData,
+  encodeProofless,
+} from "../src/transaction/serialization/codecs.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
@@ -43,17 +48,17 @@ describe("wallet sync", () => {
         context: { blockTime: 1_700_000_000n },
         matches: [],
       })),
+      getShieldedTransactionsByNullifiers: vi.fn(),
     } as unknown as ZolanaClient;
 
     const report = await syncWallet({
       wallet,
       authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
-      config: { tagWindow: 1n, rounds: 1 },
     });
 
     expect(wallet.lastSynced).toBe(1_700_000_000n);
-    expect(report).toMatchObject({ complete: true, rounds: 1 });
+    expect(report).toMatchObject({ storedUtxos: 0, unparsedTransactions: 0 });
   });
 
   it("filters registry backfill before downloading program accounts", async () => {
@@ -133,16 +138,19 @@ describe("wallet sync", () => {
         context: { blockTime: 1n },
         matches: [],
       })),
+      getShieldedTransactionsByNullifiers: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      })),
     } as unknown as ZolanaClient;
 
     const report = await syncWallet({
       wallet,
       authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
-      config: { tagWindow: 1n, rounds: 1 },
     });
 
-    expect(report.complete).toBe(false);
+    expect(report.unknownAssetIds).toEqual([]);
     expect(send).toHaveBeenCalledOnce();
     expect(wallet.registry.entries()).toContainEqual([2n, SPL_MINT]);
     expect(wallet.balance(SPL_MINT)).toMatchObject({ assetId: 2n, amount: 42n });
@@ -260,6 +268,10 @@ describe("wallet sync", () => {
         context: { blockTime: 1n },
         matches: [],
       })),
+      getShieldedTransactionsByNullifiers: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      })),
     } as unknown as ZolanaClient;
     const authority = {
       syncMaterial: async () => ({
@@ -273,11 +285,9 @@ describe("wallet sync", () => {
       wallet,
       authority,
       client,
-      config: { tagWindow: 1n, rounds: 2 },
     });
 
     expect(report).toMatchObject({
-      complete: true,
       unknownAssetFields: [],
       unknownAssetIds: [],
     });
@@ -285,39 +295,198 @@ describe("wallet sync", () => {
     expect(wallet.balance(SOL_MINT).amount).toBe(42n);
   });
 
-  it("reports when its round bound stops an advancing scan", async () => {
+  it("marks a multi-device spend through paginated nullifier lookup", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const entries = [31n, 11n].map((amount, index) => {
+      const blinding = bytes(index + 20);
+      const utxo = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding,
+      });
+      const hash = utxo.hash(keypair.nullifierPublicKey());
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
+        nullifier: keypair.nullifier(hash, blinding),
+        spent: index === 1,
+      };
+    });
+    wallet._replace({ ...wallet._state(), utxos: entries });
+    const cursor = Uint8Array.of(7);
+    const spendingTransaction = {
+      slot: 9n,
+      txSignature: SIGNATURE,
+      outputSlots: [],
+      messages: [],
+      nullifiers: [entries[0]!.nullifier],
+      proofless: false,
+    } as const;
+    const getShieldedTransactionsByTags = vi.fn(async () => ({
+      context: { blockTime: 1n },
+      transactions: [],
+    }));
+    const getEncryptedUtxosByTags = vi.fn(async () => ({
+      context: { blockTime: 1n },
+      matches: [],
+    }));
+    const getShieldedTransactionsByNullifiers = vi
+      .fn()
+      .mockResolvedValueOnce({
+        context: { blockTime: 1n },
+        transactions: [],
+        nextCursor: cursor,
+      })
+      .mockResolvedValueOnce({
+        context: { blockTime: 1n },
+        transactions: [spendingTransaction],
+      });
     const client = {
-      getShieldedTransactionsByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
-        transactions: [
-          {
-            slot: 1n,
-            txSignature: SIGNATURE,
-            txViewingPublicKey: keypair.viewingPublicKey(),
-            salt: new Uint8Array(16) as Bytes16,
-            outputSlots: [],
-            messages: [],
-            nullifiers: [],
-            proofless: false,
-          },
-        ],
-      })),
-      getEncryptedUtxosByTags: vi.fn(async () => ({
-        context: { blockTime: 1n },
-        matches: [],
-      })),
+      getShieldedTransactionsByTags,
+      getEncryptedUtxosByTags,
+      getShieldedTransactionsByNullifiers,
     } as unknown as ZolanaClient;
 
-    const report = await syncWallet({
+    await syncWallet({
       wallet,
       authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
-      config: { tagWindow: 1n, rounds: 1 },
     });
 
-    expect(report).toMatchObject({ complete: false, rounds: 1 });
+    expect(wallet.utxos().every((entry) => entry.spent)).toBe(true);
+    expect(getShieldedTransactionsByTags).toHaveBeenCalledOnce();
+    expect(getEncryptedUtxosByTags).toHaveBeenCalledOnce();
+    expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(2);
+    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]).toMatchObject({
+      nullifiers: entries.map((entry) => entry.nullifier),
+      limit: 1000,
+    });
+    expect(getShieldedTransactionsByNullifiers.mock.calls[1]?.[0]).toMatchObject({
+      nullifiers: entries.map((entry) => entry.nullifier),
+      cursor,
+      limit: 1000,
+    });
+  });
+
+  it("rejects a non-advancing nullifier cursor", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const blinding = bytes(30);
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 1n,
+      blinding,
+    });
+    const hash = utxo.hash(keypair.nullifierPublicKey());
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo,
+          outputContext: { hash, tree: TREE, leafIndex: 0n },
+          nullifier: keypair.nullifier(hash, blinding),
+          spent: false,
+        },
+      ],
+    });
+    const cursor = Uint8Array.of(8);
+    const getShieldedTransactionsByNullifiers = vi.fn(async () => ({
+      context: { blockTime: 1n },
+      transactions: [],
+      nextCursor: cursor,
+    }));
+
+    await expect(
+      syncWallet({
+        wallet,
+        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        client: {
+          getShieldedTransactionsByTags: vi.fn(async () => ({
+            context: { blockTime: 1n },
+            transactions: [],
+          })),
+          getEncryptedUtxosByTags: vi.fn(async () => ({
+            context: { blockTime: 1n },
+            matches: [],
+          })),
+          getShieldedTransactionsByNullifiers,
+        } as unknown as ZolanaClient,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "CLIENT_INVALID_RPC_RESPONSE",
+    });
+    expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(2);
+  });
+
+  it("performs one follow-up nullifier lookup for a newly discovered note", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const blinding = bytes(33);
+    const utxo = new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 42n,
+      blinding,
+    });
+    const hash = utxo.hash(keypair.nullifierPublicKey());
+    const nullifier = keypair.nullifier(hash, blinding);
+    const outputSlot = {
+      viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
+      outputContext: { hash, tree: TREE, leafIndex: 4n },
+      payload: encodeOutputData(
+        EncryptedScheme.proofless,
+        encodeProofless({
+          owner: keypair.signingPublicKey().ownerPublicKeyField(),
+          blinding,
+          asset: SOL_MINT,
+          amount: 42n,
+        }),
+        "plaintext",
+      ),
+    };
+    const spendingTransaction = {
+      slot: 10n,
+      txSignature: SIGNATURE,
+      outputSlots: [],
+      messages: [],
+      nullifiers: [nullifier],
+      proofless: false,
+    } as const;
+    const getShieldedTransactionsByNullifiers = vi.fn(
+      async (_request: Readonly<{ nullifiers: readonly Bytes32[] }>) => ({
+        context: { blockTime: 1n },
+        transactions: [spendingTransaction],
+      }),
+    );
+    const client = {
+      getShieldedTransactionsByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        transactions: [],
+      })),
+      getEncryptedUtxosByTags: vi.fn(async () => ({
+        context: { blockTime: 1n },
+        matches: [{ slot: 9n, txSignature: SIGNATURE, outputSlot }],
+      })),
+      getShieldedTransactionsByNullifiers,
+    } as unknown as ZolanaClient;
+
+    await syncWallet({
+      wallet,
+      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      client,
+    });
+
+    expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledOnce();
+    expect(getShieldedTransactionsByNullifiers.mock.calls[0]?.[0]).toMatchObject({
+      nullifiers: [nullifier],
+      limit: 1000,
+    });
+    expect(wallet.utxos()).toHaveLength(1);
+    expect(wallet.utxos()[0]?.spent).toBe(true);
   });
 
   it("rejects a non-advancing indexer cursor", async () => {
@@ -338,7 +507,6 @@ describe("wallet sync", () => {
         wallet: new Wallet({ identity: keypair.shieldedAddress() }),
         authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
         client,
-        config: { tagWindow: 1n, rounds: 1 },
       }),
     ).rejects.toMatchObject({
       code: "WALLET_SYNC",
@@ -384,10 +552,8 @@ describe("wallet sync", () => {
       wallet: new Wallet({ identity: keypair.shieldedAddress() }),
       authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
       client,
-      config: { tagWindow: 1n, rounds: 2 },
     });
 
     expect(report.unparsedTransactions).toBe(2);
-    expect(report.complete).toBe(true);
   });
 });

@@ -13,7 +13,6 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_TRANSACTION",
   "CLIENT_HASHER",
   "CLIENT_FEE_PAYER_MISMATCH",
-  "CLIENT_SOLANA_TRANSACTION_SIGNING",
   "CLIENT_TREE_MISMATCH",
   "CLIENT_NO_INPUTS",
   "CLIENT_MERGE_SIGNING_KEY_MISMATCH",
@@ -46,7 +45,6 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_TRANSACTION: Readonly<{ code: TransactionErrorCode }>;
   readonly CLIENT_HASHER: Readonly<{ code: HasherErrorCode }>;
   readonly CLIENT_FEE_PAYER_MISMATCH: NoDetails;
-  readonly CLIENT_SOLANA_TRANSACTION_SIGNING: Readonly<{ reason: string }>;
   readonly CLIENT_TREE_MISMATCH: Readonly<{ transactionTree: string; clientTree: string }>;
   readonly CLIENT_NO_INPUTS: NoDetails;
   readonly CLIENT_MERGE_SIGNING_KEY_MISMATCH: NoDetails;
@@ -287,7 +285,6 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_KEYPAIR: { code: "string" },
   CLIENT_TRANSACTION: { code: "string" },
   CLIENT_HASHER: { code: "string" },
-  CLIENT_SOLANA_TRANSACTION_SIGNING: { reason: "string" },
   CLIENT_TREE_MISMATCH: { transactionTree: "string", clientTree: "string" },
   CLIENT_MERGE_TREE_MISMATCH: { proofTree: "string", submitTree: "string" },
   CLIENT_FIELD_TOO_LONG: { field: "string", actual: "number", maximum: "number" },

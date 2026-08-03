@@ -4,10 +4,16 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   address,
   createKeyPairSignerFromBytes,
+  getSignatureFromTransaction,
   lamports,
+  sendTransactionWithoutConfirmingFactory,
+  signTransactionWithSigners,
   type Address,
   type KeyPairSigner,
   type Signature,
+  type Transaction,
+  type TransactionModifyingSigner,
+  type TransactionPartialSigner,
 } from "@solana/kit";
 
 import {
@@ -56,7 +62,7 @@ export async function actor(
   const publicKey = ed25519.getPublicKey(seed);
   const signer = await createKeyPairSignerFromBytes(Uint8Array.of(...seed, ...publicKey));
   const keypair =
-    rail === "ed25519" ? ShieldedKeypair.fromEd25519(seed, 0) : ShieldedKeypair.generate();
+    rail === "ed25519" ? ShieldedKeypair.fromEd25519(seed, 0) : ShieldedKeypair.generate("p256");
   return {
     signer,
     keypair,
@@ -133,6 +139,20 @@ export async function waitForSignature(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`transaction confirmation timed out: ${signature}`);
+}
+
+export async function signSendAndConfirm(
+  client: ZolanaClient,
+  transaction: Transaction,
+  signers: readonly (TransactionModifyingSigner | TransactionPartialSigner)[],
+): Promise<Signature> {
+  const signed = await signTransactionWithSigners(signers, transaction);
+  const signature = getSignatureFromTransaction(signed);
+  await sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc })(signed, {
+    commitment: client.commitment,
+  });
+  await waitForSignature(client.solanaRpc, signature);
+  return signature;
 }
 
 export async function fund(client: ZolanaClient, ...actors: readonly Actor[]): Promise<void> {

@@ -135,18 +135,12 @@ export interface ShieldedKeypairLike {
  *
  * An implementer must hold viewing-key material in memory. Every operation
  * returns synchronously, as Rust's `ViewingKeyTrait` does: a backend answering
- * view-tag derivation over a wire is not a supported deployment, and the scan
- * and decrypt paths that call these in tight loops take this interface only
- * because they need not await it.
+ * viewing-key operations over a wire is not a supported deployment.
  */
 export interface ViewingKeyLike {
   publicKey(): P256PublicKey;
   ecdh(counterparty: P256PublicKey): Bytes32;
-  senderViewTag(txCount: bigint): ViewTag;
-  recipientRequestViewTag(requestCount: bigint): ViewTag;
   mergeViewTag(mergeCount: bigint): ViewTag;
-  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag;
-  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag;
   recipientBootstrapViewTag(): ViewTag;
   transactionViewingKey(firstNullifier: Bytes32): ViewingKey;
   encryptSlot(
@@ -185,8 +179,16 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     this.#viewing = viewing;
   }
 
-  static generate(): ShieldedKeypair {
-    return ShieldedKeypair.fromSigningAndViewingKeys(SigningKey.generate(), ViewingKey.generate());
+  /**
+   * Generates an Ed25519 signing identity by default, the rail supported by
+   * the lean SDK's registration and ordinary transaction builders. Viewing
+   * keys remain P256 on both signing rails.
+   */
+  static generate(type: SignatureType = "ed25519"): ShieldedKeypair {
+    return ShieldedKeypair.fromSigningAndViewingKeys(
+      SigningKey.generate(type),
+      ViewingKey.generate(),
+    );
   }
 
   /**
@@ -285,24 +287,8 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     return this.#viewing.ecdh(counterparty);
   }
 
-  senderViewTag(txCount: bigint): ViewTag {
-    return this.#viewing.senderViewTag(txCount);
-  }
-
-  recipientRequestViewTag(requestCount: bigint): ViewTag {
-    return this.#viewing.recipientRequestViewTag(requestCount);
-  }
-
   mergeViewTag(mergeCount: bigint): ViewTag {
     return this.#viewing.mergeViewTag(mergeCount);
-  }
-
-  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag {
-    return this.#viewing.sendSharedViewTag(counterparty, index);
-  }
-
-  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag {
-    return this.#viewing.recipientSharedViewTag(counterparty, index);
   }
 
   recipientBootstrapViewTag(): ViewTag {

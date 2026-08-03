@@ -17,7 +17,6 @@ import { decodeSplAssetRegistry } from "../interface/accounts.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import { StateDiscriminator } from "../interface/state.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
-import type { ViewingKeyLike } from "../keypair/shielded.js";
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { decodeOutputData } from "../transaction/serialization/codecs.js";
@@ -26,7 +25,6 @@ import {
   type AssetBalance,
   type PrivateTransaction,
   type SyncReport,
-  type ViewingKeyEntry,
   type Wallet,
 } from "../transaction/wallet/state.js";
 import { decryptTransactions } from "../transaction/wallet/sync.js";
@@ -41,32 +39,21 @@ const base64Encoder = getBase64Encoder();
 
 type SyncClient = Pick<
   ZolanaClient,
-  "solanaRpc" | "commitment" | "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags"
+  | "solanaRpc"
+  | "commitment"
+  | "getEncryptedUtxosByTags"
+  | "getShieldedTransactionsByNullifiers"
+  | "getShieldedTransactionsByTags"
 >;
 
 export interface SyncWalletConfig {
-  readonly tagWindow?: bigint;
-  readonly tagQueryChunk?: number;
+  /** Stable tags and nullifiers per indexer request. Defaults to 64. */
+  readonly queryChunk?: number;
+  /** Rows requested per indexer page. Defaults to Photon's maximum, 1000. */
   readonly pageLimit?: number;
-  readonly rounds?: number;
   readonly waitForIndexer?: boolean;
   readonly retry?: IndexerPollConfig;
 }
-
-export interface SyncWalletReport extends SyncReport {
-  /** False when the configured round bound was reached while discovery was still advancing. */
-  readonly complete: boolean;
-  readonly rounds: number;
-}
-
-/**
- * Per-viewing-key counters that extend the queried tag ranges past the scan
- * window. These counters are owned by the wallet state.
- */
-export type {
-  CounterpartyCounter,
-  ViewingKeyEntry as ViewingKeyCounters,
-} from "../transaction/wallet/state.js";
 
 export async function backfillAssetRegistry(
   wallet: Wallet,
@@ -116,11 +103,11 @@ export async function backfillAssetRegistry(
   return inserted;
 }
 
-function atLeastOne(value: number, field: string): number {
-  if (!Number.isSafeInteger(value)) {
+function positiveInteger(value: number, field: string, maximum = Number.MAX_SAFE_INTEGER): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
     throw new WalletError("WALLET_INVALID_SYNC_CONFIG", { details: { field, value } });
   }
-  return Math.max(value, 1);
+  return value;
 }
 
 /** Rust compares the whole `ShieldedAddress`, which is these three keys. */
@@ -135,29 +122,17 @@ function sameIdentity(material: WalletSyncMaterial, wallet: Wallet): boolean {
   );
 }
 
-function viewingKeyCounters(wallet: Wallet, key: ViewingKeyLike): ViewingKeyEntry | undefined {
-  const publicKey = bytesKey(key.publicKey().toBytes());
-  return wallet.viewingKeyHistory.find(
-    (entry) => bytesKey(entry.viewingPublicKey.toBytes()) === publicKey,
-  );
-}
-
 /**
- * Every tag the wallet must ask the indexer about. Counters extend each family
- * past the window because a counterparty may have advanced its own counter
- * further than this wallet has scanned; the two shared families are the only
- * way notes from a known sender or to a known recipient surface at all.
+ * The stable tags a wallet asks the indexer about: one shielded-identity
+ * signing tag for confidential transactions and one bootstrap tag per retained
+ * viewing key for deposits and key rotation.
  *
  * Material that does not belong to this wallet is refused here rather than by
  * the decrypt pass further down, because a tag is a query the indexer sees: a
- * wallet handed the wrong keys would otherwise publish a full window of them
- * before anything noticed.
+ * wallet handed the wrong keys must not publish any of them before the
+ * mismatch is noticed.
  */
-function walletQueryTags(
-  wallet: Wallet,
-  material: WalletSyncMaterial,
-  window: bigint,
-): readonly Bytes32[] {
+function walletQueryTags(wallet: Wallet, material: WalletSyncMaterial): readonly Bytes32[] {
   if (!sameIdentity(material, wallet)) {
     throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
   }
@@ -170,25 +145,17 @@ function walletQueryTags(
     tags.set(bytesKey(tag), tag);
   };
   add(material.identity.signingPublicKey.confidentialViewTag());
-  for (const key of material.viewingKeys) {
-    const counters = viewingKeyCounters(wallet, key);
-    add(key.recipientBootstrapViewTag());
-    for (let n = 0n; n < (counters?.txCount ?? 0n) + window; n++) add(key.senderViewTag(n));
-    for (let n = 0n; n < (counters?.requestCount ?? 0n) + window; n++) {
-      add(key.recipientRequestViewTag(n));
-    }
-    for (const sender of counters?.knownSenders ?? []) {
-      for (let n = 0n; n < sender.count + window; n++) {
-        add(key.recipientSharedViewTag(sender.counterparty, n));
-      }
-    }
-    for (const recipient of counters?.knownRecipients ?? []) {
-      for (let n = 0n; n < recipient.count + window; n++) {
-        add(key.sendSharedViewTag(recipient.counterparty, n));
-      }
-    }
-  }
+  for (const key of material.viewingKeys) add(key.recipientBootstrapViewTag());
   return [...tags.values()];
+}
+
+/** Every note nullifier is queried, including notes already marked spent. */
+function walletQueryNullifiers(wallet: Wallet): readonly Bytes32[] {
+  const nullifiers = new Map<string, Bytes32>();
+  for (const entry of wallet.utxos()) {
+    nullifiers.set(bytesKey(entry.nullifier), entry.nullifier);
+  }
+  return [...nullifiers.values()];
 }
 
 function walletHasUnknownMint(wallet: Wallet): boolean {
@@ -305,7 +272,7 @@ function compareDeposits(
   return compareBySlotThenSignature(left, right);
 }
 
-interface CollectInput {
+interface CollectByTagsInput {
   readonly indexer: Pick<ZolanaClient, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags">;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
@@ -314,7 +281,7 @@ interface CollectInput {
 }
 
 async function collectShieldedTransactions(
-  input: CollectInput,
+  input: CollectByTagsInput,
   context?: RequestContext,
 ): Promise<void> {
   let cursor: Uint8Array | undefined;
@@ -338,7 +305,7 @@ async function collectShieldedTransactions(
 }
 
 async function collectProoflessDeposits(
-  input: CollectInput,
+  input: CollectByTagsInput,
   context?: RequestContext,
 ): Promise<void> {
   let cursor: Uint8Array | undefined;
@@ -375,6 +342,43 @@ async function collectProoflessDeposits(
   } while (cursor !== undefined);
 }
 
+interface CollectByNullifiersInput {
+  readonly indexer: Pick<ZolanaClient, "getShieldedTransactionsByNullifiers">;
+  readonly chunk: readonly Bytes32[];
+  readonly pageLimit: number;
+  readonly rpcConfig: IndexerRpcConfig;
+  readonly out: Map<string, IndexedShieldedTransaction>;
+}
+
+async function collectShieldedTransactionsByNullifiers(
+  input: CollectByNullifiersInput,
+  context?: RequestContext,
+): Promise<void> {
+  let cursor: Uint8Array | undefined;
+  const seenCursors = new Set<string>();
+  do {
+    const response = await input.indexer.getShieldedTransactionsByNullifiers(
+      {
+        nullifiers: input.chunk,
+        limit: input.pageLimit,
+        ...(cursor === undefined ? {} : { cursor }),
+      },
+      input.rpcConfig,
+      context,
+    );
+    for (const transaction of response.transactions) {
+      if (transaction.proofless) continue;
+      const key = shieldedTransactionKey(transaction);
+      if (!input.out.has(key)) input.out.set(key, transaction);
+    }
+    cursor = checkedNextCursor(
+      "getShieldedTransactionsByNullifiers",
+      response.nextCursor,
+      seenCursors,
+    );
+  } while (cursor !== undefined);
+}
+
 export async function syncWallet(
   input: Readonly<{
     wallet: Wallet;
@@ -383,21 +387,10 @@ export async function syncWallet(
     config?: SyncWalletConfig;
   }>,
   context?: RequestContext,
-): Promise<SyncWalletReport> {
+): Promise<SyncReport> {
   try {
-    const tagWindow = input.config?.tagWindow ?? 64n;
-    // Rust carries the window in a `u64`, so only a value outside that range is
-    // a config error here. A zero window is rejected one layer down, by the same
-    // `syncWithMaterial` guard Rust reaches, and keeping it there is what makes
-    // both languages raise the same error for it.
-    if (tagWindow < 0n || tagWindow > 0xffff_ffff_ffff_ffffn) {
-      throw new WalletError("WALLET_INVALID_SYNC_CONFIG", {
-        details: { field: "tagWindow", value: tagWindow.toString() },
-      });
-    }
-    const chunkSize = atLeastOne(input.config?.tagQueryChunk ?? 64, "tagQueryChunk");
-    const pageLimit = atLeastOne(input.config?.pageLimit ?? 100, "pageLimit");
-    const rounds = atLeastOne(input.config?.rounds ?? 6, "rounds");
+    const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
+    const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
     const poll = input.config?.retry ?? DEFAULT_INDEXER_POLL_CONFIG;
     const syncedAt = BigInt(Math.floor(Date.now() / 1_000));
     const rpcConfig: IndexerRpcConfig = Object.freeze({
@@ -407,65 +400,108 @@ export async function syncWallet(
     const material = await input.authority.syncMaterial();
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
-    let report: SyncReport;
-    let ordered: readonly IndexedShieldedTransaction[] = [];
-    let round = 0;
-    let complete = false;
+    const tags = walletQueryTags(input.wallet, material);
+    for (let offset = 0; offset < tags.length; offset += chunkSize) {
+      const chunk = tags.slice(offset, offset + chunkSize);
+      await collectShieldedTransactions(
+        { indexer: input.client, chunk, pageLimit, rpcConfig, out: transactions },
+        context,
+      );
+      await collectProoflessDeposits(
+        { indexer: input.client, chunk, pageLimit, rpcConfig, out: deposits },
+        context,
+      );
+    }
 
-    do {
-      const before = [transactions.size, deposits.size] as const;
-      // Rebuilt every round: notes stored by the previous round advance the
-      // wallet's counters, which widens the tag ranges queried next.
-      const tags = walletQueryTags(input.wallet, material, tagWindow);
-      for (let offset = 0; offset < tags.length; offset += chunkSize) {
-        const chunk = tags.slice(offset, offset + chunkSize);
-        await collectShieldedTransactions(
-          { indexer: input.client, chunk, pageLimit, rpcConfig, out: transactions },
-          context,
-        );
-        await collectProoflessDeposits(
-          { indexer: input.client, chunk, pageLimit, rpcConfig, out: deposits },
-          context,
-        );
+    const queriedNullifiers = new Set<string>();
+    const initialNullifiers = walletQueryNullifiers(input.wallet);
+    for (const nullifier of initialNullifiers) queriedNullifiers.add(bytesKey(nullifier));
+    for (let offset = 0; offset < initialNullifiers.length; offset += chunkSize) {
+      await collectShieldedTransactionsByNullifiers(
+        {
+          indexer: input.client,
+          chunk: initialNullifiers.slice(offset, offset + chunkSize),
+          pageLimit,
+          rpcConfig,
+          out: transactions,
+        },
+        context,
+      );
+    }
+
+    const orderedTransactions = (): readonly IndexedShieldedTransaction[] => [
+      ...[...transactions.values()].sort(compareBySlotThenSignature),
+      ...[...deposits.values()].sort(compareDeposits),
+    ];
+    let ordered = orderedTransactions();
+    let report = await decryptTransactions({
+      wallet: input.wallet,
+      authority: input.authority,
+      transactions: ordered,
+      config: { syncedAt },
+    });
+    let registryRefreshed = false;
+    if (
+      report.unknownAssetIds.length > 0 ||
+      report.unknownAssetFields.length > 0 ||
+      walletHasUnknownMint(input.wallet)
+    ) {
+      registryRefreshed = true;
+      if ((await backfillAssetRegistry(input.wallet, input.client, context)) > 0) {
+        report = await decryptTransactions({
+          wallet: input.wallet,
+          authority: input.authority,
+          transactions: ordered,
+          config: { syncedAt },
+        });
       }
+    }
 
-      ordered = [
-        ...[...transactions.values()].sort(compareBySlotThenSignature),
-        ...[...deposits.values()].sort(compareDeposits),
-      ];
+    // A transaction found by a stable tag can create a note that another
+    // device already spent. Query each newly discovered nullifier once, then
+    // stop: this is an explicit bounded backstop rather than a generic round
+    // loop that re-queries the same stable tags.
+    const followUpNullifiers = walletQueryNullifiers(input.wallet).filter(
+      (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
+    );
+    const beforeFollowUp = transactions.size;
+    for (let offset = 0; offset < followUpNullifiers.length; offset += chunkSize) {
+      await collectShieldedTransactionsByNullifiers(
+        {
+          indexer: input.client,
+          chunk: followUpNullifiers.slice(offset, offset + chunkSize),
+          pageLimit,
+          rpcConfig,
+          out: transactions,
+        },
+        context,
+      );
+    }
+    if (transactions.size !== beforeFollowUp) {
+      ordered = orderedTransactions();
       report = await decryptTransactions({
         wallet: input.wallet,
         authority: input.authority,
         transactions: ordered,
-        config: { tagWindow, syncedAt },
+        config: { syncedAt },
       });
-      round++;
-      if (before[0] === transactions.size && before[1] === deposits.size) {
-        complete = true;
-        break;
+      if (
+        !registryRefreshed &&
+        (report.unknownAssetIds.length > 0 ||
+          report.unknownAssetFields.length > 0 ||
+          walletHasUnknownMint(input.wallet))
+      ) {
+        if ((await backfillAssetRegistry(input.wallet, input.client, context)) > 0) {
+          report = await decryptTransactions({
+            wallet: input.wallet,
+            authority: input.authority,
+            transactions: ordered,
+            config: { syncedAt },
+          });
+        }
       }
-    } while (round < rounds);
-    const needsRegistryBackfill =
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(input.wallet);
-    if (!needsRegistryBackfill) {
-      return Object.freeze({ ...report, complete, rounds: round });
     }
-
-    const inserted = await backfillAssetRegistry(input.wallet, input.client, context);
-    if (inserted === 0) {
-      return Object.freeze({ ...report, complete: false, rounds: round });
-    }
-    report = await decryptTransactions({
-      wallet: input.wallet,
-      authority: input.authority,
-      transactions: ordered,
-      config: { tagWindow, syncedAt },
-    });
-    // The retry can reveal a counterparty whose shared tag stream was not part
-    // of this fetch. Returning incomplete makes the continuation explicit.
-    return Object.freeze({ ...report, complete: false, rounds: round });
+    return report;
   } catch (cause) {
     throw wrapWalletError("WALLET_SYNC", cause);
   }

@@ -12,14 +12,8 @@ export const P_CONST_SEC1 = Uint8Array.from([
 ]);
 
 export const INFO_NULLIFIER = "TSPP/nullifier";
-export const INFO_SENDER_VIEW_TAG_SECRET = "TSPP/sender_view_tag";
-export const INFO_RECIPIENT_VIEW_TAG_SECRET = "TSPP/recipient_view_tag";
 export const INFO_MERGE_VIEW_TAG_SECRET = "TSPP/merge_view_tag";
 export const INFO_TX_VIEWING = "TSPP/tx_viewing";
-export const INFO_SENDER_VIEW_TAG_PREFIX = "TSPP/sender_view_tag/";
-export const INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX = "TSPP/recipient_request_view_tag/";
 export const INFO_MERGE_VIEW_TAG_PREFIX = "TSPP/merge_view_tag/";
-export const INFO_PAIR_DOMAIN_PREFIX = "TSPP/pair-domain/";
-export const INFO_PAIR_HINT_PREFIX = "TSPP/pair-hint/";
 export const HPKE_PREFIX = "TSPP/hpke/";
 export const ENC_INFO_TRANSFER = "TSPP/tx";

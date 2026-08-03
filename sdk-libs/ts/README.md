@@ -8,24 +8,29 @@ separate packages.
 npm install @zolana/sdk @solana/kit
 ```
 
-## Client and wallet flow
+## Build, sign, send, sync
 
-`ZolanaClient` is the single public client. It routes Solana, indexer, and
-proving operations to their respective services; `solanaRpc` and
-`solanaRpcSubscriptions` expose the underlying Kit clients only when an
-application needs a standard Solana method directly.
+`ZolanaClient` owns protocol reads and proving. It does not sign, send, or
+confirm Solana transactions. Every transaction builder returns a normal,
+unsigned Solana Kit `Transaction`.
 
 ```ts
-import { airdropFactory, generateKeyPairSigner, lamports } from "@solana/kit";
+import {
+  createKeyPairSignerFromPrivateKeyBytes,
+  getSignatureFromTransaction,
+  sendAndConfirmTransactionFactory,
+  signTransactionWithSigners,
+} from "@solana/kit";
 import {
   LocalWalletAuthority,
   ShieldedKeypair,
   Wallet,
+  buildDepositTransaction,
+  buildRegistrationTransaction,
+  buildTransferTransaction,
   createZolanaClient,
-  deposit,
-  registerIfAbsent,
   syncWallet,
-  transfer,
+  type Bytes32,
 } from "@zolana/sdk";
 
 const client = await createZolanaClient({
@@ -34,60 +39,111 @@ const client = await createZolanaClient({
   proverUrl: "https://prover.example.com",
 });
 
-const funding = await generateKeyPairSigner();
-const recipient = await generateKeyPairSigner();
-const airdrop = airdropFactory({
+declare function loadEd25519Seed(name: string): Promise<Bytes32>;
+
+const fundingSeed = await loadEd25519Seed("funding");
+const recipientSeed = await loadEd25519Seed("recipient");
+const funding = await createKeyPairSignerFromPrivateKeyBytes(fundingSeed);
+const recipient = await createKeyPairSignerFromPrivateKeyBytes(recipientSeed);
+const sendAndConfirm = sendAndConfirmTransactionFactory({
   rpc: client.solanaRpc,
   rpcSubscriptions: client.solanaRpcSubscriptions,
 });
-await Promise.all([
-  airdrop({
-    commitment: "confirmed",
-    recipientAddress: funding.address,
-    lamports: lamports(2_000_000_000n),
-  }),
-  airdrop({
-    commitment: "confirmed",
-    recipientAddress: recipient.address,
-    lamports: lamports(1_000_000_000n),
-  }),
-]);
-const keypair = ShieldedKeypair.generate();
-const recipientKeypair = ShieldedKeypair.generate();
+
+async function submit(transaction, signers) {
+  const signed = await signTransactionWithSigners(signers, transaction);
+  await sendAndConfirm(signed, { commitment: "confirmed" });
+  return getSignatureFromTransaction(signed);
+}
+
+const keypair = ShieldedKeypair.fromEd25519(fundingSeed, 0);
+const recipientKeypair = ShieldedKeypair.fromEd25519(recipientSeed, 0);
 const wallet = new Wallet({ identity: keypair.shieldedAddress() });
 const authority = new LocalWalletAuthority({
   solanaPublicKey: funding.address,
   keypair,
 });
 
-await registerIfAbsent({ client, funding, keypair });
-await registerIfAbsent({ client, funding: recipient, keypair: recipientKeypair });
-await deposit({
+const registration = await buildRegistrationTransaction({
   client,
-  feePayer: funding,
+  owner: funding.address,
+  address: keypair.shieldedAddress(),
+});
+if (registration) await submit(registration, [funding]);
+
+const recipientRegistration = await buildRegistrationTransaction({
+  client,
+  owner: recipient.address,
+  address: recipientKeypair.shieldedAddress(),
+});
+if (recipientRegistration) await submit(recipientRegistration, [recipient]);
+
+const deposit = await buildDepositTransaction({
+  client,
+  feePayer: funding.address,
   recipient: keypair.shieldedAddress(),
   amount: 100_000_000n,
 });
+await submit(deposit, [funding]);
 await syncWallet({ client, wallet, authority });
 
-await transfer({
+const transfer = await buildTransferTransaction({
   client,
   wallet,
   authority,
-  feePayer: funding,
+  feePayer: funding.address,
   recipient: recipient.address,
   amount: 25_000_000n,
 });
+await submit(transfer, [funding]);
 await syncWallet({ client, wallet, authority });
 ```
 
-Actions fetch only state they cannot derive locally. For example, transfer
-performs one user-record lookup to resolve a recipient; PDA and associated-token
-addresses require no RPC call. An unregistered Solana recipient is rejected:
-`transfer` never changes a private payment into a public withdrawal. Use the
-explicit `withdraw` action for public settlement. Build-only functions remain
-available when an application needs custody or approval between construction
-and submission.
+The lean SDK supports Ed25519 signing identities for registration and ordinary
+transactions. `ShieldedKeypair.generate()` defaults to that rail, but a
+registered owner should derive its shielded keypair from the same 32-byte
+Ed25519 seed as its Solana signer, as shown above. Viewing keys remain P256.
+Explicit `ShieldedKeypair.generate("p256")` remains available for compatibility,
+but `buildRegistrationTransaction` rejects it because this SDK does not
+construct the required secp256r1 binding proof. Ordinary P256 transact/ring
+execution is also unsupported.
+
+There are two separate authorization layers:
+
+1. `buildTransferTransaction`, `buildWithdrawalTransaction`,
+   `buildSplitTransaction`, and `buildMergeTransaction` ask the
+   `WalletAuthority` for private approval, encrypt outputs, retrieve proofs, and
+   assemble the protocol instruction.
+2. The application supplies the final Solana signature with ordinary Kit APIs,
+   then sends and confirms through its own RPC flow.
+
+After a private transaction lands, call `syncWallet` before building the next
+spend. Builders intentionally do not reserve or mark notes as spent. Building
+concurrent spends from the same unsynchronized wallet snapshot creates
+conflicting transactions; on-chain nullifiers ensure that at most one can land.
+
+Wallet discovery uses two stable tag families: one confidential tag from the
+shielded identity signing public key, plus one deposit/bootstrap tag from each
+retained viewing public key. For the supported Ed25519 rail, the confidential
+tag is the signing public key itself; it is not derived from the Solana fee
+payer. Sync also looks up every stored note nullifier, including spent notes, so
+transactions submitted by another device can mark local notes spent. A second,
+bounded nullifier lookup covers notes first discovered during the same sync.
+
+Call `syncWallet` once when loading persisted wallet state and after each
+confirmed transaction. Applications that need unsolicited inbound payments to
+appear promptly can add their own polling schedule; the SDK does not start a
+background poller.
+
+The public transaction builders are `buildDepositTransaction`,
+`buildTransferTransaction`, `buildWithdrawalTransaction`,
+`buildSplitTransaction`, and `buildMergeTransaction`. SPL withdrawals include
+idempotent recipient ATA creation in the same transaction, including Token-2022
+when `splTokenProgram` is supplied.
+
+A transfer performs one user-record lookup when resolving a Solana recipient.
+An unregistered Solana recipient is rejected; use
+`buildWithdrawalTransaction` for public settlement.
 
 ## Instruction builders
 
@@ -110,14 +166,12 @@ Policy-zone instructions and proving are not exposed by the TypeScript SDK.
 Zone metadata is still decoded and persisted for protocol compatibility, while
 wallet actions select only unbound notes.
 
-`syncWallet` returns `complete: false` if its configured round bound is reached
-while discovery is still advancing; call it again to continue. Use
-`serializeWallet` and `deserializeWallet` to persist resumable wallet state.
+Use `serializeWallet` and `deserializeWallet` to persist resumable wallet state.
 Serialized state contains private note plaintext and must be encrypted at rest.
 
 ## Package subpaths
 
-- `@zolana/sdk` — common client, key material, wallet, and actions
+- `@zolana/sdk` — common client, key material, wallet, and transaction builders
 - `@zolana/sdk/instructions` — instruction builders and instruction data types
 - `@zolana/sdk/addresses` — PDA and associated-token address helpers
 - `@zolana/sdk/client`, `/interface`, `/keypair`, `/transaction`, `/wallet` —

@@ -1,4 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import {
+  signTransactionWithSigners,
+  type Signature,
+  type TransactionModifyingSigner,
+  type TransactionPartialSigner,
+} from "@solana/kit";
 
 import {
   ClientError,
@@ -6,26 +12,33 @@ import {
   ShieldedKeypair,
   SPL_TOKEN_2022_PROGRAM_ID,
   Wallet,
+  buildDepositTransaction,
+  buildMergeTransaction,
+  buildRegistrationTransaction,
+  buildSetMergingEnabledTransaction,
+  buildSplitTransaction,
+  buildTransferTransaction,
+  buildWithdrawalTransaction,
   createZolanaClient,
-  deposit,
   deserializeWallet,
-  merge,
-  registerIfAbsent,
   serializeWallet,
-  setMergingEnabled,
-  split,
   syncWallet,
-  transfer,
-  withdraw,
   type Bytes32,
-  type SubmittedPrivateTransaction,
-  type TransactionSignOnlySigner,
+  type DepositTransactionParams,
+  type RequestContext,
+  type SplitTransactionParams,
+  type TransferTransactionParams,
   type WalletAuthority,
+  type WithdrawalTransactionParams,
 } from "../../src/index.js";
 import { getAssociatedTokenAddress, getSplAssetVaultAddress } from "../../src/addresses.js";
 import type { ZolanaClient } from "../../src/client/client.js";
 import type { WalletUtxo } from "../../src/transaction/wallet/state.js";
-import { fetchUserRecordChecked } from "../../src/wallet/registry.js";
+import {
+  fetchUserRecord,
+  fetchUserRecordChecked,
+  validateRegisteredKeypair,
+} from "../../src/wallet/registry.js";
 import {
   actor,
   fund,
@@ -33,6 +46,7 @@ import {
   historyKey,
   indexedTransaction,
   liveHarness,
+  signSendAndConfirm,
   sync,
   tokenBalance,
   type Actor,
@@ -87,6 +101,168 @@ function assertUniqueWalletState(wallet: Wallet): void {
   const history = wallet.privateTransactions().map(historyKey);
   expect(new Set(utxos).size).toBe(utxos.length);
   expect(new Set(history).size).toBe(history.length);
+}
+
+type SolanaSigner = TransactionModifyingSigner | TransactionPartialSigner;
+
+function uniqueSigners(signers: readonly SolanaSigner[]): readonly SolanaSigner[] {
+  return [...new Map(signers.map((signer) => [signer.address, signer])).values()];
+}
+
+async function deposit(
+  input: Omit<DepositTransactionParams, "feePayer" | "depositor"> & {
+    readonly feePayer: SolanaSigner;
+    readonly depositor?: SolanaSigner;
+    readonly waitForIndexer?: boolean;
+  },
+  context?: RequestContext,
+): Promise<Readonly<{ signature: Signature }>> {
+  const transaction = await buildDepositTransaction(
+    {
+      client: input.client,
+      feePayer: input.feePayer.address,
+      ...(input.depositor === undefined ? {} : { depositor: input.depositor.address }),
+      ...(input.tree === undefined ? {} : { tree: input.tree }),
+      recipient: input.recipient,
+      ...(input.asset === undefined ? {} : { asset: input.asset }),
+      amount: input.amount,
+      ...(input.splTokenAccount === undefined ? {} : { splTokenAccount: input.splTokenAccount }),
+      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+      ...(input.memo === undefined ? {} : { memo: input.memo }),
+    },
+    context,
+  );
+  const signature = await signSendAndConfirm(
+    input.client,
+    transaction,
+    uniqueSigners([input.feePayer, ...(input.depositor === undefined ? [] : [input.depositor])]),
+  );
+  return Object.freeze({ signature });
+}
+
+async function transfer(
+  input: Omit<TransferTransactionParams, "feePayer"> & {
+    readonly feePayer: SolanaSigner;
+    readonly skipPreflight?: boolean;
+    readonly waitForIndexer?: boolean;
+  },
+  context?: RequestContext,
+): Promise<Readonly<{ signature: Signature }>> {
+  const transaction = await buildTransferTransaction(
+    {
+      client: input.client,
+      wallet: input.wallet,
+      authority: input.authority,
+      feePayer: input.feePayer.address,
+      recipient: input.recipient,
+      ...(input.asset === undefined ? {} : { asset: input.asset }),
+      amount: input.amount,
+    },
+    context,
+  );
+  return Object.freeze({
+    signature: await signSendAndConfirm(input.client, transaction, [input.feePayer]),
+  });
+}
+
+async function withdraw(
+  input: Omit<WithdrawalTransactionParams, "feePayer"> & {
+    readonly feePayer: SolanaSigner;
+    readonly skipPreflight?: boolean;
+    readonly waitForIndexer?: boolean;
+  },
+  context?: RequestContext,
+): Promise<Readonly<{ signature: Signature }>> {
+  const transaction = await buildWithdrawalTransaction(
+    {
+      client: input.client,
+      wallet: input.wallet,
+      authority: input.authority,
+      feePayer: input.feePayer.address,
+      recipient: input.recipient,
+      ...(input.asset === undefined ? {} : { asset: input.asset }),
+      amount: input.amount,
+      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+    },
+    context,
+  );
+  return Object.freeze({
+    signature: await signSendAndConfirm(input.client, transaction, [input.feePayer]),
+  });
+}
+
+async function split(
+  input: Omit<SplitTransactionParams, "feePayer"> & {
+    readonly feePayer: SolanaSigner;
+    readonly skipPreflight?: boolean;
+    readonly waitForIndexer?: boolean;
+  },
+  context?: RequestContext,
+): Promise<Readonly<{ signature: Signature }>> {
+  const transaction = await buildSplitTransaction(
+    {
+      client: input.client,
+      wallet: input.wallet,
+      authority: input.authority,
+      feePayer: input.feePayer.address,
+      ...(input.asset === undefined ? {} : { asset: input.asset }),
+      ...(input.parts === undefined ? {} : { parts: input.parts }),
+      ...(input.input === undefined ? {} : { input: input.input }),
+    },
+    context,
+  );
+  return Object.freeze({
+    signature: await signSendAndConfirm(input.client, transaction, [input.feePayer]),
+  });
+}
+
+async function registerIfAbsent(
+  input: Readonly<{
+    client: ZolanaClient;
+    funding: SolanaSigner;
+    keypair: ShieldedKeypair;
+  }>,
+): Promise<
+  | Readonly<{ kind: "written"; signature: Signature }>
+  | Readonly<{ kind: "current" }>
+  | Readonly<{ kind: "mismatch" }>
+> {
+  const existing = await fetchUserRecord({ rpc: input.client, owner: input.funding.address });
+  if (existing !== undefined) {
+    try {
+      await validateRegisteredKeypair({
+        rpc: input.client,
+        owner: input.funding.address,
+        keypair: input.keypair,
+      });
+      return Object.freeze({ kind: "current" });
+    } catch {
+      return Object.freeze({ kind: "mismatch" });
+    }
+  }
+  const transaction = await buildRegistrationTransaction({
+    client: input.client,
+    owner: input.funding.address,
+    address: input.keypair.shieldedAddress(),
+  });
+  if (transaction === undefined) return Object.freeze({ kind: "current" });
+  const signature = await signSendAndConfirm(input.client, transaction, [input.funding]);
+  return Object.freeze({ kind: "written", signature });
+}
+
+async function setMergingEnabled(
+  input: Readonly<{
+    client: ZolanaClient;
+    owner: SolanaSigner;
+    enabled: boolean;
+  }>,
+): Promise<Signature> {
+  const transaction = await buildSetMergingEnabledTransaction({
+    client: input.client,
+    owner: input.owner.address,
+    enabled: input.enabled,
+  });
+  return signSendAndConfirm(input.client, transaction, [input.owner]);
 }
 
 async function register(client: ZolanaClient, owner: Actor): Promise<void> {
@@ -167,12 +343,12 @@ describe.sequential("live SDK lifecycle", () => {
       recipient: bob.signer.address,
       amount: 20_000_000n,
     });
-    assertSpent(alice, aliceDeposit);
     assertIndexedNullifiers(
       await indexedTransaction(harness.client, toBob.signature),
       aliceDeposit,
     );
     await sync(harness.client, alice);
+    assertSpent(alice, aliceDeposit);
     await sync(harness.client, bob);
     expect(alice.wallet.balance(SOL_MINT).amount).toBe(80_000_000n);
     expect(bob.wallet.balance(SOL_MINT).amount).toBe(20_000_000n);
@@ -188,12 +364,12 @@ describe.sequential("live SDK lifecycle", () => {
       recipient: carol.signer.address,
       amount: 30_000_000n,
     });
-    assertSpent(alice, aliceChange);
     assertIndexedNullifiers(
       await indexedTransaction(harness.client, toCarol.signature),
       aliceChange,
     );
     await sync(harness.client, alice);
+    assertSpent(alice, aliceChange);
     await sync(harness.client, carol);
     expect(alice.wallet.balance(SOL_MINT).amount).toBe(50_000_000n);
     expect(carol.wallet.balance(SOL_MINT).amount).toBe(30_000_000n);
@@ -209,12 +385,12 @@ describe.sequential("live SDK lifecycle", () => {
       recipient: bob.signer.address,
       amount: 10_000_000n,
     });
-    assertSpent(carol, carolInput);
     assertIndexedNullifiers(
       await indexedTransaction(harness.client, carolToBob.signature),
       carolInput,
     );
     await sync(harness.client, carol);
+    assertSpent(carol, carolInput);
     await sync(harness.client, bob);
     expect(carol.wallet.balance(SOL_MINT).amount).toBe(20_000_000n);
     expect(bob.wallet.balance(SOL_MINT).amount).toBe(30_000_000n);
@@ -280,12 +456,12 @@ describe.sequential("live SDK lifecycle", () => {
       recipient: recipient.signer.address,
       amount: 50_000_000n,
     });
-    assertSpent(owner, inputs);
     const transaction = await indexedTransaction(harness.client, submitted.signature);
     assertIndexedNullifiers(transaction, inputs);
     expect(transaction.nullifiers.length).toBeGreaterThanOrEqual(2);
 
     await sync(harness.client, owner, { pageLimit: 1 });
+    assertSpent(owner, inputs);
     expect(await harness.client.getBalance(recipient.signer.address)).toBe(before + 50_000_000n);
     expect(owner.wallet.balance(SOL_MINT).amount).toBe(20_000_000n);
     expect(unspent(owner)).toHaveLength(1);
@@ -477,14 +653,14 @@ describe.sequential("live SDK lifecycle", () => {
     });
     await sync(harness.client, owner);
 
-    const splitResult = await split({
+    await split({
       client: harness.client,
       wallet: owner.wallet,
       authority: owner.authority,
       feePayer: owner.signer,
       parts: 8,
     });
-    expect(splitResult).toMatchObject({ numOutputs: 8, perOutputAmount: 10_000_000n });
+    expect(unspent(owner)).toHaveLength(1);
     await sync(harness.client, owner, { pageLimit: 1 });
     expect(unspent(owner)).toHaveLength(8);
     expect(unspent(owner).every((entry) => entry.utxo.amount === 10_000_000n)).toBe(true);
@@ -503,38 +679,16 @@ describe.sequential("live SDK lifecycle", () => {
       (await fetchUserRecordChecked({ rpc: harness.client, owner: owner.signer.address }))
         .mergingEnabled,
     ).toBe(true);
-    const failingSendClient = new Proxy(harness.client, {
-      get(target, property) {
-        if (property === "sendTransaction") {
-          return async () => {
-            throw new ClientError("CLIENT_RPC", {
-              details: { method: "sendTransaction", reason: "injected failure" },
-            });
-          };
-        }
-        const value = Reflect.get(target, property);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    });
-    await expect(
-      merge({
-        client: failingSendClient,
-        wallet: owner.wallet,
-        authority: owner.authority,
-        feePayer: owner.signer,
-        waitForIndexer: false,
-      }),
-    ).rejects.toMatchObject({ code: "WALLET_SUBMIT_MERGE" });
-    expect(unspent(owner)).toHaveLength(8);
-    expect(unspent(owner).every((entry) => !entry.spent)).toBe(true);
-
-    const mergeResult = await merge({
+    const mergeTransaction = await buildMergeTransaction({
       client: harness.client,
       wallet: owner.wallet,
       authority: owner.authority,
-      feePayer: owner.signer,
+      feePayer: owner.signer.address,
     });
-    expect(mergeResult).toMatchObject({ numInputs: 8, mergedAmount: 80_000_000n });
+    expect(unspent(owner)).toHaveLength(8);
+    expect(unspent(owner).every((entry) => !entry.spent)).toBe(true);
+    await signSendAndConfirm(harness.client, mergeTransaction, [owner.signer]);
+    expect(unspent(owner)).toHaveLength(8);
     await sync(harness.client, owner, { pageLimit: 1 });
     expect(unspent(owner)).toHaveLength(1);
     expect(unspent(owner)[0]?.utxo.amount).toBe(80_000_000n);
@@ -554,7 +708,7 @@ describe.sequential("live SDK lifecycle", () => {
     ).toBe(false);
   }, 1_200_000);
 
-  it("releases reservations on rejection, proof abort, and pre-broadcast signing failure", async () => {
+  it("keeps wallet spend state unchanged across build and signing failures", async () => {
     const owner = await actor(111);
     const recipient = await actor(112);
     await fund(harness.client, owner, recipient);
@@ -577,7 +731,7 @@ describe.sequential("live SDK lifecycle", () => {
         recipient: recipient.signer.address,
         amount: 10_000_000n,
       }),
-    ).rejects.toMatchObject({ code: "WALLET_SUBMIT_PRIVATE_TRANSACTION" });
+    ).rejects.toMatchObject({ code: "WALLET_BUILD_TRANSFER" });
     expect(owner.wallet.balance(SOL_MINT).amount).toBe(50_000_000n);
     expect(
       owner.wallet.utxos().find((entry) => hex(entry.outputContext.hash) === inputHash)?.spent,
@@ -625,38 +779,36 @@ describe.sequential("live SDK lifecycle", () => {
       ),
     ]);
     abort.abort();
-    await expect(proving).rejects.toMatchObject({ code: "WALLET_SUBMIT_PRIVATE_TRANSACTION" });
+    await expect(proving).rejects.toMatchObject({ code: "WALLET_BUILD_TRANSFER" });
     expect(owner.wallet.balance(SOL_MINT).amount).toBe(50_000_000n);
     expect(
       owner.wallet.utxos().find((entry) => hex(entry.outputContext.hash) === inputHash)?.spent,
     ).toBe(false);
 
-    const rejectingSigner: TransactionSignOnlySigner = {
+    const transaction = await buildTransferTransaction({
+      client: harness.client,
+      wallet: owner.wallet,
+      authority: owner.authority,
+      feePayer: owner.signer.address,
+      recipient: recipient.signer.address,
+      amount: 10_000_000n,
+    });
+    const rejectingSigner: TransactionPartialSigner = {
       address: owner.signer.address,
       signTransactions: async () => {
         throw new Error("signing rejected");
       },
     };
-    await expect(
-      transfer({
-        client: harness.client,
-        wallet: owner.wallet,
-        authority: owner.authority,
-        feePayer: rejectingSigner,
-        recipient: recipient.signer.address,
-        amount: 10_000_000n,
-      }),
-    ).rejects.toMatchObject({
-      code: "WALLET_SUBMIT_PRIVATE_TRANSACTION",
-      causeCode: "CLIENT_SOLANA_TRANSACTION_SIGNING",
-    });
+    await expect(signTransactionWithSigners([rejectingSigner], transaction)).rejects.toThrow(
+      "signing rejected",
+    );
     expect(owner.wallet.balance(SOL_MINT).amount).toBe(50_000_000n);
     expect(
       owner.wallet.utxos().find((entry) => hex(entry.outputContext.hash) === inputHash)?.spent,
     ).toBe(false);
   }, 1_200_000);
 
-  it("reconciles a post-broadcast indexer timeout and persists paginated state without duplicates", async () => {
+  it("reconciles a post-broadcast sync failure and persists paginated state without duplicates", async () => {
     const owner = await actor(121);
     const recipient = await actor(122);
     await fund(harness.client, owner, recipient);
@@ -670,47 +822,44 @@ describe.sequential("live SDK lifecycle", () => {
     await sync(harness.client, owner, { pageLimit: 1 });
     const submittedInput = unspent(owner);
 
-    let broadcast: SubmittedPrivateTransaction | undefined;
-    const timeoutClient = {
-      getAccount: harness.client.getAccount.bind(harness.client),
-      submitPrivateTransaction: async (
-        ...args: Parameters<ZolanaClient["submitPrivateTransaction"]>
-      ) => {
-        const result = await harness.client.submitPrivateTransaction(...args);
-        broadcast = result;
-        return result;
+    const broadcast = await transfer({
+      client: harness.client,
+      wallet: owner.wallet,
+      authority: owner.authority,
+      feePayer: owner.signer,
+      recipient: recipient.signer.address,
+      amount: 10_000_000n,
+    });
+    expect(owner.wallet.balance(SOL_MINT).amount).toBe(50_000_000n);
+    expect(submittedInput.every((entry) => !entry.spent)).toBe(true);
+    const timeoutClient = new Proxy(harness.client, {
+      get(target, property) {
+        if (property === "getEncryptedUtxosByTags") {
+          return async () => {
+            throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
+              details: { signature: broadcast.signature, attempts: 1 },
+            });
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
       },
-      confirmPrivateTransaction: async (
-        signature: Parameters<ZolanaClient["confirmPrivateTransaction"]>[0],
-      ) => {
-        throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
-          details: {
-            signature,
-            attempts: 1,
-          },
-        });
-      },
-    };
+    });
     await expect(
-      transfer({
+      syncWallet({
         client: timeoutClient,
         wallet: owner.wallet,
         authority: owner.authority,
-        feePayer: owner.signer,
-        recipient: recipient.signer.address,
-        amount: 10_000_000n,
+        config: { waitForIndexer: true, pageLimit: 1 },
       }),
     ).rejects.toMatchObject({
-      code: "WALLET_SUBMIT_PRIVATE_TRANSACTION",
+      code: "WALLET_SYNC",
       causeCode: "CLIENT_INDEXER_TIMEOUT",
     });
-    expect(broadcast).toBeDefined();
-    assertSpent(owner, submittedInput);
-    expect(owner.wallet.balance(SOL_MINT).amount).toBe(0n);
+    expect(owner.wallet.balance(SOL_MINT).amount).toBe(50_000_000n);
 
-    const landed = broadcast as SubmittedPrivateTransaction;
-    await harness.client.confirmPrivateTransaction(landed.signature);
     await sync(harness.client, owner, { pageLimit: 1 });
+    assertSpent(owner, submittedInput);
     expect(owner.wallet.balance(SOL_MINT).amount).toBe(40_000_000n);
 
     const fresh = new Wallet({ identity: owner.keypair.shieldedAddress() });

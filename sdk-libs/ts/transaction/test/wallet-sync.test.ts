@@ -16,7 +16,6 @@ import {
   Utxo,
   Wallet,
   decryptTransactions as syncWalletWithAuthority,
-  type CounterpartyCounter,
   type PrivateTransaction,
   type SyncReport,
   type ViewingKeyEntry,
@@ -126,22 +125,9 @@ function historyRow(entry: Readonly<Record<string, unknown>>): PrivateTransactio
   };
 }
 
-/**
- * One viewing key's scan position in the shape the Rust generator writes it:
- * counterparty counters sorted by viewing pubkey, because Rust holds them in a
- * hash map whose order is not the wallet's.
- */
-function scanCounters(entry: ViewingKeyEntry): Readonly<Record<string, unknown>> {
-  const counters = (rows: readonly CounterpartyCounter[]): readonly unknown[] =>
-    rows
-      .map((row) => ({ viewingPkBytes: hex(row.counterparty.toBytes()), count: String(row.count) }))
-      .sort((left, right) => left.viewingPkBytes.localeCompare(right.viewingPkBytes));
+function viewingKeyHistoryRow(entry: ViewingKeyEntry): Readonly<Record<string, unknown>> {
   return {
     viewingPkBytes: hex(entry.viewingPublicKey.toBytes()),
-    txCount: String(entry.txCount),
-    requestCount: String(entry.requestCount),
-    knownSenders: counters(entry.knownSenders),
-    knownRecipients: counters(entry.knownRecipients),
   };
 }
 
@@ -398,30 +384,6 @@ describe("manifest-verified wallet behavior", () => {
     expect(worker.utxos()).toEqual(wallet.utxos());
     expect(worker.privateTransactions()).toEqual(wallet.privateTransactions());
 
-    // Rust syncs into a clone and assigns it back only on success, so a failed
-    // sync leaves a populated wallet exactly as it was. Both entry points here
-    // commit once, at the end, and must not half-apply a batch either.
-    const before = {
-      utxos: worker.utxos(),
-      transactions: worker.privateTransactions(),
-      lastSynced: worker.lastSynced,
-    };
-    for (const sync of [syncWalletWithAuthority, syncWalletWorkerEquivalent]) {
-      await expect(
-        sync({
-          wallet: worker,
-          authority: value.authority,
-          transactions,
-          config: { tagWindow: 0n },
-        }),
-      ).rejects.toMatchObject({ code: "TRANSACTION_INVALID_TAG_WINDOW" });
-      expect({
-        utxos: worker.utxos(),
-        transactions: worker.privateTransactions(),
-        lastSynced: worker.lastSynced,
-      }).toEqual(before);
-    }
-
     const tampered = transactions.map((transaction, index) => {
       if (index !== 0) return transaction;
       const slot = transaction.outputSlots[0];
@@ -549,7 +511,7 @@ describe("manifest-verified wallet behavior", () => {
       expect(wallet.privateTransactions()).toEqual(
         fixtureArray(step, "rows").map((entry) => historyRow(fixtureObject(entry, "history row"))),
       );
-      expect(wallet.viewingKeyHistory.map(scanCounters)).toEqual(
+      expect(wallet.viewingKeyHistory.map(viewingKeyHistoryRow)).toEqual(
         fixtureArray(step, "viewingKeyHistory").map((entry) =>
           fixtureObject(entry, "viewing key entry"),
         ),

@@ -14,6 +14,12 @@ export interface GetRingsByTagsRequest {
   readonly limit?: Limit;
 }
 
+export interface GetRingsByNullifiersRequest {
+  readonly nullifiers: readonly Hash[];
+  readonly cursor?: Base64String;
+  readonly limit?: Limit;
+}
+
 export interface RingsOutputContext {
   readonly hash: Hash;
   readonly tree: Address;
@@ -57,6 +63,12 @@ export interface IndexedShieldedTransaction {
 }
 
 export interface GetShieldedTransactionsByTagsResponse {
+  readonly context: IndexerContext;
+  readonly transactions: readonly IndexedShieldedTransaction[];
+  readonly nextCursor?: Base64String;
+}
+
+export interface GetShieldedTransactionsByNullifiersResponse {
   readonly context: IndexerContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Base64String;

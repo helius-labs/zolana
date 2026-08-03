@@ -16,12 +16,6 @@ import {
 import {
   INFO_MERGE_VIEW_TAG_PREFIX,
   INFO_MERGE_VIEW_TAG_SECRET,
-  INFO_PAIR_DOMAIN_PREFIX,
-  INFO_PAIR_HINT_PREFIX,
-  INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
-  INFO_RECIPIENT_VIEW_TAG_SECRET,
-  INFO_SENDER_VIEW_TAG_PREFIX,
-  INFO_SENDER_VIEW_TAG_SECRET,
   INFO_TX_VIEWING,
   P_CONST_SEC1,
 } from "./constants.js";
@@ -147,36 +141,12 @@ export class ViewingKey implements ViewingKeyLike {
     return copyBytes(ecdhX(this.#secret, counterparty)) as Bytes32;
   }
 
-  senderViewTag(txCount: bigint): ViewTag {
-    return this.#viewTag(
-      INFO_SENDER_VIEW_TAG_SECRET,
-      INFO_SENDER_VIEW_TAG_PREFIX,
-      checkCounter(txCount, "txCount"),
-    );
-  }
-
-  recipientRequestViewTag(requestCount: bigint): ViewTag {
-    return this.#viewTag(
-      INFO_RECIPIENT_VIEW_TAG_SECRET,
-      INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
-      checkCounter(requestCount, "requestCount"),
-    );
-  }
-
   mergeViewTag(mergeCount: bigint): ViewTag {
     return this.#viewTag(
       INFO_MERGE_VIEW_TAG_SECRET,
       INFO_MERGE_VIEW_TAG_PREFIX,
       checkCounter(mergeCount, "mergeCount"),
     );
-  }
-
-  sendSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag {
-    return this.#sharedViewTag(counterparty, counterparty, checkCounter(index, "index"));
-  }
-
-  recipientSharedViewTag(counterparty: P256PublicKey, index: bigint): ViewTag {
-    return this.#sharedViewTag(counterparty, this.publicKey(), checkCounter(index, "index"));
   }
 
   recipientBootstrapViewTag(): ViewTag {
@@ -276,31 +246,6 @@ export class ViewingKey implements ViewingKeyLike {
       return tag as ViewTag;
     } finally {
       secret.fill(0);
-    }
-  }
-
-  #sharedViewTag(
-    counterparty: P256PublicKey,
-    recipientPublicKey: P256PublicKey,
-    counter: Uint8Array,
-  ): ViewTag {
-    const shared = this.ecdh(counterparty);
-    let domain: Uint8Array | undefined;
-    try {
-      domain = expandOrThrow(
-        shared,
-        concatBytes(encoder.encode(INFO_PAIR_DOMAIN_PREFIX), recipientPublicKey.toBytes()),
-        32,
-      );
-      const tag = new Uint8Array(32);
-      tag.set(
-        expandOrThrow(domain, concatBytes(encoder.encode(INFO_PAIR_HINT_PREFIX), counter), 31),
-        1,
-      );
-      return tag as ViewTag;
-    } finally {
-      shared.fill(0);
-      domain?.fill(0);
     }
   }
 

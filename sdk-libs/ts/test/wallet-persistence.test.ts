@@ -61,10 +61,18 @@ describe("wallet persistence", () => {
     expect(restored._state().nullifiers).toEqual(wallet._state().nullifiers);
     expect(serializeWallet(restored)).toBe(serialized);
     expect(serialized).not.toContain("secret");
+    expect(serialized).not.toMatch(/txCount|requestCount|knownSenders|knownRecipients/u);
   });
 
   it("rejects unsupported or malformed persisted state", () => {
     expect(() => deserializeWallet('{"version":2}')).toThrow("TRANSACTION_DESERIALIZE");
     expect(() => deserializeWallet("not json")).toThrow("TRANSACTION_DESERIALIZE");
+
+    const wallet = new Wallet({ identity: ShieldedKeypair.generate().shieldedAddress() });
+    const legacy = JSON.parse(serializeWallet(wallet)) as {
+      viewingKeyHistory: Record<string, unknown>[];
+    };
+    legacy.viewingKeyHistory[0]!["txCount"] = "0";
+    expect(() => deserializeWallet(JSON.stringify(legacy))).toThrow("TRANSACTION_DESERIALIZE");
   });
 });

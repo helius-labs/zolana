@@ -20,6 +20,12 @@ export interface GetByTagsRequest {
   readonly limit?: number;
 }
 
+export interface GetByNullifiersRequest {
+  readonly nullifiers: readonly Bytes32[];
+  readonly cursor?: Uint8Array;
+  readonly limit?: number;
+}
+
 export interface EncryptedUtxoMatch {
   readonly slot: bigint;
   readonly txSignature: Signature;
@@ -35,6 +41,12 @@ export interface GetEncryptedUtxosByTagsResponse {
 }
 
 export interface GetShieldedTransactionsByTagsResponse {
+  readonly context: RpcContext;
+  readonly transactions: readonly IndexedShieldedTransaction[];
+  readonly nextCursor?: Uint8Array;
+}
+
+export interface GetShieldedTransactionsByNullifiersResponse {
   readonly context: RpcContext;
   readonly transactions: readonly IndexedShieldedTransaction[];
   readonly nextCursor?: Uint8Array;

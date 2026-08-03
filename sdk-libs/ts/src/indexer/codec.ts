@@ -5,7 +5,9 @@ import type {
   GetMerkleProofsResponse,
   GetNonInclusionProofsRequest,
   GetNonInclusionProofsResponse,
+  GetRingsByNullifiersRequest,
   GetRingsByTagsRequest,
+  GetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
@@ -369,6 +371,33 @@ export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObje
   };
 }
 
+function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersRequest {
+  const record = object(value, "$", ["nullifiers", "cursor", "limit"]);
+  const cursor = optional(record["cursor"], "$.cursor", checkedBase64);
+  const pageLimit =
+    record["limit"] === undefined || record["limit"] === null
+      ? undefined
+      : checkedPageLimit(record["limit"], "$.limit");
+  return {
+    nullifiers: array(record["nullifiers"], "$.nullifiers", checkedHash),
+    ...(cursor === undefined ? {} : { cursor }),
+    ...(pageLimit === undefined ? {} : { limit: pageLimit }),
+  };
+}
+
+export function encodeRingsByNullifiersRequest(value: GetRingsByNullifiersRequest): WireObject {
+  const decoded = decodeRingsByNullifiersRequest({
+    nullifiers: value.nullifiers,
+    ...(value.cursor === undefined ? {} : { cursor: value.cursor }),
+    ...(value.limit === undefined ? {} : { limit: toU64(value.limit, "$.limit") }),
+  });
+  return {
+    nullifiers: [...decoded.nullifiers],
+    ...(decoded.cursor === undefined ? {} : { cursor: decoded.cursor }),
+    ...(decoded.limit === undefined ? {} : { limit: Number(decoded.limit) }),
+  };
+}
+
 export function encodeShieldedTransactionsBySignatureRequest(
   value: GetShieldedTransactionsBySignatureRequest,
 ): WireObject {
@@ -397,6 +426,12 @@ export function decodeShieldedTransactionsResponse(
     transactions: array(record["transactions"], "$.transactions", indexedTransaction),
     ...(nextCursor === undefined ? {} : { nextCursor }),
   };
+}
+
+export function decodeShieldedTransactionsByNullifiersResponse(
+  value: unknown,
+): GetShieldedTransactionsByNullifiersResponse {
+  return decodeShieldedTransactionsResponse(value);
 }
 
 export function decodeShieldedTransactionsBySignatureResponse(

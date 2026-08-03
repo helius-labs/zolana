@@ -17,7 +17,6 @@ import { AssetRegistry, SOL_ASSET_ID } from "./asset.js";
 import {
   Wallet,
   hex,
-  type CounterpartyCounter,
   type PrivateTransaction,
   type PrivateTransactionDirection,
   type PrivateTransactionKind,
@@ -31,18 +30,9 @@ const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 
-interface SerializedCounterpartyCounter {
-  readonly counterparty: string;
-  readonly count: string;
-}
-
 interface SerializedViewingKeyEntry {
   readonly viewingPublicKey: string;
   readonly createdAt: string;
-  readonly txCount: string;
-  readonly requestCount: string;
-  readonly knownSenders: readonly SerializedCounterpartyCounter[];
-  readonly knownRecipients: readonly SerializedCounterpartyCounter[];
 }
 
 interface SerializedDataRecord {
@@ -199,47 +189,20 @@ function serializeViewingKeyEntry(value: ViewingKeyEntry): SerializedViewingKeyE
   return {
     viewingPublicKey: encode(value.viewingPublicKey.toBytes()),
     createdAt: value.createdAt.toString(),
-    txCount: value.txCount.toString(),
-    requestCount: value.requestCount.toString(),
-    knownSenders: value.knownSenders.map(serializeCounterparty),
-    knownRecipients: value.knownRecipients.map(serializeCounterparty),
-  };
-}
-
-function serializeCounterparty(value: CounterpartyCounter): SerializedCounterpartyCounter {
-  return {
-    counterparty: encode(value.counterparty.toBytes()),
-    count: value.count.toString(),
   };
 }
 
 function deserializeViewingKeyEntry(value: unknown, index: number): ViewingKeyEntry {
   const path = `viewingKeyHistory[${String(index)}]`;
   const entry = record(value, path);
+  if (Object.keys(entry).some((key) => key !== "viewingPublicKey" && key !== "createdAt")) {
+    fail(path);
+  }
   return {
     viewingPublicKey: P256PublicKey.fromBytes(
       bytes(entry["viewingPublicKey"], 33, `${path}.viewingPublicKey`) as Bytes33,
     ),
     createdAt: signed(entry["createdAt"], `${path}.createdAt`),
-    txCount: unsigned(entry["txCount"], `${path}.txCount`),
-    requestCount: unsigned(entry["requestCount"], `${path}.requestCount`),
-    knownSenders: array(entry["knownSenders"], `${path}.knownSenders`).map((item, itemIndex) =>
-      deserializeCounterparty(item, `${path}.knownSenders[${String(itemIndex)}]`),
-    ),
-    knownRecipients: array(entry["knownRecipients"], `${path}.knownRecipients`).map(
-      (item, itemIndex) =>
-        deserializeCounterparty(item, `${path}.knownRecipients[${String(itemIndex)}]`),
-    ),
-  };
-}
-
-function deserializeCounterparty(value: unknown, path: string): CounterpartyCounter {
-  const item = record(value, path);
-  return {
-    counterparty: P256PublicKey.fromBytes(
-      bytes(item["counterparty"], 33, `${path}.counterparty`) as Bytes33,
-    ),
-    count: unsigned(item["count"], `${path}.count`),
   };
 }
 

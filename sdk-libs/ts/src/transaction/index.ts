@@ -51,7 +51,6 @@ export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash 
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,
-  DEFAULT_TAG_WINDOW,
   LocalWalletAuthority,
   SOL_ASSET_ID,
   SOL_MINT,
@@ -64,7 +63,6 @@ export type {
   AnonymousRecipientSlot,
   ApprovalRequest,
   AssetBalance,
-  CounterpartyCounter,
   EncryptedEnvelope,
   EncryptedSplit,
   EncryptedTransfer,
@@ -80,7 +78,6 @@ export type {
   SerializedWalletState,
   ViewingKeyEntry,
   WalletAuthority,
-  WalletSyncConfig,
   WalletSyncMaterial,
   WalletUtxo,
 } from "./wallet/index.js";

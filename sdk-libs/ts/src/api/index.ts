@@ -5,7 +5,9 @@ import type {
   GetMerkleProofsResponse,
   GetNonInclusionProofsRequest,
   GetNonInclusionProofsResponse,
+  GetRingsByNullifiersRequest,
   GetRingsByTagsRequest,
+  GetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
@@ -15,6 +17,7 @@ import {
   getEncryptedUtxosByTagsMethod,
   getMerkleProofsMethod,
   getNonInclusionProofsMethod,
+  getShieldedTransactionsByNullifiersMethod,
   getShieldedTransactionsBySignatureMethod,
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
@@ -90,6 +93,13 @@ export class ZolanaApi {
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
     return this.#call(getShieldedTransactionsByTagsMethod, request, context);
+  }
+
+  getShieldedTransactionsByNullifiers(
+    request: GetRingsByNullifiersRequest,
+    context?: RequestContext,
+  ): Promise<GetShieldedTransactionsByNullifiersResponse> {
+    return this.#call(getShieldedTransactionsByNullifiersMethod, request, context);
   }
 
   getShieldedTransactionsBySignature(

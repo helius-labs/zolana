@@ -3,6 +3,7 @@ import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse as WireGetEncryptedUtxosByTagsResponse,
+  GetShieldedTransactionsByNullifiersResponse as WireGetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureResponse as WireGetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse as WireGetShieldedTransactionsByTagsResponse,
   IndexedShieldedTransaction as WireShieldedTransaction,
@@ -31,10 +32,12 @@ import {
 } from "./retry.js";
 import {
   type EncryptedUtxoMatch,
+  type GetByNullifiersRequest,
   type GetByTagsRequest,
   type GetEncryptedUtxosByTagsResponse,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
+  type GetShieldedTransactionsByNullifiersResponse,
   type GetShieldedTransactionsBySignatureResponse,
   type GetShieldedTransactionsByTagsResponse,
   type MerkleProof,
@@ -95,6 +98,30 @@ export class ZolanaIndexer {
           context,
         );
         return convertShieldedTransactionsResponse(response, method);
+      } catch (cause) {
+        throw wrapIndexer(cause, method);
+      }
+    });
+  }
+
+  getShieldedTransactionsByNullifiers(
+    request: GetByNullifiersRequest,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetShieldedTransactionsByNullifiersResponse> {
+    const owned = copyNullifierRequest(request);
+    return pollIndexer(config, context, async () => {
+      const method = "getShieldedTransactionsByNullifiers";
+      try {
+        const response = await this.#api.getShieldedTransactionsByNullifiers(
+          {
+            nullifiers: owned.nullifiers.map((nullifier) => hash(nullifier)),
+            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
+            ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
+          },
+          context,
+        );
+        return convertShieldedTransactionsByNullifiersResponse(response, method);
       } catch (cause) {
         throw wrapIndexer(cause, method);
       }
@@ -175,6 +202,17 @@ function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
   }
   return Object.freeze({
     tags: copyFixedBytes(request.tags, 32, "tags") as readonly Bytes32[],
+    ...(request.cursor === undefined ? {} : { cursor: new Uint8Array(request.cursor) }),
+    ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
+  });
+}
+
+function copyNullifierRequest(request: GetByNullifiersRequest): GetByNullifiersRequest {
+  if (request.cursor !== undefined && !(request.cursor instanceof Uint8Array)) {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "cursor" } });
+  }
+  return Object.freeze({
+    nullifiers: copyFixedBytes(request.nullifiers, 32, "nullifiers") as readonly Bytes32[],
     ...(request.cursor === undefined ? {} : { cursor: new Uint8Array(request.cursor) }),
     ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
   });
@@ -293,6 +331,13 @@ function convertShieldedTransactionsResponse(
       ? {}
       : { nextCursor: decodeBase64(response.nextCursor, "next_cursor") }),
   });
+}
+
+function convertShieldedTransactionsByNullifiersResponse(
+  response: WireGetShieldedTransactionsByNullifiersResponse,
+  method: string,
+): GetShieldedTransactionsByNullifiersResponse {
+  return convertShieldedTransactionsResponse(response, method);
 }
 
 function convertShieldedTransactionsBySignatureResponse(

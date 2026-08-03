@@ -1,11 +1,5 @@
 export { ZolanaClient } from "./client.js";
-export type {
-  MergeMaterialInput,
-  ProvedMerge,
-  SignedPrivateTransaction,
-  SubmittedPrivateTransaction,
-  ZolanaClientConfig,
-} from "./client.js";
+export type { MergeMaterialInput, ProvedMerge, ZolanaClientConfig } from "./client.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {
   CanonicalClientErrorCode,
@@ -17,7 +11,6 @@ export type {
   RetryErrorCause,
 } from "./error.js";
 export type { AsyncPollConfig } from "./prover/client.js";
-export type { TransactionSignOnlySigner } from "./kit.js";
 export {
   DEFAULT_INDEXER_POLL_CONFIG,
   DEFAULT_INDEXER_RPC_CONFIG,
@@ -27,10 +20,12 @@ export {
 } from "./retry.js";
 export type {
   EncryptedUtxoMatch,
+  GetByNullifiersRequest,
   GetByTagsRequest,
   GetEncryptedUtxosByTagsResponse,
   GetMerkleProofsResponse,
   GetNonInclusionProofsResponse,
+  GetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
   IndexerPollConfig,

@@ -2,10 +2,12 @@ import {
   decodeEncryptedUtxosResponse,
   decodeMerkleProofsResponse,
   decodeNonInclusionProofsResponse,
+  decodeShieldedTransactionsByNullifiersResponse,
   decodeShieldedTransactionsBySignatureResponse,
   decodeShieldedTransactionsResponse,
   encodeMerkleProofsRequest,
   encodeNonInclusionProofsRequest,
+  encodeRingsByNullifiersRequest,
   encodeRingsByTagsRequest,
   encodeShieldedTransactionsBySignatureRequest,
 } from "../codec.js";
@@ -13,6 +15,7 @@ import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
   GET_MERKLE_PROOFS,
   GET_NON_INCLUSION_PROOFS,
+  GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
   GET_SHIELDED_TRANSACTIONS_BY_TAGS,
 } from "../names.js";
@@ -22,7 +25,9 @@ import type {
   GetMerkleProofsResponse,
   GetNonInclusionProofsRequest,
   GetNonInclusionProofsResponse,
+  GetRingsByNullifiersRequest,
   GetRingsByTagsRequest,
+  GetShieldedTransactionsByNullifiersResponse,
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
@@ -50,6 +55,15 @@ export const getShieldedTransactionsByTagsMethod: MethodDescriptor<
   name: GET_SHIELDED_TRANSACTIONS_BY_TAGS,
   encodeRequest: encodeRingsByTagsRequest,
   decodeResponse: decodeShieldedTransactionsResponse,
+};
+
+export const getShieldedTransactionsByNullifiersMethod: MethodDescriptor<
+  GetRingsByNullifiersRequest,
+  GetShieldedTransactionsByNullifiersResponse
+> = {
+  name: GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
+  encodeRequest: encodeRingsByNullifiersRequest,
+  decodeResponse: decodeShieldedTransactionsByNullifiersResponse,
 };
 
 export const getShieldedTransactionsBySignatureMethod: MethodDescriptor<

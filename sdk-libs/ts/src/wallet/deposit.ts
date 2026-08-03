@@ -1,5 +1,3 @@
-import type { TransactionSigner } from "@solana/kit";
-
 import { buildUnsignedTransaction } from "../client/kit.js";
 import type { ZolanaClient } from "../client/client.js";
 import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
@@ -11,7 +9,6 @@ import {
   type DepositAsset,
   type Instruction,
   type RequestContext,
-  type Signature,
   type Transaction,
 } from "../interface/types.js";
 import { associatedTokenAddress } from "../interface/pda/index.js";
@@ -23,6 +20,7 @@ import { SOL_MINT } from "../transaction/wallet/asset.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 
+/** @internal */
 export interface DepositParams {
   readonly recipient: ShieldedAddress;
   readonly asset: Address;
@@ -32,28 +30,7 @@ export interface DepositParams {
   readonly memo?: Uint8Array;
 }
 
-export interface DepositActionParams {
-  readonly client: Pick<
-    ZolanaClient,
-    "tree" | "signAndSendInstructions" | "confirmPrivateTransaction"
-  >;
-  readonly feePayer: TransactionSigner;
-  readonly depositor?: TransactionSigner;
-  readonly tree?: Address;
-  readonly recipient: ShieldedAddress;
-  readonly asset?: Address;
-  readonly amount: bigint;
-  readonly splTokenAccount?: Address;
-  readonly splTokenProgram?: Address | null;
-  readonly memo?: Uint8Array;
-  readonly waitForIndexer?: boolean;
-}
-
-export interface SubmittedDeposit {
-  readonly signature: Signature;
-  readonly utxoHash: Bytes32;
-}
-
+/** @internal */
 export class Deposit {
   readonly data: Omit<AssetDeposit, "asset">;
   readonly utxoHash: Bytes32;
@@ -93,6 +70,7 @@ export class Deposit {
   }
 }
 
+/** @internal */
 export async function createDeposit(params: DepositParams): Promise<Deposit> {
   try {
     if (params.amount <= 0n || params.amount > 0xffff_ffff_ffff_ffffn) {
@@ -143,89 +121,46 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
   }
 }
 
-/**
- * Build, sign, and send a deposit. The depositor signs alongside the payer only
- * when they are different accounts; the funding account must authorize the
- * lamport or token transfer either way.
- */
-export async function submitDeposit(
-  input: Readonly<{
-    client: Pick<ZolanaClient, "signAndSendInstructions">;
-    payer: TransactionSigner;
-    tree: Address;
-    depositor: TransactionSigner;
-    deposit: Deposit;
-  }>,
-  context?: RequestContext,
-): Promise<Signature> {
-  try {
-    return await input.client.signAndSendInstructions(
-      {
-        feePayer: input.payer,
-        instructions: [await input.deposit.instruction(input.tree, input.depositor.address)],
-        ...(input.depositor.address === input.payer.address
-          ? {}
-          : { additionalSigners: [input.depositor] }),
-      },
-      context,
-    );
-  } catch (cause) {
-    throw wrapWalletError("WALLET_DEPOSIT", cause);
-  }
-}
-
-export async function deposit(
-  input: DepositActionParams,
-  context?: RequestContext,
-): Promise<SubmittedDeposit> {
-  const depositor = input.depositor ?? input.feePayer;
-  const asset = input.asset ?? SOL_MINT;
-  const splTokenAccount =
-    asset === SOL_MINT
-      ? undefined
-      : (input.splTokenAccount ??
-        (await associatedTokenAddress(depositor.address, asset, input.splTokenProgram)));
-  const created = await createDeposit({
-    recipient: input.recipient,
-    asset,
-    amount: input.amount,
-    ...(splTokenAccount === undefined ? {} : { splTokenAccount }),
-    ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
-    ...(input.memo === undefined ? {} : { memo: input.memo }),
-  });
-  const signature = await submitDeposit(
-    {
-      client: input.client,
-      payer: input.feePayer,
-      tree: input.tree ?? input.client.tree,
-      depositor,
-      deposit: created,
-    },
-    context,
-  );
-  if (input.waitForIndexer !== false) {
-    await input.client.confirmPrivateTransaction(signature, context);
-  }
-  return Object.freeze({ signature, utxoHash: new Uint8Array(created.utxoHash) as Bytes32 });
+export interface DepositTransactionParams {
+  readonly client: ZolanaClient;
+  readonly feePayer: Address;
+  readonly depositor?: Address;
+  readonly tree?: Address;
+  readonly recipient: ShieldedAddress;
+  readonly asset?: Address;
+  readonly amount: bigint;
+  readonly splTokenAccount?: Address;
+  readonly splTokenProgram?: Address | null;
+  readonly memo?: Uint8Array;
 }
 
 export async function buildDepositTransaction(
-  input: Readonly<{
-    client: Pick<ZolanaClient, "getLatestBlockhash">;
-    payer: Address;
-    tree: Address;
-    depositor: Address;
-    deposit: Deposit;
-  }>,
+  input: DepositTransactionParams,
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    const depositor = input.depositor ?? input.feePayer;
+    const tree = input.tree ?? input.client.tree;
+    const asset = input.asset ?? SOL_MINT;
+    const splTokenAccount =
+      asset === SOL_MINT
+        ? undefined
+        : (input.splTokenAccount ??
+          (await associatedTokenAddress(depositor, asset, input.splTokenProgram)));
+    const deposit = await createDeposit({
+      recipient: input.recipient,
+      asset,
+      amount: input.amount,
+      ...(splTokenAccount === undefined ? {} : { splTokenAccount }),
+      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+      ...(input.memo === undefined ? {} : { memo: input.memo }),
+    });
     const lifetime = await input.client.getLatestBlockhash(context);
     return checkedTransactionSize(
       buildUnsignedTransaction({
-        feePayer: input.payer,
+        feePayer: input.feePayer,
         lifetime,
-        instructions: [await input.deposit.instruction(input.tree, input.depositor)],
+        instructions: [await deposit.instruction(tree, depositor)],
       }),
     );
   } catch (cause) {

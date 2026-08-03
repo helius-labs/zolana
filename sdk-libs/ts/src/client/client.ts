@@ -12,7 +12,6 @@ import {
   type Instruction,
   type Signature,
   type Transaction,
-  type TransactionSigner,
 } from "@solana/kit";
 
 import { ZolanaApi } from "../api/index.js";
@@ -34,31 +33,29 @@ import type { ShieldedPublicKey } from "../keypair/public-key.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
 
-import { ClientError, fromClientCause, isClientError } from "./error.js";
+import { ClientError, fromClientCause } from "./error.js";
 import { bigintToBytes, checkedServiceUrl, hashField } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
   buildUnsignedTransaction as buildKitUnsignedTransaction,
   createKitClients,
-  isTransactionSignOnlySigner,
   runKitRpc,
-  sendAndConfirmTransaction as sendKitTransaction,
-  signAndSendInstructions as signAndSendKitInstructions,
   type LatestBlockhash,
   type SolanaRpc,
   type SolanaRpcSubscriptions,
-  type TransactionSignOnlySigner,
 } from "./kit.js";
 import { assemble } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import { DEFAULT_INDEXER_RPC_CONFIG, pollUntil, validatePollConfig } from "./retry.js";
+import { DEFAULT_INDEXER_RPC_CONFIG, validatePollConfig } from "./retry.js";
 import {
+  type GetByNullifiersRequest,
   type GetByTagsRequest,
   type GetEncryptedUtxosByTagsResponse,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
+  type GetShieldedTransactionsByNullifiersResponse,
   type GetShieldedTransactionsBySignatureResponse,
   type GetShieldedTransactionsByTagsResponse,
   type IndexerRpcConfig,
@@ -84,15 +81,11 @@ export interface ZolanaClientConfig {
   readonly fetch?: typeof globalThis.fetch;
 }
 
-export interface SignedPrivateTransaction {
-  readonly transaction: SppProofInputs;
+/** @internal */
+export interface AuthorizedPrivateTransaction {
+  readonly proofInputs: SppProofInputs;
   readonly withdrawal?: TransactWithdrawal;
   readonly tree: Address;
-}
-
-export interface SubmittedPrivateTransaction {
-  readonly signature: Signature;
-  readonly outputTags: readonly Bytes32[];
 }
 
 export interface MergeMaterialInput {
@@ -254,27 +247,6 @@ export class ZolanaClient {
     return value;
   }
 
-  sendTransaction(
-    transaction: Transaction,
-    config: Readonly<{ skipPreflight?: boolean }> = {},
-    context?: RequestContext,
-  ): Promise<Signature> {
-    return sendKitTransaction(this, transaction, config, context);
-  }
-
-  signAndSendInstructions(
-    input: Readonly<{
-      feePayer: TransactionSigner;
-      instructions: readonly Instruction[];
-      additionalSigners?: readonly TransactionSigner[];
-      skipPreflight?: boolean;
-      onReadyToSubmit?: () => void;
-    }>,
-    context?: RequestContext,
-  ): Promise<Signature> {
-    return signAndSendKitInstructions(this, input, context);
-  }
-
   getEncryptedUtxosByTags(
     request: GetByTagsRequest,
     config?: IndexerRpcConfig,
@@ -289,6 +261,18 @@ export class ZolanaClient {
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
     return this.#indexer.getShieldedTransactionsByTags(request, this.#configOr(config), context);
+  }
+
+  getShieldedTransactionsByNullifiers(
+    request: GetByNullifiersRequest,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<GetShieldedTransactionsByNullifiersResponse> {
+    return this.#indexer.getShieldedTransactionsByNullifiers(
+      request,
+      this.#configOr(config),
+      context,
+    );
   }
 
   getShieldedTransactionsBySignature(
@@ -502,7 +486,8 @@ export class ZolanaClient {
     });
   }
 
-  async finishMergeSubmissionUnsigned(
+  /** @internal */
+  async assembleAuthorizedMergeTransaction(
     input: Readonly<{
       proved: ProvedMerge;
       feePayer: Address;
@@ -533,15 +518,16 @@ export class ZolanaClient {
     });
   }
 
-  async finishSubmissionUnsigned(
+  /** @internal */
+  async assembleAuthorizedPrivateTransaction(
     input: Readonly<{
-      signed: SignedPrivateTransaction;
+      authorized: AuthorizedPrivateTransaction;
       feePayer: Address;
       setupInstructions?: readonly Instruction[];
     }>,
     context?: RequestContext,
   ): Promise<Transaction> {
-    const { data } = await this.#preparePrivateSubmission(input, context);
+    const data = await this.#proveAuthorizedPrivateTransaction(input, context);
     const lifetime = await this.getLatestBlockhash(context);
     return buildUnsignedTransaction({
       computeUnitLimit: this.#computeUnitLimit,
@@ -549,118 +535,43 @@ export class ZolanaClient {
         ? {}
         : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
       feePayer: input.feePayer,
-      inputTree: input.signed.tree,
+      inputTree: input.authorized.tree,
       outputTree: this.tree,
       ...(input.setupInstructions === undefined
         ? {}
         : { setupInstructions: input.setupInstructions }),
-      ...(input.signed.withdrawal === undefined ? {} : { withdrawal: input.signed.withdrawal }),
+      ...(input.authorized.withdrawal === undefined
+        ? {}
+        : { withdrawal: input.authorized.withdrawal }),
       data,
       lifetime,
     });
   }
 
-  async submitPrivateTransaction(
-    input: Readonly<{
-      signed: SignedPrivateTransaction;
-      feePayer: TransactionSignOnlySigner;
-      setupInstructions?: readonly Instruction[];
-      skipPreflight?: boolean;
-      onReadyToSubmit?: () => void;
-    }>,
+  async #proveAuthorizedPrivateTransaction(
+    input: Readonly<{ authorized: AuthorizedPrivateTransaction; feePayer: Address }>,
     context?: RequestContext,
-  ): Promise<SubmittedPrivateTransaction> {
-    if (!isTransactionSignOnlySigner(input.feePayer)) {
-      throw new ClientError("CLIENT_SOLANA_TRANSACTION_SIGNING", {
-        details: { reason: "private submission requires a signer that does not send" },
-      });
-    }
-    const { data, outputTags } = await this.#preparePrivateSubmission(
-      { signed: input.signed, feePayer: input.feePayer.address },
-      context,
-    );
-    const signature = await this.signAndSendInstructions(
-      {
-        feePayer: input.feePayer,
-        instructions: privateTransactionInstructions({
-          computeUnitLimit: this.#computeUnitLimit,
-          ...(this.#computeUnitPrice === undefined
-            ? {}
-            : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
-          payer: input.feePayer.address,
-          inputTree: input.signed.tree,
-          outputTree: this.tree,
-          ...(input.setupInstructions === undefined
-            ? {}
-            : { setupInstructions: input.setupInstructions }),
-          ...(input.signed.withdrawal === undefined ? {} : { withdrawal: input.signed.withdrawal }),
-          data,
-        }),
-        ...(input.skipPreflight === undefined ? {} : { skipPreflight: input.skipPreflight }),
-        ...(input.onReadyToSubmit === undefined ? {} : { onReadyToSubmit: input.onReadyToSubmit }),
-      },
-      context,
-    );
-    return Object.freeze({ signature, outputTags });
-  }
-
-  async #preparePrivateSubmission(
-    input: Readonly<{ signed: SignedPrivateTransaction; feePayer: Address }>,
-    context?: RequestContext,
-  ): Promise<Readonly<{ data: TransactInstructionData; outputTags: readonly Bytes32[] }>> {
+  ): Promise<TransactInstructionData> {
     const candidate: unknown = input;
     if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
     checkedAddress(input.feePayer, "feePayer");
-    if (!isSignedPrivateTransaction(input.signed)) {
+    if (!isAuthorizedPrivateTransaction(input.authorized)) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
     const payerHash = bigintToBytes(
       hashField(new Uint8Array(getAddressEncoder().encode(input.feePayer))),
     );
-    if (!equal(payerHash, input.signed.transaction.payerPublicKeyHash)) {
+    if (!equal(payerHash, input.authorized.proofInputs.payerPublicKeyHash)) {
       throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
     }
-    if (input.signed.tree !== this.tree) {
+    if (input.authorized.tree !== this.tree) {
       throw new ClientError("CLIENT_TREE_MISMATCH", {
-        details: { transactionTree: input.signed.tree, clientTree: this.tree },
+        details: { transactionTree: input.authorized.tree, clientTree: this.tree },
       });
     }
-    const data = await this.proveTransact(input.signed.transaction, undefined, context);
-    return Object.freeze({
-      data,
-      outputTags: privateOutputTags(input.signed.transaction),
-    });
-  }
-
-  async confirmPrivateTransaction(signature: Signature, context?: RequestContext): Promise<void> {
-    checkedSignature(signature);
-    try {
-      await pollUntil(
-        () =>
-          this.getShieldedTransactionsBySignature(
-            signature,
-            { ...this.#indexerConfig, waitForIndexer: false },
-            context,
-          ),
-        (response) => response.transactions.length > 0,
-        {
-          config: this.#indexerConfig.poll,
-          ...(context === undefined ? {} : { context }),
-        },
-      );
-      return;
-    } catch (cause) {
-      if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
-      throw new ClientError("CLIENT_INDEXER_TIMEOUT", {
-        details: {
-          signature,
-          attempts: this.#indexerConfig.poll.numRetries + 1,
-        },
-        cause,
-      });
-    }
+    return this.proveTransact(input.authorized.proofInputs, undefined, context);
   }
 }
 
@@ -797,18 +708,6 @@ function checkedSignature(value: Signature): void {
   }
 }
 
-function privateOutputTags(transaction: SppProofInputs): readonly Bytes32[] {
-  const unique = new Map<string, Bytes32>();
-  for (const tag of [
-    ...transaction.externalData.resolvedOwnerTags,
-    ...transaction.externalData.messages.map((message) => message.viewTag),
-  ]) {
-    const copy = new Uint8Array(tag) as Bytes32;
-    unique.set(Array.from(copy, (byte) => byte.toString(16).padStart(2, "0")).join(""), copy);
-  }
-  return Object.freeze([...unique.values()]);
-}
-
 function isCommitment(value: unknown): value is Commitment {
   return value === "processed" || value === "confirmed" || value === "finalized";
 }
@@ -861,10 +760,10 @@ function isProvedMerge(value: unknown): value is ProvedMerge {
   );
 }
 
-function isSignedPrivateTransaction(value: unknown): value is SignedPrivateTransaction {
+function isAuthorizedPrivateTransaction(value: unknown): value is AuthorizedPrivateTransaction {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
-    candidate["transaction"] instanceof SppProofInputs && typeof candidate["tree"] === "string"
+    candidate["proofInputs"] instanceof SppProofInputs && typeof candidate["tree"] === "string"
   );
 }

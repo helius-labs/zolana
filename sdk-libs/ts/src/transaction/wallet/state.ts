@@ -84,23 +84,13 @@ export interface SyncReport {
   readonly unknownAssetFields: readonly Bytes32[];
 }
 
-export interface CounterpartyCounter {
-  readonly counterparty: P256PublicKey;
-  readonly count: bigint;
-}
-
 /**
- * How far each tag family of one viewing key has been discovered. A sync
- * queries through `count + window` for each family, so a counterparty that has
- * advanced its own counter stays reachable.
+ * A viewing public key retained for historical deposit discovery and
+ * decryption after key rotation.
  */
 export interface ViewingKeyEntry {
   readonly viewingPublicKey: P256PublicKey;
   readonly createdAt: bigint;
-  readonly txCount: bigint;
-  readonly requestCount: bigint;
-  readonly knownSenders: readonly CounterpartyCounter[];
-  readonly knownRecipients: readonly CounterpartyCounter[];
 }
 
 export function newViewingKeyEntry(
@@ -110,20 +100,13 @@ export function newViewingKeyEntry(
   return Object.freeze({
     viewingPublicKey,
     createdAt,
-    txCount: 0n,
-    requestCount: 0n,
-    knownSenders: Object.freeze([]),
-    knownRecipients: Object.freeze([]),
   });
 }
 
 function snapshotViewingKeyEntry(value: ViewingKeyEntry): ViewingKeyEntry {
   return Object.freeze({
-    ...value,
-    knownSenders: Object.freeze(value.knownSenders.map((entry) => Object.freeze({ ...entry }))),
-    knownRecipients: Object.freeze(
-      value.knownRecipients.map((entry) => Object.freeze({ ...entry })),
-    ),
+    viewingPublicKey: value.viewingPublicKey,
+    createdAt: value.createdAt,
   });
 }
 
@@ -172,7 +155,6 @@ export class Wallet {
   #utxos: WalletUtxo[] = [];
   #transactions: PrivateTransaction[] = [];
   #nullifiers = new Set<string>();
-  readonly #reservations = new Map<string, symbol>();
   #lastSynced = 0n;
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry?: AssetRegistry }>) {
@@ -199,80 +181,13 @@ export class Wallet {
   }
 
   utxos(): readonly WalletUtxo[] {
-    return this.#utxos.map((entry) =>
-      snapshotUtxo(
-        this.#reservations.has(hex(entry.outputContext.hash)) ? { ...entry, spent: true } : entry,
-      ),
-    );
+    return this.#utxos.map(snapshotUtxo);
   }
 
   privateTransactions(): readonly PrivateTransaction[] {
     return this.#transactions.map((transaction) =>
       Object.freeze({ ...transaction, id: Object.freeze({ ...transaction.id }) }),
     );
-  }
-
-  /**
-   * Conservatively reserve inputs once Solana accepts a submitted transaction.
-   * Sync later confirms the same state from indexed nullifiers; until then these
-   * notes must not be selected again for a competing proof.
-   * @internal
-   */
-  _markSubmitted(outputHashes: readonly Bytes32[]): void {
-    const submitted = new Set(outputHashes.map(hex));
-    for (const hash of submitted) this.#reservations.delete(hash);
-    this.#utxos = this.#utxos.map((entry) =>
-      entry.spent || !submitted.has(hex(entry.outputContext.hash))
-        ? entry
-        : Object.freeze({ ...entry, spent: true }),
-    );
-  }
-
-  /**
-   * Atomically reserves a set of inputs before any authority or prover await.
-   * Reservations are process-local and become ordinary spent flags only when
-   * the submission path reaches its final send boundary.
-   * @internal
-   */
-  _reserveSubmission(outputHashes: readonly Bytes32[]): symbol {
-    const token = Symbol("wallet submission");
-    const hashes = outputHashes.map(hex);
-    const seen = new Set<string>();
-    for (const [index, hash] of hashes.entries()) {
-      const available = this.#utxos.some(
-        (entry) => !entry.spent && hex(entry.outputContext.hash) === hash,
-      );
-      if (!available || seen.has(hash) || this.#reservations.has(hash)) {
-        throw new TransactionError("TRANSACTION_INPUT_RESERVED", { index });
-      }
-      seen.add(hash);
-    }
-    for (const hash of hashes) this.#reservations.set(hash, token);
-    return token;
-  }
-
-  /** @internal */
-  _canSpendReserved(outputHash: Bytes32, token?: symbol): boolean {
-    const reservation = this.#reservations.get(hex(outputHash));
-    return reservation === undefined || reservation === token;
-  }
-
-  /** @internal */
-  _releaseSubmission(token: symbol): void {
-    for (const [hash, reservation] of this.#reservations) {
-      if (reservation === token) this.#reservations.delete(hash);
-    }
-  }
-
-  /** @internal */
-  _commitSubmission(token: symbol): void {
-    const submitted: Bytes32[] = [];
-    for (const entry of this.#utxos) {
-      if (this.#reservations.get(hex(entry.outputContext.hash)) === token) {
-        submitted.push(entry.outputContext.hash);
-      }
-    }
-    this._markSubmitted(submitted);
   }
 
   /**
@@ -286,7 +201,6 @@ export class Wallet {
       .filter(
         (entry) =>
           !entry.spent &&
-          !this.#reservations.has(hex(entry.outputContext.hash)) &&
           entry.utxo.asset === mint &&
           (filter === undefined || matches(filter, entry.utxo)),
       )
@@ -298,9 +212,7 @@ export class Wallet {
   /** One balance per mint the wallet holds an unspent note of, by asset id. */
   balances(skipUtxos = false): readonly AssetBalance[] {
     const mints = new Set(
-      this.#utxos
-        .filter((entry) => !entry.spent && !this.#reservations.has(hex(entry.outputContext.hash)))
-        .map((entry) => entry.utxo.asset),
+      this.#utxos.filter((entry) => !entry.spent).map((entry) => entry.utxo.asset),
     );
     return [...mints]
       .map((mint) => {
@@ -328,7 +240,7 @@ export class Wallet {
   }
 
   /**
-   * Omitting `viewingKeyHistory` leaves the scan position untouched, and
+   * Omitting `viewingKeyHistory` leaves retained viewing-key history untouched, and
    * omitting `lastSynced` leaves the sync timestamp untouched.
    * @internal
    */
@@ -350,12 +262,6 @@ export class Wallet {
       hashes.add(hash);
     }
     this.#utxos = input.utxos.map(snapshotUtxo);
-    const spendable = new Set(
-      this.#utxos.filter((entry) => !entry.spent).map((entry) => hex(entry.outputContext.hash)),
-    );
-    for (const hash of this.#reservations.keys()) {
-      if (!spendable.has(hash)) this.#reservations.delete(hash);
-    }
     this.#transactions = input.transactions.map((transaction) =>
       Object.freeze({ ...transaction, id: Object.freeze({ ...transaction.id }) }),
     );

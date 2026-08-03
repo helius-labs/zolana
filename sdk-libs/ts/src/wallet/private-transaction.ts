@@ -1,11 +1,5 @@
-import { signTransactionWithSigners } from "@solana/kit";
-
-import { isTransactionSignOnlySigner } from "../client/kit.js";
-import type { ZolanaClient } from "../client/client.js";
-import type { SignedPrivateTransaction } from "../client/client.js";
-import { ClientError } from "../client/error.js";
-import type { TransactionSignOnlySigner } from "../client/kit.js";
-import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
+import type { AuthorizedPrivateTransaction } from "../client/client.js";
+import type { Address, Bytes32 } from "../interface/types.js";
 import type { Data } from "../transaction/data.js";
 import { ConfidentialSplit } from "../transaction/instructions/builders.js";
 import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
@@ -13,7 +7,7 @@ import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
 import type { Wallet } from "../transaction/wallet/state.js";
 
 import { UnsignedPrivateTransaction } from "./actions.js";
-import { WalletError, wrapWalletError } from "./error.js";
+import { WalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
 import type { WalletAuthority } from "../transaction/wallet/authority.js";
 
@@ -50,23 +44,21 @@ function sameUtxo(left: Utxo, right: Utxo): boolean {
 }
 
 /**
- * The note the signer is about to spend must still be the exact note the
- * unsigned transaction was built from. Matching on the commitment alone would
- * let a note swapped between build and sign pass, so every field that feeds the
+ * The note the private authority is about to authorize must still be the exact
+ * note selected for this intent. Matching on the commitment alone would let a
+ * note swapped before authorization pass, so every field that feeds the
  * commitment is compared.
  */
 function matchingInput(
   wallet: Wallet,
   tree: Address,
   expected: ReturnType<UnsignedPrivateTransaction["_inputs"]>[number]["entry"],
-  reservation?: symbol,
 ): boolean {
   return wallet
     ._state()
     .utxos.some(
       (entry) =>
         !entry.spent &&
-        wallet._canSpendReserved(expected.outputContext.hash, reservation) &&
         entry.outputContext.tree === tree &&
         equalBytes(entry.outputContext.hash, expected.outputContext.hash) &&
         equalBytes(entry.nullifier, expected.nullifier) &&
@@ -76,15 +68,15 @@ function matchingInput(
     );
 }
 
-export async function preparePrivateTransaction(
+/** @internal */
+export async function authorizePrivateTransaction(
   transaction: UnsignedPrivateTransaction,
   wallet: Wallet,
   authority: WalletAuthority,
-  reservation?: symbol,
-): Promise<SignedPrivateTransaction> {
+): Promise<AuthorizedPrivateTransaction> {
   const unsignedInputs = transaction._inputs();
   unsignedInputs.forEach((input, index) => {
-    if (!matchingInput(wallet, transaction.tree(), input.entry, reservation)) {
+    if (!matchingInput(wallet, transaction.tree(), input.entry)) {
       throw new WalletError("WALLET_UNSIGNED_INPUT_UNAVAILABLE", {
         details: { index },
       });
@@ -155,76 +147,8 @@ export async function preparePrivateTransaction(
   }
   const withdrawal = transaction._withdrawal();
   return Object.freeze({
-    transaction: proofInputs,
+    proofInputs,
     tree: transaction.tree(),
     ...(withdrawal === undefined ? {} : { withdrawal }),
   });
-}
-
-export async function buildPrivateTransaction(
-  input: Readonly<{
-    transaction: UnsignedPrivateTransaction;
-    wallet: Wallet;
-    authority: WalletAuthority;
-    client: Pick<ZolanaClient, "finishSubmissionUnsigned">;
-    feePayer: Address;
-  }>,
-  context?: RequestContext,
-): Promise<Transaction> {
-  try {
-    const signed = await preparePrivateTransaction(
-      input.transaction,
-      input.wallet,
-      input.authority,
-    );
-    return await input.client.finishSubmissionUnsigned(
-      { signed, feePayer: input.feePayer },
-      context,
-    );
-  } catch (cause) {
-    throw wrapWalletError("WALLET_BUILD_PRIVATE_TRANSACTION", cause);
-  }
-}
-
-export async function signPrivateTransaction(
-  input: Readonly<{
-    transaction: UnsignedPrivateTransaction;
-    wallet: Wallet;
-    authority: WalletAuthority;
-    client: Pick<ZolanaClient, "finishSubmissionUnsigned">;
-    feePayer: TransactionSignOnlySigner;
-  }>,
-  context?: RequestContext,
-): Promise<Transaction> {
-  try {
-    if (!isTransactionSignOnlySigner(input.feePayer)) {
-      throw new WalletError("WALLET_UNSUPPORTED_TRANSACTION_SIGNER");
-    }
-    const transaction = await buildPrivateTransaction(
-      { ...input, feePayer: input.feePayer.address },
-      context,
-    );
-    try {
-      return await signTransactionWithSigners(
-        [input.feePayer],
-        transaction,
-        context?.signal === undefined ? undefined : { abortSignal: context.signal },
-      );
-    } catch (signingCause) {
-      // The signer stands in for `Transaction::try_sign`, whose failure Rust
-      // reports as `ClientError::SolanaTransactionSigning`. Naming the same
-      // error here keeps a fee payer that cannot sign identifiable across both
-      // SDKs instead of arriving as whatever the caller's signer threw.
-      throw new ClientError("CLIENT_SOLANA_TRANSACTION_SIGNING", {
-        details: { reason: reasonOf(signingCause) },
-        cause: signingCause,
-      });
-    }
-  } catch (cause) {
-    throw wrapWalletError("WALLET_SIGN_PRIVATE_TRANSACTION", cause);
-  }
-}
-
-function reasonOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

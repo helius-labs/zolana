@@ -4,7 +4,6 @@ import {
   getAddressDecoder,
   getAddressEncoder,
   getProgramDerivedAddress,
-  type TransactionSigner,
 } from "@solana/kit";
 
 import { buildUnsignedTransaction } from "../client/kit.js";
@@ -18,7 +17,6 @@ import {
   type Bytes33,
   type Instruction,
   type RequestContext,
-  type Signature,
   type Transaction,
 } from "../interface/types.js";
 import { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
@@ -88,7 +86,8 @@ export async function internalUserRecordPda(
   return userRecordAddress(owner);
 }
 
-export interface MergeSubmissionRecord {
+/** @internal */
+export interface MergeRecord {
   readonly recordAddress: Address;
   readonly mergingEnabled: boolean;
   readonly ownerP256?: Bytes33;
@@ -97,13 +96,14 @@ export interface MergeSubmissionRecord {
 }
 
 /**
- * One read of the record for the whole merge submission check: merging opt-in
- * and the committed identity are validated against the same snapshot.
+ * One read of the record for the whole merge build: merging opt-in and the
+ * committed identity are validated against the same snapshot.
  */
-export async function internalMergeSubmissionRecord(
+/** @internal */
+export async function internalMergeRecord(
   input: Readonly<{ rpc: AccountReader; owner: Address }>,
   context?: RequestContext,
-): Promise<MergeSubmissionRecord> {
+): Promise<MergeRecord> {
   const pda = await userRecordAddress(input.owner);
   const record = await fetchDecodedUserRecordAt({ ...input, pda }, context);
   if (record === undefined) {
@@ -258,9 +258,9 @@ export function resolvedAddressFromRecord(owner: Address, record: UserRecord): R
     viewingPublicKey,
   );
   // A sender that resolves a recipient here writes this tag onto the output it
-  // creates, so it must be the owner tag every wallet scans for, not the
-  // viewing key of the moment: a sync delegate rotates the viewing key while
-  // the owner pubkey stays put.
+  // creates, so it must be the stable shielded-identity signing tag, not the
+  // viewing key of the moment: a sync delegate can rotate the viewing key while
+  // the signing public key stays put.
   return Object.freeze({
     owner,
     address,
@@ -340,114 +340,6 @@ function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boole
   );
 }
 
-/** Outcome of the strict registration path, which never rotates keys. */
-export type StrictRegistration =
-  | Readonly<{ kind: "written"; signature: Signature }>
-  | Readonly<{ kind: "current" }>
-  | Readonly<{ kind: "mismatch" }>;
-
-/**
- * Publish `keypair`'s shielded keys under the funding account, rotating a stale
- * record's keys. Returns no signature when the record already matches.
- */
-export async function ensureRegistered(
-  input: Readonly<{
-    client: Pick<ZolanaClient, "getAccount" | "signAndSendInstructions">;
-    funding: TransactionSigner;
-    keypair: ShieldedKeypair;
-  }>,
-  context?: RequestContext,
-): Promise<Signature | undefined> {
-  try {
-    const owner = input.funding.address;
-    const pda = await userRecordAddress(owner);
-    const existing = await fetchDecodedUserRecordAt({ rpc: input.client, owner, pda }, context);
-    const instruction = registrationInstruction(
-      owner,
-      input.keypair.shieldedAddress(),
-      pda,
-      existing,
-    );
-    if (instruction === undefined) return undefined;
-    return await input.client.signAndSendInstructions(
-      { feePayer: input.funding, instructions: [instruction] },
-      context,
-    );
-  } catch (cause) {
-    throw wrapWalletError("WALLET_ENSURE_REGISTERED", cause);
-  }
-}
-
-/**
- * Write the record only when absent. A nullifier key never rotates, so a record
- * publishing different keys is reported as a conflict instead of being
- * overwritten.
- */
-export async function registerIfAbsent(
-  input: Readonly<{
-    client: Pick<ZolanaClient, "getAccount" | "signAndSendInstructions">;
-    funding: TransactionSigner;
-    keypair: ShieldedKeypair;
-  }>,
-  context?: RequestContext,
-): Promise<StrictRegistration> {
-  try {
-    const owner = input.funding.address;
-    const shieldedAddress = input.keypair.shieldedAddress();
-    const pda = await userRecordAddress(owner);
-    const existing = await fetchDecodedUserRecordAt({ rpc: input.client, owner, pda }, context);
-    if (existing !== undefined) {
-      return Object.freeze({
-        kind: publishedKeysMatch(existing, shieldedAddress) ? "current" : "mismatch",
-      });
-    }
-    const instruction = registrationInstruction(owner, shieldedAddress, pda, undefined);
-    if (instruction === undefined) return Object.freeze({ kind: "current" });
-    const signature = await input.client.signAndSendInstructions(
-      { feePayer: input.funding, instructions: [instruction] },
-      context,
-    );
-    return Object.freeze({ kind: "written", signature });
-  } catch (cause) {
-    throw wrapWalletError("WALLET_REGISTER_IF_ABSENT", cause);
-  }
-}
-
-export async function setMergingEnabled(
-  input: Readonly<{
-    client: Pick<ZolanaClient, "signAndSendInstructions">;
-    owner: TransactionSigner;
-    enabled: boolean;
-  }>,
-  context?: RequestContext,
-): Promise<Signature> {
-  try {
-    const recordAddress = await internalUserRecordAddress(input.owner.address);
-    return await input.client.signAndSendInstructions(
-      {
-        feePayer: input.owner,
-        instructions: [
-          {
-            programAddress: USER_REGISTRY_PROGRAM_ID,
-            accounts: [
-              { address: recordAddress, role: AccountRole.WRITABLE },
-              {
-                address: input.owner.address,
-                role: AccountRole.READONLY_SIGNER,
-                signer: input.owner,
-              } as NonNullable<Instruction["accounts"]>[number],
-            ],
-            data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
-          },
-        ],
-      },
-      context,
-    );
-  } catch (cause) {
-    throw wrapWalletError("WALLET_SET_MERGING_ENABLED", cause);
-  }
-}
-
 export async function buildRegistrationTransaction(
   input: Readonly<{
     client: Pick<ZolanaClient, "getAccount" | "getLatestBlockhash">;
@@ -457,6 +349,9 @@ export async function buildRegistrationTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
+    if (input.address.signingPublicKey.signatureType() === "p256") {
+      throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
+    }
     const pda = await userRecordAddress(input.owner);
     const existing = await fetchDecodedUserRecordAt(
       { rpc: input.client, owner: input.owner, pda },
@@ -474,6 +369,40 @@ export async function buildRegistrationTransaction(
     );
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_REGISTRATION", cause);
+  }
+}
+
+export async function buildSetMergingEnabledTransaction(
+  input: Readonly<{
+    client: Pick<ZolanaClient, "getLatestBlockhash">;
+    owner: Address;
+    enabled: boolean;
+  }>,
+  context?: RequestContext,
+): Promise<Transaction> {
+  try {
+    const [recordAddress, lifetime] = await Promise.all([
+      internalUserRecordAddress(input.owner),
+      input.client.getLatestBlockhash(context),
+    ]);
+    return checkedTransactionSize(
+      buildUnsignedTransaction({
+        feePayer: input.owner,
+        lifetime,
+        instructions: [
+          {
+            programAddress: USER_REGISTRY_PROGRAM_ID,
+            accounts: [
+              { address: recordAddress, role: AccountRole.WRITABLE },
+              { address: input.owner, role: AccountRole.READONLY_SIGNER },
+            ],
+            data: Uint8Array.of(SET_MERGING_ENABLED, input.enabled ? 1 : 0),
+          },
+        ],
+      }),
+    );
+  } catch (cause) {
+    throw wrapWalletError("WALLET_BUILD_SET_MERGING_ENABLED", cause);
   }
 }
 

@@ -2,7 +2,7 @@ import {
   SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND,
   SolanaError,
   address,
-  type Signature,
+  getBase58Decoder,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,7 +16,6 @@ import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.j
 import type { Bytes32 } from "../src/interface/index.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
-const SIGNATURE = "1".repeat(64) as Signature;
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
@@ -49,6 +48,14 @@ describe("ZolanaClient", () => {
     const instance = client(fetch);
     expect(instance.tree).toBe(TREE);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not own Solana signing, sending, or confirmation", () => {
+    const instance = client();
+    expect(instance).not.toHaveProperty("sendTransaction");
+    expect(instance).not.toHaveProperty("signAndSendInstructions");
+    expect(instance).not.toHaveProperty("submitPrivateTransaction");
+    expect(instance).not.toHaveProperty("confirmPrivateTransaction");
   });
 
   it("rejects malformed service URLs before any request", () => {
@@ -112,6 +119,46 @@ describe("ZolanaClient", () => {
     });
   });
 
+  it("forwards paginated nullifier lookups through the client facade", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: "test-account",
+            jsonrpc: "2.0",
+            result: {
+              context: { block_time: 1 },
+              transactions: [],
+              next_cursor: "Ag==",
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    const instance = client(fetch);
+    const nullifier = bytes(7);
+
+    const response = await instance.getShieldedTransactionsByNullifiers({
+      nullifiers: [nullifier],
+      cursor: Uint8Array.of(1),
+      limit: 1000,
+    });
+
+    expect(response.nextCursor).toEqual(Uint8Array.of(2));
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:8784/get_shielded_transactions_by_nullifiers",
+    );
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      method: "get_shielded_transactions_by_nullifiers",
+      params: {
+        nullifiers: [getBase58Decoder().decode(nullifier)],
+        cursor: "AQ==",
+        limit: 1000,
+      },
+    });
+  });
+
   it("fetches state and nullifier proofs once and in parallel", async () => {
     const instance = client();
     const utxoHash = bytes(1);
@@ -166,47 +213,5 @@ describe("ZolanaClient", () => {
     });
 
     await expect(pending).resolves.toHaveLength(1);
-  });
-
-  it("polls Photon only until the submitted signature is visible", async () => {
-    const instance = client();
-    const getBySignature = vi
-      .spyOn(instance, "getShieldedTransactionsBySignature")
-      .mockResolvedValueOnce({
-        context: { blockTime: 1n },
-        transactions: [],
-      })
-      .mockResolvedValueOnce({
-        context: { blockTime: 2n },
-        transactions: [{ eventIndex: 0, transaction: { txSignature: SIGNATURE } }] as never,
-      });
-
-    await instance.confirmPrivateTransaction(SIGNATURE);
-    expect(getBySignature).toHaveBeenCalledTimes(2);
-  });
-
-  it("accepts any indexed event carried by the signature", async () => {
-    const instance = client();
-    const getBySignature = vi
-      .spyOn(instance, "getShieldedTransactionsBySignature")
-      .mockResolvedValue({
-        context: { blockTime: 1n },
-        transactions: [
-          { eventIndex: 0, transaction: { txSignature: SIGNATURE } },
-          { eventIndex: 1, transaction: { txSignature: SIGNATURE } },
-        ] as never,
-      });
-
-    await instance.confirmPrivateTransaction(SIGNATURE);
-
-    expect(getBySignature).toHaveBeenCalledOnce();
-    expect(getBySignature).toHaveBeenCalledWith(
-      SIGNATURE,
-      {
-        waitForIndexer: false,
-        poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
-      },
-      undefined,
-    );
   });
 });

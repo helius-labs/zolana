@@ -1,5 +1,11 @@
 import { getCreateAssociatedTokenIdempotentInstructionAsync } from "@solana-program/token";
-import { AccountRole, address, type Instruction, type TransactionSigner } from "@solana/kit";
+import {
+  AccountRole,
+  address,
+  createNoopSigner,
+  type Instruction,
+  type TransactionSigner,
+} from "@solana/kit";
 
 import {
   InstructionTag,
@@ -102,14 +108,14 @@ export async function createAssetCounterInstruction(
 
 export function createAssociatedTokenAccountInstruction(
   input: Readonly<{
-    payer: TransactionSigner;
+    payer: SignerAccount;
     owner: Address;
     mint: Address;
     tokenProgram?: Address | null;
   }>,
 ): Promise<Instruction> {
   return getCreateAssociatedTokenIdempotentInstructionAsync({
-    payer: input.payer,
+    payer: typeof input.payer === "string" ? createNoopSigner(input.payer) : input.payer,
     owner: input.owner,
     mint: input.mint,
     tokenProgram: input.tokenProgram ?? SPL_TOKEN_PROGRAM_ID,
