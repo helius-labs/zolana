@@ -5,15 +5,8 @@ invariants (PDA cold path, canonical bump, loader checks, rollback) live in
 `cross-cutting.md`.
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously said `update_protocol_config`
-"rewrites every authority and flag"; `docs/spec.md` now states one field per call,
-matching the code.
-
-SPEC_DIVERGENCE (resolved 2026-08-03): the spec required the incoming authority to
-co-sign a `ProtocolAuthority` rotation. That is unsatisfiable when the incoming
-authority is a Squads smart-account vault, because a Squads sync execute clears every
-signer flag except the vault's own, so the outgoing authority's signature is lost --
-the intended Squads governance was unreachable. `docs/spec.md` now states the incoming
-authority is named in a dedicated account that does not sign, matching the code.
+"rewrites every authority and flag"; `docs/spec.md` now states one field per call and
+the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 
 ## CreateProtocolConfig
 
@@ -127,14 +120,14 @@ authority is named in a dedicated account that does not sign, matching the code.
   - Severity: Critical (authority takeover)
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-UPDATE-PC-02: rotating the protocol authority names it in a dedicated account**
+- [x] **INV-UPDATE-PC-02: rotating the protocol authority requires the new authority's signature**
   - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_and_update_protocol_config`
   - Kind: precondition
-  - Statement: for the `ProtocolAuthority(a)` variant, a third account must be present whose address equals exactly `a`; a missing account or an address mismatch returns Err. The account does not sign: the intended protocol authority is a Squads smart-account vault, and a Squads sync execute clears every signer flag except the vault's own, so an incoming vault could never co-sign the same instruction as the outgoing authority.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/update.rs:15-25` (`fn process_update_protocol_config`)
-  - Error: `ShieldedPoolError::InvalidInstructionData = 7000` (mismatch); account-checks error (missing)
+  - Statement: for the `ProtocolAuthority(a)` variant, a third account must be a signer whose address equals exactly `a`; a missing account, a non-signer, or an address mismatch returns Err.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/update.rs:15-20` (`fn process_update_protocol_config`)
+  - Error: `ShieldedPoolError::InvalidInstructionData = 7000` (mismatch); account-checks error (missing/non-signer)
   - Severity: Critical (bricking the authority with an unowned key)
-  - Suggested test: negative both ways; harness: mollusk unit
+  - Suggested test: negative all three ways; harness: mollusk unit
 
 ### Account Constraints
 

@@ -742,7 +742,7 @@ fn send_protocol_config(
             upgrade_signer.pubkey()
         );
 
-        return rotate_protocol_authority(rpc, payer, upgrade_signer, protocol);
+        return rotate_protocol_authority(rpc, payer, protocol_signer, upgrade_signer, protocol);
     }
 
     let create_config_ix = CreateProtocolConfig {
@@ -779,14 +779,10 @@ fn send_protocol_config(
 /// Rotate `protocol_authority` from the deploy upgrade authority to the
 /// protocol vault (tx2 of the upgradeable-deployment initialization). The
 /// incoming vault co-signs via the smart account.
-/// Hand the protocol authority to the protocol vault. The outgoing authority is
-/// the deploy upgrade authority (`create_protocol_config` forces the config to
-/// name its fee payer), and the incoming vault does not sign: a Squads sync
-/// execute would clear the outgoing authority's signature, so the rotation is a
-/// plain transaction rather than a smart-account one.
 fn rotate_protocol_authority(
     rpc: &SolanaRpc,
     payer: &Keypair,
+    protocol_signer: &Keypair,
     upgrade_signer: &Keypair,
     protocol: &RoleAddrs,
 ) -> Result<()> {
@@ -795,11 +791,17 @@ fn rotate_protocol_authority(
         update: UpdateProtocolConfigData::ProtocolAuthority(protocol.vault.to_bytes().into()),
     }
     .instruction();
+    let sync = execute_sync_ix(
+        &protocol.settings,
+        0,
+        &[protocol_signer.pubkey()],
+        &[rotate_ix],
+    );
     let signature = rpc
         .create_and_send_transaction(
-            &[rotate_ix],
+            &[sync],
             to_address(&payer.pubkey()),
-            &[payer, upgrade_signer],
+            &[payer, upgrade_signer, protocol_signer],
         )
         .map_err(|e| anyhow!("protocol authority rotation failed: {e}"))?;
     println!(
@@ -1001,7 +1003,13 @@ pub fn run(options: Options) -> Result<()> {
             "resuming: protocol_config already created by the deploy upgrade authority; \
              running only the authority rotation"
         );
-        rotate_protocol_authority(&rpc, &signers.payer, upgrade_signer, &roles[0])?;
+        rotate_protocol_authority(
+            &rpc,
+            &signers.payer,
+            &signers.protocol_signer,
+            upgrade_signer,
+            &roles[0],
+        )?;
         roles
     } else if let Some(roles) = reused_roles {
         println!("smart_accounts_created=false");

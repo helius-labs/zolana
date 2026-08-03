@@ -1190,7 +1190,7 @@ operations.
 | Instruction | Description |
 | --- | --- |
 | create_protocol_config | Tag 0; the transaction signer must equal the `protocol_authority` it writes; on an upgradeable loader-v3 deployment the signer must also be the program's deploy upgrade authority (read from the loader-v3 `ProgramData` account), so initialization cannot be front-run. The instruction takes the program account and its `ProgramData` account as trailing read-only inputs; non-upgradeable deployments and an unset or zeroed upgrade authority skip the binding. |
-| update_protocol_config | Tag 1; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` names the incoming authority in a third account that must match the instruction data. That account does not sign: the protocol authority is a smart-account vault, and a smart-account synchronous execution signs only for its own vault, clearing the outgoing authority's signature, so a rotation requiring both signatures could never be sent |
+| update_protocol_config | Tag 1; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
 | create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; initializes the shared Tree account (nullifier tree + queue, UTXO tree) |
 | pause_tree | Tag 3; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
 | batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. |

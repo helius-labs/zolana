@@ -73,7 +73,11 @@ impl ZolanaProgramTest {
             update(UpdateProtocolConfigData::RingCreationAuthority(next.into())),
             update(UpdateProtocolConfigData::ProtocolAuthority(next.into())),
         ];
-        self.send(&ixs, &[authority])
+        let mut signers = vec![authority];
+        if new_authority.pubkey() != authority.pubkey() {
+            signers.push(new_authority);
+        }
+        self.send(&ixs, &signers)
     }
 
     pub fn send_protocol_config_update(
