@@ -1,8 +1,10 @@
-//! Structural rules over the test suites themselves.
+//! Structural rules over the test suites.
 //!
-//! Two groups: bans on terminology and harness shapes retired by earlier
-//! refactors, and layout rules keeping the shielded-pool suite's
-//! one-`[[test]]`-per-leaf mapping honest.
+//! Deliberately small: only rules that catch something the compiler cannot, and
+//! that a diff would not make obvious on its own. `shielded-pool-proofs`
+//! auto-discovers its targets, so nothing there can be orphaned;
+//! `shielded-pool-tests` keeps `autotests = false` to name its tiers, so it
+//! still needs the reachability rule below.
 
 use std::path::{Path, PathBuf};
 
@@ -12,31 +14,28 @@ use walkdir::WalkDir;
 
 use super::{Findings, Repo};
 
-/// The shielded-pool suite: one `[[test]]` binary per leaf under
-/// `tests/<domain>/<intent>.rs`, shared setup in the `src/support` library.
-const SHIELDED_POOL_TESTS: &str = "program-tests/shielded-pool";
+/// Packages whose `tests/` trees must not contain unreachable files.
+const TEST_PACKAGES: &[&str] = &[
+    "program-tests/shielded-pool",
+    "program-tests/shielded-pool-proofs",
+];
 
-/// Paths every search below depends on. A renamed or deleted directory would
-/// otherwise shrink the search surface to nothing and report success — the
-/// failure mode that let a stale `--exclude` silently stop matching.
+/// Paths the searches below depend on. A renamed directory would otherwise
+/// shrink the search surface to nothing and report success.
 const REQUIRED_PATHS: &[&str] = &[
-    "Cargo.toml",
-    "justfile",
-    "program-tests",
-    "sdk-libs/client",
-    "sdk-libs/client/tests",
-    "sdk-libs/keypair/tests",
-    "sdk-libs/transaction/tests",
-    "sdk-tests/zk-program-swap/test",
-    "program-tests/spp-test-validator",
+    "program-tests/shielded-pool",
+    "program-tests/shielded-pool-proofs",
     "program-tests/spp-test-validator/tests",
-    "program-tests/ring-test-program",
     "program-tests/ring-test-program/tests",
-    "program-tests/shielded-pool/invariants",
     "program-tests/shielded-pool/invariants/README.md",
 ];
 
 /// A banned source pattern, its explanation, and where it applies.
+///
+/// Only rules that still bite. The scenario-framework bans (`cucumber`,
+/// `gherkin`, `World` fixtures, `.feature` files) retired with #165: those are
+/// dependency and file additions that a diff makes obvious, unlike the two
+/// below, which look like ordinary test code.
 struct BannedPattern {
     message: &'static str,
     pattern: &'static str,
@@ -45,19 +44,8 @@ struct BannedPattern {
 
 const BANNED: &[BannedPattern] = &[
     BannedPattern {
-        message: "legacy scenario-test terminology or dependencies are not allowed",
-        pattern: r"(?i)(cucumber|gherkin|\bbdd\b)",
-        roots: &[
-            "Cargo.toml",
-            "justfile",
-            "program-tests",
-            "sdk-libs/client/tests",
-            "sdk-libs/keypair/tests",
-            "sdk-libs/transaction/tests",
-            "sdk-tests/zk-program-swap/test",
-        ],
-    },
-    BannedPattern {
+        // A harness override silently changes what `cargo test` runs and how
+        // failures are reported, and reads as an ordinary manifest key.
         message: "program tests must use the standard Rust test harness",
         pattern: r"harness\s*=\s*false",
         roots: &[
@@ -67,6 +55,9 @@ const BANNED: &[BannedPattern] = &[
         ],
     },
     BannedPattern {
+        // Matching an error by its formatted string passes for the wrong
+        // reason as soon as the message changes; `Rejection` compares the
+        // typed error.
         message: "validator failures must inspect typed errors, not formatted strings",
         pattern: r"(?i)(assert_rpc_custom_error|expected custom program error.*got:|contains\(&code\.to_string\(\)\))",
         roots: &[
@@ -74,23 +65,14 @@ const BANNED: &[BannedPattern] = &[
             "program-tests/ring-test-program/tests",
         ],
     },
-    BannedPattern {
-        message: "test fixtures use Harness naming; World is a removed scenario-framework remnant",
-        pattern: r"(?i)(LifecycleWorld|TransferWorld|MergeWorld|RingTransferWorld|RingAuthorityWorld|mod\s+world|_world\s*:)",
-        roots: &[
-            "program-tests/spp-test-validator",
-            "program-tests/ring-test-program",
-            "sdk-libs",
-        ],
-    },
 ];
 
 pub fn check(repo: &Repo, findings: &mut Findings) -> Result<()> {
     check_required_paths(repo, findings);
     check_banned_patterns(repo, findings)?;
-    check_scenario_files(repo, findings)?;
-    check_orphan_leaves(repo, findings)?;
-    check_obsolete_wrapper_tree(repo, findings);
+    for package in TEST_PACKAGES {
+        check_unreachable_leaves(repo, package, findings)?;
+    }
     check_tracked_artifacts(repo, findings)?;
     Ok(())
 }
@@ -134,53 +116,25 @@ fn check_banned_patterns(repo: &Repo, findings: &mut Findings) -> Result<()> {
     Ok(())
 }
 
-/// Scenario-framework leftovers: `features/` and `steps/` trees and `.feature`
-/// files, which the explicit-suite refactor removed.
-fn check_scenario_files(repo: &Repo, findings: &mut Findings) -> Result<()> {
-    const ROOTS: &[&str] = &[
-        "program-tests",
-        "sdk-libs/client/tests",
-        "sdk-libs/keypair/tests",
-        "sdk-libs/transaction/tests",
-        "sdk-tests/zk-program-swap/test",
-    ];
-    let mut hits = Vec::new();
-    for root in ROOTS {
-        for entry in WalkDir::new(repo.path(root))
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
-        {
-            let path = entry.path();
-            let is_scenario = path.extension().is_some_and(|ext| ext == "feature")
-                || path
-                    .components()
-                    .any(|c| matches!(c.as_os_str().to_str(), Some("features") | Some("steps")));
-            if is_scenario {
-                hits.push(repo.display(path));
-            }
-        }
-    }
-    if !hits.is_empty() {
-        findings.push_with_details("legacy scenario-test files are not allowed", hits);
-    }
-    Ok(())
-}
-
-/// Every `.rs` leaf under the shielded-pool `tests/` tree must be a declared
-/// `[[test]]` target or a module some target includes. An undeclared leaf is
-/// never compiled: cargo and clippy ignore it silently, so a suite that never
-/// runs is indistinguishable from one that passes.
+/// Every `.rs` file under a package's `tests/` tree must be reachable: a target
+/// cargo knows about, or a module some target includes.
 ///
-/// Declared paths come from `cargo_metadata`, not from grepping the manifest —
-/// the shell version matched every `path = "tests/…"` line in the file with no
-/// idea which `[[test]]`, `[[bench]]`, or `[[bin]]` block it belonged to.
-fn check_orphan_leaves(repo: &Repo, findings: &mut Findings) -> Result<()> {
-    let package_dir = repo.path(SHIELDED_POOL_TESTS);
-    let declared = declared_test_paths(repo, SHIELDED_POOL_TESTS)?;
+/// An unreachable file is never compiled, linted, or run: cargo and clippy both
+/// ignore it, so a suite that never executes looks exactly like one that passes.
+/// That is how a four-case F-07 security suite sat dormant in #175.
+///
+/// In `shielded-pool-proofs` this is vacuous by construction — auto-discovery
+/// reaches every `tests/*.rs`. It earns its keep in `shielded-pool-tests`, which
+/// declares targets explicitly so CI can select tiers by name.
+///
+/// Targets come from `cargo_metadata`, so auto-discovered and declared ones are
+/// treated alike without parsing the manifest.
+fn check_unreachable_leaves(repo: &Repo, package_dir: &str, findings: &mut Findings) -> Result<()> {
+    let declared = test_target_paths(repo, package_dir)?;
+    let tests_dir = repo.path(package_dir).join("tests");
 
-    let mut orphans = Vec::new();
-    for entry in WalkDir::new(package_dir.join("tests"))
+    let mut unreachable = Vec::new();
+    for entry in WalkDir::new(&tests_dir)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
@@ -189,27 +143,24 @@ fn check_orphan_leaves(repo: &Repo, findings: &mut Findings) -> Result<()> {
         if path.extension().is_none_or(|ext| ext != "rs") {
             continue;
         }
-        if declared.iter().any(|declared| declared == path) {
+        if declared.iter().any(|target| target == path) || is_included_as_module(path) {
             continue;
         }
-        if is_included_as_module(path) {
-            continue;
-        }
-        orphans.push(repo.display(path));
+        unreachable.push(repo.display(path));
     }
 
-    if !orphans.is_empty() {
-        orphans.sort();
+    if !unreachable.is_empty() {
+        unreachable.sort();
         findings.push_with_details(
-            "orphan test leaf (neither a [[test]] target nor included by one)",
-            orphans,
+            "unreachable test file (no cargo target builds it, and no target includes it)",
+            unreachable,
         );
     }
     Ok(())
 }
 
-/// Absolute paths of a package's integration-test targets.
-fn declared_test_paths(repo: &Repo, package_name_suffix: &str) -> Result<Vec<PathBuf>> {
+/// Absolute paths of a package's integration-test targets, auto-discovered or declared.
+fn test_target_paths(repo: &Repo, package_dir: &str) -> Result<Vec<PathBuf>> {
     let package = repo
         .metadata
         .workspace_packages()
@@ -217,9 +168,9 @@ fn declared_test_paths(repo: &Repo, package_name_suffix: &str) -> Result<Vec<Pat
         .find(|p| {
             p.manifest_path
                 .parent()
-                .is_some_and(|dir| dir.ends_with(package_name_suffix))
+                .is_some_and(|dir| dir.ends_with(package_dir))
         })
-        .with_context(|| format!("no workspace package rooted at {package_name_suffix}"))?;
+        .with_context(|| format!("no workspace package rooted at {package_dir}"))?;
 
     Ok(package
         .targets
@@ -230,8 +181,8 @@ fn declared_test_paths(repo: &Repo, package_name_suffix: &str) -> Result<Vec<Pat
 }
 
 /// Whether some sibling declares this file as a module. The reference must live
-/// in the leaf's own directory or its parent (the `<domain>.rs` that declares
-/// the module); a same-stem module elsewhere does not include this leaf.
+/// in the leaf's own directory or its parent (the file that declares the
+/// module); a same-stem module elsewhere does not include this leaf.
 fn is_included_as_module(leaf: &Path) -> bool {
     let Some(file_name) = leaf.file_name().and_then(|n| n.to_str()) else {
         return false;
@@ -279,18 +230,6 @@ fn is_included_as_module(leaf: &Path) -> bool {
     false
 }
 
-/// Shared setup lives in the `src/support` library; the old `tests/common`
-/// `#[path]`-wrapper tree must not come back.
-fn check_obsolete_wrapper_tree(repo: &Repo, findings: &mut Findings) {
-    let wrapper = repo.path(SHIELDED_POOL_TESTS).join("tests/common");
-    if wrapper.exists() {
-        findings.push(format!(
-            "obsolete tests/common wrapper module tree is present: {}",
-            repo.display(&wrapper)
-        ));
-    }
-}
-
 /// Ledger and log artifacts are gitignored; this catches an accidental
 /// `git add -f`. `*.proptest-regressions` corpora are deliberately committed
 /// regression guards, not artifacts.
@@ -326,7 +265,7 @@ fn check_tracked_artifacts(repo: &Repo, findings: &mut Findings) -> Result<()> {
 }
 
 /// Files worth scanning for banned patterns: Rust sources plus the manifests
-/// and recipes that can reintroduce a retired dependency.
+/// that can reintroduce a harness override.
 fn rust_and_config_files(root: &Path) -> Vec<PathBuf> {
     if root.is_file() {
         return vec![root.to_path_buf()];
@@ -337,12 +276,11 @@ fn rust_and_config_files(root: &Path) -> Vec<PathBuf> {
         .filter(|e| e.file_type().is_file())
         .map(|e| e.path().to_path_buf())
         .filter(|path| {
-            let is_rust = path.extension().is_some_and(|ext| ext == "rs");
-            let is_config = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|name| name == "Cargo.toml" || name == "justfile");
-            is_rust || is_config
+            path.extension().is_some_and(|ext| ext == "rs")
+                || path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|name| name == "Cargo.toml")
         })
         .collect()
 }
@@ -352,25 +290,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_banned_pattern_compiles() {
-        for banned in BANNED {
-            Regex::new(banned.pattern).unwrap_or_else(|e| panic!("{}: {e}", banned.pattern));
-        }
-    }
-
-    #[test]
-    fn banned_patterns_match_what_they_describe() {
-        let scenario = Regex::new(BANNED[0].pattern).unwrap();
-        assert!(scenario.is_match("cucumber = { workspace = true }"));
-        assert!(scenario.is_match("// a BDD scenario"));
-        // `bdd` is word-bounded: a longer identifier containing it is fine.
-        assert!(!scenario.is_match("let embedded = 1;"));
-
-        let harness = Regex::new(BANNED[1].pattern).unwrap();
+    fn banned_patterns_compile_and_match_what_they_describe() {
+        let harness = Regex::new(BANNED[0].pattern).unwrap();
         assert!(harness.is_match("harness = false"));
         assert!(harness.is_match("harness=false"));
+        assert!(!harness.is_match("harness = true"));
 
-        let typed_errors = Regex::new(BANNED[2].pattern).unwrap();
+        let typed_errors = Regex::new(BANNED[1].pattern).unwrap();
         assert!(typed_errors.is_match("assert_rpc_custom_error(&err, 7009);"));
         assert!(!typed_errors.is_match("Rejection::pool(err).assert_litesvm(e);"));
     }

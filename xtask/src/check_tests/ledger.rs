@@ -271,6 +271,7 @@ fn check_citations(repo: &Repo, sources: &[(&str, String)], findings: &mut Findi
 
     let mut unresolved = Vec::new();
     let mut uncited = Vec::new();
+    let mut stale_paths = Vec::new();
 
     for (name, source) in sources {
         for (number, line) in source.lines().enumerate() {
@@ -295,6 +296,14 @@ fn check_citations(repo: &Repo, sources: &[(&str, String)], findings: &mut Findi
                 }
                 if token.ends_with(".rs") || token.ends_with(".go") {
                     current_file = resolve_cited_file(repo, token);
+                    // A cited path that resolves to nothing is a finding in its
+                    // own right. Checking only the accompanying symbol lets a
+                    // stale path survive a file move, because the function it
+                    // names still exists somewhere else -- so the ledger points
+                    // at a file that is not there while still reading `- [x]`.
+                    if current_file.is_none() {
+                        stale_paths.push(format!("{location}: `{token}`"));
+                    }
                     continue;
                 }
                 if !identifier.is_match(token) && !go_identifier.is_match(token) {
@@ -322,11 +331,32 @@ fn check_citations(repo: &Repo, sources: &[(&str, String)], findings: &mut Findi
             uncited,
         );
     }
+    if !stale_paths.is_empty() {
+        findings.push_with_details(
+            "invariants Covered-by cites a file that does not exist",
+            stale_paths,
+        );
+    }
     if !unresolved.is_empty() {
         findings.push_with_details("invariants Covered-by references not found", unresolved);
     }
     Ok(())
 }
+
+/// Source trees a citation can name. Deliberately not the repo root: walking
+/// that descends into `target/`, which dwarfs the source tree and turns each
+/// unresolved citation into a multi-minute scan.
+const SOURCE_ROOTS: &[&str] = &[
+    "program-tests",
+    "programs",
+    "program-libs",
+    "sdk-libs",
+    "sdk-tests",
+    "prover",
+    "services",
+    "cli",
+    "forester",
+];
 
 /// Resolve a cited path, which may be repo-relative or a bare suffix.
 fn resolve_cited_file(repo: &Repo, token: &str) -> Option<String> {
@@ -335,11 +365,13 @@ fn resolve_cited_file(repo: &Repo, token: &str) -> Option<String> {
         return Some(direct.to_string_lossy().into_owned());
     }
     let suffix = format!("/{token}");
-    walkdir::WalkDir::new(&repo.root)
-        .into_iter()
-        .filter_map(Result::ok)
-        .find(|e| e.file_type().is_file() && e.path().to_string_lossy().ends_with(&suffix))
-        .map(|e| e.path().to_string_lossy().into_owned())
+    SOURCE_ROOTS.iter().find_map(|root| {
+        walkdir::WalkDir::new(repo.path(root))
+            .into_iter()
+            .filter_map(Result::ok)
+            .find(|e| e.file_type().is_file() && e.path().to_string_lossy().ends_with(&suffix))
+            .map(|e| e.path().to_string_lossy().into_owned())
+    })
 }
 
 /// Go functions are matched textually: the ledger cites a handful of prover

@@ -60,7 +60,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 ## Expiry and Pause
 
 - [x] **INV-XC-06: an expired transaction is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol`
+  - Covered by: `program-tests/shielded-pool-proofs/tests/transact_withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: each of these instructions returns Err whenever `Clock.unix_timestamp` as u64 is strictly greater than `expiry_unix_ts`; execution at `unix_timestamp == expiry_unix_ts` is still accepted.
@@ -102,7 +102,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-XC-10: every nullifier is inserted at most once**
-  - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol` (cross-transaction replay -> 7002 with rollback); `transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction` (two equal nullifiers in one instruction -> 7002)
+  - Covered by: `program-tests/shielded-pool-proofs/tests/transact_withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol` (cross-transaction replay -> 7002 with rollback); `transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction` (two equal nullifiers in one instruction -> 7002)
   - Kind: state
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: for every 32-byte nullifier value, at most one queue insertion ever succeeds across all instructions and all transactions (including two inputs with the same nullifier inside one instruction); every later insertion attempt makes its instruction return Err.
@@ -115,7 +115,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 
 - [ ] **INV-XC-11: tampering with any public input invalidates the proof**
   - Partial coverage: `programs/shielded-pool/src/instructions/transact/verify.rs` `program_assembly_matches_the_go_ordering_on_every_variant` (golden vectors pin the full chain ordering; LiteSVM now exercises owner-tag, amount, private-tx-hash, and external-data tampering, but there is still no exhaustive per-field bit-flip loop)
-  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag`, `transact_rejects_tampered_public_amount`, `transact_rejects_tampered_private_transaction_hash`, and `transact_rejects_tampered_external_data`
+  - Covered by: `program-tests/shielded-pool-proofs/tests/transact_functional.rs` `transact_rejects_tampered_output_owner_tag`, `transact_rejects_tampered_public_amount`, `transact_rejects_tampered_private_transaction_hash`, and `transact_rejects_tampered_external_data`
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: every element of the recomputed public-input hash chain (nullifiers, output hashes, roots, `private_tx_hash`, `external_data_hash`, public amounts, mint, ring program id, payer hash, owner fields) enters the chain exactly once, and changing any single element after proving makes verification return Err; the on-chain assembly is pinned to the Go circuit ordering by golden vectors.
@@ -156,7 +156,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 ## External Data Hash
 
 - [x] **INV-XC-15: external_data_hash is domain-separated by instruction tag**
-  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_replay_under_the_ring_transact_tag` (a valid transact payload replayed under the RING_TRANSACT tag fails verification)
+  - Covered by: `program-tests/shielded-pool-proofs/tests/transact_functional.rs` `transact_rejects_replay_under_the_ring_transact_tag` (a valid transact payload replayed under the RING_TRANSACT tag fails verification)
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: the recomputed `external_data_hash` preimage begins with exactly the invoking instruction's tag byte (12, 13, 15, 16, or 17), so an otherwise identical payload proven for one instruction fails verification under any other.
@@ -175,7 +175,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Suggested test: property (proptest over adjacent encodings; unit tests exist); harness: `cargo test -p zolana-interface`
 
 - [ ] **INV-XC-17: the resolved owner tag, not its encoding, enters the hash**
-  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag` (tamper -> 7008 with rollback; the positive Inline/Account encoding-equivalence and account-reorder cases are untested)
+  - Partial coverage: `program-tests/shielded-pool-proofs/tests/transact_functional.rs` `transact_rejects_tampered_output_owner_tag` (tamper -> 7008 with rollback; the positive Inline/Account encoding-equivalence and account-reorder cases are untested)
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact
   - Statement: `external_data_hash` covers each output's resolved 32-byte owner tag (after `fetch_tag`), so two encodings resolving to the same tag (e.g. `Inline(addr)` vs `Account(i)` pointing at `addr`) produce the same hash, and re-ordering the account list to change an `Account(i)` resolution changes the hash and fails verification.
@@ -187,7 +187,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 ## Value and Settlement
 
 - [x] **INV-XC-18: exactly the absolute public amount settles on-chain**
-  - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol`
+  - Covered by: `program-tests/shielded-pool-proofs/tests/transact_withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol`
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact
   - Statement: for every interface-transfer leg, the on-chain settlement moves exactly the leg's `amount` lamports (SOL) or tokens (SPL), independently per leg and in leg order; aggregation into public movement slots affects proof inputs only.
@@ -197,7 +197,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously said the program transfers `public_sol_amount + relayer_fee` and typed the amounts as `Option<u64>`; `docs/spec.md` now states signed `Option<i64>` amounts and that exactly the absolute value settles, matching the code.
 
 - [x] **INV-XC-19: shielded balance conservation is enforced only by the proof**
-  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_public_amount` (the binding half; the in-circuit formula stays INSUFFICIENT_INFO below)
+  - Covered by: `program-tests/shielded-pool-proofs/tests/transact_functional.rs` `transact_rejects_tampered_public_amount` (the binding half; the in-circuit formula stays INSUFFICIENT_INFO below)
   - Kind: state
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: the program performs no on-chain amount arithmetic over UTXO values; the conservation relation (sum of input amounts = sum of output amounts + public amount, per asset) holds only because the public amounts, mint, and commitment chains are bound into the verified public-input hash.
@@ -280,7 +280,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 ## Events
 
 - [ ] **INV-XC-27: every successful state-changing instruction emits its event by self-CPI**
-  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (transact and deposit events asserted with exact content; the ring/merge/batch variants and the tag-10/zero-accounts inner-instruction structure are not asserted)
+  - Partial coverage: `program-tests/shielded-pool-proofs/tests/transact_functional.rs` `transact_sends_valid_proof` (transact and deposit events asserted with exact content; the ring/merge/batch variants and the tag-10/zero-accounts inner-instruction structure are not asserted)
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, Deposit, RingDeposit, MergeTransact, RingMergeTransact, BatchUpdateNullifierTree (conditional)
   - Statement: after each of these instructions succeeds, the transaction contains exactly one inner instruction to the shielded-pool program itself with first byte `EMIT_EVENT` (10) and zero accounts, carrying the encoded event (for `batch_update_nullifier_tree`: exactly when the update produced an event).
