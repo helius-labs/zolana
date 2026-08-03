@@ -392,7 +392,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     };
     let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
     let private_input_hashes: Vec<[u8; 32]> = std::iter::once(utxo_hash)
-        .chain(std::iter::repeat(zero).take(usize::from(n_inputs) - 1))
+        .chain(std::iter::repeat_n(zero, usize::from(n_inputs) - 1))
         .collect();
     let private_output_hashes = vec![zero; usize::from(n_outputs)];
     let private_tx = PrivateTxHash::new(
@@ -413,7 +413,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     // variant appendix (RingEddsa: the output-owner chain; RingAuthority:
     // nothing — its signer element is the bare payer hash).
     let signer_hashes: Vec<[u8; 32]> = std::iter::once(payer_hash)
-        .chain(std::iter::repeat(zero).take(usize::from(n_inputs)))
+        .chain(std::iter::repeat_n(zero, usize::from(n_inputs)))
         .collect();
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let mut chain = vec![

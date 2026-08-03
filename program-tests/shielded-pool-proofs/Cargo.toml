@@ -1,0 +1,53 @@
+[package]
+name = "shielded-pool-proofs"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+# The Groth16-backed suites live in their own package so the tier is a package
+# boundary rather than a convention. `cargo test -p shielded-pool-tests` cannot
+# reach them, so the fast tier is hermetic by construction -- no feature flag to
+# forget and no `#[ignore]` for a new test to omit -- while
+# `cargo check --workspace --all-targets` still compiles them on every build.
+# A feature gate bought the same isolation but hid the targets from `check`,
+# which is how the CU bench stopped compiling at #172 and went unnoticed.
+#
+# Running these needs out-of-band setup the tests cannot produce themselves: a
+# built `target/debug/zolana` CLI (they shell out to it to start the prover) and
+# the proving keys on disk. `just test-program-proofs` wires that up.
+#
+# Layout is flat so cargo auto-discovers each file as a target: no `[[test]]`
+# blocks to keep in sync, and no way to add a file here that never runs. File
+# names match the previous target names, so recipe and CI selectors are
+# unchanged.
+
+[dependencies]
+shielded-pool-tests = { path = "../shielded-pool" }
+
+borsh = { workspace = true }
+bytemuck = { workspace = true }
+groth16-solana = { workspace = true }
+num-bigint = { workspace = true }
+solana-clock = { workspace = true }
+shielded-pool-program = { workspace = true, features = ["test-sbf"] }
+solana-account = { workspace = true }
+solana-address = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-signer = { workspace = true }
+zolana-account-checks = { workspace = true, features = ["test-only"] }
+zolana-client = { workspace = true }
+zolana-event = { workspace = true, features = ["program-test"] }
+zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true }
+zolana-keypair = { workspace = true }
+zolana-merkle-tree = { workspace = true }
+zolana-program-test = { workspace = true }
+zolana-test-utils = { workspace = true }
+zolana-transaction = { workspace = true }
+zolana-tree = { workspace = true }
+zolana-user-registry-interface = { workspace = true }

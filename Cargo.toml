@@ -11,6 +11,7 @@ members = [
     "program-libs/user-registry-interface",
     "program-libs/tree",
     "program-tests/shielded-pool",
+    "program-tests/shielded-pool-proofs",
     "program-tests/spp-test-validator",
     "program-tests/test-utils",
     "program-tests/user-registry",
