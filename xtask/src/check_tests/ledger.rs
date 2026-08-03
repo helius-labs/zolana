@@ -266,8 +266,6 @@ fn check_citations(repo: &Repo, sources: &[(&str, String)], findings: &mut Findi
     );
 
     let backticked = Regex::new(r"`([^`]+)`")?;
-    let identifier = Regex::new(r"^[a-z_][a-z0-9_]*$")?;
-    let go_identifier = Regex::new(r"^Test[A-Za-z0-9]+$")?;
 
     let mut unresolved = Vec::new();
     let mut uncited = Vec::new();
@@ -290,24 +288,22 @@ fn check_citations(repo: &Repo, sources: &[(&str, String)], findings: &mut Findi
 
             let mut current_file: Option<String> = None;
             for token in tokens {
-                // Type paths, prose fragments, and call expressions are not citations.
-                if token.contains("::") || token.contains(' ') || token.contains('(') {
-                    continue;
-                }
-                if token.ends_with(".rs") || token.ends_with(".go") {
-                    current_file = resolve_cited_file(repo, token);
-                    // A cited path that resolves to nothing is a finding in its
-                    // own right. Checking only the accompanying symbol lets a
-                    // stale path survive a file move, because the function it
-                    // names still exists somewhere else -- so the ledger points
-                    // at a file that is not there while still reading `- [x]`.
-                    if current_file.is_none() {
-                        stale_paths.push(format!("{location}: `{token}`"));
+                match classify(token) {
+                    Citation::Prose => continue,
+                    Citation::File => {
+                        current_file = resolve_cited_file(repo, token);
+                        // A cited path that resolves to nothing is a finding in
+                        // its own right. Checking only the accompanying symbol
+                        // lets a stale path survive a file move, because the
+                        // function it names still exists somewhere else -- so
+                        // the ledger points at a file that is not there while
+                        // still reading `- [x]`.
+                        if current_file.is_none() {
+                            stale_paths.push(format!("{location}: `{token}`"));
+                        }
+                        continue;
                     }
-                    continue;
-                }
-                if !identifier.is_match(token) && !go_identifier.is_match(token) {
-                    continue;
+                    Citation::Symbol => {}
                 }
                 // A token present in the cited file is satisfied there; this
                 // keeps free-form citations of constants and fields honest
@@ -341,6 +337,42 @@ fn check_citations(repo: &Repo, sources: &[(&str, String)], findings: &mut Findi
         findings.push_with_details("invariants Covered-by references not found", unresolved);
     }
     Ok(())
+}
+
+/// What a backticked token in a `Covered by:` line refers to.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Citation {
+    /// A source file whose existence is checked.
+    File,
+    /// An identifier resolved against the workspace symbol index.
+    Symbol,
+    /// A type path, call expression, or prose fragment: not a citation.
+    Prose,
+}
+
+/// Classify a backticked token. Type paths (`Foo::bar`), call expressions, and
+/// anything containing whitespace are prose; a `.rs`/`.go` suffix marks a file;
+/// snake_case names and Go `TestXxx` names are symbols.
+pub fn classify(token: &str) -> Citation {
+    if token.contains("::") || token.contains(' ') || token.contains('(') {
+        return Citation::Prose;
+    }
+    if token.ends_with(".rs") || token.ends_with(".go") {
+        return Citation::File;
+    }
+    let is_rust_ident = !token.is_empty()
+        && token
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && !token.starts_with(|c: char| c.is_ascii_digit());
+    let is_go_test = token.starts_with("Test")
+        && token.len() > 4
+        && token[4..].chars().all(|c| c.is_ascii_alphanumeric());
+    if is_rust_ident || is_go_test {
+        Citation::Symbol
+    } else {
+        Citation::Prose
+    }
 }
 
 /// Source trees a citation can name. Deliberately not the repo root: walking
@@ -525,6 +557,42 @@ mod tests {
             pointer: 0,
         };
         assert_eq!(tally.partial(), 0);
+    }
+
+    #[test]
+    fn classify_separates_files_symbols_and_prose() {
+        assert_eq!(classify("program-tests/x/tests/a.rs"), Citation::File);
+        assert_eq!(classify("prover/server/main.go"), Citation::File);
+
+        assert_eq!(
+            classify("sol_deposit_rejects_a_readonly_depositor"),
+            Citation::Symbol
+        );
+        assert_eq!(classify("TestMergeCircuit"), Citation::Symbol);
+
+        // Type paths, calls, and prose are never citations.
+        assert_eq!(
+            classify("ShieldedPoolError::UnauthorizedCaller"),
+            Citation::Prose
+        );
+        assert_eq!(classify("hash_bytes(owner)"), Citation::Prose);
+        assert_eq!(classify("the payer account"), Citation::Prose);
+        // A bare type name is not a symbol citation: it would match nothing
+        // useful and every entry mentions one.
+        assert_eq!(classify("OwnerTag"), Citation::Prose);
+        assert_eq!(classify(""), Citation::Prose);
+    }
+
+    /// A file citation is checked for existence, not just for the symbol beside
+    /// it. Without this, moving a test leaves the ledger pointing at a path that
+    /// is gone while still reading `- [x]`, because the function it names
+    /// resolves from its new home.
+    #[test]
+    fn a_file_citation_is_classified_even_when_it_no_longer_exists() {
+        assert_eq!(
+            classify("program-tests/shielded-pool/tests/gone/nowhere.rs"),
+            Citation::File
+        );
     }
 
     #[test]
