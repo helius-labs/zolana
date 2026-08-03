@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Zolana PoC",
+    "slug": "zolana-poc",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "xyz.zolana.poc",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "xyz.zolana.poc"
+    }
+  }
+}

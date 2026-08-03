@@ -1,0 +1,21 @@
+{
+  "name": "@zolana/poc-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared shield/transfer/unshield flow and benchmark model for the Zolana PoC UIs.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/prover.worker.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@zolana/sdk": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2"
+  }
+}
