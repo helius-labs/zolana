@@ -264,7 +264,7 @@ services:
       PROVER_URL: http://forester-prover:3001
       PAYER: ${FORESTER_PAYER:-}
       FORESTER_SETTINGS: ${FORESTER_SETTINGS:-}
-      FORESTER_TREE: ${FORESTER_TREE:-treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8}
+      FORESTER_TREE: ${FORESTER_TREE:-trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho}
       FORESTER_ACCOUNT_INDEX: ${FORESTER_ACCOUNT_INDEX:-0}
     command:
       - start

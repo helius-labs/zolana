@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::{anyhow, bail, Context, Result};
 use solana_account::Account;
@@ -18,7 +18,10 @@ use zolana_interface::{
     state::{tree_account_size, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_smart_account_client::{roles::Role, settings::settings_member_keys};
+use zolana_smart_account_client::{
+    roles::Role,
+    settings::{settings_member_keys, settings_seed},
+};
 use zolana_test_utils::smart_account::{
     create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
     Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
@@ -99,6 +102,7 @@ pub struct Options {
     protocol_signer: PathBuf,
     tree_keypair: PathBuf,
     upgrade_authority: Option<PathBuf>,
+    reuse_settings: Option<[Pubkey; 5]>,
     yes: bool,
     dry_run: bool,
 }
@@ -111,6 +115,7 @@ impl Options {
         let mut protocol_signer = None;
         let mut tree_keypair = None;
         let mut upgrade_authority = None;
+        let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
         let mut yes = false;
         let mut dry_run = false;
 
@@ -154,6 +159,25 @@ impl Options {
                             usage_and_exit("--upgrade-authority missing value")
                         })));
                 }
+                "--protocol-settings"
+                | "--tree-settings"
+                | "--ring-settings"
+                | "--merge-settings"
+                | "--forester-settings" => {
+                    let role = Role::ALL
+                        .into_iter()
+                        .position(|role| arg == format!("--{}-settings", role.label()))
+                        .unwrap_or_else(|| usage_and_exit(&format!("unexpected arg {arg:?}")));
+                    let value = args
+                        .next()
+                        .unwrap_or_else(|| usage_and_exit(&format!("{arg} missing value")));
+                    let key = Pubkey::from_str(&value)
+                        .unwrap_or_else(|e| usage_and_exit(&format!("{arg} {value:?}: {e}")));
+                    let Some(slot) = reuse_settings.get_mut(role) else {
+                        usage_and_exit("role index out of range")
+                    };
+                    *slot = Some(key);
+                }
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -170,6 +194,24 @@ impl Options {
         let tree_keypair =
             tree_keypair.unwrap_or_else(|| usage_and_exit("--tree-keypair is required"));
 
+        let provided = reuse_settings.iter().filter(|key| key.is_some()).count();
+        let reuse_settings = match provided {
+            0 => None,
+            5 => Some(reuse_settings.map(|key| key.expect("all five provided"))),
+            _ => {
+                let missing: Vec<String> = Role::ALL
+                    .into_iter()
+                    .zip(reuse_settings)
+                    .filter(|(_, key)| key.is_none())
+                    .map(|(role, _)| format!("--{}-settings", role.label()))
+                    .collect();
+                usage_and_exit(&format!(
+                    "reusing existing smart accounts needs all five settings addresses; missing {}",
+                    missing.join(", ")
+                ))
+            }
+        };
+
         Self {
             cluster,
             rpc_url,
@@ -177,6 +219,7 @@ impl Options {
             protocol_signer,
             tree_keypair,
             upgrade_authority,
+            reuse_settings,
             yes,
             dry_run,
         }
@@ -238,6 +281,7 @@ pub(crate) struct ProgramConfig {
     treasury: Pubkey,
 }
 
+#[derive(Clone, Copy)]
 struct RoleAddrs {
     label: &'static str,
     seed: u128,
@@ -292,7 +336,7 @@ pub(crate) fn read_program_config(rpc: &SolanaRpc) -> Result<ProgramConfig> {
 /// seeds, in [`Role::ALL`] creation order: protocol, tree, zone, and merge are
 /// governed by the protocol authorities, forester by the forester authorities
 /// (mirrors `create_all_smart_accounts`).
-fn expected_role_members() -> [&'static [Pubkey]; 5] {
+pub(crate) fn expected_role_members() -> [&'static [Pubkey]; 5] {
     [
         &authorities::PROTOCOL,
         &authorities::PROTOCOL,
@@ -322,25 +366,83 @@ fn verify_resume_settings(rpc: &SolanaRpc, roles: &[RoleAddrs; 5]) -> Result<()>
                 role.settings
             );
         };
-        let member_keys = settings_member_keys(&settings.data).with_context(|| {
-            format!(
-                "decoding {} smart account settings {}",
-                role.label, role.settings
-            )
-        })?;
-        for expected in expected_members {
-            if !member_keys.contains(expected) {
-                bail!(
-                    "cannot resume authority rotation: {} smart account settings {} does not \
-                     list expected member {expected}; the derived accounts do not match the \
-                     previous init run",
-                    role.label,
-                    role.settings
-                );
-            }
+        verify_settings_members(role.label, &role.settings, &settings.data, expected_members)
+            .context(
+                "cannot resume authority rotation: the derived accounts do not match the \
+                 previous init run",
+            )?;
+    }
+    Ok(())
+}
+
+fn verify_settings_members(
+    label: &str,
+    settings_key: &Pubkey,
+    data: &[u8],
+    expected_members: &[Pubkey],
+) -> Result<()> {
+    let member_keys = settings_member_keys(data)
+        .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
+    for expected in expected_members {
+        if !member_keys.contains(expected) {
+            bail!(
+                "{label} smart account settings {settings_key} does not list expected member \
+                 {expected}"
+            );
         }
     }
     Ok(())
+}
+
+/// Resolve the five role accounts from settings addresses supplied on the
+/// command line, so an init reuses the authority smart accounts of an earlier
+/// deployment instead of creating new ones. Each account must be a Squads
+/// `Settings` owned by the smart-account program, must list the expected role
+/// members, and must be the canonical PDA of the seed stored inside it.
+fn load_reused_roles(rpc: &SolanaRpc, settings_keys: &[Pubkey; 5]) -> Result<[RoleAddrs; 5]> {
+    let mut roles = Vec::with_capacity(Role::ALL.len());
+    for ((role, settings_key), expected_members) in Role::ALL
+        .into_iter()
+        .zip(settings_keys)
+        .zip(expected_role_members())
+    {
+        let account = rpc
+            .get_account(to_address(settings_key))
+            .with_context(|| format!("fetching {} smart account settings", role.label()))?
+            .filter(|account| account.owner == SMART_ACCOUNT_PROGRAM_ID)
+            .ok_or_else(|| {
+                anyhow!(
+                    "{} smart account settings {settings_key} not found or not owned by {}",
+                    role.label(),
+                    SMART_ACCOUNT_PROGRAM_ID
+                )
+            })?;
+        verify_settings_members(role.label(), settings_key, &account.data, expected_members)?;
+        let seed = settings_seed(&account.data).with_context(|| {
+            format!(
+                "decoding {} smart account settings {settings_key}",
+                role.label()
+            )
+        })?;
+        let (derived, _) = settings_pda(seed);
+        if derived != *settings_key {
+            bail!(
+                "{} smart account settings {settings_key} stores seed {seed}, which derives \
+                 {derived}",
+                role.label()
+            );
+        }
+        let (vault, _) = smart_account_pda(settings_key, 0);
+        roles.push(RoleAddrs {
+            label: role.label(),
+            seed,
+            settings: *settings_key,
+            vault,
+        });
+    }
+    roles
+        .try_into()
+        .map_err(|_| anyhow!("expected five reused role settings"))
 }
 
 /// Derive the five role accounts at the shared role table's seed offsets above
@@ -624,7 +726,7 @@ fn send_protocol_config(
             forester_authority: forester.vault.to_bytes().into(),
             ring_creation_authority: ring.vault.to_bytes().into(),
             ring_creation_is_permissionless: false,
-            spl_interface_creation_is_permissionless: false,
+            spl_interface_creation_is_permissionless: true,
         }
         .instruction();
         let signature = rpc
@@ -651,7 +753,7 @@ fn send_protocol_config(
         forester_authority: forester.vault.to_bytes().into(),
         ring_creation_authority: ring.vault.to_bytes().into(),
         ring_creation_is_permissionless: false,
-        spl_interface_creation_is_permissionless: false,
+        spl_interface_creation_is_permissionless: true,
     }
     .instruction();
     let sync = execute_sync_ix(
@@ -840,7 +942,13 @@ pub fn run(options: Options) -> Result<()> {
     }
 
     let program_config = read_program_config(&rpc)?;
-    let roles = derive_roles(program_config.smart_account_index);
+    let reused_roles = options
+        .reuse_settings
+        .as_ref()
+        .map(|settings| load_reused_roles(&rpc, settings))
+        .transpose()
+        .context("resolving the smart accounts to reuse")?;
+    let roles = reused_roles.unwrap_or_else(|| derive_roles(program_config.smart_account_index));
     let protocol_vault = roles[0].vault;
 
     println!("cluster={}", options.cluster.name());
@@ -849,6 +957,7 @@ pub fn run(options: Options) -> Result<()> {
     println!("protocol_already_initialized={initialized}");
     println!("deploy_upgrade_authority={deploy_upgrade_authority:?}");
     println!("smart_account_index={}", program_config.smart_account_index);
+    println!("reuse_existing_smart_accounts={}", reused_roles.is_some());
     println!("treasury={}", program_config.treasury);
     println!("payer={}", signers.payer.pubkey());
     println!("protocol_signer={}", signers.protocol_signer.pubkey());
@@ -870,19 +979,26 @@ pub fn run(options: Options) -> Result<()> {
 
     let created = if resume_rotation {
         let upgrade_signer = upgrade_signer.expect("resume requires the upgrade authority signer");
-        // The previous run created the 5 authority smart accounts before the
-        // failed rotation, so they sit at the 5 seeds below the current index.
-        let base_index = program_config
-            .smart_account_index
-            .checked_sub(5)
-            .ok_or_else(|| {
-                anyhow!(
-                    "cannot resume authority rotation: smart_account_index {} leaves no room for the 5 authority smart accounts",
-                    program_config.smart_account_index
-                )
-            })?;
-        let roles = derive_roles(base_index);
-        verify_resume_settings(&rpc, &roles)?;
+        let roles = match reused_roles {
+            Some(roles) => roles,
+            None => {
+                // The previous run created the 5 authority smart accounts before
+                // the failed rotation, so they sit at the 5 seeds below the
+                // current index.
+                let base_index = program_config
+                    .smart_account_index
+                    .checked_sub(5)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "cannot resume authority rotation: smart_account_index {} leaves no room for the 5 authority smart accounts",
+                            program_config.smart_account_index
+                        )
+                    })?;
+                let roles = derive_roles(base_index);
+                verify_resume_settings(&rpc, &roles)?;
+                roles
+            }
+        };
         println!(
             "resuming: protocol_config already created by the deploy upgrade authority; \
              running only the authority rotation"
@@ -893,6 +1009,32 @@ pub fn run(options: Options) -> Result<()> {
             &signers.protocol_signer,
             upgrade_signer,
             &roles[0],
+        )?;
+        roles
+    } else if let Some(roles) = reused_roles {
+        println!("smart_accounts_created=false");
+        for role in &roles {
+            println!(
+                "reusing {}_settings={} {}_vault={} seed={}",
+                role.label, role.settings, role.label, role.vault, role.seed
+            );
+        }
+
+        let funding = vault_funding_lamports(&rpc)?;
+        fund_protocol_vault(
+            &mut rpc,
+            options.cluster,
+            &signers.payer,
+            &roles[0].vault,
+            funding,
+        )?;
+
+        send_protocol_config(
+            &rpc,
+            &signers.payer,
+            &signers.protocol_signer,
+            upgrade_signer,
+            &roles,
         )?;
         roles
     } else {
@@ -969,6 +1111,11 @@ fn print_help() {
     println!("  --tree-keypair <KEYPAIR_PATH>         the tree account keypair (required)");
     println!("  --upgrade-authority <KEYPAIR_PATH>    the program's deploy upgrade authority");
     println!("                                        (required on upgradeable deployments)");
+    println!("  --protocol-settings <PUBKEY>          reuse existing authority smart accounts");
+    println!("  --tree-settings <PUBKEY>              instead of creating new ones. All five");
+    println!("  --ring-settings <PUBKEY>              are required together; each must be a");
+    println!("  --merge-settings <PUBKEY>             Squads Settings account listing the");
+    println!("  --forester-settings <PUBKEY>          expected role members");
     println!("  --yes                                 confirm irreversible mainnet sends");
     println!("  --dry-run                             derive + print addresses, send nothing");
     println!("  -h | --help                           print this help");

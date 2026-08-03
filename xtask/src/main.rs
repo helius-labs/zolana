@@ -8,6 +8,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 mod create_release;
+mod find_smart_accounts;
 mod init_protocol;
 mod update_protocol_config;
 
@@ -55,6 +56,14 @@ fn main() {
         Some("init-protocol") => {
             if let Err(error) = init_protocol::run(init_protocol::Options::parse(args.collect())) {
                 eprintln!("init-protocol failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
+        Some("find-smart-accounts") => {
+            if let Err(error) =
+                find_smart_accounts::run(find_smart_accounts::Options::parse(args.collect()))
+            {
+                eprintln!("find-smart-accounts failed: {error:?}");
                 std::process::exit(1);
             }
         }
@@ -308,6 +317,9 @@ fn print_help() {
     println!("  vk-json                  Export one JSON verifying key as Rust source");
     println!("  program-ids              Print local validator program ids as shell assignments");
     println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
+    println!(
+        "  find-smart-accounts      Recover an existing deployment's authority smart accounts"
+    );
     println!("  update-protocol-config   Update protocol config flags on a cluster (see --help)");
     println!(
         "  create-release           Build the localnet release artifacts + lockfile (see --help)"

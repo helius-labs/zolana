@@ -4,7 +4,7 @@ pub mod state;
 pub use state::UserRecord;
 
 pub const USER_REGISTRY_PROGRAM_ID: [u8; 32] =
-    pubkey_array!("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
+    pubkey_array!("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
 pub const SECP256R1_PROGRAM_ID: [u8; 32] =
     pubkey_array!("Secp256r1SigVerify1111111111111111111111111");
 

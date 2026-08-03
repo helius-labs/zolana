@@ -113,6 +113,16 @@ mod tests {
     use crate::SOL_INTERFACE;
 
     #[test]
+    fn cpi_authority_const_matches_derivation() {
+        let (address, bump) = Pubkey::find_program_address(
+            &[crate::SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED],
+            &super::shielded_pool_program_id(),
+        );
+        assert_eq!(address.to_bytes(), crate::SHIELDED_POOL_CPI_AUTHORITY);
+        assert_eq!(bump, crate::SHIELDED_POOL_CPI_AUTHORITY_BUMP);
+    }
+
+    #[test]
     fn sol_interface_const_matches_derivation() {
         let (address, bump) = super::sol_interface_with_bump();
         assert_eq!(address.to_bytes(), SOL_INTERFACE);

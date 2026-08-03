@@ -43,7 +43,7 @@ pub const SOL_ASSET_FIELD: [u8; 32] = [
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
-    pubkey_array!("sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA");
+    pubkey_array!("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
 
 /// [`SHIELDED_POOL_PROGRAM_ID`] as a `Pubkey`, used by instruction builders.
 pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
@@ -52,7 +52,7 @@ pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
 /// Devnet/localnet fixture SPP pool tree address. Single source of truth so the
 /// CLI config default, forester CLI default, xtask protocol init, and the CLI
 /// resolve test all reference one value and cannot drift.
-pub const DEFAULT_TREE_ADDRESS: &str = "treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8";
+pub const DEFAULT_TREE_ADDRESS: &str = "trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho";
 
 /// The upgradeable BPF loader. `create_protocol_config` binds one-time protocol
 /// initialization to the program's deploy upgrade authority: when the program
@@ -91,8 +91,8 @@ pub const SPL_INTERFACE_PDA_SEED: &[u8] = b"spl_asset_vault";
 /// Kept as a constant so the SBF program validates settlement accounts with a
 /// direct equality check.
 pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] = [
-    88, 254, 248, 74, 86, 156, 76, 98, 4, 160, 29, 78, 152, 238, 8, 247, 252, 20, 54, 18, 242, 184,
-    160, 99, 112, 248, 135, 246, 47, 245, 181, 43,
+    109, 182, 246, 114, 43, 36, 173, 152, 203, 138, 114, 231, 209, 50, 184, 236, 107, 139, 188, 29,
+    115, 163, 218, 113, 6, 134, 33, 44, 204, 50, 186, 87,
 ];
 
 /// [`SHIELDED_POOL_CPI_AUTHORITY`] as a `Pubkey`.
@@ -107,8 +107,8 @@ pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 254;
 /// Hardcoded so builders and the SBF program avoid the runtime derivation; the
 /// `pda::sol_interface_const_matches_derivation` test pins it.
 pub const SOL_INTERFACE: [u8; 32] = [
-    153, 202, 212, 28, 214, 25, 170, 103, 127, 203, 31, 129, 56, 221, 77, 131, 217, 62, 194, 23,
-    222, 98, 111, 179, 160, 182, 255, 213, 208, 236, 115, 61,
+    226, 231, 179, 96, 7, 216, 134, 74, 16, 116, 193, 73, 186, 110, 210, 48, 2, 97, 154, 130, 121,
+    53, 28, 232, 140, 221, 183, 236, 109, 212, 72, 117,
 ];
 
 /// Canonical bump for [`SOL_INTERFACE`].

@@ -9,7 +9,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `rejects_the_wrong_program_before_dispatch`
   - Kind: precondition
   - Affects: all 18 instructions
-  - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA`.
+  - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG`.
   - Location: `programs/shielded-pool/src/lib.rs:38-40` (`fn process_instruction`)
   - Error: `ProgramError::IncorrectProgramId`
   - Severity: Medium
