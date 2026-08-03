@@ -69,7 +69,7 @@ impl UpdateProtocolConfig {
         if let UpdateProtocolConfigData::ProtocolAuthority(a) = &self.update {
             accounts.push(AccountMeta::new_readonly(
                 Pubkey::new_from_array(a.to_bytes()),
-                true,
+                false,
             ));
         }
         Instruction {

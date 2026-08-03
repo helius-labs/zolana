@@ -63,25 +63,40 @@ impl fmt::Display for SettingsError {
 
 impl std::error::Error for SettingsError {}
 
+fn take<'a>(
+    data: &'a [u8],
+    cursor: &mut usize,
+    len: usize,
+    field: &'static str,
+) -> Result<&'a [u8], SettingsError> {
+    let end = cursor
+        .checked_add(len)
+        .ok_or(SettingsError::OffsetOverflow { field })?;
+    let bytes = data
+        .get(*cursor..end)
+        .ok_or(SettingsError::Truncated { field })?;
+    *cursor = end;
+    Ok(bytes)
+}
+
+/// Decode the `seed` a Squads smart-account `Settings` account was created
+/// with. See the module docs for the pinned layout.
+pub fn settings_seed(data: &[u8]) -> Result<u128, SettingsError> {
+    let mut cursor = 0;
+    let discriminator = take(data, &mut cursor, 8, "discriminator")?;
+    if discriminator != SETTINGS_ACCOUNT_DISCRIMINATOR {
+        return Err(SettingsError::DiscriminatorMismatch);
+    }
+    Ok(u128::from_le_bytes(
+        take(data, &mut cursor, 16, "seed")?
+            .try_into()
+            .expect("16 bytes"),
+    ))
+}
+
 /// Decode the signer (member) keys of a Squads smart-account `Settings`
 /// account. See the module docs for the pinned layout.
 pub fn settings_member_keys(data: &[u8]) -> Result<Vec<Pubkey>, SettingsError> {
-    fn take<'a>(
-        data: &'a [u8],
-        cursor: &mut usize,
-        len: usize,
-        field: &'static str,
-    ) -> Result<&'a [u8], SettingsError> {
-        let end = cursor
-            .checked_add(len)
-            .ok_or(SettingsError::OffsetOverflow { field })?;
-        let bytes = data
-            .get(*cursor..end)
-            .ok_or(SettingsError::Truncated { field })?;
-        *cursor = end;
-        Ok(bytes)
-    }
-
     let mut cursor = 0;
     let discriminator = take(data, &mut cursor, 8, "discriminator")?;
     if discriminator != SETTINGS_ACCOUNT_DISCRIMINATOR {

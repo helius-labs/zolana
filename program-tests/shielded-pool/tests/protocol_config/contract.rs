@@ -4,7 +4,6 @@ use solana_keypair::Keypair;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{UpdateProtocolConfig, UpdateProtocolConfigData},
@@ -212,9 +211,11 @@ fn create_and_update_protocol_config() {
     expected.spl_interface_creation_is_permissionless = 1;
     assert_eq!(read_config(&backend), expected, "spl flag toggled");
 
-    // Rotate the protocol authority last: the incoming key must co-sign, and
-    // afterwards only the new key may update; the previous authority is
-    // rejected with the exact authorization error.
+    // Rotate the protocol authority last: the incoming key is passed as an
+    // account that must match the instruction data but does not sign (a Squads
+    // vault can never co-sign alongside the outgoing authority), and afterwards
+    // only the new key may update; the previous authority is rejected with the
+    // exact authorization error.
     let next_protocol = Keypair::new();
     let rotate_ix = UpdateProtocolConfig {
         authority: authority.pubkey(),
@@ -223,26 +224,16 @@ fn create_and_update_protocol_config() {
         ),
     }
     .instruction();
-
-    // Without the incoming authority's signature the rotation must fail: an
-    // unsigned co-signer meta is 20009, and a co-signer that does not match
-    // the instruction's new authority is 7000.
-    let mut unsigned_rotation = rotate_ix.clone();
-    unsigned_rotation
-        .accounts
-        .get_mut(2)
-        .expect("new authority meta")
-        .is_signer = false;
-    let error = backend
-        .create_and_send_default_payer_transaction(&[unsigned_rotation], &[&authority])
-        .expect_err("rotation without the incoming authority's signature must fail");
-    Rejection::custom(u32::from(AccountError::InvalidSigner)).assert_litesvm(error);
-    assert_eq!(
-        read_config(&backend),
-        expected,
-        "unsigned rotation wrote nothing"
+    assert!(
+        !rotate_ix
+            .accounts
+            .get(2)
+            .expect("new authority meta")
+            .is_signer,
+        "the incoming authority meta must not require a signature"
     );
 
+    // A co-signer that does not match the instruction's new authority is 7000.
     let impostor = Keypair::new();
     let mut mismatched_rotation = rotate_ix.clone();
     mismatched_rotation
@@ -251,8 +242,8 @@ fn create_and_update_protocol_config() {
         .expect("new authority meta")
         .pubkey = impostor.pubkey();
     let error = backend
-        .create_and_send_default_payer_transaction(&[mismatched_rotation], &[&authority, &impostor])
-        .expect_err("rotation co-signed by a key other than the new authority must fail");
+        .create_and_send_default_payer_transaction(&[mismatched_rotation], &[&authority])
+        .expect_err("rotation naming a key other than the new authority must fail");
     Rejection::pool(ShieldedPoolError::InvalidInstructionData).assert_litesvm(error);
     assert_eq!(
         read_config(&backend),
@@ -261,7 +252,7 @@ fn create_and_update_protocol_config() {
     );
 
     backend
-        .create_and_send_default_payer_transaction(&[rotate_ix], &[&authority, &next_protocol])
+        .create_and_send_default_payer_transaction(&[rotate_ix], &[&authority])
         .expect("rotate protocol authority");
     expected.protocol_authority = next_protocol.pubkey().to_bytes().into();
     assert_eq!(read_config(&backend), expected, "protocol rotated");

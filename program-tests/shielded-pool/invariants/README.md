@@ -101,7 +101,7 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   4. UTXO tree height 32.
   5. Duplicate `ring_deposit` row removed from the instruction table.
   6. `create_asset_counter` (tag 5) and `batch_update_nullifier_tree` (tag 4) added to the instruction table.
-  7. UpdateProtocolConfig: one field per call plus new-authority co-signature.
+  7. UpdateProtocolConfig: one field per call; a `ProtocolAuthority` rotation names the incoming authority in a dedicated non-signing account.
   8. GeneralEvent `tx_viewing_pk`/`salt` non-optional (all-zero on proofless deposits); `OutputUtxo.view_tag` naming; `OutputDataEncoding` wrapper; `ProoflessOutput.owner` + `memo`.
 - INSUFFICIENT_INFO items:
   1. RESOLVED (2026-07-28): `StateAppendFailed = 7004` fires when a UTXO-tree append hits a full tree (`tree_error` maps `TreeError::TreeIsFull` -- INV-XC-31, covered by `tree/contract.rs` `deposit_rejects_an_append_to_a_full_utxo_tree`), and `PublicSettlementFailed = 7010` fires when an SPL deposit CPI does not credit the vault exactly the leg amount (INV-TRANSACT-44). Both are reachable and now carry condition->error invariants (INV-XC-30).

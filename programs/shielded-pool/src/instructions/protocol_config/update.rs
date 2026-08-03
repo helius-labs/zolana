@@ -12,8 +12,13 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_mut("protocol_config")?;
 
+    // The incoming authority is passed as an account and must match the
+    // instruction data, but it does not sign: a Squads smart-account vault is the
+    // intended protocol authority, and a Squads sync execute clears every signer
+    // flag except the vault's own, so an incoming vault could never co-sign the
+    // same instruction as the outgoing authority.
     if let UpdateProtocolConfigData::ProtocolAuthority(authority) = &data {
-        let new_authority = iter.next_signer("new_authority")?;
+        let new_authority = iter.next_account("new_authority")?;
         if !address_eq(new_authority.address(), authority) {
             return Err(ShieldedPoolError::InvalidInstructionData.into());
         }
