@@ -32,3 +32,6 @@ target-linux-x64/
 /lcov.info
 /coverage.json
 /coverage-html/
+
+# `go build ./cmd/prover-wasm/` without -o drops an 18MB module here.
+prover/server/prover-wasm

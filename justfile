@@ -133,6 +133,12 @@ test-sdk-libs:
     cargo nextest run -p zolana-client --test solana_rpc --features solana-rpc
     cargo nextest run -p zolana-wallet
 
+# Compile the browser proving module: Zolana's gnark Groth16 path as js/wasm,
+# plus the matching wasm_exec.js shim from the same Go toolchain. The shim is
+# vendored next to the caller because Vite refuses to import from a public dir.
+build-prover-wasm out_dir="" shim_dir="":
+    prover/server/scripts/build_prover_wasm.sh {{out_dir}} {{shim_dir}}
+
 # Photon unit and SQLite-backed integration tests. The Postgres migration smoke
 # test runs in CI where a database service is available.
 test-photon:
