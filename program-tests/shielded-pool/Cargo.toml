@@ -10,9 +10,6 @@ autotests = false
 [features]
 default = []
 localnet = ["zolana-client/indexer-api", "zolana-client/solana-rpc"]
-# Gates the Groth16-backed test binaries that spawn the local prover, so a
-# plain `cargo test -p shielded-pool-tests` stays hermetic by construction.
-proofs = []
 
 [dependencies]
 anyhow = { workspace = true }
@@ -167,46 +164,17 @@ path = "tests/nullifier/batch.rs"
 name = "merge_contract"
 path = "tests/merge/contract.rs"
 
-# Proof-backed (spawns the local prover and proves the real 8-in/1-out merge
-# circuit), so it sits in the proofs tier with the other Groth16-backed binaries.
-[[test]]
-name = "merge_functional"
-path = "tests/merge/functional.rs"
-required-features = ["proofs"]
-
 # --- Mollusk mutation coverage ---
 
 [[test]]
 name = "deposit_mutation"
 path = "tests/deposit/mutation.rs"
 
-# --- Proof-backed integration (spawns the local prover) ---
-
-[[test]]
-name = "transact_functional"
-path = "tests/transact/functional.rs"
-required-features = ["proofs"]
-
-[[test]]
-name = "transact_withdrawal"
-path = "tests/transact/withdrawal.rs"
-required-features = ["proofs"]
+# --- Proof-backed integration lives in the `shielded-pool-proofs` package ---
 
 [[test]]
 name = "interface_transfers"
 path = "tests/transact/interface_transfers.rs"
-
-# Proof-backed (spawns the local prover and proves with the real circuits), so
-# it sits in the proofs tier with the other Groth16-backed binaries.
-[[test]]
-name = "mixed_interface_transfers"
-path = "tests/transact/mixed_interface_transfers.rs"
-required-features = ["proofs"]
-
-[[test]]
-name = "transact_settlement"
-path = "tests/transact/settlement.rs"
-required-features = ["proofs"]
 
 # --- Localnet / Photon (needs a running validator + indexer) ---
 
@@ -235,7 +203,6 @@ required-features = ["localnet"]
 [[test]]
 name = "bench_cu"
 path = "tests/bench/cu.rs"
-required-features = ["proofs"]
 
 [[test]]
 name = "transact_circuit_vectors"

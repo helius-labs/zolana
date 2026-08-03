@@ -66,13 +66,13 @@ test-shielded-pool: build-programs build-prover-server build-cli
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
     # them serially because nextest isolates tests in separate processes, so a
     # process-local OnceLock does not prevent concurrent port grabs.
-    cargo nextest run -p shielded-pool-tests --features proofs --test-threads 1
+    cargo nextest run -p shielded-pool-tests -p shielded-pool-proofs --test-threads 1
     cargo nextest run -p zolana-user-registry --tests
     cargo nextest run -p user-registry-tests --test wire_layout
 
 # Fast SBF-backed state and failure tests. No proof server or local validator.
-# The proof-backed binaries are gated behind the `proofs` feature, so the plain
-# package run is hermetic by construction.
+# The Groth16-backed suites live in the separate `shielded-pool-proofs` package,
+# so this package run is hermetic by construction.
 test-program-fast: build-programs
     cargo nextest run -p zolana-interface --features solana
     cargo nextest run -p shielded-pool-program --lib --tests
@@ -99,7 +99,7 @@ test-swap-program: build-programs
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
 # not run twice per PR.
 test-program-proofs-programs-only: build-programs build-prover-server build-cli
-    cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_settlement --test mixed_interface_transfers --test merge_functional --test-threads 1
+    cargo nextest run -p shielded-pool-proofs --test-threads 1
 
 # Groth16-backed program and client matrices, separated from fast state tests.
 # The full local gate; CI splits it (see test-program-proofs-programs-only).
@@ -280,13 +280,13 @@ test-client-async-transfer-queue: build-prover-server build-cli
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
 # through the zolana CLI.
 test-programs: build-programs build-prover-server build-cli
-    cargo nextest run -p shielded-pool-tests --features proofs --test-threads 1
+    cargo nextest run -p shielded-pool-tests -p shielded-pool-proofs --test-threads 1
 
 # Proving-key-independent interface, program, and LiteSVM proofless tests.
 # The explicit shielded-pool suites cover pool administration, deposit batches,
 # and ring config (including the fixture program's signed CPI into SPP); the
-# proof-backed binaries are gated behind the `proofs` feature, so the plain
-# package run is hermetic by construction.
+# proof-backed suites live in the separate `shielded-pool-proofs` package, so
+# this package run is hermetic by construction.
 test-proofless-programs: build-programs
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
@@ -345,7 +345,7 @@ bench-shielded-pool: build-programs
         -- --features bpf-entrypoint,profile-program
     test -f target/deploy/spl_token.so || \
         solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
-    cargo test -p shielded-pool-tests --features proofs --test bench_cu -- --ignored --nocapture
+    cargo test -p shielded-pool-tests --test bench_cu -- --ignored --nocapture
 
 # Profile the confidential swap create/fill/cancel instructions and record proving
 # times. The bench builds the shielded-pool tree account directly and replays one
