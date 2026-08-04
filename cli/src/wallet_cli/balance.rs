@@ -3,13 +3,13 @@ use solana_pubkey::Pubkey;
 use zolana_transaction::SOL_MINT;
 
 use super::{
-    sync::sync_context,
+    sync::sync_context_read_only,
     util::{format_address, parse_address},
 };
 use crate::args::BalanceOptions;
 
 pub(crate) fn run_balance(opts: BalanceOptions) -> Result<()> {
-    let ctx = sync_context(&opts.sync)?;
+    let ctx = sync_context_read_only(&opts.sync)?;
     let balances = ctx.wallet.balances(true)?;
 
     if let Some(mint) = &opts.mint {

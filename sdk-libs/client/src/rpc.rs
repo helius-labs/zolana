@@ -27,9 +27,11 @@ use crate::{
 pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
     pub block_time: i64,
+    /// Highest slot the indexer has persisted; `None` if it does not report one.
+    pub slot: Option<u64>,
 }
 
 /// Identifies the tree a proof was produced against.

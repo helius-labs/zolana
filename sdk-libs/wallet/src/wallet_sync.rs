@@ -26,6 +26,58 @@ const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
 const DEFAULT_PAGE_LIMIT: u32 = 1_000;
 const DEFAULT_SYNC_ROUNDS: usize = 6;
 
+/// Opt-in phase timing for diagnosing slow wallet syncs. Off unless
+/// `ZOLANA_TIMING` is set, and writes to stderr so it never contaminates the
+/// CLI's machine-parseable `ok <verb> ...` stdout lines.
+///
+/// Exists because a read-only `zolana utxos` over 3 utxos took 28s against the
+/// devnet deployment while photon answered in 250ms and proof generation took 3s
+/// -- i.e. the cost is in this file, and nothing here was measurable.
+mod timing {
+    use std::{
+        sync::OnceLock,
+        time::{Duration, Instant},
+    };
+
+    fn enabled() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var_os("ZOLANA_TIMING").is_some())
+    }
+
+    /// Emit a scalar observation (counts, sizes) alongside the phase timings.
+    pub(super) fn note(round: usize, key: &str, value: usize) {
+        if enabled() {
+            eprintln!("timing round={round} {key}={value}");
+        }
+    }
+
+    /// Times from construction to drop, so `?` early-returns still report.
+    pub(super) struct Phase {
+        name: &'static str,
+        round: usize,
+        started: Instant,
+    }
+
+    impl Phase {
+        pub(super) fn start(name: &'static str, round: usize) -> Self {
+            Self {
+                name,
+                round,
+                started: Instant::now(),
+            }
+        }
+    }
+
+    impl Drop for Phase {
+        fn drop(&mut self) {
+            if enabled() {
+                let ms = self.started.elapsed().max(Duration::ZERO).as_millis();
+                eprintln!("timing round={} phase={} ms={}", self.round, self.name, ms);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SyncWalletConfig {
     pub tag_window: u64,
@@ -34,6 +86,10 @@ pub struct SyncWalletConfig {
     pub rounds: usize,
     pub wait_for_indexer: bool,
     pub retry: IndexerPollConfig,
+    /// Chain slot the indexer must have reached before its answers are accepted.
+    /// Read it from the RPC the caller submits through; `None` leaves the gate on
+    /// the legacy, unsound block-time comparison.
+    pub target_slot: Option<u64>,
 }
 
 impl Default for SyncWalletConfig {
@@ -45,6 +101,7 @@ impl Default for SyncWalletConfig {
             rounds: DEFAULT_SYNC_ROUNDS,
             wait_for_indexer: false,
             retry: IndexerPollConfig::default(),
+            target_slot: None,
         }
     }
 }
@@ -81,26 +138,69 @@ where
     I: Rpc,
 {
     let config = normalized_config(config);
-    let rpc_config = indexer_rpc_config(config);
     let material = authority.sync_material()?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut report = SyncReport::default();
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
 
-    for _ in 0..config.rounds {
+    // Freshness is established ONCE, on the first indexer request of the sync, not
+    // on every request.
+    //
+    // `wait_for_indexer` retries a request until photon reports a block_time at or
+    // past the wall clock when that request began (indexer.rs). Applying it to every
+    // call meant paying the wait per tag chunk, per fetch phase, per round -- ~36
+    // gated calls for one `zolana utxos`, 33.9s of which 33.8s was waiting and 13ms
+    // was actual work. Anchoring the gate on the first call preserves the same
+    // read-your-writes guarantee (photon is known caught up as of sync start) while
+    // the remaining queries, issued milliseconds later, run ungated.
+    //
+    // `None` means ungated: wait_for_indexer() short-circuits on a None config.
+    let mut freshness_gate = indexer_rpc_config(config);
+
+    let _total = timing::Phase::start("sync_wallet_total", 0);
+    for round in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
-        let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
+        let tags = {
+            let _t = timing::Phase::start("query_tags", round);
+            wallet_query_tags(wallet, &material, config.tag_window)?
+        };
         let nullifiers = wallet_query_nullifiers(wallet);
-        fetch_shielded_transactions(indexer, &tags, &mut transactions, config, rpc_config)?;
-        fetch_shielded_transactions_by_nullifiers(
-            indexer,
-            &nullifiers,
-            &mut transactions,
-            config,
-            rpc_config,
-        )?;
-        fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config, rpc_config)?;
+        timing::note(round, "tags", tags.len());
+        timing::note(round, "nullifiers", nullifiers.len());
+        {
+            let _t = timing::Phase::start("fetch_shielded_by_tags", round);
+            fetch_shielded_transactions(
+                indexer,
+                &tags,
+                &mut transactions,
+                config,
+                freshness_gate.take(),
+            )?;
+        }
+        {
+            let _t = timing::Phase::start("fetch_shielded_by_nullifiers", round);
+            fetch_shielded_transactions_by_nullifiers(
+                indexer,
+                &nullifiers,
+                &mut transactions,
+                config,
+                freshness_gate.take(),
+            )?;
+        }
+        {
+            let _t = timing::Phase::start("fetch_proofless_deposits", round);
+            fetch_proofless_deposits(
+                indexer,
+                &tags,
+                &mut proofless_deposits,
+                config,
+                freshness_gate.take(),
+            )?;
+        }
+        timing::note(round, "transactions", transactions.len());
+        timing::note(round, "proofless_deposits", proofless_deposits.len());
+        let _round_tail = timing::Phase::start("collect_sort_and_decrypt", round);
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -122,9 +222,14 @@ where
                 ))
         });
         txs.extend(deposits);
-        report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
+        timing::note(round, "txs_to_decrypt", txs.len());
+        report = {
+            let _t = timing::Phase::start("sync_with_material", round);
+            wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?
+        };
 
         if before == (transactions.len(), proofless_deposits.len()) {
+            timing::note(round, "converged", 1);
             break;
         }
     }
@@ -303,6 +408,7 @@ fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
         page_limit: config.page_limit.max(1),
         rounds: config.rounds.max(1),
         wait_for_indexer: config.wait_for_indexer,
+        target_slot: config.target_slot,
         retry: IndexerPollConfig {
             num_retries: config.retry.num_retries.max(1),
             ..config.retry
@@ -365,6 +471,7 @@ fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
     Some(IndexerRpcConfig {
         wait_for_indexer: config.wait_for_indexer,
         poll: config.retry,
+        target_slot: config.target_slot,
     })
 }
 
@@ -705,7 +812,7 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
             Ok(GetEncryptedUtxosByTagsResponse {
-                context: Context { block_time: 0 },
+                context: Context { block_time: 0, slot: None },
                 matches: self.matches.clone(),
                 next_cursor: None,
             })
@@ -719,7 +826,7 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Ok(GetShieldedTransactionsByTagsResponse {
-                context: Context { block_time: 0 },
+                context: Context { block_time: 0, slot: None },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
             })
@@ -733,7 +840,7 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             Ok(GetShieldedTransactionsByNullifiersResponse {
-                context: Context { block_time: 0 },
+                context: Context { block_time: 0, slot: None },
                 transactions: self
                     .transactions
                     .iter()

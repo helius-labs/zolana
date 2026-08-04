@@ -68,6 +68,13 @@ impl IndexerPollConfig {
 pub struct IndexerRpcConfig {
     pub wait_for_indexer: bool,
     pub poll: IndexerPollConfig,
+    /// Chain slot the indexer must have reached before its answer is accepted.
+    ///
+    /// Read it from the same RPC the caller submits through, so both sides of the
+    /// comparison are slots on one chain. `None` falls back to the legacy
+    /// block-time comparison, which is unsound (see `Context::slot`) and only
+    /// remains for callers that cannot supply a slot.
+    pub target_slot: Option<u64>,
 }
 
 impl IndexerRpcConfig {
@@ -75,6 +82,16 @@ impl IndexerRpcConfig {
         Self {
             wait_for_indexer: true,
             poll: IndexerPollConfig::default(),
+            target_slot: None,
+        }
+    }
+
+    /// Wait until the indexer has persisted `slot`.
+    pub fn wait_for_slot(slot: u64) -> Self {
+        Self {
+            wait_for_indexer: true,
+            poll: IndexerPollConfig::default(),
+            target_slot: Some(slot),
         }
     }
 }
