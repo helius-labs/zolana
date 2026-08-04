@@ -3,7 +3,7 @@ mod shared;
 use anyhow::{anyhow, Result};
 use shared::{send_cosigned_v0_with_lookup_table, setup, TestEnv, BUY_USDC, SELL_SOL};
 use solana_signer::Signer;
-use zolana_client::{IndexerRpcConfig, Rpc};
+use zolana_client::Rpc;
 use zolana_interface::instruction::Transact;
 use zolana_transaction::{
     instructions::{
@@ -76,11 +76,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
     );
 
     let data = client
-        .prove_transact(
-            Address::new_from_array(tree.to_bytes()),
-            proof_inputs,
-            Some(IndexerRpcConfig::wait()),
-        )
+        .prove_transact(Address::new_from_array(tree.to_bytes()), proof_inputs, None)
         .map_err(|e| anyhow!("prove transact: {e:?}"))?;
     let ix = Transact {
         payer: maker_solana.pubkey(),

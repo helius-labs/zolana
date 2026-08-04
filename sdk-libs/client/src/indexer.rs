@@ -2,7 +2,7 @@
 
 use std::{
     thread::sleep,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -35,33 +35,16 @@ const MERKLE_PROOF_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 
-fn now_unix_seconds() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(i64::MAX)
-}
-
-/// Has the indexer caught up to what the caller is asking about?
+/// Highest slot the indexer reports having persisted.
 ///
-/// Prefers a slot comparison: the caller's `target_slot`, read from the chain, and
-/// the indexer's highest persisted slot. Both are slots on the same chain, so the
-/// comparison is meaningful.
-///
-/// Falls back to the legacy block-time comparison only when either side is absent.
-/// That path is unsound and kept solely for callers that cannot supply a slot: it
-/// tests a validator-assigned block timestamp against the client's local wall clock.
-/// Because block time trails real time, the first attempt routinely cannot pass no
-/// matter how current the indexer is, so every call pays at least one backoff sleep.
-fn indexer_caught_up(
-    context: &Context,
-    target_slot: Option<u64>,
-    target_block_time: i64,
-) -> bool {
-    match (target_slot, context.slot) {
-        (Some(target), Some(indexed)) => indexed >= target,
-        _ => context.block_time >= target_block_time,
-    }
+/// An indexer that does not report one is an error, not a cue to guess. There is no
+/// block-time fallback: comparing a validator-assigned block timestamp against the
+/// caller's wall clock is not a freshness test, and silently substituting it is how
+/// a correctness gate turns into multi-second latency nobody can see.
+fn indexed_slot(context: &Context, required: u64) -> Result<u64, ClientError> {
+    context
+        .slot
+        .ok_or(ClientError::IndexerSlotUnavailable { required })
 }
 
 fn wait_for_indexer<T>(
@@ -69,30 +52,23 @@ fn wait_for_indexer<T>(
     context: impl Fn(&T) -> Context,
     mut request: impl FnMut() -> Result<T, ClientError>,
 ) -> Result<T, ClientError> {
-    let Some(config) = config.filter(|config| config.wait_for_indexer) else {
+    let Some((config, required)) = config.and_then(|c| c.require_slot.map(|slot| (c, slot))) else {
         return request();
     };
-    let target_block_time = now_unix_seconds();
-    let mut latest = i64::MIN;
+    let mut indexed = 0;
     for delay in std::iter::once(Duration::ZERO).chain(config.poll.backoff()) {
         if !delay.is_zero() {
             sleep(delay);
         }
         let response = request()?;
-        let ctx = context(&response);
-        latest = ctx.block_time;
-        if indexer_caught_up(&ctx, config.target_slot, target_block_time) {
+        indexed = indexed_slot(&context(&response), required)?;
+        if indexed >= required {
             return Ok(response);
         }
     }
-    // Report whichever pair was actually compared, so the error names the real gap.
-    let (target, latest) = match config.target_slot {
-        Some(slot) => (slot as i64, latest),
-        None => (target_block_time, latest),
-    };
     Err(ClientError::IndexerNotCaughtUp {
-        target,
-        latest,
+        required,
+        indexed,
         attempts: config.poll.num_retries.saturating_add(1),
     })
 }
@@ -106,25 +82,23 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T, ClientError>>,
 {
-    let Some(config) = config.filter(|config| config.wait_for_indexer) else {
+    let Some((config, required)) = config.and_then(|c| c.require_slot.map(|slot| (c, slot))) else {
         return request().await;
     };
-    let target = now_unix_seconds();
-    let mut latest = i64::MIN;
+    let mut indexed = 0;
     for delay in std::iter::once(Duration::ZERO).chain(config.poll.backoff()) {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
         let response = request().await?;
-        let ctx = context(&response);
-        latest = ctx.block_time;
-        if indexer_caught_up(&ctx, config.target_slot, target) {
+        indexed = indexed_slot(&context(&response), required)?;
+        if indexed >= required {
             return Ok(response);
         }
     }
     Err(ClientError::IndexerNotCaughtUp {
-        target,
-        latest,
+        required,
+        indexed,
         attempts: config.poll.num_retries.saturating_add(1),
     })
 }
@@ -381,7 +355,9 @@ impl Rpc for ZolanaIndexer {
                 })
         };
 
-        if let Some(config) = config.filter(|config| config.wait_for_indexer) {
+        // A caller that named a slot wants that guarantee, so honour it directly and
+        // skip the completeness-polling path below.
+        if let Some(config) = config.filter(|config| config.require_slot.is_some()) {
             return wait_for_indexer(
                 Some(config),
                 |response: &GetMerkleProofsResponse| response.context,
@@ -929,7 +905,10 @@ mod tests {
         assert_eq!(
             got,
             GetEncryptedUtxosByTagsResponse {
-                context: Context { block_time: 42, slot: None },
+                context: Context {
+                    block_time: 42,
+                    slot: None
+                },
                 matches: vec![EncryptedUtxoMatch {
                     slot: 7,
                     tx_signature: signature,
@@ -998,7 +977,10 @@ mod tests {
         assert_eq!(
             got,
             GetShieldedTransactionsByTagsResponse {
-                context: Context { block_time: 51, slot: None },
+                context: Context {
+                    block_time: 51,
+                    slot: None
+                },
                 transactions: vec![ShieldedTransaction {
                     slot: 50,
                     tx_signature: signature,
@@ -1101,7 +1083,10 @@ mod tests {
         assert_eq!(
             got,
             GetShieldedTransactionsByNullifiersResponse {
-                context: Context { block_time: 52, slot: None },
+                context: Context {
+                    block_time: 52,
+                    slot: None
+                },
                 transactions: vec![],
                 next_cursor: None,
             }
@@ -1149,7 +1134,10 @@ mod tests {
         assert_eq!(
             got,
             GetMerkleProofsResponse {
-                context: Context { block_time: 80, slot: None },
+                context: Context {
+                    block_time: 80,
+                    slot: None
+                },
                 proofs: vec![MerkleProof {
                     leaf: leaf_a,
                     merkle_context: MerkleContext { tree_type: 1, tree },
@@ -1209,7 +1197,10 @@ mod tests {
         assert_eq!(
             got,
             GetNonInclusionProofsResponse {
-                context: Context { block_time: 90, slot: None },
+                context: Context {
+                    block_time: 90,
+                    slot: None
+                },
                 proofs: vec![NonInclusionProof {
                     leaf,
                     merkle_context: MerkleContext { tree_type: 2, tree },

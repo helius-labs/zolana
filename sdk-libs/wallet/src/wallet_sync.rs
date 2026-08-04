@@ -84,12 +84,11 @@ pub struct SyncWalletConfig {
     pub tag_query_chunk: usize,
     pub page_limit: u32,
     pub rounds: usize,
-    pub wait_for_indexer: bool,
     pub retry: IndexerPollConfig,
-    /// Chain slot the indexer must have reached before its answers are accepted.
-    /// Read it from the RPC the caller submits through; `None` leaves the gate on
-    /// the legacy, unsound block-time comparison.
-    pub target_slot: Option<u64>,
+    /// Slot the indexer must have persisted before its answers are accepted.
+    /// `None` accepts whatever it currently has. Read the slot from the RPC the
+    /// caller submits through, so both sides of the comparison are slots.
+    pub require_slot: Option<u64>,
 }
 
 impl Default for SyncWalletConfig {
@@ -99,17 +98,17 @@ impl Default for SyncWalletConfig {
             tag_query_chunk: DEFAULT_TAG_QUERY_CHUNK,
             page_limit: DEFAULT_PAGE_LIMIT,
             rounds: DEFAULT_SYNC_ROUNDS,
-            wait_for_indexer: false,
             retry: IndexerPollConfig::default(),
-            target_slot: None,
+            require_slot: None,
         }
     }
 }
 
 impl SyncWalletConfig {
-    pub fn new() -> Self {
+    /// Require the indexer to have persisted `slot` before its answers are used.
+    pub fn at_slot(slot: u64) -> Self {
         Self {
-            wait_for_indexer: true,
+            require_slot: Some(slot),
             ..Self::default()
         }
     }
@@ -124,7 +123,7 @@ where
     A: SyncWalletAuthority + ?Sized,
     I: Rpc,
 {
-    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::new())
+    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::default())
 }
 
 pub fn sync_wallet_with_config<A, I>(
@@ -270,7 +269,9 @@ where
     I: AsyncRpc,
 {
     let config = normalized_config(config);
-    let rpc_config = indexer_rpc_config(config);
+    // Freshness established once per sync, not per request -- see the blocking
+    // variant above for why (~36 gated calls became one).
+    let mut freshness_gate = indexer_rpc_config(config);
     let material = authority.sync_material().await?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
@@ -281,18 +282,30 @@ where
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         let nullifiers = wallet_query_nullifiers(wallet);
-        fetch_shielded_transactions_async(indexer, &tags, &mut transactions, config, rpc_config)
-            .await?;
+        fetch_shielded_transactions_async(
+            indexer,
+            &tags,
+            &mut transactions,
+            config,
+            freshness_gate.take(),
+        )
+        .await?;
         fetch_shielded_transactions_by_nullifiers_async(
             indexer,
             &nullifiers,
             &mut transactions,
             config,
-            rpc_config,
+            freshness_gate.take(),
         )
         .await?;
-        fetch_proofless_deposits_async(indexer, &tags, &mut proofless_deposits, config, rpc_config)
-            .await?;
+        fetch_proofless_deposits_async(
+            indexer,
+            &tags,
+            &mut proofless_deposits,
+            config,
+            freshness_gate.take(),
+        )
+        .await?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -407,8 +420,7 @@ fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
         tag_query_chunk: config.tag_query_chunk.max(1),
         page_limit: config.page_limit.max(1),
         rounds: config.rounds.max(1),
-        wait_for_indexer: config.wait_for_indexer,
-        target_slot: config.target_slot,
+        require_slot: config.require_slot,
         retry: IndexerPollConfig {
             num_retries: config.retry.num_retries.max(1),
             ..config.retry
@@ -469,9 +481,8 @@ fn wallet_query_tags(
 
 fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
     Some(IndexerRpcConfig {
-        wait_for_indexer: config.wait_for_indexer,
         poll: config.retry,
-        target_slot: config.target_slot,
+        require_slot: config.require_slot,
     })
 }
 
@@ -812,7 +823,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
             Ok(GetEncryptedUtxosByTagsResponse {
-                context: Context { block_time: 0, slot: None },
+                context: Context {
+                    block_time: 0,
+                    slot: None,
+                },
                 matches: self.matches.clone(),
                 next_cursor: None,
             })
@@ -826,7 +840,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Ok(GetShieldedTransactionsByTagsResponse {
-                context: Context { block_time: 0, slot: None },
+                context: Context {
+                    block_time: 0,
+                    slot: None,
+                },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
             })
@@ -840,7 +857,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             Ok(GetShieldedTransactionsByNullifiersResponse {
-                context: Context { block_time: 0, slot: None },
+                context: Context {
+                    block_time: 0,
+                    slot: None,
+                },
                 transactions: self
                     .transactions
                     .iter()

@@ -66,32 +66,32 @@ impl IndexerPollConfig {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IndexerRpcConfig {
-    pub wait_for_indexer: bool,
     pub poll: IndexerPollConfig,
-    /// Chain slot the indexer must have reached before its answer is accepted.
+    /// Slot the indexer must have persisted before its answer is accepted.
     ///
-    /// Read it from the same RPC the caller submits through, so both sides of the
-    /// comparison are slots on one chain. `None` falls back to the legacy
-    /// block-time comparison, which is unsound (see `Context::slot`) and only
-    /// remains for callers that cannot supply a slot.
-    pub target_slot: Option<u64>,
+    /// `None` accepts whatever the indexer currently has.
+    ///
+    /// There is deliberately no "wait, but for nothing in particular" state: a
+    /// freshness requirement IS a slot. The previous shape paired a
+    /// `wait_for_indexer: bool` with an optional target, which made the unsound
+    /// combination (wait with no target) not only representable but the value the
+    /// convenience constructor produced — it fell back to comparing the indexer's
+    /// block timestamp against local wall clock, mixing clock domains so the first
+    /// attempt could never pass while block time trailed real time. Every caller
+    /// that reached for it paid 400ms-2.5s of backoff per request for a check that
+    /// could not succeed.
+    ///
+    /// Read the slot from the same RPC the caller submits through, so both sides of
+    /// the comparison are slots on one chain.
+    pub require_slot: Option<u64>,
 }
 
 impl IndexerRpcConfig {
-    pub fn wait() -> Self {
+    /// Require the indexer to have persisted `slot` before answering.
+    pub fn at_slot(slot: u64) -> Self {
         Self {
-            wait_for_indexer: true,
             poll: IndexerPollConfig::default(),
-            target_slot: None,
-        }
-    }
-
-    /// Wait until the indexer has persisted `slot`.
-    pub fn wait_for_slot(slot: u64) -> Self {
-        Self {
-            wait_for_indexer: true,
-            poll: IndexerPollConfig::default(),
-            target_slot: Some(slot),
+            require_slot: Some(slot),
         }
     }
 }

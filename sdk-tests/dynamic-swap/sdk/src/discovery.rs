@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use zolana_client::{IndexerRpcConfig, Rpc};
+use zolana_client::Rpc;
 use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::ViewingKey;
 use zolana_transaction::{
@@ -45,7 +45,9 @@ pub fn discover_escrow_note<I: Rpc>(
                 vec![tag],
                 cursor,
                 None,
-                Some(IndexerRpcConfig::wait()),
+                // Ungated: this is a pagination loop, so a freshness check would
+                // fire per page, and the caller already retries.
+                None,
             )
             .map_err(err)?;
         for tx in &page.transactions {

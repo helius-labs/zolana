@@ -778,7 +778,10 @@ mod tests {
     #[test]
     fn response_shape_stays_snake_case() {
         let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
-            context: Context { block_time: 3, slot: None },
+            context: Context {
+                block_time: 3,
+                slot: None,
+            },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1])),
         })
