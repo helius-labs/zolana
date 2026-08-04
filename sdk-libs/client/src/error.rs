@@ -246,7 +246,6 @@ pub enum ClientError {
         attempts: u32,
     },
 
-
     #[error("poll gave up after {attempts} attempts; last transient error: {last_error:?}")]
     PollTimedOut {
         attempts: u32,

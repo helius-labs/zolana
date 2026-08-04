@@ -855,7 +855,7 @@ mod tests {
         let signature = signature(9);
         let (tx_viewing_pk_bytes, tx_viewing_pk) = compressed_p256_pubkey(3);
         let response = rpc_result(json!({
-            "context": { "block_time": 42 },
+            "context": { "block_time": 42, "slot": 1 },
             "matches": [{
                 "slot": 7,
                 "tx_signature": signature.to_string(),
@@ -925,7 +925,7 @@ mod tests {
         let nullifier = bytes32(13);
         let signature = signature(14);
         let response = rpc_result(json!({
-            "context": { "block_time": 51 },
+            "context": { "block_time": 51, "slot": 1 },
             "transactions": [{
                 "slot": 50,
                 "tx_signature": signature.to_string(),
@@ -996,7 +996,7 @@ mod tests {
     fn get_shielded_transactions_by_signature_preserves_event_index() {
         let signature = signature(24);
         let response = rpc_result(json!({
-            "context": { "block_time": 52 },
+            "context": { "block_time": 52, "slot": 1 },
             "transactions": [{
                 "event_index": 3,
                 "transaction": {
@@ -1038,7 +1038,7 @@ mod tests {
         let nullifier_a = bytes32(24);
         let nullifier_b = bytes32(25);
         let response = rpc_result(json!({
-            "context": { "block_time": 52 },
+            "context": { "block_time": 52, "slot": 1 },
             "transactions": [],
             "next_cursor": null,
         }));
@@ -1088,7 +1088,7 @@ mod tests {
         let path = vec![bytes32(34), bytes32(35)];
         let root = bytes32(36);
         let response = rpc_result(json!({
-            "context": { "block_time": 80 },
+            "context": { "block_time": 80, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash_string(leaf_a),
                 "merkle_context": {
@@ -1148,7 +1148,7 @@ mod tests {
         let path = vec![bytes32(45), bytes32(46)];
         let root = bytes32(47);
         let response = rpc_result(json!({
-            "context": { "block_time": 90 },
+            "context": { "block_time": 90, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash_string(leaf),
                 "merkle_context": {
@@ -1267,7 +1267,7 @@ mod tests {
     fn rejects_malformed_output_slot_hash() {
         let tag = bytes32(51);
         let response = rpc_result(json!({
-            "context": { "block_time": 1 },
+            "context": { "block_time": 1, "slot": 1 },
             "transactions": [{
                 "slot": 1,
                 "tx_signature": signature(52).to_string(),
@@ -1304,7 +1304,7 @@ mod tests {
     fn by_signature_error_path_includes_transaction_nesting() {
         let signature = signature(61);
         let response = rpc_result(json!({
-            "context": { "block_time": 1 },
+            "context": { "block_time": 1, "slot": 1 },
             "transactions": [{
                 "event_index": 0,
                 "transaction": {
