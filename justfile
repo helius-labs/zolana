@@ -133,12 +133,22 @@ test-sdk-libs:
     cargo nextest run -p zolana-client --test solana_rpc --features solana-rpc
     cargo nextest run -p zolana-wallet
 
+# Generate canonical protocol accounts from the current locally built program.
+generate-local-account-snapshots accounts-dir="target/localnet-accounts": build-programs
+    cargo run -q -p xtask -- generate-account-snapshots \
+      --deploy-dir target/deploy --accounts-dir "{{accounts-dir}}"
+
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
     npm run check:ts
 
 # Full TypeScript SDK flow against a fresh validator, Photon, and prover.
-test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
+test-ts-e2e: (_test-ts-live "test:ts:e2e")
+
+# Public TypeScript SDK example against a fresh validator, Photon, and prover.
+test-ts-example: (_test-ts-live "test:ts:example")
+
+_test-ts-live test-script: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
@@ -162,26 +172,29 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
     cleanup
     sleep 2
 
+    accounts_dir="$workdir/accounts"
+    cargo run -q -p xtask -- generate-account-snapshots \
+      --deploy-dir target/deploy --accounts-dir "$accounts_dir"
+
+    # Load current-revision canonical protocol accounts before Photon discovers
+    # the tree metadata.
     "$bin" dev start --with-photon --no-use-surfpool \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
-      --photon-port {{localnet-photon-port}} \
+      --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
       --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so
     "$bin" config set --rpc-url {{localnet-rpc-url}} \
       --indexer-url {{localnet-photon-url}} --prover-url {{localnet-prover-url}} >/dev/null
     "$bin" wallet new --outfile "$workdir/authority.json"
-    tree="$("$bin" dev pool create-tree --keypair "$workdir/authority.json" \
-      --tree-keypair "$workdir/tree.json" --airdrop-lamports 20000000000 \
-      | sed -n 's/^ok tree //p')"
-    test -n "$tree"
     mint_output="$("$bin" dev pool test-mint --keypair "$workdir/authority.json" \
-      --authority-path "$workdir/authority.json" --amount 1000000)"
+      --authority-path "$workdir/authority.json" --airdrop-lamports 20000000000 \
+      --amount 1000000000)"
     mint="$(sed -n 's/^ok test_mint mint=\([^ ]*\).*/\1/p' <<<"$mint_output")"
     token_account="$(sed -n 's/^ok test_mint .* token_account=\([^ ]*\).*/\1/p' <<<"$mint_output")"
     test -n "$mint"
     test -n "$token_account"
     token_2022_output="$("$bin" dev pool test-mint --keypair "$workdir/authority.json" \
-      --authority-path "$workdir/authority.json" --token-program token2022 --amount 1000000)"
+      --authority-path "$workdir/authority.json" --token-program token2022 --amount 1000000000)"
     token_2022_mint="$(sed -n 's/^ok test_mint mint=\([^ ]*\).*/\1/p' <<<"$token_2022_output")"
     token_2022_account="$(sed -n 's/^ok test_mint .* token_account=\([^ ]*\).*/\1/p' <<<"$token_2022_output")"
     test -n "$token_2022_mint"
@@ -190,12 +203,11 @@ test-ts-e2e: build-programs build-prover-server build-cli ensure-photon
     ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
       ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
-      ZOLANA_TREE="$tree" \
       ZOLANA_TEST_MINT="$mint" \
       ZOLANA_TEST_TOKEN_ACCOUNT="$token_account" \
       ZOLANA_TEST_TOKEN_2022_MINT="$token_2022_mint" \
       ZOLANA_TEST_TOKEN_2022_ACCOUNT="$token_2022_account" \
-      ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" npm run test:ts:e2e
+      ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" npm run "{{test-script}}"
 
 test-ts-all: test-ts test-ts-e2e
 
@@ -920,7 +932,7 @@ test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 
 # Minimal zolana-client SDK example: deposit, shielded transfer, and withdrawal
 # building the SPP instructions by hand and submitting them
-# (sdk-tests/client/examples/deposit_transfer_withdraw.rs). Boots
+# (sdk-tests/client/rust/deposit_transfer_withdraw.rs). Boots
 # solana-test-validator via the `zolana` CLI with the shielded pool, the user
 # registry, and the Squads smart account, plus Photon and the SPP prover --
 # mirroring test-spp-validator.

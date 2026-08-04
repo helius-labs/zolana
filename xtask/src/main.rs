@@ -82,6 +82,15 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("generate-account-snapshots") => {
+            let (deploy_dir, accounts_dir) = parse_account_snapshot_options(args.collect());
+            if let Err(error) =
+                create_release::generate_account_snapshots(&deploy_dir, &accounts_dir)
+            {
+                eprintln!("generate-account-snapshots failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
         Some("tx-size") => tx_size(args.collect()),
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
@@ -90,6 +99,34 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+fn parse_account_snapshot_options(args: Vec<String>) -> (PathBuf, PathBuf) {
+    let mut deploy_dir = PathBuf::from("target/deploy");
+    let mut accounts_dir = PathBuf::from("target/localnet-accounts");
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--deploy-dir" => {
+                deploy_dir = args
+                    .next()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| usage_and_exit("--deploy-dir missing value"));
+            }
+            "--accounts-dir" => {
+                accounts_dir = args
+                    .next()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| usage_and_exit("--accounts-dir missing value"));
+            }
+            "--help" | "-h" => {
+                print_account_snapshot_help();
+                std::process::exit(0);
+            }
+            other => usage_and_exit(&format!("unexpected arg {other:?}")),
+        }
+    }
+    (deploy_dir, accounts_dir)
 }
 
 fn print_program_ids() {
@@ -324,7 +361,16 @@ fn print_help() {
     println!(
         "  create-release           Build the localnet release artifacts + lockfile (see --help)"
     );
+    println!("  generate-account-snapshots  Generate current local canonical protocol accounts");
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
+}
+
+fn print_account_snapshot_help() {
+    println!("xtask generate-account-snapshots [options]");
+    println!();
+    println!("Options:");
+    println!("  --deploy-dir <dir>    Program .so directory (default target/deploy)");
+    println!("  --accounts-dir <dir>  Output account directory (default target/localnet-accounts)");
 }
 
 fn print_create_verifying_keys_help() {

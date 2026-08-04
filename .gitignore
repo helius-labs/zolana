@@ -3,6 +3,7 @@ target/
 /node_modules/
 node_modules/
 dist/
+/sdk-libs/ts/src/hasher/poseidon.wasm
 /.tools/
 # cli_smoke.sh isolated config + wallet dirs (contain funding secret keys).
 /.cli-smoke/
