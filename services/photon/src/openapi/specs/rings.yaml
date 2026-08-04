@@ -895,6 +895,13 @@ components:
         block_time:
           type: integer
           format: int64
+        slot:
+          type:
+          - integer
+          - 'null'
+          format: u-int64
+          description: Highest slot the indexer has persisted, for slot-based freshness checks.
+          minimum: 0
       additionalProperties: false
     EncryptedUtxoMatch:
       type: object
