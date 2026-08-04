@@ -65,8 +65,9 @@ describe("public package surface", () => {
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     expect(wallet.identity).toEqual(keypair.shieldedAddress());
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
-    expect(SHIELDED_POOL_PROGRAM_ID).toBe("sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA");
-    expect(USER_REGISTRY_PROGRAM_ID).toBe("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
+    expect(DEFAULT_TREE_ADDRESS).toBe("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
+    expect(SHIELDED_POOL_PROGRAM_ID).toBe("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+    expect(USER_REGISTRY_PROGRAM_ID).toBe("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
   });
 
   it("exposes build-only actions and removes submission wrappers", async () => {

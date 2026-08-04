@@ -15,19 +15,19 @@ export interface AddressTreeParams {
   readonly height: number;
 }
 
-export const SHIELDED_POOL_PROGRAM_ID = address("sppzgEd25DF4PC1FgNerLWVZndUAV82LV9Dy5yCvRVA");
-export const USER_REGISTRY_PROGRAM_ID = address("EXM6UUA56UJySzRDCx4dKwN6Xdcrkq3kmizqgZwgwNEc");
-export const DEFAULT_TREE_ADDRESS = address("treeYbr45LjxovKvtD46uEphM64kwoFFPYhVNw1A8x8");
+export const SHIELDED_POOL_PROGRAM_ID = address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+export const USER_REGISTRY_PROGRAM_ID = address("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
+export const DEFAULT_TREE_ADDRESS = address("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
 export const SOL_INTERFACE = encodeBase58(
   Uint8Array.from([
-    153, 202, 212, 28, 214, 25, 170, 103, 127, 203, 31, 129, 56, 221, 77, 131, 217, 62, 194, 23,
-    222, 98, 111, 179, 160, 182, 255, 213, 208, 236, 115, 61,
+    226, 231, 179, 96, 7, 216, 134, 74, 16, 116, 193, 73, 186, 110, 210, 48, 2, 97, 154, 130, 121,
+    53, 28, 232, 140, 221, 183, 236, 109, 212, 72, 117,
   ]),
 );
 export const SHIELDED_POOL_CPI_AUTHORITY = encodeBase58(
   Uint8Array.from([
-    88, 254, 248, 74, 86, 156, 76, 98, 4, 160, 29, 78, 152, 238, 8, 247, 252, 20, 54, 18, 242, 184,
-    160, 99, 112, 248, 135, 246, 47, 245, 181, 43,
+    109, 182, 246, 114, 43, 36, 173, 152, 203, 138, 114, 231, 209, 50, 184, 236, 107, 139, 188, 29,
+    115, 163, 218, 113, 6, 134, 33, 44, 204, 50, 186, 87,
   ]),
 );
 export const SPL_TOKEN_PROGRAM_ID = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
