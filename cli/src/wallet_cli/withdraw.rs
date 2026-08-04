@@ -8,7 +8,7 @@ use zolana_wallet::{
 
 use super::{
     resolve::get_network,
-    sync::sync_context_at_current_slot,
+    sync::sync_context,
     transaction::maybe_airdrop,
     util::{
         ensure_owner_spl_token_account, ensure_positive, format_address, parse_address,
@@ -22,7 +22,7 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let ctx = sync_context_at_current_slot(&opts.network.sync, &rpc)?;
+    let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = ZolanaClient::from_urls(
         rpc,

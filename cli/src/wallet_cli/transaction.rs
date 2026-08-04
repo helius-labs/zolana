@@ -11,7 +11,7 @@ use zolana_wallet::{
 use super::{
     material::WalletMaterial,
     resolve::get_network,
-    sync::{sync_context_at_current_slot, sync_context_read_only, wait_for_indexed_leaf},
+    sync::{sync_context, wait_for_indexed_leaf},
     util::{ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey},
 };
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
@@ -21,7 +21,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let ctx = sync_context_at_current_slot(&opts.network.sync, &rpc)?;
+    let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = ZolanaClient::from_urls(
         rpc,
@@ -69,7 +69,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
 /// utxos those actions accept (only `plain` utxos can be split or merged).
 pub(crate) fn run_utxos(opts: UtxosOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
-    let ctx = sync_context_read_only(&opts.sync)?;
+    let ctx = sync_context(&opts.sync)?;
     let mut count = 0usize;
     for entry in ctx
         .wallet
@@ -104,7 +104,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let ctx = sync_context_at_current_slot(&opts.network.sync, &rpc)?;
+    let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = ZolanaClient::from_urls(
         rpc,
@@ -150,7 +150,7 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let ctx = sync_context_at_current_slot(&opts.network.sync, &rpc)?;
+    let ctx = sync_context(&opts.network.sync)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
 
     // No `--input` auto-sweeps the smallest plain utxos; explicit hashes name the
