@@ -66,9 +66,11 @@ function recorder(): Readonly<{
   const nullifiers = vi.fn(async () => ({ context: { blockTime: 0n }, transactions: [] }));
   const client = {
     getShieldedTransactionsByTags: (
-      request: Readonly<{ tags: readonly Bytes32[]; limit?: number }>,
+      tags: Bytes32 | readonly Bytes32[],
+      pagination?: Readonly<{ limit?: number }>,
     ) => {
-      shielded.push({ tags: request.tags.map(hex), limit: request.limit });
+      const requested = tags instanceof Uint8Array ? [tags as Bytes32] : tags;
+      shielded.push({ tags: requested.map(hex), limit: pagination?.limit });
       return Promise.resolve({ context: { blockTime: 0n }, transactions: [] });
     },
     getEncryptedUtxosByTags: (request: Readonly<{ tags: readonly Bytes32[]; limit?: number }>) => {

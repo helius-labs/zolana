@@ -12,7 +12,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuthorizedPrivateTransaction, ZolanaClient } from "../src/client/client.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
-import { Data, LocalWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
+import {
+  Data,
+  LocalWalletAuthority,
+  SOL_MINT,
+  Utxo,
+  Wallet,
+  walletAuthorityFromSync,
+} from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/wallet/asset.js";
 import { createSplit, createTransfer, createWithdrawal } from "../src/wallet/actions.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
@@ -118,7 +125,7 @@ describe("private transaction construction", () => {
     await expect(
       createWithdrawal({
         wallet: fundedWallet(keypair, [100n]),
-        payer: PAYER,
+        feePayer: PAYER,
         recipient: RECIPIENT,
         asset: SOL_MINT,
         amount: 0n,
@@ -130,7 +137,7 @@ describe("private transaction construction", () => {
     const keypair = ShieldedKeypair.generate();
     const created = await createWithdrawal({
       wallet: fundedWallet(keypair, [20n, 40n, 80n]),
-      payer: PAYER,
+      feePayer: PAYER,
       recipient: RECIPIENT,
       asset: SOL_MINT,
       amount: 50n,
@@ -144,7 +151,7 @@ describe("private transaction construction", () => {
     const wallet = fundedWallet(keypair, [100n]);
     const created = await createWithdrawal({
       wallet,
-      payer: PAYER,
+      feePayer: PAYER,
       recipient: RECIPIENT,
       asset: SOL_MINT,
       amount: 50n,
@@ -154,10 +161,12 @@ describe("private transaction construction", () => {
       authorizePrivateTransaction(
         created.transaction,
         wallet,
-        new LocalWalletAuthority({
-          solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
-          keypair,
-        }),
+        walletAuthorityFromSync(
+          new LocalWalletAuthority({
+            solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
+            keypair,
+          }),
+        ),
       ),
     ).rejects.toMatchObject({ code: "TRANSACTION_ED25519_PAYER_MISMATCH" });
   });
@@ -167,7 +176,7 @@ describe("private transaction construction", () => {
     await expect(
       createWithdrawal({
         wallet: fundedWallet(keypair, [100n], { zoneProgramId: ZONE }),
-        payer: PAYER,
+        feePayer: PAYER,
         recipient: RECIPIENT,
         asset: SOL_MINT,
         amount: 50n,
@@ -182,7 +191,7 @@ describe("private transaction construction", () => {
       createTransfer({
         client: { getAccount },
         wallet: fundedWallet(keypair, [100n]),
-        payer: PAYER,
+        feePayer: PAYER,
         recipient: RECIPIENT,
         asset: SOL_MINT,
         amount: 10n,
@@ -196,7 +205,7 @@ describe("private transaction construction", () => {
     const recipient = ShieldedKeypair.generate().shieldedAddress();
     const created = await createTransfer({
       wallet: fundedWallet(sender, [100n]),
-      payer: PAYER,
+      feePayer: PAYER,
       recipient,
       asset: SOL_MINT,
       amount: 10n,
@@ -212,7 +221,7 @@ describe("private transaction construction", () => {
     const wallet = fundedWallet(keypair, [20n, 30n, 100n]);
     const split = createSplit({
       wallet,
-      payer: PAYER,
+      feePayer: PAYER,
       asset: SOL_MINT,
       parts: 2,
       input: wallet.utxos()[2]!.outputContext.hash,
@@ -247,7 +256,7 @@ describe("unsigned public transaction builders", () => {
       recipient: ShieldedKeypair.generate().shieldedAddress(),
       asset: SPL_MINT,
       amount: 42n,
-      splTokenAccount: RECIPIENT,
+      sourceTokenAccount: RECIPIENT,
       splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
     const instruction = await deposit.instruction(TREE, PAYER);
@@ -265,7 +274,9 @@ describe("unsigned public transaction builders", () => {
     await buildWithdrawalTransaction({
       client,
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      authority: walletAuthorityFromSync(
+        new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      ),
       feePayer: payer,
       recipient: RECIPIENT,
       asset: SPL_MINT,
@@ -299,7 +310,9 @@ describe("unsigned public transaction builders", () => {
     const input = {
       client,
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      authority: walletAuthorityFromSync(
+        new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      ),
       feePayer: payer,
       recipient: ShieldedKeypair.generate().shieldedAddress(),
       amount: 25n,
@@ -322,7 +335,9 @@ describe("unsigned public transaction builders", () => {
     await buildSplitTransaction({
       client,
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      authority: walletAuthorityFromSync(
+        new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
+      ),
       feePayer: payer,
     });
 

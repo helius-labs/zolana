@@ -9,6 +9,7 @@ import { StateDiscriminator } from "../src/interface/state.js";
 import {
   Data,
   LocalWalletAuthority,
+  walletAuthorityFromSync,
   SOL_MINT,
   Utxo,
   Wallet,
@@ -53,7 +54,9 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: walletAuthorityFromSync(
+        new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      ),
       client,
     });
 
@@ -146,7 +149,9 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: walletAuthorityFromSync(
+        new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      ),
       client,
     });
 
@@ -190,9 +195,9 @@ describe("wallet sync", () => {
       blinding: mergeOutputBlinding(keypair.nullifierKey(), firstNullifier),
     });
 
-    const report = await decryptTransactions({
+    const report = decryptTransactions({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      decryptionKeys: keypair,
       transactions: [
         {
           slot: 1n,
@@ -351,7 +356,9 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: walletAuthorityFromSync(
+        new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      ),
       client,
     });
 
@@ -402,7 +409,9 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet,
-        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        authority: walletAuthorityFromSync(
+          new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        ),
         client: {
           getShieldedTransactionsByTags: vi.fn(async () => ({
             context: { blockTime: 1n },
@@ -476,7 +485,9 @@ describe("wallet sync", () => {
 
     await syncWallet({
       wallet,
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: walletAuthorityFromSync(
+        new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      ),
       client,
     });
 
@@ -505,7 +516,9 @@ describe("wallet sync", () => {
     await expect(
       syncWallet({
         wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-        authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        authority: walletAuthorityFromSync(
+          new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+        ),
         client,
       }),
     ).rejects.toMatchObject({
@@ -550,7 +563,9 @@ describe("wallet sync", () => {
 
     const report = await syncWallet({
       wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-      authority: new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      authority: walletAuthorityFromSync(
+        new LocalWalletAuthority({ solanaPublicKey: OWNER, keypair }),
+      ),
       client,
     });
 

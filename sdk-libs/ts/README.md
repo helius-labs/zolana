@@ -49,8 +49,10 @@ import {
   type Bytes32,
 } from "@zolana/sdk";
 
+// One url serves the RPC, the indexer, and the prover.
+// localnet: const client = await createZolanaClient({});
 const client = await createZolanaClient({
-  solanaRpcUrl: "https://zolana.example.com",
+  solanaRpcUrl: `https://devnet.helius-rpc.com?api-key=${process.env.API_KEY!}`,
 });
 
 // Load this from the app wallet or key store.
@@ -116,6 +118,30 @@ const client = await createZolanaClient({
 
 For an Ed25519 spending wallet, the shielded identity and Solana signer must use
 the same owner seed, as shown above.
+
+### Endpoints
+
+`solanaRpcUrl` serves the Solana RPC, the indexer, and the prover, which is the
+shape a Helius URL takes. A config that names no url reaches the local stack,
+where the validator, photon, and the prover listen on 8899, 8784, and 3001:
+
+```ts
+const client = await createZolanaClient({});
+```
+
+Name a service on its own when it does not sit behind the same host:
+
+```ts
+const client = await createZolanaClient({
+  solanaRpcUrl: process.env.SOLANA_RPC_URL!,
+  indexerUrl: "https://photon.example",
+  proverUrl: "https://prover.example",
+});
+```
+
+A named URL wins over `solanaRpcUrl` and over a local default port, so
+`ZOLANA_PORT_OFFSET` shifts the local ports by naming them. Pass `apiKey` when
+the URL does not already carry one.
 
 ## Common transactions
 

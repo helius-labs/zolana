@@ -8,6 +8,7 @@ import {
 
 import {
   ClientError,
+  DEFAULT_TREE_ADDRESS,
   SOL_MINT,
   ShieldedKeypair,
   SPL_TOKEN_2022_PROGRAM_ID,
@@ -126,7 +127,9 @@ async function deposit(
       recipient: input.recipient,
       ...(input.asset === undefined ? {} : { asset: input.asset }),
       amount: input.amount,
-      ...(input.splTokenAccount === undefined ? {} : { splTokenAccount: input.splTokenAccount }),
+      ...(input.sourceTokenAccount === undefined
+        ? {}
+        : { sourceTokenAccount: input.sourceTokenAccount }),
       ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
       ...(input.memo === undefined ? {} : { memo: input.memo }),
     },
@@ -298,6 +301,7 @@ describe.sequential("live SDK lifecycle", () => {
 
   beforeAll(async () => {
     harness = await liveHarness();
+    expect(harness.tree).toBe(DEFAULT_TREE_ADDRESS);
     expect(await harness.client.getAccount(harness.tree)).toBeDefined();
   }, 60_000);
 
@@ -487,7 +491,7 @@ describe.sequential("live SDK lifecycle", () => {
       recipient: alice.keypair.shieldedAddress(),
       asset: harness.mint,
       amount: 300_000n,
-      splTokenAccount: harness.testTokenAccount,
+      sourceTokenAccount: harness.testTokenAccount,
     });
     await sync(harness.client, alice, { pageLimit: 1 });
     expect(alice.wallet.balance(harness.mint).amount).toBe(300_000n);
@@ -601,7 +605,7 @@ describe.sequential("live SDK lifecycle", () => {
       recipient: alice.keypair.shieldedAddress(),
       asset: harness.token2022Mint,
       amount: 200_000n,
-      splTokenAccount: harness.testToken2022Account,
+      sourceTokenAccount: harness.testToken2022Account,
       splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
     await sync(harness.client, alice);
@@ -743,10 +747,6 @@ describe.sequential("live SDK lifecycle", () => {
     });
     const baseFetch = globalThis.fetch.bind(globalThis);
     const abortingClient = await createZolanaClient({
-      solanaRpcUrl: harness.rpcUrl,
-      indexerUrl: harness.indexerUrl,
-      proverUrl: harness.proverUrl,
-      tree: harness.tree,
       fetch: async (input, init) => {
         if (fetchUrl(input).startsWith(harness.proverUrl) && init?.method === "POST") {
           reachedProver();
