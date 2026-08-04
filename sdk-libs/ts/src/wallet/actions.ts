@@ -1,13 +1,17 @@
 import type { ZolanaClient } from "../client/client.js";
 import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import {
+  TransactWithdrawal,
   type Address,
   type Bytes32,
   type RequestContext,
-  type TransactWithdrawal,
 } from "../interface/types.js";
-import { associatedTokenAddress, splAssetVaultPda } from "../interface/pda/index.js";
+import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
+import {
+  WithdrawalTarget,
+  type WithdrawalTarget as WithdrawalTargetType,
+} from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
@@ -30,14 +34,7 @@ type PrivateAction =
       kind: "withdrawal";
       asset: Address;
       amount: bigint;
-      target:
-        | Readonly<{ kind: "sol"; recipient: Address }>
-        | Readonly<{
-            kind: "spl";
-            userTokenAccount: Address;
-            splTokenInterface: Address;
-            vaultBump: number;
-          }>;
+      target: WithdrawalTargetType;
     }>
   | Readonly<{
       kind: "split";
@@ -47,7 +44,7 @@ type PrivateAction =
     }>;
 
 export class UnsignedPrivateTransaction {
-  readonly #payer: Address;
+  readonly #feePayer: Address;
   readonly #tree: Address;
   readonly #inputs: readonly UnsignedSpendInput[];
   readonly #action: PrivateAction;
@@ -56,7 +53,7 @@ export class UnsignedPrivateTransaction {
 
   constructor(
     input: Readonly<{
-      payer: Address;
+      feePayer: Address;
       tree: Address;
       inputs: readonly UnsignedSpendInput[];
       action: PrivateAction;
@@ -64,7 +61,7 @@ export class UnsignedPrivateTransaction {
       summary: string;
     }>,
   ) {
-    this.#payer = input.payer;
+    this.#feePayer = input.feePayer;
     this.#tree = input.tree;
     this.#inputs = Object.freeze([...input.inputs]);
     this.#action = input.action;
@@ -72,8 +69,8 @@ export class UnsignedPrivateTransaction {
     this.#summary = input.summary;
   }
 
-  payer(): Address {
-    return this.#payer;
+  feePayer(): Address {
+    return this.#feePayer;
   }
 
   tree(): Address {
@@ -108,7 +105,7 @@ export class UnsignedPrivateTransaction {
 export interface TransferParams {
   readonly client?: Pick<ZolanaClient, "getAccount">;
   readonly wallet: Wallet;
-  readonly payer: Address;
+  readonly feePayer: Address;
   readonly recipient: TransferDestination;
   readonly asset: Address;
   readonly amount: bigint;
@@ -118,7 +115,7 @@ export type TransferDestination = Address | ShieldedAddress;
 
 export interface WithdrawalParams {
   readonly wallet: Wallet;
-  readonly payer: Address;
+  readonly feePayer: Address;
   readonly recipient: Address;
   readonly asset: Address;
   readonly amount: bigint;
@@ -150,7 +147,7 @@ export interface CreatedWithdrawal {
 
 export interface SplitParams {
   readonly wallet: Wallet;
-  readonly payer: Address;
+  readonly feePayer: Address;
   readonly asset: Address;
   readonly parts: number;
   readonly input?: Bytes32;
@@ -251,24 +248,23 @@ async function withdrawal(
 > {
   if (asset === SOL_MINT) {
     return {
-      target: { kind: "sol", recipient },
-      accounts: { kind: "sol", recipient },
+      target: WithdrawalTarget.sol({ recipient }),
+      accounts: TransactWithdrawal.sol({ recipient }),
     };
   }
   const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
-  const [userTokenAccount, [splTokenInterface, vaultBump]] = await Promise.all([
+  const [recipientTokenAccount, [splTokenInterface]] = await Promise.all([
     associatedTokenAddress(recipient, asset, tokenProgram),
-    splAssetVaultPda(asset),
+    splInterfaceWithBump(asset),
   ]);
   return {
-    target: { kind: "spl", userTokenAccount, splTokenInterface, vaultBump },
-    accounts: {
-      kind: "spl",
+    target: WithdrawalTarget.spl({ recipientTokenAccount, splTokenInterface }),
+    accounts: TransactWithdrawal.spl({
       mint: asset,
       splTokenInterface,
-      userTokenAccount,
+      recipientTokenAccount,
       tokenProgram,
-    },
+    }),
   };
 }
 
@@ -282,7 +278,7 @@ export async function createWithdrawal(params: WithdrawalParams): Promise<Create
   const resolved = await withdrawal(params.recipient, params.asset, params.splTokenProgram);
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
-      payer: params.payer,
+      feePayer: params.feePayer,
       tree,
       inputs,
       action: {
@@ -310,7 +306,7 @@ export async function createTransfer(
       const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
       return Object.freeze({
         transaction: new UnsignedPrivateTransaction({
-          payer: params.payer,
+          feePayer: params.feePayer,
           tree,
           inputs,
           action: {
@@ -344,7 +340,7 @@ export async function createTransfer(
     const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
     return Object.freeze({
       transaction: new UnsignedPrivateTransaction({
-        payer: params.payer,
+        feePayer: params.feePayer,
         tree,
         inputs,
         action: {
@@ -410,7 +406,7 @@ export function createSplit(params: SplitParams): CreatedSplit {
   const perOutputAmount = selected.utxo.amount / BigInt(params.parts);
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
-      payer: params.payer,
+      feePayer: params.feePayer,
       tree,
       inputs: [{ entry: selected }],
       action: {

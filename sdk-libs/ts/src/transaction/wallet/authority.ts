@@ -18,6 +18,7 @@ import {
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
 import { encodeConfidentialSlots } from "../instructions/transact.js";
+import { TransactionError } from "../error.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "./asset.js";
 
@@ -65,43 +66,142 @@ export interface WalletSyncMaterial {
   readonly nullifierKey: NullifierKey;
 }
 
-export interface SyncWalletAuthority {
-  syncMaterial(): Promise<WalletSyncMaterial>;
+export interface ConfidentialTransferInput {
+  readonly firstNullifier: Bytes32;
+  readonly outputs: readonly ProofOutputUtxo[];
+  readonly assets: AssetRegistry;
 }
 
+export interface AnonymousTransferInput {
+  readonly firstNullifier: Bytes32;
+  readonly senderViewTag: Bytes32;
+  readonly sender: AnonymousSenderPlaintext;
+  readonly recipients: readonly AnonymousRecipientSlot[];
+}
+
+export interface SplitInput {
+  readonly firstNullifier: Bytes32;
+  readonly viewTag: Bytes32;
+  readonly bundle: SplitBundlePlaintext;
+}
+
+/**
+ * The keys that open a transaction: a shielded identity, its viewing keys, and
+ * its nullifier key. Reading a wallet needs no spend authority, so a viewing
+ * key alone satisfies this. `ShieldedKeypair` holds all three and can be passed
+ * directly, as in Rust.
+ *
+ * Resolving them must not block, which is what keeps decryption synchronous. An
+ * authority that fetches keys off-box resolves first and passes the result
+ * through `syncWalletAuthorityFromMaterial`.
+ */
+export interface DecryptionKeys {
+  syncMaterial(): WalletSyncMaterial;
+}
+
+/**
+ * The same keys, resolved. A remote signer produces these by awaiting its
+ * authority; `syncWallet` accepts either form.
+ */
+export interface SyncMaterialSource {
+  syncMaterial(): WalletSyncMaterial | Promise<WalletSyncMaterial>;
+}
+
+/**
+ * Blocking form of the whole authority capability, for local wallets, tests,
+ * and synchronous clients. `walletAuthorityFromSync` exposes any blocking
+ * authority as a `WalletAuthority`; this is not a smaller, least-privilege
+ * capability.
+ */
+export interface SyncWalletAuthority {
+  solanaPublicKey(): Address;
+  shieldedAddress(): ShieldedAddress;
+  viewingKeys(): readonly ViewingKey[];
+  spendNullifierKey(): NullifierKey;
+  syncMaterial(): WalletSyncMaterial;
+  encryptConfidentialTransfer(input: ConfidentialTransferInput): EncryptedTransfer;
+  encryptAnonymousTransfer(input: AnonymousTransferInput): EncryptedTransfer;
+  encryptSplit(input: SplitInput): EncryptedSplit;
+  requestUserApproval(request: ApprovalRequest): void;
+}
+
+/**
+ * The awaiting form of the same capability. A remote signer or hardware wallet
+ * implements this directly; a blocking one reaches it through
+ * `walletAuthorityFromSync`.
+ */
 export interface WalletAuthority {
   solanaPublicKey(): Address;
   shieldedAddress(): Promise<ShieldedAddress>;
   viewingKeys(): Promise<readonly ViewingKey[]>;
   spendNullifierKey(): Promise<NullifierKey>;
   syncMaterial(): Promise<WalletSyncMaterial>;
-  encryptConfidentialTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-    }>,
-  ): Promise<EncryptedTransfer>;
-  encryptAnonymousTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      senderViewTag: Bytes32;
-      sender: AnonymousSenderPlaintext;
-      recipients: readonly AnonymousRecipientSlot[];
-    }>,
-  ): Promise<EncryptedTransfer>;
-  encryptSplit(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      viewTag: Bytes32;
-      bundle: SplitBundlePlaintext;
-    }>,
-  ): Promise<EncryptedSplit>;
+  encryptConfidentialTransfer(input: ConfidentialTransferInput): Promise<EncryptedTransfer>;
+  encryptAnonymousTransfer(input: AnonymousTransferInput): Promise<EncryptedTransfer>;
+  encryptSplit(input: SplitInput): Promise<EncryptedSplit>;
   requestUserApproval(request: ApprovalRequest): Promise<void>;
 }
 
+/**
+ * Rust gives `sync_material` a default body on both authority traits. Compose
+ * it once here so the two forms cannot drift apart.
+ */
+export function syncMaterialFrom(
+  source: Readonly<{
+    identity: ShieldedAddress;
+    viewingKeys: readonly ViewingKey[];
+    nullifierKey: NullifierKey;
+  }>,
+): WalletSyncMaterial {
+  return {
+    identity: source.identity,
+    viewingKeys: source.viewingKeys,
+    nullifierKey: source.nullifierKey,
+  };
+}
+
+/**
+ * A read-only blocking authority over already-fetched material, for the decrypt
+ * path. Rust reaches this by passing any blocking authority straight to
+ * `decrypt_transactions`; an awaiting authority cannot become a blocking one, so
+ * a caller that holds one passes the material it resolved instead. The
+ * encrypting methods are unreachable here and throw rather than sign anything.
+ */
+export function syncWalletAuthorityFromMaterial(material: WalletSyncMaterial): SyncWalletAuthority {
+  const unsupported = (): never => {
+    throw new TransactionError("TRANSACTION_AUTHORITY_READ_ONLY");
+  };
+  return {
+    solanaPublicKey: unsupported,
+    shieldedAddress: () => material.identity,
+    viewingKeys: () => material.viewingKeys,
+    spendNullifierKey: () => material.nullifierKey,
+    syncMaterial: () => material,
+    encryptConfidentialTransfer: unsupported,
+    encryptAnonymousTransfer: unsupported,
+    encryptSplit: unsupported,
+    requestUserApproval: unsupported,
+  };
+}
+
+/** Stands in for Rust's blanket `impl<T: SyncWalletAuthority> WalletAuthority for T`. */
+export function walletAuthorityFromSync(sync: SyncWalletAuthority): WalletAuthority {
+  return {
+    solanaPublicKey: () => sync.solanaPublicKey(),
+    shieldedAddress: () => Promise.resolve(sync.shieldedAddress()),
+    viewingKeys: () => Promise.resolve(sync.viewingKeys()),
+    spendNullifierKey: () => Promise.resolve(sync.spendNullifierKey()),
+    syncMaterial: () => Promise.resolve(sync.syncMaterial()),
+    encryptConfidentialTransfer: (input) =>
+      Promise.resolve(sync.encryptConfidentialTransfer(input)),
+    encryptAnonymousTransfer: (input) => Promise.resolve(sync.encryptAnonymousTransfer(input)),
+    encryptSplit: (input) => Promise.resolve(sync.encryptSplit(input)),
+    requestUserApproval: (request) => Promise.resolve(sync.requestUserApproval(request)),
+  };
+}
+
 /** Binds local shielded keys to the Solana address that publishes them. */
-export class LocalWalletAuthority implements WalletAuthority {
+export class LocalWalletAuthority implements SyncWalletAuthority {
   readonly #solanaPublicKey: Address;
   readonly #keypair: ShieldedKeypair;
 
@@ -114,40 +214,30 @@ export class LocalWalletAuthority implements WalletAuthority {
     return this.#solanaPublicKey;
   }
 
-  shieldedAddress(): Promise<ShieldedAddress> {
-    return Promise.resolve(this.#keypair.shieldedAddress());
+  shieldedAddress(): ShieldedAddress {
+    return this.#keypair.shieldedAddress();
   }
 
-  viewingKeys(): Promise<readonly ViewingKey[]> {
-    return Promise.resolve([this.#keypair.viewingKey()]);
+  viewingKeys(): readonly ViewingKey[] {
+    return [this.#keypair.viewingKey()];
   }
 
-  spendNullifierKey(): Promise<NullifierKey> {
-    return Promise.resolve(this.#keypair.nullifierKey());
+  spendNullifierKey(): NullifierKey {
+    return this.#keypair.nullifierKey();
   }
 
-  syncMaterial(): Promise<WalletSyncMaterial> {
-    return Promise.resolve({
-      identity: this.#keypair.shieldedAddress(),
-      viewingKeys: [this.#keypair.viewingKey()],
-      nullifierKey: this.#keypair.nullifierKey(),
-    });
+  syncMaterial(): WalletSyncMaterial {
+    return this.#keypair.syncMaterial();
   }
 
-  encryptConfidentialTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      outputs: readonly ProofOutputUtxo[];
-      assets: AssetRegistry;
-    }>,
-  ): Promise<EncryptedTransfer> {
+  encryptConfidentialTransfer(input: ConfidentialTransferInput): EncryptedTransfer {
     const tx = this.#keypair.viewingKey().transactionViewingKey(input.firstNullifier);
     const salt = randomSalt();
-    return Promise.resolve({
+    return {
       txViewingPublicKey: tx.publicKey(),
       salt,
       payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
-    });
+    };
   }
 
   /**
@@ -156,14 +246,7 @@ export class LocalWalletAuthority implements WalletAuthority {
    * indices are bound into each ciphertext, so they must match the layout the
    * transfer instruction publishes.
    */
-  encryptAnonymousTransfer(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      senderViewTag: Bytes32;
-      sender: AnonymousSenderPlaintext;
-      recipients: readonly AnonymousRecipientSlot[];
-    }>,
-  ): Promise<EncryptedTransfer> {
+  encryptAnonymousTransfer(input: AnonymousTransferInput): EncryptedTransfer {
     const viewingKey = this.#keypair.viewingKey();
     const tx = viewingKey.transactionViewingKey(input.firstNullifier);
     const salt = randomSalt();
@@ -181,7 +264,7 @@ export class LocalWalletAuthority implements WalletAuthority {
         "encrypted",
       ),
     });
-    return Promise.resolve({
+    return {
       txViewingPublicKey: tx.publicKey(),
       salt,
       payload: [
@@ -202,33 +285,26 @@ export class LocalWalletAuthority implements WalletAuthority {
           ),
         ),
       ],
-    });
+    };
   }
 
-  encryptSplit(
-    input: Readonly<{
-      firstNullifier: Bytes32;
-      viewTag: Bytes32;
-      bundle: SplitBundlePlaintext;
-    }>,
-  ): Promise<EncryptedSplit> {
+  encryptSplit(input: SplitInput): EncryptedSplit {
     const viewingKey = this.#keypair.viewingKey();
     const tx = viewingKey.transactionViewingKey(input.firstNullifier);
     const salt = randomSalt();
     const body = encryptSplit(tx, viewingKey.publicKey(), encodeSplitBundle(input.bundle), salt, 0);
-    return Promise.resolve({
+    return {
       txViewingPublicKey: tx.publicKey(),
       salt,
       payload: {
         viewTag: input.viewTag,
         data: encodeOutputData(EncryptedScheme.split, body, "encrypted"),
       },
-    });
+    };
   }
 
   /** Local keys approve unattended; Rust takes the trait default here. */
-  requestUserApproval(request: ApprovalRequest): Promise<void> {
+  requestUserApproval(request: ApprovalRequest): void {
     void request;
-    return Promise.resolve();
   }
 }

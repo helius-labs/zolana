@@ -5,7 +5,7 @@ import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
 import { randomBlinding } from "../keypair/bytes.js";
 import { NullifierKey } from "../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
-import type { ShieldedAddress } from "../keypair/shielded.js";
+import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 
 import { Data, type DataRecord } from "./data.js";
 import { TransactionError } from "./error.js";
@@ -264,6 +264,24 @@ export class ProofInputUtxo {
       this.zoneDataHash = zoneDataHash;
     }
     this.checkCanonicalDummy();
+  }
+
+  static fromKeypair(
+    utxo: Utxo,
+    keypair: ShieldedKeypair,
+    hashes?: Readonly<{ dataHash?: Bytes32; zoneDataHash?: Bytes32 }>,
+  ): ProofInputUtxo {
+    const nullifierKey = keypair.nullifierKey();
+    try {
+      return new ProofInputUtxo({
+        utxo,
+        nullifierKey,
+        ...(hashes?.dataHash === undefined ? {} : { dataHash: hashes.dataHash }),
+        ...(hashes?.zoneDataHash === undefined ? {} : { zoneDataHash: hashes.zoneDataHash }),
+      });
+    } finally {
+      nullifierKey.destroy();
+    }
   }
 
   static dummy(blinding = randomBlinding()): ProofInputUtxo {

@@ -39,11 +39,15 @@ export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
         addressBytes(transfer.recipient, `${position}.recipient`),
       );
     } else {
+      const tokenAccount =
+        transfer.kind === "splDeposit"
+          ? transfer.sourceTokenAccount
+          : transfer.recipientTokenAccount;
       parts.push(
         Uint8Array.of(1, transfer.kind === "splDeposit" ? 1 : 0),
         amount,
-        addressBytes(transfer.userTokenAccount, `${position}.userTokenAccount`),
-        addressBytes(transfer.vault, `${position}.vault`),
+        addressBytes(tokenAccount, `${position}.userTokenAccount`),
+        addressBytes(transfer.splInterfacePda, `${position}.vault`),
       );
     }
   });

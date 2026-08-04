@@ -185,9 +185,8 @@ export type SettlementTransfer =
       mint: Address;
       isDeposit: boolean;
       amount: bigint;
-      userSplToken: Address;
+      tokenAccount: Address;
       splTokenInterface: Address;
-      vaultBump: number;
     }>;
 
 export interface InputUtxoContext {
@@ -294,12 +293,19 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
             amount: transfer.amount,
             recipient: transfer.userSolAccount,
           }
-        : {
-            kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
-            amount: transfer.amount,
-            userTokenAccount: transfer.userSplToken,
-            vault: transfer.splTokenInterface,
-          },
+        : transfer.isDeposit
+          ? {
+              kind: "splDeposit" as const,
+              amount: transfer.amount,
+              sourceTokenAccount: transfer.tokenAccount,
+              splInterfacePda: transfer.splTokenInterface,
+            }
+          : {
+              kind: "splWithdrawal" as const,
+              amount: transfer.amount,
+              recipientTokenAccount: transfer.tokenAccount,
+              splInterfacePda: transfer.splTokenInterface,
+            },
     ),
     ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
     ...(data.zoneDataHash === undefined ? {} : { zoneDataHash: data.zoneDataHash }),
@@ -477,23 +483,19 @@ export function createEncryptedTransaction(
 }
 
 export class SppProofInputs {
-  readonly payerPublicKeyHash: Bytes32;
+  readonly payer: Address;
   readonly inputUtxos: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly externalData: ExternalData;
   constructor(
     input: Readonly<{
-      payerPublicKeyHash: Bytes32;
+      payer: Address;
       inputUtxos: readonly ProofInputUtxo[];
       outputs: readonly ProofOutputUtxo[];
       externalData: ExternalData;
     }>,
   ) {
-    this.payerPublicKeyHash = checked<Bytes32>(
-      input.payerPublicKeyHash,
-      32,
-      "payer public key hash",
-    );
+    this.payer = input.payer;
     this.inputUtxos = Object.freeze([...input.inputUtxos]);
     if (
       this.inputUtxos.some(
@@ -554,10 +556,23 @@ export type WithdrawalTarget =
   | Readonly<{ kind: "sol"; recipient: Address }>
   | Readonly<{
       kind: "spl";
-      userTokenAccount: Address;
+      recipientTokenAccount: Address;
       splTokenInterface: Address;
-      vaultBump: number;
     }>;
+
+export const WithdrawalTarget = Object.freeze({
+  sol(input: Readonly<{ recipient: Address }>): Extract<WithdrawalTarget, { kind: "sol" }> {
+    return Object.freeze({ ...input, kind: "sol" });
+  },
+  spl(
+    input: Readonly<{
+      recipientTokenAccount: Address;
+      splTokenInterface: Address;
+    }>,
+  ): Extract<WithdrawalTarget, { kind: "spl" }> {
+    return Object.freeze({ ...input, kind: "spl" });
+  },
+});
 
 export interface PreparedTransfer {
   readonly owner: ShieldedAddress;
@@ -565,7 +580,7 @@ export interface PreparedTransfer {
   readonly outputs: readonly ProofOutputUtxo[];
   readonly firstNullifier: Bytes32;
   readonly shape: Shape;
-  readonly payerPublicKeyHash: Bytes32;
+  readonly payer: Address;
   readonly interfaceTransfers: readonly SettlementTransfer[];
   finalize(
     input: Readonly<{
@@ -587,22 +602,16 @@ const ZERO_ADDRESS = address("11111111111111111111111111111111");
 export class ConfidentialTransfer {
   readonly #owner: ShieldedAddress;
   readonly #inputs: readonly ProofInputUtxo[];
-  readonly #payerPublicKeyHash: Bytes32;
+  readonly #payer: Address;
   readonly #recipients: Recipient[] = [];
   readonly #blindingSeed = randomBlinding();
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
 
-  constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], payer: Address) {
+  constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
     if (owner.signingPublicKey.signatureType() === "p256") {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
-    }
-    if (owner.solanaAddress() !== payer) {
-      throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
-        owner: owner.solanaAddress(),
-        payer,
-      });
     }
     inputs.forEach((input, index) => {
       if (input.isDummy()) {
@@ -615,9 +624,19 @@ export class ConfidentialTransfer {
         throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
       }
     });
+    // The circuit authorizes an input owner by finding its hash in the signer
+    // vector, whose slots past the payer are zero-filled, and a zero slot
+    // authorizes nobody. Only the payer's own notes are provable, so reject a
+    // third-party payer here instead of failing inside the prover.
+    if (owner.solanaAddress() !== feePayer) {
+      throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
+        owner: owner.solanaAddress(),
+        payer: feePayer,
+      });
+    }
     this.#owner = owner;
     this.#inputs = [...inputs];
-    this.#payerPublicKeyHash = hashField(decodeAddress(payer));
+    this.#payer = feePayer;
   }
 
   withShape(shape: Shape): this {
@@ -747,9 +766,8 @@ export class ConfidentialTransfer {
                 mint: this.#withdrawal.asset,
                 isDeposit: false,
                 amount: this.#withdrawal.amount,
-                userSplToken: target.userTokenAccount,
+                tokenAccount: target.recipientTokenAccount,
                 splTokenInterface: target.splTokenInterface,
-                vaultBump: target.vaultBump,
               },
             ];
     const firstInput = this.#inputs[0];
@@ -760,7 +778,7 @@ export class ConfidentialTransfer {
       outputs: Object.freeze(outputs),
       firstNullifier: firstInput.nullifier(),
       shape,
-      payerPublicKeyHash: copy(this.#payerPublicKeyHash),
+      payer: this.#payer,
       interfaceTransfers: Object.freeze(interfaceTransfers),
     };
     return Object.freeze({
@@ -804,8 +822,10 @@ function finalizeTransfer(
       outputs: prepared.outputs.length,
     });
   }
+  // An owner who is also the fee payer is already account index 0, so the tag
+  // costs 2 bytes instead of the 33 an inline owner needs.
   const senderResolved = prepared.owner.confidentialViewTag();
-  const senderTag: OwnerTag = equal(hashField(senderResolved), prepared.payerPublicKeyHash)
+  const senderTag: OwnerTag = equal(senderResolved, decodeAddress(prepared.payer))
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
@@ -866,7 +886,7 @@ function finalizeTransfer(
     messages: [],
   });
   return new SppProofInputs({
-    payerPublicKeyHash: prepared.payerPublicKeyHash,
+    payer: prepared.payer,
     inputUtxos,
     outputs: outputUtxos,
     externalData,

@@ -46,12 +46,30 @@ export async function splAssetRegistryAddress(mint: Address): Promise<Address> {
   return (await derive("spl_asset_registry", mint))[0];
 }
 
-export function splAssetVaultPda(mint: Address): Promise<ProgramDerivedAddress> {
+/**
+ * Named for Rust's `pda::spl_interface_with_bump`. The seed stays
+ * `spl_asset_vault`, which is the seed Rust pins too.
+ */
+export function splInterfaceWithBump(mint: Address): Promise<ProgramDerivedAddress> {
   return derive("spl_asset_vault", mint);
 }
 
 export async function splAssetVaultAddress(mint: Address): Promise<Address> {
-  return (await splAssetVaultPda(mint))[0];
+  return (await splInterfaceWithBump(mint))[0];
+}
+
+/** Canonical bump of the per-mint SPL interface PDA. Rust: `pda::spl_interface_bump`. */
+export async function splInterfaceBump(mint: Address): Promise<number> {
+  return (await splInterfaceWithBump(mint))[1];
+}
+
+export async function zoneConfigAddress(zoneProgram: Address): Promise<Address> {
+  return (
+    await getProgramDerivedAddress({
+      programAddress: zoneProgram,
+      seeds: [encoder.encode("zone_auth")],
+    })
+  )[0];
 }
 
 export async function associatedTokenAddress(

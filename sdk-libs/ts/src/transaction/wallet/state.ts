@@ -4,8 +4,19 @@ import type { ShieldedAddress } from "../../keypair/shielded.js";
 
 import { TransactionError } from "../error.js";
 import { copy } from "../internal.js";
+import type { IndexedShieldedTransaction } from "../instructions/transact.js";
 import { Utxo } from "../utxo.js";
 import { AssetRegistry } from "./asset.js";
+import type { DecryptionKeys } from "./authority.js";
+import {
+  SENDER_HISTORY_ROW_BASE,
+  hex,
+  newViewingKeyEntry,
+  type ViewingKeyEntry,
+} from "./primitives.js";
+import { decryptIntoState } from "./sync.js";
+
+export { SENDER_HISTORY_ROW_BASE, hex, newViewingKeyEntry, type ViewingKeyEntry };
 
 export interface AssetBalance {
   readonly assetId: bigint;
@@ -36,8 +47,6 @@ export interface PrivateTransactionId {
  * Sender-side aggregate rows are indexed from here, above every leaf index a
  * tree can hand out, so they cannot collide with a received row.
  */
-export const SENDER_HISTORY_ROW_BASE = 1n << 63n;
-
 export type PrivateTransactionKind =
   | "deposit"
   | "privateTransfer"
@@ -88,21 +97,6 @@ export interface SyncReport {
  * A viewing public key retained for historical deposit discovery and
  * decryption after key rotation.
  */
-export interface ViewingKeyEntry {
-  readonly viewingPublicKey: P256PublicKey;
-  readonly createdAt: bigint;
-}
-
-export function newViewingKeyEntry(
-  viewingPublicKey: P256PublicKey,
-  createdAt: bigint,
-): ViewingKeyEntry {
-  return Object.freeze({
-    viewingPublicKey,
-    createdAt,
-  });
-}
-
 function snapshotViewingKeyEntry(value: ViewingKeyEntry): ViewingKeyEntry {
   return Object.freeze({
     viewingPublicKey: value.viewingPublicKey,
@@ -196,32 +190,36 @@ export class Wallet {
    * rejection.
    */
   balance(mint: Address, filter?: Filter): AssetBalance {
-    const assetId = this.#registry.assetId(mint);
-    const utxos = this.#utxos
-      .filter(
-        (entry) =>
-          !entry.spent &&
-          entry.utxo.asset === mint &&
-          (filter === undefined || matches(filter, entry.utxo)),
-      )
-      .map((entry) => copyUtxo(entry.utxo));
-    const amount = checkedBalance(utxos.reduce((sum, utxo) => sum + utxo.amount, 0n));
-    return Object.freeze({ assetId, mint, amount, utxos: Object.freeze(utxos) });
+    return balanceOf(this.#utxos, this.#registry, mint, filter);
   }
 
   /** One balance per mint the wallet holds an unspent note of, by asset id. */
   balances(skipUtxos = false): readonly AssetBalance[] {
-    const mints = new Set(
-      this.#utxos.filter((entry) => !entry.spent).map((entry) => entry.utxo.asset),
-    );
-    return [...mints]
-      .map((mint) => {
-        const balance = this.balance(mint);
-        return skipUtxos ? Object.freeze({ ...balance, utxos: Object.freeze([]) }) : balance;
-      })
-      .sort((left, right) =>
-        left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0,
-      );
+    return balancesOf(this.#utxos, this.#registry, skipUtxos);
+  }
+
+  /**
+   * Decrypt `transactions` and fold what they hold for this wallet into it.
+   * Returns counters about the pass; the notes and history land in the wallet.
+   *
+   * Reading needs no spend authority, so `decryptionKeys` can be a viewing key
+   * as well as a full `ShieldedKeypair`.
+   */
+  decrypt(
+    input: Readonly<{
+      decryptionKeys: DecryptionKeys;
+      transactions: readonly IndexedShieldedTransaction[];
+      config?: Readonly<{ syncedAt?: bigint }>;
+    }>,
+  ): SyncReport {
+    const { next, report } = decryptIntoState({
+      identity: this.identity,
+      registry: this.registry,
+      current: this._state(),
+      ...input,
+    });
+    this._replace(next);
+    return report;
   }
 
   /** @internal */
@@ -275,13 +273,84 @@ export class Wallet {
   }
 }
 
-export function hex(bytes: Uint8Array): string {
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 function checkedBalance(amount: bigint): bigint {
   if (amount > 0xffff_ffff_ffff_ffffn) {
     throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
   }
   return amount;
+}
+
+/**
+ * The balance of one registered mint over a set of notes. A mint the notes hold
+ * nothing for still has a balance of zero; only a mint the registry does not
+ * know is a rejection.
+ */
+export function balanceOf(
+  utxos: readonly WalletUtxo[],
+  registry: AssetRegistry,
+  mint: Address,
+  filter?: Filter,
+): AssetBalance {
+  const assetId = registry.assetId(mint);
+  const unspent = utxos
+    .filter(
+      (entry) =>
+        !entry.spent &&
+        entry.utxo.asset === mint &&
+        (filter === undefined || matches(filter, entry.utxo)),
+    )
+    .map((entry) => copyUtxo(entry.utxo));
+  const amount = checkedBalance(unspent.reduce((sum, utxo) => sum + utxo.amount, 0n));
+  return Object.freeze({ assetId, mint, amount, utxos: Object.freeze(unspent) });
+}
+
+/** One balance per mint the notes hold an unspent entry of, by asset id. */
+export function balancesOf(
+  utxos: readonly WalletUtxo[],
+  registry: AssetRegistry,
+  skipUtxos = false,
+): readonly AssetBalance[] {
+  const mints = new Set(utxos.filter((entry) => !entry.spent).map((entry) => entry.utxo.asset));
+  return [...mints]
+    .map((mint) => {
+      const balance = balanceOf(utxos, registry, mint);
+      return skipUtxos ? Object.freeze({ ...balance, utxos: Object.freeze([]) }) : balance;
+    })
+    .sort((left, right) =>
+      left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0,
+    );
+}
+
+/**
+ * Decrypted notes as a value. Holds no authority and cannot be updated: a later
+ * decrypt produces a new `PrivateBalances` rather than folding into this one.
+ */
+export interface PrivateBalances {
+  balance(mint: Address, filter?: Filter): AssetBalance;
+  balances(skipUtxos?: boolean): readonly AssetBalance[];
+  utxos(): readonly WalletUtxo[];
+  privateTransactions(): readonly PrivateTransaction[];
+  /** Counters for the decrypt pass that produced these balances. */
+  readonly report: SyncReport;
+}
+
+/** @internal */
+export function privateBalancesFrom(
+  utxos: readonly WalletUtxo[],
+  transactions: readonly PrivateTransaction[],
+  registry: AssetRegistry,
+  report: SyncReport,
+): PrivateBalances {
+  const notes = utxos.map(snapshotUtxo);
+  const rows = transactions.map((transaction) =>
+    Object.freeze({ ...transaction, id: Object.freeze({ ...transaction.id }) }),
+  );
+  const assets = registry.clone();
+  return Object.freeze({
+    balance: (mint: Address, filter?: Filter) => balanceOf(notes, assets, mint, filter),
+    balances: (skipUtxos = false) => balancesOf(notes, assets, skipUtxos),
+    utxos: () => notes.map(snapshotUtxo),
+    privateTransactions: () => rows,
+    report,
+  });
 }

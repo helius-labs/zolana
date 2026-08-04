@@ -19,6 +19,7 @@ export type KeypairErrorCode =
   | "KEYPAIR_FIELD_ELEMENT_TOO_LONG"
   | "KEYPAIR_INVALID_PREHASH_LENGTH"
   | "KEYPAIR_INFO_TOO_LONG"
+  | "KEYPAIR_NOT_ED25519"
   // TypeScript-only: Rust rejects these at the type level.
   | "KEYPAIR_INVALID_LENGTH"
   | "KEYPAIR_HASH";
@@ -35,6 +36,7 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_FIELD_ELEMENT_TOO_LONG: "FieldElementTooLong",
     KEYPAIR_INVALID_PREHASH_LENGTH: "InvalidPrehashLength",
     KEYPAIR_INFO_TOO_LONG: "InfoTooLong",
+    KEYPAIR_NOT_ED25519: "NotEd25519",
     KEYPAIR_INVALID_LENGTH: null,
     KEYPAIR_HASH: null,
   });

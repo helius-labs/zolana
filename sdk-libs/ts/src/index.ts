@@ -1,10 +1,23 @@
 import { ZolanaClient, type ZolanaClientConfig } from "./client/index.js";
 import { initializePoseidon } from "./hasher/index.js";
 
+export {
+  LOCALNET_PHOTON_ENDPOINT,
+  LOCALNET_PROVER_ENDPOINT,
+  LOCALNET_SOLANA_ENDPOINT,
+} from "./endpoint.js";
 export type { TransactionSigner } from "@solana/kit";
 export { initializePoseidon };
 export { HasherWasmError } from "./hasher/index.js";
 
+/**
+ * Connects a client and loads the hasher it needs.
+ *
+ * `solanaRpcUrl` serves the indexer and the prover too, which is the shape a
+ * Helius URL takes. Name `indexerUrl` or `proverUrl` for a deployment that
+ * splits them. A config that names no URL reaches the local validator, photon,
+ * and prover on their own ports.
+ */
 export async function createZolanaClient(config: ZolanaClientConfig): Promise<ZolanaClient> {
   const client = new ZolanaClient(config);
   await initializePoseidon();
@@ -53,8 +66,12 @@ export {
   TransactionError,
   Utxo,
   Wallet,
+  decryptToBalances,
   deserializeWallet,
+  syncWalletAuthorityFromMaterial,
+  walletAuthorityFromSync,
   serializeWallet,
+  type PrivateBalances,
   type SerializedWalletState,
   type SyncReport,
   type TransactionErrorCode,

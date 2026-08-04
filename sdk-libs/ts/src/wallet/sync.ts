@@ -31,7 +31,7 @@ import { decryptTransactions } from "../transaction/wallet/sync.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { bytesKey } from "./internal.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import type { DecryptionKeys, SyncMaterialSource } from "../transaction/wallet/authority.js";
 
 const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
@@ -288,7 +288,8 @@ async function collectShieldedTransactions(
   const seenCursors = new Set<string>();
   do {
     const response = await input.indexer.getShieldedTransactionsByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
+      input.chunk,
+      { limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
       input.rpcConfig,
       context,
     );
@@ -382,7 +383,7 @@ async function collectShieldedTransactionsByNullifiers(
 export async function syncWallet(
   input: Readonly<{
     wallet: Wallet;
-    authority: WalletAuthority;
+    authority: SyncMaterialSource;
     client: SyncClient;
     config?: SyncWalletConfig;
   }>,
@@ -398,6 +399,9 @@ export async function syncWallet(
       poll: Object.freeze({ ...poll, numRetries: Math.max(poll.numRetries, 1) }),
     });
     const material = await input.authority.syncMaterial();
+    // The authority may resolve its keys off-box; decryption takes them
+    // already resolved so it stays synchronous.
+    const decryptionKeys: DecryptionKeys = { syncMaterial: () => material };
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
     const tags = walletQueryTags(input.wallet, material);
@@ -434,9 +438,9 @@ export async function syncWallet(
       ...[...deposits.values()].sort(compareDeposits),
     ];
     let ordered = orderedTransactions();
-    let report = await decryptTransactions({
+    let report = decryptTransactions({
       wallet: input.wallet,
-      authority: input.authority,
+      decryptionKeys,
       transactions: ordered,
       config: { syncedAt },
     });
@@ -448,9 +452,9 @@ export async function syncWallet(
     ) {
       registryRefreshed = true;
       if ((await backfillAssetRegistry(input.wallet, input.client, context)) > 0) {
-        report = await decryptTransactions({
+        report = decryptTransactions({
           wallet: input.wallet,
-          authority: input.authority,
+          decryptionKeys,
           transactions: ordered,
           config: { syncedAt },
         });
@@ -479,9 +483,9 @@ export async function syncWallet(
     }
     if (transactions.size !== beforeFollowUp) {
       ordered = orderedTransactions();
-      report = await decryptTransactions({
+      report = decryptTransactions({
         wallet: input.wallet,
-        authority: input.authority,
+        decryptionKeys,
         transactions: ordered,
         config: { syncedAt },
       });
@@ -492,9 +496,9 @@ export async function syncWallet(
           walletHasUnknownMint(input.wallet))
       ) {
         if ((await backfillAssetRegistry(input.wallet, input.client, context)) > 0) {
-          report = await decryptTransactions({
+          report = decryptTransactions({
             wallet: input.wallet,
-            authority: input.authority,
+            decryptionKeys,
             transactions: ordered,
             config: { syncedAt },
           });

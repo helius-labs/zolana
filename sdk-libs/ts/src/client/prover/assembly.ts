@@ -4,6 +4,7 @@ import type {
   TransactInstructionData,
   TransactProof,
 } from "../../interface/types.js";
+import { splInterfaceBump } from "../../interface/pda/index.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { SppProofInputs } from "../../transaction/instructions/transact.js";
 import { ProofInputUtxo, type ProofOutputUtxo } from "../../transaction/utxo.js";
@@ -59,31 +60,31 @@ export function circuitUtxo(value: object): CircuitUtxo {
   return result;
 }
 
-export function intoProver(
+export async function intoProver(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[] = [],
-): ProverInputs {
-  return assemble(proofInputs, spendProofs, dummyNullifierProofs).proverInputs;
+): Promise<ProverInputs> {
+  return (await assemble(proofInputs, spendProofs, dummyNullifierProofs)).proverInputs;
 }
 
-export function assemble(
+export async function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[] = [],
-): AssembledTransfer {
+): Promise<AssembledTransfer> {
   try {
-    return assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs);
+    return await assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs);
   } catch (cause) {
     throw fromClientCause(cause);
   }
 }
 
-function assembleUnchecked(
+async function assembleUnchecked(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[],
-): AssembledTransfer {
+): Promise<AssembledTransfer> {
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -114,9 +115,12 @@ function assembleUnchecked(
     asset,
     movements.amounts[index] ?? 0n,
   ]);
-  const payerPublicKeyHash = bytesField(proofInputs.payerPublicKeyHash, "payer public key hash");
+  // The circuit authorizes an input owner by finding its Poseidon owner hash in
+  // this vector, so the payer enters as `hashField`, matching Rust's
+  // `signer_pk_hashes`.
+  const payerSignerHash = hashField(addressBytes(proofInputs.payer));
   const signerPublicKeyHashes = [
-    payerPublicKeyHash,
+    payerSignerHash,
     ...Array.from({ length: inputHashes.length }, () => 0n),
   ];
   const allowDummyInputs = 1n;
@@ -180,17 +184,19 @@ function assembleUnchecked(
       }),
     ),
     interfaceTransfers: Object.freeze(
-      proofInputs.externalData.interfaceTransfers.map((transfer) =>
-        transfer.kind === "sol"
-          ? Object.freeze({
-              kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
-              amount: transfer.amount,
-            })
-          : Object.freeze({
-              kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
-              amount: transfer.amount,
-              vaultBump: transfer.vaultBump,
-            }),
+      await Promise.all(
+        proofInputs.externalData.interfaceTransfers.map(async (transfer) =>
+          transfer.kind === "sol"
+            ? Object.freeze({
+                kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
+                amount: transfer.amount,
+              })
+            : Object.freeze({
+                kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
+                amount: transfer.amount,
+                splInterfaceBump: await splInterfaceBump(transfer.mint),
+              }),
+        ),
       ),
     ),
     ...(proofInputs.externalData.dataHash === undefined

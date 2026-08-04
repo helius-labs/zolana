@@ -100,6 +100,15 @@ export function* backoff(config: IndexerPollConfig): IterableIterator<bigint> {
 export interface PollUntilOptions {
   readonly config?: IndexerPollConfig;
   readonly context?: RequestContext;
+  readonly retryErrors?: boolean;
+  /**
+   * Build the error for an exhausted schedule. Receives the cause of the final
+   * attempt, or `undefined` when that attempt answered without a match.
+   */
+  readonly onTimeout?: (
+    config: IndexerPollConfig,
+    lastCause: RetryErrorCause | undefined,
+  ) => ClientError;
 }
 
 export async function pollUntil<T>(
@@ -116,17 +125,46 @@ export async function pollUntil<T>(
     try {
       const response = await request();
       if (accept(response)) return response;
+      // A clean answer clears a recovered blip, so the exhausted schedule is
+      // classified by the final attempt rather than by an earlier failure.
+      lastCause = undefined;
     } catch (cause) {
+      if (options.retryErrors === false) throw cause;
       const transient = retryCause(cause);
       if (transient === undefined) throw cause;
       lastCause = transient;
     }
   }
 
+  if (options.onTimeout !== undefined) throw options.onTimeout(poll, lastCause);
   throw new ClientError("CLIENT_POLL_TIMED_OUT", {
     details: {
       attempts: attempts(poll),
       ...(lastCause === undefined ? {} : { lastCause }),
+    },
+  });
+}
+
+/**
+ * Classify an exhausted poll by how the final attempt went, since that is the
+ * freshest evidence of what the indexer is doing now. An attempt that answered
+ * without the transaction means the indexer is behind; one that failed means it
+ * never answered, which is not a lag report the caller should act on.
+ */
+export function indexerPollTimeout(
+  config: IndexerPollConfig,
+  lastCause: RetryErrorCause | undefined,
+  signature?: string,
+): ClientError {
+  if (lastCause !== undefined) {
+    return new ClientError("CLIENT_POLL_TIMED_OUT", {
+      details: { attempts: attempts(config), lastCause },
+    });
+  }
+  return new ClientError("CLIENT_INDEXER_TIMEOUT", {
+    details: {
+      attempts: attempts(config),
+      ...(signature === undefined ? {} : { signature }),
     },
   });
 }

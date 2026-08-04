@@ -1,9 +1,11 @@
 import type {
   Address,
+  BatchUpdateNullifierTreeInstructionData,
   Bytes32,
   DepositInstructionData,
   InputUtxo,
   MergeTransactInstructionData,
+  MergeZoneInstructionData,
   OwnerTag,
   ProtocolConfigAccount,
   SplAssetCounterAccount,
@@ -11,6 +13,7 @@ import type {
   TransactInstructionData,
   TransactOutput,
   TransactProof,
+  ZoneDepositInstructionData,
   ZoneConfigAccount,
 } from "../types.js";
 import { MERGE_INPUT_COUNT } from "../constants.js";
@@ -44,35 +47,59 @@ function byteVector(writer: Writer, value: Uint8Array, name: string): void {
   writer.u16(value.length, `${name}.length`).bytes(value);
 }
 
+function writeDepositEntry(
+  writer: Writer,
+  deposit: DepositInstructionData["deposits"][number],
+): void {
+  writer
+    .u8(deposit.assetIndex, "deposit.assetIndex")
+    .bytes(deposit.viewTag, 32, "deposit.viewTag")
+    .bytes(deposit.recipientOwnerHash, 32, "deposit.owner")
+    .bytes(deposit.blinding, 32, "deposit.blinding")
+    .u64(deposit.amount, "deposit.amount")
+    .option(deposit.utxoData, (output, data) => {
+      output.bytes(data.dataHash, 32, "deposit.utxoData.dataHash");
+      byteVector(output, data.data, "deposit.utxoData.data");
+    })
+    .option(deposit.memo, (output, memo) => {
+      byteVector(output, memo, "deposit.memo");
+    });
+}
+
 function writeDepositData(writer: Writer, value: DepositInstructionData): void {
   writer.u8(value.assets.length, "assets.length");
   for (const asset of value.assets) {
     if (asset.kind === "sol") {
       writer.u8(0, "asset.kind");
     } else {
-      writer.u8(1, "asset.kind").u8(asset.vaultBump, "asset.vaultBump");
+      writer.u8(1, "asset.kind").u8(asset.splInterfaceBump, "asset.splInterfaceBump");
     }
   }
   writer.u8(value.deposits.length, "deposits.length");
-  for (const deposit of value.deposits) {
-    writer
-      .u8(deposit.assetIndex, "deposit.assetIndex")
-      .bytes(deposit.viewTag, 32, "deposit.viewTag")
-      .bytes(deposit.owner, 32, "deposit.owner")
-      .bytes(deposit.blinding, 32, "deposit.blinding")
-      .u64(deposit.amount, "deposit.amount")
-      .option(deposit.utxoData, (output, data) => {
-        output.bytes(data.dataHash, 32, "deposit.utxoData.dataHash");
-        byteVector(output, data.data, "deposit.utxoData.data");
-      })
-      .option(deposit.memo, (output, memo) => {
-        byteVector(output, memo, "deposit.memo");
-      });
-  }
+  for (const deposit of value.deposits) writeDepositEntry(writer, deposit);
 }
 
 export function encodeDepositInstructionData(value: DepositInstructionData): Uint8Array {
   return encoded(value, writeDepositData);
+}
+
+export function encodeZoneDepositInstructionData(value: ZoneDepositInstructionData): Uint8Array {
+  return encoded(value, (writer, input) => {
+    writer.u8(input.assets.length, "assets.length");
+    for (const asset of input.assets) {
+      if (asset.kind === "sol") {
+        writer.u8(0, "asset.kind");
+      } else {
+        writer.u8(1, "asset.kind").u8(asset.splInterfaceBump, "asset.splInterfaceBump");
+      }
+    }
+    writer.u8(input.deposits.length, "deposits.length");
+    for (const entry of input.deposits) {
+      writeDepositEntry(writer, entry.deposit);
+      writer.bytes(entry.zoneDataHash, 32, "deposit.zoneDataHash");
+      byteVector(writer, entry.zoneData, "deposit.zoneData");
+    }
+  });
 }
 
 export function encodeAddressTreeParams(value: AddressTreeParams): Uint8Array {
@@ -136,7 +163,7 @@ function writeInterfaceTransfer(
           : 3;
   writer.u8(tag, "interfaceTransfer.kind").u64(value.amount, "interfaceTransfer.amount");
   if (value.kind === "splDeposit" || value.kind === "splWithdrawal") {
-    writer.u8(value.vaultBump, "interfaceTransfer.vaultBump");
+    writer.u8(value.splInterfaceBump, "interfaceTransfer.splInterfaceBump");
   }
 }
 
@@ -207,6 +234,35 @@ export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
   return encoded(value, writeMergeData, 492);
+}
+
+export function encodeMergeZoneInstructionData(value: MergeZoneInstructionData): Uint8Array {
+  return encoded(
+    value,
+    (writer, input) => {
+      writer.bytes(input.outputZoneDataHash, 32, "outputZoneDataHash");
+      writeMergeData(writer, input.merge);
+    },
+    524,
+  );
+}
+
+export function encodeBatchUpdateNullifierTreeInstructionData(
+  value: BatchUpdateNullifierTreeInstructionData,
+): Uint8Array {
+  return encoded(
+    value,
+    (writer, input) => {
+      writer
+        .bytes(input.newRoot, 32, "newRoot")
+        .bytes(input.oldRoot, 32, "oldRoot")
+        .u16(input.zkpBatchIndex, "zkpBatchIndex")
+        .bytes(input.compressedProof.a, 32, "compressedProof.a")
+        .bytes(input.compressedProof.b, 64, "compressedProof.b")
+        .bytes(input.compressedProof.c, 32, "compressedProof.c");
+    },
+    194,
+  );
 }
 
 export function mergeExternalDataHash(

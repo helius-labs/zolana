@@ -1,11 +1,5 @@
 import { getCreateAssociatedTokenIdempotentInstructionAsync } from "@solana-program/token";
-import {
-  AccountRole,
-  address,
-  createNoopSigner,
-  type Instruction,
-  type TransactionSigner,
-} from "@solana/kit";
+import { AccountRole, address, createNoopSigner, type Instruction } from "@solana/kit";
 
 import {
   InstructionTag,
@@ -18,8 +12,10 @@ import type { AddressTreeParams } from "../program.js";
 import {
   type Address,
   type AssetDeposit,
+  type BatchUpdateNullifierTreeInstructionData,
   type MergeTransactInstructionData,
   type DepositSplAccounts,
+  type SignerAccount,
   type TransactInstructionData,
   type TransactWithdrawal,
 } from "../types.js";
@@ -30,21 +26,20 @@ import {
   splAssetCounterAddress,
   splAssetRegistryAddress,
   splAssetVaultAddress,
-  splAssetVaultPda,
+  splInterfaceWithBump,
 } from "../pda/index.js";
 import {
   encodeAddressTreeParams,
+  encodeBatchUpdateNullifierTreeInstructionData,
   encodeDepositInstructionData,
   encodeMergeTransactInstructionData,
   encodeTransactInstructionData,
 } from "../codecs/index.js";
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
-export type { MergeTransactInstructionData } from "../types.js";
+export type { MergeTransactInstructionData, SignerAccount } from "../types.js";
 
 type Meta = NonNullable<Instruction["accounts"]>[number];
-
-export type SignerAccount = Address | TransactionSigner;
 
 function accountAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
@@ -182,7 +177,8 @@ function depositLayout(deposits: readonly AssetDeposit[]): DepositLayout {
     const existing = splGroups.find((candidate) => candidate.mint === spl.mint);
     if (
       existing !== undefined &&
-      (existing.userToken !== spl.userToken || existing.tokenProgram !== spl.tokenProgram)
+      (existing.sourceTokenAccount !== spl.sourceTokenAccount ||
+        existing.tokenProgram !== spl.tokenProgram)
     ) {
       fail("INTERFACE_CODEC", { reason: "conflicting SPL deposit accounts", mint: spl.mint });
     }
@@ -204,52 +200,55 @@ function depositAssetIndex(layout: DepositLayout, deposit: AssetDeposit): number
 
 async function depositAccounts(
   tree: Address,
-  depositor: SignerAccount,
+  sender: SignerAccount,
   layout: DepositLayout,
-): Promise<Readonly<{ accounts: Meta[]; vaultBumps: number[] }>> {
+): Promise<Readonly<{ accounts: Meta[]; splInterfaceBumps: number[] }>> {
   const accounts = [
     meta(tree, false, true),
-    meta(depositor, true, true),
+    meta(sender, true, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
   ];
   if (layout.hasSol) {
     accounts.push(meta(SYSTEM_PROGRAM, false, false), meta(solInterfaceAddress(), false, true));
   }
-  const vaultBumps: number[] = [];
+  const splInterfaceBumps: number[] = [];
   for (const spl of layout.splGroups) {
-    const [vault, bump] = await splAssetVaultPda(spl.mint);
-    vaultBumps.push(bump);
+    const [vault, bump] = await splInterfaceWithBump(spl.mint);
+    splInterfaceBumps.push(bump);
     accounts.push(
       meta(spl.tokenProgram, false, false),
       meta(spl.mint, false, false),
-      meta(spl.userToken, false, true),
+      meta(spl.sourceTokenAccount, false, true),
       meta(vault, false, true),
     );
   }
-  return Object.freeze({ accounts, vaultBumps });
+  return Object.freeze({ accounts, splInterfaceBumps });
 }
 
 export async function depositInstruction(
   input: Readonly<{
     tree: Address;
-    depositor: SignerAccount;
+    sender: SignerAccount;
     deposits: readonly AssetDeposit[];
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
-  const { accounts, vaultBumps } = await depositAccounts(input.tree, input.depositor, layout);
+  const { accounts, splInterfaceBumps } = await depositAccounts(input.tree, input.sender, layout);
   return instruction(
     tagged(
       InstructionTag.deposit,
       encodeDepositInstructionData({
         assets: [
           ...(layout.hasSol ? ([{ kind: "sol" }] as const) : []),
-          ...vaultBumps.map((vaultBump) => ({ kind: "spl" as const, vaultBump })),
+          ...splInterfaceBumps.map((splInterfaceBump) => ({
+            kind: "spl" as const,
+            splInterfaceBump,
+          })),
         ],
         deposits: input.deposits.map((deposit) => ({
           assetIndex: depositAssetIndex(layout, deposit),
           viewTag: deposit.viewTag,
-          owner: deposit.owner,
+          recipientOwnerHash: deposit.recipientOwnerHash,
           blinding: deposit.blinding,
           amount: deposit.amount,
           ...(deposit.utxoData === undefined ? {} : { utxoData: deposit.utxoData }),
@@ -270,7 +269,7 @@ function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
     meta(SHIELDED_POOL_CPI_AUTHORITY, false, false),
     meta(withdrawal.mint, false, false),
     meta(withdrawal.splTokenInterface, false, true),
-    meta(withdrawal.userTokenAccount, false, true),
+    meta(withdrawal.recipientTokenAccount, false, true),
     meta(withdrawal.tokenProgram, false, false),
   ];
 }
@@ -294,7 +293,7 @@ function transactAccounts(
 
 export function transactInstruction(
   input: Readonly<{
-    payer: SignerAccount;
+    feePayer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
     withdrawal?: TransactWithdrawal;
@@ -303,7 +302,7 @@ export function transactInstruction(
 ): Instruction {
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    transactAccounts(input.payer, input.inputTree, input.outputTree, input.withdrawal),
+    transactAccounts(input.feePayer, input.inputTree, input.outputTree, input.withdrawal),
   );
 }
 
@@ -400,7 +399,7 @@ export function mergeTransactInstruction(
   input: Readonly<{
     inputTree: Address;
     outputTree: Address;
-    payer: SignerAccount;
+    feePayer: SignerAccount;
     userRecord: Address;
     data: MergeTransactInstructionData;
   }>,
@@ -410,9 +409,33 @@ export function mergeTransactInstruction(
     [
       meta(input.inputTree, false, true),
       meta(input.outputTree, false, true),
-      meta(input.payer, true, true),
+      meta(input.feePayer, true, true),
       meta(input.userRecord, false, false),
       meta(SYSTEM_PROGRAM, false, false),
+      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+    ],
+  );
+}
+
+export async function batchUpdateNullifierTreeInstruction(
+  input: Readonly<
+    {
+      authority: SignerAccount;
+      tree: Address;
+      reimbursementRecipient: Address;
+    } & BatchUpdateNullifierTreeInstructionData
+  >,
+): Promise<Instruction> {
+  return instruction(
+    tagged(
+      InstructionTag.batchUpdateNullifierTree,
+      encodeBatchUpdateNullifierTreeInstructionData(input),
+    ),
+    [
+      meta(input.authority, true, false),
+      meta(await protocolConfigAddress(), false, false),
+      meta(input.tree, false, true),
+      meta(input.reimbursementRecipient, false, true),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     ],
   );

@@ -1,12 +1,12 @@
 import { buildUnsignedTransaction } from "../client/kit.js";
 import type { ZolanaClient } from "../client/client.js";
-import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
+import { DEFAULT_TREE_ADDRESS, SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
+  DepositAsset,
   type Address,
-  type Bytes32,
   type AssetDeposit,
-  type DepositAsset,
+  type Bytes32,
   type Instruction,
   type RequestContext,
   type Transaction,
@@ -26,7 +26,7 @@ export interface DepositParams {
   readonly recipient: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
-  readonly splTokenAccount?: Address;
+  readonly sourceTokenAccount?: Address;
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
 }
@@ -49,7 +49,7 @@ export class Deposit {
     this.data = Object.freeze({
       ...input.data,
       viewTag: new Uint8Array(input.data.viewTag) as Bytes32,
-      owner: new Uint8Array(input.data.owner) as Bytes32,
+      recipientOwnerHash: new Uint8Array(input.data.recipientOwnerHash) as Bytes32,
       blinding: new Uint8Array(input.data.blinding) as Bytes32,
       ...(input.data.memo === undefined ? {} : { memo: new Uint8Array(input.data.memo) }),
     });
@@ -58,10 +58,10 @@ export class Deposit {
     this.settlement = input.settlement;
   }
 
-  instruction(tree: Address, depositor: Address): Promise<Instruction> {
+  instruction(tree: Address, sender: Address): Promise<Instruction> {
     return depositInstruction({
       tree,
-      depositor,
+      sender,
       deposits: [{ ...this.data, asset: this.settlement }],
     });
   }
@@ -79,37 +79,36 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
         details: { amount: params.amount.toString() },
       });
     }
-    const owner = params.recipient.ownerHash();
+    const recipientOwnerHash = params.recipient.ownerHash();
     const blinding = randomBlinding();
     const data: Omit<AssetDeposit, "asset"> = {
-      viewTag: params.recipient.viewingPublicKey.x(),
-      owner,
+      // Confidential rings key the owner tag off the signing key, and the
+      // wallet sync reads it back that way. The viewing key is a different key.
+      viewTag: params.recipient.confidentialViewTag(),
+      recipientOwnerHash,
       blinding,
       amount: params.amount,
       ...(params.memo === undefined ? {} : { memo: new Uint8Array(params.memo) }),
     };
     // A SOL deposit needs no token accounts, so one supplied alongside it is
     // ignored rather than rejected.
-    let settlement: DepositAsset = { kind: "sol" };
+    let settlement: DepositAsset = DepositAsset.sol();
     if (params.asset !== SOL_MINT) {
-      if (params.splTokenAccount === undefined) {
+      if (params.sourceTokenAccount === undefined) {
         throw new WalletError("WALLET_MISSING_SPL_TOKEN_ACCOUNT", {
           details: { mint: params.asset },
         });
       }
-      settlement = {
-        kind: "spl",
-        accounts: {
-          mint: params.asset,
-          userToken: params.splTokenAccount,
-          tokenProgram: params.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
-        },
-      };
+      settlement = DepositAsset.spl({
+        mint: params.asset,
+        sourceTokenAccount: params.sourceTokenAccount,
+        tokenProgram: params.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
+      });
     }
     return new Deposit({
       data,
       utxoHash: ownerUtxoHash({
-        owner,
+        owner: recipientOwnerHash,
         asset: params.asset,
         amount: params.amount,
         blinding,
@@ -130,7 +129,7 @@ export interface DepositTransactionParams {
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
-  readonly splTokenAccount?: Address;
+  readonly sourceTokenAccount?: Address;
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
 }
@@ -156,18 +155,18 @@ export async function buildDepositTransaction(
       recipient = registered.address;
     }
     const depositor = input.depositor ?? input.feePayer;
-    const tree = input.tree ?? input.client.tree;
+    const tree = input.tree ?? DEFAULT_TREE_ADDRESS;
     const asset = input.asset ?? SOL_MINT;
-    const splTokenAccount =
+    const sourceTokenAccount =
       asset === SOL_MINT
         ? undefined
-        : (input.splTokenAccount ??
+        : (input.sourceTokenAccount ??
           (await associatedTokenAddress(depositor, asset, input.splTokenProgram)));
     const deposit = await createDeposit({
       recipient,
       asset,
       amount: input.amount,
-      ...(splTokenAccount === undefined ? {} : { splTokenAccount }),
+      ...(sourceTokenAccount === undefined ? {} : { sourceTokenAccount }),
       ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
       ...(input.memo === undefined ? {} : { memo: input.memo }),
     });

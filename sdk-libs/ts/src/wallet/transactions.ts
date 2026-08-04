@@ -49,7 +49,7 @@ export async function buildTransferTransaction(
       {
         client: input.client,
         wallet: input.wallet,
-        payer: input.feePayer,
+        feePayer: input.feePayer,
         recipient: input.recipient,
         asset: input.asset ?? SOL_MINT,
         amount: input.amount,
@@ -70,7 +70,7 @@ export async function buildWithdrawalTransaction(
     const asset = input.asset ?? SOL_MINT;
     const created = await createWithdrawal({
       wallet: input.wallet,
-      payer: input.feePayer,
+      feePayer: input.feePayer,
       recipient: input.recipient,
       asset,
       amount: input.amount,
@@ -102,7 +102,7 @@ export async function buildSplitTransaction(
   try {
     const created = createSplit({
       wallet: input.wallet,
-      payer: input.feePayer,
+      feePayer: input.feePayer,
       asset: input.asset ?? SOL_MINT,
       parts: input.parts ?? 2,
       ...(input.input === undefined ? {} : { input: input.input }),

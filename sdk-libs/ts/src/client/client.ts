@@ -5,7 +5,6 @@ import {
 import {
   assertIsAddress,
   assertIsSignature,
-  getAddressEncoder,
   getBase64Encoder,
   type Address,
   type Commitment,
@@ -15,6 +14,7 @@ import {
 } from "@solana/kit";
 
 import { ZolanaApi } from "../api/index.js";
+import { resolveClientEndpoints } from "../endpoint.js";
 import {
   mergeTransactInstruction,
   transactInstruction,
@@ -34,7 +34,7 @@ import { PreparedMerge } from "../transaction/instructions/builders.js";
 import { SppProofInputs, type InputUtxoContext } from "../transaction/instructions/transact.js";
 
 import { ClientError, fromClientCause } from "./error.js";
-import { bigintToBytes, checkedServiceUrl, hashField } from "./internal.js";
+import { checkedServiceUrl } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
 import {
   buildUnsignedTransaction as buildKitUnsignedTransaction,
@@ -48,9 +48,15 @@ import { assemble } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import { DEFAULT_INDEXER_RPC_CONFIG, validatePollConfig } from "./retry.js";
+import {
+  DEFAULT_INDEXER_RPC_CONFIG,
+  indexerPollTimeout,
+  pollUntil,
+  validatePollConfig,
+} from "./retry.js";
 import {
   type GetByNullifiersRequest,
+  type GetByTagsPagination,
   type GetByTagsRequest,
   type GetEncryptedUtxosByTagsResponse,
   type GetMerkleProofsResponse,
@@ -67,11 +73,16 @@ const DEFAULT_TRANSACT_CU_LIMIT = 300_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
-  readonly solanaRpcUrl: string | URL;
+  /**
+   * Serves the indexer and the prover too, unless either names its own URL.
+   * Left out, the whole config falls back to the local validator stack.
+   */
+  readonly solanaRpcUrl?: string | URL;
   readonly solanaRpcSubscriptionsUrl?: string | URL;
   readonly indexerUrl?: string | URL | undefined;
-  readonly apiKey?: string;
   readonly proverUrl?: string | URL | undefined;
+  /** Sent by the indexer client. A URL that already carries a key needs none. */
+  readonly apiKey?: string;
   readonly tree?: Address;
   readonly commitment?: Commitment;
   readonly computeUnitLimit?: number;
@@ -111,8 +122,28 @@ export class ZolanaClient {
 
   constructor(input: ZolanaClientConfig) {
     const candidate: unknown = input;
-    if (typeof candidate !== "object" || candidate === null) {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
       throw new ClientError("CLIENT_INVALID_CONFIG");
+    }
+    // A misspelled field would otherwise be ignored, leaving the client quietly
+    // pointed somewhere the caller did not intend.
+    const allowedFields = new Set([
+      "apiKey",
+      "commitment",
+      "computeUnitLimit",
+      "computeUnitPriceMicroLamports",
+      "fetch",
+      "indexerConfig",
+      "indexerUrl",
+      "proverAsyncPoll",
+      "proverUrl",
+      "solanaRpcSubscriptionsUrl",
+      "solanaRpcUrl",
+      "tree",
+    ]);
+    const unsupported = Object.keys(candidate).find((key) => !allowedFields.has(key));
+    if (unsupported !== undefined) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: unsupported } });
     }
 
     const tree = input.tree ?? DEFAULT_TREE_ADDRESS;
@@ -125,20 +156,16 @@ export class ZolanaClient {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
 
+    const endpoints = resolveClientEndpoints(input);
     const kit = createKitClients({
-      solanaRpcUrl: input.solanaRpcUrl,
-      ...(input.solanaRpcSubscriptionsUrl === undefined
+      solanaRpcUrl: endpoints.solana,
+      solanaRpcField: endpoints.solanaField,
+      ...(endpoints.solanaRpcSubscriptions === undefined
         ? {}
-        : { solanaRpcSubscriptionsUrl: input.solanaRpcSubscriptionsUrl }),
+        : { solanaRpcSubscriptionsUrl: endpoints.solanaRpcSubscriptions }),
     });
-    const indexerUrl = checkedServiceUrl(
-      input.indexerUrl === undefined ? input.solanaRpcUrl : input.indexerUrl,
-      "indexerUrl",
-    );
-    const proverUrl = checkedServiceUrl(
-      input.proverUrl === undefined ? input.solanaRpcUrl : input.proverUrl,
-      "proverUrl",
-    );
+    const indexerUrl = checkedServiceUrl(endpoints.photon, endpoints.photonField);
+    const proverUrl = checkedServiceUrl(endpoints.prover, endpoints.proverField);
     let indexer: ZolanaIndexer;
     try {
       indexer = new ZolanaIndexer(
@@ -150,7 +177,7 @@ export class ZolanaClient {
       );
     } catch (cause) {
       throw new ClientError("CLIENT_INVALID_CONFIG", {
-        details: { field: input.apiKey === undefined ? "indexerUrl" : "apiKey" },
+        details: { field: input.apiKey === undefined ? endpoints.photonField : "apiKey" },
         cause,
       });
     }
@@ -163,7 +190,9 @@ export class ZolanaClient {
       });
     } catch (cause) {
       throw new ClientError("CLIENT_INVALID_CONFIG", {
-        details: { field: input.proverAsyncPoll === undefined ? "proverUrl" : "proverAsyncPoll" },
+        details: {
+          field: input.proverAsyncPoll === undefined ? endpoints.proverField : "proverAsyncPoll",
+        },
         cause,
       });
     }
@@ -181,22 +210,16 @@ export class ZolanaClient {
         details: { field: "computeUnitPriceMicroLamports" },
       });
     }
+    this.tree = tree;
     this.solanaRpc = kit.solanaRpc;
     this.solanaRpcSubscriptions = kit.solanaRpcSubscriptions;
     this.commitment = commitment;
     this.#indexer = indexer;
     this.#prover = prover;
-    this.tree = tree;
     this.#computeUnitPrice = input.computeUnitPriceMicroLamports;
     const indexerConfig = input.indexerConfig ?? DEFAULT_INDEXER_RPC_CONFIG;
     validatePollConfig(indexerConfig.poll);
     this.#indexerConfig = indexerConfig;
-  }
-
-  /// Mirrors Rust's `ZolanaClient::indexer_config`: the config every indexer
-  /// call falls back to and the schedule confirmation polls.
-  get indexerConfig(): IndexerRpcConfig {
-    return this.#indexerConfig;
   }
 
   async getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined> {
@@ -262,11 +285,19 @@ export class ZolanaClient {
   }
 
   getShieldedTransactionsByTags(
-    request: GetByTagsRequest,
+    tags: Bytes32 | readonly Bytes32[],
+    pagination?: GetByTagsPagination,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
-    return this.#indexer.getShieldedTransactionsByTags(request, this.#configOr(config), context);
+    return this.#indexer.getShieldedTransactionsByTags(
+      {
+        ...pagination,
+        tags: tags instanceof Uint8Array ? [tags] : tags,
+      },
+      this.#configOr(config),
+      context,
+    );
   }
 
   getShieldedTransactionsByNullifiers(
@@ -292,6 +323,89 @@ export class ZolanaClient {
       this.#configOr(config),
       context,
     );
+  }
+
+  /**
+   * Wait until Solana confirms the transaction and Photon has indexed a Rings
+   * event for it.
+   */
+  async confirmPrivateTransaction(
+    signature: Signature,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<void> {
+    await this.confirmTransaction(signature, config, context);
+    await this.#waitForIndexedTransaction(signature, config, context);
+  }
+
+  /** Poll the RPC until the signature reaches this client's commitment. */
+  async confirmTransaction(
+    signature: Signature,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<void> {
+    checkedSignature(signature);
+    const poll = validatePollConfig(this.#configOr(config).poll);
+    // Rust's `wait_for_rpc_confirmation` propagates every RPC error with `?` and
+    // only retries a signature that is merely not confirmed yet.
+    await pollUntil(
+      () => this.#signatureConfirmed(signature, context),
+      (confirmed) => confirmed,
+      {
+        config: poll,
+        ...(context === undefined ? {} : { context }),
+        retryErrors: false,
+        onTimeout: () =>
+          new ClientError("CLIENT_RPC", {
+            details: { method: "getSignatureStatuses", reason: "signature not confirmed" },
+          }),
+      },
+    );
+  }
+
+  /**
+   * Photon lags the chain, so an on-chain confirmation alone is not enough for a
+   * caller that reads its own outputs back immediately.
+   *
+   * Every Rings event of one Solana transaction is persisted in a single
+   * database transaction, so a single visible event proves the whole transaction
+   * is indexed. Matching the event against the transaction's view tags would add
+   * no guarantee and would reject legitimate transactions whose events share a
+   * tag.
+   */
+  async #waitForIndexedTransaction(
+    signature: Signature,
+    config: IndexerRpcConfig | undefined,
+    context: RequestContext | undefined,
+  ): Promise<void> {
+    const resolved = this.#configOr(config);
+    const poll = validatePollConfig(resolved.poll);
+    // The poll below is the wait, so the per-request `waitForIndexer` clock
+    // would only stall each attempt against an unrelated deadline.
+    const request = Object.freeze({ ...resolved, waitForIndexer: false });
+    await pollUntil(
+      () => this.getShieldedTransactionsBySignature(signature, request, context),
+      (response) => response.transactions.length > 0,
+      {
+        config: poll,
+        ...(context === undefined ? {} : { context }),
+        onTimeout: (exhausted, lastCause) => indexerPollTimeout(exhausted, lastCause, signature),
+      },
+    );
+  }
+
+  async #signatureConfirmed(signature: Signature, context?: RequestContext): Promise<boolean> {
+    const { value } = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
+      this.solanaRpc.getSignatureStatuses([signature]).send({ abortSignal }),
+    );
+    const status = value[0];
+    if (status === null || status === undefined) return false;
+    if (status.err !== null) {
+      throw new ClientError("CLIENT_RPC", {
+        details: { method: "getSignatureStatuses", reason: "transaction failed" },
+      });
+    }
+    return commitmentReached(status.confirmationStatus, this.commitment);
   }
 
   getMerkleProofs(
@@ -452,7 +566,7 @@ export class ZolanaClient {
           });
         }
       });
-      const assembled = assemble(proofInputs, proofs, dummyProofs);
+      const assembled = await assemble(proofInputs, proofs, dummyProofs);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
       return assembled.withProof(compressProof(proof).toTransactProof());
     } catch (cause) {
@@ -566,10 +680,10 @@ export class ZolanaClient {
     if (!isAuthorizedPrivateTransaction(input.authorized)) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
-    const payerHash = bigintToBytes(
-      hashField(new Uint8Array(getAddressEncoder().encode(input.feePayer))),
-    );
-    if (!equal(payerHash, input.authorized.proofInputs.payerPublicKeyHash)) {
+    // Compare the address itself, like Rust's `validate_fee_payer_pubkey`. The
+    // proof inputs cache a hash of it, but under a different function than any
+    // hash derived here would use.
+    if (input.feePayer !== input.authorized.proofInputs.payer) {
       throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
     }
     if (input.authorized.tree !== this.tree) {
@@ -634,7 +748,7 @@ function privateTransactionInstructions(
         ]),
     ...(input.setupInstructions ?? []),
     transactInstruction({
-      payer: input.payer,
+      feePayer: input.payer,
       inputTree: input.inputTree,
       outputTree: input.outputTree,
       data: input.data,
@@ -661,7 +775,7 @@ export function buildUnsignedMergeTransaction(
       mergeTransactInstruction({
         inputTree: input.tree,
         outputTree: input.tree,
-        payer: input.feePayer,
+        feePayer: input.feePayer,
         userRecord: input.userRecord,
         data: input.data,
       }),
@@ -716,6 +830,17 @@ function checkedSignature(value: Signature): void {
 
 function isCommitment(value: unknown): value is Commitment {
   return value === "processed" || value === "confirmed" || value === "finalized";
+}
+
+const COMMITMENT_RANK: Readonly<Record<Commitment, number>> = Object.freeze({
+  processed: 0,
+  confirmed: 1,
+  finalized: 2,
+});
+
+function commitmentReached(reached: Commitment | null, required: Commitment): boolean {
+  if (reached === null) return false;
+  return COMMITMENT_RANK[reached] >= COMMITMENT_RANK[required];
 }
 
 function decodeRpcAccount(
