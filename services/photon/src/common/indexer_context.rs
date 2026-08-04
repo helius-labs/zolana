@@ -14,9 +14,6 @@ struct SlotModel {
     slot: i64,
 }
 
-/// Both aggregates come from one scan of `blocks`, so reporting the slot alongside
-/// the block time costs nothing extra. The slot is what callers compare against to
-/// decide whether the indexer has caught up to them.
 pub async fn extract(conn: &DatabaseConnection) -> Result<Context, PhotonApiError> {
     let context = blocks::Entity::find()
         .select_only()
@@ -28,8 +25,6 @@ pub async fn extract(conn: &DatabaseConnection) -> Result<Context, PhotonApiErro
         .ok_or_else(|| PhotonApiError::RecordNotFound("No data has been indexed".to_string()))?;
     Ok(Context {
         block_time: context.block_time,
-        // A negative slot would mean a corrupt row; report "unknown" rather than
-        // fabricating a value a freshness check would then trust.
         slot: u64::try_from(context.slot).ok(),
     })
 }

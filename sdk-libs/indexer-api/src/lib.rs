@@ -493,13 +493,6 @@ impl<'de> Deserialize<'de> for Limit {
 pub struct Context {
     pub block_time: i64,
     /// Highest slot the indexer has persisted, for slot-based freshness checks.
-    ///
-    /// `Option` + `serde(default)` so a client built against this type still parses
-    /// a response from an indexer that predates the field. Comparing slots is the
-    /// only sound way for a caller to ask "have you caught up to me": `block_time`
-    /// is a validator-assigned block timestamp, and comparing it against a client's
-    /// local wall clock mixes clock domains and can never be satisfied while block
-    /// time trails real time.
     #[serde(default)]
     pub slot: Option<u64>,
 }

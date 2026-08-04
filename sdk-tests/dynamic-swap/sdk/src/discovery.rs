@@ -41,14 +41,7 @@ pub fn discover_escrow_note<I: Rpc>(
     let mut cursor = None;
     loop {
         let page = indexer
-            .get_shielded_transactions_by_tags(
-                vec![tag],
-                cursor,
-                None,
-                // Ungated: this is a pagination loop, so a freshness check would
-                // fire per page, and the caller already retries.
-                None,
-            )
+            .get_shielded_transactions_by_tags(vec![tag], cursor, None, None)
             .map_err(err)?;
         for tx in &page.transactions {
             if let Some((order_utxo_hash, plaintext)) =

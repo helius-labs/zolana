@@ -246,11 +246,6 @@ pub enum ClientError {
         attempts: u32,
     },
 
-    /// The caller asked for a slot guarantee the indexer cannot report on.
-    ///
-    /// Raised rather than silently degrading: the alternative is comparing the
-    /// indexer's block timestamp against local wall clock, which mixes clock
-    /// domains and cannot be satisfied while block time trails real time.
     #[error("indexer does not report its persisted slot, so the slot {required} requested by the caller cannot be verified; the indexer predates Context.slot and must be upgraded")]
     IndexerSlotUnavailable { required: u64 },
 

@@ -68,21 +68,7 @@ impl IndexerPollConfig {
 pub struct IndexerRpcConfig {
     pub poll: IndexerPollConfig,
     /// Slot the indexer must have persisted before its answer is accepted.
-    ///
-    /// `None` accepts whatever the indexer currently has.
-    ///
-    /// There is deliberately no "wait, but for nothing in particular" state: a
-    /// freshness requirement IS a slot. The previous shape paired a
-    /// `wait_for_indexer: bool` with an optional target, which made the unsound
-    /// combination (wait with no target) not only representable but the value the
-    /// convenience constructor produced — it fell back to comparing the indexer's
-    /// block timestamp against local wall clock, mixing clock domains so the first
-    /// attempt could never pass while block time trailed real time. Every caller
-    /// that reached for it paid 400ms-2.5s of backoff per request for a check that
-    /// could not succeed.
-    ///
-    /// Read the slot from the same RPC the caller submits through, so both sides of
-    /// the comparison are slots on one chain.
+    /// `None` accepts whatever the indexer currently has.    
     pub require_slot: Option<u64>,
 }
 

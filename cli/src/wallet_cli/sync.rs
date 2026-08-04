@@ -32,22 +32,6 @@ pub(crate) fn run_sync(opts: SyncOptions) -> Result<()> {
     Ok(())
 }
 
-/// Sync the wallet from the indexer. One entry point, no freshness gate.
-///
-/// Every write command already waits for its OWN write to be indexed before it
-/// returns — `confirm_private_transaction_sync` does
-/// `wait_for_rpc_confirmation` then `wait_for_indexed_transaction(signature)`, and
-/// merge additionally waits for its state leaf. Those waits are precise: they name
-/// the exact signature or leaf being awaited.
-///
-/// So by the time any later command reads, the earlier write is already in the
-/// index, and a blanket "is the indexer current?" gate ahead of the read protects
-/// nothing. It only added latency: the gate cost 2.5-5s per command, which is where
-/// `zolana utxos` spent 33.8 of its 33.9 seconds.
-///
-/// `SyncWalletConfig` still carries `target_slot` for library consumers that need
-/// read-your-writes without tracking a signature — that path is sound now that the
-/// indexer reports its persisted slot. The CLI simply does not need it.
 pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let config = CliConfigFile::load()?;
     let sync = resolve_sync_with_config(opts, &config)?;

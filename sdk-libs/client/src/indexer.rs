@@ -36,11 +36,6 @@ const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 
 /// Highest slot the indexer reports having persisted.
-///
-/// An indexer that does not report one is an error, not a cue to guess. There is no
-/// block-time fallback: comparing a validator-assigned block timestamp against the
-/// caller's wall clock is not a freshness test, and silently substituting it is how
-/// a correctness gate turns into multi-second latency nobody can see.
 fn indexed_slot(context: &Context, required: u64) -> Result<u64, ClientError> {
     context
         .slot

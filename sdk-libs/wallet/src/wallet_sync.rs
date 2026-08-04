@@ -26,13 +26,6 @@ const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
 const DEFAULT_PAGE_LIMIT: u32 = 1_000;
 const DEFAULT_SYNC_ROUNDS: usize = 6;
 
-/// Opt-in phase timing for diagnosing slow wallet syncs. Off unless
-/// `ZOLANA_TIMING` is set, and writes to stderr so it never contaminates the
-/// CLI's machine-parseable `ok <verb> ...` stdout lines.
-///
-/// Exists because a read-only `zolana utxos` over 3 utxos took 28s against the
-/// devnet deployment while photon answered in 250ms and proof generation took 3s
-/// -- i.e. the cost is in this file, and nothing here was measurable.
 mod timing {
     use std::{
         sync::OnceLock,
@@ -143,18 +136,6 @@ where
     let mut report = SyncReport::default();
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
 
-    // Freshness is established ONCE, on the first indexer request of the sync, not
-    // on every request.
-    //
-    // `wait_for_indexer` retries a request until photon reports a block_time at or
-    // past the wall clock when that request began (indexer.rs). Applying it to every
-    // call meant paying the wait per tag chunk, per fetch phase, per round -- ~36
-    // gated calls for one `zolana utxos`, 33.9s of which 33.8s was waiting and 13ms
-    // was actual work. Anchoring the gate on the first call preserves the same
-    // read-your-writes guarantee (photon is known caught up as of sync start) while
-    // the remaining queries, issued milliseconds later, run ungated.
-    //
-    // `None` means ungated: wait_for_indexer() short-circuits on a None config.
     let mut freshness_gate = indexer_rpc_config(config);
 
     let _total = timing::Phase::start("sync_wallet_total", 0);
@@ -269,8 +250,6 @@ where
     I: AsyncRpc,
 {
     let config = normalized_config(config);
-    // Freshness established once per sync, not per request -- see the blocking
-    // variant above for why (~36 gated calls became one).
     let mut freshness_gate = indexer_rpc_config(config);
     let material = authority.sync_material().await?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
