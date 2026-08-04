@@ -7,12 +7,20 @@
     "node": ">=24"
   },
   "workspaces": [
-    "sdk-libs/ts"
+    "sdk-libs/ts",
+    "poc/core",
+    "poc/web"
   ],
   "scripts": {
     "build:ts": "npm run build --workspace @zolana/sdk",
     "check:ts": "npm run check --workspace @zolana/sdk",
     "test:ts": "npm run test --workspace @zolana/sdk",
-    "test:ts:e2e": "npm run test:e2e --workspace @zolana/sdk"
+    "test:ts:e2e": "npm run test:e2e --workspace @zolana/sdk",
+    "poc:dev": "npm run dev --workspace @zolana/poc-web",
+    "poc:build": "npm run build --workspace @zolana/poc-web",
+    "poc:typecheck": "npm run typecheck --workspace @zolana/poc-core && npm run typecheck --workspace @zolana/poc-web"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   }
 }
