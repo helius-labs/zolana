@@ -1,0 +1,105 @@
+name: typescript
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+  SBF_TOOLS_VERSION: v1.54
+
+jobs:
+  check:
+    name: typescript / check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check:ts
+      - name: Verify the published package
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          npm pack --workspace @zolana/sdk --pack-destination "$tmp"
+          set -- "$tmp"/*.tgz
+          test "$#" -eq 1
+          tarball="$1"
+          printf '{"private":true,"type":"module"}\n' > "$tmp/package.json"
+          npm --prefix "$tmp" install "$tarball" "@solana/kit@^7" --ignore-scripts
+          cat > "$tmp/smoke.mts" <<'TS'
+          import { createZolanaClient, type ZolanaClientConfig } from "@zolana/sdk";
+          const config: ZolanaClientConfig = {
+            solanaRpcUrl: new URL("http://127.0.0.1:8899"),
+            indexerUrl: undefined,
+            proverUrl: undefined,
+          };
+          await createZolanaClient(config);
+          TS
+          ./node_modules/.bin/tsc \
+            --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck \
+            --target es2022 --module nodenext --moduleResolution nodenext \
+            "$tmp/smoke.mts"
+          (
+            cd "$tmp"
+            node --input-type=module <<'NODE'
+          const sdk = await import("@zolana/sdk");
+          const instructions = await import("@zolana/sdk/instructions");
+          await Promise.all(
+            ["addresses", "client", "interface", "keypair", "transaction", "wallet"].map(
+              (subpath) => import(`@zolana/sdk/${subpath}`),
+            ),
+          );
+          if (!sdk.buildTransferTransaction || !instructions.getDepositInstructionAsync) process.exit(1);
+          await sdk.createZolanaClient({
+            solanaRpcUrl: "http://127.0.0.1:8899",
+          });
+          NODE
+          )
+
+  e2e:
+    name: typescript / e2e
+    runs-on: ubuntu-latest
+    needs: check
+    timeout-minutes: 120
+    env:
+      AGAVE_VERSION: v4.0.2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: typescript-e2e
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install SBF platform tools
+        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+      - name: Cache proving keys
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
+      - run: npm ci
+      - run: just build-photon
+      - run: just test-ts-e2e

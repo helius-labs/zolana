@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "defaults": {
+    "pageLimit": 1000,
+    "queryChunk": 64,
+    "waitForIndexer": false
+  },
+  "secrets": {
+    "current": "0505050505050505050505050505050505050505050505050505050505050505",
+    "otherSigning": "0404040404040404040404040404040404040404040404040404040404040404",
+    "rotated": "0606060606060606060606060606060606060606060606060606060606060606",
+    "signing": "0303030303030303030303030303030303030303030303030303030303030303"
+  },
+  "signingPublicKey": "01ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100",
+  "cases": [
+    {
+      "id": "current-viewing-key",
+      "viewingKeys": ["current"],
+      "queryChunk": 64,
+      "tags": [
+        "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "07810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a9311"
+      ],
+      "shieldedChunkSizes": [2],
+      "depositChunkSizes": [2]
+    },
+    {
+      "id": "retained-viewing-keys",
+      "viewingKeys": ["current", "rotated"],
+      "queryChunk": 2,
+      "tags": [
+        "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "07810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a9311",
+        "b0514c4c13540f2397f54719f3332e7ef38e42ad9dc08b71e660ce16b9e88d09"
+      ],
+      "shieldedChunkSizes": [2, 1],
+      "depositChunkSizes": [2, 1]
+    }
+  ]
+}
