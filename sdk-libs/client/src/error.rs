@@ -246,8 +246,6 @@ pub enum ClientError {
         attempts: u32,
     },
 
-    #[error("indexer does not report its persisted slot, so the slot {required} requested by the caller cannot be verified; the indexer predates Context.slot and must be upgraded")]
-    IndexerSlotUnavailable { required: u64 },
 
     #[error("poll gave up after {attempts} attempts; last transient error: {last_error:?}")]
     PollTimedOut {

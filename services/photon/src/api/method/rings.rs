@@ -204,7 +204,7 @@ mod tests {
         let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
             context: Context {
                 block_time: 10,
-                slot: None,
+                slot: 1,
             },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1, 2, 3])),

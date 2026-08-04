@@ -804,7 +804,7 @@ mod tests {
             Ok(GetEncryptedUtxosByTagsResponse {
                 context: Context {
                     block_time: 0,
-                    slot: None,
+                    slot: 1,
                 },
                 matches: self.matches.clone(),
                 next_cursor: None,
@@ -821,7 +821,7 @@ mod tests {
             Ok(GetShieldedTransactionsByTagsResponse {
                 context: Context {
                     block_time: 0,
-                    slot: None,
+                    slot: 1,
                 },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
@@ -838,7 +838,7 @@ mod tests {
             Ok(GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 0,
-                    slot: None,
+                    slot: 1,
                 },
                 transactions: self
                     .transactions

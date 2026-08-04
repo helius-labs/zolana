@@ -35,13 +35,6 @@ const MERKLE_PROOF_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 
-/// Highest slot the indexer reports having persisted.
-fn indexed_slot(context: &Context, required: u64) -> Result<u64, ClientError> {
-    context
-        .slot
-        .ok_or(ClientError::IndexerSlotUnavailable { required })
-}
-
 fn wait_for_indexer<T>(
     config: Option<IndexerRpcConfig>,
     context: impl Fn(&T) -> Context,
@@ -56,7 +49,7 @@ fn wait_for_indexer<T>(
             sleep(delay);
         }
         let response = request()?;
-        indexed = indexed_slot(&context(&response), required)?;
+        indexed = context(&response).slot;
         if indexed >= required {
             return Ok(response);
         }
@@ -86,7 +79,7 @@ where
             tokio::time::sleep(delay).await;
         }
         let response = request().await?;
-        indexed = indexed_slot(&context(&response), required)?;
+        indexed = context(&response).slot;
         if indexed >= required {
             return Ok(response);
         }
@@ -902,7 +895,7 @@ mod tests {
             GetEncryptedUtxosByTagsResponse {
                 context: Context {
                     block_time: 42,
-                    slot: None
+                    slot: 1
                 },
                 matches: vec![EncryptedUtxoMatch {
                     slot: 7,
@@ -974,7 +967,7 @@ mod tests {
             GetShieldedTransactionsByTagsResponse {
                 context: Context {
                     block_time: 51,
-                    slot: None
+                    slot: 1
                 },
                 transactions: vec![ShieldedTransaction {
                     slot: 50,
@@ -1080,7 +1073,7 @@ mod tests {
             GetShieldedTransactionsByNullifiersResponse {
                 context: Context {
                     block_time: 52,
-                    slot: None
+                    slot: 1
                 },
                 transactions: vec![],
                 next_cursor: None,
@@ -1131,7 +1124,7 @@ mod tests {
             GetMerkleProofsResponse {
                 context: Context {
                     block_time: 80,
-                    slot: None
+                    slot: 1
                 },
                 proofs: vec![MerkleProof {
                     leaf: leaf_a,
@@ -1194,7 +1187,7 @@ mod tests {
             GetNonInclusionProofsResponse {
                 context: Context {
                     block_time: 90,
-                    slot: None
+                    slot: 1
                 },
                 proofs: vec![NonInclusionProof {
                     leaf,

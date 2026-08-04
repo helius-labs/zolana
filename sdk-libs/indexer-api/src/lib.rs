@@ -493,8 +493,7 @@ impl<'de> Deserialize<'de> for Limit {
 pub struct Context {
     pub block_time: i64,
     /// Highest slot the indexer has persisted, for slot-based freshness checks.
-    #[serde(default)]
-    pub slot: Option<u64>,
+    pub slot: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -773,7 +772,7 @@ mod tests {
         let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
             context: Context {
                 block_time: 3,
-                slot: None,
+                slot: 1,
             },
             matches: Vec::new(),
             next_cursor: Some(Base64String(vec![1])),

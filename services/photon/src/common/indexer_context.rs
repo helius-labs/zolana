@@ -25,7 +25,12 @@ pub async fn extract(conn: &DatabaseConnection) -> Result<Context, PhotonApiErro
         .ok_or_else(|| PhotonApiError::RecordNotFound("No data has been indexed".to_string()))?;
     Ok(Context {
         block_time: context.block_time,
-        slot: u64::try_from(context.slot).ok(),
+        slot: u64::try_from(context.slot).map_err(|_| {
+            PhotonApiError::UnexpectedError(format!(
+                "Invalid negative slot in database: {}",
+                context.slot
+            ))
+        })?,
     })
 }
 
