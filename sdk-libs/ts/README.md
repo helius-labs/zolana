@@ -18,9 +18,8 @@ npm install @zolana/sdk @solana/kit
 Requirements:
 
 - Node.js 24 or newer;
-- a Solana RPC endpoint;
-- a Zolana indexer endpoint; and
-- a Zolana prover endpoint for private spends.
+- a unified Zolana endpoint, or separate Solana RPC, indexer, and prover
+  endpoints.
 
 ## Quick start
 
@@ -51,9 +50,7 @@ import {
 } from "@zolana/sdk";
 
 const client = await createZolanaClient({
-  solanaRpcUrl: "https://api.devnet.solana.com",
-  indexerUrl: "https://indexer.example.com",
-  proverUrl: "https://prover.example.com",
+  solanaRpcUrl: "https://zolana.example.com",
 });
 
 // Load this from the app wallet or key store.
@@ -104,6 +101,17 @@ await syncWallet({
 
 console.log(wallet.balance(SOL_MINT).amount);
 console.log(getPrivateTransactions(wallet));
+```
+
+By default, the indexer and prover use `solanaRpcUrl`. Override either one
+independently for separate services or local development:
+
+```ts
+const client = await createZolanaClient({
+  solanaRpcUrl: "http://127.0.0.1:8899",
+  indexerUrl: "http://127.0.0.1:8784",
+  proverUrl: "http://127.0.0.1:3001",
+});
 ```
 
 For an Ed25519 spending wallet, the shielded identity and Solana signer must use

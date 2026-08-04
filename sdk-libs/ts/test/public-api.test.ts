@@ -50,8 +50,6 @@ describe("public package surface", () => {
   it("creates the one configured client and initializes protocol crypto", async () => {
     const client = await createZolanaClient({
       solanaRpcUrl: "http://127.0.0.1:8899",
-      indexerUrl: "http://127.0.0.1:8784",
-      proverUrl: "http://127.0.0.1:3001",
     });
     expect(client.tree).toBe(DEFAULT_TREE_ADDRESS);
     expect(client.commitment).toBe("confirmed");

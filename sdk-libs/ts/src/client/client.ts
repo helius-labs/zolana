@@ -69,9 +69,9 @@ const DEFAULT_COMMITMENT: Commitment = "confirmed";
 export interface ZolanaClientConfig {
   readonly solanaRpcUrl: string | URL;
   readonly solanaRpcSubscriptionsUrl?: string | URL;
-  readonly indexerUrl: string | URL;
+  readonly indexerUrl?: string | URL | undefined;
   readonly apiKey?: string;
-  readonly proverUrl: string | URL;
+  readonly proverUrl?: string | URL | undefined;
   readonly tree?: Address;
   readonly commitment?: Commitment;
   readonly computeUnitLimit?: number;
@@ -131,8 +131,14 @@ export class ZolanaClient {
         ? {}
         : { solanaRpcSubscriptionsUrl: input.solanaRpcSubscriptionsUrl }),
     });
-    const indexerUrl = checkedServiceUrl(input.indexerUrl, "indexerUrl");
-    const proverUrl = checkedServiceUrl(input.proverUrl, "proverUrl");
+    const indexerUrl = checkedServiceUrl(
+      input.indexerUrl === undefined ? input.solanaRpcUrl : input.indexerUrl,
+      "indexerUrl",
+    );
+    const proverUrl = checkedServiceUrl(
+      input.proverUrl === undefined ? input.solanaRpcUrl : input.proverUrl,
+      "proverUrl",
+    );
     let indexer: ZolanaIndexer;
     try {
       indexer = new ZolanaIndexer(

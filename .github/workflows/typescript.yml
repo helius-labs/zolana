@@ -39,6 +39,19 @@ jobs:
           tarball="$1"
           printf '{"private":true,"type":"module"}\n' > "$tmp/package.json"
           npm --prefix "$tmp" install "$tarball" "@solana/kit@^7" --ignore-scripts
+          cat > "$tmp/smoke.mts" <<'TS'
+          import { createZolanaClient, type ZolanaClientConfig } from "@zolana/sdk";
+          const config: ZolanaClientConfig = {
+            solanaRpcUrl: new URL("http://127.0.0.1:8899"),
+            indexerUrl: undefined,
+            proverUrl: undefined,
+          };
+          await createZolanaClient(config);
+          TS
+          ./node_modules/.bin/tsc \
+            --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck \
+            --target es2022 --module nodenext --moduleResolution nodenext \
+            "$tmp/smoke.mts"
           (
             cd "$tmp"
             node --input-type=module <<'NODE'
@@ -52,8 +65,6 @@ jobs:
           if (!sdk.buildTransferTransaction || !instructions.getDepositInstructionAsync) process.exit(1);
           await sdk.createZolanaClient({
             solanaRpcUrl: "http://127.0.0.1:8899",
-            indexerUrl: "http://127.0.0.1:8784",
-            proverUrl: "http://127.0.0.1:3001",
           });
           NODE
           )

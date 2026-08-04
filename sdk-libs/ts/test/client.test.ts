@@ -11,14 +11,138 @@ import {
   ZolanaClient,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
+  type SpendProof,
+  type ZolanaClientConfig,
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
-import type { Bytes32 } from "../src/interface/index.js";
+import type { Bytes16, Bytes32 } from "../src/interface/index.js";
+import { ShieldedKeypair } from "../src/keypair/index.js";
+import {
+  ProofInputUtxo,
+  SOL_MINT,
+  SppProofInputs,
+  Utxo,
+  createExternalData,
+  createProofOutput,
+} from "../src/transaction/index.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
+const RPC_URL = "https://rpc.example.com/zolana";
+const INDEXER_URL = "https://indexer.example.com/api";
+const PROVER_URL = "https://prover.example.com/api";
+const STANDARD_PROOF = {
+  ar: ["0x0", "0x0"],
+  bs: [
+    ["0x0", "0x0"],
+    ["0x0", "0x0"],
+  ],
+  krs: ["0x0", "0x0"],
+};
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
+}
+
+function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: SpendProof }> {
+  const keypair = ShieldedKeypair.generate();
+  const input = new ProofInputUtxo({
+    utxo: new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 7n,
+      blinding: bytes(1),
+    }),
+    nullifierKey: keypair.nullifierKey(),
+  });
+  const output = createProofOutput({
+    ownerAddress: keypair.shieldedAddress(),
+    asset: SOL_MINT,
+    amount: 7n,
+    blinding: bytes(2),
+  });
+  const ownerTag = bytes(8);
+  const proofInputs = new SppProofInputs({
+    payerPublicKeyHash: bytes(9),
+    inputUtxos: [input],
+    outputs: [output],
+    externalData: createExternalData({
+      txViewingPublicKey: keypair.viewingPublicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      outputs: [{ utxoHash: output.hash(), ownerTag: { kind: "inline", value: ownerTag } }],
+      resolvedOwnerTags: [ownerTag],
+      messages: [],
+    }),
+  });
+  const spendProof: SpendProof = {
+    state: {
+      leaf: input.hash(),
+      merkleContext: { treeType: 0, tree: TREE },
+      path: Array.from({ length: 32 }, () => bytes(0)),
+      leafIndex: 0n,
+      root: bytes(3),
+      rootSeq: 1n,
+      rootIndex: 4,
+    },
+    nullifier: {
+      leaf: input.nullifier(),
+      merkleContext: { treeType: 1, tree: TREE },
+      path: Array.from({ length: 40 }, () => bytes(0)),
+      lowElement: bytes(4),
+      lowElementIndex: 0n,
+      highElement: bytes(5),
+      highElementIndex: 1n,
+      root: bytes(6),
+      rootSeq: 1n,
+      rootIndex: 7,
+    },
+  };
+  return { proofInputs, spendProof };
+}
+
+type ServiceOverrides = Pick<ZolanaClientConfig, "indexerUrl" | "proverUrl">;
+
+async function serviceRequestUrls(
+  solanaRpcUrl: string | URL,
+  overrides: ServiceOverrides = {},
+): Promise<readonly string[]> {
+  const urls: string[] = [];
+  const fetch = vi.fn(async (input: URL | RequestInfo): Promise<Response> => {
+    const requestUrl = input instanceof Request ? input.url : String(input);
+    urls.push(requestUrl);
+    const path = new URL(requestUrl).pathname;
+    if (path.endsWith("/get_shielded_transactions_by_nullifiers")) {
+      return new Response(
+        JSON.stringify({
+          id: "test-account",
+          jsonrpc: "2.0",
+          result: { context: { block_time: 1 }, transactions: [] },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }
+    if (path.endsWith("/prove")) {
+      return new Response(JSON.stringify(STANDARD_PROOF), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`unexpected request: ${requestUrl}`);
+  }) as typeof globalThis.fetch;
+  const instance = new ZolanaClient({
+    solanaRpcUrl,
+    ...overrides,
+    tree: TREE,
+    fetch,
+    indexerConfig: {
+      waitForIndexer: false,
+      poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
+    },
+  });
+
+  await instance.getShieldedTransactionsByNullifiers({ nullifiers: [bytes(7)] });
+  const fixture = proofFixture();
+  vi.spyOn(instance, "getInputMerkleProofs").mockResolvedValue([fixture.spendProof]);
+  await instance.proveTransact(fixture.proofInputs);
+  return urls;
 }
 
 function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
@@ -48,6 +172,67 @@ describe("ZolanaClient", () => {
     const instance = client(fetch);
     expect(instance.tree).toBe(TREE);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "uses the RPC endpoint for both omitted services",
+      overrides: {},
+      expected: [
+        "https://rpc.example.com/zolana/get_shielded_transactions_by_nullifiers",
+        "https://rpc.example.com/zolana/prove",
+      ],
+    },
+    {
+      name: "keeps an explicit indexer and falls the prover back to RPC",
+      overrides: { indexerUrl: INDEXER_URL },
+      expected: [
+        "https://indexer.example.com/api/get_shielded_transactions_by_nullifiers",
+        "https://rpc.example.com/zolana/prove",
+      ],
+    },
+    {
+      name: "falls the indexer back to RPC and keeps an explicit prover",
+      overrides: { proverUrl: PROVER_URL },
+      expected: [
+        "https://rpc.example.com/zolana/get_shielded_transactions_by_nullifiers",
+        "https://prover.example.com/api/prove",
+      ],
+    },
+    {
+      name: "keeps both explicit service endpoints",
+      overrides: { indexerUrl: INDEXER_URL, proverUrl: PROVER_URL },
+      expected: [
+        "https://indexer.example.com/api/get_shielded_transactions_by_nullifiers",
+        "https://prover.example.com/api/prove",
+      ],
+    },
+  ] satisfies readonly Readonly<{
+    name: string;
+    overrides: ServiceOverrides;
+    expected: readonly string[];
+  }>[])("$name", async ({ overrides, expected }) => {
+    await expect(serviceRequestUrls(RPC_URL, overrides)).resolves.toEqual(expected);
+  });
+
+  it("treats explicit undefined service URLs as omitted", async () => {
+    await expect(
+      serviceRequestUrls(RPC_URL, { indexerUrl: undefined, proverUrl: undefined }),
+    ).resolves.toEqual([
+      "https://rpc.example.com/zolana/get_shielded_transactions_by_nullifiers",
+      "https://rpc.example.com/zolana/prove",
+    ]);
+  });
+
+  it("clones a URL object before deriving service request URLs", async () => {
+    const rpcUrl = new URL("https://gateway.example.com/base?cluster=devnet");
+    const original = rpcUrl.href;
+
+    await expect(serviceRequestUrls(rpcUrl)).resolves.toEqual([
+      "https://gateway.example.com/base/get_shielded_transactions_by_nullifiers?cluster=devnet",
+      "https://gateway.example.com/base/prove?cluster=devnet",
+    ]);
+    expect(rpcUrl.href).toBe(original);
   });
 
   it("does not own Solana signing, sending, or confirmation", () => {
@@ -91,11 +276,39 @@ describe("ZolanaClient", () => {
       let error: unknown;
       try {
         new ZolanaClient({
-          solanaRpcUrl: "http://127.0.0.1:8899",
-          indexerUrl: "https://indexer.example.com",
-          proverUrl: "https://prover.example.com",
+          solanaRpcUrl: RPC_URL,
           [field]: `http://${field}.example.com`,
         });
+      } catch (cause) {
+        error = cause;
+      }
+      expect(error).toMatchObject({
+        code: "CLIENT_INVALID_CONFIG",
+        details: { field },
+      });
+    }
+  });
+
+  it("validates an RPC fallback against each service's HTTPS requirement", () => {
+    for (const { config, field } of [
+      {
+        config: { solanaRpcUrl: "http://rpc.example.com" },
+        field: "indexerUrl",
+      },
+      {
+        config: {
+          solanaRpcUrl: "http://rpc.example.com",
+          indexerUrl: INDEXER_URL,
+        },
+        field: "proverUrl",
+      },
+    ] satisfies readonly Readonly<{
+      config: ZolanaClientConfig;
+      field: "indexerUrl" | "proverUrl";
+    }>[]) {
+      let error: unknown;
+      try {
+        new ZolanaClient(config);
       } catch (cause) {
         error = cause;
       }
