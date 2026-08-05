@@ -1,11 +1,6 @@
 import { ZolanaClient, type ZolanaClientConfig } from "./client/index.js";
 import { initializePoseidon } from "./hasher/index.js";
 
-export {
-  LOCALNET_PHOTON_ENDPOINT,
-  LOCALNET_PROVER_ENDPOINT,
-  LOCALNET_SOLANA_ENDPOINT,
-} from "./endpoint.js";
 export type { TransactionSigner } from "@solana/kit";
 export { initializePoseidon };
 export { HasherWasmError } from "./hasher/index.js";
