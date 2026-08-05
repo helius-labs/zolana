@@ -3,9 +3,11 @@ use zolana_hasher::hash_chain::create_hash_chain_from_array;
 use crate::{
     errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
     events::BatchAddressAppendEvent,
-    merkle_tree::{BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs},
+    merkle_tree::{
+        BatchedMerkleTreeAccount, FoldedAddressAppendInputs, InstructionDataAddressAppendInputs,
+    },
     merkle_tree_metadata::TreeType,
-    verify::verify_batch_address_update,
+    verify::{verify_batch_address_fold, verify_batch_address_update},
     zero_copy::CachedTreeUpdate,
 };
 
@@ -36,6 +38,162 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         }
         // 3. Apply cached updates in order.
         self.apply_cached_tree_updates()
+    }
+
+    /// Verify one folded proof and apply a whole run of address appends.
+    ///
+    /// # Root history
+    ///
+    /// A fold advances the tree by `run` zkp batches but appends exactly ONE
+    /// root. The intermediate roots are private to the fold proof and never
+    /// enter `root_history`.
+    ///
+    /// That is sound because those roots never existed on chain, so no client
+    /// could have bound a proof to one. It is nonetheless a real difference
+    /// from submitting the run as `run` separate transactions, where every
+    /// intermediate root lands in history. Anything that assumes one history
+    /// entry per zkp batch must read `num_update` on the event instead of
+    /// counting roots.
+    ///
+    /// The fold applies only at the head. The run must be finalized and start at
+    /// the pending zkp batch, so StartIndex is the tree's current next index and
+    /// not a caller-supplied offset. `old_root` must equal the account tree root,
+    /// checked before verifying so a span from another tree state costs no
+    /// pairing.
+    pub fn update_tree_from_address_queue_folded(
+        &mut self,
+        instruction_data: &FoldedAddressAppendInputs,
+        run: u32,
+    ) -> Result<BatchAddressAppendEvent, BatchedMerkleTreeError> {
+        if self.tree_type != TreeType::AddressV2 as u64 {
+            return Err(MerkleTreeMetadataError::InvalidTreeType.into());
+        }
+        if run < 2 {
+            return Err(BatchedMerkleTreeError::FoldedRunTooShort);
+        }
+
+        let zkp_batch_size = self.queue_batches.zkp_batch_size;
+        let pending_batch_index = self.queue_batches.pending_batch_index as usize;
+        let (num_full_zkp_batches, num_inserted_zkp_batches) = {
+            let batch = self
+                .queue_batches
+                .batches
+                .get(pending_batch_index)
+                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
+            (batch.num_full_zkp_batches, batch.get_num_inserted_zkps())
+        };
+
+        // More inserted than full means the batch counters disagree, which is
+        // account corruption rather than a run the forester sent too early.
+        let available = num_full_zkp_batches
+            .checked_sub(num_inserted_zkp_batches)
+            .ok_or(BatchedMerkleTreeError::InvalidBatchState)?;
+        if u64::from(run) > available {
+            return Err(BatchedMerkleTreeError::FoldedRunNotReady);
+        }
+
+        let current_root = self
+            .get_root()
+            .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
+        if instruction_data.old_root != current_root {
+            return Err(BatchedMerkleTreeError::FoldedSpanRootMismatch);
+        }
+
+        // Every leg's element chain comes from account state, so the caller cannot
+        // choose which elements the span claims to have appended.
+        let first_zkp_batch = usize::try_from(num_inserted_zkp_batches)
+            .map_err(|_| BatchedMerkleTreeError::ArithmeticOverflow)?;
+        let chains = self
+            .layout
+            .hash_chains
+            .get(pending_batch_index)
+            .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
+        let mut elements = [0u8; 32];
+        for offset in 0..run as usize {
+            let leg = *chains
+                .data
+                .get(first_zkp_batch + offset)
+                .ok_or(BatchedMerkleTreeError::InvalidIndex)?;
+            elements = if offset == 0 {
+                leg
+            } else {
+                create_hash_chain_from_array([elements, leg])?
+            };
+        }
+        let mut start_index_bytes = [0u8; 32];
+        start_index_bytes[24..].copy_from_slice(self.next_index.to_be_bytes().as_slice());
+        let public_input_hash = create_hash_chain_from_array([
+            instruction_data.old_root,
+            instruction_data.new_root,
+            elements,
+            start_index_bytes,
+        ])?;
+        verify_batch_address_fold(
+            self.height,
+            zkp_batch_size,
+            run,
+            public_input_hash,
+            &instruction_data.proof,
+        )?;
+
+        let span = u64::from(run)
+            .checked_mul(zkp_batch_size)
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
+        self.check_tree_is_full(Some(span))?;
+
+        let old_next_index = self.next_index;
+        let start_sequence_number = self.sequence_number;
+        let next_sequence_number = self
+            .sequence_number
+            .checked_add(1)
+            .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
+        self.increment_merkle_tree_next_index(span);
+        self.sequence_number = next_sequence_number;
+        self.append_root(instruction_data.new_root);
+        let root_index = self.get_root_index();
+
+        let root_history_capacity = self.root_history_capacity;
+        let sequence_number = self.sequence_number;
+        for _ in 0..run {
+            let pending_batch_state = self
+                .queue_batches
+                .batches
+                .get_mut(pending_batch_index)
+                .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?
+                .mark_as_inserted_in_merkle_tree(
+                    sequence_number,
+                    root_index,
+                    root_history_capacity,
+                )?;
+            self.layout
+                .metadata
+                .queue_batches
+                .increment_pending_batch_index_if_inserted(pending_batch_state);
+        }
+        self.zero_out_previous_batch_bloom_filter()?;
+
+        // A forester may already have proved some of these slots one by one.
+        // The fold applied them, so an occupied slot left behind would cost a
+        // wasted transaction once the index cycles back to it.
+        for offset in 0..run as usize {
+            let zkp_batch_index = first_zkp_batch
+                .checked_add(offset)
+                .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)?;
+            self.clear_cached_tree_update(pending_batch_index, zkp_batch_index)?;
+        }
+
+        Ok(BatchAddressAppendEvent {
+            merkle_tree_pubkey: self.pubkey().to_bytes(),
+            zkp_batch_size: u16::try_from(zkp_batch_size)
+                .map_err(|_| BatchedMerkleTreeError::ArithmeticOverflow)?,
+            old_next_index,
+            start_sequence_number,
+            first_root_index: root_index,
+            num_update: run,
+            first_zkp_batch_index: u32::try_from(first_zkp_batch)
+                .map_err(|_| BatchedMerkleTreeError::ArithmeticOverflow)?,
+            new_root: instruction_data.new_root,
+        })
     }
 
     /// Verify one address-append proof and cache the update at its zkp batch

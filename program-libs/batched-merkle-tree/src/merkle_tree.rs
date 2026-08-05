@@ -10,7 +10,7 @@ use crate::{
     errors::{BatchedMerkleTreeError, MerkleTreeMetadataError},
     merkle_tree_metadata::{BatchedMerkleTreeMetadata, TreeType, ADDRESS_MERKLE_TREE_TYPE_V2},
     queue::insert_into_current_queue_batch,
-    verify::CompressedProof,
+    verify::{CommittedProof, CompressedProof},
     zero_copy::{
         TreeAccountLayout, ZeroCopyError, BOUNDED_CAPACITY, BOUNDED_LENGTH, CYCLIC_CAPACITY,
         CYCLIC_CURRENT_INDEX, CYCLIC_LENGTH,
@@ -32,6 +32,16 @@ pub struct InstructionDataBatchNullifyInputs {
 }
 
 pub type InstructionDataAddressAppendInputs = InstructionDataBatchNullifyInputs;
+
+/// A folded run of address appends. Only the span endpoints are public. The
+/// intermediate roots are private to the fold proof, and the run's element
+/// chains come from account state rather than the caller.
+#[derive(Debug, PartialEq, Default, Clone, BorshDeserialize, BorshSerialize)]
+pub struct FoldedAddressAppendInputs {
+    pub old_root: [u8; 32],
+    pub new_root: [u8; 32],
+    pub proof: CommittedProof,
+}
 
 pub type InstructionDataBatchAppendInputs = InstructionDataBatchNullifyInputs;
 

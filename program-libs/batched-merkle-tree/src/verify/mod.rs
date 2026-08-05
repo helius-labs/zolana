@@ -1,9 +1,4 @@
 //! Groth16 proof verification for batched Merkle tree operations.
-//!
-//! | Function | Description |
-//! |----------|-------------|
-//! | [`verify_batch_address_update`] | Verify batch address update (10 or 250) |
-//! | [`verify`] | Generic Groth16 proof verification |
 
 use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
@@ -56,7 +51,7 @@ pub enum VerifierError {
     CreateGroth16VerifierFailed,
     #[error("ProofVerificationFailed")]
     ProofVerificationFailed,
-    #[error("InvalidBatchSize supported batch sizes are 1, 10, 100, 500, 1000")]
+    #[error("InvalidBatchSize supported batch sizes are 10 and 250")]
     InvalidBatchSize,
     #[error("Invalid proof size: expected 128 bytes, got {0}")]
     InvalidProofSize(usize),
@@ -139,23 +134,98 @@ pub fn verify<const N: usize>(
     Ok(())
 }
 
+/// A fold proof and its BSB22 commitment. The recursion verifier commits
+/// internally, so every fold proof carries one whether or not the folded
+/// circuit uses lookups.
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, borsh::BorshDeserialize, borsh::BorshSerialize,
+)]
+pub struct CommittedProof {
+    pub proof: CompressedProof,
+    pub commitment: [u8; 32],
+    pub commitment_pok: [u8; 32],
+}
+
+/// Verify a Groth16 proof whose verifying key carries a BSB22 Pedersen
+/// commitment over private wires.
+///
+/// The Pedersen proof of knowledge is what binds the commitment to the prover.
+/// Verifying the pairing without it would accept a commitment the prover cannot
+/// open, so the two must be checked together.
+pub fn verify_committed<const N: usize>(
+    public_inputs: &[[u8; 32]; N],
+    proof: &CommittedProof,
+    vk: &Groth16Verifyingkey,
+) -> Result<(), VerifierError> {
+    if vk.vk_commitment.is_none() {
+        return Err(CreateGroth16VerifierFailed);
+    }
+    let proof_a = decompress_g1(&proof.proof.a).map_err(|_| DecompressG1Failed)?;
+    let proof_b = decompress_g2(&proof.proof.b).map_err(|_| DecompressG2Failed)?;
+    let proof_c = decompress_g1(&proof.proof.c).map_err(|_| DecompressG1Failed)?;
+    let commitment = decompress_g1(&proof.commitment).map_err(|_| DecompressG1Failed)?;
+    let commitment_pok = decompress_g1(&proof.commitment_pok).map_err(|_| DecompressG1Failed)?;
+
+    let mut verifier = Groth16Verifier::new_with_commitment(
+        &proof_a,
+        &proof_b,
+        &proof_c,
+        &commitment,
+        &commitment_pok,
+        public_inputs,
+        vk,
+    )
+    .map_err(|_| CreateGroth16VerifierFailed)?;
+    verifier.verify().map_err(|_| ProofVerificationFailed)
+}
+
+/// Whether a fold verifying key exists for this (tree height, batch size, run).
+pub const fn is_supported_batch_address_fold(tree_height: u32, batch_size: u64, run: u32) -> bool {
+    matches!((tree_height, batch_size, run), (40, 10, 2))
+}
+
+/// Verify a folded run of address appends.
+///
+/// One fold key exists per (tree height, batch size, run) triple, because the
+/// fold compiles in the append verifying key and the run is a compile-time
+/// width, so a caller cannot fold a run the key was not built for.
+#[inline(never)]
+pub fn verify_batch_address_fold(
+    tree_height: u32,
+    batch_size: u64,
+    run: u32,
+    public_input_hash: [u8; 32],
+    proof: &CommittedProof,
+) -> Result<(), VerifierError> {
+    match (tree_height, batch_size, run) {
+        (40, 10, 2) => verify_committed::<1>(
+            &[public_input_hash],
+            proof,
+            &nullifier_fold_40_10_r2::VERIFYINGKEY,
+        ),
+        _ => Err(InvalidBatchSize),
+    }
+}
+
 #[inline(never)]
 pub fn verify_batch_address_update(
     batch_size: u64,
     public_input_hash: [u8; 32],
     compressed_proof: &CompressedProof,
 ) -> Result<(), VerifierError> {
+    verify::<1>(
+        &[public_input_hash],
+        compressed_proof,
+        address_append_vk(batch_size)?,
+    )
+}
+
+fn address_append_vk(
+    batch_size: u64,
+) -> Result<&'static Groth16Verifyingkey<'static>, VerifierError> {
     match batch_size {
-        10 => verify::<1>(
-            &[public_input_hash],
-            compressed_proof,
-            &batch_address_append_40_10::VERIFYINGKEY,
-        ),
-        250 => verify::<1>(
-            &[public_input_hash],
-            compressed_proof,
-            &batch_address_append_40_250::VERIFYINGKEY,
-        ),
-        _ => Err(InvalidPublicInputsLength),
+        10 => Ok(&batch_address_append_40_10::VERIFYINGKEY),
+        250 => Ok(&batch_address_append_40_250::VERIFYINGKEY),
+        _ => Err(InvalidBatchSize),
     }
 }
