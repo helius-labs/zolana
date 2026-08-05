@@ -1,8 +1,32 @@
+mod aggregate;
 mod circuit;
+pub mod merge_chain;
+pub use aggregate::{
+    AggregateCircuitId, InnerCircuitKind, MAX_AGGREGATE_BATCH, MIN_AGGREGATE_BATCH,
+};
 pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData};
-
+#[cfg(feature = "verifying-keys")]
+pub mod aggregate_transfer_confidential_2_2_b2;
+#[cfg(feature = "verifying-keys")]
+pub mod aggregate_transfer_confidential_2_2_b3;
+#[cfg(feature = "verifying-keys")]
+pub mod aggregate_transfer_confidential_2_3_b2;
+#[cfg(feature = "verifying-keys")]
+pub mod aggregate_transfer_confidential_2_3_b3;
+#[cfg(feature = "verifying-keys")]
+pub mod aggregate_transfer_p256_ring_2_3_b2;
+#[cfg(feature = "verifying-keys")]
+pub mod aggregate_transfer_p256_ring_2_3_b3;
+#[cfg(feature = "verifying-keys")]
+pub mod aggregate_transfer_ring_2_3_b2;
+#[cfg(feature = "verifying-keys")]
+pub mod aggregate_transfer_ring_2_3_b3;
 #[cfg(feature = "verifying-keys")]
 pub mod merge_8_1;
+#[cfg(feature = "verifying-keys")]
+pub mod merge_chain_1_1;
+#[cfg(feature = "verifying-keys")]
+pub mod merge_chain_2_1;
 #[cfg(feature = "verifying-keys")]
 pub mod merge_ring_8_1;
 #[cfg(feature = "verifying-keys")]
