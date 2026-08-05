@@ -1,3 +1,5 @@
+github.com/Atamanov/gnark v0.15.1-0.20260806151717-c61526a9bfd8 h1:YrgGkGXtTNBI8MQiVIJvZ0BmFF7Badk5dEH4u+QNDpI=
+github.com/Atamanov/gnark v0.15.1-0.20260806151717-c61526a9bfd8/go.mod h1:RIWXG9Gl+Ls2enSayeA/NdcM/FI3OOf6AqNdI2Jv8QU=
 github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107 h1:Xmabi4NM2Ka6vJpM8iaiKKSDT+AZwYnSdkz/KGrKbB4=
 github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107/go.mod h1:OzXjBrGCWeDcKuvq3Q7/k8gL/2w9mCL6E2bCCcoJqEs=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

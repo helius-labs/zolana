@@ -54,3 +54,9 @@ require (
 )
 
 replace github.com/reilabs/gnark-lean-extractor/v3 => github.com/Lightprotocol/gnark-lean-extractor/v3 v3.0.0-20250920122823-aa0219463107
+
+// Fork of gnark v0.15.0. Adds stdgroth16.WithNativeHashToField, without which
+// the recursion verifier derives the BSB22 commitment challenge with MiMC and
+// rejects every P256 proof the prover already sends on chain, and
+// stdgroth16.WithFixedVerifyingKey, which the aggregate circuit uses.
+replace github.com/consensys/gnark => github.com/Atamanov/gnark v0.15.1-0.20260806151717-c61526a9bfd8
