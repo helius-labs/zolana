@@ -1,17 +1,23 @@
+pub mod aggregate_transact;
 pub mod batch_update_nullifier_tree;
 pub mod deposit;
+pub mod merge_chain_transact;
 pub mod merge_ring;
 pub mod merge_transact;
 pub mod protocol_config;
 pub mod ring_config;
 pub mod transact;
 
-pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
+pub use batch_update_nullifier_tree::{
+    BatchUpdateNullifierTreeData, BatchUpdateNullifierTreeFoldedData, CommittedProof,
+    CompressedProof,
+};
 pub use deposit::{
     DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef,
     EncryptedRingDepositData, EncryptedRingDepositDataRef, RingDepositEntry, RingDepositEntryRef,
     RingDepositIxData, RingDepositIxDataRef, UtxoData, UtxoDataRef, MAX_DEPOSIT_ASSETS,
 };
+pub use merge_chain_transact::{MergeChainTransactIxData, MergeChainTransactIxDataRef};
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{
     MergeExternalDataHash, MergeProof, MergeProofRef, MergeTransactIxData, MergeTransactIxDataRef,

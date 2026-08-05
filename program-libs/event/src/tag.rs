@@ -32,6 +32,22 @@ pub const RING_TRANSACT: u8 = 15;
 pub const RING_MERGE_TRANSACT: u8 = 16;
 pub const RING_AUTHORITY_TRANSACT: u8 = 17;
 
+/// Batch of `transact` legs settled against one recursive proof.
+pub const AGGREGATE_TRANSACT: u8 = 18;
+
+/// Run of consecutive nullifier-tree appends settled against one folded proof.
+pub const BATCH_UPDATE_NULLIFIER_TREE_FOLDED: u8 = 19;
+
+/// Tree of `merge` legs settled against one recursive proof.
+pub const MERGE_CHAIN_TRANSACT: u8 = 20;
+
+/// The next unused instruction tag.
+///
+/// Every byte below this one dispatches. A branch that claims a byte without
+/// moving this constant shadows the instruction it collides with instead of
+/// failing to build.
+pub const NEXT_FREE_TAG: u8 = 21;
+
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -54,6 +70,9 @@ pub enum InstructionTag {
     RingTransact = RING_TRANSACT,
     RingMergeTransact = RING_MERGE_TRANSACT,
     RingAuthorityTransact = RING_AUTHORITY_TRANSACT,
+    AggregateTransact = AGGREGATE_TRANSACT,
+    BatchUpdateNullifierTreeFolded = BATCH_UPDATE_NULLIFIER_TREE_FOLDED,
+    MergeChainTransact = MERGE_CHAIN_TRANSACT,
 }
 
 impl TryFrom<u8> for InstructionTag {
@@ -79,7 +98,32 @@ impl TryFrom<u8> for InstructionTag {
             RING_TRANSACT => Ok(Self::RingTransact),
             RING_MERGE_TRANSACT => Ok(Self::RingMergeTransact),
             RING_AUTHORITY_TRANSACT => Ok(Self::RingAuthorityTransact),
+            AGGREGATE_TRANSACT => Ok(Self::AggregateTransact),
+            BATCH_UPDATE_NULLIFIER_TREE_FOLDED => Ok(Self::BatchUpdateNullifierTreeFolded),
+            MERGE_CHAIN_TRANSACT => Ok(Self::MergeChainTransact),
             _ => Err(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `NEXT_FREE_TAG` is the first byte no instruction claims, and the tags
+    /// below it are contiguous. A branch that adds a tag without moving this
+    /// constant fails here rather than at the dispatch it would shadow.
+    #[test]
+    fn next_free_tag_is_the_first_unclaimed_byte() {
+        for byte in 0..NEXT_FREE_TAG {
+            assert!(
+                InstructionTag::try_from(byte).is_ok(),
+                "tag {byte} is below NEXT_FREE_TAG but dispatches to nothing"
+            );
+        }
+        assert!(
+            InstructionTag::try_from(NEXT_FREE_TAG).is_err(),
+            "NEXT_FREE_TAG {NEXT_FREE_TAG} is already claimed"
+        );
     }
 }

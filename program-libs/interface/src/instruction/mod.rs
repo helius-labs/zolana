@@ -6,13 +6,15 @@ use borsh::BorshSerialize;
 #[cfg(feature = "solana")]
 pub use builders::*;
 pub use instruction_data::{
-    fetch_tag, validate_interface_transfers, BatchUpdateNullifierTreeData, CircuitId,
-    CompressedProof, CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind,
-    DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
-    EncryptedRingDepositDataRef, InputUtxo, InterfaceTransfer, MergeExternalDataHash,
-    MergeRingIxData, MergeRingIxDataRef, MergeTransactIxData, MergeTransactIxDataRef, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, PauseTreeData, ResolvedInterfaceTransfer, ResolvedOutput,
-    RingDepositEntry, RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, TransactIxData,
+    fetch_tag, validate_interface_transfers, BatchUpdateNullifierTreeData,
+    BatchUpdateNullifierTreeFoldedData, CircuitId, CommittedProof, CompressedProof,
+    CreateProtocolConfigData, CreateRingConfigData, DepositAssetKind, DepositEntry,
+    DepositEntryRef, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
+    EncryptedRingDepositDataRef, InputUtxo, InterfaceTransfer, MergeChainTransactIxData,
+    MergeChainTransactIxDataRef, MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef,
+    MergeTransactIxData, MergeTransactIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag,
+    PauseTreeData, ResolvedInterfaceTransfer, ResolvedOutput, RingDepositEntry,
+    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, TransactIxData,
     TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof, UpdateProtocolConfigData,
     UpdateRingConfigData, UtxoData, UtxoDataRef, MAX_DEPOSIT_ASSETS,
 };
