@@ -32,22 +32,6 @@ const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
-/**
- * Whether a URL points back at this machine. A trailing dot is a fully
- * qualified name for the same host, so it is stripped before comparing.
- *
- * Plain http is allowed on a loopback host and nowhere else.
- */
-function isLoopbackUrl(url: URL): boolean {
-  const hostname = url.hostname.endsWith(".") ? url.hostname.slice(0, -1) : url.hostname;
-  return (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname === "[::1]" ||
-    /^127(?:\.\d{1,3}){3}$/u.test(hostname)
-  );
-}
-
 export function checkedServiceUrl(value: string | URL, field: string): URL {
   let url: URL;
   try {
@@ -55,7 +39,12 @@ export function checkedServiceUrl(value: string | URL, field: string): URL {
   } catch {
     throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field } });
   }
-  const isLoopback = isLoopbackUrl(url);
+  const hostname = url.hostname.endsWith(".") ? url.hostname.slice(0, -1) : url.hostname;
+  const isLoopback =
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "[::1]" ||
+    /^127(?:\.\d{1,3}){3}$/u.test(hostname);
   if (
     (url.protocol !== "https:" && (url.protocol !== "http:" || !isLoopback)) ||
     url.username !== "" ||
