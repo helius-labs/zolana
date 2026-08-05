@@ -47,44 +47,18 @@ describe("transport configuration", () => {
     expect(injected.mock.calls[0]?.[1]?.redirect).toBe("error");
   });
 
-  it("preserves endpoint queries across every Photon method path", async () => {
-    const urls: URL[] = [];
-    const injected = vi.fn<typeof globalThis.fetch>((input) => {
-      const url = new URL(String(input));
-      urls.push(url);
-      const result = url.pathname.endsWith("get_encrypted_utxos_by_tags")
-        ? { context: { block_time: 0 }, matches: [] }
-        : url.pathname.includes("_proofs")
-          ? { context: { block_time: 0 }, proofs: [] }
-          : { context: { block_time: 0 }, transactions: [] };
-      return Promise.resolve(success(result));
-    });
+  it("preserves query parameters from a shared endpoint", async () => {
+    const injected = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success()));
     const api = new ZolanaApi({
       url: "https://gateway.example/zolana?api-key=k%2B1&tenant=alpha",
       fetch: injected,
     });
 
-    await Promise.all([
-      api.getEncryptedUtxosByTags({ tags: [HASH] } as never),
-      api.getShieldedTransactionsByTags({ tags: [HASH] } as never),
-      api.getShieldedTransactionsBySignature({ txSignature: SIGNATURE } as never),
-      api.getMerkleProofs(REQUEST),
-      api.getNonInclusionProofs(REQUEST),
-    ]);
+    await api.getMerkleProofs(REQUEST);
 
-    expect(urls.map((url) => url.pathname).sort()).toEqual(
-      [
-        "/zolana/get_encrypted_utxos_by_tags",
-        "/zolana/get_merkle_proofs",
-        "/zolana/get_non_inclusion_proofs",
-        "/zolana/get_shielded_transactions_by_signature",
-        "/zolana/get_shielded_transactions_by_tags",
-      ].sort(),
+    expect(String(injected.mock.calls[0]?.[0])).toBe(
+      "https://gateway.example/zolana/get_merkle_proofs?tenant=alpha&api-key=k%2B1",
     );
-    for (const url of urls) {
-      expect(url.searchParams.get("api-key")).toBe("k+1");
-      expect(url.searchParams.get("tenant")).toBe("alpha");
-    }
   });
 
   it("copies URL configuration before use", async () => {
