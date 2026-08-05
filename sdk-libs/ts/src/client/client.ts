@@ -724,7 +724,7 @@ function privateTransactionInstructions(
         ]),
     ...(input.setupInstructions ?? []),
     transactInstruction({
-      feePayer: input.payer,
+      payer: input.payer,
       inputTree: input.inputTree,
       outputTree: input.outputTree,
       data: input.data,
@@ -751,7 +751,7 @@ export function buildUnsignedMergeTransaction(
       mergeTransactInstruction({
         inputTree: input.tree,
         outputTree: input.tree,
-        feePayer: input.feePayer,
+        payer: input.feePayer,
         userRecord: input.userRecord,
         data: input.data,
       }),

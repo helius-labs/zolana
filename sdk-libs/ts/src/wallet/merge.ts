@@ -1,7 +1,6 @@
 import { getAddressEncoder } from "@solana/kit";
 
 import type { ZolanaClient } from "../client/client.js";
-import { DEFAULT_TREE_ADDRESS } from "../interface/program.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
@@ -179,9 +178,9 @@ export async function buildMergeTransaction(
     });
     const record = await internalMergeRecord({ rpc: input.client, owner }, context);
     validateMergeBuild(record, owner, material);
-    if (DEFAULT_TREE_ADDRESS !== created.tree) {
+    if (input.client.tree !== created.tree) {
       throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-        details: { proofTree: DEFAULT_TREE_ADDRESS, submitTree: created.tree },
+        details: { proofTree: input.client.tree, submitTree: created.tree },
       });
     }
     const proved = await input.client.proveMerge(

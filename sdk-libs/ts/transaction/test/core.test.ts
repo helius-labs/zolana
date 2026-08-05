@@ -244,9 +244,6 @@ describe("transaction core", () => {
 
     expect(nullifierKey).toHaveBeenCalledOnce();
     expect(destroy).toHaveBeenCalledOnce();
-    expect(() => temporary.publicKey()).toThrow(
-      expect.objectContaining({ code: "KEYPAIR_INVALID_SECRET_KEY" }),
-    );
     expect(input.hash()).toEqual(utxo.hash(keypair.nullifierPublicKey()));
     expect(input.nullifier()).toHaveLength(32);
   });

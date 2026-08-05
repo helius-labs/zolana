@@ -21,7 +21,7 @@ describe("example: deposit, transfer, withdraw", () => {
   it("executes a deposit from public to confidential balance, transfer between confidential balances, and confidential to public balance", async () => {
     const { sender: senderKeypair, recipient: recipientKeypair, spl } = await setup();
 
-    // No url reaches the local validator, photon, and prover on their own ports.
+    // Connect to localnet (default).
     const client = await createZolanaClient({});
     // devnet: one url serves the RPC, the indexer, and the prover.
     // const client = await createZolanaClient({
@@ -51,7 +51,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const senderViewTag = senderAddress.confidentialViewTag();
     const depositIx = await depositInstruction({
       tree: DEFAULT_TREE_ADDRESS,
-      sender: senderSigner,
+      depositor: senderSigner,
       deposits: [
         {
           asset: { kind: "sol" },
@@ -105,7 +105,7 @@ describe("example: deposit, transfer, withdraw", () => {
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the transfer.
     // Private transfers move balances only between private token accounts, not public token accounts.
     const transferInstruction = transactInstruction({
-      feePayer: senderSigner,
+      payer: senderSigner,
       inputTree: DEFAULT_TREE_ADDRESS,
       outputTree: DEFAULT_TREE_ADDRESS,
       data: transferData,
@@ -154,7 +154,7 @@ describe("example: deposit, transfer, withdraw", () => {
 
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the withdrawal.
     const withdrawalInstruction = transactInstruction({
-      feePayer: senderSigner,
+      payer: senderSigner,
       inputTree: DEFAULT_TREE_ADDRESS,
       outputTree: DEFAULT_TREE_ADDRESS,
       withdrawal: { kind: "sol", recipient: senderSigner.address },

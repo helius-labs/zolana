@@ -61,7 +61,7 @@ export class Deposit {
   instruction(tree: Address, sender: Address): Promise<Instruction> {
     return depositInstruction({
       tree,
-      sender,
+      depositor: sender,
       deposits: [{ ...this.data, asset: this.settlement }],
     });
   }

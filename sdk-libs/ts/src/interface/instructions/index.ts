@@ -205,12 +205,12 @@ function depositAssetIndex(layout: DepositLayout, deposit: AssetDeposit): number
 
 async function depositAccounts(
   tree: Address,
-  sender: SignerAccount,
+  depositor: SignerAccount,
   layout: DepositLayout,
 ): Promise<Readonly<{ accounts: Meta[]; splInterfaceBumps: number[] }>> {
   const accounts = [
     meta(tree, false, true),
-    meta(sender, true, true),
+    meta(depositor, true, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
   ];
   if (layout.hasSol) {
@@ -233,12 +233,16 @@ async function depositAccounts(
 export async function depositInstruction(
   input: Readonly<{
     tree: Address;
-    sender: SignerAccount;
+    depositor: SignerAccount;
     deposits: readonly AssetDeposit[];
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
-  const { accounts, splInterfaceBumps } = await depositAccounts(input.tree, input.sender, layout);
+  const { accounts, splInterfaceBumps } = await depositAccounts(
+    input.tree,
+    input.depositor,
+    layout,
+  );
   return instruction(
     tagged(
       InstructionTag.deposit,
@@ -298,7 +302,7 @@ function transactAccounts(
 
 export function transactInstruction(
   input: Readonly<{
-    feePayer: SignerAccount;
+    payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
     withdrawal?: TransactWithdrawal;
@@ -307,7 +311,7 @@ export function transactInstruction(
 ): Instruction {
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    transactAccounts(input.feePayer, input.inputTree, input.outputTree, input.withdrawal),
+    transactAccounts(input.payer, input.inputTree, input.outputTree, input.withdrawal),
   );
 }
 
@@ -404,7 +408,7 @@ export function mergeTransactInstruction(
   input: Readonly<{
     inputTree: Address;
     outputTree: Address;
-    feePayer: SignerAccount;
+    payer: SignerAccount;
     userRecord: Address;
     data: MergeTransactInstructionData;
   }>,
@@ -414,7 +418,7 @@ export function mergeTransactInstruction(
     [
       meta(input.inputTree, false, true),
       meta(input.outputTree, false, true),
-      meta(input.feePayer, true, true),
+      meta(input.payer, true, true),
       meta(input.userRecord, false, false),
       meta(SYSTEM_PROGRAM, false, false),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),

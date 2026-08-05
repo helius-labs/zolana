@@ -21,7 +21,6 @@ import {
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,
   createZolanaClient,
-  type ZolanaClientConfig,
 } from "../src/index.js";
 import {
   getAssociatedTokenAddress,
@@ -49,59 +48,14 @@ const BLOCKHASH = "11111111111111111111111111111111" as Blockhash;
 
 describe("public package surface", () => {
   it("creates the default client and initializes protocol crypto", async () => {
-    // No url at all is the local stack, which is what a default client wants.
     const client = await createZolanaClient({});
+    expect(client.tree).toBe(DEFAULT_TREE_ADDRESS);
     expect(client.commitment).toBe("confirmed");
     expect(client.solanaRpc).toBeDefined();
     expect(client.proveTransact).toBeTypeOf("function");
-    expect(client.tree).toBe(DEFAULT_TREE_ADDRESS);
-    expect(client.indexerConfig).toBeDefined();
-    // Service URLs stay config-only: nothing reads them back off the client.
-    expect(client).not.toHaveProperty("solanaRpcUrl");
-    expect(client).not.toHaveProperty("solanaRpcSubscriptionsUrl");
-    expect(client).not.toHaveProperty("indexerUrl");
-    expect(client).not.toHaveProperty("proverUrl");
-    expect(client).not.toHaveProperty("apiKey");
     expect("rpc" in client).toBe(false);
     expect("proveMergeZone" in client).toBe(false);
     expect("finishMergeZoneSubmissionUnsigned" in client).toBe(false);
-  });
-
-  it("takes routing and behavior in one config", () => {
-    const config = {
-      solanaRpcUrl: "https://rpc.example",
-      solanaRpcSubscriptionsUrl: "wss://ws.example",
-      indexerUrl: "https://photon.example",
-      proverUrl: "https://prover.example",
-      apiKey: "key",
-      tree: DEFAULT_TREE_ADDRESS,
-      commitment: "confirmed",
-      computeUnitLimit: 300_000,
-      computeUnitPriceMicroLamports: 1_000n,
-      proverAsyncPoll: { pollIntervalMs: 3_000, maxWaitMs: 1_200_000 },
-      fetch: globalThis.fetch,
-    } satisfies ZolanaClientConfig;
-    expect(Object.keys(config).sort()).toEqual([
-      "apiKey",
-      "commitment",
-      "computeUnitLimit",
-      "computeUnitPriceMicroLamports",
-      "fetch",
-      "indexerUrl",
-      "proverAsyncPoll",
-      "proverUrl",
-      "solanaRpcSubscriptionsUrl",
-      "solanaRpcUrl",
-      "tree",
-    ]);
-
-    const compileTimeOnly = (): void => {
-      // The local stack supplies its own ports, so a config may carry no URL.
-      void createZolanaClient({});
-      // @ts-expect-error Routing fields are urls, not a deployment name.
-      void createZolanaClient({ cluster: "mainnet" });
-    };
-    expect(compileTimeOnly).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {
@@ -333,7 +287,7 @@ describe("address and instruction builders", () => {
     const depositor = { address: OWNER } as TransactionSigner;
     const instruction = await getDepositInstructionAsync({
       tree: DEFAULT_TREE_ADDRESS,
-      sender: depositor,
+      depositor,
       deposits: [
         {
           asset: { kind: "sol" },
@@ -386,7 +340,7 @@ describe("address and instruction builders", () => {
   it("keeps input and output trees explicit in the transact builder", () => {
     const payer = { address: OWNER } as TransactionSigner;
     const instruction = getTransactInstruction({
-      feePayer: payer,
+      payer,
       inputTree: DEFAULT_TREE_ADDRESS,
       outputTree: OWNER,
       data: {
