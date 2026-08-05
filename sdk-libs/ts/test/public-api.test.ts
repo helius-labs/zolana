@@ -33,6 +33,7 @@ import {
   getCreateSplInterfaceInstructionAsync,
   getCreateTreeInstructionAsync,
   getDepositInstructionAsync,
+  getTransactInstruction,
 } from "../src/instructions.js";
 import {
   InstructionTag,
@@ -41,7 +42,6 @@ import {
   type Bytes33,
   type Bytes64,
 } from "../src/interface/index.js";
-import { transactInstruction } from "../src/interface/instructions/index.js";
 import { internalUserRecordPda } from "../src/wallet/registry.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
@@ -332,15 +332,11 @@ describe("address and instruction builders", () => {
   it("builds a deposit instruction", async () => {
     const depositor = { address: OWNER } as TransactionSigner;
     const instruction = await getDepositInstructionAsync({
-      // A SOL deposit resolves no mint, so reaching the chain would be a bug.
-      client: {
-        getAccount: () => Promise.reject(new Error("SOL deposits must not read accounts")),
-      },
       tree: DEFAULT_TREE_ADDRESS,
       sender: depositor,
       deposits: [
         {
-          asset: SOL_MINT,
+          asset: { kind: "sol" },
           viewTag: new Uint8Array(32).fill(1) as Bytes32,
           recipientOwnerHash: new Uint8Array(32).fill(2) as Bytes32,
           blinding: new Uint8Array(32).fill(3) as Bytes32,
@@ -389,7 +385,7 @@ describe("address and instruction builders", () => {
 
   it("keeps input and output trees explicit in the transact builder", () => {
     const payer = { address: OWNER } as TransactionSigner;
-    const instruction = transactInstruction({
+    const instruction = getTransactInstruction({
       feePayer: payer,
       inputTree: DEFAULT_TREE_ADDRESS,
       outputTree: OWNER,
