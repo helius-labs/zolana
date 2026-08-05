@@ -58,9 +58,17 @@ test: test-no-redis test-with-redis test-integration
 
 # === Benchmarks ===
 
-# SPP proving benchmark (solana + p256 rails, every shape); appends to BENCHMARKS.md.
+# SPP proving benchmark: all four spp_transaction variants (confidential, zone,
+# zone_authority, p256) over a representative shape subset, proving with the
+# committed keys. Missing keys are downloaded and checksum-verified on first use.
+# Appends to BENCHMARKS.md.
 bench-spp benchtime="5x":
     scripts/bench_spp.sh {{benchtime}}
+
+# Same, over every shape with a pinned proving key. Needs the full pinned key set
+# (~1.3 GB) on disk, so the first run downloads for a long time.
+bench-spp-all benchtime="5x":
+    ZOLANA_BENCH_ALL_SHAPES=1 scripts/bench_spp.sh {{benchtime}}
 
 # === Formal Verification ===
 extract-circuit: build-binary

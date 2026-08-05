@@ -1,18 +1,3 @@
-// Package fingerprint guards against silent circuit drift: if a circuit's
-// constraint system changes without the proving/verifying keys being rotated,
-// every proof breaks (wrong witness size against stale keys, or a stale
-// on-chain verifying key rejecting a fresh proof). #113 shipped exactly that.
-//
-// Each representative circuit is compiled and fingerprinted by its constraint
-// and public-variable counts. A change here means the circuit changed; the fix
-// is NOT to blindly update these numbers but to run the full rotation:
-//
-//	prover/server/scripts/rotate_proving_keys.sh
-//
-// which regenerates proving keys, regenerates and commits the Rust verifying
-// keys (interface + batched-merkle-tree crates), regenerates proving-keys.lock,
-// and uploads the keys to a new immutable version folder in S3. Only then update
-// the pinned values below (UPDATE_FINGERPRINTS=1 prints the current ones).
 package fingerprint
 
 import (
@@ -27,26 +12,22 @@ import (
 	eddsaprover "zolana/prover/prover/transfer_eddsa_only"
 )
 
-type fingerprint struct {
-	constraints int
-	public      int
-}
-
-// Representative circuit per distinct constraint profile. The other transfer
-// shapes share the same gadget bodies as the entries below, so a gadget-level
-// change (the #113 class of break) trips at least these fingerprints. Keep this
-// set small: gnark compilation is expensive.
-func compileFingerprints(t *testing.T) map[string]fingerprint {
+// Representative circuit per distinct constraint profile, keyed by proving-key
+// name so the fingerprints line up with Pinned. The other transfer shapes share
+// the same gadget bodies as the entries below, so a gadget-level change (the
+// #113 class of break) trips at least these fingerprints. Keep this set small:
+// gnark compilation is expensive.
+func compileFingerprints(t *testing.T) map[string]Fingerprint {
 	t.Helper()
-	out := make(map[string]fingerprint)
+	out := make(map[string]Fingerprint)
 
 	add := func(name string, cs constraint.ConstraintSystem, err error) {
 		if err != nil {
 			t.Fatalf("compile %s: %v", name, err)
 		}
-		out[name] = fingerprint{
-			constraints: cs.GetNbConstraints(),
-			public:      cs.GetNbPublicVariables(),
+		out[name] = Fingerprint{
+			Constraints: cs.GetNbConstraints(),
+			Public:      cs.GetNbPublicVariables(),
 		}
 	}
 
@@ -74,17 +55,43 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	return out
 }
 
-// Pinned to the current key set; the version hash is in
-// prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
-// UPDATE_FINGERPRINTS=1 after a full key rotation.
-var expectedFingerprints = map[string]fingerprint{
-	"transfer_confidential_2_3":   {constraints: 54031, public: 2},
-	"transfer_zone_2_3":           {constraints: 54136, public: 2},
-	"transfer_zone_authority_2_2": {constraints: 50574, public: 2},
-	"transfer_p256_zone_2_3":      {constraints: 245645, public: 2},
-	"merge_8_1":                   {constraints: 180470, public: 2},
-	"merge_zone_8_1":              {constraints: 180740, public: 2},
-	"batch_address-append_40_10":  {constraints: 423683, public: 2},
+// The key-side fingerprints must differ from the source-side ones only where
+// KnownKeyDrift says so, and by exactly the recorded amount.
+func TestKnownKeyDriftIsComplete(t *testing.T) {
+	for name, keyFingerprint := range KeyPinned {
+		source, ok := Pinned[name]
+		if !ok {
+			t.Errorf("KeyPinned has %s but Pinned does not", name)
+			continue
+		}
+		delta := keyFingerprint.Constraints - source.Constraints
+		recorded, drifted := KnownKeyDrift[name]
+		switch {
+		case delta == 0 && drifted:
+			t.Errorf("%s no longer drifts: remove it from KnownKeyDrift", name)
+		case delta != 0 && !drifted:
+			t.Errorf(
+				"%s drifted by %d constraints (key %d, source %d) and is not in KnownKeyDrift. "+
+					"Either the circuit changed without a key rotation or the drift is new; "+
+					"see the KeyPinned doc comment.",
+				name, delta, keyFingerprint.Constraints, source.Constraints,
+			)
+		case delta != recorded:
+			t.Errorf("%s drift changed: got %d constraints, KnownKeyDrift records %d", name, delta, recorded)
+		}
+		if keyFingerprint.Public != source.Public {
+			t.Errorf(
+				"%s public variable count differs (key %d, source %d): the witness layout changed, "+
+					"so this key cannot prove current witnesses at all",
+				name, keyFingerprint.Public, source.Public,
+			)
+		}
+	}
+	for name := range KnownKeyDrift {
+		if _, ok := KeyPinned[name]; !ok {
+			t.Errorf("KnownKeyDrift lists %s, which has no KeyPinned entry", name)
+		}
+	}
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
@@ -92,12 +99,12 @@ func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
 
 	if os.Getenv("UPDATE_FINGERPRINTS") == "1" {
 		for name, fp := range got {
-			fmt.Printf("\t%q: {constraints: %d, public: %d},\n", name, fp.constraints, fp.public)
+			fmt.Printf("\t%q: {Constraints: %d, Public: %d},\n", name, fp.Constraints, fp.Public)
 		}
-		t.Skip("UPDATE_FINGERPRINTS=1: printed current fingerprints; paste into expectedFingerprints")
+		t.Skip("UPDATE_FINGERPRINTS=1: printed current fingerprints; paste into Pinned")
 	}
 
-	for name, want := range expectedFingerprints {
+	for name, want := range Pinned {
 		have, ok := got[name]
 		if !ok {
 			t.Errorf("missing fingerprint for %s", name)
@@ -108,8 +115,8 @@ func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
 				"circuit %s changed (constraints %d->%d, public %d->%d).\n"+
 					"Circuit changes require a key rotation: run "+
 					"prover/server/scripts/rotate_proving_keys.sh <new-tag>, then "+
-					"update expectedFingerprints (UPDATE_FINGERPRINTS=1 prints the values).",
-				name, want.constraints, have.constraints, want.public, have.public,
+					"update Pinned (UPDATE_FINGERPRINTS=1 prints the values).",
+				name, want.Constraints, have.Constraints, want.Public, have.Public,
 			)
 		}
 	}

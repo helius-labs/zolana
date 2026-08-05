@@ -63,7 +63,7 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 		{"input data_hash", func(tx *ProofTransactionRequest) { tx.Inputs[0].Utxo.DataHash = proofFieldInput(big.NewInt(1)) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tx, payerHash, err := benchmarkTransaction(shape)
+			tx, payerHash, err := sampleTransactionRequest(shape)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -78,7 +78,7 @@ func TestBuildProofAssignmentRejectsZoneFields(t *testing.T) {
 
 func TestBuildProofAssignmentAcceptsDistinctNullifierSecrets(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := sampleTransactionRequest(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestBuildProofAssignmentRejectsBadInterfaceTransferRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tx, payerHash, err := benchmarkTransaction(shape)
+			tx, payerHash, err := sampleTransactionRequest(shape)
 			if err != nil {
 				t.Fatal(err)
 			}

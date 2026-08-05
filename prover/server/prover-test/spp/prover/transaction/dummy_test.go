@@ -169,7 +169,7 @@ func TestProveShieldWithAllDummyInputs(t *testing.T) {
 
 func TestProveMixedDirectionInterfaceTransfers(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := sampleTransactionRequest(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestProveMixedDirectionInterfaceTransfers(t *testing.T) {
 
 func TestProveSixSameAssetInterfaceTransfers(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := sampleTransactionRequest(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestProveSixSameAssetInterfaceTransfers(t *testing.T) {
 
 func TestProveThreeDistinctPublicAssets(t *testing.T) {
 	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := sampleTransactionRequest(shape)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -146,37 +146,29 @@ func refreshCustomZoneP256PublicInputHash(
 	if err != nil {
 		t.Fatalf("P256 message hash: %v", err)
 	}
-	signerChain, err := protocol.RightHashChain(
-		spptest.ToBigInts(assignment.TransactionSignerPkHashes()),
-	)
-	if err != nil {
-		t.Fatalf("P256 signer chain: %v", err)
-	}
-	fields := []*big.Int{
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.InputNullifiers())),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.OutputHashes())),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.InputUtxoRoots())),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.InputNullifierTreeRoots())),
-		spptest.AsBigInt(assignment.PrivateTxHash),
-		messageHash,
-		defaultP256OwnerPkHash(assignment, p256PkHash),
-		spptest.AsBigInt(assignment.ExternalDataHash),
+	publicInputs := protocol.PublicInputs{
+		Nullifiers:          spptest.ToBigInts(assignment.InputNullifiers()),
+		OutputUtxoHashes:    spptest.ToBigInts(assignment.OutputHashes()),
+		UtxoTreeRoots:       spptest.ToBigInts(assignment.InputUtxoRoots()),
+		NullifierTreeRoots:  spptest.ToBigInts(assignment.InputNullifierTreeRoots()),
+		PrivateTxHash:       spptest.AsBigInt(assignment.PrivateTxHash),
+		ExternalDataHash:    spptest.AsBigInt(assignment.ExternalDataHash),
+		ZoneProgramID:       spptest.AsBigInt(assignment.ZoneProgramID),
+		AllowDummyInputs:    spptest.AsBigInt(assignment.AllowDummyInputs),
+		SignerPkHashes:      spptest.ToBigInts(assignment.TransactionSignerPkHashes()),
+		BindOutputOwnerTags: true,
+		OutputOwnerPkHashes: spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes()),
 	}
 	for i := 0; i < NPublicSlots; i++ {
-		fields = append(
-			fields,
-			spptest.AsBigInt(assignment.PublicAssets[i]),
-			spptest.AsBigInt(assignment.PublicAmounts[i]),
-		)
+		publicInputs.PublicAssets[i] = spptest.AsBigInt(assignment.PublicAssets[i])
+		publicInputs.PublicAmounts[i] = spptest.AsBigInt(assignment.PublicAmounts[i])
 	}
-	fields = append(
-		fields,
-		spptest.AsBigInt(assignment.ZoneProgramID),
-		signerChain,
-		spptest.AsBigInt(assignment.AllowDummyInputs),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes())),
+	hash, err := protocol.PublicInputHashP256(
+		publicInputs,
+		messageHash,
+		defaultP256OwnerPkHash(assignment, p256PkHash),
 	)
-	assignment.PublicInputHash = spptest.MustHashChain(t, fields)
+	assignment.PublicInputHash = spptest.MustHash(t, hash, err)
 }
 
 func defaultP256OwnerPkHash(assignment *testAssignment, p256PkHash *big.Int) *big.Int {

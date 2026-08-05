@@ -21,7 +21,7 @@ func TestProveAndVerifyEveryShape(t *testing.T) {
 	for _, shape := range protocol.SupportedShapes {
 		name := fmt.Sprintf("inputs_%d_outputs_%d", shape.NInputs, shape.NOutputs)
 		t.Run(name, func(t *testing.T) {
-			tx, payerHash, err := benchmarkTransaction(shape)
+			tx, payerHash, err := sampleTransactionRequest(shape)
 			if err != nil {
 				t.Fatalf("build transaction: %v", err)
 			}

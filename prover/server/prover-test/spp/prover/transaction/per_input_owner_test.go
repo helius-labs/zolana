@@ -51,7 +51,7 @@ func solveAssignment(t *testing.T, shape protocol.Shape, built proofAssignment) 
 // private while the public signer transcript contains each non-payer owner.
 func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := sampleTransactionRequest(shape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestBuildProofAssignmentAcceptsDistinctSolanaOwners(t *testing.T) {
 // must fail to build.
 func TestBuildProofAssignmentRejectsP256Owner(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	tx, payerHash, err := benchmarkTransaction(shape)
+	tx, payerHash, err := sampleTransactionRequest(shape)
 	if err != nil {
 		t.Fatal(err)
 	}

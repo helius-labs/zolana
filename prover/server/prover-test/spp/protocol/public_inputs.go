@@ -54,6 +54,39 @@ type PublicInputs struct {
 }
 
 func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
+	fields, err := publicInputFields(inputs, nil)
+	if err != nil {
+		return nil, err
+	}
+	return HashChain(fields)
+}
+
+// p256Tags are the two fields the P256 rail publishes between private_tx_hash
+// and external_data_hash: the hash of the signed message digest and the P256
+// owner tag of the default-zone input (0 when no such input exists).
+type p256Tags struct {
+	messageHash *big.Int
+	ownerPkHash *big.Int
+}
+
+// PublicInputHashP256 is the P256 rail's preimage. Everything outside the two
+// extra tags is identical to PublicInputHash, so both rails share one field
+// order.
+func PublicInputHashP256(inputs PublicInputs, messageHash, ownerPkHash *big.Int) (*big.Int, error) {
+	if messageHash == nil {
+		return nil, fmt.Errorf("spp: P256 public input hash: missing message hash")
+	}
+	if ownerPkHash == nil {
+		return nil, fmt.Errorf("spp: P256 public input hash: missing owner pk hash")
+	}
+	fields, err := publicInputFields(inputs, &p256Tags{messageHash: messageHash, ownerPkHash: ownerPkHash})
+	if err != nil {
+		return nil, err
+	}
+	return HashChain(fields)
+}
+
+func publicInputFields(inputs PublicInputs, p256 *p256Tags) ([]*big.Int, error) {
 	nullifierChain, err := HashChain(inputs.Nullifiers)
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash nullifier chain: %w", err)
@@ -76,8 +109,11 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		utxoRootChain,
 		nullifierTreeRootChain,
 		inputs.PrivateTxHash,
-		inputs.ExternalDataHash,
 	}
+	if p256 != nil {
+		fields = append(fields, p256.messageHash, p256.ownerPkHash)
+	}
+	fields = append(fields, inputs.ExternalDataHash)
 	for i := 0; i < NPublicSlots; i++ {
 		fields = append(fields, inputs.PublicAssets[i], inputs.PublicAmounts[i])
 	}
@@ -99,5 +135,5 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		}
 		fields = append(fields, outputOwnerChain)
 	}
-	return HashChain(fields)
+	return fields, nil
 }
