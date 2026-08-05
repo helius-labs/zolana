@@ -47,7 +47,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         &ctx.material.funding,
     )?;
     let signature = client.rpc().send_transaction(&transaction)?;
-    client.confirm_private_transaction_sync(signature)?;
+    client.wait_for_indexed_transaction_sync(signature)?;
     let mode = if transfer.recipient.is_public_withdrawal() {
         "withdraw"
     } else {
@@ -135,7 +135,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
         &ctx.material.funding,
     )?;
     let signature = client.rpc().send_transaction(&transaction)?;
-    client.confirm_private_transaction_sync(signature)?;
+    client.wait_for_indexed_transaction_sync(signature)?;
     println!(
         "ok split parts={} amount={} mint={} signature={}",
         parts,

@@ -48,6 +48,7 @@ describe("example: deposit, transfer, withdraw", () => {
 
     // 1. Move public SOL into the sender's private balance.
     // The view tag is the sender's Solana public key in confidential rings.
+    // Used by the indexer to fetch the sender's outputs.
     const senderViewTag = senderAddress.confidentialViewTag();
     const depositIx = await depositInstruction({
       tree: DEFAULT_TREE_ADDRESS,
@@ -63,11 +64,9 @@ describe("example: deposit, transfer, withdraw", () => {
       ],
     });
 
-    // 2. Send like any Solana transaction.
+    // 2. Send and confirm like any Solana transaction.
     const depositSignature = await sendAndConfirm([depositIx]);
-    // Photon indexes asynchronously, so wait for this exact signature before
-    // reading a balance that depends on it.
-    await client.confirmPrivateTransaction(depositSignature);
+    await client.waitForIndexedTransaction(depositSignature);
 
     // 3. Fetch transaction outputs from the indexer.
     // The indexer returns encrypted outputs by view tag.
@@ -113,7 +112,7 @@ describe("example: deposit, transfer, withdraw", () => {
 
     // 6. Send and confirm like any Solana transaction.
     const transferSignature = await sendAndConfirm([transferInstruction]);
-    await client.confirmPrivateTransaction(transferSignature);
+    await client.waitForIndexedTransaction(transferSignature);
 
     // 7. Fetch the sender's outputs again and read the remaining private balance.
     const transferResponse = await client.getShieldedTransactionsByTags({
@@ -163,7 +162,7 @@ describe("example: deposit, transfer, withdraw", () => {
 
     // 6. Send and confirm like any Solana transaction.
     const withdrawalSignature = await sendAndConfirm([withdrawalInstruction]);
-    await client.confirmPrivateTransaction(withdrawalSignature);
+    await client.waitForIndexedTransaction(withdrawalSignature);
 
     // 7. Fetch the sender's outputs again and read the remaining private balance.
     const withdrawalResponse = await client.getShieldedTransactionsByTags({

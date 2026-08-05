@@ -173,7 +173,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         let make_signature =
             send_v0_with_lookup_table(client.rpc(), &maker.keypair.to_solana_keypair()?, make_ix)?;
         client
-            .confirm_private_transaction_sync(make_signature)
+            .wait_for_indexed_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
     }
 
@@ -280,7 +280,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         let take_signature =
             send_v0_with_lookup_table(client.rpc(), &taker.keypair.to_solana_keypair()?, take_ix)?;
         client
-            .confirm_private_transaction_sync(take_signature)
+            .wait_for_indexed_transaction_sync(take_signature)
             .map_err(|e| anyhow!("confirm take indexed: {e:?}"))?;
 
         client

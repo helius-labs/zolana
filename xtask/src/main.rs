@@ -146,6 +146,12 @@ fn print_program_ids() {
         "SWAP_PROGRAM_ID={}",
         bs58::encode(swap_program::ID).into_string()
     );
+    // The canonical account snapshots pre-allocate the pool tree at this
+    // address, so localnet callers never create one.
+    println!(
+        "DEFAULT_TREE_ADDRESS={}",
+        zolana_interface::DEFAULT_TREE_ADDRESS
+    );
 }
 
 #[derive(Debug)]

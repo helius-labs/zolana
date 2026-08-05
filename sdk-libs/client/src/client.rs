@@ -3,7 +3,7 @@
 //! [`ZolanaClient`] owns Solana RPC, Photon, and the prover.
 //! [`sign_private_transaction`] returns a signed native Solana transaction.
 //! Submit that transaction through the client's RPC adapter, then confirm on-chain and wait
-//! for Photon indexing with [`ZolanaClient::confirm_private_transaction`].
+//! for Photon indexing with [`ZolanaClient::wait_for_indexed_transaction`].
 
 use std::{sync::OnceLock, thread::sleep, time::Duration};
 
@@ -297,12 +297,15 @@ impl<R: Rpc> ZolanaClient<R> {
 
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
-    pub fn confirm_private_transaction_sync(
+    ///
+    /// Confirming first turns a transaction that failed on chain into a chain
+    /// error, instead of an indexer timeout that blames the wrong subsystem.
+    pub fn wait_for_indexed_transaction_sync(
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation(self.rpc(), signature, self.indexer_config.poll)?;
-        wait_for_indexed_transaction(self.blocking_indexer(), signature, self.indexer_config.poll)
+        poll_indexed_transaction(self.blocking_indexer(), signature, self.indexer_config.poll)
     }
 }
 
@@ -349,12 +352,15 @@ impl<R: AsyncRpc> ZolanaClient<R> {
 
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
-    pub async fn confirm_private_transaction(
+    ///
+    /// Confirming first turns a transaction that failed on chain into a chain
+    /// error, instead of an indexer timeout that blames the wrong subsystem.
+    pub async fn wait_for_indexed_transaction(
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
         wait_for_rpc_confirmation_async(self.rpc(), signature, self.indexer_config.poll).await?;
-        wait_for_indexed_transaction_async(&self.async_indexer, signature, self.indexer_config.poll)
+        poll_indexed_transaction_async(&self.async_indexer, signature, self.indexer_config.poll)
             .await
     }
 }
@@ -1156,7 +1162,7 @@ async fn wait_for_rpc_confirmation_async<R: AsyncRpc>(
 /// is indexed. Matching the event against the transaction's view tags would add
 /// no guarantee and would reject legitimate transactions whose events share a
 /// tag.
-fn wait_for_indexed_transaction(
+fn poll_indexed_transaction(
     indexer: &ZolanaIndexer,
     signature: Signature,
     retry: IndexerPollConfig,
@@ -1176,7 +1182,7 @@ fn wait_for_indexed_transaction(
     Err(indexer_poll_timeout(retry, last_error))
 }
 
-async fn wait_for_indexed_transaction_async(
+async fn poll_indexed_transaction_async(
     indexer: &AsyncZolanaIndexer,
     signature: Signature,
     retry: IndexerPollConfig,
@@ -1314,7 +1320,7 @@ mod tests {
     }
 
     #[test]
-    fn confirm_private_transaction_sync_waits_for_indexer() {
+    fn wait_for_indexed_transaction_sync_waits_for_indexer() {
         let payer = Keypair::new();
         let sender = ShieldedKeypair::from_solana_keypair(&payer).expect("sender");
         let tree = Address::new_from_array([6u8; 32]);
@@ -1383,7 +1389,7 @@ mod tests {
             .expect("sign native transaction");
         let result = Rpc::send_transaction(client.rpc(), &transaction).expect("send");
         client
-            .confirm_private_transaction_sync(result)
+            .wait_for_indexed_transaction_sync(result)
             .expect("indexed");
 
         assert_eq!(result, signature);
@@ -1483,7 +1489,7 @@ mod tests {
     }
 
     #[test]
-    fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
+    fn wait_for_indexed_transaction_sync_times_out_when_indexer_lags() {
         let signature = Signature::from([9u8; 64]);
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
             "context": { "block_time": 12 },
@@ -1500,7 +1506,7 @@ mod tests {
         )
         .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
         let error = client
-            .confirm_private_transaction_sync(signature)
+            .wait_for_indexed_transaction_sync(signature)
             .expect_err("empty indexer response should time out");
         let _ = server.requests();
 
@@ -1508,7 +1514,7 @@ mod tests {
     }
 
     #[test]
-    fn confirm_private_transaction_async_polls_until_the_event_is_indexed() {
+    fn wait_for_indexed_transaction_async_polls_until_the_event_is_indexed() {
         let signature = Signature::from([10u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             rpc_result(json!({
@@ -1529,7 +1535,7 @@ mod tests {
 
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
         runtime
-            .block_on(client.confirm_private_transaction(signature))
+            .block_on(client.wait_for_indexed_transaction(signature))
             .expect("async lookup should poll past an empty response");
 
         assert_eq!(
@@ -1542,7 +1548,7 @@ mod tests {
     }
 
     #[test]
-    fn confirm_private_transaction_sync_retries_transient_indexer_error() {
+    fn wait_for_indexed_transaction_sync_retries_transient_indexer_error() {
         let signature = Signature::from([15u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             rpc_error(-32603, "Internal error"),
@@ -1559,7 +1565,7 @@ mod tests {
         .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
 
         client
-            .confirm_private_transaction_sync(signature)
+            .wait_for_indexed_transaction_sync(signature)
             .expect("retryable indexer error should be retried");
 
         assert_eq!(
@@ -1575,7 +1581,7 @@ mod tests {
     /// `IndexerTimeout` would send the caller looking for a transaction that
     /// was never queried successfully.
     #[test]
-    fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
+    fn wait_for_indexed_transaction_sync_surfaces_the_last_transient_error() {
         let signature = Signature::from([20u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             rpc_error(-32603, "Internal error"),
@@ -1592,7 +1598,7 @@ mod tests {
         .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
 
         let error = client
-            .confirm_private_transaction_sync(signature)
+            .wait_for_indexed_transaction_sync(signature)
             .expect_err("an indexer that never answers must not look like a lag");
 
         assert_eq!(
@@ -1619,7 +1625,7 @@ mod tests {
     /// them from sharing a view tag. Confirmation only proves the transaction
     /// is indexed, so every event of that signature is an acceptable answer.
     #[test]
-    fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
+    fn wait_for_indexed_transaction_sync_accepts_events_sharing_a_view_tag() {
         let signature = Signature::from([18u8; 64]);
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
             "context": { "block_time": 12 },
@@ -1639,7 +1645,7 @@ mod tests {
         .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
 
         client
-            .confirm_private_transaction_sync(signature)
+            .wait_for_indexed_transaction_sync(signature)
             .expect("events sharing a view tag are not an error");
 
         assert_eq!(

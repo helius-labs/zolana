@@ -203,6 +203,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
       ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
+      ZOLANA_TREE="$DEFAULT_TREE_ADDRESS" \
       ZOLANA_TEST_MINT="$mint" \
       ZOLANA_TEST_TOKEN_ACCOUNT="$token_account" \
       ZOLANA_TEST_TOKEN_2022_MINT="$token_2022_mint" \

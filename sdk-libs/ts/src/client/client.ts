@@ -304,14 +304,17 @@ export class ZolanaClient {
   /**
    * Wait until Solana confirms the transaction and Photon has indexed a Rings
    * event for it.
+   *
+   * Confirming first turns a transaction that failed on chain into a chain
+   * error, instead of an indexer timeout that blames the wrong subsystem.
    */
-  async confirmPrivateTransaction(
+  async waitForIndexedTransaction(
     signature: Signature,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<void> {
     await this.confirmTransaction(signature, config, context);
-    await this.#waitForIndexedTransaction(signature, config, context);
+    await this.#pollIndexedTransaction(signature, config, context);
   }
 
   /** Poll the RPC until the signature reaches this client's commitment. */
@@ -349,7 +352,7 @@ export class ZolanaClient {
    * no guarantee and would reject legitimate transactions whose events share a
    * tag.
    */
-  async #waitForIndexedTransaction(
+  async #pollIndexedTransaction(
     signature: Signature,
     config: IndexerRpcConfig | undefined,
     context: RequestContext | undefined,

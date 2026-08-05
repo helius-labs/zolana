@@ -132,7 +132,7 @@ fn escrow_then_withdraw() -> Result<()> {
         escrow_ix,
     )?;
     client
-        .confirm_private_transaction_sync(signature)
+        .wait_for_indexed_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm escrow indexed: {e:?}"))?;
 
     // Assert the creator's confidential balance dropped to the change amount:
@@ -233,7 +233,7 @@ fn escrow_then_withdraw() -> Result<()> {
         withdraw_ix,
     )?;
     client
-        .confirm_private_transaction_sync(signature)
+        .wait_for_indexed_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm withdraw indexed: {e:?}"))?;
 
     // Assert the withdrawn output landed in the creator's confidential

@@ -95,7 +95,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
     let signature =
         send_cosigned_v0_with_lookup_table(client.rpc(), &maker_solana, &taker_solana, ix)?;
     client
-        .confirm_private_transaction_sync(signature)
+        .wait_for_indexed_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm settlement indexed: {e:?}"))?;
 
     let sol_output = outputs

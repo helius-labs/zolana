@@ -148,7 +148,7 @@ fn main() -> Result<()> {
             sender_solana_keypair.pubkey(),
             &[&sender_solana_keypair],
         )?;
-        client.confirm_private_transaction_sync(signature)?;
+        client.wait_for_indexed_transaction_sync(signature)?;
 
         // 7. Sync the sender's wallet and read the remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
@@ -244,7 +244,7 @@ fn main() -> Result<()> {
             sender_solana_keypair.pubkey(),
             &[&sender_solana_keypair],
         )?;
-        client.confirm_private_transaction_sync(signature)?;
+        client.wait_for_indexed_transaction_sync(signature)?;
 
         // 7. Sync the sender's wallet and read the remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
