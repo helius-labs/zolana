@@ -1,0 +1,78 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "@zolana/sdk",
+  "entryPoints": [
+    "sdk-libs/ts/src/index.ts",
+    "sdk-libs/ts/src/addresses.ts",
+    "sdk-libs/ts/src/client/index.ts",
+    "sdk-libs/ts/src/instructions.ts",
+    "sdk-libs/ts/src/interface/index.ts",
+    "sdk-libs/ts/src/keypair/index.ts",
+    "sdk-libs/ts/src/transaction/index.ts",
+    "sdk-libs/ts/src/wallet/index.ts"
+  ],
+  "entryPointStrategy": "resolve",
+  "basePath": "sdk-libs/ts/src",
+  "out": "target/typedoc",
+  "tsconfig": "sdk-libs/ts/tsconfig.build.json",
+  "readme": "sdk-libs/ts/README.md",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "includeVersion": true,
+  "searchInComments": true,
+  "categorizeByGroup": true,
+  "navigation": {
+    "includeCategories": true,
+    "includeGroups": true
+  },
+  "sort": ["source-order"],
+  "kindSortOrder": ["Function", "Class", "Interface", "TypeAlias", "Variable", "Enum"],
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "notDocumented": false
+  },
+  "intentionallyNotExported": [
+    "AccountReader",
+    "AnonymousRecipientPlaintext",
+    "AnonymousSenderPlaintext",
+    "ClientErrorArguments",
+    "CountDetails",
+    "DecodeSource",
+    "DecryptTransactionsConfig",
+    "FixedBytes",
+    "IndexDetails",
+    "LatestBlockhash",
+    "MethodDetails",
+    "ProoflessOutput",
+    "SerializedPrivateTransaction",
+    "SerializedViewingKeyEntry",
+    "SerializedWalletUtxo",
+    "SettlementTransfer",
+    "SolanaRpc",
+    "SolanaRpcSubscriptions",
+    "SyncClient",
+    "TransferPlaintextUtxos"
+  ],
+  "externalSymbolLinkMappings": {
+    "@solana/addresses": {
+      "address": "https://www.solanakit.com/api/functions/address",
+      "assertIsAddress": "https://www.solanakit.com/api/functions/assertIsAddress",
+      "isAddress": "https://www.solanakit.com/api/functions/isAddress"
+    },
+    "@solana/signers": {
+      "TransactionModifyingSigner": "https://www.solanakit.com/api/type-aliases/TransactionModifyingSigner",
+      "TransactionPartialSigner": "https://www.solanakit.com/api/type-aliases/TransactionPartialSigner",
+      "TransactionSendingSigner": "https://www.solanakit.com/api/type-aliases/TransactionSendingSigner",
+      "assertIsTransactionSigner": "https://www.solanakit.com/api/functions/assertIsTransactionSigner",
+      "isTransactionSigner": "https://www.solanakit.com/api/functions/isTransactionSigner"
+    }
+  },
+  "treatWarningsAsErrors": true,
+  "githubPages": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/helius-labs/zolana",
+    "npm": "https://www.npmjs.com/package/@zolana/sdk"
+  }
+}

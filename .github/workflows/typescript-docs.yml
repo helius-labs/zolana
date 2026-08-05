@@ -1,0 +1,137 @@
+name: typescript SDK docs
+
+on:
+  push:
+    tags:
+      - "ts-sdk-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SDK version to build, without the leading v
+        required: true
+        type: string
+
+concurrency:
+  group: typescript-sdk-docs
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+  # Future canonical base: https://www.helius.dev/privacy/api
+  # Change this only after the Helius website proxies that path to /zolana/ts-sdk.
+  PUBLIC_BASE_URL: https://helius-labs.github.io/zolana/ts-sdk
+
+jobs:
+  build:
+    name: typescript SDK docs / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      should_publish: ${{ steps.release.outputs.should_publish }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Resolve release version
+        id: release
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if [[ "$GITHUB_REF_NAME" != ts-sdk-v* ]]; then
+              echo "unexpected release tag: $GITHUB_REF_NAME" >&2
+              exit 1
+            fi
+            version="${GITHUB_REF_NAME#ts-sdk-v}"
+          else
+            version="$MANUAL_VERSION"
+          fi
+          if ! node -e \
+            "const semver = require('semver'); const value = process.argv[1]; process.exit(semver.valid(value) === value && semver.parse(value).build.length === 0 ? 0 : 1)" \
+            "$version"; then
+            echo "version is not valid SemVer without build metadata: $version" >&2
+            exit 1
+          fi
+          package_version="$(node -p \
+            "JSON.parse(require('node:fs').readFileSync('sdk-libs/ts/package.json')).version")"
+          if [[ "$version" != "$package_version" ]]; then
+            echo "tag version $version does not match @zolana/sdk $package_version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "should_publish=${{ github.event_name == 'push' }}" >> "$GITHUB_OUTPUT"
+      - name: Generate API reference
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          npm run docs:ts -- \
+            --gitRevision "$GITHUB_SHA" \
+            --hostedBaseUrl "$PUBLIC_BASE_URL/v$VERSION/" \
+            --out target/typedoc-release
+      - name: Load published versions
+        if: steps.release.outputs.should_publish == 'true'
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git fetch origin gh-pages
+            git worktree add -b gh-pages "$RUNNER_TEMP/api-docs-site" origin/gh-pages
+          else
+            git worktree add --detach "$RUNNER_TEMP/api-docs-site" HEAD
+            git -C "$RUNNER_TEMP/api-docs-site" switch --orphan gh-pages
+          fi
+      - name: Prepare dry-run site
+        if: steps.release.outputs.should_publish != 'true'
+        run: mkdir -p "$RUNNER_TEMP/api-docs-site"
+      - name: Assemble versioned site
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node sdk-libs/ts/scripts/assemble-api-docs-site.mjs \
+            --site-dir "$RUNNER_TEMP/api-docs-site" \
+            --docs-dir target/typedoc-release \
+            --public-base-url "$PUBLIC_BASE_URL" \
+            --version "$VERSION"
+      - name: Persist published versions
+        if: steps.release.outputs.should_publish == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          git -C "$RUNNER_TEMP/api-docs-site" add --all
+          if git -C "$RUNNER_TEMP/api-docs-site" diff --cached --quiet; then
+            echo "@zolana/sdk v$VERSION is already persisted"
+          else
+            git -C "$RUNNER_TEMP/api-docs-site" \
+              -c user.name=github-actions[bot] \
+              -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+              commit -m "docs: publish @zolana/sdk v$VERSION"
+            git -C "$RUNNER_TEMP/api-docs-site" push origin HEAD:gh-pages
+          fi
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: ${{ runner.temp }}/api-docs-site
+
+  deploy:
+    name: typescript SDK docs / deploy
+    if: needs.build.outputs.should_publish == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

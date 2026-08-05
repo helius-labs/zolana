@@ -14,9 +14,14 @@
     "check:ts": "npm run check --workspace @heliuslabs/zolana && npm run check:ts:example",
     "check:ts:example": "oxfmt --check sdk-tests/client/typescript && oxlint --deny-warnings sdk-tests/client/typescript && npm run typecheck:ts:example",
     "typecheck:ts:example": "tsc --noEmit --project sdk-tests/client/typescript/tsconfig.json",
+    "docs:ts": "typedoc --options typedoc.json",
     "test:ts": "npm run test --workspace @heliuslabs/zolana",
     "test:ts:e2e:sdk": "npm run test:e2e --workspace @heliuslabs/zolana",
     "test:ts:example": "npm run build:ts && vitest run --config sdk-tests/client/typescript/vitest.config.ts",
     "test:ts:e2e": "npm run test:ts:e2e:sdk && npm run test:ts:example"
+  },
+  "devDependencies": {
+    "semver": "^7.8.5",
+    "typedoc": "^0.28.20"
   }
 }

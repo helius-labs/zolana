@@ -250,12 +250,34 @@ Advanced protocol users can import low-level instruction builders from
 `@heliuslabs/zolana/addresses`; additional typed surfaces are exposed under
 `@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/transaction`, and `/wallet`.
 
+## API reference
+
+The release workflow publishes the generated TypeDoc reference from
+`ts-sdk-v*` tags. The tag version must match this package's version. Published
+versions are immutable:
+
+- latest stable: <https://helius-labs.github.io/zolana/ts-sdk/>;
+- explicit version:
+  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.0/>; and
+- version index:
+  <https://helius-labs.github.io/zolana/ts-sdk/versions.json>.
+
+GitHub Pages must use GitHub Actions as its source before the first release
+workflow runs.
+
+The intended long-term canonical location is
+`https://www.helius.dev/privacy/api/`, with immutable versions such as
+`https://www.helius.dev/privacy/api/v0.1.0/`. Migrate only after the Helius
+website proxies `/privacy/api/*` to the GitHub Pages `/zolana/ts-sdk/*` origin.
+At that point, update the release workflow's `PUBLIC_BASE_URL`; existing GitHub
+Pages URLs remain available as the backing origin.
+
 ## Important notes
 
 - Ed25519 is the supported owner rail for registration and private
   transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
-- Viewing keys are P256 on every wallet; this is expected and is separate from
-  unsupported P256 owner registration or spending.
+- Viewing keys use P256; this is separate from unsupported P256 owner
+  registration or spending.
 - Non-loopback indexer and prover URLs must use HTTPS.
 - Protect signer seeds and shielded key material. Encrypt serialized wallet
   state and avoid logging private balances, notes, or keys.

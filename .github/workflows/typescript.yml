@@ -29,6 +29,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:ts
+      - run: npm run docs:ts
       - name: Verify the published package
         run: |
           tmp="$(mktemp -d)"
