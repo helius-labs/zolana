@@ -266,19 +266,10 @@ export class ProofInputUtxo {
     this.checkCanonicalDummy();
   }
 
-  static fromKeypair(
-    utxo: Utxo,
-    keypair: ShieldedKeypair,
-    hashes?: Readonly<{ dataHash?: Bytes32; zoneDataHash?: Bytes32 }>,
-  ): ProofInputUtxo {
+  static fromKeypair(utxo: Utxo, keypair: ShieldedKeypair): ProofInputUtxo {
     const nullifierKey = keypair.nullifierKey();
     try {
-      return new ProofInputUtxo({
-        utxo,
-        nullifierKey,
-        ...(hashes?.dataHash === undefined ? {} : { dataHash: hashes.dataHash }),
-        ...(hashes?.zoneDataHash === undefined ? {} : { zoneDataHash: hashes.zoneDataHash }),
-      });
+      return new ProofInputUtxo({ utxo, nullifierKey });
     } finally {
       nullifierKey.destroy();
     }

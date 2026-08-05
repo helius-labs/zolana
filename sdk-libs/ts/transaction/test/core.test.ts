@@ -239,38 +239,16 @@ describe("transaction core", () => {
     const temporary = keypair.nullifierKey();
     const nullifierKey = vi.spyOn(keypair, "nullifierKey").mockReturnValue(temporary);
     const destroy = vi.spyOn(temporary, "destroy");
-    const dataHash = scalar(4);
-    const zoneDataHash = scalar(5);
 
-    const input = ProofInputUtxo.fromKeypair(utxo, keypair, { dataHash, zoneDataHash });
+    const input = ProofInputUtxo.fromKeypair(utxo, keypair);
 
     expect(nullifierKey).toHaveBeenCalledOnce();
     expect(destroy).toHaveBeenCalledOnce();
     expect(() => temporary.publicKey()).toThrow(
       expect.objectContaining({ code: "KEYPAIR_INVALID_SECRET_KEY" }),
     );
-    expect(input.hash()).toEqual(utxo.hash(keypair.nullifierPublicKey(), dataHash, zoneDataHash));
+    expect(input.hash()).toEqual(utxo.hash(keypair.nullifierPublicKey()));
     expect(input.nullifier()).toHaveLength(32);
-  });
-
-  it("destroys the temporary nullifier key when proof-input construction fails", () => {
-    const { keypair } = keyMaterial();
-    const temporary = keypair.nullifierKey();
-    vi.spyOn(keypair, "nullifierKey").mockReturnValue(temporary);
-    const destroy = vi.spyOn(temporary, "destroy");
-    const utxo = new Utxo({
-      owner: keypair.signingPublicKey(),
-      asset: SOL_MINT,
-      amount: 42n,
-      blinding: scalar(3),
-    });
-
-    expect(() =>
-      ProofInputUtxo.fromKeypair(utxo, keypair, {
-        dataHash: new Uint8Array(31) as Bytes32,
-      }),
-    ).toThrow(expect.objectContaining({ code: "TRANSACTION_INVALID_LENGTH" }));
-    expect(destroy).toHaveBeenCalledOnce();
   });
 
   it("accepts and hashes a canonical dummy exactly as Rust does", () => {
