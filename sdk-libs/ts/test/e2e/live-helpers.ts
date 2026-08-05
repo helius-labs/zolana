@@ -17,7 +17,6 @@ import {
 } from "@solana/kit";
 
 import {
-  DEFAULT_TREE_ADDRESS,
   LocalWalletAuthority,
   ShieldedKeypair,
   Wallet,
@@ -88,21 +87,31 @@ async function signerFromWalletFile(path: string): Promise<KeyPairSigner> {
 }
 
 export async function liveHarness(): Promise<LiveHarness> {
-  const rpcUrl = "http://127.0.0.1:8899";
-  const indexerUrl = "http://127.0.0.1:8784";
-  const proverUrl = "http://127.0.0.1:3001";
+  const rpcUrl = requiredEnv("ZOLANA_LOCALNET_URL");
+  const indexerUrl = requiredEnv("ZOLANA_INDEXER_URL");
+  const proverUrl = requiredEnv("ZOLANA_PROVER_URL");
+  const tree = address(requiredEnv("ZOLANA_TREE"));
   const mint = address(requiredEnv("ZOLANA_TEST_MINT"));
   const testTokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_ACCOUNT"));
   const token2022Mint = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_MINT"));
   const testToken2022Account = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_ACCOUNT"));
   const testAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
-  const client = await createZolanaClient({});
+  const client = await createZolanaClient({
+    solanaRpcUrl: rpcUrl,
+    indexerUrl,
+    proverUrl,
+    tree,
+    indexerConfig: {
+      waitForIndexer: true,
+      poll: { numRetries: 120, delayMs: 250n, maxDelayMs: 2_000n },
+    },
+  });
   return {
     client,
     rpcUrl,
     indexerUrl,
     proverUrl,
-    tree: DEFAULT_TREE_ADDRESS,
+    tree,
     mint,
     testTokenAccount,
     token2022Mint,
@@ -174,10 +183,7 @@ export async function indexedTransaction(
 ): Promise<IndexedShieldedTransaction> {
   const response = await client.getShieldedTransactionsBySignature(
     signature,
-    {
-      waitForIndexer: true,
-      poll: { numRetries: 120, delayMs: 250n, maxDelayMs: 2_000n },
-    },
+    { ...client.indexerConfig, waitForIndexer: true },
     { timeoutMs: 30_000 },
   );
   const transaction = response.transactions[0]?.transaction;

@@ -8,7 +8,6 @@ import {
 
 import {
   ClientError,
-  DEFAULT_TREE_ADDRESS,
   SOL_MINT,
   ShieldedKeypair,
   SPL_TOKEN_2022_PROGRAM_ID,
@@ -299,7 +298,6 @@ describe.sequential("live SDK lifecycle", () => {
 
   beforeAll(async () => {
     harness = await liveHarness();
-    expect(harness.tree).toBe(DEFAULT_TREE_ADDRESS);
     expect(await harness.client.getAccount(harness.tree)).toBeDefined();
   }, 60_000);
 
@@ -745,6 +743,10 @@ describe.sequential("live SDK lifecycle", () => {
     });
     const baseFetch = globalThis.fetch.bind(globalThis);
     const abortingClient = await createZolanaClient({
+      solanaRpcUrl: harness.rpcUrl,
+      indexerUrl: harness.indexerUrl,
+      proverUrl: harness.proverUrl,
+      tree: harness.tree,
       fetch: async (input, init) => {
         if (fetchUrl(input).startsWith(harness.proverUrl) && init?.method === "POST") {
           reachedProver();
