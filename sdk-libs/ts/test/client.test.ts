@@ -115,7 +115,7 @@ async function serviceRequestUrls(
         JSON.stringify({
           id: "test-account",
           jsonrpc: "2.0",
-          result: { context: { block_time: 1 }, transactions: [] },
+          result: { context: { block_time: 1, slot: 1 }, transactions: [] },
         }),
         { headers: { "content-type": "application/json" } },
       );
@@ -340,7 +340,7 @@ describe("ZolanaClient", () => {
             id: "test-account",
             jsonrpc: "2.0",
             result: {
-              context: { block_time: 1 },
+              context: { block_time: 1, slot: 1 },
               transactions: [],
               next_cursor: "Ag==",
             },
