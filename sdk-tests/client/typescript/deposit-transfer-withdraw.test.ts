@@ -77,7 +77,9 @@ describe("example: deposit, transfer, withdraw", () => {
 
     // 3. Fetch transaction outputs from the indexer.
     // The indexer returns encrypted outputs by view tag.
-    const depositResponse = await client.getShieldedTransactionsByTags(senderViewTag);
+    const depositResponse = await client.getShieldedTransactionsByTags({
+      tags: [senderViewTag],
+    });
 
     // 4. The sender decrypts the transaction outputs locally to read the private balance.
     const balancesAfterDeposit = decryptToBalances({
@@ -120,7 +122,9 @@ describe("example: deposit, transfer, withdraw", () => {
     await client.confirmPrivateTransaction(transferSignature);
 
     // 7. Fetch the sender's outputs again and read the remaining private balance.
-    const transferResponse = await client.getShieldedTransactionsByTags(senderViewTag);
+    const transferResponse = await client.getShieldedTransactionsByTags({
+      tags: [senderViewTag],
+    });
     const balancesAfterTransfer = decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
@@ -169,7 +173,9 @@ describe("example: deposit, transfer, withdraw", () => {
     await client.confirmPrivateTransaction(withdrawalSignature);
 
     // 7. Fetch the sender's outputs again and read the remaining private balance.
-    const withdrawalResponse = await client.getShieldedTransactionsByTags(senderViewTag);
+    const withdrawalResponse = await client.getShieldedTransactionsByTags({
+      tags: [senderViewTag],
+    });
     const balancesAfterWithdrawal = decryptToBalances({
       keypair: senderKeypair,
       registry: assets,

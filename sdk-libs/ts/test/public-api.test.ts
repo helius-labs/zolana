@@ -55,8 +55,8 @@ describe("public package surface", () => {
     expect(client.solanaRpc).toBeDefined();
     expect(client.proveTransact).toBeTypeOf("function");
     expect(client.tree).toBe(DEFAULT_TREE_ADDRESS);
-    // The URLs stay config-only: nothing reads them back off the client.
-    expect(client).not.toHaveProperty("indexerConfig");
+    expect(client.indexerConfig).toBeDefined();
+    // Service URLs stay config-only: nothing reads them back off the client.
     expect(client).not.toHaveProperty("solanaRpcUrl");
     expect(client).not.toHaveProperty("solanaRpcSubscriptionsUrl");
     expect(client).not.toHaveProperty("indexerUrl");

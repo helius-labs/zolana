@@ -56,7 +56,6 @@ import {
 } from "./retry.js";
 import {
   type GetByNullifiersRequest,
-  type GetByTagsPagination,
   type GetByTagsRequest,
   type GetEncryptedUtxosByTagsResponse,
   type GetMerkleProofsResponse,
@@ -122,28 +121,8 @@ export class ZolanaClient {
 
   constructor(input: ZolanaClientConfig) {
     const candidate: unknown = input;
-    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+    if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_CONFIG");
-    }
-    // A misspelled field would otherwise be ignored, leaving the client quietly
-    // pointed somewhere the caller did not intend.
-    const allowedFields = new Set([
-      "apiKey",
-      "commitment",
-      "computeUnitLimit",
-      "computeUnitPriceMicroLamports",
-      "fetch",
-      "indexerConfig",
-      "indexerUrl",
-      "proverAsyncPoll",
-      "proverUrl",
-      "solanaRpcSubscriptionsUrl",
-      "solanaRpcUrl",
-      "tree",
-    ]);
-    const unsupported = Object.keys(candidate).find((key) => !allowedFields.has(key));
-    if (unsupported !== undefined) {
-      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: unsupported } });
     }
 
     const tree = input.tree ?? DEFAULT_TREE_ADDRESS;
@@ -222,6 +201,12 @@ export class ZolanaClient {
     this.#indexerConfig = indexerConfig;
   }
 
+  /// Mirrors Rust's `ZolanaClient::indexer_config`: the config every indexer
+  /// call falls back to and the schedule confirmation polls.
+  get indexerConfig(): IndexerRpcConfig {
+    return this.#indexerConfig;
+  }
+
   async getAccount(address: Address, context?: RequestContext): Promise<RpcAccount | undefined> {
     checkedAddress(address, "address");
     const { value } = await runKitRpc("getAccountInfo", context, (abortSignal) =>
@@ -285,19 +270,11 @@ export class ZolanaClient {
   }
 
   getShieldedTransactionsByTags(
-    tags: Bytes32 | readonly Bytes32[],
-    pagination?: GetByTagsPagination,
+    request: GetByTagsRequest,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
-    return this.#indexer.getShieldedTransactionsByTags(
-      {
-        ...pagination,
-        tags: tags instanceof Uint8Array ? [tags] : tags,
-      },
-      this.#configOr(config),
-      context,
-    );
+    return this.#indexer.getShieldedTransactionsByTags(request, this.#configOr(config), context);
   }
 
   getShieldedTransactionsByNullifiers(

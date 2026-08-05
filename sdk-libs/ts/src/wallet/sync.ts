@@ -288,8 +288,11 @@ async function collectShieldedTransactions(
   const seenCursors = new Set<string>();
   do {
     const response = await input.indexer.getShieldedTransactionsByTags(
-      input.chunk,
-      { limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
+      {
+        tags: input.chunk,
+        limit: input.pageLimit,
+        ...(cursor === undefined ? {} : { cursor }),
+      },
       input.rpcConfig,
       context,
     );
