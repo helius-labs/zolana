@@ -25,37 +25,27 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
     stop_test_validator(opts.rpc_port);
     thread::sleep(Duration::from_secs(1));
 
-    // Default rail: fetch every artifact from the pinned release. A local-program
-    // rail can opt into only the initialized account snapshot, so it exercises
-    // canonical protocol/tree state without replacing local SBF binaries.
-    let use_release = opts.use_release();
-    let use_release_accounts = opts.use_release_accounts();
-    let release = if use_release || use_release_accounts {
+    // Default rail: fetch version-pinned programs, initialized account snapshots,
+    // and helper binaries from the release. `--local` (or explicit --sbf-program)
+    // keeps the fully-local artifacts used by dev and CI. Release programs and
+    // snapshots are folded into `opts` so the arg builders keep a single source.
+    let release = if opts.use_release() {
         Some(Release::load()?)
     } else {
         None
     };
-    if use_release {
-        let release = release
-            .as_ref()
-            .expect("release is loaded when release artifacts are enabled");
+    if let Some(release) = &release {
         println!("Using release {} artifacts", release.tag());
         for spec in release.program_specs()? {
             opts.sbf_programs.push(spec.address);
             opts.sbf_programs.push(spec.path);
         }
-    }
-    if use_release_accounts {
-        let release = release
-            .as_ref()
-            .expect("release is loaded when release accounts are enabled");
-        println!("Using release {} initialized accounts", release.tag());
         opts.account_dirs
             .push(path_string(&release.accounts_dir()?)?);
     }
 
     let mut validator = if opts.use_surfpool_backend() {
-        let surfpool = match release.as_ref().filter(|_| use_release) {
+        let surfpool = match &release {
             Some(release) => release.surfpool_binary()?,
             None => find_binary(&["SURFPOOL_BIN"], &["target/tools/surfpool"], &["surfpool"])?,
         };
@@ -92,7 +82,7 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
     })?;
 
     if !opts.skip_prover {
-        let prover_binary = match release.as_ref().filter(|_| use_release) {
+        let prover_binary = match &release {
             Some(release) => Some(release.prover_binary()?),
             None => None,
         };
@@ -106,7 +96,7 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
     }
 
     if opts.with_photon {
-        let photon_binary = match release.as_ref().filter(|_| use_release) {
+        let photon_binary = match &release {
             Some(release) => Some(release.photon_binary()?),
             None => None,
         };

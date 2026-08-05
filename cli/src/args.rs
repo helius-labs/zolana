@@ -229,12 +229,6 @@ pub(crate) struct TestValidatorOptions {
     )]
     pub(crate) local: bool,
 
-    #[arg(
-        long,
-        help = "Load the pinned release's initialized accounts with local programs"
-    )]
-    pub(crate) release_accounts: bool,
-
     #[arg(long, help = "Stop the local validator environment")]
     pub(crate) stop: bool,
 
@@ -712,12 +706,6 @@ impl TestValidatorOptions {
         !self.local && self.sbf_programs.is_empty() && self.upgradeable_programs.is_empty()
     }
 
-    /// The normal release rail always includes its initialized accounts. Local
-    /// program tests opt in explicitly when they need release-style state.
-    pub(crate) fn use_release_accounts(&self) -> bool {
-        self.use_release() || self.release_accounts
-    }
-
     pub(crate) fn sbf_program_specs(&self) -> Vec<ProgramSpec> {
         self.sbf_programs
             .chunks_exact(2)
@@ -940,16 +928,14 @@ mod tests {
     }
 
     #[test]
-    fn release_selection_separates_accounts_from_programs() {
+    fn use_release_reflects_local_flag_and_explicit_programs() {
         let default = parse_validator(&[]);
         assert!(default.use_release());
-        assert!(default.use_release_accounts());
         assert!(!default.local);
 
         let local = parse_validator(&["--local"]);
         assert!(local.local);
         assert!(!local.use_release());
-        assert!(!local.use_release_accounts());
 
         let explicit_program = parse_validator(&[
             "--sbf-program",
@@ -957,16 +943,6 @@ mod tests {
             "target/deploy/pool.so",
         ]);
         assert!(!explicit_program.use_release());
-        assert!(!explicit_program.use_release_accounts());
-
-        let release_accounts = parse_validator(&[
-            "--release-accounts",
-            "--sbf-program",
-            "Pool111111111111111111111111111111111111111",
-            "target/deploy/pool.so",
-        ]);
-        assert!(!release_accounts.use_release());
-        assert!(release_accounts.use_release_accounts());
     }
 
     #[test]
