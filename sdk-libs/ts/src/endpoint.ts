@@ -21,13 +21,9 @@ export interface ClientEndpointConfig {
   readonly proverUrl?: string | URL | undefined;
 }
 
-/**
- * The URL each service ended up with, and the config field that supplied it so
- * a bad value is reported against the field the caller actually wrote.
- */
+/** Resolved service URLs and source fields used for Photon and prover errors. */
 export interface ResolvedClientEndpoints {
   readonly solana: string | URL;
-  readonly solanaField: string;
   readonly photon: string | URL;
   readonly photonField: string;
   readonly prover: string | URL;
@@ -66,7 +62,6 @@ export function resolveClientEndpoints(input: ClientEndpointConfig): ResolvedCli
 
   return Object.freeze({
     solana,
-    solanaField: "solanaRpcUrl",
     photon: photon.url,
     photonField: photon.field,
     prover: prover.url,

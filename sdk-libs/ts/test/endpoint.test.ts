@@ -34,7 +34,7 @@ describe("resolveClientEndpoints", () => {
    */
   it("resolves localnet to urls the client accepts", () => {
     const resolved = resolveClientEndpoints({});
-    expect(() => checkedServiceUrl(resolved.solana, resolved.solanaField)).not.toThrow();
+    expect(() => checkedServiceUrl(resolved.solana, "solanaRpcUrl")).not.toThrow();
     expect(() => checkedServiceUrl(resolved.photon, resolved.photonField)).not.toThrow();
     expect(() => checkedServiceUrl(resolved.prover, resolved.proverField)).not.toThrow();
   });

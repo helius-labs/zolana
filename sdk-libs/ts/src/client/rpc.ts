@@ -14,13 +14,10 @@ export interface RpcContext {
   readonly blockTime: bigint;
 }
 
-export interface GetByTagsPagination {
+export interface GetByTagsRequest {
+  readonly tags: readonly Bytes32[];
   readonly cursor?: Uint8Array;
   readonly limit?: number;
-}
-
-export interface GetByTagsRequest extends GetByTagsPagination {
-  readonly tags: readonly Bytes32[];
 }
 
 export interface GetByNullifiersRequest {
