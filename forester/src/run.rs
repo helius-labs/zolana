@@ -190,6 +190,7 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
                 bail!("{not_ready}");
             }
         };
+        crate::metrics::count_batches_submitted(&opts.tree.to_string(), submitted);
         submitted_total += submitted;
 
         if !opts.watch {

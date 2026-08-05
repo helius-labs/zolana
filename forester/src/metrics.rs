@@ -48,6 +48,7 @@ pub mod names {
     pub const LAST_RUN_TIMESTAMP: &str = "forester_last_run_timestamp";
     pub const SOL_BALANCE: &str = "forester_sol_balance";
     pub const TRANSACTIONS_FAILED: &str = "forester_transactions_failed_total";
+    pub const BATCHES_SUBMITTED: &str = "forester_batches_submitted_total";
     pub const INDEXER_RESPONSE_SECONDS: &str = "forester_indexer_response_time_seconds";
     pub const INDEXER_PROOF_COUNT: &str = "forester_indexer_proof_count";
 
@@ -57,6 +58,7 @@ pub mod names {
         LAST_RUN_TIMESTAMP,
         SOL_BALANCE,
         TRANSACTIONS_FAILED,
+        BATCHES_SUBMITTED,
         INDEXER_RESPONSE_SECONDS,
         INDEXER_PROOF_COUNT,
     ];
@@ -129,18 +131,40 @@ pub fn set_sol_balance(pubkey: &str, lamports: u64) {
     );
 }
 
+/// Add to a counter series, creating it on first use.
+fn add(name: &'static str, tags: BTreeMap<&'static str, String>, delta: f64) {
+    let mut registry = registry().lock().expect("metrics registry poisoned");
+    let series = registry.counters.entry(name).or_default();
+    match series.iter_mut().find(|(existing, _)| *existing == tags) {
+        Some(slot) => slot.1 += delta,
+        None => series.push((tags, delta)),
+    }
+}
+
 /// Count a failed submission, bucketed by a short stable reason.
 pub fn count_failure(reason: &str) {
-    let tags = labels(&[("reason", reason)]);
-    let mut registry = registry().lock().expect("metrics registry poisoned");
-    let series = registry
-        .counters
-        .entry(names::TRANSACTIONS_FAILED)
-        .or_default();
-    match series.iter_mut().find(|(existing, _)| *existing == tags) {
-        Some(slot) => slot.1 += 1.0,
-        None => series.push((tags, 1.0)),
+    add(
+        names::TRANSACTIONS_FAILED,
+        labels(&[("reason", reason)]),
+        1.0,
+    );
+}
+
+/// Count zkp-batches successfully submitted on-chain for one tree.
+///
+/// This fork's stand-in for the contract's `forester_transactions_processed_total`,
+/// which is keyed by an epoch this forester does not have. Together with
+/// `forester_last_run_timestamp` it separates "alive" from "making progress": a
+/// forester that loops without submitting is live and useless.
+pub fn count_batches_submitted(tree_pubkey: &str, batches: u64) {
+    if batches == 0 {
+        return;
     }
+    add(
+        names::BATCHES_SUBMITTED,
+        labels(&[("tree_type", "nullifier"), ("tree_pubkey", tree_pubkey)]),
+        batches as f64,
+    );
 }
 
 /// Record how long an indexer call took.
@@ -310,6 +334,26 @@ mod tests {
         assert!(
             out.contains(r#"forester_transactions_failed_total{reason="metrics-test-reason"} 2"#),
             "counter did not accumulate:\n{out}"
+        );
+    }
+
+    /// A counter that only ever increments by one cannot express batch work, and
+    /// a zero submission must not create a series that reads as "submitted here".
+    #[test]
+    fn submitted_batches_accumulate_by_amount_and_ignore_zero() {
+        count_batches_submitted("treeSubmit", 3);
+        count_batches_submitted("treeSubmit", 4);
+        count_batches_submitted("treeZero", 0);
+        let out = render();
+        assert!(
+            out.contains(
+                r#"forester_batches_submitted_total{tree_pubkey="treeSubmit",tree_type="nullifier"} 7"#
+            ),
+            "counter did not add by amount:\n{out}"
+        );
+        assert!(
+            !out.contains("treeZero"),
+            "zero submission created a series:\n{out}"
         );
     }
 
