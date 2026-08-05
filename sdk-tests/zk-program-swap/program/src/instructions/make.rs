@@ -5,12 +5,11 @@ use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
+#[cfg(not(feature = "vk-registry"))]
+use crate::instructions::verifier::verify_groth16;
 use crate::{
     error::SwapError,
-    instructions::{
-        shared::cpi_spp_transact_signed,
-        verifier::{verify_groth16, CompressedGroth16Proof},
-    },
+    instructions::{shared::cpi_spp_transact_signed, verifier::CompressedGroth16Proof},
     verifying_keys::make,
 };
 
@@ -46,6 +45,26 @@ pub fn process_make_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         mut transact,
     } = wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
 
+    let spp_accounts = iter.remaining()?;
+    #[cfg(feature = "vk-registry")]
+    let (vk_registry, spp_accounts) = crate::vk_registry::split_vk_registry(
+        spp_accounts,
+        &crate::vk_registry_specs::MAKE_REGISTRY,
+    );
+    #[cfg(feature = "vk-registry")]
+    crate::instructions::verifier::verify_groth16_registered(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        transact.private_tx_hash,
+        &make::VERIFYINGKEY,
+        vk_registry,
+        &crate::vk_registry_specs::MAKE_REGISTRY,
+    )?;
+    #[cfg(not(feature = "vk-registry"))]
     verify_groth16(
         CompressedGroth16Proof {
             a: &proof.proof_a,
@@ -76,6 +95,5 @@ pub fn process_make_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         .serialize()
         .map_err(|_| SwapError::InvalidInstructionData)?;
 
-    let spp_accounts = iter.remaining()?;
     cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

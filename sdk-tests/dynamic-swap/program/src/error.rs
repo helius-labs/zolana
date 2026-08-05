@@ -57,6 +57,16 @@ pub enum DynamicSwapError {
     InvalidPrice = 9016,
     #[error("rent recipient must be the escrow owner")]
     RentRecipientMismatch = 9017,
+    #[error("VK registry account does not match the instruction's spec")]
+    InvalidVkRegistryAccount = 9018,
+    #[error("VK registry index is out of range")]
+    InvalidVkRegistryIndex = 9019,
+    #[error("VK registry account is already finalized")]
+    VkRegistryAlreadyInitialized = 9020,
+    #[error("VK registry account is not finalized")]
+    VkRegistryNotReady = 9021,
+    #[error("VK registry init syscall rejected the account or sources")]
+    VkRegistryInitFailed = 9022,
 }
 
 impl From<DynamicSwapError> for ProgramError {

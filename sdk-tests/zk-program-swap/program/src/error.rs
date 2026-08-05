@@ -23,6 +23,16 @@ pub enum SwapError {
     MarkerDataNotEmpty = 8015,
     #[error("hashing failed")]
     HashingFailed = 8016,
+    #[error("VK registry account does not match the instruction's spec")]
+    InvalidVkRegistryAccount = 8017,
+    #[error("VK registry index is out of range")]
+    InvalidVkRegistryIndex = 8018,
+    #[error("VK registry account is already finalized")]
+    VkRegistryAlreadyInitialized = 8019,
+    #[error("VK registry account is not finalized")]
+    VkRegistryNotReady = 8020,
+    #[error("VK registry init syscall rejected the account or sources")]
+    VkRegistryInitFailed = 8021,
 }
 
 impl From<SwapError> for ProgramError {

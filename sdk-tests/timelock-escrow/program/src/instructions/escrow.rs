@@ -4,12 +4,11 @@ use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
+#[cfg(not(feature = "vk-registry"))]
+use crate::instructions::verifier::verify_groth16;
 use crate::{
     error::TimelockEscrowError,
-    instructions::{
-        shared::cpi_spp_transact_signed,
-        verifier::{verify_groth16, CompressedGroth16Proof},
-    },
+    instructions::{shared::cpi_spp_transact_signed, verifier::CompressedGroth16Proof},
     verifying_keys::escrow,
 };
 
@@ -35,21 +34,33 @@ pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let EscrowIxData { proof, transact } = wincode::deserialize_exact(data)
         .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
 
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
+    let spp_accounts = iter.remaining()?;
+    #[cfg(feature = "vk-registry")]
+    let (vk_registry, spp_accounts) = crate::vk_registry::split_vk_registry(
+        spp_accounts,
+        &crate::vk_registry_specs::ESCROW_REGISTRY,
+    );
+
+    let proof = CompressedGroth16Proof {
+        a: &proof.proof_a,
+        b: &proof.proof_b,
+        c: &proof.proof_c,
+        commitment: None,
+    };
+    #[cfg(feature = "vk-registry")]
+    crate::instructions::verifier::verify_groth16_registered(
+        proof,
         transact.private_tx_hash,
         &escrow::VERIFYINGKEY,
+        vk_registry,
+        &crate::vk_registry_specs::ESCROW_REGISTRY,
     )?;
+    #[cfg(not(feature = "vk-registry"))]
+    verify_groth16(proof, transact.private_tx_hash, &escrow::VERIFYINGKEY)?;
 
     let transact_bytes = transact
         .serialize()
         .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
 
-    let spp_accounts = iter.remaining()?;
     cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

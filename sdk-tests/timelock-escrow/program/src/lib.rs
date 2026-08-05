@@ -1,6 +1,9 @@
 pub mod error;
 pub mod instructions;
 pub mod verifying_keys;
+#[cfg(feature = "vk-registry")]
+pub mod vk_registry;
+pub mod vk_registry_specs;
 
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
@@ -9,6 +12,8 @@ use crate::instructions::{process_escrow_ix, process_withdraw_ix};
 pub mod tag {
     pub const ESCROW: u8 = 0;
     pub const WITHDRAW: u8 = 1;
+    /// Only handled by a `vk-registry` build.
+    pub const INIT_VK_REGISTRY: u8 = 2;
 }
 
 pub const ESCROW_AUTHORITY_PDA_SEED: &[u8] = b"escrow_authority";
@@ -36,6 +41,8 @@ pub fn process_instruction(
     match *ix_tag {
         tag::ESCROW => process_escrow_ix(accounts, ix_data),
         tag::WITHDRAW => process_withdraw_ix(accounts, ix_data),
+        #[cfg(feature = "vk-registry")]
+        tag::INIT_VK_REGISTRY => vk_registry::process_init_vk_registry_ix(accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

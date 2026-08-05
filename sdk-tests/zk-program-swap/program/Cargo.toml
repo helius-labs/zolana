@@ -15,10 +15,20 @@ no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
+# Registry-backed verification; needs the local/bn254-prepared-stateless
+# agave fork's syscalls to load.
+vk-registry = [
+    "groth16-solana/vk-registry",
+    "pinocchio/account-resize",
+    "dep:pinocchio-system",
+    "dep:bytemuck",
+]
 
 [dependencies]
 borsh = { workspace = true }
+bytemuck = { workspace = true, optional = true }
 groth16-solana = { workspace = true, features = ["bsb22"] }
+pinocchio-system = { workspace = true, optional = true }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-program-error = { workspace = true }
@@ -29,6 +39,7 @@ zolana-hasher = { workspace = true, features = ["poseidon"] }
 zolana-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
+zolana-interface = { workspace = true, features = ["registry-derive"] }
 mollusk-svm = { workspace = true }
 zolana-test-utils = { workspace = true, features = ["mollusk"] }
 solana-account = { workspace = true }
