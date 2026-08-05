@@ -59,6 +59,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     .hash()
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
+    let vk_registry = merge_accounts.vk_registry();
     process_merge_core(
         merge_accounts.input_tree,
         merge_accounts.output_tree,
@@ -68,6 +69,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         MergeOwnerBinding::Registry { signing_pk_field },
         output_view_tag,
         Vec::new(),
+        vk_registry,
     )
 }
 
@@ -88,6 +90,7 @@ pub(crate) fn process_merge_core(
     owner_binding: MergeOwnerBinding,
     output_view_tag: [u8; 32],
     output_data: Vec<u8>,
+    vk_registry: Option<&AccountView>,
 ) -> ProgramResult {
     let (inputs, derived, zkp_batch_size) = {
         let input_tree = input_tree_account.address().to_bytes();
@@ -121,7 +124,13 @@ pub(crate) fn process_merge_core(
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag, output_data);
-    MergeProof::new(ix, derived).verify()?;
+    #[cfg(feature = "vk-registry")]
+    MergeProof::new(ix, derived).verify_registered(vk_registry)?;
+    #[cfg(not(feature = "vk-registry"))]
+    {
+        let _ = vk_registry;
+        MergeProof::new(ix, derived).verify()?;
+    }
     collect_forester_fee(
         payer,
         input_tree_account,

@@ -60,3 +60,53 @@ pub fn verify_groth16(
     }
     Ok(())
 }
+
+/// Registered verification against a finalized VK-registry account whose
+/// address the caller has already matched to the circuit's spec. Borrows the
+/// prepared blobs and the GT target in place; the syscalls validate their
+/// encoding, the address commitment is the provenance.
+#[cfg(feature = "vk-registry")]
+#[inline(never)]
+#[profile]
+pub fn verify_groth16_registered(
+    proof: CompressedGroth16Proof,
+    public_input_hash: [u8; 32],
+    verifying_key: &Groth16Verifyingkey,
+    registry_data: &[u8],
+    spec: &zolana_interface::verifying_keys::registry_spec::VkRegistrySpec,
+    encoding_err: ShieldedPoolError,
+    verify_err: ShieldedPoolError,
+) -> ProgramResult {
+    let refs = crate::instructions::vk_registry::prepared_vk_refs(registry_data, spec)?;
+
+    let proof_a = decompress_g1(proof.a).map_err(|_| encoding_err)?;
+    let proof_b = decompress_g2(proof.b).map_err(|_| encoding_err)?;
+    let proof_c = decompress_g1(proof.c).map_err(|_| encoding_err)?;
+    let public_inputs = [public_input_hash];
+
+    match (proof.commitment, verifying_key.vk_commitment.is_some()) {
+        (Some((commitment, commitment_pok)), true) => {
+            let commitment = decompress_g1(commitment).map_err(|_| encoding_err)?;
+            let commitment_pok = decompress_g1(commitment_pok).map_err(|_| encoding_err)?;
+            let mut verifier = Groth16Verifier::new_with_commitment(
+                &proof_a,
+                &proof_b,
+                &proof_c,
+                &commitment,
+                &commitment_pok,
+                &public_inputs,
+                verifying_key,
+            )
+            .map_err(|_| verify_err)?;
+            verifier.verify_prepared(&refs).map_err(|_| verify_err)?;
+        }
+        (None, false) => {
+            let mut verifier =
+                Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, verifying_key)
+                    .map_err(|_| verify_err)?;
+            verifier.verify_prepared(&refs).map_err(|_| verify_err)?;
+        }
+        _ => return Err(verify_err.into()),
+    }
+    Ok(())
+}

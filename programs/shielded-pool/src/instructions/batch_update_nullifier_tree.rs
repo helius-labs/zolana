@@ -23,6 +23,12 @@ pub fn process_batch_update_nullifier_tree(
     let protocol_config = iter.next_account("protocol_config")?;
     let tree = iter.next_mut("tree")?;
     let reimbursement_recipient = iter.next_mut("reimbursement_recipient")?;
+    #[cfg(feature = "vk-registry")]
+    let vk_registry = if iter.iterator_is_empty() {
+        None
+    } else {
+        Some(&*iter.next_non_mut("vk_registry")?)
+    };
 
     let config = load_protocol_config(protocol_config)?;
     config
@@ -34,6 +40,31 @@ pub fn process_batch_update_nullifier_tree(
         let mut tree_account =
             TreeAccount::from_account_view_mut(&mut *tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
                 .map_err(ShieldedPoolError::from)?;
+        #[cfg(feature = "vk-registry")]
+        match vk_registry {
+            Some(registry) => {
+                // Spec selection mirrors the verify-side batch-size match; the
+                // batch size comes from tree state, not instruction data.
+                let batch_size = tree_account.nullifer_tree().queue_batches.zkp_batch_size;
+                let spec = match batch_size {
+                    10 => &zolana_interface::verifying_keys::registry::BATCH_ADDRESS_APPEND_40_10_REGISTRY,
+                    250 => &zolana_interface::verifying_keys::registry::BATCH_ADDRESS_APPEND_40_250_REGISTRY,
+                    _ => return Err(ShieldedPoolError::NullifierTreeUpdateFailed.into()),
+                };
+                let data =
+                    crate::instructions::vk_registry::load_finalized_vk_registry(registry, spec)?;
+                let refs = crate::instructions::vk_registry::prepared_vk_refs(&data, spec)?;
+                tree_account
+                    .nullifer_tree()
+                    .update_tree_from_address_queue_registered(instruction, &refs)
+                    .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?
+            }
+            None => tree_account
+                .nullifer_tree()
+                .update_tree_from_address_queue(instruction)
+                .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?,
+        }
+        #[cfg(not(feature = "vk-registry"))]
         tree_account
             .nullifer_tree()
             .update_tree_from_address_queue(instruction)

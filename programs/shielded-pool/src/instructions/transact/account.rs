@@ -22,6 +22,10 @@ pub struct TransactAccounts<'a> {
     pub output_tree: &'a mut AccountView,
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
+    /// Optional trailing VK-registry account (read-only). Present selects the
+    /// prepared-operand verification path; absent keeps today's path.
+    #[cfg(feature = "vk-registry")]
+    pub vk_registry: Option<&'a AccountView>,
 }
 
 impl<'a> TransactAccounts<'a> {
@@ -150,6 +154,14 @@ impl<'a> TransactAccounts<'a> {
                 .try_push(settlement)
                 .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
         }
+        // One trailing account after the settlements is the optional VK
+        // registry; anything more keeps failing the shape check.
+        #[cfg(feature = "vk-registry")]
+        let vk_registry = if iter.iterator_is_empty() {
+            None
+        } else {
+            Some(&*iter.next_non_mut("vk_registry")?)
+        };
         if !iter.iterator_is_empty() {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
@@ -160,6 +172,8 @@ impl<'a> TransactAccounts<'a> {
             output_tree,
             owner_signers,
             settlements,
+            #[cfg(feature = "vk-registry")]
+            vk_registry,
         }))
     }
 }

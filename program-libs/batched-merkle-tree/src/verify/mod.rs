@@ -159,3 +159,32 @@ pub fn verify_batch_address_update(
         _ => Err(InvalidPublicInputsLength),
     }
 }
+
+/// Registered variant of [`verify_batch_address_update`]. The caller selects
+/// the registry account by the tree's batch size, authenticates it by
+/// address, and borrows the prepared refs; a wrong blob can only fail this
+/// verification.
+#[cfg(feature = "vk-registry")]
+#[inline(never)]
+pub fn verify_batch_address_update_registered(
+    batch_size: u64,
+    public_input_hash: [u8; 32],
+    compressed_proof: &CompressedProof,
+    refs: &groth16_solana::groth16::PreparedVkRefs,
+) -> Result<(), VerifierError> {
+    let vk = match batch_size {
+        10 => &batch_address_append_40_10::VERIFYINGKEY,
+        250 => &batch_address_append_40_250::VERIFYINGKEY,
+        _ => return Err(InvalidPublicInputsLength),
+    };
+    let proof_a = decompress_g1(&compressed_proof.a).map_err(|_| DecompressG1Failed)?;
+    let proof_b = decompress_g2(&compressed_proof.b).map_err(|_| DecompressG2Failed)?;
+    let proof_c = decompress_g1(&compressed_proof.c).map_err(|_| DecompressG1Failed)?;
+    let public_inputs = [public_input_hash];
+    let mut verifier = Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, vk)
+        .map_err(|_| CreateGroth16VerifierFailed)?;
+    verifier
+        .verify_prepared(refs)
+        .map_err(|_| ProofVerificationFailed)?;
+    Ok(())
+}

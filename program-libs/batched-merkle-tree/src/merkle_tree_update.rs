@@ -9,6 +9,14 @@ use crate::{
     zero_copy::CachedTreeUpdate,
 };
 
+/// `Some` selects prepared-operand verification; both modes bind the same
+/// public-input hash to the same verifying key. Uninhabited when the feature
+/// is off, so only `None` exists there.
+#[cfg(feature = "vk-registry")]
+type VerifyMode<'a> = Option<&'a groth16_solana::groth16::PreparedVkRefs<'a>>;
+#[cfg(not(feature = "vk-registry"))]
+type VerifyMode<'a> = Option<&'a core::convert::Infallible>;
+
 impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP: usize>
     BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>
 {
@@ -26,12 +34,31 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         &mut self,
         instruction_data: InstructionDataAddressAppendInputs,
     ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
+        self.update_tree_from_address_queue_inner(instruction_data, None)
+    }
+
+    /// [`Self::update_tree_from_address_queue`] with prepared registry refs
+    /// the caller authenticated for this tree's batch size.
+    #[cfg(feature = "vk-registry")]
+    pub fn update_tree_from_address_queue_registered(
+        &mut self,
+        instruction_data: InstructionDataAddressAppendInputs,
+        refs: &groth16_solana::groth16::PreparedVkRefs,
+    ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
+        self.update_tree_from_address_queue_inner(instruction_data, Some(refs))
+    }
+
+    fn update_tree_from_address_queue_inner(
+        &mut self,
+        instruction_data: InstructionDataAddressAppendInputs,
+        verify_mode: VerifyMode<'_>,
+    ) -> Result<Option<BatchAddressAppendEvent>, BatchedMerkleTreeError> {
         // 1. Reject non-address trees.
         if self.tree_type != TreeType::AddressV2 as u64 {
             return Err(MerkleTreeMetadataError::InvalidTreeType.into());
         }
         // 2. Verify the proof and cache the update.
-        if !self.verify_proof_cache_update(&instruction_data)? {
+        if !self.verify_proof_cache_update(&instruction_data, verify_mode)? {
             return Ok(None);
         }
         // 3. Apply cached updates in order.
@@ -53,6 +80,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     fn verify_proof_cache_update(
         &mut self,
         instruction_data: &InstructionDataAddressAppendInputs,
+        verify_mode: VerifyMode<'_>,
     ) -> Result<bool, BatchedMerkleTreeError> {
         let zkp_batch_size = self.queue_batches.zkp_batch_size;
         let pending_batch_index = self.queue_batches.pending_batch_index as usize;
@@ -111,11 +139,22 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             leaves_hash_chain,
             next_index_bytes,
         ])?;
-        verify_batch_address_update(
-            zkp_batch_size,
-            public_input_hash,
-            &instruction_data.compressed_proof,
-        )?;
+        match verify_mode {
+            None => verify_batch_address_update(
+                zkp_batch_size,
+                public_input_hash,
+                &instruction_data.compressed_proof,
+            )?,
+            #[cfg(feature = "vk-registry")]
+            Some(refs) => crate::verify::verify_batch_address_update_registered(
+                zkp_batch_size,
+                public_input_hash,
+                &instruction_data.compressed_proof,
+                refs,
+            )?,
+            #[cfg(not(feature = "vk-registry"))]
+            Some(never) => match *never {},
+        }
 
         // 4. Store the cached update at its zkp batch index. old_root is the
         //    prover's public input; apply checks it against the account tree

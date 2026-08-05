@@ -73,6 +73,44 @@ impl<'a> MergeProof<'a> {
         )
     }
 
+    /// Registry-backed verification; `None` falls back to [`Self::verify`].
+    /// The spec is selected by the owner binding, matching the verifying key
+    /// the same match below picks.
+    #[cfg(feature = "vk-registry")]
+    #[inline(never)]
+    pub fn verify_registered(&self, registry: Option<&pinocchio::AccountView>) -> ProgramResult {
+        use zolana_interface::verifying_keys::registry::{
+            MERGE_8_1_REGISTRY, MERGE_RING_8_1_REGISTRY,
+        };
+
+        let Some(registry) = registry else {
+            return self.verify();
+        };
+        let (vk, spec) = match self.derived.owner_binding {
+            MergeOwnerBinding::Registry { .. } => (&merge_8_1::VERIFYINGKEY, &MERGE_8_1_REGISTRY),
+            MergeOwnerBinding::Ring { .. } => {
+                (&merge_ring_8_1::VERIFYINGKEY, &MERGE_RING_8_1_REGISTRY)
+            }
+        };
+        let data = crate::instructions::vk_registry::load_finalized_vk_registry(registry, spec)?;
+        let public_input_hash = self.public_input_hash()?;
+        let p = &self.ix.proof;
+        verifier::verify_groth16_registered(
+            verifier::CompressedGroth16Proof {
+                a: p.a,
+                b: p.b,
+                c: p.c,
+                commitment: None,
+            },
+            public_input_hash,
+            vk,
+            &data,
+            spec,
+            ShieldedPoolError::InvalidTransactProofEncoding,
+            ShieldedPoolError::TransactProofVerificationFailed,
+        )
+    }
+
     /// The Poseidon hash chain the circuit folds into its single public input
     /// (`prover/server/circuits/spp_merge/{default,ring}.go`).
     ///
