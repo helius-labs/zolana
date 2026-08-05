@@ -126,6 +126,16 @@ pub enum ShieldedPoolError {
     SplAssetCounterAlreadyInitialized = 7046,
     #[error("ring is paused")]
     RingPaused = 7047,
+    #[error("VK registry account address does not match the circuit's spec")]
+    InvalidVkRegistryAccount = 7048,
+    #[error("VK registry index is out of range")]
+    InvalidVkRegistryIndex = 7049,
+    #[error("VK registry account is already finalized")]
+    VkRegistryAlreadyInitialized = 7050,
+    #[error("VK registry account is not finalized")]
+    VkRegistryNotReady = 7051,
+    #[error("VK registry init syscall rejected the account or sources")]
+    VkRegistryInitFailed = 7052,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -215,6 +225,11 @@ mod tests {
                 ZeroNetInterfaceTransferAmount => 7045,
                 SplAssetCounterAlreadyInitialized => 7046,
                 RingPaused => 7047,
+                InvalidVkRegistryAccount => 7048,
+                InvalidVkRegistryIndex => 7049,
+                VkRegistryAlreadyInitialized => 7050,
+                VkRegistryNotReady => 7051,
+                VkRegistryInitFailed => 7052,
             }
         }
 
@@ -265,6 +280,11 @@ mod tests {
             ZeroNetInterfaceTransferAmount,
             SplAssetCounterAlreadyInitialized,
             RingPaused,
+            InvalidVkRegistryAccount,
+            InvalidVkRegistryIndex,
+            VkRegistryAlreadyInitialized,
+            VkRegistryNotReady,
+            VkRegistryInitFailed,
         ];
         for variant in variants {
             assert_eq!(
@@ -273,7 +293,6 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 44 variants on this branch.
-        assert_eq!(variants.len(), 44, "variant count drifted");
+        assert_eq!(variants.len(), 49, "variant count drifted");
     }
 }

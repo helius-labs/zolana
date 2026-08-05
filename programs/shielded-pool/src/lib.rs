@@ -62,6 +62,11 @@ pub fn process_instruction(
         .split_first()
         .ok_or(ProgramError::InvalidInstructionData)?;
 
+    #[cfg(feature = "vk-registry")]
+    if *ix_tag == zolana_interface::instruction::tag::INIT_VK_REGISTRY {
+        return instructions::vk_registry::process_init_vk_registry(accounts, payload);
+    }
+
     let ix_tag =
         InstructionTag::try_from(*ix_tag).map_err(|_| ProgramError::InvalidInstructionData)?;
 

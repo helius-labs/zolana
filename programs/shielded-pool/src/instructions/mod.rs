@@ -13,3 +13,5 @@ pub mod settlement;
 pub(crate) mod shared;
 pub mod transact;
 pub(crate) mod verifier;
+#[cfg(feature = "vk-registry")]
+pub mod vk_registry;

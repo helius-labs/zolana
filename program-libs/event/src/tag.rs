@@ -32,6 +32,12 @@ pub const RING_TRANSACT: u8 = 15;
 pub const RING_MERGE_TRANSACT: u8 = 16;
 pub const RING_AUTHORITY_TRANSACT: u8 = 17;
 
+/// Permissionless one-time creation of a per-verifying-key registry
+/// account. Only handled by a `vk-registry` program build; deliberately not
+/// an [`InstructionTag`] variant so the default build's dispatch stays
+/// untouched and a default program still rejects it as unknown.
+pub const INIT_VK_REGISTRY: u8 = 18;
+
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
