@@ -133,7 +133,6 @@ async function serviceRequestUrls(
     tree: TREE,
     fetch,
     indexerConfig: {
-      waitForIndexer: false,
       poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
     },
   });
@@ -153,7 +152,6 @@ function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
     tree: TREE,
     fetch,
     indexerConfig: {
-      waitForIndexer: false,
       poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
     },
   });
@@ -394,7 +392,7 @@ describe("ZolanaClient", () => {
     expect(getNonInclusionProofs).toHaveBeenCalledOnce();
 
     resolveState({
-      context: { blockTime: 1n },
+      context: { blockTime: 1n, slot: 1n },
       proofs: [
         {
           leaf: utxoHash,
@@ -408,7 +406,7 @@ describe("ZolanaClient", () => {
       ],
     });
     resolveNullifier({
-      context: { blockTime: 1n },
+      context: { blockTime: 1n, slot: 1n },
       proofs: [
         {
           leaf: nullifier,

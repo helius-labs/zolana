@@ -162,7 +162,7 @@ export class ZolanaIndexer {
           context,
         );
         return Object.freeze({
-          context: Object.freeze({ blockTime: response.context.blockTime }),
+          context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
           proofs: Object.freeze(response.proofs.map(convertMerkleProof)),
         });
       } catch (cause) {
@@ -186,7 +186,7 @@ export class ZolanaIndexer {
           context,
         );
         return Object.freeze({
-          context: Object.freeze({ blockTime: response.context.blockTime }),
+          context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
           proofs: Object.freeze(response.proofs.map(convertNonInclusionProof)),
         });
       } catch (cause) {
@@ -288,7 +288,7 @@ function convertEncryptedUtxosResponse(
   method: string,
 ): GetEncryptedUtxosByTagsResponse {
   return Object.freeze({
-    context: Object.freeze({ blockTime: response.context.blockTime }),
+    context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
     matches: Object.freeze(
       response.matches.map((item, index) =>
         convertEncryptedUtxoMatch(item, method, `$.matches[${String(index)}]`),
@@ -321,7 +321,7 @@ function convertShieldedTransactionsResponse(
   method: string,
 ): GetShieldedTransactionsByTagsResponse {
   return Object.freeze({
-    context: Object.freeze({ blockTime: response.context.blockTime }),
+    context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
     transactions: Object.freeze(
       response.transactions.map((item, index) =>
         convertShieldedTransaction(item, method, `$.transactions[${String(index)}]`),
@@ -345,7 +345,7 @@ function convertShieldedTransactionsBySignatureResponse(
   method: string,
 ): GetShieldedTransactionsBySignatureResponse {
   return Object.freeze({
-    context: Object.freeze({ blockTime: response.context.blockTime }),
+    context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
     transactions: Object.freeze(
       response.transactions.map((item, index) =>
         Object.freeze({
@@ -419,7 +419,7 @@ function decodeSalt(value: string, method: string, path: string): Bytes16 {
   return bytes as Bytes16;
 }
 
-async function pollIndexer<T extends Readonly<{ context: Readonly<{ blockTime: bigint }> }>>(
+async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint }> }>>(
   config: IndexerRpcConfig | undefined,
   context: RequestContext | undefined,
   request: () => Promise<T>,
@@ -429,17 +429,17 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ blockTime: b
     rawConfig !== undefined &&
     (typeof rawConfig !== "object" ||
       rawConfig === null ||
-      typeof (rawConfig as Record<string, unknown>)["waitForIndexer"] !== "boolean")
+      (((rawConfig as Record<string, unknown>)["requireSlot"] ?? undefined) !== undefined &&
+        typeof (rawConfig as Record<string, unknown>)["requireSlot"] !== "bigint"))
   ) {
     throw new ClientError("CLIENT_INVALID_POLL_CONFIG", {
-      details: { field: "waitForIndexer" },
+      details: { field: "requireSlot" },
     });
   }
-  const waitForIndexer = config?.waitForIndexer ?? false;
-  if (!waitForIndexer) return request();
+  const target = config?.requireSlot;
+  if (target === undefined) return request();
   const poll = validatePollConfig(config?.poll ?? DEFAULT_INDEXER_POLL_CONFIG);
   const attempts = poll.numRetries + 1;
-  const target = BigInt(Math.floor(Date.now() / 1000));
   let latest: bigint | undefined;
   let responses = 0;
   try {
@@ -447,7 +447,7 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ blockTime: b
       request,
       (response) => {
         responses++;
-        latest = response.context.blockTime;
+        latest = response.context.slot;
         return latest >= target;
       },
       { config: poll, ...(context === undefined ? {} : { context }) },

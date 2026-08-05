@@ -102,7 +102,6 @@ export async function liveHarness(): Promise<LiveHarness> {
     proverUrl,
     tree,
     indexerConfig: {
-      waitForIndexer: true,
       poll: { numRetries: 120, delayMs: 250n, maxDelayMs: 2_000n },
     },
   });
@@ -164,6 +163,15 @@ export async function fund(client: ZolanaClient, ...actors: readonly Actor[]): P
   }
 }
 
+/**
+ * Chain slot to require the indexer to have reached. A freshness requirement is a
+ * per-operation decision, so it is read at call time rather than baked into the
+ * client's config.
+ */
+export async function currentSlot(client: ZolanaClient): Promise<bigint> {
+  return BigInt(await client.solanaRpc.getSlot().send());
+}
+
 export async function sync(
   client: ZolanaClient,
   owner: Actor,
@@ -173,7 +181,7 @@ export async function sync(
     client,
     wallet: owner.wallet,
     authority: owner.authority,
-    config: { waitForIndexer: true, ...config },
+    config: { requireSlot: await currentSlot(client), ...config },
   });
 }
 
@@ -183,7 +191,7 @@ export async function indexedTransaction(
 ): Promise<IndexedShieldedTransaction> {
   const response = await client.getShieldedTransactionsBySignature(
     signature,
-    { ...client.indexerConfig, waitForIndexer: true },
+    { ...client.indexerConfig, requireSlot: await currentSlot(client) },
     { timeoutMs: 30_000 },
   );
   const transaction = response.transactions[0]?.transaction;
