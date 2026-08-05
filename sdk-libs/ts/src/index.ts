@@ -8,10 +8,8 @@ export { HasherWasmError } from "./hasher/index.js";
 /**
  * Connects a client and loads the hasher it needs.
  *
- * `solanaRpcUrl` serves the indexer and the prover too, which is the shape a
- * Helius URL takes. Name `indexerUrl` or `proverUrl` for a deployment that
- * splits them. A config that names no URL reaches the local validator, photon,
- * and prover on their own ports.
+ * `solanaRpcUrl` is shared by all services unless a service-specific URL is
+ * provided. Omitting all URLs uses the local stack ports.
  */
 export async function createZolanaClient(config: ZolanaClientConfig): Promise<ZolanaClient> {
   const client = new ZolanaClient(config);
@@ -61,10 +59,8 @@ export {
   TransactionError,
   Utxo,
   Wallet,
-  decryptToBalances,
   deserializeWallet,
   serializeWallet,
-  type PrivateBalances,
   type SerializedWalletState,
   type SyncReport,
   type TransactionErrorCode,
