@@ -68,8 +68,6 @@ export {
   Wallet,
   decryptToBalances,
   deserializeWallet,
-  syncWalletAuthorityFromMaterial,
-  walletAuthorityFromSync,
   serializeWallet,
   type PrivateBalances,
   type SerializedWalletState,

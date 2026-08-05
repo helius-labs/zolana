@@ -15,69 +15,21 @@ import {
   SOL_MINT,
   Utxo,
   Wallet,
-  decryptTransactions,
-  syncWalletAuthorityFromMaterial,
+  decryptTransactions as syncWalletWithAuthority,
   type PrivateTransaction,
   type SyncReport,
   type ViewingKeyEntry,
 } from "../../src/transaction/index.js";
 import type {
-  SyncWalletAuthority,
   WalletAuthority,
   WalletSyncMaterial,
 } from "../../src/transaction/wallet/authority.js";
-
-/**
- * The fixtures build an authority, while `decryptTransactions` takes only the
- * keys that open a transaction. Bridge here so each call site stays as Rust
- * writes it.
- */
-async function syncWalletWithAuthority(
-  input: Readonly<{
-    wallet: Parameters<typeof decryptTransactions>[0]["wallet"];
-    authority: WalletAuthority | SyncWalletAuthority;
-    transactions: Parameters<typeof decryptTransactions>[0]["transactions"];
-    config?: Parameters<typeof decryptTransactions>[0]["config"];
-  }>,
-): Promise<ReturnType<typeof decryptTransactions>> {
-  const keypair = await asSyncAuthority(input.authority);
-  return decryptTransactions({
-    wallet: input.wallet,
-    decryptionKeys: keypair,
-    transactions: input.transactions,
-    ...(input.config === undefined ? {} : { config: input.config }),
-  });
-}
-
-async function syncWalletWorkerEquivalent(
-  input: Readonly<{
-    wallet: Parameters<typeof decryptTransactionsWorkerEquivalent>[0]["wallet"];
-    authority: WalletAuthority | SyncWalletAuthority;
-    transactions: Parameters<typeof decryptTransactionsWorkerEquivalent>[0]["transactions"];
-    config?: Parameters<typeof decryptTransactionsWorkerEquivalent>[0]["config"];
-  }>,
-): ReturnType<typeof decryptTransactionsWorkerEquivalent> {
-  const keypair = await asSyncAuthority(input.authority);
-  return decryptTransactionsWorkerEquivalent({
-    wallet: input.wallet,
-    decryptionKeys: keypair,
-    transactions: input.transactions,
-    ...(input.config === undefined ? {} : { config: input.config }),
-  });
-}
-
-async function asSyncAuthority(
-  authority: WalletAuthority | SyncWalletAuthority,
-): Promise<SyncWalletAuthority> {
-  const material = await authority.syncMaterial();
-  return syncWalletAuthorityFromMaterial(material);
-}
 import {
   EncryptedScheme,
   encodeOutputData,
   encodeProofless,
 } from "../../src/transaction/serialization/codecs.js";
-import { decryptTransactionsWorkerEquivalent } from "../../src/transaction/wallet/sync.js";
+import { decryptTransactionsWorkerEquivalent as syncWalletWorkerEquivalent } from "../../src/transaction/wallet/sync.js";
 import { encodeAddress } from "../../src/transaction/internal.js";
 import type { IndexedShieldedTransaction } from "../../src/transaction/instructions/transact.js";
 import { fixtureArray, fixtureObject, fixtureString, hexBytes, readFixture } from "./fixture.js";

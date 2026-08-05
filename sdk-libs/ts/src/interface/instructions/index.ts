@@ -1,5 +1,11 @@
 import { getCreateAssociatedTokenIdempotentInstructionAsync } from "@solana-program/token";
-import { AccountRole, address, createNoopSigner, type Instruction } from "@solana/kit";
+import {
+  AccountRole,
+  address,
+  createNoopSigner,
+  type Instruction,
+  type TransactionSigner,
+} from "@solana/kit";
 
 import {
   InstructionTag,
@@ -12,10 +18,8 @@ import type { AddressTreeParams } from "../program.js";
 import {
   type Address,
   type AssetDeposit,
-  type BatchUpdateNullifierTreeInstructionData,
   type MergeTransactInstructionData,
   type DepositSplAccounts,
-  type SignerAccount,
   type TransactInstructionData,
   type TransactWithdrawal,
 } from "../types.js";
@@ -30,16 +34,17 @@ import {
 } from "../pda/index.js";
 import {
   encodeAddressTreeParams,
-  encodeBatchUpdateNullifierTreeInstructionData,
   encodeDepositInstructionData,
   encodeMergeTransactInstructionData,
   encodeTransactInstructionData,
 } from "../codecs/index.js";
 
 const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
-export type { MergeTransactInstructionData, SignerAccount } from "../types.js";
+export type { MergeTransactInstructionData } from "../types.js";
 
 type Meta = NonNullable<Instruction["accounts"]>[number];
+
+export type SignerAccount = Address | TransactionSigner;
 
 function accountAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
@@ -412,30 +417,6 @@ export function mergeTransactInstruction(
       meta(input.feePayer, true, true),
       meta(input.userRecord, false, false),
       meta(SYSTEM_PROGRAM, false, false),
-      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
-    ],
-  );
-}
-
-export async function batchUpdateNullifierTreeInstruction(
-  input: Readonly<
-    {
-      authority: SignerAccount;
-      tree: Address;
-      reimbursementRecipient: Address;
-    } & BatchUpdateNullifierTreeInstructionData
-  >,
-): Promise<Instruction> {
-  return instruction(
-    tagged(
-      InstructionTag.batchUpdateNullifierTree,
-      encodeBatchUpdateNullifierTreeInstructionData(input),
-    ),
-    [
-      meta(input.authority, true, false),
-      meta(await protocolConfigAddress(), false, false),
-      meta(input.tree, false, true),
-      meta(input.reimbursementRecipient, false, true),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     ],
   );

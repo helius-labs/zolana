@@ -1,17 +1,14 @@
 import type { ZolanaClient } from "../client/client.js";
 import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import {
-  TransactWithdrawal,
   type Address,
   type Bytes32,
   type RequestContext,
+  type TransactWithdrawal,
 } from "../interface/types.js";
 import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
-import {
-  WithdrawalTarget,
-  type WithdrawalTarget as WithdrawalTargetType,
-} from "../transaction/instructions/transact.js";
+import type { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
@@ -34,7 +31,7 @@ type PrivateAction =
       kind: "withdrawal";
       asset: Address;
       amount: bigint;
-      target: WithdrawalTargetType;
+      target: WithdrawalTarget;
     }>
   | Readonly<{
       kind: "split";
@@ -248,8 +245,8 @@ async function withdrawal(
 > {
   if (asset === SOL_MINT) {
     return {
-      target: WithdrawalTarget.sol({ recipient }),
-      accounts: TransactWithdrawal.sol({ recipient }),
+      target: { kind: "sol", recipient },
+      accounts: { kind: "sol", recipient },
     };
   }
   const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
@@ -258,13 +255,14 @@ async function withdrawal(
     splInterfaceWithBump(asset),
   ]);
   return {
-    target: WithdrawalTarget.spl({ recipientTokenAccount, splTokenInterface }),
-    accounts: TransactWithdrawal.spl({
+    target: { kind: "spl", recipientTokenAccount, splTokenInterface },
+    accounts: {
+      kind: "spl",
       mint: asset,
       splTokenInterface,
       recipientTokenAccount,
       tokenProgram,
-    }),
+    },
   };
 }
 

@@ -1,15 +1,11 @@
 export {
   LocalWalletAuthority,
-  syncWalletAuthorityFromMaterial,
-  walletAuthorityFromSync,
   type AnonymousRecipientSlot,
   type ApprovalRequest,
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
   type SplitBundlePlaintext,
-  type DecryptionKeys,
-  type SyncMaterialSource,
   type SyncWalletAuthority,
   type WalletAuthority,
   type WalletSyncMaterial,
@@ -20,12 +16,12 @@ export {
   decryptToBalances,
   decryptTransactions,
   decryptTransactionsWorkerEquivalent,
+  type PrivateBalances,
 } from "./sync.js";
-export { Wallet, balanceOf, balancesOf } from "./state.js";
+export { Wallet } from "./state.js";
 export type {
   AssetBalance,
   Filter,
-  PrivateBalances,
   PrivateTransaction,
   PrivateTransactionDirection,
   PrivateTransactionId,

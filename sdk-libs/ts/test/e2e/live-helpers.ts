@@ -19,7 +19,6 @@ import {
 import {
   DEFAULT_TREE_ADDRESS,
   LocalWalletAuthority,
-  walletAuthorityFromSync,
   ShieldedKeypair,
   Wallet,
   createZolanaClient,
@@ -29,13 +28,12 @@ import {
 import type { ZolanaClient } from "../../src/client/client.js";
 import type { IndexedShieldedTransaction } from "../../src/transaction/instructions/transact.js";
 import type { SyncWalletConfig } from "../../src/wallet/sync.js";
-import type { WalletAuthority } from "../../src/transaction/wallet/authority.js";
 
 export interface Actor {
   readonly signer: KeyPairSigner;
   readonly keypair: ShieldedKeypair;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  readonly authority: LocalWalletAuthority;
 }
 
 export interface LiveHarness {
@@ -70,12 +68,10 @@ export async function actor(
     signer,
     keypair,
     wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-    authority: walletAuthorityFromSync(
-      new LocalWalletAuthority({
-        solanaPublicKey: signer.address,
-        keypair,
-      }),
-    ),
+    authority: new LocalWalletAuthority({
+      solanaPublicKey: signer.address,
+      keypair,
+    }),
   };
 }
 

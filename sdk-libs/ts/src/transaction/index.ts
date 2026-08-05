@@ -20,7 +20,6 @@ export {
   SENDER_SLOT_COUNT,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
-  WithdrawalTarget,
   ConfidentialTransfer,
   assetField,
   canonicalShape,
@@ -46,19 +45,16 @@ export type {
   PrivateTxHashInput,
   PublicAmounts,
   Shape,
+  WithdrawalTarget,
 } from "./instructions/index.js";
 export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash } from "./utxo.js";
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,
   LocalWalletAuthority,
-  syncWalletAuthorityFromMaterial,
-  walletAuthorityFromSync,
   SOL_ASSET_ID,
   SOL_MINT,
   Wallet,
-  balanceOf,
-  balancesOf,
   decryptToBalances,
   decryptTransactions,
   deserializeWallet,
@@ -78,9 +74,7 @@ export type {
   PrivateTransactionId,
   PrivateTransactionKind,
   PrivateTransactionStatus,
-  DecryptionKeys,
   SplitBundlePlaintext,
-  SyncMaterialSource,
   SyncWalletAuthority,
   SyncReport,
   SerializedWalletState,

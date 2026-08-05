@@ -112,7 +112,6 @@ export function getMergeTransactInstruction(
 }
 
 export {
-  batchUpdateNullifierTreeInstruction as getBatchUpdateNullifierTreeInstructionAsync,
   createAssetCounterInstruction as getCreateAssetCounterInstructionAsync,
   createAssociatedTokenAccountInstruction as getCreateAssociatedTokenAccountInstructionAsync,
   createProtocolConfigInstruction as getCreateProtocolConfigInstructionAsync,
@@ -124,7 +123,6 @@ export {
   type SignerAccount,
 } from "./interface/instructions/index.js";
 export type {
-  BatchUpdateNullifierTreeInstructionData,
   DepositInstructionData,
   TransactWithdrawal,
   MergeTransactInstructionData,

@@ -1,11 +1,10 @@
-import type { Address, TransactionSigner } from "@solana/kit";
+import type { Address } from "@solana/kit";
 
 type FixedBytes<Length extends number> = Uint8Array & {
   readonly __fixedBytesLength: Length;
 };
 
 export type { Address, Instruction, Signature, Transaction } from "@solana/kit";
-export type SignerAccount = Address | TransactionSigner;
 export type Bytes16 = FixedBytes<16>;
 export type Bytes31 = FixedBytes<31>;
 export type Bytes32 = FixedBytes<32>;
@@ -52,35 +51,8 @@ export type DepositAsset =
   | Readonly<{ kind: "sol" }>
   | Readonly<{ kind: "spl"; accounts: DepositSplAccounts }>;
 
-export const DepositAsset = Object.freeze({
-  sol(): Extract<DepositAsset, { kind: "sol" }> {
-    return Object.freeze({ kind: "sol" });
-  },
-  spl(accounts: DepositSplAccounts): Extract<DepositAsset, { kind: "spl" }> {
-    return Object.freeze({
-      kind: "spl",
-      accounts: Object.freeze({ ...accounts }),
-    });
-  },
-});
-
 export interface AssetDeposit extends Omit<DepositEntry, "assetIndex"> {
   readonly asset: DepositAsset;
-}
-
-export interface ZoneAssetDeposit {
-  readonly deposit: AssetDeposit;
-  readonly zoneDataHash: Bytes32;
-  readonly zoneData: Uint8Array;
-}
-
-export interface ZoneDepositInstructionData {
-  readonly assets: readonly DepositAssetKind[];
-  readonly deposits: readonly Readonly<{
-    readonly deposit: DepositEntry;
-    readonly zoneDataHash: Bytes32;
-    readonly zoneData: Uint8Array;
-  }>[];
 }
 
 export interface InputUtxo {
@@ -154,13 +126,13 @@ export type ResolvedInterfaceTransfer =
   | Readonly<{
       kind: "splDeposit";
       amount: bigint;
-      sourceTokenAccount: Address;
+      tokenAccount: Address;
       splInterfacePda: Address;
     }>
   | Readonly<{
       kind: "splWithdrawal";
       amount: bigint;
-      recipientTokenAccount: Address;
+      tokenAccount: Address;
       splInterfacePda: Address;
     }>;
 
@@ -188,25 +160,6 @@ export type TransactWithdrawal =
       recipientTokenAccount: Address;
       tokenProgram: Address;
     }>;
-
-/// Typed constructors for the settlement accounts a withdrawal needs. The
-/// variants are reached through these rather than a `kind` literal so a caller
-/// cannot pair a SOL recipient with SPL token accounts.
-export const TransactWithdrawal = Object.freeze({
-  sol(input: Readonly<{ recipient: Address }>): Extract<TransactWithdrawal, { kind: "sol" }> {
-    return Object.freeze({ ...input, kind: "sol" });
-  },
-  spl(
-    input: Readonly<{
-      mint: Address;
-      splTokenInterface: Address;
-      recipientTokenAccount: Address;
-      tokenProgram: Address;
-    }>,
-  ): Extract<TransactWithdrawal, { kind: "spl" }> {
-    return Object.freeze({ ...input, kind: "spl" });
-  },
-});
 
 export interface ProtocolConfigAccount {
   readonly authority: Address;
@@ -247,20 +200,4 @@ export interface MergeTransactInstructionData {
   readonly nullifiers: readonly Bytes32[];
   readonly utxoTreeRootIndexes: readonly number[];
   readonly nullifierTreeRootIndexes: readonly number[];
-}
-
-export interface MergeZoneInstructionData {
-  readonly outputZoneDataHash: Bytes32;
-  readonly merge: MergeTransactInstructionData;
-}
-
-export interface BatchUpdateNullifierTreeInstructionData {
-  readonly newRoot: Bytes32;
-  readonly oldRoot: Bytes32;
-  readonly zkpBatchIndex: number;
-  readonly compressedProof: Readonly<{
-    readonly a: Bytes32;
-    readonly b: Bytes64;
-    readonly c: Bytes32;
-  }>;
 }

@@ -12,14 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuthorizedPrivateTransaction, ZolanaClient } from "../src/client/client.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
-import {
-  Data,
-  LocalWalletAuthority,
-  SOL_MINT,
-  Utxo,
-  Wallet,
-  walletAuthorityFromSync,
-} from "../src/transaction/index.js";
+import { Data, LocalWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/wallet/asset.js";
 import { createSplit, createTransfer, createWithdrawal } from "../src/wallet/actions.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
@@ -161,12 +154,10 @@ describe("private transaction construction", () => {
       authorizePrivateTransaction(
         created.transaction,
         wallet,
-        walletAuthorityFromSync(
-          new LocalWalletAuthority({
-            solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
-            keypair,
-          }),
-        ),
+        new LocalWalletAuthority({
+          solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
+          keypair,
+        }),
       ),
     ).rejects.toMatchObject({ code: "TRANSACTION_ED25519_PAYER_MISMATCH" });
   });
@@ -274,9 +265,7 @@ describe("unsigned public transaction builders", () => {
     await buildWithdrawalTransaction({
       client,
       wallet,
-      authority: walletAuthorityFromSync(
-        new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
-      ),
+      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
       feePayer: payer,
       recipient: RECIPIENT,
       asset: SPL_MINT,
@@ -310,9 +299,7 @@ describe("unsigned public transaction builders", () => {
     const input = {
       client,
       wallet,
-      authority: walletAuthorityFromSync(
-        new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
-      ),
+      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
       feePayer: payer,
       recipient: ShieldedKeypair.generate().shieldedAddress(),
       amount: 25n,
@@ -335,9 +322,7 @@ describe("unsigned public transaction builders", () => {
     await buildSplitTransaction({
       client,
       wallet,
-      authority: walletAuthorityFromSync(
-        new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
-      ),
+      authority: new LocalWalletAuthority({ solanaPublicKey: payer, keypair }),
       feePayer: payer,
     });
 

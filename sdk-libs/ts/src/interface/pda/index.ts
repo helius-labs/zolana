@@ -63,15 +63,6 @@ export async function splInterfaceBump(mint: Address): Promise<number> {
   return (await splInterfaceWithBump(mint))[1];
 }
 
-export async function zoneConfigAddress(zoneProgram: Address): Promise<Address> {
-  return (
-    await getProgramDerivedAddress({
-      programAddress: zoneProgram,
-      seeds: [encoder.encode("zone_auth")],
-    })
-  )[0];
-}
-
 export async function associatedTokenAddress(
   owner: Address,
   mint: Address,

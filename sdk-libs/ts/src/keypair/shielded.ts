@@ -21,17 +21,6 @@ import { type Salt, ViewingKey } from "./viewing-key.js";
 
 const addressDecoder = getAddressDecoder();
 
-/**
- * The read keys a wallet sync needs. Matches the transaction layer's
- * `WalletSyncMaterial` structurally, so a keypair satisfies a sync authority
- * without this layer importing from that one.
- */
-export interface ShieldedSyncMaterial {
-  readonly identity: ShieldedAddress;
-  readonly viewingKeys: readonly ViewingKey[];
-  readonly nullifierKey: NullifierKey;
-}
-
 export class ShieldedAddress {
   readonly signingPublicKey: ShieldedPublicKey;
   readonly viewingPublicKey: P256PublicKey;
@@ -308,21 +297,6 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
           }),
         ),
     });
-  }
-
-  /**
-   * The read keys a wallet sync opens its own history with. Rust reaches these
-   * through `impl SyncWalletAuthority for ShieldedKeypair`; the encrypting half
-   * of that trait stays in the transaction layer, which this layer must not
-   * import. `ShieldedSyncMaterial` matches `WalletSyncMaterial` structurally, so
-   * the result satisfies the sync authority without naming its type here.
-   */
-  syncMaterial(): ShieldedSyncMaterial {
-    return {
-      identity: this.shieldedAddress(),
-      viewingKeys: [this.viewingKey()],
-      nullifierKey: this.nullifierKey(),
-    };
   }
 
   ownerHash(): Bytes32 {

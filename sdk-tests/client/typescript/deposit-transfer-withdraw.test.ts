@@ -1,18 +1,12 @@
 /// <reference types="node" />
 
 import { DEFAULT_TREE_ADDRESS, SOL_MINT, createZolanaClient } from "@zolana/sdk";
-import {
-  DepositAsset,
-  TransactWithdrawal,
-  depositInstruction,
-  transactInstruction,
-} from "@zolana/sdk/interface";
+import { depositInstruction, transactInstruction } from "@zolana/sdk/interface";
 import { randomBlinding } from "@zolana/sdk/keypair";
 import {
   AssetRegistry,
   ConfidentialTransfer,
   ProofInputUtxo,
-  WithdrawalTarget,
   decryptToBalances,
 } from "@zolana/sdk/transaction";
 import { describe, it } from "vitest";
@@ -60,7 +54,7 @@ describe("example: deposit, transfer, withdraw", () => {
       sender: senderSigner,
       deposits: [
         {
-          asset: DepositAsset.sol(),
+          asset: { kind: "sol" },
           viewTag: senderViewTag,
           recipientOwnerHash: senderAddress.ownerHash(),
           blinding: randomBlinding(),
@@ -82,7 +76,7 @@ describe("example: deposit, transfer, withdraw", () => {
     });
 
     // 4. The sender decrypts the transaction outputs locally to read the private balance.
-    const balancesAfterDeposit = decryptToBalances({
+    const balancesAfterDeposit = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
       transactions: depositResponse.transactions,
@@ -125,7 +119,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const transferResponse = await client.getShieldedTransactionsByTags({
       tags: [senderViewTag],
     });
-    const balancesAfterTransfer = decryptToBalances({
+    const balancesAfterTransfer = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
       transactions: transferResponse.transactions,
@@ -149,11 +143,10 @@ describe("example: deposit, transfer, withdraw", () => {
       [withdrawalInput],
       senderSigner.address,
     );
-    withdrawal.withdraw(
-      SOL_MINT,
-      WITHDRAW_AMOUNT,
-      WithdrawalTarget.sol({ recipient: senderSigner.address }),
-    );
+    withdrawal.withdraw(SOL_MINT, WITHDRAW_AMOUNT, {
+      kind: "sol",
+      recipient: senderSigner.address,
+    });
     const withdrawalProofInputs = withdrawal.sign(senderKeypair, assets);
 
     // 4. Fetch the ZK proof to prove the sender can spend the balance.
@@ -164,7 +157,7 @@ describe("example: deposit, transfer, withdraw", () => {
       feePayer: senderSigner,
       inputTree: DEFAULT_TREE_ADDRESS,
       outputTree: DEFAULT_TREE_ADDRESS,
-      withdrawal: TransactWithdrawal.sol({ recipient: senderSigner.address }),
+      withdrawal: { kind: "sol", recipient: senderSigner.address },
       data: withdrawalData,
     });
 
@@ -176,7 +169,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const withdrawalResponse = await client.getShieldedTransactionsByTags({
       tags: [senderViewTag],
     });
-    const balancesAfterWithdrawal = decryptToBalances({
+    const balancesAfterWithdrawal = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
       transactions: withdrawalResponse.transactions,

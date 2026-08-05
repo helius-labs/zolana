@@ -3,10 +3,10 @@ import type { ZolanaClient } from "../client/client.js";
 import { DEFAULT_TREE_ADDRESS, SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
-  DepositAsset,
   type Address,
   type AssetDeposit,
   type Bytes32,
+  type DepositAsset,
   type Instruction,
   type RequestContext,
   type Transaction,
@@ -92,18 +92,21 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
     };
     // A SOL deposit needs no token accounts, so one supplied alongside it is
     // ignored rather than rejected.
-    let settlement: DepositAsset = DepositAsset.sol();
+    let settlement: DepositAsset = { kind: "sol" };
     if (params.asset !== SOL_MINT) {
       if (params.sourceTokenAccount === undefined) {
         throw new WalletError("WALLET_MISSING_SPL_TOKEN_ACCOUNT", {
           details: { mint: params.asset },
         });
       }
-      settlement = DepositAsset.spl({
-        mint: params.asset,
-        sourceTokenAccount: params.sourceTokenAccount,
-        tokenProgram: params.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
-      });
+      settlement = {
+        kind: "spl",
+        accounts: {
+          mint: params.asset,
+          sourceTokenAccount: params.sourceTokenAccount,
+          tokenProgram: params.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
+        },
+      };
     }
     return new Deposit({
       data,

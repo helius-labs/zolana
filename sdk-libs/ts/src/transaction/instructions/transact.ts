@@ -293,19 +293,12 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
             amount: transfer.amount,
             recipient: transfer.userSolAccount,
           }
-        : transfer.isDeposit
-          ? {
-              kind: "splDeposit" as const,
-              amount: transfer.amount,
-              sourceTokenAccount: transfer.tokenAccount,
-              splInterfacePda: transfer.splTokenInterface,
-            }
-          : {
-              kind: "splWithdrawal" as const,
-              amount: transfer.amount,
-              recipientTokenAccount: transfer.tokenAccount,
-              splInterfacePda: transfer.splTokenInterface,
-            },
+        : {
+            kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
+            amount: transfer.amount,
+            tokenAccount: transfer.tokenAccount,
+            splInterfacePda: transfer.splTokenInterface,
+          },
     ),
     ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
     ...(data.zoneDataHash === undefined ? {} : { zoneDataHash: data.zoneDataHash }),
@@ -560,20 +553,6 @@ export type WithdrawalTarget =
       splTokenInterface: Address;
     }>;
 
-export const WithdrawalTarget = Object.freeze({
-  sol(input: Readonly<{ recipient: Address }>): Extract<WithdrawalTarget, { kind: "sol" }> {
-    return Object.freeze({ ...input, kind: "sol" });
-  },
-  spl(
-    input: Readonly<{
-      recipientTokenAccount: Address;
-      splTokenInterface: Address;
-    }>,
-  ): Extract<WithdrawalTarget, { kind: "spl" }> {
-    return Object.freeze({ ...input, kind: "spl" });
-  },
-});
-
 export interface PreparedTransfer {
   readonly owner: ShieldedAddress;
   readonly inputs: readonly ProofInputUtxo[];
@@ -613,6 +592,14 @@ export class ConfidentialTransfer {
     if (owner.signingPublicKey.signatureType() === "p256") {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
+    // Only the payer occupies a non-zero slot in the circuit's signer vector, so
+    // a note owned by anyone else cannot be authorized.
+    if (owner.solanaAddress() !== feePayer) {
+      throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
+        owner: owner.solanaAddress(),
+        payer: feePayer,
+      });
+    }
     inputs.forEach((input, index) => {
       if (input.isDummy()) {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
@@ -624,16 +611,6 @@ export class ConfidentialTransfer {
         throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
       }
     });
-    // The circuit authorizes an input owner by finding its hash in the signer
-    // vector, whose slots past the payer are zero-filled, and a zero slot
-    // authorizes nobody. Only the payer's own notes are provable, so reject a
-    // third-party payer here instead of failing inside the prover.
-    if (owner.solanaAddress() !== feePayer) {
-      throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
-        owner: owner.solanaAddress(),
-        payer: feePayer,
-      });
-    }
     this.#owner = owner;
     this.#inputs = [...inputs];
     this.#payer = feePayer;

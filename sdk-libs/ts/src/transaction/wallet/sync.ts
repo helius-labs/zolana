@@ -2,7 +2,7 @@ import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.j
 import type { NullifierKey } from "../../keypair/nullifier-key.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
-import type { ViewingKeyLike } from "../../keypair/shielded.js";
+import type { ShieldedKeypair, ViewingKeyLike } from "../../keypair/shielded.js";
 
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
@@ -28,24 +28,22 @@ import {
   type ProoflessOutput,
 } from "../serialization/codecs.js";
 import { Utxo } from "../utxo.js";
-import type { DecryptionKeys, WalletSyncMaterial } from "./authority.js";
+import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
 import { SOL_MINT, type AssetRegistry } from "./asset.js";
 import {
   SENDER_HISTORY_ROW_BASE,
-  hex,
   newViewingKeyEntry,
+  type AssetBalance,
+  type Filter,
+  type PrivateTransaction,
+  type PrivateTransactionDirection,
+  type PrivateTransactionId,
+  type PrivateTransactionKind,
+  type SyncReport,
   type ViewingKeyEntry,
-} from "./primitives.js";
-import { privateBalancesFrom } from "./state.js";
-import type {
-  PrivateBalances,
-  PrivateTransaction,
-  PrivateTransactionDirection,
-  PrivateTransactionId,
-  PrivateTransactionKind,
-  SyncReport,
+  type WalletUtxo,
   Wallet,
-  WalletUtxo,
+  hex,
 } from "./state.js";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
@@ -55,29 +53,25 @@ interface DecryptTransactionsConfig {
   readonly syncedAt?: bigint;
 }
 
-/** The wallet fields the decrypt pass reads, without the class. @internal */
-export type WalletIdentity = Wallet["identity"];
-
-/** One wallet's mutable contents, as `Wallet._state` hands them out. @internal */
-export interface WalletStateSnapshot {
-  readonly utxos: readonly WalletUtxo[];
-  readonly transactions: readonly PrivateTransaction[];
-  readonly nullifiers: ReadonlySet<string>;
-  readonly viewingKeyHistory: readonly ViewingKeyEntry[];
-  readonly lastSynced?: bigint;
+export interface PrivateBalances {
+  balance(mint: Address, filter?: Filter): AssetBalance;
+  balances(skipUtxos?: boolean): readonly AssetBalance[];
 }
 
-function validateMaterial(identity: WalletIdentity, material: WalletSyncMaterial): void {
+function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
   if (
-    !equal(material.identity.signingPublicKey.toBytes(), identity.signingPublicKey.toBytes()) ||
-    !equal(material.identity.nullifierPublicKey, identity.nullifierPublicKey) ||
-    !equal(material.identity.viewingPublicKey.toBytes(), identity.viewingPublicKey.toBytes())
+    !equal(
+      material.identity.signingPublicKey.toBytes(),
+      wallet.identity.signingPublicKey.toBytes(),
+    ) ||
+    !equal(material.identity.nullifierPublicKey, wallet.identity.nullifierPublicKey) ||
+    !equal(material.identity.viewingPublicKey.toBytes(), wallet.identity.viewingPublicKey.toBytes())
   ) {
     throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
   }
   if (
     !material.viewingKeys.some((key) =>
-      equal(key.publicKey().toBytes(), identity.viewingPublicKey.toBytes()),
+      equal(key.publicKey().toBytes(), wallet.identity.viewingPublicKey.toBytes()),
     )
   ) {
     throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
@@ -822,35 +816,21 @@ class SyncPass {
   }
 }
 
-/**
- * Decryption is pure local computation. An authority that has to go off-box for
- * its material resolves that first, so the network wait stays at the call site
- * instead of making every decrypt await.
- */
-/**
- * The decrypt pass over plain wallet state. `Wallet.decrypt` owns the mutation;
- * this stays state-in, state-out so the engine does not depend on the class and
- * `state.ts` can call it without an import cycle.
- *
- * @internal
- */
-export function decryptIntoState(
+export async function decryptTransactions(
   input: Readonly<{
-    identity: WalletIdentity;
-    registry: AssetRegistry;
-    current: WalletStateSnapshot;
-    decryptionKeys: DecryptionKeys;
+    wallet: Wallet;
+    authority: SyncWalletAuthority;
     transactions: readonly IndexedShieldedTransaction[];
     config?: DecryptTransactionsConfig;
   }>,
-): Readonly<{ next: WalletStateSnapshot; report: SyncReport }> {
-  const material = input.decryptionKeys.syncMaterial();
-  validateMaterial(input.identity, material);
-  const current = input.current;
+): Promise<SyncReport> {
+  const material = await input.authority.syncMaterial();
+  validateMaterial(input.wallet, material);
+  const current = input.wallet._state();
   const index = buildTagIndex(input.transactions);
   const pass = new SyncPass({
     material,
-    assets: input.registry,
+    assets: input.wallet.registry,
     transactions: input.transactions,
     utxos: current.utxos,
     rows: current.transactions,
@@ -887,38 +867,20 @@ export function decryptIntoState(
       compareBigints(left.id.index, right.id.index),
   );
 
-  return Object.freeze({
-    next: {
-      utxos,
-      transactions,
-      nullifiers,
-      viewingKeyHistory,
-      lastSynced: input.config?.syncedAt ?? 0n,
-    },
-    report: Object.freeze({
-      storedUtxos: pass.storedUtxos,
-      unparsedTransactions: index.unparsedTransactions,
-      undecryptableCandidates: pass.undecryptableCandidates,
-      unknownAssetIds: pass.unknownAssetIds(),
-      unknownAssetFields: pass.unknownAssetFields(),
-    }),
+  input.wallet._replace({
+    utxos,
+    transactions,
+    nullifiers,
+    viewingKeyHistory,
+    lastSynced: input.config?.syncedAt ?? 0n,
   });
-}
-
-/**
- * Thin wrapper over `Wallet.decrypt` for callers that hold the wallet as data
- * rather than a receiver.
- */
-export function decryptTransactions(
-  input: Readonly<{
-    wallet: Wallet;
-    decryptionKeys: DecryptionKeys;
-    transactions: readonly IndexedShieldedTransaction[];
-    config?: DecryptTransactionsConfig;
-  }>,
-): SyncReport {
-  const { wallet, ...rest } = input;
-  return wallet.decrypt(rest);
+  return Object.freeze({
+    storedUtxos: pass.storedUtxos,
+    unparsedTransactions: index.unparsedTransactions,
+    undecryptableCandidates: pass.undecryptableCandidates,
+    unknownAssetIds: pass.unknownAssetIds(),
+    unknownAssetFields: pass.unknownAssetFields(),
+  });
 }
 
 export async function decryptTransactionsWorkerEquivalent(
@@ -927,37 +889,30 @@ export async function decryptTransactionsWorkerEquivalent(
   return decryptTransactions(input);
 }
 
-/**
- * Decrypt `transactions` and return what they hold for `keypair` as balances.
- *
- * Every call decrypts from nothing, so pass the full set of transactions the
- * keypair's tags match, not the ones since a previous call. Callers that want
- * notes to accumulate across calls hold a `Wallet` instead.
- *
- * Reading needs no spend authority, so `keypair` can be a viewing key as well
- * as a full `ShieldedKeypair`.
- */
-export function decryptToBalances(
+/** Decrypt a complete indexed history into a read-only balance view. */
+export async function decryptToBalances(
   input: Readonly<{
-    keypair: DecryptionKeys;
+    keypair: ShieldedKeypair;
     registry: AssetRegistry;
     transactions: readonly IndexedShieldedTransaction[];
-    config?: DecryptTransactionsConfig;
   }>,
-): PrivateBalances {
-  const identity = input.keypair.syncMaterial().identity;
-  const { next, report } = decryptIntoState({
-    identity,
-    registry: input.registry,
-    current: {
-      utxos: [],
-      transactions: [],
-      nullifiers: new Set<string>(),
-      viewingKeyHistory: [newViewingKeyEntry(identity.viewingPublicKey, 0n)],
+): Promise<PrivateBalances> {
+  const identity = input.keypair.shieldedAddress();
+  const wallet = new Wallet({ identity, registry: input.registry });
+  await decryptTransactions({
+    wallet,
+    authority: {
+      syncMaterial: () =>
+        Promise.resolve({
+          identity,
+          viewingKeys: [input.keypair.viewingKey()],
+          nullifierKey: input.keypair.nullifierKey(),
+        }),
     },
-    decryptionKeys: input.keypair,
     transactions: input.transactions,
-    ...(input.config === undefined ? {} : { config: input.config }),
   });
-  return privateBalancesFrom(next.utxos, next.transactions, input.registry, report);
+  return Object.freeze({
+    balance: (mint: Address, filter?: Filter) => wallet.balance(mint, filter),
+    balances: (skipUtxos = false) => wallet.balances(skipUtxos),
+  });
 }
