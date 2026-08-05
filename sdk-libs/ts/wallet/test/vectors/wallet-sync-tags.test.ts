@@ -63,7 +63,10 @@ function recorder(): Readonly<{
 }> {
   const shielded: { tags: string[]; limit: number | undefined }[] = [];
   const deposits: { tags: string[]; limit: number | undefined }[] = [];
-  const nullifiers = vi.fn(async () => ({ context: { blockTime: 0n, slot: 1n }, transactions: [] }));
+  const nullifiers = vi.fn(async () => ({
+    context: { blockTime: 0n, slot: 1n },
+    transactions: [],
+  }));
   const client = {
     getShieldedTransactionsByTags: (
       request: Readonly<{ tags: readonly Bytes32[]; limit?: number }>,

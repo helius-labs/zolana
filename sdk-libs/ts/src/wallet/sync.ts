@@ -401,9 +401,7 @@ export async function syncWallet(
     // every request. Applying it per request meant paying the wait per tag chunk,
     // per collector, per page.
     let pendingGate: IndexerRpcConfig | undefined =
-      requireSlot === undefined
-        ? undefined
-        : Object.freeze({ poll: validatedPoll, requireSlot });
+      requireSlot === undefined ? undefined : Object.freeze({ poll: validatedPoll, requireSlot });
     const nextRpcConfig = (): IndexerRpcConfig => {
       if (pendingGate === undefined) return ungated;
       const gate = pendingGate;

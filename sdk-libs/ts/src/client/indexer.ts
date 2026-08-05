@@ -162,7 +162,10 @@ export class ZolanaIndexer {
           context,
         );
         return Object.freeze({
-          context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
+          context: Object.freeze({
+            blockTime: response.context.blockTime,
+            slot: response.context.slot,
+          }),
           proofs: Object.freeze(response.proofs.map(convertMerkleProof)),
         });
       } catch (cause) {
@@ -186,7 +189,10 @@ export class ZolanaIndexer {
           context,
         );
         return Object.freeze({
-          context: Object.freeze({ blockTime: response.context.blockTime, slot: response.context.slot }),
+          context: Object.freeze({
+            blockTime: response.context.blockTime,
+            slot: response.context.slot,
+          }),
           proofs: Object.freeze(response.proofs.map(convertNonInclusionProof)),
         });
       } catch (cause) {

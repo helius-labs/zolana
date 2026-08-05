@@ -59,9 +59,7 @@ export function createIndexerRpcConfig(
   }
   const validated = validatePollConfig(poll);
   return Object.freeze(
-    requireSlot === undefined
-      ? { poll: validated }
-      : { poll: validated, requireSlot },
+    requireSlot === undefined ? { poll: validated } : { poll: validated, requireSlot },
   );
 }
 
