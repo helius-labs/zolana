@@ -287,33 +287,28 @@ impl<'a> TransactProof<'a> {
     /// for the public-input layout and verifying key.
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
-        let public_input_hash = self.public_input_hash()?;
-        let verifying_key = self
-            .ix
-            .circuit
-            .verifying_key()
-            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
-        let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
-        let verify_err = ShieldedPoolError::TransactProofVerificationFailed;
         let proof_data = &self.ix.proof;
-        let commitment = self
-            .ix
-            .circuit
-            .bsb22_commitment()
-            .map(|value| (&value.commitment, &value.commitment_pok));
-        let proof = verifier::CompressedGroth16Proof {
-            a: &proof_data.a,
-            b: &proof_data.b,
-            c: &proof_data.c,
-            commitment,
-        };
-        verifier::verify_groth16(
-            proof,
-            public_input_hash,
-            verifying_key,
-            encoding_err,
-            verify_err,
-        )
+        verifier::Groth16Statement {
+            proof: verifier::CompressedGroth16Proof {
+                a: &proof_data.a,
+                b: &proof_data.b,
+                c: &proof_data.c,
+                commitment: self
+                    .ix
+                    .circuit
+                    .bsb22_commitment()
+                    .map(|value| (&value.commitment, &value.commitment_pok)),
+            },
+            public_input_hash: self.public_input_hash()?,
+            verifying_key: self
+                .ix
+                .circuit
+                .verifying_key()
+                .ok_or(ShieldedPoolError::InvalidTransactShape)?,
+            encoding_err: ShieldedPoolError::InvalidTransactProofEncoding,
+            verify_err: ShieldedPoolError::TransactProofVerificationFailed,
+        }
+        .verify()
     }
 
     fn n_inputs(&self) -> usize {
