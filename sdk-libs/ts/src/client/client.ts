@@ -138,7 +138,6 @@ export class ZolanaClient {
     const endpoints = resolveClientEndpoints(input);
     const kit = createKitClients({
       solanaRpcUrl: endpoints.solana,
-      solanaRpcField: endpoints.solanaField,
       ...(endpoints.solanaRpcSubscriptions === undefined
         ? {}
         : { solanaRpcSubscriptionsUrl: endpoints.solanaRpcSubscriptions }),

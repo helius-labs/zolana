@@ -33,25 +33,17 @@ export interface LatestBlockhash {
   readonly lastValidBlockHeight: bigint;
 }
 
-/** The websocket URL is derived from the RPC URL unless one is given. */
 export function createKitClients(
   input: Readonly<{
     solanaRpcUrl: string | URL;
-    solanaRpcField?: string;
     solanaRpcSubscriptionsUrl?: string | URL;
   }>,
 ): Readonly<{ solanaRpc: SolanaRpc; solanaRpcSubscriptions: SolanaRpcSubscriptions }> {
-  const rpcUrl = urlString(String(input.solanaRpcUrl), input.solanaRpcField ?? "solanaRpcUrl", [
-    "http:",
-    "https:",
-  ]);
+  const rpcUrl = urlString(input.solanaRpcUrl, "solanaRpcUrl", ["http:", "https:"]);
   const subscriptionsUrl =
     input.solanaRpcSubscriptionsUrl === undefined
       ? defaultSolanaRpcSubscriptionsUrl(rpcUrl)
-      : urlString(String(input.solanaRpcSubscriptionsUrl), "solanaRpcSubscriptionsUrl", [
-          "ws:",
-          "wss:",
-        ]);
+      : urlString(input.solanaRpcSubscriptionsUrl, "solanaRpcSubscriptionsUrl", ["ws:", "wss:"]);
   return Object.freeze({
     solanaRpc: createSolanaRpc(rpcUrl),
     solanaRpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl),
@@ -140,7 +132,7 @@ export function defaultSolanaRpcSubscriptionsUrl(value: string): string {
   if (url.port !== "") {
     const port = Number(url.port);
     if (!Number.isSafeInteger(port) || port >= 65_535) {
-      throw invalidUrl("endpoint");
+      throw invalidUrl("solanaRpcUrl");
     }
     url.port = String(port + 1);
   }
