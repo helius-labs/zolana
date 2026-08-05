@@ -2436,7 +2436,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "groth16-solana"
 version = "0.2.0"
-source = "git+https://github.com/Lightprotocol/groth16-solana?rev=43fee1a67e91c0df7bb4edad5ba87ae4602aa208#43fee1a67e91c0df7bb4edad5ba87ae4602aa208"
+source = "git+https://github.com/Atamanov/groth16-solana?rev=93c04c7589ab765a98d88443b56bdeebd0205538#93c04c7589ab765a98d88443b56bdeebd0205538"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
@@ -2447,6 +2447,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "solana-bn254",
+ "solana-define-syscall 4.0.1",
  "thiserror 2.0.18",
 ]
 
@@ -2563,6 +2564,15 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "helius-bn254"
+version = "0.1.0"
+source = "git+https://github.com/Atamanov/agave?rev=950fa0d827cc71fbf05787060d9f0d991934f92a#950fa0d827cc71fbf05787060d9f0d991934f92a"
+dependencies = [
+ "bytemuck",
+ "cc",
+]
 
 [[package]]
 name = "hermit-abi"
@@ -5725,6 +5735,7 @@ dependencies = [
  "spl-token-2022-interface",
  "tinyvec",
  "zolana-account-checks",
+ "zolana-batched-merkle-tree",
  "zolana-hasher",
  "zolana-interface",
  "zolana-tree",
@@ -6161,6 +6172,22 @@ dependencies = [
  "ark-serialize 0.5.0",
  "bytemuck",
  "solana-define-syscall 5.1.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "solana-bn254-batch-syscall"
+version = "4.1.2"
+source = "git+https://github.com/Atamanov/agave?rev=950fa0d827cc71fbf05787060d9f0d991934f92a#950fa0d827cc71fbf05787060d9f0d991934f92a"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "bytemuck",
+ "bytemuck_derive",
+ "helius-bn254",
+ "solana-define-syscall 4.0.1",
+ "solana-keccak-hasher",
  "thiserror 2.0.18",
 ]
 
@@ -8304,10 +8331,12 @@ name = "swap-program"
 version = "0.1.0"
 dependencies = [
  "borsh",
+ "bytemuck",
  "groth16-solana",
  "light-program-profiler",
  "mollusk-svm",
  "pinocchio 0.11.2",
+ "pinocchio-system",
  "solana-account 4.3.1",
  "solana-instruction",
  "solana-program-error",
@@ -8562,9 +8591,11 @@ dependencies = [
 name = "timelock-escrow-program"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "groth16-solana",
  "light-program-profiler",
  "pinocchio 0.11.2",
+ "pinocchio-system",
  "solana-program-error",
  "thiserror 2.0.18",
  "wincode 0.5.5",
@@ -9239,6 +9270,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
+name = "vk-registry-test"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "litesvm",
+ "solana-address 2.6.1",
+ "solana-bn254-batch-syscall",
+ "solana-instruction",
+ "solana-instruction-error",
+ "solana-keypair",
+ "solana-message",
+ "solana-program-runtime",
+ "solana-pubkey 4.2.0",
+ "solana-signer",
+ "solana-transaction",
+ "solana-transaction-error",
+ "zolana-interface",
+ "zolana-program-test",
+ "zolana-test-utils",
+]
+
+[[package]]
 name = "void"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9831,6 +9884,7 @@ dependencies = [
  "base64",
  "bincode 1.3.3",
  "bs58",
+ "dynamic-swap-program",
  "groth16-solana",
  "serde_json",
  "sha2 0.10.9",
@@ -9845,6 +9899,7 @@ dependencies = [
  "solana-signer",
  "solana-transaction",
  "swap-program",
+ "timelock-escrow-program",
  "zolana-client",
  "zolana-interface",
  "zolana-program-test",
@@ -10197,6 +10252,7 @@ dependencies = [
  "bytemuck",
  "groth16-solana",
  "proptest",
+ "sha3",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-program-error",
@@ -10206,6 +10262,7 @@ dependencies = [
  "zolana-batched-merkle-tree",
  "zolana-event",
  "zolana-hasher",
+ "zolana-interface",
  "zolana-tree",
 ]
 

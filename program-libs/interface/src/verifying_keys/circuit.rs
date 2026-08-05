@@ -218,6 +218,12 @@ impl CircuitId {
         }
     }
 
+    /// `verifying_key` stays the single circuit-to-VK mapping.
+    #[cfg(feature = "verifying-keys")]
+    pub fn vk_registry_spec(self) -> Option<&'static super::registry_spec::VkRegistrySpec> {
+        super::registry_spec::vk_registry_spec_for(self.verifying_key()?)
+    }
+
     #[cfg(feature = "verifying-keys")]
     pub fn verifying_key(
         self,

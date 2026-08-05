@@ -1,5 +1,10 @@
 mod circuit;
 pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData};
+#[cfg(feature = "verifying-keys")]
+pub mod catalog;
+#[cfg(feature = "verifying-keys")]
+pub mod registry;
+pub mod registry_spec;
 
 #[cfg(feature = "verifying-keys")]
 pub mod merge_8_1;

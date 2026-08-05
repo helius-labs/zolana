@@ -12,6 +12,7 @@ members = [
     "program-libs/tree",
     "program-tests/shielded-pool",
     "program-tests/spp-test-validator",
+    "program-tests/vk-registry",
     "program-tests/test-utils",
     "program-tests/user-registry",
     "programs/shielded-pool",
@@ -80,7 +81,9 @@ zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version 
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
-groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "43fee1a67e91c0df7bb4edad5ba87ae4602aa208", features = ["bsb22"] }
+# Atamanov branch alex/vk-registry: d0b84554 (chunked BSB22 hash-to-field)
+# plus the vk-registry feature (prepared-operand verification).
+groth16-solana = { git = "https://github.com/Atamanov/groth16-solana", rev = "93c04c7589ab765a98d88443b56bdeebd0205538", features = ["bsb22"] }
 
 # Published Light Protocol crates.
 aligned-sized = "1.1.0"

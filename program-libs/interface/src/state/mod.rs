@@ -5,6 +5,7 @@ pub mod spl_asset_counter;
 pub mod spl_asset_registry;
 #[cfg(feature = "tree")]
 pub mod tree;
+pub mod vk_registry;
 
 pub use protocol_config::ProtocolConfig;
 pub use ring_config::RingConfig;
