@@ -4,9 +4,11 @@
 //! submission path only.
 
 pub mod cli;
+pub mod config;
 pub mod forest;
 pub mod info;
 pub mod logging;
+pub mod metrics;
 pub mod run;
 
 pub use forest::{batch_update_nullifier_tree_once, ForestError, ForestParams};

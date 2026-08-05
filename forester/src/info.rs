@@ -7,14 +7,14 @@
 //! monitoring / gating a run (e.g.
 //! `forester info --json | jq '.nullifier_queue.ready_to_forest_zkp_batches'`).
 
-use std::env;
-
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use serde_json::json;
 use solana_commitment_config::CommitmentConfig;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
+
+use crate::config::ForesterConfig;
 use zolana_batched_merkle_tree::batch::BatchState;
 use zolana_tree::TreeAccount;
 
@@ -33,10 +33,9 @@ struct BatchInfo {
 }
 
 /// Print the current state of `tree`, its nullifier queue, and the forester
-/// balance. Reads `RPC_URL`, `PAYER`, and `PROVER_URL` from the environment.
-pub fn run(tree: Pubkey, json_output: bool) -> Result<()> {
-    let rpc_url = env::var("RPC_URL").context("RPC_URL is not set")?;
-    let rpc = RpcClient::new_with_commitment(rpc_url, CommitmentConfig::confirmed());
+/// balance. Endpoints and credentials come from `config`.
+pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<()> {
+    let rpc = RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::confirmed());
 
     let mut data = rpc
         .get_account_with_commitment(&tree, CommitmentConfig::confirmed())
@@ -101,8 +100,8 @@ pub fn run(tree: Pubkey, json_output: bool) -> Result<()> {
     let ready_nullifiers = ready_total.saturating_mul(zkp_batch_size);
 
     // --- forester balance (fee capacity); None when PAYER is unset ---
-    let forester = read_forester(&rpc)?;
-    let prover_url = env::var("PROVER_URL").ok();
+    let forester = read_forester(config, &rpc)?;
+    let prover_url = config.prover_url.clone();
 
     if json_output {
         let value = json!({
@@ -185,12 +184,11 @@ pub fn run(tree: Pubkey, json_output: bool) -> Result<()> {
 /// Resolve the forester keypair from `PAYER` and fetch its balance. `Ok(None)`
 /// when `PAYER` is unset (info still succeeds); errors only when `PAYER` is set
 /// but malformed or the balance RPC fails.
-fn read_forester(rpc: &RpcClient) -> Result<Option<(Pubkey, u64)>> {
-    let payer = match env::var("PAYER") {
-        Ok(payer) => payer,
-        Err(_) => return Ok(None),
-    };
-    let keypair = crate::parse_payer_keypair(&payer)?;
+fn read_forester(config: &ForesterConfig, rpc: &RpcClient) -> Result<Option<(Pubkey, u64)>> {
+    if !config.has_payer() {
+        return Ok(None);
+    }
+    let keypair = config.signer()?;
     let pubkey = keypair.pubkey();
     let lamports = rpc
         .get_balance(&pubkey)

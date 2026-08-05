@@ -15,15 +15,16 @@
 //! checks `old_root == current root`, so submission is strictly sequential;
 //! proving could be parallelised (see PR #89) as a follow-up.
 
-use std::{env, fmt, thread, time::Duration};
+use std::{fmt, thread, time::Duration};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use num_bigint::BigUint;
 use num_traits::Num;
 use solana_commitment_config::CommitmentConfig;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
+use solana_signer::Signer;
 use zolana_client::{BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_interface::instruction::{BatchUpdateNullifierTreeData, CompressedProof};
@@ -32,7 +33,10 @@ use zolana_tree::TreeAccount;
 
 type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
 
-use crate::forest::{batch_update_nullifier_tree_once, ForestParams};
+use crate::{
+    config::ForesterConfig,
+    forest::{batch_update_nullifier_tree_once, ForestParams},
+};
 use zolana_api::{BlockingZolanaApi, SerializablePubkey, PAGE_LIMIT};
 
 /// BN254 scalar field modulus minus one: the nullifier tree's initial
@@ -70,6 +74,8 @@ struct TreeSnapshot {
     next_index: u64,
     height: u32,
     zkp_batch_size: u64,
+    /// Elements one full batch holds: the denominator for queue fill.
+    batch_capacity: u64,
     already_applied: u64,
     ready: u64,
     pending_queued: u64,
@@ -123,30 +129,33 @@ fn indexed_value_shortage(
     }
 }
 
-/// Drain ready nullifier zkp-batches for `opts.tree`. Reads `RPC_URL`,
-/// `PROVER_URL`, `PHOTON_URL`, and `PAYER` (forester keypair) from the
-/// environment. Must run on a thread with no Tokio runtime — the prover and
-/// photon clients use `reqwest::blocking`.
-pub fn run(opts: RunOptions) -> Result<()> {
-    let rpc_url = env::var("RPC_URL").context("RPC_URL is not set")?;
-    let photon_url = env::var("PHOTON_URL").context("PHOTON_URL is not set")?;
-    let photon = BlockingZolanaApi::new(photon_url);
+/// Drain ready nullifier zkp-batches for `opts.tree`. Endpoints and credentials
+/// come from `config`, resolved at the process boundary. Must run on a thread with
+/// no Tokio runtime — the prover and photon clients use `reqwest::blocking`.
+pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
+    let rpc_url = config.rpc_url.clone();
+    let photon = BlockingZolanaApi::new(config.photon_url.clone());
 
     if opts.dry_run {
         return check_once(&rpc_url, &photon, opts.tree);
     }
 
-    let prover_url = env::var("PROVER_URL").context("PROVER_URL is not set")?;
+    let prover_url = config.require_prover_url()?.to_string();
     let settings = opts
         .settings
         .ok_or_else(|| anyhow!("--settings (forester smart-account) is required to submit"))?;
-    let member = forester_keypair()?;
+    let member = config.signer()?;
     let prover = ProverClient::new(prover_url);
 
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 
     let mut submitted_total: u64 = 0;
     loop {
+        // Liveness. Without this, "is the forester running?" is only answerable
+        // by reading logs.
+        crate::metrics::mark_run();
+        report_queue_and_balance(&rpc_url, &member, opts.tree);
+
         let remaining = opts
             .max_batches
             .map(|max| max.saturating_sub(submitted_total));
@@ -168,6 +177,7 @@ pub fn run(opts: RunOptions) -> Result<()> {
         let submitted = match outcome {
             DrainOutcome::Drained(submitted) => submitted,
             DrainOutcome::NotReady(not_ready) => {
+                crate::metrics::count_failure("photon_index_not_ready");
                 if opts.watch {
                     tracing::warn!(
                         %not_ready,
@@ -194,6 +204,46 @@ pub fn run(opts: RunOptions) -> Result<()> {
     Ok(())
 }
 
+/// Publish queue depth, queue capacity, and payer balance for this iteration.
+///
+/// Metrics are observability: a failure here is logged and skipped rather than
+/// propagated, so a metrics problem can never stop the queue draining.
+///
+/// This re-reads the tree account that `drain_once` will read again, costing one
+/// extra `getAccountInfo` per poll interval. That is deliberate: reporting from
+/// inside the drain path would skip publication on exactly the iterations that
+/// fail, which are the ones worth observing. At a seconds-scale poll interval the
+/// duplicate read is negligible next to proving.
+fn report_queue_and_balance(rpc_url: &str, member: &Keypair, tree: Pubkey) {
+    let tree_label = tree.to_string();
+    match read_snapshot(rpc_url, tree) {
+        Ok(snapshot) => {
+            // `pending_queued` counts elements inserted into the pending batch, so
+            // the denominator is that batch's element capacity. Both come from the
+            // same batch, which makes length/capacity a fill ratio in [0, 1].
+            crate::metrics::set_queue(
+                &tree_label,
+                snapshot.pending_queued,
+                snapshot.batch_capacity,
+            );
+            crate::metrics::set_indexer_proof_count(
+                &tree_label,
+                "ready_zkp_batches",
+                snapshot.ready,
+            );
+        }
+        Err(err) => tracing::debug!(%err, "metrics: tree snapshot unavailable"),
+    }
+
+    let rpc = RpcClient::new(rpc_url.to_string());
+    match rpc.get_balance(&member.pubkey()) {
+        Ok(lamports) => {
+            crate::metrics::set_sol_balance(&member.pubkey().to_string(), lamports);
+        }
+        Err(err) => tracing::debug!(%err, "metrics: payer balance unavailable"),
+    }
+}
+
 /// Read the nullifier tree's batch state and the ready zkp-batches' hash chains.
 fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
     let rpc = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
@@ -214,6 +264,7 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
 
     let pending = metadata.queue_batches.pending_batch_index as usize;
     let zkp_batch_size = metadata.queue_batches.zkp_batch_size;
+    let batch_capacity = metadata.queue_batches.batch_size;
     let batch = *metadata
         .queue_batches
         .batches
@@ -238,6 +289,7 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
         next_index: metadata.next_index,
         height: metadata.height,
         zkp_batch_size,
+        batch_capacity,
         already_applied,
         ready,
         pending_queued,
@@ -588,14 +640,6 @@ fn path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {
     path.into_iter()
         .map(|node| BigUint::from_bytes_be(&node))
         .collect()
-}
-
-/// Resolve the forester signing keypair from `PAYER` (a JSON byte array, as in
-/// `info`). Required for `run`: the update must be signed by the tree's
-/// configured forester authority.
-fn forester_keypair() -> Result<Keypair> {
-    let payer = env::var("PAYER").context("PAYER is not set (forester signing keypair)")?;
-    crate::parse_payer_keypair(&payer)
 }
 
 #[cfg(test)]
