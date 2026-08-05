@@ -247,7 +247,7 @@ describe("unsigned public transaction builders", () => {
       recipient: ShieldedKeypair.generate().shieldedAddress(),
       asset: SPL_MINT,
       amount: 42n,
-      sourceTokenAccount: RECIPIENT,
+      splTokenAccount: RECIPIENT,
       splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
     const instruction = await deposit.instruction(TREE, PAYER);

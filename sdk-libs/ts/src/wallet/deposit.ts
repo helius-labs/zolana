@@ -1,6 +1,6 @@
 import { buildUnsignedTransaction } from "../client/kit.js";
 import type { ZolanaClient } from "../client/client.js";
-import { DEFAULT_TREE_ADDRESS, SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
+import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { checkedTransactionSize } from "../interface/transaction-size.js";
 import {
   type Address,
@@ -26,7 +26,7 @@ export interface DepositParams {
   readonly recipient: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
-  readonly sourceTokenAccount?: Address;
+  readonly splTokenAccount?: Address;
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
 }
@@ -94,7 +94,7 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
     // ignored rather than rejected.
     let settlement: DepositAsset = { kind: "sol" };
     if (params.asset !== SOL_MINT) {
-      if (params.sourceTokenAccount === undefined) {
+      if (params.splTokenAccount === undefined) {
         throw new WalletError("WALLET_MISSING_SPL_TOKEN_ACCOUNT", {
           details: { mint: params.asset },
         });
@@ -103,7 +103,7 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
         kind: "spl",
         accounts: {
           mint: params.asset,
-          sourceTokenAccount: params.sourceTokenAccount,
+          sourceTokenAccount: params.splTokenAccount,
           tokenProgram: params.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID,
         },
       };
@@ -132,7 +132,7 @@ export interface DepositTransactionParams {
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
-  readonly sourceTokenAccount?: Address;
+  readonly splTokenAccount?: Address;
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
 }
@@ -158,18 +158,18 @@ export async function buildDepositTransaction(
       recipient = registered.address;
     }
     const depositor = input.depositor ?? input.feePayer;
-    const tree = input.tree ?? DEFAULT_TREE_ADDRESS;
+    const tree = input.tree ?? input.client.tree;
     const asset = input.asset ?? SOL_MINT;
-    const sourceTokenAccount =
+    const splTokenAccount =
       asset === SOL_MINT
         ? undefined
-        : (input.sourceTokenAccount ??
+        : (input.splTokenAccount ??
           (await associatedTokenAddress(depositor, asset, input.splTokenProgram)));
     const deposit = await createDeposit({
       recipient,
       asset,
       amount: input.amount,
-      ...(sourceTokenAccount === undefined ? {} : { sourceTokenAccount }),
+      ...(splTokenAccount === undefined ? {} : { splTokenAccount }),
       ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
       ...(input.memo === undefined ? {} : { memo: input.memo }),
     });

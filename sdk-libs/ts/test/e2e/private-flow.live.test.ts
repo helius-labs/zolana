@@ -127,9 +127,7 @@ async function deposit(
       recipient: input.recipient,
       ...(input.asset === undefined ? {} : { asset: input.asset }),
       amount: input.amount,
-      ...(input.sourceTokenAccount === undefined
-        ? {}
-        : { sourceTokenAccount: input.sourceTokenAccount }),
+      ...(input.splTokenAccount === undefined ? {} : { splTokenAccount: input.splTokenAccount }),
       ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
       ...(input.memo === undefined ? {} : { memo: input.memo }),
     },
@@ -491,7 +489,7 @@ describe.sequential("live SDK lifecycle", () => {
       recipient: alice.keypair.shieldedAddress(),
       asset: harness.mint,
       amount: 300_000n,
-      sourceTokenAccount: harness.testTokenAccount,
+      splTokenAccount: harness.testTokenAccount,
     });
     await sync(harness.client, alice, { pageLimit: 1 });
     expect(alice.wallet.balance(harness.mint).amount).toBe(300_000n);
@@ -605,7 +603,7 @@ describe.sequential("live SDK lifecycle", () => {
       recipient: alice.keypair.shieldedAddress(),
       asset: harness.token2022Mint,
       amount: 200_000n,
-      sourceTokenAccount: harness.testToken2022Account,
+      splTokenAccount: harness.testToken2022Account,
       splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
     await sync(harness.client, alice);
