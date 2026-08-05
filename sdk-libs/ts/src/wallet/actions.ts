@@ -6,7 +6,7 @@ import {
   type RequestContext,
   type TransactWithdrawal,
 } from "../interface/types.js";
-import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
+import { associatedTokenAddress, splAssetVaultAddress } from "../interface/pda/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import type { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
@@ -41,7 +41,7 @@ type PrivateAction =
     }>;
 
 export class UnsignedPrivateTransaction {
-  readonly #feePayer: Address;
+  readonly #payer: Address;
   readonly #tree: Address;
   readonly #inputs: readonly UnsignedSpendInput[];
   readonly #action: PrivateAction;
@@ -50,7 +50,7 @@ export class UnsignedPrivateTransaction {
 
   constructor(
     input: Readonly<{
-      feePayer: Address;
+      payer: Address;
       tree: Address;
       inputs: readonly UnsignedSpendInput[];
       action: PrivateAction;
@@ -58,7 +58,7 @@ export class UnsignedPrivateTransaction {
       summary: string;
     }>,
   ) {
-    this.#feePayer = input.feePayer;
+    this.#payer = input.payer;
     this.#tree = input.tree;
     this.#inputs = Object.freeze([...input.inputs]);
     this.#action = input.action;
@@ -66,8 +66,8 @@ export class UnsignedPrivateTransaction {
     this.#summary = input.summary;
   }
 
-  feePayer(): Address {
-    return this.#feePayer;
+  payer(): Address {
+    return this.#payer;
   }
 
   tree(): Address {
@@ -102,7 +102,7 @@ export class UnsignedPrivateTransaction {
 export interface TransferParams {
   readonly client?: Pick<ZolanaClient, "getAccount">;
   readonly wallet: Wallet;
-  readonly feePayer: Address;
+  readonly payer: Address;
   readonly recipient: TransferDestination;
   readonly asset: Address;
   readonly amount: bigint;
@@ -112,7 +112,7 @@ export type TransferDestination = Address | ShieldedAddress;
 
 export interface WithdrawalParams {
   readonly wallet: Wallet;
-  readonly feePayer: Address;
+  readonly payer: Address;
   readonly recipient: Address;
   readonly asset: Address;
   readonly amount: bigint;
@@ -144,7 +144,7 @@ export interface CreatedWithdrawal {
 
 export interface SplitParams {
   readonly wallet: Wallet;
-  readonly feePayer: Address;
+  readonly payer: Address;
   readonly asset: Address;
   readonly parts: number;
   readonly input?: Bytes32;
@@ -250,9 +250,9 @@ async function withdrawal(
     };
   }
   const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
-  const [recipientTokenAccount, [splTokenInterface]] = await Promise.all([
+  const [recipientTokenAccount, splTokenInterface] = await Promise.all([
     associatedTokenAddress(recipient, asset, tokenProgram),
-    splInterfaceWithBump(asset),
+    splAssetVaultAddress(asset),
   ]);
   return {
     target: { kind: "spl", recipientTokenAccount, splTokenInterface },
@@ -276,7 +276,7 @@ export async function createWithdrawal(params: WithdrawalParams): Promise<Create
   const resolved = await withdrawal(params.recipient, params.asset, params.splTokenProgram);
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
-      feePayer: params.feePayer,
+      payer: params.payer,
       tree,
       inputs,
       action: {
@@ -304,7 +304,7 @@ export async function createTransfer(
       const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
       return Object.freeze({
         transaction: new UnsignedPrivateTransaction({
-          feePayer: params.feePayer,
+          payer: params.payer,
           tree,
           inputs,
           action: {
@@ -338,7 +338,7 @@ export async function createTransfer(
     const inputs = selectInputs(params.wallet, tree, params.asset, params.amount, plain);
     return Object.freeze({
       transaction: new UnsignedPrivateTransaction({
-        feePayer: params.feePayer,
+        payer: params.payer,
         tree,
         inputs,
         action: {
@@ -404,7 +404,7 @@ export function createSplit(params: SplitParams): CreatedSplit {
   const perOutputAmount = selected.utxo.amount / BigInt(params.parts);
   return Object.freeze({
     transaction: new UnsignedPrivateTransaction({
-      feePayer: params.feePayer,
+      payer: params.payer,
       tree,
       inputs: [{ entry: selected }],
       action: {

@@ -118,7 +118,7 @@ describe("private transaction construction", () => {
     await expect(
       createWithdrawal({
         wallet: fundedWallet(keypair, [100n]),
-        feePayer: PAYER,
+        payer: PAYER,
         recipient: RECIPIENT,
         asset: SOL_MINT,
         amount: 0n,
@@ -130,7 +130,7 @@ describe("private transaction construction", () => {
     const keypair = ShieldedKeypair.generate();
     const created = await createWithdrawal({
       wallet: fundedWallet(keypair, [20n, 40n, 80n]),
-      feePayer: PAYER,
+      payer: PAYER,
       recipient: RECIPIENT,
       asset: SOL_MINT,
       amount: 50n,
@@ -144,7 +144,7 @@ describe("private transaction construction", () => {
     const wallet = fundedWallet(keypair, [100n]);
     const created = await createWithdrawal({
       wallet,
-      feePayer: PAYER,
+      payer: PAYER,
       recipient: RECIPIENT,
       asset: SOL_MINT,
       amount: 50n,
@@ -167,7 +167,7 @@ describe("private transaction construction", () => {
     await expect(
       createWithdrawal({
         wallet: fundedWallet(keypair, [100n], { zoneProgramId: ZONE }),
-        feePayer: PAYER,
+        payer: PAYER,
         recipient: RECIPIENT,
         asset: SOL_MINT,
         amount: 50n,
@@ -182,7 +182,7 @@ describe("private transaction construction", () => {
       createTransfer({
         client: { getAccount },
         wallet: fundedWallet(keypair, [100n]),
-        feePayer: PAYER,
+        payer: PAYER,
         recipient: RECIPIENT,
         asset: SOL_MINT,
         amount: 10n,
@@ -196,7 +196,7 @@ describe("private transaction construction", () => {
     const recipient = ShieldedKeypair.generate().shieldedAddress();
     const created = await createTransfer({
       wallet: fundedWallet(sender, [100n]),
-      feePayer: PAYER,
+      payer: PAYER,
       recipient,
       asset: SOL_MINT,
       amount: 10n,
@@ -212,7 +212,7 @@ describe("private transaction construction", () => {
     const wallet = fundedWallet(keypair, [20n, 30n, 100n]);
     const split = createSplit({
       wallet,
-      feePayer: PAYER,
+      payer: PAYER,
       asset: SOL_MINT,
       parts: 2,
       input: wallet.utxos()[2]!.outputContext.hash,

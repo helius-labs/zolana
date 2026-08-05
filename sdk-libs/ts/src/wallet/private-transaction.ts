@@ -106,7 +106,7 @@ export async function authorizePrivateTransaction(
       asset: action.asset,
       numOutputs: action.numOutputs,
       perOutputAmount: action.perOutputAmount,
-      payer: transaction.feePayer(),
+      payer: transaction.payer(),
     }).prepare();
     const encrypted = await authority.encryptSplit({
       firstNullifier: prepared.firstNullifier,
@@ -123,7 +123,7 @@ export async function authorizePrivateTransaction(
       payload: encrypted.payload,
     });
   } else {
-    const transfer = new ConfidentialTransfer(address, inputs, transaction.feePayer());
+    const transfer = new ConfidentialTransfer(address, inputs, transaction.payer());
     if (action.kind === "transfer") {
       transfer.send(action.recipient, action.asset, action.amount);
     } else {
