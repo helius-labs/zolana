@@ -65,8 +65,7 @@ describe("example: deposit, transfer, withdraw", () => {
     });
 
     // 2. Send and confirm like any Solana transaction.
-    const depositSignature = await sendAndConfirm([depositIx]);
-    await client.waitForIndexedTransaction(depositSignature);
+    await sendAndConfirm([depositIx]);
 
     // 3. Fetch transaction outputs from the indexer.
     // The indexer returns encrypted outputs by view tag.
