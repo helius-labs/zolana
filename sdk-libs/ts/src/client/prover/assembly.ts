@@ -60,14 +60,6 @@ export function circuitUtxo(value: object): CircuitUtxo {
   return result;
 }
 
-export async function intoProver(
-  proofInputs: SppProofInputs,
-  spendProofs: readonly SpendProof[],
-  dummyNullifierProofs: readonly NonInclusionProof[] = [],
-): Promise<ProverInputs> {
-  return (await assemble(proofInputs, spendProofs, dummyNullifierProofs)).proverInputs;
-}
-
 export async function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
