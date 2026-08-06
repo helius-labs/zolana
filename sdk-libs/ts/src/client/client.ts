@@ -359,9 +359,8 @@ export class ZolanaClient {
   ): Promise<void> {
     const resolved = this.#configOr(config);
     const poll = validatePollConfig(resolved.poll);
-    // The poll below is the wait, so the per-request `waitForIndexer` clock
-    // would only stall each attempt against an unrelated deadline.
-    const request = Object.freeze({ ...resolved, waitForIndexer: false });
+    // The poll below is the wait, so the inner request must not also gate on a slot.
+    const request = Object.freeze({ poll: resolved.poll });
     await pollUntil(
       () => this.getShieldedTransactionsBySignature(signature, request, context),
       (response) => response.transactions.length > 0,

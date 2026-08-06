@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use zolana_client::{IndexerRpcConfig, Rpc};
+use zolana_client::Rpc;
 use zolana_interface::event::OutputDataEncoding;
 use zolana_keypair::ViewingKey;
 use zolana_transaction::{
@@ -41,12 +41,7 @@ pub fn discover_escrow_note<I: Rpc>(
     let mut cursor = None;
     loop {
         let page = indexer
-            .get_shielded_transactions_by_tags(
-                vec![tag],
-                cursor,
-                None,
-                Some(IndexerRpcConfig::wait()),
-            )
+            .get_shielded_transactions_by_tags(vec![tag], cursor, None, None)
             .map_err(err)?;
         for tx in &page.transactions {
             if let Some((order_utxo_hash, plaintext)) =

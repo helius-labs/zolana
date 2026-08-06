@@ -6,6 +6,8 @@ export type Limit = bigint & { readonly __limit1To1000: unique symbol };
 
 export interface IndexerContext {
   readonly blockTime: bigint;
+  /** Highest slot the indexer has persisted. */
+  readonly slot: bigint;
 }
 
 export interface GetRingsByTagsRequest {

@@ -66,15 +66,18 @@ impl IndexerPollConfig {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IndexerRpcConfig {
-    pub wait_for_indexer: bool,
     pub poll: IndexerPollConfig,
+    /// Slot the indexer must have persisted before its answer is accepted.
+    /// `None` accepts whatever the indexer currently has.    
+    pub require_slot: Option<u64>,
 }
 
 impl IndexerRpcConfig {
-    pub fn wait() -> Self {
+    /// Require the indexer to have persisted `slot` before answering.
+    pub fn at_slot(slot: u64) -> Self {
         Self {
-            wait_for_indexer: true,
             poll: IndexerPollConfig::default(),
+            require_slot: Some(slot),
         }
     }
 }

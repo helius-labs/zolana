@@ -5,7 +5,7 @@ import { ApiError, ZolanaApi } from "../../src/api/index.js";
 const HASH = "11111111111111111111111111111111";
 const SIGNATURE = "1".repeat(64);
 const REQUEST = { treeAccount: HASH, leaves: [HASH] } as never;
-const RESULT = { context: { block_time: 0 }, proofs: [] };
+const RESULT = { context: { block_time: 0, slot: 1 }, proofs: [] };
 
 function success(result: unknown = RESULT): Response {
   return new Response(
@@ -78,7 +78,7 @@ describe("transport configuration", () => {
     const injected = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         success({
-          context: { block_time: 0 },
+          context: { block_time: 0, slot: 1 },
           transactions: [
             {
               event_index: 1,
@@ -116,7 +116,7 @@ describe("transport configuration", () => {
     const injected = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         success({
-          context: { block_time: 0 },
+          context: { block_time: 0, slot: 1 },
           transactions: [],
           next_cursor: "Ag==",
         }),
@@ -273,7 +273,7 @@ describe("integers past the safe-integer bound", () => {
   }
 
   function merkleProofsBody(leafIndex: string, rootSeq: string): string {
-    return `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":${leafIndex},"root":"${HASH}","root_seq":${rootSeq},"root_index":0}]}}`;
+    return `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0,"slot":1},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":${leafIndex},"root":"${HASH}","root_seq":${rootSeq},"root_index":0}]}}`;
   }
 
   it("reads a u64 above the safe-integer bound without losing precision", async () => {
@@ -286,7 +286,7 @@ describe("integers past the safe-integer bound", () => {
   });
 
   it("leaves a safe integer and a negative block time as they were sent", async () => {
-    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":-1700000000},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":9007199254740991,"root":"${HASH}","root_seq":0,"root_index":0}]}}`;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":-1700000000,"slot":1},"proofs":[{"leaf":"${HASH}","merkle_context":{"tree_type":0,"tree":"${HASH}"},"path":["${HASH}"],"leaf_index":9007199254740991,"root":"${HASH}","root_seq":0,"root_index":0}]}}`;
     const api = respondWith(body);
 
     const response = await api.getMerkleProofs(REQUEST);
@@ -308,7 +308,7 @@ describe("integers past the safe-integer bound", () => {
 
   it("does not rewrite a digit run inside a string payload", async () => {
     const payload = "99999999999999999999";
-    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0},"matches":[{"slot":0,"tx_signature":"${SIGNATURE}","output_slot":{"view_tag":"${HASH}","output_context":{"hash":"${HASH}","tree":"${HASH}","leaf_index":0},"payload":"${payload}"}}]}}`;
+    const body = `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"block_time":0,"slot":1},"matches":[{"slot":0,"tx_signature":"${SIGNATURE}","output_slot":{"view_tag":"${HASH}","output_context":{"hash":"${HASH}","tree":"${HASH}","leaf_index":0},"payload":"${payload}"}}]}}`;
     const api = respondWith(body);
 
     const response = await api.getEncryptedUtxosByTags({ tags: [HASH] } as never);

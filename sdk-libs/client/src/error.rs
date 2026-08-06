@@ -239,10 +239,10 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
-    #[error("indexer did not reach block_time {target} within {attempts} attempts; latest indexed block_time is {latest}")]
+    #[error("indexer did not reach slot {required} within {attempts} attempts; highest indexed slot is {indexed}")]
     IndexerNotCaughtUp {
-        target: i64,
-        latest: i64,
+        required: u64,
+        indexed: u64,
         attempts: u32,
     },
 

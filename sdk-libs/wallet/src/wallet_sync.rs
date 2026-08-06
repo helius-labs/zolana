@@ -26,14 +26,62 @@ const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
 const DEFAULT_PAGE_LIMIT: u32 = 1_000;
 const DEFAULT_SYNC_ROUNDS: usize = 6;
 
+mod timing {
+    use std::{
+        sync::OnceLock,
+        time::{Duration, Instant},
+    };
+
+    fn enabled() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var_os("ZOLANA_TIMING").is_some())
+    }
+
+    /// Emit a scalar observation (counts, sizes) alongside the phase timings.
+    pub(super) fn note(round: usize, key: &str, value: usize) {
+        if enabled() {
+            eprintln!("timing round={round} {key}={value}");
+        }
+    }
+
+    /// Times from construction to drop, so `?` early-returns still report.
+    pub(super) struct Phase {
+        name: &'static str,
+        round: usize,
+        started: Instant,
+    }
+
+    impl Phase {
+        pub(super) fn start(name: &'static str, round: usize) -> Self {
+            Self {
+                name,
+                round,
+                started: Instant::now(),
+            }
+        }
+    }
+
+    impl Drop for Phase {
+        fn drop(&mut self) {
+            if enabled() {
+                let ms = self.started.elapsed().max(Duration::ZERO).as_millis();
+                eprintln!("timing round={} phase={} ms={}", self.round, self.name, ms);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SyncWalletConfig {
     pub tag_window: u64,
     pub tag_query_chunk: usize,
     pub page_limit: u32,
     pub rounds: usize,
-    pub wait_for_indexer: bool,
     pub retry: IndexerPollConfig,
+    /// Slot the indexer must have persisted before its answers are accepted.
+    /// `None` accepts whatever it currently has. Read the slot from the RPC the
+    /// caller submits through, so both sides of the comparison are slots.
+    pub require_slot: Option<u64>,
 }
 
 impl Default for SyncWalletConfig {
@@ -43,16 +91,17 @@ impl Default for SyncWalletConfig {
             tag_query_chunk: DEFAULT_TAG_QUERY_CHUNK,
             page_limit: DEFAULT_PAGE_LIMIT,
             rounds: DEFAULT_SYNC_ROUNDS,
-            wait_for_indexer: false,
             retry: IndexerPollConfig::default(),
+            require_slot: None,
         }
     }
 }
 
 impl SyncWalletConfig {
-    pub fn new() -> Self {
+    /// Require the indexer to have persisted `slot` before its answers are used.
+    pub fn at_slot(slot: u64) -> Self {
         Self {
-            wait_for_indexer: true,
+            require_slot: Some(slot),
             ..Self::default()
         }
     }
@@ -67,7 +116,7 @@ where
     A: SyncWalletAuthority + ?Sized,
     I: Rpc,
 {
-    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::new())
+    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::default())
 }
 
 pub fn sync_wallet_with_config<A, I>(
@@ -81,26 +130,57 @@ where
     I: Rpc,
 {
     let config = normalized_config(config);
-    let rpc_config = indexer_rpc_config(config);
     let material = authority.sync_material()?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut report = SyncReport::default();
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
 
-    for _ in 0..config.rounds {
+    let mut freshness_gate = indexer_rpc_config(config);
+
+    let _total = timing::Phase::start("sync_wallet_total", 0);
+    for round in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
-        let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
+        let tags = {
+            let _t = timing::Phase::start("query_tags", round);
+            wallet_query_tags(wallet, &material, config.tag_window)?
+        };
         let nullifiers = wallet_query_nullifiers(wallet);
-        fetch_shielded_transactions(indexer, &tags, &mut transactions, config, rpc_config)?;
-        fetch_shielded_transactions_by_nullifiers(
-            indexer,
-            &nullifiers,
-            &mut transactions,
-            config,
-            rpc_config,
-        )?;
-        fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config, rpc_config)?;
+        timing::note(round, "tags", tags.len());
+        timing::note(round, "nullifiers", nullifiers.len());
+        {
+            let _t = timing::Phase::start("fetch_shielded_by_tags", round);
+            fetch_shielded_transactions(
+                indexer,
+                &tags,
+                &mut transactions,
+                config,
+                freshness_gate.take(),
+            )?;
+        }
+        {
+            let _t = timing::Phase::start("fetch_shielded_by_nullifiers", round);
+            fetch_shielded_transactions_by_nullifiers(
+                indexer,
+                &nullifiers,
+                &mut transactions,
+                config,
+                freshness_gate.take(),
+            )?;
+        }
+        {
+            let _t = timing::Phase::start("fetch_proofless_deposits", round);
+            fetch_proofless_deposits(
+                indexer,
+                &tags,
+                &mut proofless_deposits,
+                config,
+                freshness_gate.take(),
+            )?;
+        }
+        timing::note(round, "transactions", transactions.len());
+        timing::note(round, "proofless_deposits", proofless_deposits.len());
+        let _round_tail = timing::Phase::start("collect_sort_and_decrypt", round);
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -122,9 +202,14 @@ where
                 ))
         });
         txs.extend(deposits);
-        report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
+        timing::note(round, "txs_to_decrypt", txs.len());
+        report = {
+            let _t = timing::Phase::start("sync_with_material", round);
+            wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?
+        };
 
         if before == (transactions.len(), proofless_deposits.len()) {
+            timing::note(round, "converged", 1);
             break;
         }
     }
@@ -165,7 +250,7 @@ where
     I: AsyncRpc,
 {
     let config = normalized_config(config);
-    let rpc_config = indexer_rpc_config(config);
+    let mut freshness_gate = indexer_rpc_config(config);
     let material = authority.sync_material().await?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
@@ -176,18 +261,30 @@ where
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         let nullifiers = wallet_query_nullifiers(wallet);
-        fetch_shielded_transactions_async(indexer, &tags, &mut transactions, config, rpc_config)
-            .await?;
+        fetch_shielded_transactions_async(
+            indexer,
+            &tags,
+            &mut transactions,
+            config,
+            freshness_gate.take(),
+        )
+        .await?;
         fetch_shielded_transactions_by_nullifiers_async(
             indexer,
             &nullifiers,
             &mut transactions,
             config,
-            rpc_config,
+            freshness_gate.take(),
         )
         .await?;
-        fetch_proofless_deposits_async(indexer, &tags, &mut proofless_deposits, config, rpc_config)
-            .await?;
+        fetch_proofless_deposits_async(
+            indexer,
+            &tags,
+            &mut proofless_deposits,
+            config,
+            freshness_gate.take(),
+        )
+        .await?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -302,7 +399,7 @@ fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
         tag_query_chunk: config.tag_query_chunk.max(1),
         page_limit: config.page_limit.max(1),
         rounds: config.rounds.max(1),
-        wait_for_indexer: config.wait_for_indexer,
+        require_slot: config.require_slot,
         retry: IndexerPollConfig {
             num_retries: config.retry.num_retries.max(1),
             ..config.retry
@@ -363,8 +460,8 @@ fn wallet_query_tags(
 
 fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
     Some(IndexerRpcConfig {
-        wait_for_indexer: config.wait_for_indexer,
         poll: config.retry,
+        require_slot: config.require_slot,
     })
 }
 
@@ -705,7 +802,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
             Ok(GetEncryptedUtxosByTagsResponse {
-                context: Context { block_time: 0 },
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
                 matches: self.matches.clone(),
                 next_cursor: None,
             })
@@ -719,7 +819,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Ok(GetShieldedTransactionsByTagsResponse {
-                context: Context { block_time: 0 },
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
             })
@@ -733,7 +836,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             Ok(GetShieldedTransactionsByNullifiersResponse {
-                context: Context { block_time: 0 },
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
                 transactions: self
                     .transactions
                     .iter()

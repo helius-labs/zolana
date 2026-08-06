@@ -41,6 +41,7 @@ import {
 } from "../../src/wallet/registry.js";
 import {
   actor,
+  currentSlot,
   fund,
   hex,
   historyKey,
@@ -850,7 +851,7 @@ describe.sequential("live SDK lifecycle", () => {
         client: timeoutClient,
         wallet: owner.wallet,
         authority: owner.authority,
-        config: { waitForIndexer: true, pageLimit: 1 },
+        config: { requireSlot: await currentSlot(timeoutClient), pageLimit: 1 },
       }),
     ).rejects.toMatchObject({
       code: "WALLET_SYNC",
@@ -867,7 +868,7 @@ describe.sequential("live SDK lifecycle", () => {
       client: harness.client,
       wallet: fresh,
       authority: owner.authority,
-      config: { waitForIndexer: true, pageLimit: 1 },
+      config: { requireSlot: await currentSlot(harness.client), pageLimit: 1 },
     });
     expect(fresh.balance(SOL_MINT).amount).toBe(40_000_000n);
     assertUniqueWalletState(fresh);
@@ -883,7 +884,7 @@ describe.sequential("live SDK lifecycle", () => {
       client: harness.client,
       wallet: restored,
       authority: owner.authority,
-      config: { waitForIndexer: true, pageLimit: 1 },
+      config: { requireSlot: await currentSlot(harness.client), pageLimit: 1 },
     });
     expect(restored.balance(SOL_MINT).amount).toBe(45_000_000n);
     assertUniqueWalletState(restored);
@@ -893,7 +894,7 @@ describe.sequential("live SDK lifecycle", () => {
       client: harness.client,
       wallet: restored,
       authority: owner.authority,
-      config: { waitForIndexer: true, pageLimit: 1 },
+      config: { requireSlot: await currentSlot(harness.client), pageLimit: 1 },
     });
     expect(restored.utxos()).toHaveLength(beforeUtxos);
     expect(restored.privateTransactions()).toHaveLength(beforeHistory);
@@ -910,7 +911,7 @@ describe.sequential("live SDK lifecycle", () => {
       client: harness.client,
       wallet: restored,
       authority: owner.authority,
-      config: { waitForIndexer: true, pageLimit: 1 },
+      config: { requireSlot: await currentSlot(harness.client), pageLimit: 1 },
     });
     expect(restored.balance(SOL_MINT).amount).toBe(40_000_000n);
     assertUniqueWalletState(restored);

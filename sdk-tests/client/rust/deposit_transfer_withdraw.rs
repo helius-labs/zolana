@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use client_example::{setup, SetupContext};
 use solana_signer::Signer;
-use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
 use zolana_interface::instruction::{
     AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -80,12 +80,8 @@ fn main() -> Result<()> {
         // 3. Fetch transaction outputs from the indexer.
         // The indexer returns encrypted outputs by view tag, the sender's public key in Confidential Rings.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
-        let response = client.get_shielded_transactions_by_tags(
-            vec![sender_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::wait()),
-        )?;
+        let response =
+            client.get_shielded_transactions_by_tags(vec![sender_tag], None, Some(50), None)?;
 
         // 4. The sender decrypts the transaction outputs locally to update the private balance.
         let balances = decrypt_transactions(&sender, &response.transactions, &assets)
@@ -128,8 +124,7 @@ fn main() -> Result<()> {
         let proof_inputs = transfer.sign(&sender, &assets)?;
 
         // 4. Fetch the zk proof to prove the sender can spend the balance without revealing asset and amount.
-        let transfer_data =
-            client.prove_transact(tree, proof_inputs, Some(IndexerRpcConfig::wait()))?;
+        let transfer_data = client.prove_transact(tree, proof_inputs, None)?;
 
         // 5. Construct the instruction.
         let transfer_ix = Transact {
@@ -152,12 +147,8 @@ fn main() -> Result<()> {
 
         // 7. Sync the sender's wallet and read the remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
-        let response = client.get_shielded_transactions_by_tags(
-            vec![sender_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::wait()),
-        )?;
+        let response =
+            client.get_shielded_transactions_by_tags(vec![sender_tag], None, Some(50), None)?;
         let sender_balances = decrypt_transactions(&sender, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
         let sender_balance = sender_balances
@@ -210,8 +201,7 @@ fn main() -> Result<()> {
         let proof_inputs = withdrawal.sign(&sender, &assets)?;
 
         // 4. Fetch the ZK proof to prove the sender can spend the balance.
-        let withdrawal_data =
-            client.prove_transact(tree, proof_inputs, Some(IndexerRpcConfig::wait()))?;
+        let withdrawal_data = client.prove_transact(tree, proof_inputs, None)?;
 
         // 5. Combine the proof and withdrawal accounts in a single instruction.
         let withdraw_ix = Transact {
@@ -248,12 +238,8 @@ fn main() -> Result<()> {
 
         // 7. Sync the sender's wallet and read the remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
-        let response = client.get_shielded_transactions_by_tags(
-            vec![sender_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::wait()),
-        )?;
+        let response =
+            client.get_shielded_transactions_by_tags(vec![sender_tag], None, Some(50), None)?;
         let sender_balances = decrypt_transactions(&sender, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
         let sender_balance = sender_balances
