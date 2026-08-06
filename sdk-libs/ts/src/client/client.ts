@@ -553,7 +553,7 @@ export class ZolanaClient {
           });
         }
       });
-      const assembled = await assemble(proofInputs, proofs, dummyProofs);
+      const assembled = assemble(proofInputs, proofs, dummyProofs);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
       return assembled.withProof(compressProof(proof).toTransactProof());
     } catch (cause) {

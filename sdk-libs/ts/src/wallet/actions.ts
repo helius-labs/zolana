@@ -6,7 +6,7 @@ import {
   type RequestContext,
   type TransactWithdrawal,
 } from "../interface/types.js";
-import { associatedTokenAddress, splAssetVaultAddress } from "../interface/pda/index.js";
+import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import type { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/wallet/asset.js";
@@ -250,12 +250,12 @@ async function withdrawal(
     };
   }
   const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
-  const [recipientTokenAccount, splTokenInterface] = await Promise.all([
+  const [recipientTokenAccount, [splTokenInterface, splInterfaceBump]] = await Promise.all([
     associatedTokenAddress(recipient, asset, tokenProgram),
-    splAssetVaultAddress(asset),
+    splInterfaceWithBump(asset),
   ]);
   return {
-    target: { kind: "spl", recipientTokenAccount, splTokenInterface },
+    target: { kind: "spl", recipientTokenAccount, splTokenInterface, splInterfaceBump },
     accounts: {
       kind: "spl",
       mint: asset,

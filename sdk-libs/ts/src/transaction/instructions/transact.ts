@@ -187,6 +187,7 @@ export type SettlementTransfer =
       amount: bigint;
       tokenAccount: Address;
       splTokenInterface: Address;
+      splInterfaceBump: number;
     }>;
 
 export interface InputUtxoContext {
@@ -551,6 +552,7 @@ export type WithdrawalTarget =
       kind: "spl";
       recipientTokenAccount: Address;
       splTokenInterface: Address;
+      splInterfaceBump: number;
     }>;
 
 export interface PreparedTransfer {
@@ -745,6 +747,7 @@ export class ConfidentialTransfer {
                 amount: this.#withdrawal.amount,
                 tokenAccount: target.recipientTokenAccount,
                 splTokenInterface: target.splTokenInterface,
+                splInterfaceBump: target.splInterfaceBump,
               },
             ];
     const firstInput = this.#inputs[0];

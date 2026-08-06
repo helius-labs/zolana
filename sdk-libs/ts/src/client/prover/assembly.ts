@@ -4,7 +4,6 @@ import type {
   TransactInstructionData,
   TransactProof,
 } from "../../interface/types.js";
-import { splInterfaceBump } from "../../interface/pda/index.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { SppProofInputs } from "../../transaction/instructions/transact.js";
 import { ProofInputUtxo, type ProofOutputUtxo } from "../../transaction/utxo.js";
@@ -60,23 +59,23 @@ export function circuitUtxo(value: object): CircuitUtxo {
   return result;
 }
 
-export async function assemble(
+export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[] = [],
-): Promise<AssembledTransfer> {
+): AssembledTransfer {
   try {
-    return await assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs);
+    return assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs);
   } catch (cause) {
     throw fromClientCause(cause);
   }
 }
 
-async function assembleUnchecked(
+function assembleUnchecked(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[],
-): Promise<AssembledTransfer> {
+): AssembledTransfer {
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -176,19 +175,17 @@ async function assembleUnchecked(
       }),
     ),
     interfaceTransfers: Object.freeze(
-      await Promise.all(
-        proofInputs.externalData.interfaceTransfers.map(async (transfer) =>
-          transfer.kind === "sol"
-            ? Object.freeze({
-                kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
-                amount: transfer.amount,
-              })
-            : Object.freeze({
-                kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
-                amount: transfer.amount,
-                splInterfaceBump: await splInterfaceBump(transfer.mint),
-              }),
-        ),
+      proofInputs.externalData.interfaceTransfers.map((transfer) =>
+        transfer.kind === "sol"
+          ? Object.freeze({
+              kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
+              amount: transfer.amount,
+            })
+          : Object.freeze({
+              kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
+              amount: transfer.amount,
+              splInterfaceBump: transfer.splInterfaceBump,
+            }),
       ),
     ),
     ...(proofInputs.externalData.dataHash === undefined
