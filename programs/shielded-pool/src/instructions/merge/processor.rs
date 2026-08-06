@@ -117,10 +117,15 @@ pub(crate) fn process_merge_core(
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        apply_output_tree(&mut tree, ix, output_tree, inputs)?
+        apply_output_tree(&mut tree, ix.output_utxo_hash, output_tree, inputs)?
     };
 
-    let event = build_merge_event(ix, tree_write, output_view_tag, output_data);
+    let event = build_merge_event(
+        *ix.output_utxo_hash,
+        tree_write,
+        output_view_tag,
+        output_data,
+    );
     MergeProof::new(ix, derived).verify()?;
     collect_forester_fee(
         payer,
@@ -165,15 +170,17 @@ fn apply_input_tree(
     Ok(inputs)
 }
 
-fn apply_output_tree(
+/// Append the merged output and record where it landed. A chain appends only
+/// its top leg's output, which is why the hash is a parameter.
+pub(crate) fn apply_output_tree(
     tree: &mut TreeAccount<'_>,
-    ix: &MergeTransactIxDataRef<'_>,
+    output_utxo_hash: &[u8; 32],
     output_tree: [u8; 32],
     inputs: Vec<Input>,
 ) -> Result<MergeTreeWrite, ProgramError> {
     let output_leaf_index = tree.utxo_tree().next_index();
     tree.utxo_tree()
-        .append(*ix.output_utxo_hash)
+        .append(*output_utxo_hash)
         .map_err(tree_error)?;
     Ok(MergeTreeWrite {
         inputs,

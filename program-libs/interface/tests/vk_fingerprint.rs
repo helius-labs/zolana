@@ -1,7 +1,7 @@
 //! Pins a single SHA-256 fingerprint over every committed Groth16 verifying
 //! key the shielded-pool program embeds. The keys are generated artifacts
-//! (`prover/server/scripts/regenerate_all_vkeys.sh`); a regeneration rewrites
-//! 26 opaque constant files that are effectively unreviewable by diff. This
+//! (`prover/server/scripts/regenerate_all_vkeys.sh`). A regeneration rewrites
+//! opaque constant files that are effectively unreviewable by diff. This
 //! test turns any VK change into an explicit one-line re-pin: if it fails,
 //! confirm the rotation was intentional (new proving keys uploaded, lockfile
 //! updated in the same commit) and update the pinned fingerprint below.
@@ -38,8 +38,18 @@ fn absorb(preimage: &mut Vec<u8>, name: &str, vk: &Groth16Verifyingkey) {
 
 #[test]
 fn verifying_key_fingerprint_is_pinned() {
-    let keys: [(&str, &Groth16Verifyingkey); 36] = vks![
+    let keys: [(&str, &Groth16Verifyingkey); 46] = vks![
+        aggregate_transfer_confidential_2_2_b2,
+        aggregate_transfer_confidential_2_2_b3,
+        aggregate_transfer_confidential_2_3_b2,
+        aggregate_transfer_confidential_2_3_b3,
+        aggregate_transfer_p256_ring_2_3_b2,
+        aggregate_transfer_p256_ring_2_3_b3,
+        aggregate_transfer_ring_2_3_b2,
+        aggregate_transfer_ring_2_3_b3,
         merge_8_1,
+        merge_chain_1_1,
+        merge_chain_2_1,
         merge_ring_8_1,
         transfer_p256_ring_1_1,
         transfer_p256_ring_1_2,
@@ -87,7 +97,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "0016366601d9b9de95c9707a7a0ba24a9035083ab28300fd577fa98e56e6e082",
+        fingerprint, "00beb433345d637933d64ae9b8162eab875985f2b94f16de40c426406e589144",
         "verifying keys changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
