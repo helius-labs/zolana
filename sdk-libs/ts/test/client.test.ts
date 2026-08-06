@@ -3,6 +3,7 @@ import {
   SolanaError,
   address,
   getBase58Decoder,
+  type Signature,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
@@ -239,6 +240,19 @@ describe("ZolanaClient", () => {
     expect(instance).not.toHaveProperty("sendTransaction");
     expect(instance).not.toHaveProperty("signAndSendInstructions");
     expect(instance).not.toHaveProperty("submitPrivateTransaction");
+  });
+
+  it("resolves confirmTransaction to the slot the transaction landed in", async () => {
+    const instance = client();
+    const send = vi.fn(async () => ({
+      value: [{ slot: 42n, err: null, confirmationStatus: "confirmed" }],
+    }));
+    Object.defineProperty(instance, "solanaRpc", {
+      value: { getSignatureStatuses: () => ({ send }) },
+    });
+
+    await expect(instance.confirmTransaction("1".repeat(64) as Signature)).resolves.toBe(42n);
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it("rejects malformed service URLs before any request", () => {

@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
 use client_example::{setup, SetupContext};
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
+use solana_signature::Signature;
+use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
 use zolana_interface::instruction::{
     AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -70,18 +71,24 @@ fn main() -> Result<()> {
         }
         .instruction()?;
 
-        // 2. Send like any Solana transaction.
-        client.create_and_send_transaction(
+        // 2. Send and confirm like any Solana transaction; the landed slot gates
+        // the indexer fetch below.
+        let signature = client.create_and_send_transaction(
             &[deposit_ix],
             sender_solana_keypair.pubkey(),
             &[&sender_solana_keypair],
         )?;
+        let slot = landed_slot(&client, signature)?;
 
-        // 3. Fetch transaction outputs from the indexer.
+        // 3. Fetch transaction outputs from the indexer, gated on the deposit's slot.
         // The indexer returns encrypted outputs by view tag, the sender's public key in Confidential Rings.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
-        let response =
-            client.get_shielded_transactions_by_tags(vec![sender_tag], None, Some(50), None)?;
+        let response = client.get_shielded_transactions_by_tags(
+            vec![sender_tag],
+            None,
+            Some(50),
+            Some(IndexerRpcConfig::at_slot(slot)),
+        )?;
 
         // 4. The sender decrypts the transaction outputs locally to update the private balance.
         let balances = decrypt_transactions(&sender, &response.transactions, &assets)
@@ -137,18 +144,23 @@ fn main() -> Result<()> {
         }
         .instruction();
 
-        // 6. Send and confirm like any Solana transaction.
+        // 6. Send and confirm like any Solana transaction; confirmation yields the landed slot.
         let signature = client.create_and_send_transaction(
             &[transfer_ix],
             sender_solana_keypair.pubkey(),
             &[&sender_solana_keypair],
         )?;
-        client.wait_for_indexed_transaction_sync(signature)?;
+        let slot = landed_slot(&client, signature)?;
 
-        // 7. Sync the sender's wallet and read the remaining private balance.
+        // 7. Sync the sender's wallet, gated on the transfer's slot, and read
+        // the remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
-        let response =
-            client.get_shielded_transactions_by_tags(vec![sender_tag], None, Some(50), None)?;
+        let response = client.get_shielded_transactions_by_tags(
+            vec![sender_tag],
+            None,
+            Some(50),
+            Some(IndexerRpcConfig::at_slot(slot)),
+        )?;
         let sender_balances = decrypt_transactions(&sender, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
         let sender_balance = sender_balances
@@ -234,12 +246,17 @@ fn main() -> Result<()> {
             sender_solana_keypair.pubkey(),
             &[&sender_solana_keypair],
         )?;
-        client.wait_for_indexed_transaction_sync(signature)?;
+        let slot = landed_slot(&client, signature)?;
 
-        // 7. Sync the sender's wallet and read the remaining private balance.
+        // 7. Sync the sender's wallet, gated on the withdrawal's slot, and read
+        // the remaining private balance.
         let sender_tag = sender_shielded_address.confidential_view_tag()?;
-        let response =
-            client.get_shielded_transactions_by_tags(vec![sender_tag], None, Some(50), None)?;
+        let response = client.get_shielded_transactions_by_tags(
+            vec![sender_tag],
+            None,
+            Some(50),
+            Some(IndexerRpcConfig::at_slot(slot)),
+        )?;
         let sender_balances = decrypt_transactions(&sender, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?;
         let sender_balance = sender_balances
@@ -261,4 +278,15 @@ fn main() -> Result<()> {
         // SPL: );
     }
     Ok(())
+}
+
+/// Slot the confirmed transaction landed in, which drives the indexer
+/// freshness gate on the fetches that read the transaction back.
+fn landed_slot(client: &ZolanaClient<SolanaRpc>, signature: Signature) -> Result<u64> {
+    client
+        .get_signature_statuses(vec![signature])?
+        .first()
+        .and_then(|status| status.as_ref())
+        .map(|status| status.slot)
+        .ok_or_else(|| anyhow!("transaction status missing after confirmation"))
 }

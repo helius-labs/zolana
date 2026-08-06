@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { SOL_MINT, createZolanaClient } from "@zolana/sdk";
+import { atSlot } from "@zolana/sdk/client";
 import { depositInstruction, transactInstruction } from "@zolana/sdk/interface";
 import { randomBlinding } from "@zolana/sdk/keypair";
 import {
@@ -64,14 +65,15 @@ describe("example: deposit, transfer, withdraw", () => {
       ],
     });
 
-    // 2. Send and confirm like any Solana transaction.
-    await sendAndConfirm([depositIx]);
+    // 2. Send and confirm like any Solana transaction; confirmation yields the landed slot.
+    const depositTx = await sendAndConfirm([depositIx]);
 
-    // 3. Fetch transaction outputs from the indexer.
+    // 3. Fetch transaction outputs from the indexer, gated on the deposit's slot.
     // The indexer returns encrypted outputs by view tag.
-    const depositResponse = await client.getShieldedTransactionsByTags({
-      tags: [senderViewTag],
-    });
+    const depositResponse = await client.getShieldedTransactionsByTags(
+      { tags: [senderViewTag] },
+      atSlot(depositTx.slot),
+    );
 
     // 4. The sender decrypts the transaction outputs locally to read the private balance.
     const balancesAfterDeposit = await decryptToBalances({
@@ -109,14 +111,15 @@ describe("example: deposit, transfer, withdraw", () => {
       data: transferData,
     });
 
-    // 6. Send and confirm like any Solana transaction.
-    const transferSignature = await sendAndConfirm([transferInstruction]);
-    await client.waitForIndexedTransaction(transferSignature);
+    // 6. Send and confirm like any Solana transaction; confirmation yields the landed slot.
+    const transferTx = await sendAndConfirm([transferInstruction]);
 
-    // 7. Fetch the sender's outputs again and read the remaining private balance.
-    const transferResponse = await client.getShieldedTransactionsByTags({
-      tags: [senderViewTag],
-    });
+    // 7. Fetch the sender's outputs again, gated on the transfer's slot,
+    // and read the remaining private balance.
+    const transferResponse = await client.getShieldedTransactionsByTags(
+      { tags: [senderViewTag] },
+      atSlot(transferTx.slot),
+    );
     const balancesAfterTransfer = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
@@ -159,14 +162,15 @@ describe("example: deposit, transfer, withdraw", () => {
       data: withdrawalData,
     });
 
-    // 6. Send and confirm like any Solana transaction.
-    const withdrawalSignature = await sendAndConfirm([withdrawalInstruction]);
-    await client.waitForIndexedTransaction(withdrawalSignature);
+    // 6. Send and confirm like any Solana transaction; confirmation yields the landed slot.
+    const withdrawalTx = await sendAndConfirm([withdrawalInstruction]);
 
-    // 7. Fetch the sender's outputs again and read the remaining private balance.
-    const withdrawalResponse = await client.getShieldedTransactionsByTags({
-      tags: [senderViewTag],
-    });
+    // 7. Fetch the sender's outputs again, gated on the withdrawal's slot,
+    // and read the remaining private balance.
+    const withdrawalResponse = await client.getShieldedTransactionsByTags(
+      { tags: [senderViewTag] },
+      atSlot(withdrawalTx.slot),
+    );
     const balancesAfterWithdrawal = await decryptToBalances({
       keypair: senderKeypair,
       registry: assets,
@@ -178,7 +182,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const solanaBalance = await client.getBalance(senderSigner.address);
     console.log(
       `withdraw private_balance=${withdrawalBalance.amount} ` +
-        `solana_balance=${solanaBalance} tx=${withdrawalSignature}`,
+        `solana_balance=${solanaBalance} tx=${withdrawalTx.signature}`,
     );
   }, 600_000);
 });

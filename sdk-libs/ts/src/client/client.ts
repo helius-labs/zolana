@@ -317,19 +317,22 @@ export class ZolanaClient {
     await this.#pollIndexedTransaction(signature, config, context);
   }
 
-  /** Poll the RPC until the signature reaches this client's commitment. */
+  /**
+   * Poll the RPC until the signature reaches this client's commitment; returns
+   * the slot the transaction landed in, ready for `atSlot` freshness gates.
+   */
   async confirmTransaction(
     signature: Signature,
     config?: IndexerRpcConfig,
     context?: RequestContext,
-  ): Promise<void> {
+  ): Promise<bigint> {
     checkedSignature(signature);
     const poll = validatePollConfig(this.#configOr(config).poll);
     // Rust's `wait_for_rpc_confirmation` propagates every RPC error with `?` and
     // only retries a signature that is merely not confirmed yet.
-    await pollUntil(
+    const slot = await pollUntil(
       () => this.#signatureConfirmed(signature, context),
-      (confirmed) => confirmed,
+      (landed) => landed !== undefined,
       {
         config: poll,
         ...(context === undefined ? {} : { context }),
@@ -340,6 +343,8 @@ export class ZolanaClient {
           }),
       },
     );
+    // The accept predicate above guarantees the poll resolved with a slot.
+    return slot as bigint;
   }
 
   /**
@@ -372,18 +377,22 @@ export class ZolanaClient {
     );
   }
 
-  async #signatureConfirmed(signature: Signature, context?: RequestContext): Promise<boolean> {
+  /** Landed slot when the signature reached this client's commitment, else undefined. */
+  async #signatureConfirmed(
+    signature: Signature,
+    context?: RequestContext,
+  ): Promise<bigint | undefined> {
     const { value } = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
       this.solanaRpc.getSignatureStatuses([signature]).send({ abortSignal }),
     );
     const status = value[0];
-    if (status === null || status === undefined) return false;
+    if (status === null || status === undefined) return undefined;
     if (status.err !== null) {
       throw new ClientError("CLIENT_RPC", {
         details: { method: "getSignatureStatuses", reason: "transaction failed" },
       });
     }
-    return commitmentReached(status.confirmationStatus, this.commitment);
+    return commitmentReached(status.confirmationStatus, this.commitment) ? status.slot : undefined;
   }
 
   getMerkleProofs(

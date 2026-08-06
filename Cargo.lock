@@ -1201,6 +1201,7 @@ dependencies = [
  "anyhow",
  "solana-keypair",
  "solana-pubkey 4.2.0",
+ "solana-signature",
  "solana-signer",
  "zolana-client",
  "zolana-interface",

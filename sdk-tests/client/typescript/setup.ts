@@ -13,7 +13,7 @@ import {
   createTransactionMessage,
   lamports,
   pipe,
-  sendAndConfirmTransactionFactory,
+  sendTransactionWithoutConfirmingFactory,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
@@ -104,24 +104,31 @@ function recipientKeypair(): ShieldedKeypair {
   }
 }
 
+export interface ConfirmedTransaction {
+  readonly signature: Signature;
+  /** Slot the transaction landed in; drives the indexer freshness gates. */
+  readonly slot: bigint;
+}
+
 /**
  * Sign and send instructions as the given fee payer, then wait for the
  * transaction to confirm.
  *
  * The SDK returns instructions and leaves signing and sending to the
  * application, so a Kit app owns this step. It lives here rather than in the
- * example so the example stays about the shielded-pool calls.
+ * example so the example stays about the shielded-pool calls. The SDK's
+ * `confirmTransaction` is the confirmation, and the status response that
+ * confirms also carries the landed slot, so no request is issued twice.
  */
 export function sendAndConfirmFactory(
   client: Awaited<ReturnType<typeof createZolanaClient>>,
   feePayer: TransactionSigner,
-): (instructions: readonly Instruction[]) => Promise<Signature> {
-  const sendAndConfirmTransaction = sendAndConfirmTransactionFactory({
-    rpc: client.solanaRpc,
-    rpcSubscriptions: client.solanaRpcSubscriptions,
-  });
+): (instructions: readonly Instruction[]) => Promise<ConfirmedTransaction> {
+  const sendTransaction = sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc });
 
-  return async function sendAndConfirm(instructions: readonly Instruction[]): Promise<Signature> {
+  return async function sendAndConfirm(
+    instructions: readonly Instruction[],
+  ): Promise<ConfirmedTransaction> {
     const { value: lifetime } = await client.solanaRpc.getLatestBlockhash().send();
     const signed = await signTransactionMessageWithSigners(
       pipe(
@@ -132,8 +139,10 @@ export function sendAndConfirmFactory(
       ),
     );
     assertIsTransactionWithBlockhashLifetime(signed);
-    await sendAndConfirmTransaction(signed, { commitment: "confirmed" });
-    return getSignatureFromTransaction(signed);
+    await sendTransaction(signed, { commitment: "confirmed" });
+    const signature = getSignatureFromTransaction(signed);
+    const slot = await client.confirmTransaction(signature);
+    return { signature, slot };
   };
 }
 
