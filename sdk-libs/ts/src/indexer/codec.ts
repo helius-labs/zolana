@@ -203,8 +203,13 @@ function optional<T>(
 }
 
 function context(value: unknown, path: string): IndexerContext {
-  const record = object(value, path, ["block_time"]);
-  return { blockTime: unboundedI64(record["block_time"], `${path}.block_time`) };
+  // `object` rejects any key not listed here, so a new wire field must be added
+  // in the same release that starts sending it.
+  const record = object(value, path, ["block_time", "slot"]);
+  return {
+    blockTime: unboundedI64(record["block_time"], `${path}.block_time`),
+    slot: u64(record["slot"], `${path}.slot`),
+  };
 }
 
 function outputContext(value: unknown, path: string): RingsOutputContext {

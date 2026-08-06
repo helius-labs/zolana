@@ -2,7 +2,7 @@
 
 use std::{
     thread::sleep,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -35,67 +35,58 @@ const MERKLE_PROOF_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 
-fn now_unix_seconds() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(i64::MAX)
-}
-
 fn wait_for_indexer<T>(
     config: Option<IndexerRpcConfig>,
-    block_time: impl Fn(&T) -> i64,
+    context: impl Fn(&T) -> Context,
     mut request: impl FnMut() -> Result<T, ClientError>,
 ) -> Result<T, ClientError> {
-    let Some(config) = config.filter(|config| config.wait_for_indexer) else {
+    let Some((config, required)) = config.and_then(|c| c.require_slot.map(|slot| (c, slot))) else {
         return request();
     };
-    let target = now_unix_seconds();
-    let mut latest = i64::MIN;
+    let mut indexed = 0;
     for delay in std::iter::once(Duration::ZERO).chain(config.poll.backoff()) {
         if !delay.is_zero() {
             sleep(delay);
         }
         let response = request()?;
-        latest = block_time(&response);
-        if latest >= target {
+        indexed = context(&response).slot;
+        if indexed >= required {
             return Ok(response);
         }
     }
     Err(ClientError::IndexerNotCaughtUp {
-        target,
-        latest,
+        required,
+        indexed,
         attempts: config.poll.num_retries.saturating_add(1),
     })
 }
 
 async fn wait_for_indexer_async<T, F, Fut>(
     config: Option<IndexerRpcConfig>,
-    block_time: impl Fn(&T) -> i64,
+    context: impl Fn(&T) -> Context,
     request: F,
 ) -> Result<T, ClientError>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T, ClientError>>,
 {
-    let Some(config) = config.filter(|config| config.wait_for_indexer) else {
+    let Some((config, required)) = config.and_then(|c| c.require_slot.map(|slot| (c, slot))) else {
         return request().await;
     };
-    let target = now_unix_seconds();
-    let mut latest = i64::MIN;
+    let mut indexed = 0;
     for delay in std::iter::once(Duration::ZERO).chain(config.poll.backoff()) {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
         let response = request().await?;
-        latest = block_time(&response);
-        if latest >= target {
+        indexed = context(&response).slot;
+        if indexed >= required {
             return Ok(response);
         }
     }
     Err(ClientError::IndexerNotCaughtUp {
-        target,
-        latest,
+        required,
+        indexed,
         attempts: config.poll.num_retries.saturating_add(1),
     })
 }
@@ -224,7 +215,7 @@ impl Rpc for ZolanaIndexer {
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         wait_for_indexer(
             config,
-            |response: &GetEncryptedUtxosByTagsResponse| response.context.block_time,
+            |response: &GetEncryptedUtxosByTagsResponse| response.context,
             || {
                 let response = self
                     .api
@@ -258,7 +249,7 @@ impl Rpc for ZolanaIndexer {
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         wait_for_indexer(
             config,
-            |response: &GetShieldedTransactionsByTagsResponse| response.context.block_time,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context,
             || {
                 let response = self
                     .api
@@ -281,7 +272,7 @@ impl Rpc for ZolanaIndexer {
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
         wait_for_indexer(
             config,
-            |response: &GetShieldedTransactionsBySignatureResponse| response.context.block_time,
+            |response: &GetShieldedTransactionsBySignatureResponse| response.context,
             || {
                 let response = self
                     .api
@@ -302,7 +293,7 @@ impl Rpc for ZolanaIndexer {
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         wait_for_indexer(
             config,
-            |response: &GetShieldedTransactionsByNullifiersResponse| response.context.block_time,
+            |response: &GetShieldedTransactionsByNullifiersResponse| response.context,
             || {
                 let response = self
                     .api
@@ -352,10 +343,12 @@ impl Rpc for ZolanaIndexer {
                 })
         };
 
-        if let Some(config) = config.filter(|config| config.wait_for_indexer) {
+        // A caller that named a slot wants that guarantee, so honour it directly and
+        // skip the completeness-polling path below.
+        if let Some(config) = config.filter(|config| config.require_slot.is_some()) {
             return wait_for_indexer(
                 Some(config),
-                |response: &GetMerkleProofsResponse| response.context.block_time,
+                |response: &GetMerkleProofsResponse| response.context,
                 single,
             );
         }
@@ -388,7 +381,7 @@ impl Rpc for ZolanaIndexer {
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         wait_for_indexer(
             config,
-            |response: &GetNonInclusionProofsResponse| response.context.block_time,
+            |response: &GetNonInclusionProofsResponse| response.context,
             || {
                 let response = self
                     .api
@@ -426,7 +419,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         wait_for_indexer_async(
             config,
-            |response: &GetEncryptedUtxosByTagsResponse| response.context.block_time,
+            |response: &GetEncryptedUtxosByTagsResponse| response.context,
             || async {
                 let response = self
                     .api
@@ -462,7 +455,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         wait_for_indexer_async(
             config,
-            |response: &GetShieldedTransactionsByTagsResponse| response.context.block_time,
+            |response: &GetShieldedTransactionsByTagsResponse| response.context,
             || async {
                 let response = self
                     .api
@@ -487,7 +480,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
         wait_for_indexer_async(
             config,
-            |response: &GetShieldedTransactionsBySignatureResponse| response.context.block_time,
+            |response: &GetShieldedTransactionsBySignatureResponse| response.context,
             || async {
                 let response = self
                     .api
@@ -510,7 +503,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         wait_for_indexer_async(
             config,
-            |response: &GetShieldedTransactionsByNullifiersResponse| response.context.block_time,
+            |response: &GetShieldedTransactionsByNullifiersResponse| response.context,
             || async {
                 let response = self
                     .api
@@ -547,7 +540,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         wait_for_indexer_async(
             config,
-            |response: &GetMerkleProofsResponse| response.context.block_time,
+            |response: &GetMerkleProofsResponse| response.context,
             || async {
                 let response = self
                     .api
@@ -579,7 +572,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         wait_for_indexer_async(
             config,
-            |response: &GetNonInclusionProofsResponse| response.context.block_time,
+            |response: &GetNonInclusionProofsResponse| response.context,
             || async {
                 let response = self
                     .api
@@ -636,6 +629,7 @@ fn indexer_error(error: zolana_api::ApiError) -> ClientError {
 fn convert_context(context: zolana_api::Context) -> Context {
     Context {
         block_time: context.block_time,
+        slot: context.slot,
     }
 }
 
@@ -861,7 +855,7 @@ mod tests {
         let signature = signature(9);
         let (tx_viewing_pk_bytes, tx_viewing_pk) = compressed_p256_pubkey(3);
         let response = rpc_result(json!({
-            "context": { "block_time": 42 },
+            "context": { "block_time": 42, "slot": 1 },
             "matches": [{
                 "slot": 7,
                 "tx_signature": signature.to_string(),
@@ -899,7 +893,10 @@ mod tests {
         assert_eq!(
             got,
             GetEncryptedUtxosByTagsResponse {
-                context: Context { block_time: 42 },
+                context: Context {
+                    block_time: 42,
+                    slot: 1
+                },
                 matches: vec![EncryptedUtxoMatch {
                     slot: 7,
                     tx_signature: signature,
@@ -928,7 +925,7 @@ mod tests {
         let nullifier = bytes32(13);
         let signature = signature(14);
         let response = rpc_result(json!({
-            "context": { "block_time": 51 },
+            "context": { "block_time": 51, "slot": 1 },
             "transactions": [{
                 "slot": 50,
                 "tx_signature": signature.to_string(),
@@ -968,7 +965,10 @@ mod tests {
         assert_eq!(
             got,
             GetShieldedTransactionsByTagsResponse {
-                context: Context { block_time: 51 },
+                context: Context {
+                    block_time: 51,
+                    slot: 1
+                },
                 transactions: vec![ShieldedTransaction {
                     slot: 50,
                     tx_signature: signature,
@@ -996,7 +996,7 @@ mod tests {
     fn get_shielded_transactions_by_signature_preserves_event_index() {
         let signature = signature(24);
         let response = rpc_result(json!({
-            "context": { "block_time": 52 },
+            "context": { "block_time": 52, "slot": 1 },
             "transactions": [{
                 "event_index": 3,
                 "transaction": {
@@ -1038,7 +1038,7 @@ mod tests {
         let nullifier_a = bytes32(24);
         let nullifier_b = bytes32(25);
         let response = rpc_result(json!({
-            "context": { "block_time": 52 },
+            "context": { "block_time": 52, "slot": 1 },
             "transactions": [],
             "next_cursor": null,
         }));
@@ -1071,7 +1071,10 @@ mod tests {
         assert_eq!(
             got,
             GetShieldedTransactionsByNullifiersResponse {
-                context: Context { block_time: 52 },
+                context: Context {
+                    block_time: 52,
+                    slot: 1
+                },
                 transactions: vec![],
                 next_cursor: None,
             }
@@ -1085,7 +1088,7 @@ mod tests {
         let path = vec![bytes32(34), bytes32(35)];
         let root = bytes32(36);
         let response = rpc_result(json!({
-            "context": { "block_time": 80 },
+            "context": { "block_time": 80, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash_string(leaf_a),
                 "merkle_context": {
@@ -1119,7 +1122,10 @@ mod tests {
         assert_eq!(
             got,
             GetMerkleProofsResponse {
-                context: Context { block_time: 80 },
+                context: Context {
+                    block_time: 80,
+                    slot: 1
+                },
                 proofs: vec![MerkleProof {
                     leaf: leaf_a,
                     merkle_context: MerkleContext { tree_type: 1, tree },
@@ -1142,7 +1148,7 @@ mod tests {
         let path = vec![bytes32(45), bytes32(46)];
         let root = bytes32(47);
         let response = rpc_result(json!({
-            "context": { "block_time": 90 },
+            "context": { "block_time": 90, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash_string(leaf),
                 "merkle_context": {
@@ -1179,7 +1185,10 @@ mod tests {
         assert_eq!(
             got,
             GetNonInclusionProofsResponse {
-                context: Context { block_time: 90 },
+                context: Context {
+                    block_time: 90,
+                    slot: 1
+                },
                 proofs: vec![NonInclusionProof {
                     leaf,
                     merkle_context: MerkleContext { tree_type: 2, tree },
@@ -1258,7 +1267,7 @@ mod tests {
     fn rejects_malformed_output_slot_hash() {
         let tag = bytes32(51);
         let response = rpc_result(json!({
-            "context": { "block_time": 1 },
+            "context": { "block_time": 1, "slot": 1 },
             "transactions": [{
                 "slot": 1,
                 "tx_signature": signature(52).to_string(),
@@ -1295,7 +1304,7 @@ mod tests {
     fn by_signature_error_path_includes_transaction_nesting() {
         let signature = signature(61);
         let response = rpc_result(json!({
-            "context": { "block_time": 1 },
+            "context": { "block_time": 1, "slot": 1 },
             "transactions": [{
                 "event_index": 0,
                 "transaction": {

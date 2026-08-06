@@ -4,8 +4,9 @@ use sea_orm::{DatabaseConnection, EntityTrait, FromQueryResult, QuerySelect};
 use zolana_indexer_api::Context;
 
 #[derive(FromQueryResult)]
-struct BlockTimeModel {
+struct ContextModel {
     block_time: i64,
+    slot: i64,
 }
 
 #[derive(FromQueryResult)]
@@ -17,12 +18,19 @@ pub async fn extract(conn: &DatabaseConnection) -> Result<Context, PhotonApiErro
     let context = blocks::Entity::find()
         .select_only()
         .column_as(Expr::col(blocks::Column::BlockTime).max(), "block_time")
-        .into_model::<BlockTimeModel>()
+        .column_as(Expr::col(blocks::Column::Slot).max(), "slot")
+        .into_model::<ContextModel>()
         .one(conn)
         .await?
         .ok_or_else(|| PhotonApiError::RecordNotFound("No data has been indexed".to_string()))?;
     Ok(Context {
         block_time: context.block_time,
+        slot: u64::try_from(context.slot).map_err(|_| {
+            PhotonApiError::UnexpectedError(format!(
+                "Invalid negative slot in database: {}",
+                context.slot
+            ))
+        })?,
     })
 }
 

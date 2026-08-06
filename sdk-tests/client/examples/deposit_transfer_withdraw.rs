@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use client_example::{setup, SetupContext};
 use solana_signer::Signer;
-use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
 use zolana_interface::instruction::{
     AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
@@ -62,12 +62,8 @@ fn main() -> Result<()> {
         )?;
 
         let alice_tag = alice_shielded_address.confidential_view_tag()?;
-        let response = client.get_shielded_transactions_by_tags(
-            vec![alice_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::wait()),
-        )?;
+        let response =
+            client.get_shielded_transactions_by_tags(vec![alice_tag], None, Some(50), None)?;
 
         let balances = decrypt_transactions(&alice_keypair, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt alice transactions: {e:?}"))?;
@@ -102,8 +98,7 @@ fn main() -> Result<()> {
         let proof_inputs = transfer.sign(&alice_keypair, &assets)?;
 
         // 2.3. Prove the transaction and send the transact instruction.
-        let transfer_data =
-            client.prove_transact(tree, proof_inputs, Some(IndexerRpcConfig::wait()))?;
+        let transfer_data = client.prove_transact(tree, proof_inputs, None)?;
 
         let transfer_ix = Transact {
             payer: alice_solana_keypair.pubkey(),
@@ -123,12 +118,7 @@ fn main() -> Result<()> {
 
         // 2.4. Fetch and decrypt Bob's balance to confirm the transfer landed.
         let bob_tag = bob_address.confidential_view_tag()?;
-        let response = client.get_shielded_transactions_by_tags(
-            vec![bob_tag],
-            None,
-            None,
-            Some(IndexerRpcConfig::wait()),
-        )?;
+        let response = client.get_shielded_transactions_by_tags(vec![bob_tag], None, None, None)?;
 
         let bob_balances = decrypt_transactions(&bob_keypair, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt bob transactions: {e:?}"))?;
@@ -141,12 +131,8 @@ fn main() -> Result<()> {
 
         // 2.5. Fetch and decrypt Alice's remaining balance after the transfer.
         let alice_tag = alice_shielded_address.confidential_view_tag()?;
-        let response = client.get_shielded_transactions_by_tags(
-            vec![alice_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::wait()),
-        )?;
+        let response =
+            client.get_shielded_transactions_by_tags(vec![alice_tag], None, Some(50), None)?;
         let alice_balances = decrypt_transactions(&alice_keypair, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt alice transactions: {e:?}"))?;
         let alice_balance = alice_balances
@@ -187,8 +173,7 @@ fn main() -> Result<()> {
 
         // 3.3. Prove the transaction and send the transact instruction, this time
         // with the withdrawal accounts attached.
-        let withdrawal_data =
-            client.prove_transact(tree, proof_inputs, Some(IndexerRpcConfig::wait()))?;
+        let withdrawal_data = client.prove_transact(tree, proof_inputs, None)?;
 
         let withdraw_ix = Transact {
             payer: alice_solana_keypair.pubkey(),
@@ -213,12 +198,8 @@ fn main() -> Result<()> {
         // 3.4. Fetch and decrypt Alice's remaining confidential balance after the
         // withdrawal.
         let alice_tag = alice_shielded_address.confidential_view_tag()?;
-        let response = client.get_shielded_transactions_by_tags(
-            vec![alice_tag],
-            None,
-            Some(50),
-            Some(IndexerRpcConfig::wait()),
-        )?;
+        let response =
+            client.get_shielded_transactions_by_tags(vec![alice_tag], None, Some(50), None)?;
         let alice_balances = decrypt_transactions(&alice_keypair, &response.transactions, &assets)
             .map_err(|e| anyhow!("decrypt alice transactions: {e:?}"))?;
         let alice_balance = alice_balances
