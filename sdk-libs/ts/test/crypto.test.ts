@@ -57,7 +57,7 @@ describe("shielded key material", () => {
   it("defaults generated identities to the supported Ed25519 signing rail", () => {
     const keypair = ShieldedKeypair.generate();
     expect(keypair.curve()).toBe("ed25519");
-    expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
+    expect(keypair.signingPublicKey().curve()).toBe("ed25519");
     expect(keypair.viewingPublicKey()).toBeInstanceOf(P256PublicKey);
     expect(ShieldedKeypair.generate("p256").curve()).toBe("p256");
   });

@@ -10,8 +10,15 @@ import {
   copyBytes,
   randomBytes,
 } from "./bytes.js";
+import {
+  P_DERIVE,
+  ed25519DerivationMessage,
+  isDerivationInput,
+  isDerivationPoint,
+} from "./derivation.js";
+import { ecdhX } from "./encryption.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
-import { P256PublicKey, ShieldedPublicKey, type SignatureType } from "./public-key.js";
+import { P256PublicKey, ShieldedPublicKey, type SigningCurve } from "./public-key.js";
 
 export type EcdsaSignature = Bytes64;
 
@@ -51,15 +58,15 @@ function verifyEd25519Strict(
 
 export class SigningKey {
   #secret: Uint8Array;
-  readonly #type: SignatureType;
+  readonly #type: SigningCurve;
   #destroyed = false;
 
-  private constructor(secret: Uint8Array, type: SignatureType) {
+  private constructor(secret: Uint8Array, type: SigningCurve) {
     this.#secret = secret;
     this.#type = type;
   }
 
-  static generate(type: SignatureType = "p256"): SigningKey {
+  static generate(type: SigningCurve = "p256"): SigningKey {
     switch (type) {
       case "ed25519":
         return new SigningKey(randomBytes(32), type);
@@ -74,7 +81,7 @@ export class SigningKey {
     }
   }
 
-  static fromBytes(bytes: Bytes32): SigningKey {
+  static fromP256Bytes(bytes: Bytes32): SigningKey {
     const secret = checkedBytes<Bytes32>(bytes, 32, "P256 signing secret");
     if (!p256.utils.isValidSecretKey(secret)) {
       secret.fill(0);
@@ -87,12 +94,7 @@ export class SigningKey {
     return new SigningKey(checkedBytes<Bytes32>(bytes, 32, "Ed25519 signing secret"), "ed25519");
   }
 
-  /** Mirrors `SigningKey::is_ed25519`: which rail this key signs on. */
-  isEd25519(): boolean {
-    return this.#type === "ed25519";
-  }
-
-  signatureType(): SignatureType {
+  curve(): SigningCurve {
     return this.#type;
   }
 
@@ -105,6 +107,37 @@ export class SigningKey {
   }
 
   sign(message: Uint8Array): Bytes64 {
+    if (isDerivationInput(message)) {
+      throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
+    }
+    return this.#signRaw(message);
+  }
+
+  derivationSeed(): Uint8Array {
+    this.#assertUsable();
+    if (this.#type === "ed25519") {
+      const publicKey = ed25519.getPublicKey(this.#secret) as Bytes32;
+      return this.#signRaw(ed25519DerivationMessage(publicKey));
+    }
+    return this.#ecdhRaw(P_DERIVE);
+  }
+
+  ecdh(counterparty: P256PublicKey): Bytes32 {
+    if (isDerivationPoint(counterparty)) {
+      throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
+    }
+    return this.#ecdhRaw(counterparty);
+  }
+
+  #ecdhRaw(counterparty: P256PublicKey): Bytes32 {
+    this.#assertUsable();
+    if (this.#type !== "p256") {
+      throw new KeypairError("KEYPAIR_NOT_P256");
+    }
+    return copyBytes(ecdhX(this.#secret, counterparty)) as Bytes32;
+  }
+
+  #signRaw(message: Uint8Array): Bytes64 {
     this.#assertUsable();
     try {
       if (this.#type === "p256") {
@@ -124,7 +157,7 @@ export class SigningKey {
       }
       return ed25519.sign(message, this.#secret) as Bytes64;
     } catch (error) {
-      throw wrapKeypairError("KEYPAIR_INVALID_SECRET_KEY", error);
+      throw wrapKeypairError("KEYPAIR_SIGNING_FAILED", error);
     }
   }
 

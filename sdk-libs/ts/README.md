@@ -40,6 +40,7 @@ import {
 import {
   LocalWalletAuthority,
   ShieldedKeypair,
+  SigningKey,
   SOL_MINT,
   Wallet,
   buildDepositTransaction,
@@ -60,7 +61,7 @@ declare function loadOwnerSeed(): Promise<Bytes32>;
 const ownerSeed = await loadOwnerSeed();
 
 const feePayer = await createKeyPairSignerFromPrivateKeyBytes(ownerSeed);
-const keypair = ShieldedKeypair.fromEd25519(ownerSeed, 0);
+const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(ownerSeed));
 ownerSeed.fill(0);
 
 const wallet = new Wallet({ identity: keypair.shieldedAddress() });
@@ -254,8 +255,10 @@ Advanced protocol users can import low-level instruction builders from
 
 - Ed25519 is the supported owner rail for registration and private
   transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
-- Viewing keys are P256 on every wallet; this is expected and is separate from
+- Viewing keys are P256 on both owner rails; this is expected and is separate from
   unsupported P256 owner registration or spending.
+- `ShieldedKeypair.fromKeypair()` derives its nullifier and viewing keys from
+  one signing-key seed. Reusing the signing key reproduces the shielded identity.
 - Non-loopback indexer and prover URLs must use HTTPS.
 - Protect signer seeds and shielded key material. Encrypt serialized wallet
   state and avoid logging private balances, notes, or keys.

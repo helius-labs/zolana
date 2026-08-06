@@ -62,12 +62,12 @@ function fixtureAuthority(
 }> {
   const secret = hexBytes(fixtureString(inputs, "signingSecretBytes"));
   secret[31] = (secret.at(31) ?? 0) + offset;
-  const signing = SigningKey.fromBytes(secret as Bytes32);
-  const nullifier = NullifierKey.fromSigningKey(signing);
+  const signing = SigningKey.fromP256Bytes(secret as Bytes32);
   const viewingSeed = hexBytes(fixtureString(inputs, "viewingSeedBytes"));
   viewingSeed.fill((viewingSeed.at(0) ?? 0) + offset);
   const viewing = ViewingKey.fromSeed(viewingSeed as Bytes32, 0);
-  const keypair = ShieldedKeypair.fromKeys(signing, nullifier, viewing);
+  const keypair = ShieldedKeypair.fromParts(signing, viewing);
+  const nullifier = keypair.nullifierKey();
   const identity = keypair.shieldedAddress();
   const material: WalletSyncMaterial = {
     identity,

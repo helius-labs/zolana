@@ -2,12 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ZolanaClient } from "../../../src/client/index.js";
 import type { Bytes32 } from "../../../src/interface/index.js";
-import {
-  NullifierKey,
-  ShieldedKeypair,
-  SigningKey,
-  ViewingKey,
-} from "../../../src/keypair/index.js";
+import { ShieldedKeypair, SigningKey, ViewingKey } from "../../../src/keypair/index.js";
 import { AssetRegistry, Wallet, type WalletSyncMaterial } from "../../../src/transaction/index.js";
 import { syncWallet, type WalletAuthority } from "../../../src/wallet/index.js";
 import fixture from "../../../vectors/wallet-sync-tags-v1.json" with { type: "json" };
@@ -43,9 +38,8 @@ function viewingKey(name: string): ViewingKey {
 
 function keypair(identity: "self" | "other" = "self"): ShieldedKeypair {
   const signing = secret(identity === "self" ? "signing" : "otherSigning");
-  return ShieldedKeypair.fromKeys(
+  return ShieldedKeypair.fromParts(
     SigningKey.fromEd25519Bytes(signing),
-    NullifierKey.fromSigningSecret(signing),
     viewingKey(identity === "self" ? "current" : "rotated"),
   );
 }

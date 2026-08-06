@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuthorizedPrivateTransaction, ZolanaClient } from "../src/client/client.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
-import { ShieldedKeypair } from "../src/keypair/index.js";
+import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import { Data, LocalWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/wallet/asset.js";
 import { createSplit, createTransfer, createWithdrawal } from "../src/wallet/actions.js";
@@ -40,7 +40,7 @@ function filled(value: number): Bytes32 {
 }
 
 function spendingKeypair(): ShieldedKeypair {
-  return ShieldedKeypair.fromEd25519(filled(42), 0);
+  return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(filled(42)));
 }
 
 function fundedWallet(
@@ -140,7 +140,7 @@ describe("private transaction construction", () => {
   });
 
   it("rejects an Ed25519 spend whose fee payer is not its owner", async () => {
-    const keypair = ShieldedKeypair.fromEd25519(filled(7), 0);
+    const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(filled(7)));
     const wallet = fundedWallet(keypair, [100n]);
     const created = await createWithdrawal({
       wallet,

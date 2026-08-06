@@ -179,7 +179,7 @@ function assembleMergeUnchecked(
     // A P256 owner contributes the 0 sentinel: the merge circuit recomputes its
     // pk_field from the witnessed point and ignores the per-input value.
     const ownerPublicKeyHash =
-      input.utxo.owner.signatureType() === "p256"
+      input.utxo.owner.curve() === "p256"
         ? 0n
         : bytesField(input.utxo.owner.ownerPublicKeyField(), "merge owner public key");
     const converted = createRealInput(input, proof, ownerPublicKeyHash);
@@ -208,7 +208,7 @@ function assembleMergeUnchecked(
       bytesToBigInt(externalDataHash),
     ]),
   ) as Bytes32;
-  const eddsaOwner = prepared.signingPublicKey.signatureType() === "ed25519";
+  const eddsaOwner = prepared.signingPublicKey.curve() !== "p256";
   const ownerPublicKeyHash = bytesField(
     prepared.signingPublicKey.ownerPublicKeyField(),
     "merge owner public key",

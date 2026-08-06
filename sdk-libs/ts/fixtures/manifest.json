@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "transaction/authority-v1.json",
-      "sha256": "c77fc97c8a7d8d837c07c4c9312190b844e0315e062e51d587a30af7ae94dad3"
+      "sha256": "efb94b1a28945b3c6cefaea3b53cdc0dc0811acda2ee130e4fc10d9950e8dddf"
     },
     {
       "path": "transaction/frozen-tests-v1.json",
@@ -16,7 +16,7 @@
     },
     {
       "path": "transaction/wallet-state-v1.json",
-      "sha256": "595909549293707e68eff8da70278be12bf4650667c7c51307976dd433b4d55e"
+      "sha256": "63a07c4c3c48f15a76490edd936404403621ab76d06506dd9863fe76aeb4e5d6"
     },
     {
       "path": "transaction/wallet-sync-v1.json",

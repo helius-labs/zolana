@@ -491,11 +491,7 @@ export class SppProofInputs {
   ) {
     this.payer = input.payer;
     this.inputUtxos = Object.freeze([...input.inputUtxos]);
-    if (
-      this.inputUtxos.some(
-        (entry) => !entry.isDummy() && entry.utxo.owner.signatureType() === "p256",
-      )
-    ) {
+    if (this.inputUtxos.some((entry) => !entry.isDummy() && entry.utxo.owner.curve() === "p256")) {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
     this.outputs = Object.freeze([...input.outputs]);
@@ -591,7 +587,7 @@ export class ConfidentialTransfer {
 
   constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (owner.signingPublicKey.signatureType() === "p256") {
+    if (owner.signingPublicKey.curve() === "p256") {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
     // Only the payer occupies a non-zero slot in the circuit's signer vector, so

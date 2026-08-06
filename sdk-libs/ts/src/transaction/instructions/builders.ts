@@ -136,7 +136,7 @@ export class Merge {
     const firstNullifier = firstInput.nullifier();
     let amount = 0n;
     inputs.forEach((input, index) => {
-      if (input.utxo.owner.signatureType() !== owner.signatureType()) {
+      if (input.utxo.owner.curve() !== owner.curve()) {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_RAIL_MISMATCH", { index });
       }
       if (!equal(input.utxo.owner.toBytes(), owner.toBytes())) {
@@ -213,7 +213,7 @@ export class ConfidentialSplit {
         numOutputs: input.numOutputs,
       });
     }
-    if (input.owner.signingPublicKey.signatureType() === "p256") {
+    if (input.owner.signingPublicKey.curve() === "p256") {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
     // Only the payer occupies a non-zero slot in the circuit's signer vector, so

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Address, Bytes16, Bytes32 } from "../../src/interface/index.js";
-import { NullifierKey, ShieldedKeypair, SigningKey, ViewingKey } from "../../src/keypair/index.js";
+import { ShieldedKeypair, SigningKey, ViewingKey } from "../../src/keypair/index.js";
 import {
   AssetRegistry,
   Data,
@@ -63,25 +63,21 @@ function keys(inputs: Readonly<Record<string, unknown>>): Readonly<{
   tx: ViewingKey;
   viewing: ViewingKey;
 }> {
-  const signing = SigningKey.fromBytes(
+  const signing = SigningKey.fromP256Bytes(
     hexBytes(fixtureString(inputs, "signingSecretBytes")) as Bytes32,
   );
   const viewing = ViewingKey.fromSeed(
     hexBytes(fixtureString(inputs, "viewingSeedBytes")) as Bytes32,
     0,
   );
-  const keypair = ShieldedKeypair.fromKeys(signing, NullifierKey.fromSigningKey(signing), viewing);
+  const keypair = ShieldedKeypair.fromParts(signing, viewing);
   const recipientSecret = new Uint8Array(32);
   recipientSecret[31] = 12;
-  const recipientSigning = SigningKey.fromBytes(recipientSecret as Bytes32);
+  const recipientSigning = SigningKey.fromP256Bytes(recipientSecret as Bytes32);
   const recipientViewing = ViewingKey.fromSeed(new Uint8Array(32).fill(13) as Bytes32, 0);
   return {
     keypair,
-    recipient: ShieldedKeypair.fromKeys(
-      recipientSigning,
-      NullifierKey.fromSigningKey(recipientSigning),
-      recipientViewing,
-    ),
+    recipient: ShieldedKeypair.fromParts(recipientSigning, recipientViewing),
     recipientViewing,
     tx: ViewingKey.fromSeed(hexBytes(fixtureString(inputs, "txViewingSeedBytes")) as Bytes32, 0),
     viewing,

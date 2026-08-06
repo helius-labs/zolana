@@ -1,11 +1,13 @@
 import {
   getAddressDecoder,
+  getAddressEncoder,
   type Address,
   type SignatureBytes,
   type TransactionPartialSigner,
 } from "@solana/kit";
 
 import { type Bytes32, type Bytes64, checkedBytes, concatBytes, copyBytes } from "./bytes.js";
+import { RoleExpansion } from "./derivation.js";
 import { KeypairError } from "./error.js";
 import { ownerHash, pack33 } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
@@ -13,13 +15,15 @@ import { poseidon } from "./poseidon.js";
 import {
   P256PublicKey,
   ShieldedPublicKey,
-  type SignatureType,
+  type Curve,
+  type SigningCurve,
   type ViewTag,
 } from "./public-key.js";
 import { SigningKey } from "./signing-key.js";
 import { type Salt, ViewingKey } from "./viewing-key.js";
 
 const addressDecoder = getAddressDecoder();
+const addressEncoder = getAddressEncoder();
 
 export class ShieldedAddress {
   readonly signingPublicKey: ShieldedPublicKey;
@@ -50,6 +54,18 @@ export class ShieldedAddress {
     );
   }
 
+  static forPda(
+    pda: Address,
+    nullifierPublicKey: Bytes32,
+    viewingPublicKey: P256PublicKey,
+  ): ShieldedAddress {
+    return ShieldedAddress.fromPublicKeys(
+      ShieldedPublicKey.fromPda(new Uint8Array(addressEncoder.encode(pda)) as Bytes32),
+      nullifierPublicKey,
+      viewingPublicKey,
+    );
+  }
+
   get nullifierPublicKey(): Bytes32 {
     return copyBytes(this.#nullifierPublicKey) as Bytes32;
   }
@@ -62,7 +78,14 @@ export class ShieldedAddress {
   }
 
   solanaAddress(): Address {
-    return addressDecoder.decode(this.signingPublicKey.ed25519());
+    switch (this.signingPublicKey.curve()) {
+      case "ed25519":
+        return addressDecoder.decode(this.signingPublicKey.ed25519());
+      case "pda":
+        return addressDecoder.decode(this.signingPublicKey.pda());
+      case "p256":
+        throw new KeypairError("KEYPAIR_NO_SOLANA_ADDRESS");
+    }
   }
 
   confidentialViewTag(): ViewTag {
@@ -125,7 +148,7 @@ export interface ShieldedKeypairLike {
   signingPublicKey(): ShieldedPublicKey | Promise<ShieldedPublicKey>;
   viewingPublicKey(): P256PublicKey | Promise<P256PublicKey>;
   /** The rail this keypair signs on, which selects the transfer circuit. */
-  curve(): SignatureType | Promise<SignatureType>;
+  curve(): Curve | Promise<Curve>;
   shieldedAddress(): ShieldedAddress | Promise<ShieldedAddress>;
   ownerHash(): Bytes32 | Promise<Bytes32>;
   compressedAddress(): CompressedShieldedAddress | Promise<CompressedShieldedAddress>;
@@ -190,37 +213,30 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * the lean SDK's registration and ordinary transaction builders. Viewing
    * keys remain P256 on both signing rails.
    */
-  static generate(type: SignatureType = "ed25519"): ShieldedKeypair {
-    return ShieldedKeypair.fromSigningAndViewingKeys(
-      SigningKey.generate(type),
-      ViewingKey.generate(),
-    );
+  static generate(curve: SigningCurve = "ed25519"): ShieldedKeypair {
+    return ShieldedKeypair.fromKeypair(SigningKey.generate(curve));
   }
 
-  /**
-   * Mirrors Rust's two-argument `ShieldedKeypair::from_keys`: the nullifier key
-   * is derived from the signing secret rather than supplied, which is what
-   * makes the owner hash reproducible from the signing key alone.
-   */
-  static fromSigningAndViewingKeys(signing: SigningKey, viewing: ViewingKey): ShieldedKeypair {
-    return new ShieldedKeypair(signing, NullifierKey.fromSigningKey(signing), viewing);
+  static fromKeypair(signing: SigningKey): ShieldedKeypair {
+    const seed = signing.derivationSeed();
+    const expansion = new RoleExpansion(seed, signing.curve());
+    try {
+      return new ShieldedKeypair(signing, expansion.nullifierKey(), expansion.viewingKey());
+    } finally {
+      seed.fill(0);
+      expansion.destroy();
+    }
   }
 
-  static fromKeys(
-    signing: SigningKey,
-    nullifier: NullifierKey,
-    viewing: ViewingKey,
-  ): ShieldedKeypair {
-    return new ShieldedKeypair(signing, nullifier, viewing);
-  }
-
-  static fromEd25519(secret: Bytes32, account: number): ShieldedKeypair {
-    const owned = checkedBytes<Bytes32>(secret, 32, "Ed25519 signing secret");
-    const signing = SigningKey.fromEd25519Bytes(owned);
-    const nullifier = NullifierKey.fromSigningSecret(owned);
-    const viewing = ViewingKey.fromSeed(owned, account);
-    owned.fill(0);
-    return new ShieldedKeypair(signing, nullifier, viewing);
+  static fromParts(signing: SigningKey, viewing: ViewingKey): ShieldedKeypair {
+    const seed = signing.derivationSeed();
+    const expansion = new RoleExpansion(seed, signing.curve());
+    try {
+      return new ShieldedKeypair(signing, expansion.nullifierKey(), viewing);
+    } finally {
+      seed.fill(0);
+      expansion.destroy();
+    }
   }
 
   signingPublicKey(): ShieldedPublicKey {
@@ -249,8 +265,8 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
     }
   }
 
-  curve(): SignatureType {
-    return this.#signing.signatureType();
+  curve(): Curve {
+    return this.#signing.curve();
   }
 
   nullifierPublicKey(): Bytes32 {
@@ -278,7 +294,7 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * Solana address to sign for.
    */
   toSolanaSigner(): TransactionPartialSigner {
-    if (!this.#signing.isEd25519()) {
+    if (this.#signing.curve() !== "ed25519") {
       throw new KeypairError("KEYPAIR_NOT_ED25519");
     }
     const address = addressDecoder.decode(this.signingPublicKey().ed25519());

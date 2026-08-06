@@ -20,6 +20,11 @@ export type KeypairErrorCode =
   | "KEYPAIR_INVALID_PREHASH_LENGTH"
   | "KEYPAIR_INFO_TOO_LONG"
   | "KEYPAIR_NOT_ED25519"
+  | "KEYPAIR_NOT_P256"
+  | "KEYPAIR_NO_SOLANA_ADDRESS"
+  | "KEYPAIR_DERIVATION_INPUT"
+  | "KEYPAIR_PDA_CANNOT_SIGN"
+  | "KEYPAIR_SIGNING_FAILED"
   // TypeScript-only: Rust rejects these at the type level.
   | "KEYPAIR_INVALID_LENGTH"
   | "KEYPAIR_HASH";
@@ -37,6 +42,11 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_INVALID_PREHASH_LENGTH: "InvalidPrehashLength",
     KEYPAIR_INFO_TOO_LONG: "InfoTooLong",
     KEYPAIR_NOT_ED25519: "NotEd25519",
+    KEYPAIR_NOT_P256: "NotP256",
+    KEYPAIR_NO_SOLANA_ADDRESS: "NoSolanaAddress",
+    KEYPAIR_DERIVATION_INPUT: "DerivationInput",
+    KEYPAIR_PDA_CANNOT_SIGN: "PdaCannotSign",
+    KEYPAIR_SIGNING_FAILED: "SigningFailed",
     KEYPAIR_INVALID_LENGTH: null,
     KEYPAIR_HASH: null,
   });

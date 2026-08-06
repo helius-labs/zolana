@@ -289,7 +289,7 @@ export async function validateRegisteredKeypair(
   const record = await fetchUserRecordChecked({ rpc: input.rpc, owner: input.owner }, context);
   const signingPublicKey = input.keypair.signingPublicKey();
   const expectedOwnerP256 =
-    signingPublicKey.signatureType() === "p256" ? signingPublicKey.p256().toBytes() : undefined;
+    signingPublicKey.curve() === "p256" ? signingPublicKey.p256().toBytes() : undefined;
   const ownerP256Matches =
     expectedOwnerP256 === undefined
       ? record.ownerP256 === undefined
@@ -326,7 +326,7 @@ export async function recipientConfidentialViewTag(
  */
 function publishedKeysMatch(record: UserRecord, address: ShieldedAddress): boolean {
   const ownerP256 =
-    address.signingPublicKey.signatureType() === "p256"
+    address.signingPublicKey.curve() === "p256"
       ? address.signingPublicKey.p256().toBytes()
       : undefined;
   const ownerMatches =
@@ -349,7 +349,7 @@ export async function buildRegistrationTransaction(
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
   try {
-    if (input.address.signingPublicKey.signatureType() === "p256") {
+    if (input.address.signingPublicKey.curve() === "p256") {
       throw new WalletError("WALLET_P256_REGISTRATION_UNSUPPORTED");
     }
     const pda = await userRecordAddress(input.owner);
@@ -414,7 +414,7 @@ function registrationInstruction(
 ): Instruction | undefined {
   if (existing !== undefined && publishedKeysMatch(existing, shieldedAddress)) return undefined;
   const ownerP256 =
-    shieldedAddress.signingPublicKey.signatureType() === "p256"
+    shieldedAddress.signingPublicKey.curve() === "p256"
       ? shieldedAddress.signingPublicKey.p256().toBytes()
       : undefined;
   return {

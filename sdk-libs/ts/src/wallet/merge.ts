@@ -209,7 +209,7 @@ function validateMergeBuild(record: MergeRecord, owner: Address, material: Merge
     throw new WalletError("WALLET_MERGE_DISABLED", { details: { owner } });
   }
   const signingPublicKey = material.signingPublicKey;
-  if (signingPublicKey.signatureType() === "p256") {
+  if (signingPublicKey.curve() === "p256") {
     if (
       record.ownerP256 === undefined ||
       !equalBytes(record.ownerP256, signingPublicKey.p256().toBytes())

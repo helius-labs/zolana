@@ -12,10 +12,12 @@ import {
   DEFAULT_TREE_ADDRESS,
   SHIELDED_POOL_PROGRAM_ID,
   ShieldedKeypair,
+  SigningKey,
   SOL_MINT,
   SPL_TOKEN_2022_PROGRAM_ID,
   SPL_TOKEN_PROGRAM_ID,
   USER_REGISTRY_PROGRAM_ID,
+  ViewingKey,
   Wallet,
   buildDepositTransaction,
   buildRegistrationTransaction,
@@ -84,7 +86,9 @@ describe("public package surface", () => {
   });
 
   it("resolves a registered Solana deposit recipient through the public builder", async () => {
-    const keypair = ShieldedKeypair.fromEd25519(new Uint8Array(32).fill(9) as Bytes32, 0);
+    const keypair = ShieldedKeypair.fromKeypair(
+      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(9) as Bytes32),
+    );
     const recipient = keypair.shieldedAddress().solanaAddress();
     const pda = await internalUserRecordPda(recipient);
     const data = Uint8Array.of(
@@ -209,8 +213,11 @@ describe("public package surface", () => {
 
   it("builds a key update without signing or sending it", async () => {
     const seed = new Uint8Array(32).fill(1) as Bytes32;
-    const current = ShieldedKeypair.fromEd25519(seed, 1).shieldedAddress();
-    const replacement = ShieldedKeypair.fromEd25519(seed, 0);
+    const current = ShieldedKeypair.fromParts(
+      SigningKey.fromEd25519Bytes(seed),
+      ViewingKey.generate(),
+    ).shieldedAddress();
+    const replacement = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));
     const owner = replacement.shieldedAddress().solanaAddress();
     const pda = await internalUserRecordPda(owner);
     const data = Uint8Array.of(

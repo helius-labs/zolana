@@ -5,9 +5,9 @@
       "summary": "fixture transfer"
     },
     "authority": {
-      "nullifierPubkeyBytes": "1e818d7473d005432d41e569956da29e419ce8cbd3b7110d510847eb8d7d600e",
+      "nullifierPubkeyBytes": "0eea51eb1dd54ce97e3f567249af75f737c7e1cf319f6a4f191c20a5ba79a7d5",
       "shieldedAddress": {
-        "nullifierPubkeyBytes": "1e818d7473d005432d41e569956da29e419ce8cbd3b7110d510847eb8d7d600e",
+        "nullifierPubkeyBytes": "0eea51eb1dd54ce97e3f567249af75f737c7e1cf319f6a4f191c20a5ba79a7d5",
         "signingPubkeyBytes": "00028e533b6fa0bf7b4625bb30667c01fb607ef9f8b8a80fef5b300628703187b2a3",
         "viewingPubkeyBytes": "0228207cde19729887f902e2a9e92f753d3e3a12b19c052fccbc4ef8f8ea38a141"
       },

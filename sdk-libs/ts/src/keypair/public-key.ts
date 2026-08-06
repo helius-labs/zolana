@@ -5,7 +5,8 @@ import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "./constants.
 import { KeypairError, wrapKeypairError } from "./error.js";
 import { hashField } from "./hash.js";
 
-export type SignatureType = "p256" | "ed25519";
+export type Curve = "p256" | "ed25519" | "pda";
+export type SigningCurve = Exclude<Curve, "pda">;
 export type ViewTag = Bytes32;
 
 export class P256PublicKey {
@@ -73,6 +74,13 @@ export class ShieldedPublicKey {
     return new ShieldedPublicKey(bytes);
   }
 
+  static fromPda(pda: Bytes32): ShieldedPublicKey {
+    const bytes = new Uint8Array(SHIELDED_PUBLIC_KEY_LENGTH);
+    bytes[0] = 2;
+    bytes.set(checkedBytes<Bytes32>(pda, 32, "PDA"), 1);
+    return new ShieldedPublicKey(bytes);
+  }
+
   static fromBytes(bytes: Bytes34): ShieldedPublicKey {
     const owned = checkedBytes<Uint8Array>(
       bytes,
@@ -81,7 +89,7 @@ export class ShieldedPublicKey {
     );
     if (owned[0] === 0) {
       P256PublicKey.fromBytes(owned.subarray(1) as Bytes33);
-    } else if (owned[0] === 1) {
+    } else if (owned[0] === 1 || owned[0] === 2) {
       if (owned[SHIELDED_PUBLIC_KEY_LENGTH - 1] !== 0) {
         throw new KeypairError("KEYPAIR_INVALID_PUBLIC_KEY", { reason: "nonzeroPadding" });
       }
@@ -106,14 +114,15 @@ export class ShieldedPublicKey {
     return this.#bytes.every((byte) => byte === 0);
   }
 
-  signatureType(): SignatureType {
+  curve(): Curve {
     if (this.#bytes[0] === 0) return "p256";
     if (this.#bytes[0] === 1) return "ed25519";
+    if (this.#bytes[0] === 2) return "pda";
     throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { prefix: this.#bytes[0] ?? 0 });
   }
 
   confidentialViewTag(): ViewTag {
-    if (this.signatureType() === "p256") return this.p256().x();
+    if (this.curve() === "p256") return this.p256().x();
     return copyBytes(this.#bytes.subarray(1, 33)) as ViewTag;
   }
 
@@ -126,16 +135,23 @@ export class ShieldedPublicKey {
   }
 
   ed25519(): Bytes32 {
-    if (this.signatureType() !== "ed25519") {
+    if (this.curve() !== "ed25519") {
       throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "ed25519" });
     }
     return copyBytes(this.#bytes.subarray(1, 33)) as Bytes32;
   }
 
   p256(): P256PublicKey {
-    if (this.signatureType() !== "p256") {
+    if (this.curve() !== "p256") {
       throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "p256" });
     }
     return P256PublicKey.fromBytes(this.#bytes.subarray(1) as Bytes33);
+  }
+
+  pda(): Bytes32 {
+    if (this.curve() !== "pda") {
+      throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { expected: "pda" });
+    }
+    return copyBytes(this.#bytes.subarray(1, 33)) as Bytes32;
   }
 }

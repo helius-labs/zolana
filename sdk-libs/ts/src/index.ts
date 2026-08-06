@@ -47,10 +47,13 @@ export {
   P256PublicKey,
   ShieldedAddress,
   ShieldedKeypair,
+  ShieldedPda,
   ShieldedPublicKey,
   SigningKey,
   ViewingKey,
+  type Curve,
   type KeypairErrorCode,
+  type SigningCurve,
 } from "./keypair/index.js";
 export {
   Data,

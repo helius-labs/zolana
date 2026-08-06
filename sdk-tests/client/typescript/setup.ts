@@ -26,6 +26,7 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   SPL_TOKEN_PROGRAM_ID,
   ShieldedKeypair,
+  SigningKey,
   createZolanaClient,
   initializePoseidon,
   type Bytes32,
@@ -108,7 +109,7 @@ async function senderKeypair(): Promise<ShieldedKeypair> {
     throw new Error("the TypeScript SDK example authority seed must be 32 bytes");
   }
   try {
-    return ShieldedKeypair.fromEd25519(seed, 0);
+    return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));
   } finally {
     seed.fill(0);
   }
@@ -117,7 +118,7 @@ async function senderKeypair(): Promise<ShieldedKeypair> {
 function recipientKeypair(): ShieldedKeypair {
   const seed = crypto.getRandomValues(new Uint8Array(32)) as Bytes32;
   try {
-    return ShieldedKeypair.fromEd25519(seed, 0);
+    return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed));
   } finally {
     seed.fill(0);
   }

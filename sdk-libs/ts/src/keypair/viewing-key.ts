@@ -16,9 +16,11 @@ import {
 import {
   INFO_MERGE_VIEW_TAG_PREFIX,
   INFO_MERGE_VIEW_TAG_SECRET,
+  INFO_SEED_P256_VIEWING,
   INFO_TX_VIEWING,
   P_CONST_SEC1,
 } from "./constants.js";
+import { isDerivationPoint } from "./derivation.js";
 import { applyTransferCipher, ecdhX } from "./encryption.js";
 import { KeypairError } from "./error.js";
 import { decryptVerifiableSecret, encryptVerifiableSecret } from "./merge/core.js";
@@ -31,6 +33,7 @@ const encoder = new TextEncoder();
 const P256_ORDER =
   115_792_089_210_356_248_762_697_446_949_407_573_529_996_955_224_135_760_342_422_259_061_068_512_044_369n;
 const P_CONST = P256PublicKey.fromBytes(P_CONST_SEC1 as import("./bytes.js").Bytes33);
+export const VIEWING_KEY_ECDH_RAW: unique symbol = Symbol("ViewingKey.ecdhRaw");
 
 // Rust separates `ZeroScalar` from `InvalidSecretKey`: the first says the
 // derivation landed on zero, the second says the caller supplied an out-of-range
@@ -122,7 +125,7 @@ export class ViewingKey implements ViewingKeyLike {
       });
     }
     const seed = checkedBytes<Bytes32>(walletSeed, 32, "wallet seed");
-    const info = concatBytes(encoder.encode("TSPP/seed/p256_viewing"), u32be(account));
+    const info = concatBytes(encoder.encode(INFO_SEED_P256_VIEWING), u32be(account));
     return ViewingKey.fromBytes(scalarFromOkm(expandOrThrow(seed, info, 48)));
   }
 
@@ -137,6 +140,13 @@ export class ViewingKey implements ViewingKeyLike {
   }
 
   ecdh(counterparty: P256PublicKey): Bytes32 {
+    if (isDerivationPoint(counterparty)) {
+      throw new KeypairError("KEYPAIR_DERIVATION_INPUT");
+    }
+    return this[VIEWING_KEY_ECDH_RAW](counterparty);
+  }
+
+  [VIEWING_KEY_ECDH_RAW](counterparty: P256PublicKey): Bytes32 {
     this.#assertUsable();
     return copyBytes(ecdhX(this.#secret, counterparty)) as Bytes32;
   }
@@ -254,4 +264,9 @@ export class ViewingKey implements ViewingKeyLike {
       throw new KeypairError("KEYPAIR_INVALID_SECRET_KEY", { reason: "destroyed" });
     }
   }
+}
+
+/** Builds a viewing key from the 48-byte output of a role expansion. */
+export function viewingKeyFromOkm48(okm: Uint8Array): ViewingKey {
+  return ViewingKey.fromBytes(scalarFromOkm(okm));
 }
