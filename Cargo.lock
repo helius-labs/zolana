@@ -1921,11 +1921,14 @@ name = "dynamic-swap-prover"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "dynamic-swap-program",
  "groth16-solana",
  "num-bigint 0.4.8",
  "serde_json",
+ "solana-address 2.6.1",
  "solana-bn254 3.2.1",
  "thiserror 2.0.18",
+ "zolana-hasher",
  "zolana-transaction",
 ]
 
@@ -1943,6 +1946,7 @@ dependencies = [
  "solana-system-interface 3.2.0",
  "wincode",
  "zolana-client",
+ "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
  "zolana-transaction",
@@ -1985,7 +1989,6 @@ dependencies = [
  "zolana-transaction",
  "zolana-tree",
  "zolana-user-registry-interface",
- "zolana-wallet",
 ]
 
 [[package]]

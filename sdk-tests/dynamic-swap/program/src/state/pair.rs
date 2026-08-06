@@ -8,7 +8,8 @@ use pinocchio::{
 use super::discriminator::PAIR;
 use crate::error::DynamicSwapError;
 
-/// A unidirectional trading pair with an authority-set `price`.
+/// Public quote configuration. The exact destination-asset balance is stored
+/// only in the liquidity UTXO; this account exposes conservative capacity.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct Pair {
@@ -19,21 +20,18 @@ pub struct Pair {
     pub source_asset_id: u64,
     pub destination_asset_id: u64,
     pub price: u64,
-    /// The authority's own owner-hash commitment (`Poseidon(owner_pk_field,
-    /// nullifier_pubkey)`), supplied at `create_pair` time. `settle`'s settle
-    /// branch binds the settled source-asset leg's UTXO owner to this value,
-    /// so the authority controls its own destination without resupplying it
-    /// on every call.
+    pub max_order_size: u64,
+    pub quote_version: u64,
+    /// Refresh when advertised capacity, expressed in destination base units,
+    /// falls below this threshold.
+    pub capacity_refresh_threshold: u64,
     pub authority_owner_hash: [u8; 32],
-    /// The source asset's UTXO commitment (`asset_field(source_mint)` =
-    /// `hash_bytes(source_mint)`), supplied at `create_pair` time. The program
-    /// has only the `source_asset_id` registry number, not a mint->field map,
-    /// so this canonical commitment is client-supplied. `create_escrow` feeds
-    /// it as the `escrow_open` circuit's `SourceAsset` public input, binding the
-    /// escrowed source UTXO's asset to the pair (without it a caller could
-    /// escrow a worthless token and drain the destination asset on settle).
     pub source_asset: [u8; 32],
     pub destination_asset: [u8; 32],
+    /// Compressed default-zone viewing pubkey used for order-note encryption.
+    pub settlement_viewing_pubkey_x: [u8; 32],
+    pub settlement_viewing_pubkey_prefix: u8,
+    pub _tail_pad: [u8; 7],
 }
 
 impl Pair {
@@ -47,7 +45,7 @@ impl Pair {
     }
 }
 
-const _: () = assert!(Pair::SIZE == 160);
+const _: () = assert!(Pair::SIZE == 224);
 
 #[inline(always)]
 pub fn load_pair(account: &AccountView) -> Result<Ref<'_, Pair>, ProgramError> {

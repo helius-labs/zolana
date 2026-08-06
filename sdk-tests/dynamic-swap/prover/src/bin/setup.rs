@@ -26,15 +26,19 @@ fn main() {
     }
 
     let circuit = match circuit_arg.to_lowercase().as_str() {
+        "pool_update" => CircuitId::PoolUpdate,
         "escrow_open" => CircuitId::EscrowOpen,
         "escrow_settle" => CircuitId::EscrowSettle,
+        "escrow_refund" => CircuitId::EscrowRefund,
         other => usage_and_exit(&format!("unknown circuit {other:?}")),
     };
 
     let rust_vk_path = rust_vk_path.unwrap_or_else(|| {
         let circuit_name = match circuit {
+            CircuitId::PoolUpdate => "pool_update",
             CircuitId::EscrowOpen => "escrow_open",
             CircuitId::EscrowSettle => "escrow_settle",
+            CircuitId::EscrowRefund => "escrow_refund",
         };
         build_dir.join(format!("{circuit_name}_verifying_key.rs"))
     });
@@ -73,7 +77,7 @@ fn main() {
 fn usage_and_exit(msg: &str) -> ! {
     eprintln!("error: {msg}");
     eprintln!("usage: dynamic-swap-prover-setup <circuit> <build-dir> [--rust-vk <path>]");
-    eprintln!("  circuit: escrow_open | escrow_settle");
+    eprintln!("  circuit: pool_update | escrow_open | escrow_settle | escrow_refund");
     eprintln!("  build-dir: where pk.bin / vk.bin are written");
     eprintln!("  --rust-vk: optional override for the generated Rust source path");
     std::process::exit(2);

@@ -5,92 +5,53 @@ use zolana_interface::{
     instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{err, escrow_authority_pda, tag, CreateEscrowIxData, EscrowOpenProof};
+use crate::{err, tag, CreateEscrowIxData, EscrowOpenProof};
 
-/// Both `authority` (the pair's maker, funding the reservation and paying for
-/// the escrow account) and `owner` (authorizing the source UTXO spend) must
-/// sign. The program signs for the escrow-authority-owned funding UTXO.
 pub struct CreateEscrow {
-    pub authority: Pubkey,
     pub owner: Pubkey,
     pub pair: Pubkey,
+    pub liquidity: Pubkey,
     pub escrow: Pubkey,
     pub tree: Pubkey,
     pub proof: EscrowOpenProof,
-    /// The slot the proof commits to -- see `CreateEscrowIxData`'s doc
-    /// comment. Must match whatever value `EscrowOpenProofInputParams::created_at`
-    /// used to build the proof.
-    pub created_at: u64,
+    pub order_commitment: [u8; 32],
+    pub created_at_unix_ts: i64,
     pub transact: TransactIxData,
 }
 
 impl CreateEscrow {
-    pub fn instruction(self) -> Result<Instruction> {
-        let CreateEscrow {
-            authority,
-            owner,
-            pair,
-            escrow,
-            tree,
-            proof,
-            created_at,
-            mut transact,
-        } = self;
-
-        // SPP resolves each spent input's owner by position within the forwarded
-        // transact account tail: [authority(payer)=0, input_tree=1,
-        // output_tree=2, system_program=3, owner=4,
-        // escrow_authority=5, program=6].
-        // create_escrow's two inputs are the source UTXO (owned by `owner`) and
-        // maker_funding (owned by the escrow-authority PDA), so route each to
-        // its owner's slot.
-        const OWNER_POSITION: u8 = 4;
-        const ESCROW_AUTHORITY_POSITION: u8 = 5;
-        route_input(&mut transact, 0, OWNER_POSITION)?;
-        route_input(&mut transact, 1, ESCROW_AUTHORITY_POSITION)?;
-
+    pub fn instruction(mut self) -> Result<Instruction> {
+        // Forwarded tail: payer=0, input tree=1, output tree=2,
+        // system=3, source owner=4, SPP=5.
+        self.transact
+            .inputs
+            .first_mut()
+            .ok_or_else(|| anyhow!("create_escrow requires one source input"))?
+            .eddsa_signer_index = 4;
         let ix_data = CreateEscrowIxData {
-            proof,
-            created_at,
-            transact,
+            proof: self.proof,
+            order_commitment: self.order_commitment,
+            created_at_unix_ts: self.created_at_unix_ts,
+            transact: self.transact,
         };
-        let serialized = wincode::serialize(&ix_data).map_err(err)?;
-
-        let mut instruction_data = vec![tag::CREATE_ESCROW];
-        instruction_data.extend_from_slice(&serialized);
-
-        let accounts = vec![
-            AccountMeta::new(authority, true),
-            AccountMeta::new_readonly(owner, true),
-            AccountMeta::new_readonly(pair, false),
-            AccountMeta::new(escrow, false),
-            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
-            // System Program, the source owner, escrow authority, then SPP.
-            AccountMeta::new(authority, true),
-            AccountMeta::new(tree, false),
-            AccountMeta::new(tree, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(owner, true),
-            AccountMeta::new_readonly(escrow_authority_pda(&pair), false),
-            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
-        ];
-
+        let mut data = vec![tag::CREATE_ESCROW];
+        data.extend_from_slice(&wincode::serialize(&ix_data).map_err(err)?);
         Ok(Instruction {
             program_id: dynamic_swap_program::ID,
-            accounts,
-            data: instruction_data,
+            accounts: vec![
+                AccountMeta::new(self.owner, true),
+                AccountMeta::new_readonly(self.pair, false),
+                AccountMeta::new(self.liquidity, false),
+                AccountMeta::new(self.escrow, false),
+                AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+                AccountMeta::new(self.owner, true),
+                AccountMeta::new(self.tree, false),
+                AccountMeta::new(self.tree, false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
+                AccountMeta::new_readonly(self.owner, true),
+                AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
+            ],
+            data,
         })
     }
-}
-
-/// Points `transact.inputs[input]`'s `eddsa_signer_index` at `position`, the
-/// slot of that input's owner within the forwarded SPP `transact` account tail.
-fn route_input(transact: &mut TransactIxData, input: usize, position: u8) -> Result<()> {
-    transact
-        .inputs
-        .get_mut(input)
-        .ok_or_else(|| anyhow!("transact input {input} out of range"))?
-        .eddsa_signer_index = position;
-    Ok(())
 }

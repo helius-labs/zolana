@@ -1,3 +1,5 @@
 pub mod order;
+pub mod pair;
 
-pub use order::{decode_escrow_note, encode_escrow_note, EscrowTerms, EscrowUtxo, Reservation};
+pub use order::{decode_order_note, encode_order_note, EscrowTerms, EscrowUtxo};
+pub use pair::PoolAuthority;

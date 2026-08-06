@@ -5,78 +5,54 @@ use zolana_interface::{
     instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{err, escrow_authority_pda, tag, SettleIxData, SettleProof};
+use crate::{err, escrow_authority_pda, pool_authority_pda, tag, SettleIxData, SettleProof};
 
-/// Settles one escrow -- settle or price-refund -- and closes it. Permissionless:
-/// `caller` only signs and pays fees. The instruction's shape, account list, and
-/// verifying key are identical for both outcomes, and `max_price` is a private
-/// circuit witness, so an observer cannot tell settle from refund.
 pub struct Settle {
     pub caller: Pubkey,
     pub pair: Pubkey,
+    pub liquidity: Pubkey,
     pub escrow: Pubkey,
-    pub rent_recipient: Pubkey,
     pub tree: Pubkey,
     pub proof: SettleProof,
+    pub available_slots: u64,
     pub transact: TransactIxData,
 }
 
 impl Settle {
-    pub fn instruction(self) -> Result<Instruction> {
-        let Settle {
-            caller,
-            pair,
-            escrow,
-            rent_recipient,
-            tree,
-            proof,
-            mut transact,
-        } = self;
-
-        // Both inputs (order, reservation) are owned by the escrow_authority PDA,
-        // forwarded at tail slot 4: [caller(payer)=0, input_tree=1,
-        // output_tree=2, system_program=3, escrow_authority=4, program=5].
-        // The program flips the PDA to a signer via invoke_signed.
-        const ESCROW_AUTHORITY_POSITION: u8 = 4;
-        route_input(&mut transact, 0, ESCROW_AUTHORITY_POSITION)?;
-        route_input(&mut transact, 1, ESCROW_AUTHORITY_POSITION)?;
-
-        let ix_data = SettleIxData { proof, transact };
-        let serialized = wincode::serialize(&ix_data).map_err(err)?;
-
-        let mut instruction_data = vec![tag::SETTLE];
-        instruction_data.extend_from_slice(&serialized);
-
-        let accounts = vec![
-            AccountMeta::new(caller, true),
-            AccountMeta::new_readonly(pair, false),
-            AccountMeta::new(escrow, false),
-            AccountMeta::new(rent_recipient, false),
-            // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
-            // System Program, escrow authority, then SPP.
-            AccountMeta::new_readonly(caller, true),
-            AccountMeta::new(tree, false),
-            AccountMeta::new(tree, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(escrow_authority_pda(&pair), false),
-            AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
-        ];
-
+    pub fn instruction(mut self) -> Result<Instruction> {
+        let route = |transact: &mut TransactIxData, input: usize, signer: u8| -> Result<()> {
+            transact
+                .inputs
+                .get_mut(input)
+                .ok_or_else(|| anyhow!("settle input {input} missing"))?
+                .eddsa_signer_index = signer;
+            Ok(())
+        };
+        route(&mut self.transact, 0, 4)?;
+        route(&mut self.transact, 1, 5)?;
+        let ix_data = SettleIxData {
+            proof: self.proof,
+            available_slots: self.available_slots,
+            transact: self.transact,
+        };
+        let mut data = vec![tag::SETTLE];
+        data.extend_from_slice(&wincode::serialize(&ix_data).map_err(err)?);
         Ok(Instruction {
             program_id: dynamic_swap_program::ID,
-            accounts,
-            data: instruction_data,
+            accounts: vec![
+                AccountMeta::new(self.caller, true),
+                AccountMeta::new_readonly(self.pair, false),
+                AccountMeta::new(self.liquidity, false),
+                AccountMeta::new(self.escrow, false),
+                AccountMeta::new(self.caller, true),
+                AccountMeta::new(self.tree, false),
+                AccountMeta::new(self.tree, false),
+                AccountMeta::new_readonly(Pubkey::default(), false),
+                AccountMeta::new_readonly(escrow_authority_pda(&self.pair), false),
+                AccountMeta::new_readonly(pool_authority_pda(&self.pair), false),
+                AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
+            ],
+            data,
         })
     }
-}
-
-/// Points `transact.inputs[input]`'s `eddsa_signer_index` at `position`, the
-/// slot of that input's owner within the forwarded SPP `transact` account tail.
-fn route_input(transact: &mut TransactIxData, input: usize, position: u8) -> Result<()> {
-    transact
-        .inputs
-        .get_mut(input)
-        .ok_or_else(|| anyhow!("transact input {input} out of range"))?
-        .eddsa_signer_index = position;
-    Ok(())
 }

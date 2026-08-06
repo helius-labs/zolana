@@ -12,15 +12,12 @@ fn error_codes_are_stable() {
         (MissingEscrowAuthority as u32, 9006),
         (HashingFailed as u32, 9007),
         (InvalidPda as u32, 9008),
-        (NotCommitted as u32, 9009),
-        (OutOfOrderSettlement as u32, 9010),
-        (LiquidityHashMismatch as u32, 9011),
         (Unauthorized as u32, 9012),
-        // 9013 retired (was EscrowOutputMismatch) -- see error.rs.
         (CreatedAtOutOfTolerance as u32, 9014),
         (PairMismatch as u32, 9015),
         (InvalidPrice as u32, 9016),
-        (RentRecipientMismatch as u32, 9017),
+        (InsufficientCapacity as u32, 9018),
+        (InvalidCapacity as u32, 9019),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

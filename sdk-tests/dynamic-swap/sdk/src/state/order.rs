@@ -1,231 +1,247 @@
 use anyhow::{anyhow, Result};
 use dynamic_swap_program::instructions::shared::u64_right_align;
 use solana_address::Address;
-use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon};
+use solana_pubkey::Pubkey;
+use zolana_keypair::{
+    constants::BLINDING_LEN,
+    hash::{owner_hash, poseidon},
+    NullifierKey, P256Pubkey, PublicKey, ShieldedAddress,
+};
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
     utxo::{Blinding, Utxo},
     Data,
 };
 
-use crate::{err, shared_address::SharedShieldedAddress};
+use crate::err;
 
-/// The two escrow terms an `EscrowUtxo`'s `DataHash` commits to, per
-/// `escrow_open.go`'s `checkOrderOutputUtxo`: `DataHash =
-/// Poseidon(recipient_owner_hash, MaxPrice, CreatedAt)`. `recipient_owner_hash`
-/// must be the taker's owner-hash -- the same owner as the escrowed source UTXO
-/// (`SourceIn.Owner`), which is what the circuit commits here. It is never a
-/// public input or on-chain field; the payout on settle/refund is bound to it
-/// in-circuit and it stays confidential.
-///
-/// `created_at` is deliberately NOT a field here: it's a slot number the
-/// caller picks (a near-future estimate of `Clock::get()?.slot` at execution
-/// time) and supplies directly as `CreateEscrowIxData::created_at`, not
-/// something `EscrowTerms` can derive. The native `create_escrow` processor
-/// cannot pick this value itself and still have the client produce a matching
-/// proof in advance, so it only tolerance-checks the caller's value against
-/// the real current slot (see `CREATED_AT_SLOT_TOLERANCE` in
-/// `program/src/instructions/create_escrow.rs`) rather than trusting or
-/// recomputing it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EscrowTerms {
     pub recipient_owner_hash: [u8; 32],
     pub max_price: u64,
+    pub created_at_unix_ts: i64,
+    pub expires_at_unix_ts: i64,
+    pub execution_price: u64,
+    pub quote_version: u64,
 }
 
 impl EscrowTerms {
-    /// The escrow order UTXO's `DataHash`, given a `created_at` slot. Must
-    /// equal `CreateEscrowIxData::created_at` (the same value the on-chain
-    /// processor tolerance-checks against `Clock::get()?.slot`) or the
-    /// `escrow_open` proof will not verify.
-    pub fn data_hash(&self, created_at: u64) -> Result<[u8; 32]> {
+    pub fn data_hash(&self) -> Result<[u8; 32]> {
+        let created = u64::try_from(self.created_at_unix_ts)
+            .map_err(|_| anyhow!("created_at must be non-negative"))?;
+        let expires = u64::try_from(self.expires_at_unix_ts)
+            .map_err(|_| anyhow!("expires_at must be non-negative"))?;
         poseidon(&[
             &self.recipient_owner_hash,
             &u64_right_align(self.max_price),
-            &u64_right_align(created_at),
+            &u64_right_align(created),
+            &u64_right_align(expires),
+            &u64_right_align(self.execution_price),
+            &u64_right_align(self.quote_version),
         ])
         .map_err(err)
     }
 }
 
-/// The escrow order UTXO's full preimage: created as an output by
-/// `create_escrow`, later spent as an input by `settle`. Owned
-/// by the per-pair `escrow_authority` PDA (seeds `[ESCROW_AUTHORITY_PDA_SEED,
-/// pair]`), with a constant (zero-secret) nullifier key so the program can
-/// always sign for a spend via `invoke_signed` -- mirrors `zk-program-swap`'s
-/// `OrderUtxo`/`order_authority_pda`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EscrowUtxo {
     pub terms: EscrowTerms,
-    pub created_at: u64,
-    /// The pair's source asset -- what the user escrows.
     pub asset: Address,
-    /// The private `OrderAmount` witness; also this UTXO's own amount.
     pub order_amount: u64,
     pub blinding: Blinding,
 }
 
 impl EscrowUtxo {
-    pub fn data_hash(&self) -> Result<[u8; 32]> {
-        self.terms.data_hash(self.created_at)
+    fn nullifier_key() -> NullifierKey {
+        NullifierKey::from_secret([0u8; BLINDING_LEN])
     }
 
-    /// The order UTXO as a `create_escrow` output, owned by `owner` (the escrow
-    /// authority PDA + shared viewing key). Its encrypted note carries the terms'
-    /// `max_price` and the reservation UTXO's `blinding` (see `encode_escrow_note`),
-    /// so a party sharing the viewing key can rebuild both escrow UTXOs on settle
-    /// without tracking them client-side. `data_hash` still commits the full terms
-    /// (`Poseidon(recipient_owner_hash, max_price, created_at)`); the note is
-    /// encrypted-only, and its `max_price` is checked against that commitment.
+    fn pda_owner(pair: &Pubkey) -> PublicKey {
+        PublicKey::from_ed25519(crate::escrow_authority_pda(pair).as_array())
+    }
+
+    pub fn order_utxo_owner_hash(pair: &Pubkey) -> Result<[u8; 32]> {
+        owner_hash(
+            &Self::pda_owner(pair),
+            &Self::nullifier_key().pubkey().map_err(err)?,
+        )
+        .map_err(err)
+    }
+
+    pub fn data_hash(&self) -> Result<[u8; 32]> {
+        self.terms.data_hash()
+    }
+
+    /// The standard confidential output is addressed to the maker's viewing
+    /// pubkey. The transaction viewing key retained by the taker can decrypt
+    /// this same slot through the sender path.
     pub fn output_utxo(
         &self,
-        owner: &SharedShieldedAddress,
-        reservation_blinding: &Blinding,
+        pair: &Pubkey,
+        maker_viewing_pubkey: P256Pubkey,
     ) -> Result<SppProofOutputUtxo> {
-        let note = encode_escrow_note(self.terms.max_price, reservation_blinding);
+        let owner_address = ShieldedAddress {
+            signing_pubkey: Self::pda_owner(pair),
+            nullifier_pubkey: Self::nullifier_key().pubkey().map_err(err)?,
+            viewing_pubkey: maker_viewing_pubkey,
+        };
         Ok(SppProofOutputUtxo {
             asset: self.asset,
             amount: self.order_amount,
             blinding: self.blinding,
-            owner_address: Some(owner.shielded_address()?),
+            owner_address: Some(owner_address),
             ..Default::default()
         }
-        .with_utxo_data(note, self.data_hash()?))
+        .with_utxo_data(encode_order_note(&self.terms), self.data_hash()?))
     }
 
-    /// The order UTXO as a `settle` input spend.
-    pub fn to_input_utxo(&self, owner: &SharedShieldedAddress) -> Result<SppProofInputUtxo> {
+    pub fn to_input_utxo(&self, pair: &Pubkey) -> Result<SppProofInputUtxo> {
         let utxo = Utxo {
-            owner: owner.shielded_address()?.signing_pubkey,
+            owner: Self::pda_owner(pair),
             asset: self.asset,
             amount: self.order_amount,
             blinding: self.blinding,
             zone_program_id: None,
             data: Data::default(),
         };
-        Ok(SppProofInputUtxo::new(utxo, owner.nullifier_key()).with_data_hash(self.data_hash()?))
+        Ok(SppProofInputUtxo::new(utxo, Self::nullifier_key()).with_data_hash(self.data_hash()?))
     }
 }
 
-/// The reservation UTXO's full preimage: created alongside the order UTXO by
-/// `create_escrow` (sized `order_amount * max_price`, the worst-case cost of
-/// the escrow at the user's `max_price`), later spent as an input by
-/// `settle`. Owned by the same `escrow_authority` PDA as the
-/// order UTXO; its `DataHash` commits the order UTXO's own hash so
-/// `settle` can prove in-circuit that the reservation being
-/// spent really belongs to the `Escrow` account passed into the instruction
-/// (see `escrow_open.go`'s `checkReservationOutputUtxo`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Reservation {
-    /// The pair's destination asset -- what the pool reserves.
-    pub asset: Address,
-    pub amount: u64,
-    pub blinding: Blinding,
-}
+const ORDER_NOTE_LEN: usize = 32 + 8 * 5;
 
-impl Reservation {
-    /// The reservation UTXO as a `create_escrow` output. `order_utxo_hash` is
-    /// the order UTXO's own hash, folded into `DataHash` verbatim (not
-    /// re-derived here, so callers that already computed it -- e.g. to
-    /// populate `CreateEscrowIxData::escrow_utxo_hash` -- don't recompute it).
-    pub fn output_utxo(
-        &self,
-        owner: &SharedShieldedAddress,
-        order_utxo_hash: [u8; 32],
-    ) -> Result<SppProofOutputUtxo> {
-        Ok(SppProofOutputUtxo {
-            asset: self.asset,
-            amount: self.amount,
-            blinding: self.blinding,
-            owner_address: Some(owner.shielded_address()?),
-            data_hash: Some(order_utxo_hash),
-            ..Default::default()
-        })
-    }
-
-    /// The reservation UTXO as a `settle` input spend.
-    pub fn to_input_utxo(
-        &self,
-        owner: &SharedShieldedAddress,
-        order_utxo_hash: [u8; 32],
-    ) -> Result<SppProofInputUtxo> {
-        let utxo = Utxo {
-            owner: owner.shielded_address()?.signing_pubkey,
-            asset: self.asset,
-            amount: self.amount,
-            blinding: self.blinding,
-            zone_program_id: None,
-            data: Data::default(),
-        };
-        Ok(SppProofInputUtxo::new(utxo, owner.nullifier_key()).with_data_hash(order_utxo_hash))
-    }
-}
-
-/// The order UTXO's encrypted note: `max_price` (8-byte little-endian) followed
-/// by the reservation UTXO's `blinding`. The terms' other half,
-/// `recipient_owner_hash`, is deliberately absent -- the settler resolves it
-/// from the recipient's registered account (both are committed together in the
-/// order UTXO's `data_hash`), which keeps the note small enough for
-/// `create_escrow` to stay under Solana's transaction size limit.
-const ESCROW_NOTE_LEN: usize = 8 + BLINDING_LEN;
-
-/// Encode the order UTXO's note (see `ESCROW_NOTE_LEN`).
-pub fn encode_escrow_note(max_price: u64, reservation_blinding: &Blinding) -> Vec<u8> {
-    let mut note = Vec::with_capacity(ESCROW_NOTE_LEN);
-    note.extend_from_slice(&max_price.to_le_bytes());
-    note.extend_from_slice(&reservation_blinding[1..]);
+pub fn encode_order_note(terms: &EscrowTerms) -> Vec<u8> {
+    let mut note = Vec::with_capacity(ORDER_NOTE_LEN);
+    note.extend_from_slice(&terms.recipient_owner_hash);
+    note.extend_from_slice(&terms.max_price.to_le_bytes());
+    note.extend_from_slice(&terms.created_at_unix_ts.to_le_bytes());
+    note.extend_from_slice(&terms.expires_at_unix_ts.to_le_bytes());
+    note.extend_from_slice(&terms.execution_price.to_le_bytes());
+    note.extend_from_slice(&terms.quote_version.to_le_bytes());
     note
 }
 
-/// Decode the order UTXO's note from a decrypted output's `Data` back into
-/// `(max_price, reservation_blinding)`.
-pub fn decode_escrow_note(data: &Data) -> Result<(u64, Blinding)> {
+pub fn decode_order_note(data: &Data) -> Result<EscrowTerms> {
     let bytes = data
         .utxo_data()
-        .ok_or_else(|| anyhow!("escrow order note carries no utxo data record"))?;
-    if bytes.len() != ESCROW_NOTE_LEN {
+        .ok_or_else(|| anyhow!("order output carries no encrypted note"))?;
+    if bytes.len() != ORDER_NOTE_LEN {
         return Err(anyhow!(
-            "escrow order note is {} bytes, expected {ESCROW_NOTE_LEN}",
+            "order note is {} bytes, expected {ORDER_NOTE_LEN}",
             bytes.len()
         ));
     }
-    let max_price_bytes = bytes
-        .get(..8)
-        .ok_or_else(|| anyhow!("escrow note missing max_price"))?;
-    let blinding_bytes = bytes
-        .get(8..)
-        .ok_or_else(|| anyhow!("escrow note missing reservation blinding"))?;
-    let max_price = u64::from_le_bytes(
-        max_price_bytes
-            .try_into()
-            .map_err(|_| anyhow!("escrow note max_price length"))?,
+    let mut recipient_owner_hash = [0u8; 32];
+    recipient_owner_hash.copy_from_slice(
+        bytes
+            .get(..32)
+            .ok_or_else(|| anyhow!("invalid order note recipient"))?,
     );
-    let mut reservation_blinding = [0u8; 32];
-    reservation_blinding[1..].copy_from_slice(blinding_bytes);
-    Ok((max_price, reservation_blinding))
+    let read_u64 = |offset: usize| -> Result<u64> {
+        let end = offset
+            .checked_add(8)
+            .ok_or_else(|| anyhow!("invalid order note field offset"))?;
+        Ok(u64::from_le_bytes(
+            bytes
+                .get(offset..end)
+                .ok_or_else(|| anyhow!("invalid order note field"))?
+                .try_into()
+                .map_err(|_| anyhow!("invalid order note field"))?,
+        ))
+    };
+    let created_at_unix_ts = i64::try_from(read_u64(40)?)
+        .map_err(|_| anyhow!("order creation time is outside the i64 range"))?;
+    let expires_at_unix_ts = i64::try_from(read_u64(48)?)
+        .map_err(|_| anyhow!("order expiry is outside the i64 range"))?;
+    Ok(EscrowTerms {
+        recipient_owner_hash,
+        max_price: read_u64(32)?,
+        created_at_unix_ts,
+        expires_at_unix_ts,
+        execution_price: read_u64(56)?,
+        quote_version: read_u64(64)?,
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use zolana_transaction::DataRecord;
-
     use super::*;
+    use borsh::BorshDeserialize;
+    use zolana_interface::event::OutputDataEncoding;
+    use zolana_keypair::{constants::P256_PUBKEY_LEN, ViewingKey};
+    use zolana_transaction::{
+        instructions::transact::encrypt_transaction_data,
+        serialization::confidential::ConfidentialOutputPlaintext, AssetRegistry, DataRecord,
+        SOL_MINT,
+    };
 
     #[test]
-    fn escrow_note_round_trips() {
-        let mut reservation_blinding = [7u8; 32];
-        reservation_blinding[0] = 0;
-        let note = encode_escrow_note(5, &reservation_blinding);
-        assert_eq!(note.len(), ESCROW_NOTE_LEN);
-
-        let data = Data::new(vec![DataRecord::UtxoData(note)]);
-        let (max_price, decoded) = decode_escrow_note(&data).expect("decode");
-        assert_eq!(max_price, 5);
-        assert_eq!(decoded, reservation_blinding);
+    fn order_note_round_trips() {
+        let terms = EscrowTerms {
+            recipient_owner_hash: [7; 32],
+            max_price: 6,
+            created_at_unix_ts: 100,
+            expires_at_unix_ts: 700,
+            execution_price: 5,
+            quote_version: 2,
+        };
+        let data = Data::new(vec![DataRecord::UtxoData(encode_order_note(&terms))]);
+        assert_eq!(decode_order_note(&data).unwrap(), terms);
     }
 
     #[test]
-    fn decode_rejects_missing_record() {
-        assert!(decode_escrow_note(&Data::default()).is_err());
+    fn exact_order_note_is_decryptable_by_maker_and_taker() {
+        let terms = EscrowTerms {
+            recipient_owner_hash: [9; 32],
+            max_price: 6,
+            created_at_unix_ts: 1_700_000_000,
+            expires_at_unix_ts: 1_700_000_600,
+            execution_price: 5,
+            quote_version: 3,
+        };
+        let expected_note = encode_order_note(&terms);
+        let pair = Pubkey::new_unique();
+        let taker_viewing_key = ViewingKey::new();
+        let maker_viewing_key = ViewingKey::new();
+        let tx_viewing_key = taker_viewing_key
+            .get_transaction_viewing_key(&[11; 32])
+            .unwrap();
+        let order_output = EscrowUtxo {
+            terms,
+            asset: SOL_MINT,
+            order_amount: 1,
+            blinding: [7; 32],
+        }
+        .output_utxo(&pair, maker_viewing_key.pubkey())
+        .unwrap();
+        let encoded =
+            encrypt_transaction_data(&[order_output], &AssetRegistry::default(), &tx_viewing_key)
+                .unwrap();
+        let output_data = encoded
+            .outputs
+            .first()
+            .and_then(|output| output.data.as_ref())
+            .expect("encrypted order output");
+        let OutputDataEncoding::Encrypted(blob) =
+            OutputDataEncoding::try_from_slice(output_data).unwrap()
+        else {
+            panic!("order note must use confidential encryption");
+        };
+        let (_, body) = blob.split_first().expect("confidential scheme byte");
+        let (recipient_pubkey, ciphertext) = body
+            .split_at_checked(P256_PUBKEY_LEN)
+            .expect("embedded maker viewing pubkey");
+        assert_eq!(recipient_pubkey, maker_viewing_key.pubkey().as_bytes());
+
+        let maker_plaintext = maker_viewing_key
+            .decrypt_utxo(ciphertext, &tx_viewing_key.pubkey(), encoded.salt, 0)
+            .unwrap();
+        let taker_plaintext = tx_viewing_key
+            .decrypt_slot_ephemeral(&maker_viewing_key.pubkey(), ciphertext, encoded.salt, 0)
+            .unwrap();
+
+        assert_eq!(maker_plaintext, taker_plaintext);
+        let plaintext = ConfidentialOutputPlaintext::deserialize(&maker_plaintext).unwrap();
+        assert_eq!(plaintext.data.utxo_data().unwrap(), expected_note);
     }
 }

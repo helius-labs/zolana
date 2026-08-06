@@ -33,13 +33,17 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
 	"circuits/escrow_open"
+	"circuits/escrow_refund"
 	"circuits/escrow_settle"
+	"circuits/pool_update"
 	"circuits/witness"
 )
 
 const (
+	CircuitPoolUpdate   = 0
 	CircuitEscrowOpen   = 1
 	CircuitEscrowSettle = 2
+	CircuitEscrowRefund = 3
 )
 
 var (
@@ -65,10 +69,14 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 
 	var circuit frontend.Circuit
 	switch id {
+	case CircuitPoolUpdate:
+		circuit = &pool_update.Circuit{}
 	case CircuitEscrowOpen:
 		circuit = &escrow_open.Circuit{}
 	case CircuitEscrowSettle:
 		circuit = &escrow_settle.Circuit{}
+	case CircuitEscrowRefund:
+		circuit = &escrow_refund.Circuit{}
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
 	}
@@ -84,10 +92,14 @@ func compileCircuit(id int) (constraint.ConstraintSystem, error) {
 func assignFromWitness(id int, witnessValues map[string][]string) (frontend.Circuit, error) {
 	var circuit frontend.Circuit
 	switch id {
+	case CircuitPoolUpdate:
+		circuit = &pool_update.Circuit{}
 	case CircuitEscrowOpen:
 		circuit = &escrow_open.Circuit{}
 	case CircuitEscrowSettle:
 		circuit = &escrow_settle.Circuit{}
+	case CircuitEscrowRefund:
+		circuit = &escrow_refund.Circuit{}
 	default:
 		return nil, fmt.Errorf("unknown circuit id %d", id)
 	}

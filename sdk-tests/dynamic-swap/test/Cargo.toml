@@ -29,7 +29,6 @@ zolana-program-test = { workspace = true }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
-zolana-wallet = { workspace = true }
 
 [dev-dependencies]
 bincode = "1.3"
@@ -44,21 +43,5 @@ mollusk-solana-instruction = { package = "solana-instruction", version = "2.2" }
 mollusk-solana-pubkey = { package = "solana-pubkey", version = "2.2" }
 
 [[test]]
-name = "bench_cu"
-path = "tests/bench_cu.rs"
-
-[[test]]
-name = "pair"
-path = "tests/pair.rs"
-
-[[test]]
-name = "negative"
-path = "tests/negative.rs"
-
-[[test]]
-name = "escrow_flow"
-path = "tests/escrow_flow.rs"
-
-[[test]]
-name = "escrow_refund"
-path = "tests/escrow_refund.rs"
+name = "architecture"
+path = "tests/architecture.rs"

@@ -22,3 +22,8 @@ zolana-transaction = { workspace = true }
 
 [build-dependencies]
 bindgen = "0.70"
+
+[dev-dependencies]
+dynamic-swap-program = { path = "../program" }
+solana-address = { workspace = true }
+zolana-hasher = { workspace = true, features = ["poseidon"] }

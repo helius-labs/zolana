@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-changed=circuits/pool_update/pool_update.go");
     println!("cargo:rerun-if-changed=circuits/escrow_open/escrow_open.go");
     println!("cargo:rerun-if-changed=circuits/escrow_settle/escrow_settle.go");
+    println!("cargo:rerun-if-changed=circuits/escrow_refund/escrow_refund.go");
     println!("cargo:rerun-if-changed=circuits/witness/witness.go");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());

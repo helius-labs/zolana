@@ -7,6 +7,7 @@ use crate::{err, tag, UpdatePriceData};
 pub struct UpdatePrice {
     pub authority: Pubkey,
     pub pair: Pubkey,
+    pub liquidity: Pubkey,
     pub price: u64,
 }
 
@@ -20,6 +21,7 @@ impl UpdatePrice {
         let accounts = vec![
             AccountMeta::new_readonly(self.authority, true),
             AccountMeta::new(self.pair, false),
+            AccountMeta::new(self.liquidity, false),
         ];
         Ok(Instruction {
             program_id: dynamic_swap_program::ID,

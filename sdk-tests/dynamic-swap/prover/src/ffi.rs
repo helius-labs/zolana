@@ -15,8 +15,10 @@ pub type WitnessMap = HashMap<String, Vec<String>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum CircuitId {
+    PoolUpdate = 0,
     EscrowOpen = 1,
     EscrowSettle = 2,
+    EscrowRefund = 3,
 }
 
 #[derive(Debug, Clone)]
@@ -116,8 +118,10 @@ pub fn prove(circuit: CircuitId, witness: &WitnessMap) -> Result<ProveOutput> {
 fn build_dir(circuit: CircuitId) -> PathBuf {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark");
     let sub = match circuit {
+        CircuitId::PoolUpdate => "pool_update",
         CircuitId::EscrowOpen => "escrow_open",
         CircuitId::EscrowSettle => "escrow_settle",
+        CircuitId::EscrowRefund => "escrow_refund",
     };
     base.join(sub)
 }
@@ -133,11 +137,15 @@ enum KeyStatus {
 }
 
 fn circuit_key_status(circuit: CircuitId) -> &'static OnceLock<KeyStatus> {
+    static POOL_UPDATE: OnceLock<KeyStatus> = OnceLock::new();
     static ESCROW_OPEN: OnceLock<KeyStatus> = OnceLock::new();
     static ESCROW_SETTLE: OnceLock<KeyStatus> = OnceLock::new();
+    static ESCROW_REFUND: OnceLock<KeyStatus> = OnceLock::new();
     match circuit {
+        CircuitId::PoolUpdate => &POOL_UPDATE,
         CircuitId::EscrowOpen => &ESCROW_OPEN,
         CircuitId::EscrowSettle => &ESCROW_SETTLE,
+        CircuitId::EscrowRefund => &ESCROW_REFUND,
     }
 }
 
