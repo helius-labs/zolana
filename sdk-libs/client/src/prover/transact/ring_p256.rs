@@ -106,7 +106,7 @@ impl RingTransferP256Prover {
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&published_output_owner_pk_hashes),
         }
-        .hash_with_after_private_tx(&[message_proof_input_hash, default_p256_owner_pk_hash])?;
+        .hash_p256(&message_proof_input_hash, &default_p256_owner_pk_hash)?;
 
         let inputs = TransferP256Inputs {
             inputs: assembled_inputs.inputs,

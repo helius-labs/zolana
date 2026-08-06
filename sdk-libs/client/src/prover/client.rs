@@ -12,11 +12,14 @@ use tokio::time::sleep as async_sleep;
 use crate::{
     error::ClientError,
     prover::{
+        aggregate::{to_json_aggregate, AggregateInputs},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs, TransferP256Inputs},
         json::{
             to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
             to_json_p256_ring, to_json_ring, to_json_ring_authority,
         },
+        merge_chain::{to_json_merge_chain, MergeChainInputs},
+        nullifier_fold::{to_json_nullifier_fold, NullifierFoldInputs},
         proof::{proof_from_gnark_json, Proof},
     },
 };
@@ -201,6 +204,22 @@ impl ProverClient {
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
         self.send(to_json_batch_address_append(inputs))
+    }
+
+    /// Fold a run of consecutive address appends into one proof.
+    pub fn prove_nullifier_fold(&self, inputs: &NullifierFoldInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_nullifier_fold(inputs))
+    }
+
+    /// Batch transfer proofs into one recursive proof.
+    pub fn prove_aggregate(&self, inputs: &AggregateInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_aggregate(inputs))
+    }
+
+    /// Chain merge proofs into one recursive proof, collapsing more UTXOs than
+    /// the merge circuit's fixed eight inputs.
+    pub fn prove_merge_chain(&self, inputs: &MergeChainInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge_chain(inputs))
     }
 
     fn send(&self, body: String) -> Result<Proof, ClientError> {
@@ -402,6 +421,10 @@ impl AsyncProverClient {
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
         self.send(to_json_batch_address_append(inputs)).await
+    }
+
+    pub async fn prove_merge_chain(&self, inputs: &MergeChainInputs) -> Result<Proof, ClientError> {
+        self.send(to_json_merge_chain(inputs)).await
     }
 
     async fn send(&self, body: String) -> Result<Proof, ClientError> {

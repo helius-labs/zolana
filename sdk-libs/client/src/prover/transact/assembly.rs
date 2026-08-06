@@ -299,6 +299,17 @@ impl PublicInputs<'_> {
         self.hash_with_after_private_tx(&[])
     }
 
+    /// The P256 rail proves ownership in circuit, so the signed message and the
+    /// default owner tag bind into the preimage.
+    pub fn hash_p256(
+        &self,
+        message_hash: &[u8; 32],
+        default_owner_pk_hash: &[u8; 32],
+    ) -> Result<[u8; 32], ClientError> {
+        self.hash_with_after_private_tx(&[*message_hash, *default_owner_pk_hash])
+    }
+
+    /// `after_private_tx` extends the preimage right after `private_tx_hash`.
     pub(crate) fn hash_with_after_private_tx(
         &self,
         after_private_tx: &[[u8; 32]],

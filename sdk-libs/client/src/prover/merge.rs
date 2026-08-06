@@ -58,6 +58,9 @@ pub struct MergeProofResult {
     pub inputs: MergeInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
+    /// Per-slot input UTXO hashes, length 8. A dummy slot is zero. A merge
+    /// chain binds a chained slot by this hash, and nothing else exposes it.
+    pub input_hashes: Vec<[u8; 32]>,
     /// Per-input references into the tree's root caches (length 8; dummy slots
     /// mirror the first real input's UTXO root while carrying their own
     /// nullifier non-inclusion root), for the `merge_transact` instruction data.
@@ -110,7 +113,26 @@ impl MergeProofResult {
 
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
-        let merge = self.common(zolana_interface::instruction::tag::MERGE_TRANSACT)?;
+        let external_data_hash =
+            self.external_data_hash(zolana_interface::instruction::tag::MERGE_TRANSACT)?;
+        self.build_default(external_data_hash)
+    }
+
+    /// Build one leg of a merge chain.
+    ///
+    /// Every leg folds the same external data hash, which is the top leg's. It
+    /// binds the transaction's expiry and the output the pool inserts. A leg
+    /// that derived its own would bind an output no instruction carries, and
+    /// the chain circuit rejects the disagreement.
+    pub fn build_chain_leg(
+        self,
+        external_data_hash: [u8; 32],
+    ) -> Result<MergeProofResult, ClientError> {
+        self.build_default(external_data_hash)
+    }
+
+    fn build_default(self, external_data_hash: [u8; 32]) -> Result<MergeProofResult, ClientError> {
+        let merge = self.common(external_data_hash)?;
 
         // Owner identity public input: SPP checks the signing pk_field against
         // the owner's registry record; the owner recombines it with their
@@ -140,6 +162,7 @@ pub(crate) struct CommonMerge {
     /// nullifier_tree_roots_chain, private_tx_hash, external_data_hash,
     /// allow_dummy_inputs]`.
     pub head: [[u8; 32]; 7],
+    input_hashes: Vec<[u8; 32]>,
     output_hash: [u8; 32],
     private_tx_hash: [u8; 32],
     external_data_hash: [u8; 32],
@@ -156,10 +179,22 @@ impl MergeProver {
     /// instruction tag (`merge_transact` or `merge_ring`) bound into
     /// `external_data_hash`. Callers append their rail's public-input tail to
     /// [`CommonMerge::head`] and call [`CommonMerge::finish`].
-    pub(crate) fn common(
+    /// The external data hash a solo merge folds is this rail's discriminator,
+    /// the expiry, and the merge's own output.
+    pub(crate) fn external_data_hash(
         &self,
         spp_instruction_discriminator: u8,
-    ) -> Result<CommonMerge, ClientError> {
+    ) -> Result<[u8; 32], ClientError> {
+        let output_utxo_hash = self.output.hash()?;
+        Ok(MergeExternalDataHash {
+            spp_instruction_discriminator,
+            expiry_unix_ts: self.expiry_unix_ts,
+            output_utxo_hash: &output_utxo_hash,
+        }
+        .hash()?)
+    }
+
+    pub(crate) fn common(&self, external_data_hash: [u8; 32]) -> Result<CommonMerge, ClientError> {
         // Slot zero must be real: its single-use nullifier seeds the
         // deterministic output blinding and dummy nullifiers.
         if self.inputs.is_empty() || self.inputs[0].proof.is_none() {
@@ -200,15 +235,6 @@ impl MergeProver {
             .first()
             .ok_or(ClientError::NoInputs)?;
 
-        // external_data_hash binds the instruction's discriminator, expiry, and
-        // output commitment to the proof; the program recomputes it identically.
-        let external_data_hash = MergeExternalDataHash {
-            spp_instruction_discriminator,
-            expiry_unix_ts: self.expiry_unix_ts,
-            output_utxo_hash: &output_hash,
-        }
-        .hash()?;
-
         let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
@@ -243,6 +269,7 @@ impl MergeProver {
             inputs: assembled_inputs.inputs,
             output,
             nullifiers: assembled_inputs.nullifiers,
+            input_hashes: assembled_inputs.input_hashes,
             utxo_tree_root_indices,
             nullifier_tree_root_indices,
             head,
@@ -286,6 +313,7 @@ impl CommonMerge {
             inputs,
             public_input_hash: public_input,
             nullifiers: self.nullifiers,
+            input_hashes: self.input_hashes,
             utxo_tree_root_indices: self.utxo_tree_root_indices,
             nullifier_tree_root_indices: self.nullifier_tree_root_indices,
             output_hash: self.output_hash,
