@@ -49,28 +49,26 @@ impl<'a> MergeProof<'a> {
 
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
-        let public_input_hash = self.public_input_hash()?;
-        let p = &self.ix.proof;
-        let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
-        let proof = verifier::CompressedGroth16Proof {
-            a: p.a,
-            b: p.b,
-            c: p.c,
-            commitment: None,
-        };
         // The policy-ring merge (`merge_ring`) commits `ring_program_id`, so it uses
         // its own verifying key; the default-ring merge uses `merge_8_1`.
-        let vk = match self.derived.owner_binding {
+        let verifying_key = match self.derived.owner_binding {
             MergeOwnerBinding::Registry { .. } => &merge_8_1::VERIFYINGKEY,
             MergeOwnerBinding::Ring { .. } => &merge_ring_8_1::VERIFYINGKEY,
         };
-        verifier::verify_groth16(
-            proof,
-            public_input_hash,
-            vk,
-            encoding_err,
-            ShieldedPoolError::TransactProofVerificationFailed,
-        )
+        let p = &self.ix.proof;
+        verifier::Groth16Statement {
+            proof: verifier::CompressedGroth16Proof {
+                a: p.a,
+                b: p.b,
+                c: p.c,
+                commitment: None,
+            },
+            public_input_hash: self.public_input_hash()?,
+            verifying_key,
+            encoding_err: ShieldedPoolError::InvalidTransactProofEncoding,
+            verify_err: ShieldedPoolError::TransactProofVerificationFailed,
+        }
+        .verify()
     }
 
     /// The Poseidon hash chain the circuit folds into its single public input

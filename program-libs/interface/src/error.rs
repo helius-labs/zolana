@@ -1,5 +1,6 @@
 use solana_program_error::ProgramError;
 use thiserror::Error;
+use zolana_batched_merkle_tree::{errors::BatchedMerkleTreeError, verify::VerifierError};
 #[cfg(feature = "tree")]
 use zolana_tree::TreeError;
 
@@ -67,11 +68,7 @@ pub enum ShieldedPoolError {
     InvalidUserRecord = 7018,
     #[error("merge_transact instruction shape is invalid")]
     InvalidMergeShape = 7019,
-    // 7020 retired: was `InvalidMergeOutputScheme` (merge output ciphertext had
-    // to be verifiably encrypted); merge outputs are now deterministically
-    // derived, so there is no ciphertext scheme to check.
-    // 7021 retired: was `MismatchedTransactProofVariant`; transact proofs no
-    // longer have rail-specific variants.
+    // Codes 7020 and 7021 are retired. Never reuse them.
     #[error("ring_authority_transact is disabled for this ring")]
     RingAuthorityTransactDisabled = 7022,
     // 7023 retired.
@@ -114,10 +111,8 @@ pub enum ShieldedPoolError {
     InvalidSplTokenMint = 7042,
     #[error("Token-2022 mint extension is not supported")]
     UnsupportedToken2022Extension = 7043,
-    // Retired (PR172): the explicit capacity gate was removed; a merge past the
-    // dummy-input threshold now fails at proof verification (7008) because the
-    // on-chain `allow_dummy_inputs` flag flips to false. The variant stays so
-    // the wire-code table never reuses 7044.
+    // Retired. A merge past the dummy-input threshold fails at proof
+    // verification (7008). The variant stays so 7044 is never reused.
     #[error("nullifier tree is too full to process a merge")]
     NullifierTreeTooFullForMerge = 7044,
     #[error("transact interface transfers for one asset must not net to zero")]
@@ -126,6 +121,23 @@ pub enum ShieldedPoolError {
     SplAssetCounterAlreadyInitialized = 7046,
     #[error("ring is paused")]
     RingPaused = 7047,
+    #[error("aggregate batch does not match its selector")]
+    InvalidAggregateBatch = 7048,
+    #[error("aggregate leg carries a proof")]
+    AggregateLegCarriesProof = 7049,
+    #[error("aggregate proof verification failed")]
+    AggregateProofVerificationFailed = 7050,
+    #[error("merge chain names no generated verifying key")]
+    UnsupportedMergeChainShape = 7051,
+    // Codes 7052 to 7056 are reserved. Never reuse them.
+    #[error("nullifier tree append proof verification failed")]
+    NullifierProofVerificationFailed = 7057,
+    #[error("nullifier tree batch is not finalized yet")]
+    NullifierBatchNotReady = 7058,
+    #[error("nullifier tree proof shape names no generated verifying key")]
+    UnsupportedNullifierProofShape = 7059,
+    #[error("folded span does not start at the nullifier tree root")]
+    FoldedSpanRootMismatch = 7060,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -148,6 +160,35 @@ impl From<InterfaceError> for ShieldedPoolError {
     }
 }
 
+/// A forester must be able to tell a run it sent too early (retriable) from a
+/// proof the tree rejected (never retriable), so the tree errors that reach the
+/// nullifier-tree instructions keep their identity.
+impl From<BatchedMerkleTreeError> for ShieldedPoolError {
+    fn from(error: BatchedMerkleTreeError) -> Self {
+        match error {
+            // The run length and the zkp batch size together select the
+            // verifying key, so an unlisted shape surfaces as InvalidBatchSize.
+            BatchedMerkleTreeError::VerifierErrorError(VerifierError::InvalidBatchSize) => {
+                ShieldedPoolError::UnsupportedNullifierProofShape
+            }
+            BatchedMerkleTreeError::VerifierErrorError(_) => {
+                ShieldedPoolError::NullifierProofVerificationFailed
+            }
+            BatchedMerkleTreeError::FoldedRunTooShort => {
+                ShieldedPoolError::UnsupportedNullifierProofShape
+            }
+            BatchedMerkleTreeError::FoldedRunNotReady
+            | BatchedMerkleTreeError::HashChainNotReady
+            | BatchedMerkleTreeError::BatchNotReady => ShieldedPoolError::NullifierBatchNotReady,
+            BatchedMerkleTreeError::FoldedSpanRootMismatch => {
+                ShieldedPoolError::FoldedSpanRootMismatch
+            }
+            BatchedMerkleTreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed,
+            _ => ShieldedPoolError::NullifierTreeUpdateFailed,
+        }
+    }
+}
+
 #[cfg(feature = "tree")]
 impl From<TreeError> for ShieldedPoolError {
     fn from(error: TreeError) -> Self {
@@ -163,12 +204,11 @@ impl From<TreeError> for ShieldedPoolError {
 mod tests {
     use super::{ShieldedPoolError, ShieldedPoolError::*};
 
-    /// Pin every on-chain error code for this program version.
     #[test]
     fn error_codes_are_stable() {
-        /// Maps every enum variant to its pinned code with NO wildcard: a new
+        /// Maps every enum variant to its pinned code with no wildcard. A new
         /// variant makes this match non-exhaustive and fails to compile, so
-        /// the pin cannot silently go stale.
+        /// the pin cannot go stale silently.
         fn expected_code(error: ShieldedPoolError) -> u32 {
             match error {
                 InvalidInstructionData => 7000,
@@ -215,11 +255,18 @@ mod tests {
                 ZeroNetInterfaceTransferAmount => 7045,
                 SplAssetCounterAlreadyInitialized => 7046,
                 RingPaused => 7047,
+                InvalidAggregateBatch => 7048,
+                AggregateLegCarriesProof => 7049,
+                AggregateProofVerificationFailed => 7050,
+                UnsupportedMergeChainShape => 7051,
+                NullifierProofVerificationFailed => 7057,
+                NullifierBatchNotReady => 7058,
+                UnsupportedNullifierProofShape => 7059,
+                FoldedSpanRootMismatch => 7060,
             }
         }
 
-        // Every live wire variant, in code order. The exhaustive match above
-        // fails to compile if a variant is missing here.
+        // Every live wire variant, in code order.
         let variants = [
             InvalidInstructionData,
             InvalidTreeAccounts,
@@ -265,6 +312,14 @@ mod tests {
             ZeroNetInterfaceTransferAmount,
             SplAssetCounterAlreadyInitialized,
             RingPaused,
+            InvalidAggregateBatch,
+            AggregateLegCarriesProof,
+            AggregateProofVerificationFailed,
+            UnsupportedMergeChainShape,
+            NullifierProofVerificationFailed,
+            NullifierBatchNotReady,
+            UnsupportedNullifierProofShape,
+            FoldedSpanRootMismatch,
         ];
         for variant in variants {
             assert_eq!(
@@ -273,7 +328,6 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 44 variants on this branch.
-        assert_eq!(variants.len(), 44, "variant count drifted");
+        assert_eq!(variants.len(), 52, "variant count drifted");
     }
 }

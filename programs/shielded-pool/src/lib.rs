@@ -25,12 +25,16 @@ use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, 
 use zolana_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
-    batch_update_nullifier_tree::process_batch_update_nullifier_tree,
+    aggregate_transact::process_aggregate_transact_ix,
+    batch_update_nullifier_tree::{
+        process_batch_update_nullifier_tree, process_batch_update_nullifier_tree_folded,
+    },
     create_asset_counter::process_create_asset_counter,
     create_spl_interface::processor::process_create_spl_interface,
     create_tree::process_create_tree,
     deposit::{process_deposit, process_ring_deposit},
     merge::process_merge_transact_ix,
+    merge_chain::process_merge_chain_transact_ix,
     merge_ring::process_merge_ring_ix,
     protocol_config::{
         create::process_create_protocol_config, pause_tree::process_pause_tree,
@@ -90,7 +94,12 @@ pub fn process_instruction(
             process_update_ring_config_owner(accounts, payload)
         }
         InstructionTag::UpdateRingConfig => process_update_ring_config(accounts, payload),
+        InstructionTag::AggregateTransact => process_aggregate_transact_ix(accounts, payload),
+        InstructionTag::BatchUpdateNullifierTreeFolded => {
+            process_batch_update_nullifier_tree_folded(accounts, payload)
+        }
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
+        InstructionTag::MergeChainTransact => process_merge_chain_transact_ix(accounts, payload),
         InstructionTag::RingMergeTransact => process_merge_ring_ix(accounts, payload),
     }
 }
