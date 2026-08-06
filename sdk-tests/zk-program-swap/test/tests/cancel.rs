@@ -161,7 +161,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let make_signature =
             send_v0_with_lookup_table(client.rpc(), &maker.keypair.to_solana_keypair()?, make_ix)?;
         client
-            .wait_for_indexed_transaction_sync(make_signature)
+            .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
     }
 
@@ -249,7 +249,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             cancel_ix,
         )?;
         client
-            .wait_for_indexed_transaction_sync(cancel_signature)
+            .confirm_private_transaction_sync(cancel_signature)
             .map_err(|e| anyhow!("confirm cancel indexed: {e:?}"))?;
 
         client

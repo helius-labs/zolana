@@ -308,7 +308,7 @@ export class ZolanaClient {
    * Confirming first turns a transaction that failed on chain into a chain
    * error, instead of an indexer timeout that blames the wrong subsystem.
    */
-  async waitForIndexedTransaction(
+  async confirmPrivateTransaction(
     signature: Signature,
     config?: IndexerRpcConfig,
     context?: RequestContext,

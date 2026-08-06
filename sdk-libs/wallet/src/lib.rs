@@ -12,7 +12,7 @@
 //!    [`sign_private_transaction_with_signers`] for additional native input owners, or
 //!    [`build_private_transaction`] -> unsigned native `Transaction` for an HSM/custodian
 //! 4. `rpc.send_transaction`
-//! 5. `zolana_client::ZolanaClient::wait_for_indexed_transaction(signature)` for Photon indexing
+//! 5. `zolana_client::ZolanaClient::confirm_private_transaction(signature)` for Photon indexing
 //!
 //! Spend tree and recipient registry resolution are inferred internally. Use
 //! [`is_wallet_registered`] / [`try_resolve_registered_address_async`] when you

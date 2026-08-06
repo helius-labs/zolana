@@ -164,7 +164,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         let make_signature =
             send_v0_with_lookup_table(client.rpc(), &maker.keypair.to_solana_keypair()?, make_ix)?;
         client
-            .wait_for_indexed_transaction_sync(make_signature)
+            .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
     }
 
@@ -291,7 +291,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         let take_signature =
             send_v0_with_lookup_table(client.rpc(), &taker.keypair.to_solana_keypair()?, take_ix)?;
         client
-            .wait_for_indexed_transaction_sync(take_signature)
+            .confirm_private_transaction_sync(take_signature)
             .map_err(|e| anyhow!("confirm take indexed: {e:?}"))?;
 
         (source_output_hash, destination_output_hash)
