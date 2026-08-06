@@ -98,6 +98,11 @@ zolana dev start --local --sbf-program <ID> target/deploy/<program>.so
 Passing any explicit `--sbf-program` also implies local mode. Override the
 release download host with `ZOLANA_RELEASE_URL`.
 
+Add `--release-accounts` when testing local program binaries against the
+release's initialized protocol config, asset counter, and canonical default
+tree. Local prover, Photon, and program binaries remain selected; only the
+account-snapshot bundle is downloaded and loaded.
+
 Maintainers publish the release with
 `just release <tag> --upload --prerelease` (omit the flags for a dry run that only
 stages assets and regenerates the lockfile). It builds the programs, the host +
