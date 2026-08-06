@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { DEFAULT_TREE_ADDRESS, SOL_MINT, createZolanaClient } from "@zolana/sdk";
+import { SOL_MINT, createZolanaClient } from "@zolana/sdk";
 import { depositInstruction, transactInstruction } from "@zolana/sdk/interface";
 import { randomBlinding } from "@zolana/sdk/keypair";
 import {
@@ -21,8 +21,8 @@ describe("example: deposit, transfer, withdraw", () => {
   it("executes a deposit from public to confidential balance, transfer between confidential balances, and confidential to public balance", async () => {
     const { sender: senderKeypair, recipient: recipientKeypair, spl } = await setup();
 
-    // Connect to localnet (default).
-    const client = await createZolanaClient({});
+    // Connect to localnet with default ports.
+    const client = await createZolanaClient();
     // devnet: one url serves the RPC, the indexer, and the prover.
     // const client = await createZolanaClient({
     //     solanaRpcUrl: `https://devnet.helius-rpc.com?api-key=${process.env.API_KEY!}`,
@@ -51,7 +51,7 @@ describe("example: deposit, transfer, withdraw", () => {
     // Used by the indexer to fetch the sender's outputs.
     const senderViewTag = senderAddress.confidentialViewTag();
     const depositIx = await depositInstruction({
-      tree: DEFAULT_TREE_ADDRESS,
+      tree: client.tree,
       depositor: senderSigner,
       deposits: [
         {
@@ -105,8 +105,8 @@ describe("example: deposit, transfer, withdraw", () => {
     // Private transfers move balances only between private token accounts, not public token accounts.
     const transferInstruction = transactInstruction({
       payer: senderSigner,
-      inputTree: DEFAULT_TREE_ADDRESS,
-      outputTree: DEFAULT_TREE_ADDRESS,
+      inputTree: client.tree,
+      outputTree: client.tree,
       data: transferData,
     });
 
@@ -154,8 +154,8 @@ describe("example: deposit, transfer, withdraw", () => {
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the withdrawal.
     const withdrawalInstruction = transactInstruction({
       payer: senderSigner,
-      inputTree: DEFAULT_TREE_ADDRESS,
-      outputTree: DEFAULT_TREE_ADDRESS,
+      inputTree: client.tree,
+      outputTree: client.tree,
       withdrawal: { kind: "sol", recipient: senderSigner.address },
       data: withdrawalData,
     });

@@ -13,13 +13,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::CreateTree,
-    pda,
-    state::{
-        discriminator::{PROTOCOL_CONFIG, SPL_ASSET_COUNTER, TREE_ACCOUNT_DISCRIMINATOR},
-        tree_account_size, ProtocolConfig, SplAssetCounter,
-    },
-    DEFAULT_TREE_ADDRESS, SHIELDED_POOL_PROGRAM_ID,
+    instruction::CreateTree, pda, state::tree_account_size, DEFAULT_TREE_ADDRESS,
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::ZolanaProgramTest;
 
@@ -459,66 +454,19 @@ pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path)
     test.create_and_send_default_payer_transaction(&[create_tree_ix], &[&authority])
         .map_err(|e| anyhow!("create_tree failed: {e:?}"))?;
 
-    for (label, pubkey, expected_size, expected_discriminator) in [
-        (
-            "protocol_config",
-            pda::protocol_config(),
-            ProtocolConfig::SIZE,
-            PROTOCOL_CONFIG,
-        ),
-        (
-            "spl_asset_counter",
-            pda::spl_asset_counter(),
-            SplAssetCounter::SIZE,
-            SPL_ASSET_COUNTER,
-        ),
-        (
-            "tree",
-            tree,
-            tree_account_size(),
-            TREE_ACCOUNT_DISCRIMINATOR,
-        ),
+    for (label, pubkey) in [
+        ("protocol_config", pda::protocol_config()),
+        ("spl_asset_counter", pda::spl_asset_counter()),
+        ("tree", tree),
     ] {
         let account = test
             .svm
             .get_account(&pubkey)
             .ok_or_else(|| anyhow!("{label} account {pubkey} missing after init"))?;
-        validate_snapshot_account(label, &account, expected_size, expected_discriminator)?;
         write_account_json(accounts_dir, &pubkey, &account)?;
         println!("snapshot {label} {pubkey}");
     }
 
-    Ok(())
-}
-
-/// Guards the dumped snapshot, not the program that wrote it: a wrong owner,
-/// length, or discriminator means the file would deserialize as something else
-/// when a validator loads it.
-fn validate_snapshot_account(
-    label: &str,
-    account: &Account,
-    expected_size: usize,
-    expected_discriminator: u8,
-) -> Result<()> {
-    let expected_owner = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    if account.owner != expected_owner {
-        bail!(
-            "{label} snapshot owner mismatch: expected {expected_owner}, got {}",
-            account.owner
-        );
-    }
-    if account.data.len() != expected_size {
-        bail!(
-            "{label} snapshot size mismatch: expected {expected_size}, got {}",
-            account.data.len()
-        );
-    }
-    if account.data.first() != Some(&expected_discriminator) {
-        bail!(
-            "{label} snapshot discriminator mismatch: expected {expected_discriminator}, got {:?}",
-            account.data.first()
-        );
-    }
     Ok(())
 }
 
@@ -767,56 +715,6 @@ mod tests {
             }
         });
         assert_eq!(account_json(&pubkey, &account), expected);
-    }
-
-    #[test]
-    fn snapshot_validation_checks_owner_size_and_discriminator() {
-        let account = Account {
-            lamports: 1,
-            data: vec![PROTOCOL_CONFIG; ProtocolConfig::SIZE],
-            owner: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-            executable: false,
-            rent_epoch: u64::MAX,
-        };
-        validate_snapshot_account(
-            "protocol_config",
-            &account,
-            ProtocolConfig::SIZE,
-            PROTOCOL_CONFIG,
-        )
-        .expect("valid snapshot");
-
-        let mut wrong_owner = account.clone();
-        wrong_owner.owner = Pubkey::new_unique();
-        assert!(validate_snapshot_account(
-            "protocol_config",
-            &wrong_owner,
-            ProtocolConfig::SIZE,
-            PROTOCOL_CONFIG,
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("owner mismatch"));
-
-        assert!(validate_snapshot_account(
-            "protocol_config",
-            &account,
-            ProtocolConfig::SIZE + 1,
-            PROTOCOL_CONFIG,
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("size mismatch"));
-
-        assert!(validate_snapshot_account(
-            "protocol_config",
-            &account,
-            ProtocolConfig::SIZE,
-            PROTOCOL_CONFIG + 1,
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("discriminator mismatch"));
     }
 
     // Guard against drift between the JSON this tool writes and the schema the

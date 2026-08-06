@@ -31,6 +31,10 @@ import {
   type Bytes32,
 } from "@zolana/sdk";
 
+// The SDK's localnet default; the airdrop is a localnet-only operation and
+// targets the same validator the bare client connects to.
+const LOCALNET_RPC_URL = "http://127.0.0.1:8899";
+
 const SENDER_LAMPORTS = 2_000_000_000n;
 const FIRST_SPL_ASSET_ID = 2n;
 const encoder = new TextEncoder();
@@ -136,7 +140,6 @@ export function sendAndConfirmFactory(
 export async function setup(): Promise<ExampleSetup> {
   await initializePoseidon();
 
-  const solanaRpcUrl = requiredEnv("ZOLANA_LOCALNET_URL");
   const sender = await senderKeypair();
   const mint = address(requiredEnv("ZOLANA_TEST_MINT"));
   const [splInterfacePda] = await getProgramDerivedAddress({
@@ -145,8 +148,8 @@ export async function setup(): Promise<ExampleSetup> {
   });
 
   const airdrop = airdropFactory({
-    rpc: createSolanaRpc(solanaRpcUrl),
-    rpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl(solanaRpcUrl)),
+    rpc: createSolanaRpc(LOCALNET_RPC_URL),
+    rpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl(LOCALNET_RPC_URL)),
   });
   await airdrop({
     commitment: "confirmed",

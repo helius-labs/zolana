@@ -26,10 +26,22 @@ From the repository root:
 just test-ts-example
 ```
 
-The command starts the validator, Photon, and prover, then runs the example.
+The command starts a validator, Photon, and the prover, loads the canonical
+protocol accounts including the state Merkle tree that stores private token
+accounts (UTXOs), creates test mints, and runs the example against them.
 
-To use existing services, set the localnet environment variables:
+The example connects with `createZolanaClient()`: the local validator, Photon,
+and prover on their default ports (8899, 8784, 3001) and the state Merkle tree
+at its canonical address. To run it against an already running local stack, provide
+the test fixtures and invoke the npm script directly:
 
 ```bash
+ZOLANA_TEST_MINT=<mint> \
+ZOLANA_TEST_TOKEN_ACCOUNT=<funded-token-account> \
+ZOLANA_TEST_AUTHORITY_WALLET=<wallet.json with funding_secret_hex> \
 npm run test:ts:example
 ```
+
+To target a remote deployment such as devnet, pass its URL to
+`createZolanaClient` as shown in the commented line of the example; one URL
+serves the RPC, the indexer, and the prover.

@@ -48,7 +48,7 @@ const BLOCKHASH = "11111111111111111111111111111111" as Blockhash;
 
 describe("public package surface", () => {
   it("creates the default client and initializes protocol crypto", async () => {
-    const client = await createZolanaClient({});
+    const client = await createZolanaClient();
     expect(client.tree).toBe(DEFAULT_TREE_ADDRESS);
     expect(client.commitment).toBe("confirmed");
     expect(client.solanaRpc).toBeDefined();

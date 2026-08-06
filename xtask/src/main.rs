@@ -119,11 +119,10 @@ fn parse_account_snapshot_options(args: Vec<String>) -> (PathBuf, PathBuf) {
                     .map(PathBuf::from)
                     .unwrap_or_else(|| usage_and_exit("--accounts-dir missing value"));
             }
-            "--help" | "-h" => {
-                print_account_snapshot_help();
-                std::process::exit(0);
-            }
-            other => usage_and_exit(&format!("unexpected arg {other:?}")),
+            other => usage_and_exit(&format!(
+                "generate-account-snapshots: unexpected arg {other:?} \
+                 (options: --deploy-dir <dir>, --accounts-dir <dir>)"
+            )),
         }
     }
     (deploy_dir, accounts_dir)
@@ -146,8 +145,9 @@ fn print_program_ids() {
         "SWAP_PROGRAM_ID={}",
         bs58::encode(swap_program::ID).into_string()
     );
-    // The canonical account snapshots pre-allocate the pool tree at this
-    // address, so localnet callers never create one.
+    // The canonical account snapshots pre-allocate the state Merkle tree that
+    // stores private token accounts (UTXOs) at this address, so localnet
+    // callers never create one.
     println!(
         "DEFAULT_TREE_ADDRESS={}",
         zolana_interface::DEFAULT_TREE_ADDRESS
@@ -367,16 +367,10 @@ fn print_help() {
     println!(
         "  create-release           Build the localnet release artifacts + lockfile (see --help)"
     );
-    println!("  generate-account-snapshots  Generate current local canonical protocol accounts");
+    println!(
+        "  generate-account-snapshots  Generate canonical protocol accounts from the local build"
+    );
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
-}
-
-fn print_account_snapshot_help() {
-    println!("xtask generate-account-snapshots [options]");
-    println!();
-    println!("Options:");
-    println!("  --deploy-dir <dir>    Program .so directory (default target/deploy)");
-    println!("  --accounts-dir <dir>  Output account directory (default target/localnet-accounts)");
 }
 
 fn print_create_verifying_keys_help() {

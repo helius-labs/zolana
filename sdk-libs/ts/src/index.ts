@@ -11,7 +11,7 @@ export { HasherWasmError } from "./hasher/index.js";
  * `solanaRpcUrl` is shared by all services unless a service-specific URL is
  * provided. Omitting all URLs uses the local stack ports.
  */
-export async function createZolanaClient(config: ZolanaClientConfig): Promise<ZolanaClient> {
+export async function createZolanaClient(config: ZolanaClientConfig = {}): Promise<ZolanaClient> {
   const client = new ZolanaClient(config);
   await initializePoseidon();
   return client;
