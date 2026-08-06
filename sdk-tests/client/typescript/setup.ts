@@ -29,11 +29,12 @@ import {
   createZolanaClient,
   initializePoseidon,
   type Bytes32,
+  type ZolanaClientConfig,
 } from "@zolana/sdk";
 
 // The SDK's localnet default; the airdrop is a localnet-only operation and
-// targets the same validator the bare client connects to.
-const LOCALNET_RPC_URL = "http://127.0.0.1:8899";
+// targets the same validator the client connects to.
+const DEFAULT_LOCALNET_RPC_URL = "http://127.0.0.1:8899";
 
 const SENDER_LAMPORTS = 2_000_000_000n;
 const FIRST_SPL_ASSET_ID = 2n;
@@ -58,12 +59,30 @@ export interface ExampleSetup {
   readonly sender: ShieldedKeypair;
   readonly recipient: ShieldedKeypair;
   readonly spl: SplExampleSetup;
+  /**
+   * Empty on a default localnet, so the example client stays zero-config. The
+   * `just` live recipes shift every service port by `ZOLANA_PORT_OFFSET` and
+   * export the resulting URLs; those must reach the client or it polls dead
+   * default ports until the test times out.
+   */
+  readonly clientConfig: ZolanaClientConfig;
 }
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`the TypeScript SDK example requires ${name}`);
   return value;
+}
+
+function clientConfigFromEnv(): ZolanaClientConfig {
+  const solanaRpcUrl = process.env["ZOLANA_LOCALNET_URL"];
+  const indexerUrl = process.env["ZOLANA_INDEXER_URL"];
+  const proverUrl = process.env["ZOLANA_PROVER_URL"];
+  return Object.freeze({
+    ...(solanaRpcUrl === undefined ? {} : { solanaRpcUrl }),
+    ...(indexerUrl === undefined ? {} : { indexerUrl }),
+    ...(proverUrl === undefined ? {} : { proverUrl }),
+  });
 }
 
 function subscriptionsUrl(rpcUrl: string): string {
@@ -156,9 +175,14 @@ export async function setup(): Promise<ExampleSetup> {
     seeds: [encoder.encode("spl_asset_vault"), addressEncoder.encode(mint)],
   });
 
+  const clientConfig = clientConfigFromEnv();
+  const rpcUrl =
+    typeof clientConfig.solanaRpcUrl === "string"
+      ? clientConfig.solanaRpcUrl
+      : DEFAULT_LOCALNET_RPC_URL;
   const airdrop = airdropFactory({
-    rpc: createSolanaRpc(LOCALNET_RPC_URL),
-    rpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl(LOCALNET_RPC_URL)),
+    rpc: createSolanaRpc(rpcUrl),
+    rpcSubscriptions: createSolanaRpcSubscriptions(subscriptionsUrl(rpcUrl)),
   });
   await airdrop({
     commitment: "confirmed",
@@ -170,6 +194,7 @@ export async function setup(): Promise<ExampleSetup> {
   return Object.freeze({
     sender,
     recipient: recipientKeypair(),
+    clientConfig,
     spl: Object.freeze({
       assetId: FIRST_SPL_ASSET_ID,
       mint,

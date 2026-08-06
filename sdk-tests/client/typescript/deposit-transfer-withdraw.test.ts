@@ -10,7 +10,7 @@ import {
   ProofInputUtxo,
   decryptToBalances,
 } from "@zolana/sdk/transaction";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { sendAndConfirmFactory, setup } from "./setup.js";
 
@@ -20,10 +20,11 @@ const WITHDRAW_AMOUNT = 300_000_000n;
 
 describe("example: deposit, transfer, withdraw", () => {
   it("executes a deposit from public to confidential balance, transfer between confidential balances, and confidential to public balance", async () => {
-    const { sender: senderKeypair, recipient: recipientKeypair, spl } = await setup();
+    const { sender: senderKeypair, recipient: recipientKeypair, spl, clientConfig } = await setup();
 
-    // Connect to localnet with default ports.
-    const client = await createZolanaClient();
+    // Connect to localnet; the config is empty (all default ports) unless the
+    // test recipe runs the stack on ZOLANA_PORT_OFFSET-shifted URLs.
+    const client = await createZolanaClient(clientConfig);
     // devnet: one url serves the RPC, the indexer, and the prover.
     // const client = await createZolanaClient({
     //     solanaRpcUrl: `https://devnet.helius-rpc.com?api-key=${process.env.API_KEY!}`,
@@ -82,6 +83,8 @@ describe("example: deposit, transfer, withdraw", () => {
       transactions: depositResponse.transactions,
     });
     const depositBalance = balancesAfterDeposit.balance(SOL_MINT);
+    expect(depositBalance.amount).toBe(DEPOSIT_AMOUNT);
+    expect(depositBalance.utxos).toHaveLength(1);
 
     // Confidential SOL transfer to the recipient's private balance.
     // A confidential transfer reveals only sender and recipient,
@@ -126,6 +129,8 @@ describe("example: deposit, transfer, withdraw", () => {
       transactions: transferResponse.transactions,
     });
     const transferBalance = balancesAfterTransfer.balance(SOL_MINT);
+    expect(transferBalance.amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT);
+    expect(transferBalance.utxos).toHaveLength(1);
 
     // Withdraw SOL from the sender's private balance to their public balance.
     // A withdrawal reveals the sender, recipient, asset, and amount.
@@ -177,6 +182,8 @@ describe("example: deposit, transfer, withdraw", () => {
       transactions: withdrawalResponse.transactions,
     });
     const withdrawalBalance = balancesAfterWithdrawal.balance(SOL_MINT);
+    expect(withdrawalBalance.amount).toBe(DEPOSIT_AMOUNT - TRANSFER_AMOUNT - WITHDRAW_AMOUNT);
+    expect(withdrawalBalance.utxos).toHaveLength(1);
 
     // 8. Read remaining private balance and the public balance.
     const solanaBalance = await client.getBalance(senderSigner.address);
