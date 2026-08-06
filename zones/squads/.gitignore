@@ -1,0 +1,3 @@
+/target
+# Program-id keypair holds a secret key. Never commit it.
+program/*-keypair.json
