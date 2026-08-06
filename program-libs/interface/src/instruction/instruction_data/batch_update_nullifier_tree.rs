@@ -1,4 +1,7 @@
 pub use zolana_batched_merkle_tree::{
-    merkle_tree::InstructionDataBatchNullifyInputs as BatchUpdateNullifierTreeData,
-    verify::CompressedProof,
+    merkle_tree::{
+        FoldedAddressAppendInputs as BatchUpdateNullifierTreeFoldedData,
+        InstructionDataBatchNullifyInputs as BatchUpdateNullifierTreeData,
+    },
+    verify::{CommittedProof, CompressedProof},
 };

@@ -58,6 +58,10 @@ pub struct RingsNullifierUpdate {
 pub struct NullifierTreeBatchUpdate {
     pub tree: Pubkey,
     pub new_root: [u8; 32],
+    /// Zkp batches the instruction settles. A fold settles several of them
+    /// against one root, so `new_root` is the root after all of them and the
+    /// reconstruction must apply every one before it compares.
+    pub run: u32,
     pub signature: Signature,
 }
 
