@@ -40,3 +40,22 @@ type TransferProofSystem struct {
 	VerifyingKey     groth16.VerifyingKey
 	ConstraintSystem constraint.ConstraintSystem
 }
+
+type SquadsZoneProofSystem struct {
+	CircuitType      CircuitType
+	NInputs          uint32
+	NOutputs         uint32
+	ProvingKey       groth16.ProvingKey
+	VerifyingKey     groth16.VerifyingKey
+	ConstraintSystem constraint.ConstraintSystem
+}
+
+// SquadsKeyEncryptionProofSystem holds the keys and constraints for one squads key
+// encryption circuit shape, keyed by NumKeys (recovery + auditor recipients).
+type SquadsKeyEncryptionProofSystem struct {
+	CircuitType      CircuitType
+	NumKeys          uint32
+	ProvingKey       groth16.ProvingKey
+	VerifyingKey     groth16.VerifyingKey
+	ConstraintSystem constraint.ConstraintSystem
+}
