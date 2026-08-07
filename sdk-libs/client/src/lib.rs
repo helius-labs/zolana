@@ -11,6 +11,7 @@
 //! - `solana-rpc`: concrete Solana RPC adapters
 //! - `client`: `indexer-api` + `solana-rpc`
 
+#[cfg(feature = "indexer-api")]
 pub mod client;
 pub mod error;
 #[cfg(feature = "indexer-api")]
