@@ -63,6 +63,13 @@ struct Stats {
     /// failed" says nothing about whether the prover is down, the wallet is
     /// empty, or the indexer is behind.
     errors: std::collections::BTreeMap<String, u64>,
+    /// This worker's first sync, before it sent anything.
+    ///
+    /// Stands in for how much history its wallet already carried. Sync cost
+    /// scales with that, and every run leaves hundreds more transfers behind on
+    /// the same wallets, so throughput is only comparable between runs at
+    /// similar depth. Recorded so a reader can tell rather than assume.
+    warmup_sync_ms: Option<u64>,
 }
 
 pub struct Options {
@@ -74,6 +81,8 @@ pub struct Options {
     pub duration: Duration,
     pub amount: u64,
     pub asset: String,
+    /// Where to write the machine-readable summary, if anywhere.
+    pub json_out: Option<PathBuf>,
 }
 
 impl Options {
@@ -83,6 +92,7 @@ impl Options {
         let mut prover_url = None;
         let mut tree = None;
         let mut keypairs = None;
+        let mut json_out = None;
         let mut duration = 300u64;
         let mut amount = 200_000u64;
         let mut asset = "SOL".to_string();
@@ -99,6 +109,7 @@ impl Options {
                 "--duration" => duration = value()?.parse().context("--duration")?,
                 "--amount" => amount = value()?.parse().context("--amount")?,
                 "--asset" => asset = value()?,
+                "--json" => json_out = Some(PathBuf::from(value()?)),
                 other => bail!("unknown flag {other}"),
             }
         }
@@ -109,6 +120,7 @@ impl Options {
             prover_url: prover_url.context("--prover is required")?,
             tree: tree.context("--tree is required")?,
             keypairs: keypairs.context("--keypairs <dir> is required")?,
+            json_out,
             duration: Duration::from_secs(duration),
             amount,
             asset,
@@ -175,6 +187,73 @@ fn report_phase(label: &str, mut values: Vec<u64>) {
     );
 }
 
+/// The percentiles the printed report shows, as data.
+fn phase_summary(mut values: Vec<u64>) -> Option<(u64, u64, u64, u64, f64)> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_unstable();
+    let mean = values.iter().sum::<u64>() as f64 / values.len() as f64;
+    Some((
+        percentile(&values, 0.50),
+        percentile(&values, 0.95),
+        percentile(&values, 0.99),
+        values[values.len() - 1],
+        mean,
+    ))
+}
+
+/// Write the run as JSON so two runs can be diffed instead of eyeballed.
+///
+/// `warmup_sync_ms` is the point of this: a wallet's sync cost scales with how
+/// much history it already has, and every run adds hundreds of transfers to the
+/// same wallets. Two runs at different history depths are not comparable, and
+/// reporting tps without it invites exactly that mistake -- comparing an early
+/// run against a later one and concluding something about the code.
+fn write_json(
+    path: &Path,
+    options: &Options,
+    workers: usize,
+    stats: &Stats,
+    elapsed: f64,
+    warmup_sync_ms: &[u64],
+) -> Result<()> {
+    let phase = |label: &str, values: Vec<u64>| match phase_summary(values) {
+        Some((p50, p95, p99, max, mean)) => format!(
+            r#""{label}":{{"p50":{p50},"p95":{p95},"p99":{p99},"max":{max},"mean":{mean:.1}}}"#
+        ),
+        None => format!(r#""{label}":null"#),
+    };
+    let warmup = phase_summary(warmup_sync_ms.to_vec());
+    let body = format!(
+        concat!(
+            r#"{{"workers":{},"duration_secs":{},"amount":{},"ok":{},"failed":{},"#,
+            r#""throttled":{},"elapsed_secs":{:.1},"tps":{:.3},"#,
+            r#""warmup_sync_ms_mean":{},"phases":{{{},{},{},{},{}}}}}"#,
+            "\n"
+        ),
+        workers,
+        options.duration.as_secs(),
+        options.amount,
+        stats.ok,
+        stats.failed,
+        stats.throttled,
+        elapsed,
+        stats.ok as f64 / elapsed.max(1.0),
+        warmup.map_or("null".to_string(), |w| format!("{:.1}", w.4)),
+        phase("sync", stats.timings.iter().map(|t| t.sync_ms).collect()),
+        phase("prove", stats.timings.iter().map(|t| t.prove_ms).collect()),
+        phase("send", stats.timings.iter().map(|t| t.send_ms).collect()),
+        phase(
+            "confirm",
+            stats.timings.iter().map(|t| t.confirm_ms).collect()
+        ),
+        phase("total", stats.timings.iter().map(|t| t.total_ms).collect()),
+    );
+    std::fs::write(path, body).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
 pub fn run(options: Options) -> Result<()> {
     let keypairs = load_keypairs(&options.keypairs)?;
     let workers = keypairs.len();
@@ -205,6 +284,7 @@ pub fn run(options: Options) -> Result<()> {
     let stop = Arc::new(AtomicBool::new(false));
     let completed = Arc::new(AtomicU64::new(0));
     let stats = Arc::new(Mutex::new(Stats::default()));
+    let warmups: Arc<Mutex<Vec<u64>>> = Arc::new(Mutex::new(Vec::new()));
     let started = Instant::now();
 
     thread::scope(|scope| -> Result<()> {
@@ -245,6 +325,7 @@ pub fn run(options: Options) -> Result<()> {
             let peer = recipients[(index + 1) % workers];
             let options = &options;
             let stats = Arc::clone(&stats);
+            let warmups = Arc::clone(&warmups);
             let completed = Arc::clone(&completed);
             let stop = Arc::clone(&stop);
 
@@ -255,6 +336,9 @@ pub fn run(options: Options) -> Result<()> {
                     started,
                 ) {
                     eprintln!("  w{index} aborted: {error:#}");
+                }
+                if let Some(warmup) = local.warmup_sync_ms {
+                    warmups.lock().expect("warmups poisoned").push(warmup);
                 }
                 let mut shared = stats.lock().expect("stats poisoned");
                 shared.timings.extend(local.timings);
@@ -305,6 +389,29 @@ pub fn run(options: Options) -> Result<()> {
     );
     report_phase("total", stats.timings.iter().map(|t| t.total_ms).collect());
 
+    let warmups = warmups.lock().expect("warmups poisoned").clone();
+    if let Some((_, _, _, _, mean)) = phase_summary(warmups.clone()) {
+        println!("\nwallet depth:");
+        println!(
+            "  first sync   mean {mean:>8.0}ms   across {} wallets",
+            warmups.len()
+        );
+        println!("  Sync cost scales with a wallet's history, and every run leaves more");
+        println!("  behind on these wallets. Compare runs only at similar first-sync cost.");
+    }
+
+    if let Some(path) = options.json_out.as_deref() {
+        write_json(
+            path,
+            &options,
+            workers,
+            &stats,
+            elapsed.as_secs_f64(),
+            &warmups,
+        )?;
+        println!("\nwrote {}", path.display());
+    }
+
     Ok(())
 }
 
@@ -353,6 +460,9 @@ fn worker(
             continue;
         }
         timing.sync_ms = mark.elapsed().as_millis() as u64;
+        if stats.warmup_sync_ms.is_none() {
+            stats.warmup_sync_ms = Some(timing.sync_ms);
+        }
 
         let mark = Instant::now();
         let transfer = match create_transfer_sync(TransferParams {
