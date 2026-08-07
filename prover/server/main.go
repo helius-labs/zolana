@@ -13,8 +13,12 @@ import (
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	"zolana/prover/prover/extractor"
+	keyencryption "zolana/prover/prover/key_encryption"
 	mergeprover "zolana/prover/prover/merge"
 	"zolana/prover/prover/nullifier_tree"
+	keyencryptionfold "zolana/prover/prover/squads_key_encryption_fold"
+	squadszone "zolana/prover/prover/squads_zone"
+	zonefold "zolana/prover/prover/squads_zone_fold"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 	"zolana/prover/server"
 
@@ -156,17 +160,7 @@ func runCli() {
 					if err != nil {
 						return err
 					}
-					file, err := os.Create(path)
-					if err != nil {
-						return err
-					}
-					defer func(file *os.File) {
-						if cerr := file.Close(); cerr != nil {
-							logging.Logger().Error().Err(cerr).Msg("error closing file")
-						}
-					}(file)
-
-					written, err := ps.WriteTo(file)
+					written, err := writeProvingSystem(ps, path)
 					if err != nil {
 						return err
 					}
@@ -176,6 +170,149 @@ func runCli() {
 						Int64("bytes_written", written).
 						Str("output", path).
 						Msg("Merge proving system written")
+					return nil
+				},
+			},
+			{
+				Name: "setup-zone",
+				Flags: []cli.Flag{
+					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
+					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots (2 = transfer, 1 = withdrawal)", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					nInputs := uint32(context.Uint("n-inputs"))
+					nOutputs := uint32(context.Uint("n-outputs"))
+					path := context.String("output")
+
+					ps, err := squadszone.SetupZone(nInputs, nOutputs)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("n_inputs", nInputs).
+						Uint32("n_outputs", nOutputs).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Squads zone proving system written")
+					return nil
+				},
+			},
+			{
+				Name: "setup-key-encryption",
+				Flags: []cli.Flag{
+					&cli.UintFlag{Name: "num-keys", Usage: "Number of recipient keys (recovery + auditor)", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					numKeys := uint32(context.Uint("num-keys"))
+					path := context.String("output")
+
+					ps, err := keyencryption.SetupKeyEncryption(numKeys)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("num_keys", numKeys).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Squads key encryption proving system written")
+					return nil
+				},
+			},
+			{
+				Name:  "setup-zone-fold",
+				Usage: "Trusted setup for one squads zone fold. Needs the leg key it folds.",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the folded zone shape", Required: true},
+					&cli.UintFlag{Name: "legs", Usage: "Number of zone proofs per fold", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					innerPath := context.String("inner-keys-file")
+					path := context.String("output")
+
+					system, err := common.ReadSystemFromFile(innerPath)
+					if err != nil {
+						return fmt.Errorf("read inner keys: %w", err)
+					}
+					inner, ok := system.(*common.SquadsZoneProofSystem)
+					if !ok {
+						return fmt.Errorf("%s is not a squads zone proving system", innerPath)
+					}
+
+					ps, err := zonefold.SetupFold(zonefold.Params{
+						NInputs:  inner.NInputs,
+						NOutputs: inner.NOutputs,
+						Legs:     uint32(context.Uint("legs")),
+					}, inner)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("n_inputs", ps.NInputs).
+						Uint32("n_outputs", ps.NOutputs).
+						Uint32("legs", ps.Legs).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Squads zone fold proving system written")
+					return nil
+				},
+			},
+			{
+				Name:  "setup-key-encryption-fold",
+				Usage: "Trusted setup for one squads key encryption fold. Needs the leg key it folds.",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the folded recipient count", Required: true},
+					&cli.UintFlag{Name: "legs", Usage: "Number of key encryption proofs per fold", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					innerPath := context.String("inner-keys-file")
+					path := context.String("output")
+
+					system, err := common.ReadSystemFromFile(innerPath)
+					if err != nil {
+						return fmt.Errorf("read inner keys: %w", err)
+					}
+					inner, ok := system.(*common.SquadsKeyEncryptionProofSystem)
+					if !ok {
+						return fmt.Errorf("%s is not a squads key encryption proving system", innerPath)
+					}
+
+					ps, err := keyencryptionfold.SetupFold(keyencryptionfold.Params{
+						KeysPerLeg: inner.NumKeys,
+						Legs:       uint32(context.Uint("legs")),
+					}, inner)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("keys_per_leg", ps.KeysPerLeg).
+						Uint32("legs", ps.Legs).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Squads key encryption fold proving system written")
 					return nil
 				},
 			},
@@ -307,6 +444,14 @@ func runCli() {
 					case *common.BatchProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.TransferProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.SquadsZoneProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.SquadsKeyEncryptionProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.SquadsZoneFoldProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.SquadsKeyEncryptionFoldProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:
 						return fmt.Errorf("unknown proving system type")
@@ -760,6 +905,19 @@ func runCli() {
 	if err := app.Run(os.Args); err != nil {
 		logging.Logger().Fatal().Err(err).Msg("App failed.")
 	}
+}
+
+func writeProvingSystem(ps io.WriterTo, path string) (int64, error) {
+	file, err := os.Create(path)
+	if err != nil {
+		return 0, err
+	}
+	defer func(file *os.File) {
+		if cerr := file.Close(); cerr != nil {
+			logging.Logger().Error().Err(cerr).Msg("error closing file")
+		}
+	}(file)
+	return ps.WriteTo(file)
 }
 
 func parseRunMode(runModeString string) (common.RunMode, error) {

@@ -57,14 +57,18 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		return ProofRequestMeta{}, fmt.Errorf("missing or invalid 'circuitType' %s", rawInput)
 	}
 
-	// Transfer and merge circuits are keyed by their fixed shape instead of a
-	// tree height, so they are exempt from the tree-height requirement below.
-	isTransfer := CircuitType(circuitType) == TransferConfidentialCircuitType ||
+	// Transfer, merge, and squads circuits are keyed by their fixed shape instead
+	// of a tree height, so they are exempt from the tree-height requirement below.
+	isShapeKeyed := CircuitType(circuitType) == TransferConfidentialCircuitType ||
 		CircuitType(circuitType) == TransferRingCircuitType ||
 		CircuitType(circuitType) == TransferP256RingCircuitType ||
 		CircuitType(circuitType) == TransferRingAuthorityCircuitType ||
 		CircuitType(circuitType) == MergeCircuitType ||
-		CircuitType(circuitType) == MergeRingCircuitType
+		CircuitType(circuitType) == MergeRingCircuitType ||
+		CircuitType(circuitType) == SquadsZoneCircuitType ||
+		CircuitType(circuitType) == SquadsKeyEncryptionCircuitType ||
+		CircuitType(circuitType) == SquadsZoneFoldCircuitType ||
+		CircuitType(circuitType) == SquadsKeyEncryptionFoldCircuitType
 
 	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the
 	// handler re-reads the authoritative values from the unmarshalled params.
@@ -77,7 +81,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		nOutputs = uint32(v)
 	}
 
-	if !isTransfer && addressTreeHeight == 0 && stateTreeHeight == 0 && treeHeight == 0 {
+	if !isShapeKeyed && addressTreeHeight == 0 && stateTreeHeight == 0 && treeHeight == 0 {
 		return ProofRequestMeta{}, fmt.Errorf("no 'addressTreeHeight' or stateTreeHeight'or 'treeHeight' provided")
 	}
 
@@ -93,7 +97,7 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		numInputs = len(inclusionInputs)
 	}
 	// Transfer circuits report their shape via nInputs/nOutputs.
-	if isTransfer {
+	if isShapeKeyed {
 		numInputs = int(nInputs)
 	}
 

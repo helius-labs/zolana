@@ -11,8 +11,12 @@ import (
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
+	keyencryption "zolana/prover/prover/key_encryption"
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
+	keyencryptionfold "zolana/prover/prover/squads_key_encryption_fold"
+	squadszone "zolana/prover/prover/squads_zone"
+	zonefold "zolana/prover/prover/squads_zone_fold"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
 	"github.com/google/uuid"
@@ -1129,6 +1133,12 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
 		return 60
+	case common.SquadsKeyEncryptionCircuitType:
+		return 120
+	case common.SquadsZoneCircuitType:
+		return 90
+	case common.SquadsZoneFoldCircuitType, common.SquadsKeyEncryptionFoldCircuitType:
+		return 600
 	default:
 		return 1
 	}
@@ -1153,6 +1163,14 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
+	case common.SquadsZoneCircuitType:
+		return handler.squadsZoneProof(buf)
+	case common.SquadsKeyEncryptionCircuitType:
+		return handler.squadsKeyEncryptionProof(buf)
+	case common.SquadsZoneFoldCircuitType:
+		return handler.squadsZoneFoldProof(buf)
+	case common.SquadsKeyEncryptionFoldCircuitType:
+		return handler.squadsKeyEncryptionFoldProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1218,6 +1236,89 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 	}
 
 	proof, err := nullifiertree.ProveBatchAddressAppend(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsZoneProof(buf []byte) (*common.Proof, *Error) {
+	var params squadszone.ZoneParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetZoneSystem(params.NInputs, params.NOutputs)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-zone: %w", err))
+	}
+
+	proof, err := squadszone.ProveZone(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsKeyEncryptionProof(buf []byte) (*common.Proof, *Error) {
+	var params keyencryption.KeyEncryptionParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetKeyEncryptionSystem(params.NumKeys)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-key-encryption: %w", err))
+	}
+
+	proof, err := keyencryption.ProveKeyEncryption(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsZoneFoldProof(buf []byte) (*common.Proof, *Error) {
+	var params zonefold.Parameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetZoneFoldSystem(
+		params.Params.NInputs,
+		params.Params.NOutputs,
+		params.Params.Legs,
+	)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-zone-fold: %w", err))
+	}
+
+	proof, err := zonefold.ProveFold(ps, params.Legs)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsKeyEncryptionFoldProof(buf []byte) (*common.Proof, *Error) {
+	var params keyencryptionfold.Parameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetKeyEncryptionFoldSystem(
+		params.Params.KeysPerLeg,
+		params.Params.Legs,
+	)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-key-encryption-fold: %w", err))
+	}
+
+	proof, err := keyencryptionfold.ProveFold(ps, params.Legs)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
