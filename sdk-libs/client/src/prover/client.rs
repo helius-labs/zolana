@@ -260,11 +260,25 @@ impl ProverClient {
         // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
         // every proof: a 270ms proof measured 3.3s end to end, essentially all
         // of it spent asleep between polls.
+        // The backoff ceiling is deliberately left to `poll_interval_secs` rather than
+        // clamped to something tighter.
+        //
+        // Tightening it to 250ms looks like an obvious win -- a finished proof then
+        // waits at most a quarter second to be collected -- and it measurably is not.
+        // Two 8-worker load tests, identical apart from this ceiling:
+        //
+        //     ceiling 1s     prove mean 2025ms   1.14 tps
+        //     ceiling 250ms  prove mean 3632ms   0.92 tps
+        //
+        // sync, send, and confirm were unchanged across the pair, so the regression is
+        // isolated to proving. Polling four times as hard contends with the prover's
+        // own queue rather than shortening the wait. Poll often enough to avoid the
+        // whole-second floor, then get out of the way.
         let poll_cap_ms = self
             .async_poll
             .poll_interval_secs
             .saturating_mul(1_000)
-            .clamp(INITIAL_POLL_MS, MAX_POLL_INTERVAL_MS);
+            .max(INITIAL_POLL_MS);
         let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1_000);
         let mut waited_ms = 0u64;
         let mut interval_ms = INITIAL_POLL_MS;
@@ -345,16 +359,6 @@ impl ProverClient {
 /// second, so the first poll should land almost immediately; the cost of being
 /// early is one cheap GET.
 const INITIAL_POLL_MS: u64 = 25;
-
-/// Ceiling on the gap between status polls.
-///
-/// An unbounded doubling trades the old bug for a smaller version of itself:
-/// with a 1s ceiling a proof that lands just after a poll waits up to another
-/// second. Under an 8-worker load test that showed as a 2025ms mean prove phase
-/// while the prover reported 0.267s of compute throughout, so the overshoot was
-/// most of what remained. 250ms bounds the wasted wait to a quarter second and
-/// still costs only about ten cheap status GETs for a 2s proof.
-const MAX_POLL_INTERVAL_MS: u64 = 250;
 
 /// Next gap in the backoff, doubling up to `cap_ms`.
 ///
@@ -496,7 +500,7 @@ impl AsyncProverClient {
             .async_poll
             .poll_interval_secs
             .saturating_mul(1_000)
-            .clamp(INITIAL_POLL_MS, MAX_POLL_INTERVAL_MS);
+            .max(INITIAL_POLL_MS);
         let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1_000);
         let mut waited_ms = 0u64;
         let mut interval_ms = INITIAL_POLL_MS;
