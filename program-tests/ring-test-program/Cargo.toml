@@ -23,6 +23,9 @@ bpf-entrypoint = []
 no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
+# Gates the aggregate binary, whose proving keys are unpublished and
+# regenerated per machine by scripts/generate_keys_aggregate.sh.
+aggregate = []
 
 [dependencies]
 pinocchio = { workspace = true, features = ["cpi"] }
@@ -62,6 +65,11 @@ path = "tests/p256_ring_lifecycle.rs"
 [[test]]
 name = "proof_cu"
 path = "tests/proof_cu.rs"
+
+[[test]]
+name = "aggregate_cu"
+path = "tests/aggregate_cu.rs"
+required-features = ["aggregate"]
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

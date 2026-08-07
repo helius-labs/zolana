@@ -13,6 +13,9 @@ localnet = ["zolana-client/indexer-api", "zolana-client/solana-rpc"]
 # Gates the Groth16-backed test binaries that spawn the local prover, so a
 # plain `cargo test -p shielded-pool-tests` stays hermetic by construction.
 proofs = []
+# Gates the aggregate binaries, whose proving keys are unpublished and
+# regenerated per machine by scripts/generate_keys_aggregate.sh.
+aggregate = ["proofs"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -59,6 +62,7 @@ borsh = { workspace = true }
 bytemuck = { workspace = true }
 zolana-user-registry-interface = { workspace = true }
 groth16-solana = { workspace = true }
+solana-bn254 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
@@ -167,6 +171,10 @@ path = "tests/nullifier/batch.rs"
 name = "merge_contract"
 path = "tests/merge/contract.rs"
 
+[[test]]
+name = "merge_chain_rejection"
+path = "tests/merge_chain/rejection.rs"
+
 # Proof-backed (spawns the local prover and proves the real 8-in/1-out merge
 # circuit), so it sits in the proofs tier with the other Groth16-backed binaries.
 [[test]]
@@ -181,6 +189,22 @@ name = "deposit_mutation"
 path = "tests/deposit/mutation.rs"
 
 # --- Proof-backed integration (spawns the local prover) ---
+
+[[test]]
+name = "aggregate_cu"
+path = "tests/aggregate/cu.rs"
+required-features = ["aggregate"]
+
+[[test]]
+name = "aggregate_guard"
+path = "tests/aggregate/guard.rs"
+
+# The merge chain proving key is unpublished and regenerated per machine, like
+# the aggregate keys, so it sits in the same tier.
+[[test]]
+name = "merge_chain_functional"
+path = "tests/merge_chain/functional.rs"
+required-features = ["aggregate"]
 
 [[test]]
 name = "transact_functional"

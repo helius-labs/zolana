@@ -8,7 +8,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-01: wrong program id is rejected**
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `rejects_the_wrong_program_before_dispatch`
   - Kind: precondition
-  - Affects: all 18 instructions
+  - Affects: all 21 dispatched instructions
   - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG`.
   - Location: `programs/shielded-pool/src/lib.rs:38-40` (`fn process_instruction`)
   - Error: `ProgramError::IncorrectProgramId`
@@ -18,7 +18,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-02: empty instruction data is rejected**
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `rejects_empty_unknown_and_malformed_instruction_data_exactly`
   - Kind: precondition
-  - Affects: all 18 instructions
+  - Affects: all 21 dispatched instructions
   - Statement: `process_instruction` returns Err for the zero-length instruction data (no tag byte).
   - Location: `programs/shielded-pool/src/lib.rs:41-43` (`fn process_instruction`)
   - Error: `ProgramError::InvalidInstructionData`
@@ -28,8 +28,8 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-03: every unknown tag is rejected**
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `every_first_byte_dispatches_or_is_rejected_exactly` (full 256-byte sweep)
   - Kind: precondition
-  - Affects: all 18 instructions
-  - Statement: for every first byte outside the set {0..=17}, `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
+  - Affects: all 21 dispatched instructions
+  - Statement: for every first byte outside the set {0..=20}, a default build's `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
   - Location: `programs/shielded-pool/src/lib.rs:45-75` (`fn process_instruction`), `program-libs/event/src/tag.rs:54-79` (`impl TryFrom<u8> for InstructionTag`)
   - Error: `ProgramError::InvalidInstructionData`
   - Severity: Medium
@@ -40,7 +40,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-04: every failing instruction leaves every account unchanged**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `expect_ix_rejection` (asserts `last_transaction_trace().assert_rolled_back_except(&[payer])` on every Transact, RingTransact, and RingAuthorityTransact rejection, including `ring_transact_rejects_an_unsigned_ring_config` and `ring_authority_transact_rejects_an_unsigned_ring_config`); `program-tests/shielded-pool/tests/deposit/rejection.rs` `sol_deposit_rejects_foreign_tree_atomically` (Deposit) and `paused_tree_rejects_ring_deposit`, `ring_deposit_rejects_a_signer_that_is_not_the_ring_authority`, `ring_deposit_rejects_an_unsigned_ring_config`, `ring_deposit_rejects_malformed_payload_exactly` (RingDeposit); `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_dummy_inputs_after_capacity_threshold` (MergeTransact) and all six `merge_ring_rejects_*` tests (RingMergeTransact); `program-tests/shielded-pool/tests/spl_interface/contract.rs` `asset_counter_rejects_a_non_protocol_authority` and peers (CreateAssetCounter); `program-tests/shielded-pool/tests/ring_config/contract.rs` rejection tests (CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner); `program-tests/shielded-pool/tests/admin/rejection.rs` (CreateTree, PauseTree); `program-tests/shielded-pool/tests/spl_interface/rejection.rs` (CreateSplInterface and SPL deposit paths); `program-tests/shielded-pool/tests/nullifier/batch.rs` (BatchUpdateNullifierTree); `program-tests/shielded-pool/tests/protocol_config/contract.rs` (UpdateProtocolConfig)
   - Kind: rollback
-  - Affects: all 18 instructions
+  - Affects: all 21 dispatched instructions
   - Statement: when any shielded-pool instruction returns Err, every account's data and lamports after the transaction equal their values before it (SVM transaction rollback; the program never communicates partial state outside the transaction).
   - Location: `programs/shielded-pool/src/lib.rs:33-76` (`fn process_instruction`); runtime guarantee relied on because tree writes precede proof verification (see INV-XC-05)
   - Severity: Critical
@@ -50,7 +50,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-05: a failing proof leaves the trees unchanged**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly`
   - Kind: rollback
-  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
+  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact, AggregateTransact, MergeChainTransact
   - Statement: these instructions insert nullifiers and append outputs before verifying the proof; when verification fails, the transaction aborts and the UTXO tree `next_index`, nullifier queue `next_index`, and all roots after the transaction are exactly their values before it.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:77-117` (tree writes at 77-98, verify at 117), `merge/processor.rs:92-137` (tree writes at 114-127, verify at 130)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
@@ -62,7 +62,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-06: an expired transaction is rejected**
   - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol`
   - Kind: precondition
-  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
+  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact, AggregateTransact (per leg), MergeChainTransact
   - Statement: each of these instructions returns Err whenever `Clock.unix_timestamp` as u64 is strictly greater than `expiry_unix_ts`; execution at `unix_timestamp == expiry_unix_ts` is still accepted.
   - Location: `programs/shielded-pool/src/instructions/shared.rs:148-153` (`fn check_not_expired`); call sites `transact/processor.rs:48`, `merge/processor.rs:35`, `merge_ring/processor.rs:30`
   - Error: `ShieldedPoolError::ExpiredTransaction = 7005`
@@ -72,7 +72,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-07: a negative clock is rejected**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_negative_clock`; `transact/guard.rs` `transact_rejects_a_negative_clock`
   - Kind: precondition
-  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
+  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact, AggregateTransact (per leg), MergeChainTransact
   - Statement: each of these instructions returns Err whenever `Clock.unix_timestamp` is strictly less than 0, for every `expiry_unix_ts`.
   - Location: `programs/shielded-pool/src/instructions/shared.rs:149` (`fn check_not_expired`)
   - Error: `ShieldedPoolError::ExpiredTransaction = 7005`
@@ -82,7 +82,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-08: a paused tree blocks every tree write except unpausing**
   - Covered by all 8 affected instructions: `tree/contract.rs` `pause_blocks_tree_mutation_and_unpause_restores_it` (Deposit/Transact/Merge), `nullifier/batch.rs` `batch_update_rejects_a_paused_tree`, `deposit/rejection.rs` `paused_tree_rejects_ring_deposit`, `merge/contract.rs` `merge_ring_rejects_a_paused_tree`, `transact/guard.rs` `ring_transact_rejects_a_paused_tree`, `ring_authority_transact_rejects_a_paused_tree`
   - Kind: precondition
-  - Affects: Transact, RingTransact, RingAuthorityTransact, Deposit, RingDeposit, MergeTransact, RingMergeTransact, BatchUpdateNullifierTree
+  - Affects: Transact, RingTransact, RingAuthorityTransact, Deposit, RingDeposit, MergeTransact, RingMergeTransact, BatchUpdateNullifierTree, AggregateTransact, BatchUpdateNullifierTreeFolded, MergeChainTransact
   - Statement: while the tree's state byte is exactly `PAUSED` (2), each of these instructions returns Err and no tree byte changes; only `pause_tree` (which loads with `from_account_view_mut_allow_paused`) can operate on a paused tree.
   - Location: `program-libs/tree/src/lib.rs:192-202` (`fn from_account_view_mut`); mapping `programs/shielded-pool/src/instructions/shared.rs:22-29` (`fn tree_error`), `deposit/processor.rs:92-94`, `batch_update_nullifier_tree.rs:35-36` (via `From<TreeError>`)
   - Error: `ShieldedPoolError::TreePaused = 7013`
@@ -94,7 +94,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-09: a stale or out-of-range root index is rejected**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_stale_nullifier_root_index`
   - Kind: precondition
-  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
+  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact, AggregateTransact, MergeChainTransact
   - Statement: each of these instructions returns Err whenever any input's `utxo_tree_root_index` or `nullifier_tree_root_index` is out of range of the root history, or the referenced nullifier-root slot holds the zeroed (stale) root.
   - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:25-30` and `merge/processor.rs:155-160` (root reads), `program-libs/tree/src/lib.rs:296-308` (`fn get_nullifier_tree_root`), error mapping `programs/shielded-pool/src/instructions/shared.rs:25` (`tree_error`, `TreeError::InvalidRootIndex`)
   - Error: `ShieldedPoolError::StaleNullifierRoot = 7015`
@@ -104,7 +104,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-10: every nullifier is inserted at most once**
   - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol` (cross-transaction replay -> 7002 with rollback); `transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction` (two equal nullifiers in one instruction -> 7002)
   - Kind: state
-  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
+  - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact, AggregateTransact, MergeChainTransact
   - Statement: for every 32-byte nullifier value, at most one queue insertion ever succeeds across all instructions and all transactions (including two inputs with the same nullifier inside one instruction); every later insertion attempt makes its instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:31-34` and `merge/processor.rs:161-163` (`insert_nullifier_into_queue`), `program-libs/batched-merkle-tree/src/merkle_tree.rs:311-344`
   - Error: `ShieldedPoolError::NullifierTreeUpdateFailed = 7002`
@@ -220,7 +220,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [ ] **INV-XC-21: lamports are conserved across every instruction**
   - Partial coverage: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_sol_deposit_settles_and_indexes_the_exact_output` (matched depositor/interface deltas on deposit and withdrawal paths; no total-sum property and no coverage of the creation/admin instructions)
   - Kind: state
-  - Affects: all 18 instructions
+  - Affects: all 21 dispatched instructions
   - Statement: for every successful instruction, the sum of lamports over all transaction accounts after execution is exactly the sum before, minus nothing (creation instructions move rent from the fee payer to the new account; settlement moves lamports between depositor/recipient and the sol_interface; no path burns or mints lamports inside the program).
   - Location: `programs/shielded-pool/src/instructions/shared.rs:161-208` (`CreatePdaAccount`), `settlement/sol.rs:13-40`
   - Severity: High
@@ -250,7 +250,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-24: every state account is loaded through a checking loader**
   - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `mollusk_deposit_rejects_wrong_tree_owner_exactly` (plus the per-loader cosplay/wrong-owner tests cited in the instruction files)
   - Kind: state
-  - Affects: Transact, RingTransact, RingAuthorityTransact, Deposit, RingDeposit, MergeTransact, RingMergeTransact, CreateTree, BatchUpdateNullifierTree, PauseTree, CreateAssetCounter, CreateSplInterface, UpdateProtocolConfig, UpdateRingConfig, UpdateRingConfigOwner
+  - Affects: Transact, RingTransact, RingAuthorityTransact, Deposit, RingDeposit, MergeTransact, RingMergeTransact, CreateTree, BatchUpdateNullifierTree, PauseTree, CreateAssetCounter, CreateSplInterface, UpdateProtocolConfig, UpdateRingConfig, UpdateRingConfigOwner, AggregateTransact, BatchUpdateNullifierTreeFolded, MergeChainTransact
   - Statement: every read or write of a `ProtocolConfig`, `RingConfig`, `SplAssetCounter`, `SplAssetRegistry`, tree, token, or user-record account goes through a `load_*`/`from_account_view_*`/`read_*` function that checks program ownership and exact `data_len` (and the discriminator for initialized reads); no instruction deserializes the same account twice.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/loader.rs:14-51`, `ring_config/loader.rs:14-48`, `create_asset_counter.rs:63-70`, `settlement/validate.rs:60-149`, `merge/account.rs:58-89`, `program-libs/tree/src/lib.rs:214-238`
   - Severity: High

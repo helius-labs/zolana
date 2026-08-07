@@ -34,27 +34,21 @@ pub fn process_instruction(
         | tag::RING_DEPOSIT
         | tag::RING_TRANSACT
         | tag::RING_AUTHORITY_TRANSACT
-        | tag::RING_MERGE_TRANSACT => forward_to_spp(program_id, accounts, data),
+        | tag::RING_MERGE_TRANSACT
+        | tag::AGGREGATE_TRANSACT => forward_to_spp(program_id, accounts, data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
 
-/// Forward a ring instruction to SPP verbatim, signing the ring's `ring_auth`
-/// PDA. The client lays out the same accounts for the call into this fixture and
-/// for the CPI into SPP (only the target program id and the `ring_auth` signer
-/// flag differ). Transact fixes the SPP account at index 3, while the other
-/// forwarded instruction families retain their own layouts, so this shared
-/// forwarder locates the SPP account by address. We rebuild the SPP instruction
-/// from the received account views, flip the `ring_auth` account to a signer, and
-/// forward the data (tag included, as SPP's dispatcher strips it) unchanged.
+/// Transact fixes the SPP account at index 3 but the other forwarded families
+/// keep their own layouts, so this shared forwarder locates the SPP account by
+/// address. The forwarded data keeps the tag because SPP's dispatcher strips it.
 fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -> ProgramResult {
     let (ring_auth, bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], program_id);
     let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
-    let spp = accounts
-        .iter()
-        .find(|account| account.address() == &spp_id)
-        .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    check_shielded_pool(spp.address())?;
+    if !accounts.iter().any(|a| a.address() == &spp_id) {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
     if !accounts.iter().any(|a| a.address() == &ring_auth) {
         return Err(ProgramError::InvalidSeeds);
     }
@@ -76,12 +70,5 @@ fn forward_to_spp(program_id: &Address, accounts: &[AccountView], data: &[u8]) -
     let signer = Signer::from(&seeds);
     // A five-mint ring deposit carries the fixed prefix, ring_auth, and five
     // SPL settlement groups.
-    invoke_signed_with_bounds::<24, _>(&instruction, accounts, core::slice::from_ref(&signer))
-}
-
-fn check_shielded_pool(account: &Address) -> Result<(), ProgramError> {
-    if account != &Address::from(SHIELDED_POOL_PROGRAM_ID) {
-        return Err(ProgramError::IncorrectProgramId);
-    }
-    Ok(())
+    invoke_signed_with_bounds::<32, _>(&instruction, accounts, core::slice::from_ref(&signer))
 }

@@ -1,13 +1,18 @@
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use light_program_profiler::profile;
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-use pinocchio::cpi::{invoke_signed_with_bounds, Seed, Signer};
 use pinocchio::{
-    cpi::invoke_with_bounds,
+    cpi::{invoke_signed_with_bounds, Seed, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
-    AccountView, Address, ProgramResult,
+    Address,
 };
-use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
+use pinocchio::{AccountView, ProgramResult};
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use zolana_interface::{
+    instruction::tag::{AGGREGATE_TRANSACT, TRANSACT},
+    SHIELDED_POOL_PROGRAM_ID,
+};
 
 use crate::error::SwapError;
 
@@ -35,46 +40,33 @@ pub fn check_after_window(now: i64, expiry_unix_ts: u64) -> ProgramResult {
     }
 }
 
-#[inline(never)]
-#[profile]
-pub fn cpi_spp_transact(spp_accounts: &[AccountView], transact_bytes: &[u8]) -> ProgramResult {
-    let spp_program_account = spp_accounts
-        .get(3)
-        .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    let spp_id = Address::from(SHIELDED_POOL_PROGRAM_ID);
-    if spp_program_account.address() != &spp_id {
-        return Err(SwapError::InvalidShieldedPoolProgram.into());
-    }
-
-    let metas: Vec<InstructionAccount> = spp_accounts
-        .iter()
-        .map(|account| {
-            InstructionAccount::new(
-                account.address(),
-                account.is_writable(),
-                account.is_signer(),
-            )
-        })
-        .collect();
-
-    let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
-    instruction_data.push(TRANSACT);
-    instruction_data.extend_from_slice(transact_bytes);
-
-    let instruction = InstructionView {
-        program_id: &spp_id,
-        accounts: &metas,
-        data: &instruction_data,
-    };
-    invoke_with_bounds::<16, _>(&instruction, spp_accounts)
-}
-
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 #[inline(never)]
 #[profile]
 pub fn cpi_spp_transact_signed(
     spp_accounts: &[AccountView],
     transact_bytes: &[u8],
+) -> ProgramResult {
+    cpi_spp_signed::<16>(spp_accounts, TRANSACT, transact_bytes)
+}
+
+/// A batch concatenates one account run per leg, so it needs a wider bound than
+/// the solo path.
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+#[inline(never)]
+#[profile]
+pub fn cpi_spp_aggregate_transact_signed(
+    spp_accounts: &[AccountView],
+    aggregate_bytes: &[u8],
+) -> ProgramResult {
+    cpi_spp_signed::<32>(spp_accounts, AGGREGATE_TRANSACT, aggregate_bytes)
+}
+
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+fn cpi_spp_signed<const MAX_ACCOUNTS: usize>(
+    spp_accounts: &[AccountView],
+    spp_tag: u8,
+    payload: &[u8],
 ) -> ProgramResult {
     let (order_authority, bump) =
         Address::find_program_address(&[crate::ORDER_AUTHORITY_PDA_SEED], &crate::ID);
@@ -102,9 +94,9 @@ pub fn cpi_spp_transact_signed(
         })
         .collect();
 
-    let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
-    instruction_data.push(TRANSACT);
-    instruction_data.extend_from_slice(transact_bytes);
+    let mut instruction_data = Vec::with_capacity(1 + payload.len());
+    instruction_data.push(spp_tag);
+    instruction_data.extend_from_slice(payload);
 
     let instruction = InstructionView {
         program_id: &spp_id,
@@ -117,7 +109,11 @@ pub fn cpi_spp_transact_signed(
         Seed::from(&bump),
     ];
     let signer = Signer::from(&seeds);
-    invoke_signed_with_bounds::<16, _>(&instruction, spp_accounts, core::slice::from_ref(&signer))
+    invoke_signed_with_bounds::<MAX_ACCOUNTS, _>(
+        &instruction,
+        spp_accounts,
+        core::slice::from_ref(&signer),
+    )
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
@@ -127,4 +123,13 @@ pub fn cpi_spp_transact_signed(
     _transact_bytes: &[u8],
 ) -> ProgramResult {
     unimplemented!("cpi_spp_transact_signed requires Solana runtime syscalls")
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+#[inline(never)]
+pub fn cpi_spp_aggregate_transact_signed(
+    _spp_accounts: &[AccountView],
+    _aggregate_bytes: &[u8],
+) -> ProgramResult {
+    unimplemented!("cpi_spp_aggregate_transact_signed requires Solana runtime syscalls")
 }

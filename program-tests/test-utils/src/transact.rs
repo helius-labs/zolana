@@ -29,7 +29,9 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
-    verifying_keys::transfer_confidential_2_3,
+    verifying_keys::{
+        transfer_confidential_2_3, transfer_p256_ring_2_3, transfer_ring_2_3, Bsb22Commitment,
+    },
     N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 use zolana_keypair::{
@@ -333,6 +335,94 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         published_output_owner_pk_hashes,
         public_input_hash: be(&args.public_input_hash),
     }
+}
+
+/// Like [`prove_and_verify_transfer`], but also returns the prover's proof.
+/// Aggregation consumes the uncompressed points, where the on-chain path takes
+/// the compressed and negated ones.
+pub fn prove_and_verify_transfer_raw(
+    prover_inputs: &TransferInputs,
+    public_input_hash: [u8; 32],
+    label: &str,
+) -> Result<(TransactProof, zolana_client::Proof)> {
+    prove_and_verify_rail_raw(prover_inputs, public_input_hash, label, false)
+}
+
+/// `ring` selects the custom-ring rail, which proves and verifies against its
+/// own circuit even though the witness layout matches.
+pub fn prove_and_verify_rail_raw(
+    prover_inputs: &TransferInputs,
+    public_input_hash: [u8; 32],
+    label: &str,
+    ring: bool,
+) -> Result<(TransactProof, zolana_client::Proof)> {
+    let client = ProverClient::local();
+    let proof = if ring {
+        client.prove_transfer_ring(prover_inputs)?
+    } else {
+        client.prove_transfer(prover_inputs)?
+    };
+    let verifying_key = if ring {
+        &transfer_ring_2_3::VERIFYINGKEY
+    } else {
+        &transfer_confidential_2_3::VERIFYINGKEY
+    };
+    let public_inputs = [public_input_hash];
+    let mut verifier =
+        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
+            .map_err(|err| anyhow!("construct {label} verifier: {err:?}"))?;
+    verifier
+        .verify()
+        .map_err(|err| anyhow!("verify {label} proof: {err:?}"))?;
+    Ok((pack_transact_proof(&proof)?, proof))
+}
+
+/// The uncompressed SEC1 coordinates of a P256 public key, which is what the
+/// circuit witnesses.
+pub fn p256_coordinates(
+    pubkey: &zolana_keypair::pubkey::P256Pubkey,
+) -> Result<([u8; 32], [u8; 32])> {
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
+
+    let point = pubkey
+        .to_p256()
+        .map_err(|err| anyhow!("decompress p256 pubkey: {err:?}"))?;
+    let encoded = point.to_encoded_point(false);
+    let mut x = [0u8; 32];
+    let mut y = [0u8; 32];
+    x.copy_from_slice(encoded.x().ok_or_else(|| anyhow!("missing x"))?.as_slice());
+    y.copy_from_slice(encoded.y().ok_or_else(|| anyhow!("missing y"))?.as_slice());
+    Ok((x, y))
+}
+
+/// Prove a custom-ring P256 leg and return its compressed parts plus the
+/// prover's proof. The P256 rail carries a BSB22 commitment, so it verifies
+/// through `new_with_commitment`.
+pub fn prove_and_verify_p256_raw(
+    prover_inputs: &zolana_client::TransferP256Inputs,
+    public_input_hash: [u8; 32],
+    label: &str,
+) -> Result<(TransactProof, Bsb22Commitment, zolana_client::Proof)> {
+    let proof = ProverClient::local().prove_transfer_p256_ring(prover_inputs)?;
+    let commitment = proof
+        .commitment
+        .ok_or_else(|| anyhow!("{label} proof carries no BSB22 commitment"))?;
+    let public_inputs = [public_input_hash];
+    let mut verifier = Groth16Verifier::new_with_commitment(
+        &proof.a,
+        &proof.b,
+        &proof.c,
+        &commitment.commitment,
+        &commitment.commitment_pok,
+        &public_inputs,
+        &transfer_p256_ring_2_3::VERIFYINGKEY,
+    )
+    .map_err(|err| anyhow!("construct {label} verifier: {err:?}"))?;
+    verifier
+        .verify()
+        .map_err(|err| anyhow!("verify {label} proof: {err:?}"))?;
+    let (packed, compressed) = ProofCompressed::try_from(proof)?.into_ring_p256_transact_parts()?;
+    Ok((packed, compressed, proof))
 }
 
 /// Prove and locally verify a transfer on the fixed (2 inputs, 3 outputs)

@@ -7,11 +7,12 @@
 //! `ring-test-program` test binaries (`ring_lifecycle` and `proof_cu`) consume
 //! this module, so each composes exactly the fixture surface it uses.
 
+pub mod aggregate_transact;
 pub(crate) mod merge_ring;
 mod ring_authority_transact;
 mod ring_config;
 mod ring_deposit;
-mod ring_transact;
+pub mod ring_transact;
 
 use std::ops::{Deref, DerefMut};
 

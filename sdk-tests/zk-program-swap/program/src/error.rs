@@ -23,6 +23,11 @@ pub enum SwapError {
     MarkerDataNotEmpty = 8015,
     #[error("hashing failed")]
     HashingFailed = 8016,
+    #[error("take batch carries a different number of proofs than legs")]
+    TakeProofCountMismatch = 8017,
+    // Codes 8018 to 8022 are reserved. Never reuse them.
+    #[error("serializing program-authored data failed")]
+    SerializationFailed = 8023,
 }
 
 impl From<SwapError> for ProgramError {

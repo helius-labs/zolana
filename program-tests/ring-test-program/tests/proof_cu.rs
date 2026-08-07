@@ -7,15 +7,17 @@ use zolana_test_utils::{
 };
 use zolana_transaction::SOL_MINT;
 
-// Local-validator baselines (measured 2026-07-22): EdDSA 2x3 = 162,830;
-// withdrawal = 165,260; ring-authority 1x1 = 150,839;
-// merge-ring 8x1 = 310,385. Each ceiling sits at roughly 20% over its own
-// baseline so a consumption regression trips its variant's assert. The P256
-// 2x3 case was removed with the P256 transact rail (PR164).
+// Each ceiling sits roughly 20% over its measured local-validator baseline so
+// a consumption regression trips its variant's assert.
 const RING_EDDSA_TRANSACTION_CU_LIMIT: u64 = 196_000;
 const RING_WITHDRAWAL_CU_LIMIT: u64 = 199_000;
 const RING_AUTHORITY_TRANSACTION_CU_LIMIT: u64 = 182_000;
 const RING_MERGE_TRANSACTION_CU_LIMIT: u64 = 375_000;
+
+// P256 is the only rail that verifies a BSB22 commitment, so it is the only
+// ceiling that moves with the hash-to-field reduction. Its margin is 15% rather
+// than 20% so that the single-buffer reduction trips it.
+const RING_P256_TRANSACTION_CU_LIMIT: u64 = 285_000;
 
 #[test]
 #[serial]
@@ -46,6 +48,19 @@ fn proof_bearing_ring_variants_stay_within_budget() -> Result<()> {
         &signature,
         "ring SOL withdrawal EdDSA 2x3",
         RING_WITHDRAWAL_CU_LIMIT,
+    )?;
+
+    harness.make_p256_actor("p256-sender")?;
+    for _ in 0..2 {
+        harness.ring_shield_sol("p256-sender", 1_000_000_000)?;
+    }
+    let signature =
+        harness.ring_transfer_p256("p256-sender", "p256-recipient", SOL_MINT, 300_000_000)?;
+    assert_transaction_compute_units(
+        &harness.rpc,
+        &signature,
+        "ring transact P256 2x3",
+        RING_P256_TRANSACTION_CU_LIMIT,
     )?;
 
     harness.ring_shield_sol("authority-sender", 1_000_000_000)?;

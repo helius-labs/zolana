@@ -250,7 +250,7 @@ impl RingHarness {
     /// Take two of `from`'s spendable ring UTXOs of `asset` (the (2, 3) shape). A
     /// ring UTXO carries `ring_program_id`, so its hash binds the ring the prover
     /// stamps on the proof.
-    fn take_ring_inputs(&mut self, from: &str, asset: Address) -> Result<Vec<Utxo>> {
+    pub(crate) fn take_ring_inputs(&mut self, from: &str, asset: Address) -> Result<Vec<Utxo>> {
         let actor = self.actor_mut(from);
         let mut taken = Vec::with_capacity(2);
         for _ in 0..2 {
@@ -502,7 +502,10 @@ impl RingHarness {
     /// the first real input's state root downstream) but still needs a real
     /// non-inclusion witness for its own nullifier: the circuit checks
     /// non-inclusion for every slot.
-    fn ring_spend_inputs(&self, spends: &[SppProofInputUtxo]) -> Result<Vec<TransferSpendInput>> {
+    pub(crate) fn ring_spend_inputs(
+        &self,
+        spends: &[SppProofInputUtxo],
+    ) -> Result<Vec<TransferSpendInput>> {
         let mut out = Vec::with_capacity(spends.len());
         for spend in spends {
             let (proof, nullifier_proof) = if spend.is_dummy() {
