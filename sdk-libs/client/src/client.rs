@@ -211,27 +211,47 @@ impl<R: Rpc> ZolanaClient<R> {
             .prove_transact(proof_inputs, &spend_proofs, &dummy_proofs)
     }
 
+    /// `R: Sync` because the two proof fetches below share the indexer across
+    /// scoped threads.
     pub fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
         recent_blockhash: Hash,
-    ) -> Result<SolanaTransaction, ClientError> {
+    ) -> Result<SolanaTransaction, ClientError>
+    where
+        R: Sync,
+    {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
-        let spend_proofs = fetch_spend_proofs(
-            self.blocking_indexer(),
-            signed.input_tree,
-            &commitments,
-            None,
-        )?;
-        let dummy_proofs = fetch_dummy_nullifier_proofs(
-            self.blocking_indexer(),
-            signed.input_tree,
-            &signed.transaction,
-            None,
-        )?;
+        // Two independent indexer round trips (317ms and 114ms on devnet) that
+        // ran back to back. Nothing links them: different methods, and neither
+        // consumes the other's output.
+        let (spend_proofs, dummy_proofs) = std::thread::scope(|scope| {
+            let spend = scope.spawn(|| {
+                fetch_spend_proofs(
+                    self.blocking_indexer(),
+                    signed.input_tree,
+                    &commitments,
+                    None,
+                )
+            });
+            let dummy = scope.spawn(|| {
+                fetch_dummy_nullifier_proofs(
+                    self.blocking_indexer(),
+                    signed.input_tree,
+                    &signed.transaction,
+                    None,
+                )
+            });
+            (spend.join(), dummy.join())
+        });
+        // A panic here is a bug in proof assembly, not an unreachable indexer.
+        let spend_proofs =
+            spend_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
+        let dummy_proofs =
+            dummy_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.blocking_prover().prove_transfer(inputs)?;

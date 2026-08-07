@@ -690,7 +690,7 @@ pub async fn sign_private_transaction_with_signers<A: WalletAuthority + ?Sized, 
     Ok(native)
 }
 
-pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
+pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + Sync>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
@@ -702,7 +702,7 @@ pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
     client.finish_submission_unsigned_sync(&shielded, fee_payer, blockhash)
 }
 
-pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
+pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + Sync>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
@@ -720,7 +720,10 @@ pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc>(
 }
 
 /// Synchronous counterpart of [`sign_private_transaction_with_signers`].
-pub fn sign_private_transaction_sync_with_signers<A: SyncWalletAuthority + ?Sized, R: Rpc>(
+pub fn sign_private_transaction_sync_with_signers<
+    A: SyncWalletAuthority + ?Sized,
+    R: Rpc + Sync,
+>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
