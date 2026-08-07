@@ -1,7 +1,7 @@
 mod client;
 pub mod field;
 mod inputs;
-mod json;
+pub mod json;
 pub mod merge;
 pub mod merge_ring;
 mod proof;
@@ -16,6 +16,7 @@ pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
     TransferP256Inputs,
 };
+pub use json::hex64;
 pub use merge::{MergeProofResult, MergeProver};
 pub use merge_ring::{MergeRingProver, MergeRingWitness};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};

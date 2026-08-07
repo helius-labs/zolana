@@ -203,7 +203,29 @@ impl ProverClient {
         self.send(to_json_batch_address_append(inputs))
     }
 
+    /// POST a prove request and return the gnark proof object as JSON text.
+    /// Callers that parse a circuit-specific proof shape use this instead of the
+    /// typed prove methods.
+    pub fn send_raw(&self, body: String) -> Result<String, ClientError> {
+        let value = self.send_value(body)?;
+        let proof_value = value.get("proof").unwrap_or(&value);
+        if proof_value.is_null() {
+            return Err(ClientError::ProverServer(
+                "server returned a null proof".to_string(),
+            ));
+        }
+        serde_json::to_string(proof_value)
+            .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))
+    }
+
     fn send(&self, body: String) -> Result<Proof, ClientError> {
+        let value = self.send_value(body)?;
+        Self::proof_from_value(&value, &value.to_string())
+    }
+
+    /// Run one prove request to completion, polling a queued job if the server
+    /// returned a handle, and return the response value.
+    fn send_value(&self, body: String) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
         let mut attempt = 0;
         let response = loop {
@@ -249,11 +271,11 @@ impl ProverClient {
                 return self.poll_async(job_id);
             }
         }
-        Self::proof_from_value(&value, &text)
+        Ok(value)
     }
 
     /// Poll the async job status endpoint until the queued proof completes.
-    fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+    fn poll_async(&self, job_id: &str) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
         let poll_interval = self.async_poll.poll_interval_secs.max(1);
         let max_wait = self.async_poll.max_wait_secs;
@@ -295,8 +317,7 @@ impl ProverClient {
                 // The completed result is a `{ proof, proof_duration_ms }` envelope
                 // nested under `result`.
                 Some("completed") => {
-                    let result = value.get("result").map_or(&value, |result| result);
-                    return Self::proof_from_value(result, &text);
+                    return Ok(value.get("result").map_or(value.clone(), Clone::clone));
                 }
                 Some("failed") => {
                     return Err(ClientError::ProverServer(format!(

@@ -49,7 +49,7 @@ pub use rpc::{
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-    OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
+    OutputSlot, Preflight, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 #[cfg(feature = "solana-rpc")]

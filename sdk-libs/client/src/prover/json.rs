@@ -15,6 +15,17 @@ fn fe_to_string(bytes: &[u8; 32]) -> String {
     big_uint_to_string(&BigUint::from_bytes_be(bytes))
 }
 
+/// Fixed-width big-endian hex with a `0x` prefix, the encoding the prover
+/// expects for raw byte fields (unlike [`fe_to_string`], leading zeros are kept).
+pub fn hex64(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(2 + bytes.len() * 2);
+    out.push_str("0x");
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct UtxoParamsJson {
     #[serde(rename = "domain")]
