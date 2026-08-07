@@ -893,8 +893,6 @@ fn now_unix_ts() -> i64 {
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use zolana_client::timing;
-
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
     use zolana_keypair::{ShieldedKeypair, ViewingKey};
