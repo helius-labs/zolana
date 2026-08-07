@@ -1,8 +1,6 @@
-// Package ringutils holds the squads ring proof circuits. This first circuit
-// proves knowledge of a transaction's input and output UTXOs whose hashes fold,
-// with the external data hash, into a given private_tx_hash -- the public input
-// the ring proof shares with the SPP proof.
-package ringutils
+// Package squadsutils holds the squads zone proof circuits. private_tx_hash is
+// the public input a ring proof shares with the SPP proof.
+package squadsutils
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -18,7 +16,7 @@ const (
 )
 
 // Utxo is the witness of one UTXO. It carries the precomputed owner_hash and the
-// data and ring-program hashes; the circuit hashes the UTXO, matching
+// data and ring-program hashes. The circuit hashes the UTXO, matching
 // zolana_transaction's Utxo::hash.
 type Utxo struct {
 	OwnerHash       frontend.Variable
@@ -30,7 +28,6 @@ type Utxo struct {
 	RingProgramID   frontend.Variable
 }
 
-// Hash recomputes the UTXO hash from the witnessed owner_hash and fields.
 func (u Utxo) Hash(api frontend.API) frontend.Variable {
 	return transaction.UtxoHashCircuit(api, transaction.UtxoCircuitFields{
 		Domain:        transaction.UtxoDomain,
@@ -44,7 +41,6 @@ func (u Utxo) Hash(api frontend.API) frontend.Variable {
 	})
 }
 
-// PublicInputs are the ring circuit's public inputs.
 type PublicInputs struct {
 	PrivateTxHash frontend.Variable `gnark:",public"`
 	RingProgramID frontend.Variable `gnark:",public"`
