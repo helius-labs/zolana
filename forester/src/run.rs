@@ -227,10 +227,16 @@ fn report_queue_and_balance(rpc_url: &str, member: &Keypair, tree: Pubkey) {
                 snapshot.pending_queued,
                 snapshot.batch_capacity,
             );
-            crate::metrics::set_indexer_proof_count(
+            // Was published as forester_indexer_proof_count{metric="ready_zkp_batches"}:
+            // a queue statistic riding on an indexer metric, and the `metric`
+            // label is not one of the forester's CloudWatch dimensions, so it
+            // was dropped at the edge. These have their own names now, and the
+            // existing `^queue_.*$` selector picks them up unchanged.
+            crate::metrics::set_zkp_batches(
                 &tree_label,
-                "ready_zkp_batches",
+                snapshot.zkp_batch_size,
                 snapshot.ready,
+                snapshot.already_applied,
             );
         }
         Err(err) => tracing::debug!(%err, "metrics: tree snapshot unavailable"),

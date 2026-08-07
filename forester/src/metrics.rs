@@ -45,6 +45,9 @@ fn registry() -> &'static Mutex<Registry> {
 pub mod names {
     pub const QUEUE_LENGTH: &str = "queue_length";
     pub const QUEUE_CAPACITY: &str = "queue_capacity";
+    pub const QUEUE_ZKP_BATCH_SIZE: &str = "queue_zkp_batch_size";
+    pub const QUEUE_ZKP_BATCHES_READY: &str = "queue_zkp_batches_ready";
+    pub const QUEUE_ZKP_BATCHES_APPLIED: &str = "queue_zkp_batches_applied";
     pub const LAST_RUN_TIMESTAMP: &str = "forester_last_run_timestamp";
     pub const SOL_BALANCE: &str = "forester_sol_balance";
     pub const TRANSACTIONS_FAILED: &str = "forester_transactions_failed_total";
@@ -55,6 +58,9 @@ pub mod names {
     pub const ALL: &[&str] = &[
         QUEUE_LENGTH,
         QUEUE_CAPACITY,
+        QUEUE_ZKP_BATCH_SIZE,
+        QUEUE_ZKP_BATCHES_READY,
+        QUEUE_ZKP_BATCHES_APPLIED,
         LAST_RUN_TIMESTAMP,
         SOL_BALANCE,
         TRANSACTIONS_FAILED,
@@ -95,6 +101,36 @@ pub fn set_queue(tree_pubkey: &str, length: u64, capacity: u64) {
         &mut registry.gauges,
         names::QUEUE_CAPACITY,
         (tags, capacity as f64),
+    );
+}
+
+/// Record how the pending batch decomposes into zkp batches.
+///
+/// `queue_length` alone cannot answer "how much work is outstanding": the
+/// forester proves and submits a zkp batch at a time, so the unit of work is
+/// `zkp_batch_size` leaves. Publishing the size and both batch counts lets a
+/// dashboard show depth in leaves and in batches without hardcoding the size,
+/// which is on-chain configuration and can change.
+///
+/// `ready` is what still has to be proved and submitted; `applied` is what
+/// already has been for this batch.
+pub fn set_zkp_batches(tree_pubkey: &str, zkp_batch_size: u64, ready: u64, applied: u64) {
+    let tags = labels(&[("tree_type", "nullifier"), ("tree_pubkey", tree_pubkey)]);
+    let mut registry = registry().lock().expect("metrics registry poisoned");
+    set(
+        &mut registry.gauges,
+        names::QUEUE_ZKP_BATCH_SIZE,
+        (tags.clone(), zkp_batch_size as f64),
+    );
+    set(
+        &mut registry.gauges,
+        names::QUEUE_ZKP_BATCHES_READY,
+        (tags.clone(), ready as f64),
+    );
+    set(
+        &mut registry.gauges,
+        names::QUEUE_ZKP_BATCHES_APPLIED,
+        (tags, applied as f64),
     );
 }
 
@@ -317,6 +353,24 @@ mod tests {
         assert!(out.contains("# TYPE queue_length gauge"));
         assert!(out.contains(r#"queue_length{tree_pubkey="treeAbc",tree_type="nullifier"} 42"#));
         assert!(out.contains(r#"queue_capacity{tree_pubkey="treeAbc",tree_type="nullifier"} 500"#));
+    }
+
+    /// The dashboard shows queue depth in leaves and in batches. The batch size
+    /// is on-chain configuration, so it is published rather than hardcoded --
+    /// a dashboard dividing by a stale constant would quietly show the wrong
+    /// amount of outstanding work.
+    #[test]
+    fn zkp_batch_gauges_carry_size_and_both_counts() {
+        set_zkp_batches("treeZkp", 250, 3, 7);
+        let out = render();
+        assert!(out.contains("# TYPE queue_zkp_batches_ready gauge"));
+        assert!(out
+            .contains(r#"queue_zkp_batch_size{tree_pubkey="treeZkp",tree_type="nullifier"} 250"#));
+        assert!(out
+            .contains(r#"queue_zkp_batches_ready{tree_pubkey="treeZkp",tree_type="nullifier"} 3"#));
+        assert!(out.contains(
+            r#"queue_zkp_batches_applied{tree_pubkey="treeZkp",tree_type="nullifier"} 7"#
+        ));
     }
 
     #[test]
