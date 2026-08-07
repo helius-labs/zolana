@@ -269,7 +269,7 @@ impl ProverClient {
             .async_poll
             .poll_interval_secs
             .saturating_mul(1_000)
-            .max(INITIAL_POLL_MS);
+            .clamp(INITIAL_POLL_MS, MAX_POLL_INTERVAL_MS);
         let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1_000);
         let mut waited_ms = 0u64;
         let mut interval_ms = INITIAL_POLL_MS;
@@ -350,6 +350,16 @@ impl ProverClient {
 /// second, so the first poll should land almost immediately; the cost of being
 /// early is one cheap GET.
 const INITIAL_POLL_MS: u64 = 25;
+
+/// Ceiling on the gap between status polls.
+///
+/// An unbounded doubling trades the old bug for a smaller version of itself:
+/// with a 1s ceiling a proof that lands just after a poll waits up to another
+/// second. Under an 8-worker load test that showed as a 2025ms mean prove phase
+/// while the prover reported 0.267s of compute throughout, so the overshoot was
+/// most of what remained. 250ms bounds the wasted wait to a quarter second and
+/// still costs only about ten cheap status GETs for a 2s proof.
+const MAX_POLL_INTERVAL_MS: u64 = 250;
 
 /// Next gap in the backoff, doubling up to `cap_ms`.
 ///
@@ -487,14 +497,20 @@ impl AsyncProverClient {
 
     async fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
-        let poll_interval = self.async_poll.poll_interval_secs.max(1);
-        let max_wait = self.async_poll.max_wait_secs;
-        let mut waited = 0u64;
+        let poll_cap_ms = self
+            .async_poll
+            .poll_interval_secs
+            .saturating_mul(1_000)
+            .clamp(INITIAL_POLL_MS, MAX_POLL_INTERVAL_MS);
+        let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1_000);
+        let mut waited_ms = 0u64;
+        let mut interval_ms = INITIAL_POLL_MS;
         loop {
             let response = match self.http.get(&url).send().await {
                 Ok(response) => response,
                 Err(_) => {
-                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms).await?;
+                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
             };
@@ -509,14 +525,16 @@ impl AsyncProverClient {
                 )));
             }
             if status.is_server_error() {
-                async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms).await?;
+                interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 continue;
             }
 
             let text = match response.text().await {
                 Ok(text) => text,
                 Err(_) => {
-                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms).await?;
+                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
             };
@@ -534,7 +552,8 @@ impl AsyncProverClient {
                     )));
                 }
                 _ => {
-                    async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
+                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms).await?;
+                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 }
             }
         }
@@ -543,20 +562,20 @@ impl AsyncProverClient {
 
 async fn async_wait_or_timeout(
     job_id: &str,
-    waited: &mut u64,
-    max_wait: u64,
-    poll_interval: u64,
+    waited_ms: &mut u64,
+    max_wait_ms: u64,
+    poll_interval_ms: u64,
 ) -> Result<(), ClientError> {
-    if *waited >= max_wait {
-        let waited_secs = *waited;
+    if *waited_ms >= max_wait_ms {
+        let waited_secs = *waited_ms / 1_000;
         return Err(ClientError::ProverServer(format!(
             "async proof timed out after {waited_secs}s (job {job_id})"
         )));
     }
-    let remaining = max_wait.saturating_sub(*waited);
-    let sleep_secs = poll_interval.min(remaining);
-    async_sleep(Duration::from_secs(sleep_secs)).await;
-    *waited = (*waited).saturating_add(sleep_secs);
+    let remaining = max_wait_ms.saturating_sub(*waited_ms);
+    let sleep_ms = poll_interval_ms.min(remaining);
+    async_sleep(Duration::from_millis(sleep_ms)).await;
+    *waited_ms = (*waited_ms).saturating_add(sleep_ms);
     Ok(())
 }
 
