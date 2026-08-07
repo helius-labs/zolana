@@ -11,7 +11,6 @@
 //! - `solana-rpc`: concrete Solana RPC adapters
 //! - `client`: `indexer-api` + `solana-rpc`
 
-#[cfg(feature = "indexer-api")]
 pub mod client;
 pub mod error;
 #[cfg(feature = "indexer-api")]
@@ -21,6 +20,7 @@ pub mod retry;
 pub mod rpc;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
+pub mod timing;
 
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};

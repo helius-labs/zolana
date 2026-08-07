@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use zolana_client::timing;
 
 use solana_pubkey::Pubkey;
 use zolana_interface::{
@@ -188,7 +189,10 @@ pub async fn create_transfer<R: AsyncRpc>(
 pub fn create_transfer_sync<R: Rpc>(
     request: TransferParams<'_, R>,
 ) -> Result<CreatedTransfer, ClientError> {
-    let recipient = try_resolve_registered_address(request.rpc, request.recipient)?;
+    let recipient = {
+        let _t = timing::Phase::start("resolve_recipient", 0);
+        try_resolve_registered_address(request.rpc, request.recipient)?
+    };
     let spl_token_program = if recipient.is_none() {
         resolve_asset_token_program(request.rpc, request.asset)?
     } else {
@@ -728,10 +732,18 @@ pub fn sign_private_transaction_sync_with_signers<A: SyncWalletAuthority + ?Size
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<SolanaTransaction, ClientError> {
-    let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
-    let (blockhash, _) = client.rpc().get_latest_blockhash()?;
-    let mut native =
-        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey(), blockhash)?;
+    let shielded = {
+        let _t = timing::Phase::start("sign_shielded", 0);
+        sign_shielded_transaction_sync(transaction, wallet, authority)?
+    };
+    let (blockhash, _) = {
+        let _t = timing::Phase::start("get_latest_blockhash", 0);
+        client.rpc().get_latest_blockhash()?
+    };
+    let mut native = {
+        let _t = timing::Phase::start("finish_submission", 0);
+        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey(), blockhash)?
+    };
     let mut signers = Vec::with_capacity(1 + additional_native_signers.len());
     signers.push(fee_payer);
     signers.extend_from_slice(additional_native_signers);
