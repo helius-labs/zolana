@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// ProofRequestMeta contains metadata extracted from a proof request
 type ProofRequestMeta struct {
 	CircuitType       CircuitType
 	Version           uint32
@@ -15,14 +14,13 @@ type ProofRequestMeta struct {
 	NumInputs         uint32
 	NumOutputs        uint32
 	NumAddresses      uint32
-	// TreeID is the merkle tree pubkey - used for fair queuing across trees
+	// TreeID is the merkle tree pubkey. The queue schedules fairly across trees.
 	TreeID string
-	// BatchIndex is the batch sequence number within a tree - used to process batches in order
-	// Lower batch indices should be processed first to enable sequential transaction submission
+	// BatchIndex orders batches within a tree. Lower indices are processed first
+	// so transactions can be submitted sequentially.
 	BatchIndex int64
 }
 
-// ParseProofRequestMeta parses a JSON input and extracts CircuitType, tree heights, and additional metrics.
 func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 	var rawInput map[string]interface{}
 	err := json.Unmarshal(data, &rawInput)
@@ -30,13 +28,11 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		return ProofRequestMeta{}, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
-	// Extract AddressTreeHeight
 	addressTreeHeight := uint32(0)
 	if height, ok := rawInput["addressTreeHeight"].(float64); ok && height > 0 {
 		addressTreeHeight = uint32(height)
 	}
 
-	// Extract AddressTreeHeight
 	treeHeight := uint32(0)
 	if height, ok := rawInput["treeHeight"].(float64); ok && height > 0 {
 		treeHeight = uint32(height)
@@ -45,29 +41,30 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 	if height, ok := rawInput["height"].(float64); ok && height > 0 && treeHeight == 0 {
 		treeHeight = uint32(height)
 	}
-	// Extract StateTreeHeight
 	stateTreeHeight := uint32(0)
 	if height, ok := rawInput["stateTreeHeight"].(float64); ok && height > 0 {
 		stateTreeHeight = uint32(height)
 	}
 
-	// Extract CircuitType
 	circuitType, ok := rawInput["circuitType"].(string)
 	if !ok || circuitType == "" {
 		return ProofRequestMeta{}, fmt.Errorf("missing or invalid 'circuitType' %s", rawInput)
 	}
 
-	// Transfer and merge circuits are keyed by their fixed shape instead of a
-	// tree height, so they are exempt from the tree-height requirement below.
-	isTransfer := CircuitType(circuitType) == TransferConfidentialCircuitType ||
+	// Transfer, merge, aggregate, and merge-chain circuits are keyed by their
+	// fixed shape instead of a tree height, so they are exempt from the
+	// tree-height requirement below.
+	isShapeKeyed := CircuitType(circuitType) == TransferConfidentialCircuitType ||
 		CircuitType(circuitType) == TransferRingCircuitType ||
 		CircuitType(circuitType) == TransferP256RingCircuitType ||
 		CircuitType(circuitType) == TransferRingAuthorityCircuitType ||
+		CircuitType(circuitType) == AggregateCircuitType ||
 		CircuitType(circuitType) == MergeCircuitType ||
-		CircuitType(circuitType) == MergeRingCircuitType
+		CircuitType(circuitType) == MergeRingCircuitType ||
+		CircuitType(circuitType) == MergeChainCircuitType
 
-	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the
-	// handler re-reads the authoritative values from the unmarshalled params.
+	// nInputs/nOutputs feed logging and metrics only. The handler re-reads the
+	// authoritative values from the unmarshalled params.
 	nInputs := uint32(0)
 	if v, ok := rawInput["nInputs"].(float64); ok && v > 0 {
 		nInputs = uint32(v)
@@ -77,8 +74,8 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		nOutputs = uint32(v)
 	}
 
-	if !isTransfer && addressTreeHeight == 0 && stateTreeHeight == 0 && treeHeight == 0 {
-		return ProofRequestMeta{}, fmt.Errorf("no 'addressTreeHeight' or stateTreeHeight'or 'treeHeight' provided")
+	if !isShapeKeyed && addressTreeHeight == 0 && stateTreeHeight == 0 && treeHeight == 0 {
+		return ProofRequestMeta{}, fmt.Errorf("no 'addressTreeHeight', 'stateTreeHeight', or 'treeHeight' provided")
 	}
 
 	version := uint32(1)
@@ -87,30 +84,26 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		version = 2
 	}
 
-	// Extract InclusionInputs length
 	numInputs := 0
 	if inclusionInputs, ok := rawInput["inputCompressedAccounts"].([]interface{}); ok {
 		numInputs = len(inclusionInputs)
 	}
 	// Transfer circuits report their shape via nInputs/nOutputs.
-	if isTransfer {
+	if isShapeKeyed {
 		numInputs = int(nInputs)
 	}
 
-	// Extract NonInclusionInputs length
 	numAddresses := 0
 	if nonInclusionInputs, ok := rawInput["newAddresses"].([]interface{}); ok {
 		numAddresses = len(nonInclusionInputs)
 	}
 
-	// Extract TreeID for fair queuing
 	treeID := ""
 	if id, ok := rawInput["treeId"].(string); ok {
 		treeID = id
 	}
 
-	// Extract BatchIndex for ordering proofs within a tree
-	// Default to -1 to indicate no batch index (legacy requests)
+	// -1 means the request carries no batch index.
 	batchIndex := int64(-1)
 	if idx, ok := rawInput["batchIndex"].(float64); ok {
 		batchIndex = int64(idx)

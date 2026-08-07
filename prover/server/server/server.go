@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 	"zolana/prover/logging"
+	aggregateprover "zolana/prover/prover/aggregate"
 	"zolana/prover/prover/common"
 	mergeprover "zolana/prover/prover/merge"
+	mergechainprover "zolana/prover/prover/merge_chain"
+	nullifierfoldprover "zolana/prover/prover/nullifier_fold"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
@@ -1095,6 +1098,13 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "zk_address_append_queue"
+	case common.AggregateCircuitType,
+		common.NullifierFoldCircuitType,
+		common.MergeChainCircuitType:
+		// These recursive requests contain proofs and public commitments, not
+		// wallet secrets. Raw transfer and merge proof inputs are deliberately
+		// synchronous so Redis never persists their private key material.
+		return "zk_transfer_queue"
 	case common.TransferConfidentialCircuitType,
 		common.TransferRingCircuitType,
 		common.TransferP256RingCircuitType,
@@ -1111,6 +1121,8 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	switch circuitType {
 	case common.BatchAddressAppendCircuitType:
 		return "10-30 seconds"
+	case common.AggregateCircuitType, common.NullifierFoldCircuitType, common.MergeChainCircuitType:
+		return "60-600 seconds"
 	case common.TransferP256RingCircuitType:
 		return "30-180 seconds"
 	default:
@@ -1153,6 +1165,12 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
+	case common.AggregateCircuitType:
+		return handler.aggregateProof(buf)
+	case common.NullifierFoldCircuitType:
+		return handler.nullifierFoldProof(buf)
+	case common.MergeChainCircuitType:
+		return handler.mergeChainProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
@@ -1261,6 +1279,61 @@ func (handler proveHandler) transferP256Proof(buf []byte) (*common.Proof, *Error
 		return nil, provingError(fmt.Errorf("transfer-p256: %w", err))
 	}
 	proof, err := transfereddsaonly.ProveP256Transfer(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) aggregateProof(buf []byte) (*common.Proof, *Error) {
+	var params aggregateprover.Parameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetAggregateSystemSlots(params.Params.Slots)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("aggregate: %w", err))
+	}
+	proof, err := aggregateprover.ProveAggregate(ps, params.Legs)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) nullifierFoldProof(buf []byte) (*common.Proof, *Error) {
+	var params nullifierfoldprover.Parameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetNullifierFoldSystem(
+		params.Params.TreeHeight,
+		params.Params.BatchSize,
+		params.Params.Run,
+	)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("nullifier-fold: %w", err))
+	}
+	proof, err := nullifierfoldprover.ProveFold(ps, params.Run)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) mergeChainProof(buf []byte) (*common.Proof, *Error) {
+	var params mergechainprover.Parameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetMergeChainSystem(params.Params.Levels32())
+	if err != nil {
+		return nil, provingError(fmt.Errorf("merge chain: %w", err))
+	}
+	proof, err := mergechainprover.ProveMergeChain(ps, params.Params, params.Legs)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)

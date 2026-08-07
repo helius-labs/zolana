@@ -9,15 +9,21 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 	"zolana/prover/logging"
+	aggregateprover "zolana/prover/prover/aggregate"
 	"zolana/prover/prover/common"
 	"zolana/prover/prover/extractor"
 	mergeprover "zolana/prover/prover/merge"
+	mergechainprover "zolana/prover/prover/merge_chain"
+	nullifierfoldprover "zolana/prover/prover/nullifier_fold"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 	"zolana/prover/server"
 
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/constraint"
 	gnarkLogger "github.com/consensys/gnark/logger"
 	"github.com/urfave/cli/v2"
@@ -180,6 +186,189 @@ func runCli() {
 				},
 			},
 			{
+				Name:  "setup-aggregate",
+				Usage: "Trusted setup for one aggregate proving system. Needs the inner key it batches.",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the batched circuit", Required: true},
+					&cli.UintFlag{Name: "batch", Usage: "Number of proofs per aggregate", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					innerPath := context.String("inner-keys-file")
+					batch := uint32(context.Uint("batch"))
+					path := context.String("output")
+
+					// The outer circuit compiles in the inner verifying key, so
+					// an inner key that is not the pinned one produces an
+					// aggregate key no on-chain verifying key matches.
+					if err := common.EnsureProvingKey(innerPath, false, nil); err != nil {
+						return fmt.Errorf("inner key is not the pinned one: %w", err)
+					}
+
+					system, err := common.ReadSystemFromFile(innerPath)
+					if err != nil {
+						return fmt.Errorf("read inner keys: %w", err)
+					}
+					inner, ok := system.(*common.TransferProofSystem)
+					if !ok {
+						return fmt.Errorf("%s is not a transfer proving system", innerPath)
+					}
+
+					params := aggregateprover.Uniform(inner.CircuitType, inner.NInputs, inner.NOutputs, batch)
+					ps, err := aggregateprover.SetupAggregateUniform(params, inner)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Str("key", ps.KeyName()).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Aggregate proving system written")
+					return nil
+				},
+			},
+			{
+				Name: "setup-aggregate-mix",
+				Usage: "Trusted setup for one mixed aggregate proving system. " +
+					"Slots in order, one --slot per leg, \"<inner-key-file>\" for a transfer rail " +
+					"or \"swap-take:<raw-vk-file>\" for the swap take circuit.",
+				Flags: []cli.Flag{
+					&cli.StringSliceFlag{Name: "slot", Usage: "Inner key of one slot, in batch order", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					path := context.String("output")
+
+					var slots []common.AggregateSlot
+					var vks []groth16.VerifyingKey
+					for _, spec := range context.StringSlice("slot") {
+						slot, vk, err := readAggregateSlot(spec)
+						if err != nil {
+							return err
+						}
+						slots = append(slots, slot)
+						vks = append(vks, vk)
+					}
+
+					ps, err := aggregateprover.SetupAggregate(aggregateprover.Params{Slots: slots}, vks)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Str("key", ps.KeyName()).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Mixed aggregate proving system written")
+					return nil
+				},
+			},
+			{
+				Name:  "setup-nullifier-fold",
+				Usage: "Trusted setup for one nullifier fold proving system. Needs the append key it folds.",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the folded append circuit", Required: true},
+					&cli.UintFlag{Name: "run", Usage: "Number of appends per fold", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					innerPath := context.String("inner-keys-file")
+					run := uint32(context.Uint("run"))
+					path := context.String("output")
+
+					if err := common.EnsureProvingKey(innerPath, false, nil); err != nil {
+						return fmt.Errorf("inner key is not the pinned one: %w", err)
+					}
+
+					system, err := common.ReadSystemFromFile(innerPath)
+					if err != nil {
+						return fmt.Errorf("read inner keys: %w", err)
+					}
+					inner, ok := system.(*common.BatchProofSystem)
+					if !ok {
+						return fmt.Errorf("%s is not a batch proving system", innerPath)
+					}
+
+					params := nullifierfoldprover.Params{
+						TreeHeight: inner.TreeHeight,
+						BatchSize:  inner.BatchSize,
+						Run:        run,
+					}
+					ps, err := nullifierfoldprover.SetupFold(params, inner)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("tree_height", ps.TreeHeight).
+						Uint32("batch_size", ps.BatchSize).
+						Uint32("run", ps.Run).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Nullifier fold proving system written")
+					return nil
+				},
+			},
+			{
+				Name:  "setup-merge-chain",
+				Usage: "Trusted setup for one merge chain proving system. Needs the merge key it chains.",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the merge circuit", Required: true},
+					&cli.UintSliceFlag{Name: "levels", Usage: "Legs per level, bottom level first, top level 1", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					innerPath := context.String("inner-keys-file")
+					path := context.String("output")
+					levels := make([]int, 0, len(context.UintSlice("levels")))
+					for _, n := range context.UintSlice("levels") {
+						levels = append(levels, int(n))
+					}
+
+					if err := common.EnsureProvingKey(innerPath, false, nil); err != nil {
+						return fmt.Errorf("merge key is not the pinned one: %w", err)
+					}
+
+					system, err := common.ReadSystemFromFile(innerPath)
+					if err != nil {
+						return fmt.Errorf("read merge keys: %w", err)
+					}
+					inner, ok := system.(*common.TransferProofSystem)
+					if !ok {
+						return fmt.Errorf("%s is not a merge proving system", innerPath)
+					}
+
+					ps, err := mergechainprover.SetupMergeChain(mergechainprover.Params{Levels: levels}, inner)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Str("levels", common.MergeChainLevelName(ps.Levels)).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Merge chain proving system written")
+					return nil
+				},
+			},
+			{
 				Name: "r1cs",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
@@ -307,6 +496,12 @@ func runCli() {
 					case *common.BatchProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.TransferProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.AggregateProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.NullifierFoldProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.MergeChainProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:
 						return fmt.Errorf("unknown proving system type")
@@ -946,4 +1141,50 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 			}
 		}
 	}()
+}
+
+func readAggregateSlot(spec string) (common.AggregateSlot, groth16.VerifyingKey, error) {
+	if vkPath, ok := strings.CutPrefix(spec, "swap-take:"); ok {
+		file, err := os.Open(vkPath)
+		if err != nil {
+			return common.AggregateSlot{}, nil, err
+		}
+		defer func() {
+			if cerr := file.Close(); cerr != nil {
+				logging.Logger().Error().Err(cerr).Msg("error closing file")
+			}
+		}()
+		vk := groth16.NewVerifyingKey(ecc.BN254)
+		if _, err := vk.ReadFrom(file); err != nil {
+			return common.AggregateSlot{}, nil, fmt.Errorf("read take verifying key %s: %w", vkPath, err)
+		}
+		return common.AggregateSlot{Inner: common.SwapTakeCircuitType}, vk, nil
+	}
+
+	if err := common.EnsureProvingKey(spec, false, nil); err != nil {
+		return common.AggregateSlot{}, nil, fmt.Errorf("inner key is not the pinned one: %w", err)
+	}
+	system, err := common.ReadSystemFromFile(spec)
+	if err != nil {
+		return common.AggregateSlot{}, nil, fmt.Errorf("read inner keys: %w", err)
+	}
+	inner, ok := system.(*common.TransferProofSystem)
+	if !ok {
+		return common.AggregateSlot{}, nil, fmt.Errorf("%s is not a transfer proving system", spec)
+	}
+	slot := common.AggregateSlot{Inner: inner.CircuitType, NInputs: inner.NInputs, NOutputs: inner.NOutputs}
+	return slot, inner.VerifyingKey, nil
+}
+
+func writeProvingSystem(ps io.WriterTo, path string) (int64, error) {
+	file, err := os.Create(path)
+	if err != nil {
+		return 0, err
+	}
+	defer func(file *os.File) {
+		if cerr := file.Close(); cerr != nil {
+			logging.Logger().Error().Err(cerr).Msg("error closing file")
+		}
+	}(file)
+	return ps.WriteTo(file)
 }

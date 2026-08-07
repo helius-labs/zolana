@@ -8,8 +8,11 @@ import (
 	"strconv"
 	"time"
 	"zolana/prover/logging"
+	aggregateprover "zolana/prover/prover/aggregate"
 	"zolana/prover/prover/common"
 	mergeprover "zolana/prover/prover/merge"
+	mergechainprover "zolana/prover/prover/merge_chain"
+	nullifierfoldprover "zolana/prover/prover/nullifier_fold"
 	"zolana/prover/prover/nullifier_tree"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 )
@@ -548,6 +551,12 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
 	case common.MergeRingCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
+	case common.AggregateCircuitType:
+		proof, proofError = w.processAggregateProof(job.Payload)
+	case common.NullifierFoldCircuitType:
+		proof, proofError = w.processNullifierFoldProof(job.Payload)
+	case common.MergeChainCircuitType:
+		proof, proofError = w.processMergeChainProof(job.Payload)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -586,6 +595,46 @@ func (w *BaseQueueWorker) processBatchAddressAppendProof(payload json.RawMessage
 
 	logging.Logger().Info().Msg("Processing batch address append proof")
 	return nullifiertree.ProveBatchAddressAppend(ps, &params)
+}
+
+func (w *BaseQueueWorker) processAggregateProof(payload json.RawMessage) (*common.Proof, error) {
+	var params aggregateprover.Parameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal aggregate params: %w", err)
+	}
+	ps, err := w.keyManager.GetAggregateSystemSlots(params.Params.Slots)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate: %w", err)
+	}
+	return aggregateprover.ProveAggregate(ps, params.Legs)
+}
+
+func (w *BaseQueueWorker) processNullifierFoldProof(payload json.RawMessage) (*common.Proof, error) {
+	var params nullifierfoldprover.Parameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal nullifier-fold params: %w", err)
+	}
+	ps, err := w.keyManager.GetNullifierFoldSystem(
+		params.Params.TreeHeight,
+		params.Params.BatchSize,
+		params.Params.Run,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("nullifier-fold: %w", err)
+	}
+	return nullifierfoldprover.ProveFold(ps, params.Run)
+}
+
+func (w *BaseQueueWorker) processMergeChainProof(payload json.RawMessage) (*common.Proof, error) {
+	var params mergechainprover.Parameters
+	if err := json.Unmarshal(payload, &params); err != nil {
+		return nil, fmt.Errorf("unmarshal merge-chain params: %w", err)
+	}
+	ps, err := w.keyManager.GetMergeChainSystem(params.Params.Levels32())
+	if err != nil {
+		return nil, fmt.Errorf("merge chain: %w", err)
+	}
+	return mergechainprover.ProveMergeChain(ps, params.Params, params.Legs)
 }
 
 func (w *BaseQueueWorker) processTransferEddsaProof(payload json.RawMessage) (*common.Proof, error) {
