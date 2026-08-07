@@ -205,6 +205,7 @@ impl ProverClient {
 
     fn send(&self, body: String) -> Result<Proof, ClientError> {
         let url = format!("{}{}", self.server_address, PROVE_PATH);
+        crate::timing::note(0, "prover_request_bytes", body.len());
         let mut attempt = 0;
         let response = loop {
             attempt += 1;
@@ -255,14 +256,24 @@ impl ProverClient {
     /// Poll the async job status endpoint until the queued proof completes.
     fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
-        let poll_interval = self.async_poll.poll_interval_secs.max(1);
-        let max_wait = self.async_poll.max_wait_secs;
-        let mut waited = 0u64;
+        // The configured interval caps the backoff rather than setting it. This
+        // used to be `.max(1)` and `sleep_secs`, which put a hard 1s floor on
+        // every proof: a 270ms proof measured 3.3s end to end, essentially all
+        // of it spent asleep between polls.
+        let poll_cap_ms = self
+            .async_poll
+            .poll_interval_secs
+            .saturating_mul(1_000)
+            .max(INITIAL_POLL_MS);
+        let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1_000);
+        let mut waited_ms = 0u64;
+        let mut interval_ms = INITIAL_POLL_MS;
         loop {
             let response = match self.http.get(&url).send() {
                 Ok(response) => response,
                 Err(_) => {
-                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms)?;
+                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
             };
@@ -277,14 +288,16 @@ impl ProverClient {
                 )));
             }
             if status.is_server_error() {
-                wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms)?;
+                interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 continue;
             }
 
             let text = match response.text() {
                 Ok(text) => text,
                 Err(_) => {
-                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms)?;
+                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
             };
@@ -305,7 +318,8 @@ impl ProverClient {
                 }
                 // queued / processing / unknown: keep polling until the bound.
                 _ => {
-                    wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
+                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms)?;
+                    interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 }
             }
         }
@@ -327,22 +341,38 @@ impl ProverClient {
     }
 }
 
+/// First gap between status polls. A transfer proof completes in well under a
+/// second, so the first poll should land almost immediately; the cost of being
+/// early is one cheap GET.
+const INITIAL_POLL_MS: u64 = 25;
+
+/// Next gap in the backoff, doubling up to `cap_ms`.
+///
+/// The configured poll interval is the CEILING, not a fixed period: a proof that
+/// finishes in 270ms should not wait a full second to be collected, but a proof
+/// that takes a minute should not be polled 2400 times either.
+fn next_poll_interval_ms(current_ms: u64, cap_ms: u64) -> u64 {
+    current_ms
+        .saturating_mul(2)
+        .min(cap_ms.max(INITIAL_POLL_MS))
+}
+
 fn wait_or_timeout(
     job_id: &str,
-    waited: &mut u64,
-    max_wait: u64,
-    poll_interval: u64,
+    waited_ms: &mut u64,
+    max_wait_ms: u64,
+    poll_interval_ms: u64,
 ) -> Result<(), ClientError> {
-    if *waited >= max_wait {
-        let waited_secs = *waited;
+    if *waited_ms >= max_wait_ms {
+        let waited_secs = *waited_ms / 1_000;
         return Err(ClientError::ProverServer(format!(
             "async proof timed out after {waited_secs}s (job {job_id})"
         )));
     }
-    let remaining = max_wait.saturating_sub(*waited);
-    let sleep_secs = poll_interval.min(remaining);
-    sleep(Duration::from_secs(sleep_secs));
-    *waited = (*waited).saturating_add(sleep_secs);
+    let remaining = max_wait_ms.saturating_sub(*waited_ms);
+    let sleep_ms = poll_interval_ms.min(remaining);
+    sleep(Duration::from_millis(sleep_ms));
+    *waited_ms = (*waited_ms).saturating_add(sleep_ms);
     Ok(())
 }
 
@@ -742,6 +772,64 @@ mod tests {
         assert_eq!(
             prover_start_command("zolana", 3001, Some("  ")),
             "zolana dev prover start --prover-port 3001"
+        );
+    }
+
+    /// The prover is queue-backed: `/prove` returns a job handle and the proof
+    /// is collected by polling. The gap between polls used to be
+    /// `Duration::from_secs(poll_interval.max(1))`, so a proof the server
+    /// finished in 270ms was not collected for a further second or more --
+    /// measured on devnet as 3.3s end to end for 270ms of proving, which made
+    /// the prover call the largest phase of a transfer for no real reason.
+    ///
+    /// Asserts wall-clock rather than the sleep arithmetic, because the bug was
+    /// only visible as latency.
+    #[test]
+    fn a_proof_ready_on_the_first_poll_is_not_held_for_a_whole_second() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "job-1", "status": "queued" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": { "proof": gnark_proof(), "proof_duration_ms": 7 },
+                }),
+            ),
+        ]);
+        let started = std::time::Instant::now();
+        queued_prover_client(server.url())
+            .send("{}".to_string())
+            .expect("queued proof should complete");
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "collecting a ready proof took {elapsed:?}; the poll interval is a \
+             ceiling, not a floor"
+        );
+    }
+
+    /// The configured interval bounds the backoff instead of fixing it, so a
+    /// long proof still settles into infrequent polling.
+    #[test]
+    fn poll_backoff_doubles_up_to_the_configured_ceiling() {
+        let cap = 1_000;
+        let mut interval = INITIAL_POLL_MS;
+        let mut seen = vec![interval];
+        for _ in 0..8 {
+            interval = next_poll_interval_ms(interval, cap);
+            seen.push(interval);
+        }
+        assert_eq!(seen[0], 25, "first poll lands almost immediately");
+        assert_eq!(&seen[1..4], &[50, 100, 200]);
+        assert_eq!(
+            *seen.last().expect("non-empty"),
+            cap,
+            "backoff settles at the configured interval"
+        );
+        assert!(
+            seen.windows(2).all(|w| w[1] >= w[0]),
+            "backoff is monotonic"
         );
     }
 

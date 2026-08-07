@@ -4,6 +4,8 @@ use std::{
 };
 
 use solana_address::Address;
+
+use zolana_client::timing;
 use zolana_interface::{
     event::{decode_encrypted_ring_deposit_output_data, decode_output_data},
     state::SplAssetRegistry,
@@ -25,51 +27,6 @@ use zolana_client::{
 const DEFAULT_TAG_QUERY_CHUNK: usize = 64;
 const DEFAULT_PAGE_LIMIT: u32 = 1_000;
 const DEFAULT_SYNC_ROUNDS: usize = 6;
-
-mod timing {
-    use std::{
-        sync::OnceLock,
-        time::{Duration, Instant},
-    };
-
-    fn enabled() -> bool {
-        static ON: OnceLock<bool> = OnceLock::new();
-        *ON.get_or_init(|| std::env::var_os("ZOLANA_TIMING").is_some())
-    }
-
-    /// Emit a scalar observation (counts, sizes) alongside the phase timings.
-    pub(super) fn note(round: usize, key: &str, value: usize) {
-        if enabled() {
-            eprintln!("timing round={round} {key}={value}");
-        }
-    }
-
-    /// Times from construction to drop, so `?` early-returns still report.
-    pub(super) struct Phase {
-        name: &'static str,
-        round: usize,
-        started: Instant,
-    }
-
-    impl Phase {
-        pub(super) fn start(name: &'static str, round: usize) -> Self {
-            Self {
-                name,
-                round,
-                started: Instant::now(),
-            }
-        }
-    }
-
-    impl Drop for Phase {
-        fn drop(&mut self) {
-            if enabled() {
-                let ms = self.started.elapsed().max(Duration::ZERO).as_millis();
-                eprintln!("timing round={} phase={} ms={}", self.round, self.name, ms);
-            }
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SyncWalletConfig {
@@ -754,6 +711,8 @@ fn now_unix_ts() -> i64 {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
+    use zolana_client::timing;
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
