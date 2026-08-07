@@ -111,7 +111,7 @@ impl TakerOrderCandidate {
     }
 }
 
-pub fn index_taker<I: Rpc, R: Rpc>(
+pub fn index_taker<I: Rpc + Sync, R: Rpc>(
     wallet: &mut Wallet,
     keypair: &ShieldedKeypair,
     indexer: &I,
