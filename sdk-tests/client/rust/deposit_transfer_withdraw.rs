@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use client_example::{setup, SetupContext};
-use solana_signer::Signer;
 use solana_signature::Signature;
+use solana_signer::Signer;
 use zolana_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
 use zolana_interface::instruction::{
     AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
