@@ -11,11 +11,15 @@ use zolana_batched_merkle_tree::{
     errors::BatchedMerkleTreeError,
     initialize_address_tree::InitAddressTreeAccountsInstructionData,
     merkle_tree::{
-        get_merkle_tree_account_size, BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
+        get_merkle_tree_account_size, BatchedMerkleTreeAccount, FoldedAddressAppendInputs,
+        InstructionDataAddressAppendInputs,
     },
-    verify::CompressedProof,
+    verify::{CommittedProof, CompressedProof},
 };
-use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
+use zolana_client::{
+    spawn_prover, BatchAddressAppendInputs, FoldAppend, NullifierFoldInputs, Proof,
+    ProofCompressed, ProverClient,
+};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 
@@ -80,6 +84,9 @@ struct PreparedUpdate {
 struct NullifierForester {
     reference: IndexedMerkleTree<Poseidon, usize>,
     inserted_into_tree: usize,
+    /// Retained by `prepare_pending_batch` so a fold can reuse the same proofs
+    /// the sequential path would submit.
+    append_proofs: Vec<Proof>,
 }
 
 impl NullifierForester {
@@ -87,6 +94,7 @@ impl NullifierForester {
         Self {
             reference: reference_nullifier_tree(),
             inserted_into_tree: 0,
+            append_proofs: Vec::new(),
         }
     }
 
@@ -182,6 +190,7 @@ impl NullifierForester {
             let proof = ProverClient::local()
                 .prove_batch_address_append(&inputs)
                 .unwrap();
+            self.append_proofs.push(proof);
             let compressed = ProofCompressed::try_from(proof).unwrap();
             let instruction = InstructionDataAddressAppendInputs {
                 new_root,
@@ -616,4 +625,228 @@ fn nullifier_tree_submit_index_errors() {
             .unwrap_err(),
         BatchedMerkleTreeError::HashChainNotReady
     );
+}
+
+/// A folded run must land the tree in exactly the state the same appends would
+/// have reached one at a time, while appending only the span's final root.
+///
+/// This is the property the fold trades on. The intermediate roots are private
+/// to the proof and never enter root history, so the check is that `next_index`,
+/// the inserted-batch count, and the final root all match, not that history
+/// matches append-by-append.
+#[test]
+fn nullifier_tree_folded_run_matches_sequential_appends() {
+    spawn_prover().unwrap();
+    const RUN: u32 = 2;
+
+    let mut rng = StdRng::seed_from_u64(7);
+    let pubkey = Address::new_unique();
+    let mut account_data =
+        vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, NUM_ITERS, BLOOM, ZKP>()];
+    init_nullifier_tree(&mut account_data, &pubkey);
+
+    let mut forester = NullifierForester::new();
+    let mut queued: Vec<[u8; 32]> = Vec::new();
+    let prepared = fill_pending_batch_and_prepare(
+        &mut account_data,
+        &pubkey,
+        &mut forester,
+        &mut queued,
+        &mut rng,
+        RUN as usize * ZKP_BATCH_SIZE as usize,
+    );
+    assert_eq!(
+        prepared.len(),
+        RUN as usize,
+        "expected one update per zkp batch"
+    );
+
+    let (old_root, old_next_index, span_end) = {
+        let account = load_nullifier_tree(&mut account_data, &pubkey);
+        (
+            account.get_root().unwrap(),
+            account.get_metadata().next_index,
+            prepared.last().unwrap().new_root,
+        )
+    };
+    assert_eq!(
+        old_root, prepared[0].instruction.old_root,
+        "the run must start at the account tree root"
+    );
+
+    // Prove the fold over the same appends the sequential path would submit.
+    let appends: Vec<FoldAppend> = prepared
+        .iter()
+        .enumerate()
+        .map(|(i, update)| {
+            let account = load_nullifier_tree(&mut account_data, &pubkey);
+            let pending = account.get_metadata().queue_batches.pending_batch_index as usize;
+            FoldAppend {
+                proof: forester.append_proofs[i],
+                old_root: update.instruction.old_root,
+                new_root: update.new_root,
+                hashchain_hash: account
+                    .get_hash_chain(pending, update.instruction.zkp_batch_index as usize)
+                    .unwrap(),
+                start_index: old_next_index + i as u64 * ZKP_BATCH_SIZE,
+            }
+        })
+        .collect();
+
+    let fold = ProverClient::local()
+        .prove_nullifier_fold(&NullifierFoldInputs {
+            tree_height: HEIGHT,
+            batch_size: ZKP_BATCH_SIZE as u32,
+            appends,
+        })
+        .unwrap();
+    let compressed = ProofCompressed::try_from(fold).unwrap();
+
+    let event = {
+        let mut account = load_nullifier_tree(&mut account_data, &pubkey);
+        account
+            .update_tree_from_address_queue_folded(
+                &FoldedAddressAppendInputs {
+                    old_root,
+                    new_root: span_end,
+                    proof: CommittedProof {
+                        proof: CompressedProof {
+                            a: compressed.a,
+                            b: compressed.b,
+                            c: compressed.c,
+                        },
+                        commitment: compressed.commitment.unwrap().commitment,
+                        commitment_pok: compressed.commitment.unwrap().commitment_pok,
+                    },
+                },
+                RUN,
+            )
+            .unwrap()
+    };
+
+    assert_eq!(event.num_update, RUN, "the event must report the whole run");
+    assert_eq!(event.new_root, span_end);
+    assert_eq!(event.old_next_index, old_next_index);
+
+    let account = load_nullifier_tree(&mut account_data, &pubkey);
+    let metadata = account.get_metadata();
+    assert_eq!(
+        metadata.next_index,
+        old_next_index + u64::from(RUN) * ZKP_BATCH_SIZE,
+        "the tree must advance by the whole span"
+    );
+    assert_eq!(
+        account.get_root().unwrap(),
+        span_end,
+        "the account root must be the span's final root"
+    );
+    assert_eq!(
+        metadata.queue_batches.batches[metadata.queue_batches.pending_batch_index as usize]
+            .get_num_inserted_zkps(),
+        u64::from(RUN),
+        "every zkp batch in the run must be marked inserted"
+    );
+    assert_eq!(
+        forester.reference.root(),
+        span_end,
+        "the reference tree the appends were built against must agree"
+    );
+}
+
+/// Queue nullifiers without proving anything. Enough to finalize hash chains,
+/// which is all the fold guards read before they reject.
+fn queue_nullifiers(account_data: &mut [u8], pubkey: &Address, rng: &mut StdRng, count: usize) {
+    for _ in 0..count {
+        let nullifier = random_nullifier(rng);
+        let mut account = load_nullifier_tree(account_data, pubkey);
+        account.insert_nullifier_into_queue(&nullifier).unwrap();
+    }
+}
+
+fn folded_inputs(old_root: [u8; 32], new_root: [u8; 32]) -> FoldedAddressAppendInputs {
+    FoldedAddressAppendInputs {
+        old_root,
+        new_root,
+        proof: CommittedProof {
+            proof: CompressedProof {
+                a: [0u8; 32],
+                b: [0u8; 64],
+                c: [0u8; 32],
+            },
+            commitment: [0u8; 32],
+            commitment_pok: [0u8; 32],
+        },
+    }
+}
+
+/// Every fold guard names its own cause, so a forester can tell a run it sent
+/// too early from a run the tree will never accept.
+#[test]
+fn nullifier_tree_fold_rejects_each_bad_run_by_cause() {
+    let mut rng = StdRng::seed_from_u64(11);
+    let pubkey = Address::new_unique();
+    let mut account_data =
+        vec![0u8; get_merkle_tree_account_size::<ROOT_HISTORY, NUM_ITERS, BLOOM, ZKP>()];
+    init_nullifier_tree(&mut account_data, &pubkey);
+
+    let root = load_nullifier_tree(&mut account_data, &pubkey)
+        .get_root()
+        .unwrap();
+
+    // A run of one is a plain append, and no fold key is generated for it.
+    let mut account = load_nullifier_tree(&mut account_data, &pubkey);
+    assert_eq!(
+        account
+            .update_tree_from_address_queue_folded(&folded_inputs(root, [1u8; 32]), 1)
+            .unwrap_err(),
+        BatchedMerkleTreeError::FoldedRunTooShort
+    );
+
+    // Nothing is queued, so the run reaches past the finalized zkp batches.
+    let mut account = load_nullifier_tree(&mut account_data, &pubkey);
+    assert_eq!(
+        account
+            .update_tree_from_address_queue_folded(&folded_inputs(root, [1u8; 32]), 2)
+            .unwrap_err(),
+        BatchedMerkleTreeError::FoldedRunNotReady
+    );
+
+    queue_nullifiers(
+        &mut account_data,
+        &pubkey,
+        &mut rng,
+        3 * ZKP_BATCH_SIZE as usize,
+    );
+
+    // A span that does not start at the account tree root costs no pairing.
+    let mut account = load_nullifier_tree(&mut account_data, &pubkey);
+    assert_eq!(
+        account
+            .update_tree_from_address_queue_folded(&folded_inputs([9u8; 32], [1u8; 32]), 2)
+            .unwrap_err(),
+        BatchedMerkleTreeError::FoldedSpanRootMismatch
+    );
+
+    // The run length selects the verifying key, so an unlisted length is
+    // rejected before any pairing runs.
+    let mut account = load_nullifier_tree(&mut account_data, &pubkey);
+    assert_eq!(
+        account
+            .update_tree_from_address_queue_folded(&folded_inputs(root, [1u8; 32]), 3)
+            .unwrap_err(),
+        BatchedMerkleTreeError::VerifierErrorError(
+            zolana_batched_merkle_tree::verify::VerifierError::InvalidBatchSize
+        )
+    );
+
+    // A supported run with a proof the verifier rejects must not advance the tree.
+    let before = account_data.clone();
+    let mut account = load_nullifier_tree(&mut account_data, &pubkey);
+    assert!(matches!(
+        account
+            .update_tree_from_address_queue_folded(&folded_inputs(root, [1u8; 32]), 2)
+            .unwrap_err(),
+        BatchedMerkleTreeError::VerifierErrorError(_)
+    ));
+    assert_eq!(account_data, before, "a rejected fold must write nothing");
 }

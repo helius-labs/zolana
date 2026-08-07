@@ -29,7 +29,7 @@ solana-address = { workspace = true }
 wincode = { workspace = true }
 zolana-hasher = { workspace = true, features = ["poseidon", "keccak"] }
 zolana-bloom-filter = { workspace = true }
-groth16-solana = { workspace = true }
+groth16-solana = { workspace = true, features = ["bsb22"] }
 thiserror = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }

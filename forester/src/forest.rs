@@ -17,7 +17,10 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
+use zolana_interface::instruction::{
+    BatchUpdateNullifierTree, BatchUpdateNullifierTreeData, BatchUpdateNullifierTreeFolded,
+    CompressedProof,
+};
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 
 #[derive(Debug, thiserror::Error)]
@@ -64,6 +67,67 @@ pub fn build_forester_execute_ix(
     }
     .instruction();
     execute_sync_ix(settings, account_index, &[*member], &[inner])
+}
+
+/// Build the smart-account `execute_sync` instruction that CPIs
+/// `batch_update_nullifier_tree_folded` into SPP, settling a whole run.
+pub fn build_forester_folded_execute_ix(
+    settings: &Pubkey,
+    account_index: u8,
+    member: &Pubkey,
+    pool_tree: Pubkey,
+    fold: &FoldedRun,
+) -> Instruction {
+    let (vault, _) = smart_account_pda(settings, account_index);
+    let inner = BatchUpdateNullifierTreeFolded {
+        authority: vault,
+        tree: pool_tree,
+        reimbursement_recipient: *member,
+        run: fold.run,
+        old_root: fold.old_root,
+        new_root: fold.new_root,
+        compressed_proof_a: fold.proof.a,
+        compressed_proof_b: fold.proof.b,
+        compressed_proof_c: fold.proof.c,
+        commitment: fold.commitment,
+        commitment_pok: fold.commitment_pok,
+    }
+    .instruction();
+    execute_sync_ix(settings, account_index, &[*member], &[inner])
+}
+
+/// One folded run ready to submit. `run` selects the fold verifying key, so it
+/// travels with the proof rather than being inferred on chain.
+#[derive(Clone, Debug)]
+pub struct FoldedRun {
+    pub run: u32,
+    pub old_root: [u8; 32],
+    pub new_root: [u8; 32],
+    pub proof: CompressedProof,
+    pub commitment: [u8; 32],
+    pub commitment_pok: [u8; 32],
+}
+
+pub fn batch_update_nullifier_tree_folded_once(
+    settings: Pubkey,
+    account_index: u8,
+    member: &Keypair,
+    pool_tree: Pubkey,
+    rpc_url: &str,
+    fold: &FoldedRun,
+) -> Result<Signature, ForestError> {
+    let pubkey = member.pubkey();
+    let execute =
+        build_forester_folded_execute_ix(&settings, account_index, &pubkey, pool_tree, fold);
+
+    let rpc = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let blockhash = rpc
+        .get_latest_blockhash()
+        .map_err(|e| ForestError::Rpc(e.to_string()))?;
+    let msg = Message::new(&[execute], Some(&pubkey));
+    let tx = Transaction::new(&[member], msg, blockhash);
+    rpc.send_and_confirm_transaction(&tx)
+        .map_err(|e| ForestError::TxFailed(e.to_string()))
 }
 
 pub fn batch_update_nullifier_tree_once(
@@ -168,8 +232,6 @@ mod tests {
         let execute =
             build_forester_execute_ix(&settings, 0, &member, tree, &sample_batch_update());
 
-        // Submitted instruction targets the smart-account program, carries the
-        // settings account, and the member is an outer signer.
         assert_eq!(execute.program_id, SMART_ACCOUNT_PROGRAM_ID);
         assert_eq!(execute.accounts.first().unwrap().pubkey, settings);
         assert!(execute

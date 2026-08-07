@@ -9,12 +9,15 @@ import (
 )
 
 type LazyKeyManager struct {
-	mu                sync.RWMutex
-	batchSystems      map[string]*BatchProofSystem
-	transferSystems   map[string]*TransferProofSystem
-	keysDir           string
-	downloadConfig    *DownloadConfig
-	loadingInProgress map[string]chan struct{}
+	mu                   sync.RWMutex
+	batchSystems         map[string]*BatchProofSystem
+	transferSystems      map[string]*TransferProofSystem
+	aggregateSystems     map[string]*AggregateProofSystem
+	nullifierFoldSystems map[string]*NullifierFoldProofSystem
+	mergeChainSystems    map[string]*MergeChainProofSystem
+	keysDir              string
+	downloadConfig       *DownloadConfig
+	loadingInProgress    map[string]chan struct{}
 }
 
 func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyManager {
@@ -22,11 +25,14 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 		downloadConfig = DefaultDownloadConfig()
 	}
 	return &LazyKeyManager{
-		batchSystems:      make(map[string]*BatchProofSystem),
-		transferSystems:   make(map[string]*TransferProofSystem),
-		keysDir:           keysDir,
-		downloadConfig:    downloadConfig,
-		loadingInProgress: make(map[string]chan struct{}),
+		batchSystems:         make(map[string]*BatchProofSystem),
+		transferSystems:      make(map[string]*TransferProofSystem),
+		aggregateSystems:     make(map[string]*AggregateProofSystem),
+		nullifierFoldSystems: make(map[string]*NullifierFoldProofSystem),
+		mergeChainSystems:    make(map[string]*MergeChainProofSystem),
+		keysDir:              keysDir,
+		downloadConfig:       downloadConfig,
+		loadingInProgress:    make(map[string]chan struct{}),
 	}
 }
 
@@ -215,8 +221,8 @@ func (m *LazyKeyManager) determineBatchKeyPath(circuitType CircuitType, treeHeig
 }
 
 // transferSupportedShapes mirrors protocol.SupportedShapes (the on-chain
-// canonical shape set). Kept here because common must not import prover-test;
-// keep in sync with prover-test/spp/protocol/shape.go.
+// canonical shape set). It lives here because common must not import
+// prover-test. Keep in sync with prover-test/spp/protocol/shape.go.
 var transferSupportedShapes = [][2]uint32{
 	{1, 1},
 	{1, 2},
@@ -242,7 +248,6 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	case TransferRingAuthorityCircuitType:
 		prefix = "transfer_ring_authority"
 	case MergeCircuitType:
-		// Merge has the single fixed 8-in/1-out shape (see prover/merge).
 		if nInputs == 8 && nOutputs == 1 {
 			return m.keyPath("merge_8_1.key")
 		}
@@ -269,10 +274,15 @@ func (m *LazyKeyManager) GetStats() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// Every tier a proof request can load. A missing tier makes its keys
+	// invisible to the preload log and to any operator reading the stats.
 	return map[string]interface{}{
-		"batch_systems_loaded":    len(m.batchSystems),
-		"transfer_systems_loaded": len(m.transferSystems),
-		"keys_loading":            len(m.loadingInProgress),
+		"batch_systems_loaded":          len(m.batchSystems),
+		"transfer_systems_loaded":       len(m.transferSystems),
+		"aggregate_systems_loaded":      len(m.aggregateSystems),
+		"nullifier_fold_systems_loaded": len(m.nullifierFoldSystems),
+		"merge_chain_systems_loaded":    len(m.mergeChainSystems),
+		"keys_loading":                  len(m.loadingInProgress),
 	}
 }
 

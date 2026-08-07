@@ -64,7 +64,7 @@ Analyze the following code (validation is spread between the program and the int
 
 ### Completeness Requirement: coverage matrix
 
-The program dispatches 18 tags: EmitEvent, Transact, RingTransact, RingAuthorityTransact, CreateTree, BatchUpdateNullifierTree, Deposit, RingDeposit, CreateAssetCounter, CreateSplInterface, CreateProtocolConfig, UpdateProtocolConfig, PauseTree, CreateRingConfig, UpdateRingConfigOwner, UpdateRingConfig, MergeTransact, RingMergeTransact.
+The program dispatches 21 tags: EmitEvent, Transact, RingTransact, RingAuthorityTransact, CreateTree, BatchUpdateNullifierTree, Deposit, RingDeposit, CreateAssetCounter, CreateSplInterface, CreateProtocolConfig, UpdateProtocolConfig, PauseTree, CreateRingConfig, UpdateRingConfigOwner, UpdateRingConfig, MergeTransact, RingMergeTransact, AggregateTransact, BatchUpdateNullifierTreeFolded, MergeChainTransact.
 
 Provide in `README.md` a matrix: instruction x (account constraints / data validation / authz / success postcondition / rollback / frame). An empty cell = a gap in the list -- either add an invariant or flag it as `INSUFFICIENT_INFO`.
 
@@ -77,6 +77,9 @@ Do NOT answer inline. Write the results as md files into `program-tests/shielded
 | `transact.md` | Transact, RingTransact, RingAuthorityTransact |
 | `deposit.md` | Deposit, RingDeposit |
 | `merge.md` | MergeTransact, RingMergeTransact |
+| `aggregate.md` | AggregateTransact |
+| `merge-chain.md` | MergeChainTransact |
+| `nullifier-fold.md` | BatchUpdateNullifierTreeFolded |
 | `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree |
 | `protocol-config.md` | CreateProtocolConfig, UpdateProtocolConfig |
 | `ring-config.md` | CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner |

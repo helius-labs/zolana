@@ -122,6 +122,26 @@ impl ProofCompressed {
             c: self.c,
         })
     }
+
+    /// Split a merge chain proof into the wire-format triple and its BSB22
+    /// payload. The outer circuit range-checks emulated limbs, so the
+    /// commitment is always present.
+    pub fn into_merge_chain_parts(self) -> Result<(MergeProof, Bsb22Commitment), ClientError> {
+        let commitment = self.commitment.ok_or_else(|| {
+            ClientError::ProofParse("merge chain proof is missing its BSB22 commitment".to_string())
+        })?;
+        Ok((
+            MergeProof {
+                a: self.a,
+                b: self.b,
+                c: self.c,
+            },
+            Bsb22Commitment {
+                commitment: commitment.commitment,
+                commitment_pok: commitment.commitment_pok,
+            },
+        ))
+    }
 }
 
 fn compress_g1(point: &[u8; 64], name: &str) -> Result<[u8; 32], ClientError> {

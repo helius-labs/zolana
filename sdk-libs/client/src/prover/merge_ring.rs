@@ -68,14 +68,16 @@ impl MergeRingProver {
         // A ring merge is the default merge plus a ring binding: reuse its
         // shared computation under the `merge_ring` instruction tag.
         let ring_program_id = self.ring_program_id;
-        let merge = MergeProver {
+        let prover = MergeProver {
             inputs: self.inputs,
             output: self.output,
             expiry_unix_ts: self.expiry_unix_ts,
             signing_pubkey: self.signing_pubkey,
             nullifier_key: self.nullifier_key,
-        }
-        .common(zolana_interface::instruction::tag::RING_MERGE_TRANSACT)?;
+        };
+        let external_data_hash =
+            prover.external_data_hash(zolana_interface::instruction::tag::RING_MERGE_TRANSACT)?;
+        let merge = prover.common(external_data_hash)?;
 
         // The policy-ring merge omits the owner-identity public input (no registry
         // binds it) and instead commits the output ring-data hash and the ring's

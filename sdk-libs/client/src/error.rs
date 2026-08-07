@@ -19,6 +19,9 @@ pub enum ClientError {
     #[error("hasher error: {0}")]
     Hasher(#[from] HasherError),
 
+    #[error("merge chain shape {levels:?} names no generated key, or {legs} legs were supplied")]
+    UnsupportedMergeChain { levels: Vec<u8>, legs: usize },
+
     #[error("no supported circuit shape holds {n_in} inputs and {n_out} outputs")]
     UnsupportedShape { n_in: usize, n_out: usize },
 

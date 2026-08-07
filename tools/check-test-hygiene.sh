@@ -146,7 +146,9 @@ inv_dir=program-tests/shielded-pool/invariants
 inv_readme="$inv_dir/README.md"
 require_paths "$inv_dir" "$inv_readme"
 
-inv_files="transact deposit merge tree protocol-config ring-config spl event cross-cutting"
+# Every ledger in the directory, so a new one is counted the day it lands.
+inv_files=$(find "$inv_dir" -maxdepth 1 -name '*.md' ! -name 'README.md' ! -name 'PROMPT.md' \
+  -exec basename {} .md \; | sort)
 
 # Per file: total entries, ticked [x], companion [~], N/A entries (block
 # contains the marker). Prints "total ticked comp na".
@@ -197,7 +199,7 @@ claim_total=$(readme_number x 's/^- Total invariants: ([0-9]+).*/\1/p')
 [ "$claim_total" = "$sum_total" ] || tally_mismatch "Total invariants" "$claim_total" "$sum_total"
 claim_covered=$(readme_number x 's/^- Covered: ([0-9]+) \/ ([0-9]+).*/\1/p')
 [ "$claim_covered" = "$sum_tick" ] || tally_mismatch "Covered" "$claim_covered" "$sum_tick"
-claim_companion=$(readme_number x 's/^- Covered on companion security branches.*: ([0-9]+).*/\1/p')
+claim_companion=$(readme_number x 's/^- Covered on companion (security )?branches.*: ([0-9]+).*/\2/p')
 [ "$claim_companion" = "$sum_comp" ] || tally_mismatch "Companion" "$claim_companion" "$sum_comp"
 claim_na=$(readme_number x 's/^- Not applicable post-PR164: ([0-9]+).*/\1/p')
 [ "$claim_na" = "$sum_na" ] || tally_mismatch "Not applicable" "$claim_na" "$sum_na"
@@ -213,9 +215,13 @@ for name in $inv_files; do
 done
 [ "${claim_pointer:-0}" = "$ledger_pointer" ] || \
   tally_mismatch "Pointer" "${claim_pointer:-0}" "$ledger_pointer"
+# The ledger cannot tell a partial entry from an untested one, so the README
+# states them apart and the sum is what the ledger can check.
+claim_untested=$(readme_number x 's/^- Not covered: ([0-9]+).*/\1/p')
+claim_open=$(( ${claim_partial:-0} + ${claim_untested:-0} ))
 computed_partial=$(( sum_total - sum_tick - sum_comp - sum_na - ledger_pointer ))
-[ "$claim_partial" = "$computed_partial" ] || \
-  tally_mismatch "Partial" "$claim_partial" "$computed_partial"
+[ "$claim_open" = "$computed_partial" ] || \
+  tally_mismatch "Partial plus not covered" "$claim_open" "$computed_partial"
 
 for sev in Critical High Medium; do
   computed=0

@@ -55,6 +55,7 @@ sequenceDiagram
 - [Instructions](#instructions)
   - [make](#make)
   - [take](#take)
+  - [take_batch](#take_batch)
   - [take_verifiable_encryption](#take_verifiable_encryption)
   - [cancel](#cancel)
 - [Circuits](#circuits)
@@ -183,8 +184,9 @@ shift the window.
 |---|-------------|-----|-------------|---------------|-------------------|----------------|
 | 1 | [make](#make) | 2 | Verify the make proof and CPI SPP `transact` to lock the source funds into the order UTXO (swap `utxo_data`) and write the taker's marker message. | — | SPP trees (CPI) | Maker signs (fee payer) |
 | 2 | [take](#take) | 3 | Verify the take proof (standard Groth16) and CPI SPP `transact`: spend the order UTXO + a matching destination UTXO, pay destination to the maker (blinding derived from the order UTXO blinding, standard output ciphertext) and source to the taker. | order_authority | SPP trees (CPI) | Any fee payer signs; the order UTXO spend is authorized by the program's order-authority PDA signer; the maker payout is constrained to the committed `maker_address` |
-| 3 | [take_verifiable_encryption](#take_verifiable_encryption) | 5 | Verify the take proof and CPI SPP `transact`: spend the order UTXO + the taker's destination UTXO, pay destination (with a proof-checked ciphertext) to the maker and source to the taker. | order_authority | SPP trees (CPI) | Taker signs (fee payer); the order UTXO spend is authorized by the program's order-authority PDA signer; the circuit checks the taker-side input's owner against the committed `taker_pk_fe` |
-| 4 | [cancel](#cancel) | 4 | Verify the cancel proof and CPI SPP `transact`: after expiry, spend the order UTXO back to `maker_address`. | order_authority | SPP trees (CPI) | Maker signs; the proof checks the signer against the committed `maker_owner_hash`; the program's order-authority PDA authorizes the order UTXO spend |
+| 3 | [take_batch](#take_batch) | 6 | Verify one take proof per fill and CPI SPP `aggregate_transact`: settle N [take](#take) legs against one recursive proof over the leg public input hashes. | order_authority | SPP trees (CPI) | As [take](#take), per leg |
+| 4 | [take_verifiable_encryption](#take_verifiable_encryption) | 5 | Verify the take proof and CPI SPP `transact`: spend the order UTXO + the taker's destination UTXO, pay destination (with a proof-checked ciphertext) to the maker and source to the taker. | order_authority | SPP trees (CPI) | Taker signs (fee payer); the order UTXO spend is authorized by the program's order-authority PDA signer; the circuit checks the taker-side input's owner against the committed `taker_pk_fe` |
+| 5 | [cancel](#cancel) | 4 | Verify the cancel proof and CPI SPP `transact`: after expiry, spend the order UTXO back to `maker_address`. | order_authority | SPP trees (CPI) | Maker signs; the proof checks the signer against the committed `maker_owner_hash`; the program's order-authority PDA authorizes the order UTXO spend |
 
 ---
 
@@ -275,6 +277,39 @@ struct TakeIxData {
     /// SPP transact (2-in/2-out): order UTXO + destination UTXO -> source to the taker,
     /// destination to the maker.
     transact: TransactIxData,
+}
+```
+
+---
+
+### take_batch
+
+Settles N [`take`](#take) fills in one instruction. Each leg keeps its own take proof, because the
+[take circuit](#take-circuit) binds exactly one order. The batch replaces the SPP legs. The program
+CPIs SPP [`aggregate_transact`](../../docs/RECURSION.md#aggregate-transact) with one recursive proof
+over the Poseidon chain of the leg public input hashes, and each leg carries no proof of its own.
+
+A leg is an ordinary [`take`](#take) transact payload and binds `tag::TRANSACT` in its
+`external_data_hash`, so one leg proof verifies alone or inside a batch. The batch settles on the
+confidential rail at 2-in/2-out, the shape [`take`](#take) uses.
+
+Every leg shares the fee payer, so one filler settles orders from makers that share no secret. A
+batch exceeds the 1232-byte transaction limit and needs the 4096-byte limit SIMD-0296 introduces.
+
+**Accounts**
+
+The taker's fee payer, then one [`take`](#take) account run per leg in leg order. The run is
+`payer, input_tree, output_tree, SPP program, System Program, order_authority`. SPP splits the list
+by the per-leg counts the builder writes into `leg_account_counts`.
+
+**Instruction data**
+
+```rust
+struct TakeBatchIxData {
+    /// One proof per leg, in leg order.
+    take_proofs: Vec<TakeProof>,
+    /// The recursive proof, its BSB22 commitment, and the legs.
+    aggregate: AggregateTransactIxData,
 }
 ```
 

@@ -12,6 +12,8 @@ fn error_codes_are_stable() {
         (InvalidMarkerMessage as u32, 8014),
         (MarkerDataNotEmpty as u32, 8015),
         (HashingFailed as u32, 8016),
+        (TakeProofCountMismatch as u32, 8017),
+        (SerializationFailed as u32, 8023),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");

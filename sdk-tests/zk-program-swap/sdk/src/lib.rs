@@ -10,6 +10,7 @@ pub use swap_program::{
         cancel::{CancelIxData, CancelProof},
         make::{MakeIxData, MakeProof, MarkerData},
         take::{TakeIxData, TakeProof},
+        take_batch::TakeBatchIxData,
         take_verifiable_encryption::{
             TakeVerifiableEncryptionIxData, TakeVerifiableEncryptionProof,
         },

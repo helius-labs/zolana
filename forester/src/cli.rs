@@ -50,6 +50,10 @@ pub enum Commands {
         /// Seconds between polls in `--watch` mode.
         #[arg(long, default_value_t = 10)]
         poll_secs: u64,
+        /// Fold this many consecutive zkp-batches into one transaction.
+        /// Unset submits one at a time.
+        #[arg(long)]
+        fold_run: Option<u32>,
         /// Preflight only: read the tree, fetch queued values from photon,
         /// reconstruct the reference tree, and verify the root matches on-chain
         /// — without proving or submitting.

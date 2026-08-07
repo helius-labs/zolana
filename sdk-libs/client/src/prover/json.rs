@@ -1,10 +1,14 @@
+use groth16_solana::groth16::negate_g1_be;
 use num_bigint::BigUint;
 use serde::Serialize;
 use zolana_transaction::ProofInputUtxo;
 
-use crate::prover::inputs::{
-    BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs,
+use crate::prover::{
+    inputs::{
+        BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
+        TransferP256Inputs,
+    },
+    proof::Proof,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -13,6 +17,51 @@ fn big_uint_to_string(value: &BigUint) -> String {
 
 fn fe_to_string(bytes: &[u8; 32]) -> String {
     big_uint_to_string(&BigUint::from_bytes_be(bytes))
+}
+
+/// Fixed-width big-endian hex with a `0x` prefix, the encoding the prover
+/// expects for raw byte fields (unlike [`fe_to_string`], leading zeros are kept).
+pub fn hex64(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(2 + bytes.len() * 2);
+    out.push_str("0x");
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// A proof as a recursive verifier reads it. [`Proof::a`] arrives negated for
+/// the on-chain pairing, so A is restored to the point the prover produced.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ProofJson {
+    ar: [String; 2],
+    bs: [[String; 2]; 2],
+    krs: [String; 2],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proof_commitment: Option<[String; 2]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proof_commitment_pok: Option<[String; 2]>,
+}
+
+pub(crate) fn proof_json(proof: &Proof) -> ProofJson {
+    let a = negate_g1_be(&proof.a);
+    ProofJson {
+        ar: [hex64(&a[..32]), hex64(&a[32..])],
+        bs: [
+            [hex64(&proof.b[..32]), hex64(&proof.b[32..64])],
+            [hex64(&proof.b[64..96]), hex64(&proof.b[96..])],
+        ],
+        krs: [hex64(&proof.c[..32]), hex64(&proof.c[32..])],
+        proof_commitment: proof
+            .commitment
+            .map(|c| [hex64(&c.commitment[..32]), hex64(&c.commitment[32..])]),
+        proof_commitment_pok: proof.commitment.map(|c| {
+            [
+                hex64(&c.commitment_pok[..32]),
+                hex64(&c.commitment_pok[32..]),
+            ]
+        }),
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

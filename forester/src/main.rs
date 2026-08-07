@@ -13,9 +13,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Commands::Start => {
-            // Placeholder for the always-on worker (future work): a daemon that
-            // watches every configured tree and drains queues continuously.
-            // Today, `run --watch` is the drain loop; use it instead.
+            // No always-on worker exists yet. `run --watch` is the drain loop.
             tracing::info!("forester: no worker configured");
             ExitCode::SUCCESS
         }
@@ -33,6 +31,7 @@ fn main() -> ExitCode {
             max_batches,
             watch,
             poll_secs,
+            fold_run,
             dry_run,
         } => {
             let options = RunOptions {
@@ -42,6 +41,7 @@ fn main() -> ExitCode {
                 max_batches,
                 watch,
                 poll_secs,
+                fold_run,
                 dry_run,
             };
             match forester::run::run(options) {

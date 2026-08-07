@@ -14,15 +14,18 @@ retired-and-new wire formats, and new entries pin the signer-run model
 signer-account owner rotation hardening (INV-UPDATE-ZC-OWNER-02/-05).
 
 Marker legend: `- [x]` covered by tests on this branch; `- [ ]` partial or
-uncovered; `- [~]` covered on a companion security branch (#175/#176) that
-lands before this one (behavior and tests are reverted out of this branch
-and return with that merge).
+uncovered; `- [~]` covered on a companion branch that lands before this one
+(behavior and tests are reverted out of this branch and return with that
+merge). Each `- [~]` entry names its branch.
 
 | File | Covers |
 |---|---|
 | `transact.md` | Transact, RingTransact, RingAuthorityTransact |
+| `aggregate.md` | AggregateTransact |
 | `deposit.md` | Deposit, RingDeposit |
 | `merge.md` | MergeTransact, RingMergeTransact |
+| `merge-chain.md` | MergeChainTransact |
+| `nullifier-fold.md` | BatchUpdateNullifierTreeFolded |
 | `tree.md` | CreateTree, BatchUpdateNullifierTree, PauseTree |
 | `protocol-config.md` | CreateProtocolConfig, UpdateProtocolConfig |
 | `ring-config.md` | CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner |
@@ -34,8 +37,8 @@ ID prefixes: `INV-TRANSACT`, `INV-RING-TRANSACT`, `INV-RING-AUTH`, `INV-DEPOSIT`
 `INV-RING-DEPOSIT`, `INV-MERGE`, `INV-RING-MERGE`, `INV-CREATE-TREE`,
 `INV-BATCH-NULL`, `INV-PAUSE-TREE`, `INV-CREATE-PC`, `INV-UPDATE-PC`,
 `INV-CREATE-ZC`, `INV-UPDATE-ZC`, `INV-UPDATE-ZC-OWNER`, `INV-CREATE-AC`,
-`INV-CREATE-SPL`, `INV-EMIT-EVENT`, `INV-XC`. IDs are stable once assigned --
-never renumber.
+`INV-CREATE-SPL`, `INV-EMIT-EVENT`, `INV-AGGREGATE`, `INV-MERGE-CHAIN`,
+`INV-NULL-FOLD`, `INV-XC`. IDs are stable once assigned -- never renumber.
 
 `Transact`, `RingTransact`, and `RingAuthorityTransact` share one parser and core
 (`process_transact_core`), so the shared `INV-TRANSACT-*` data/settlement/tree
@@ -66,9 +69,13 @@ from all three rows. The same holds for `Deposit`/`RingDeposit`
 | RingTransact (15) | `transact.md` | INV-RING-TRANSACT-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-TRANSACT-01, INV-RING-TRANSACT-03, INV-RING-TRANSACT-07, INV-RING-TRANSACT-08, INV-XC-26 | INV-RING-TRANSACT-03..06, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
 | RingMergeTransact (16) | `merge.md` | INV-RING-MERGE-01..03, INV-MERGE-18 | INV-RING-MERGE-05 | INV-RING-MERGE-01, INV-RING-MERGE-04, INV-RING-MERGE-14, INV-XC-26 | INV-RING-MERGE-09..13 | INV-XC-04, INV-XC-05 | INV-MERGE-15 |
 | RingAuthorityTransact (17) | `transact.md` | INV-RING-AUTH-01, INV-RING-TRANSACT-02 | INV-TRANSACT-07..12, INV-TRANSACT-31..38 | INV-RING-AUTH-01..03, INV-XC-26 | INV-RING-AUTH-04..07, INV-TRANSACT-23..28 | INV-XC-04, INV-XC-05 | INV-TRANSACT-30 |
+| AggregateTransact (18) | `aggregate.md` | INV-AGGREGATE-07, INV-XC-24 | INV-AGGREGATE-01..06 | per leg: INV-TRANSACT-04..06, INV-RING-TRANSACT-03 | INV-AGGREGATE-08..10 | INV-AGGREGATE-11, INV-XC-04, INV-XC-05 | INV-AGGREGATE-12 |
+| BatchUpdateNullifierTreeFolded (19) | `nullifier-fold.md` | INV-NULL-FOLD-01, INV-XC-24 | INV-NULL-FOLD-03, INV-NULL-FOLD-04 | INV-NULL-FOLD-02 | INV-NULL-FOLD-08..11, INV-NULL-FOLD-14 | INV-NULL-FOLD-13, INV-XC-04 | INV-NULL-FOLD-12 |
+| MergeChainTransact (20) | `merge-chain.md` | INV-MERGE-01..03, INV-MERGE-18, INV-XC-24 | INV-MERGE-CHAIN-01..03 | INV-MERGE-04, INV-MERGE-05 | INV-MERGE-CHAIN-04..09 | INV-MERGE-CHAIN-10, INV-XC-04, INV-XC-05 | INV-MERGE-CHAIN-11 |
 
 Cross-cutting rows that apply to every proof-bearing instruction (Transact,
-RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact) and are not
+RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact,
+AggregateTransact, MergeChainTransact) and are not
 repeated in each cell above: INV-XC-06/07 (expiry), INV-XC-08 (pause), INV-XC-09
 (stale root), INV-XC-10 (double-spend), INV-XC-11..17 (proof system and
 external_data_hash), INV-XC-19/20 (value binding), INV-XC-31 (TreeError
@@ -76,9 +83,16 @@ conversion), INV-XC-32 (retired wire formats fail closed). Dispatch invariants
 INV-XC-01..03
 apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicable.
 
+`AggregateTransact` settles each leg through `process_transact_core`, so every
+per-leg `INV-TRANSACT-*` entry applies inside a batch; `aggregate.md` holds only
+what a batch adds. `MergeChainTransact` reuses `MergeTransactAccounts` and
+`load_user_record`, so `INV-MERGE-01..05` and `INV-MERGE-18` apply to it
+unchanged. `BatchUpdateNullifierTreeFolded` reuses the forester reimbursement
+path, so `INV-BATCH-NULL-08` and `INV-BATCH-NULL-09` apply to it unchanged.
+
 ## Summary
 
-- Total invariants: 247
+- Total invariants: 285
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
   - deposit.md: 35 (Deposit 25, RingDeposit 10)
   - merge.md: 33 (MergeTransact 19, RingMergeTransact 14)
@@ -88,9 +102,12 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   - spl.md: 22 (CreateAssetCounter 8, CreateSplInterface 14)
   - event.md: 4
   - cross-cutting.md: 33
-- Critical (funds/double-spend/authority takeover): 93
-- High: 83
-- Medium: 66
+  - aggregate.md: 12
+  - nullifier-fold.md: 15
+  - merge-chain.md: 11
+- Critical (funds/double-spend/authority takeover): 117
+- High: 91
+- Medium: 72
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28
@@ -128,21 +145,25 @@ Ticked invariants carry a `Covered by:` line; the remaining ones carry a
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 219 / 247
-- Covered on companion security branches (#175, #176): 3 (the `- [~]` entries:
-  INV-CREATE-PC-10, INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests
-  land with those branches)
-- Partial: 19 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
+- Covered: 239 / 285
+- Covered on companion branches: 4 (the `- [~]` entries: INV-CREATE-PC-10,
+  INV-CREATE-AC-07, INV-BATCH-NULL-07 on the security branches #175 and #176,
+  and INV-AGGREGATE-09 on the aggregate rejection-test branch — behavior and
+  tests land with those branches)
+- Partial: 24 (condition exercised, but the exact count/delta or the full-batch/localnet leg is not asserted)
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
-- Not covered: 0
+- Not covered: 12 (the recursive settlement entries no test drives:
+  INV-AGGREGATE-11/-12, INV-NULL-FOLD-01/-02/-03/-07/-12/-13,
+  INV-MERGE-CHAIN-03/-07/-10/-11)
 
-(219 + 3 + 19 + 1 + 5 = 247. The per-file partial+untested column sums to 21
-because it includes the pointer.)
+(239 + 4 + 24 + 1 + 12 + 5 = 285. The per-file partial+untested column sums to
+37 because it includes the pointer and the not-covered entries.)
 
 Per file (covered / partial+untested / companion / not-applicable):
 transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 18/4/1/0,
 protocol-config 16/0/1/0, ring-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
-cross-cutting 27/6/0/0.
+cross-cutting 27/6/0/0, aggregate 9/2/1/0, nullifier-fold 6/9/0/0,
+merge-chain 5/6/0/0.
 
 All added tests pass. Suites run green this pass:
 `shielded-pool-tests` (216 hermetic) and `--features proofs` (incl. the new
@@ -164,9 +185,17 @@ postconditions, rather than duplicate the localnet flows:
 - keep the remaining infrastructure-dependent items explicitly marked as
   `Localnet` or `Blocked` below.
 
-No invariant remains untested by design: INV-XC-30's formerly-"unreachable"
-codes were shown reachable (7004 full-tree append, 7010 post-CPI settlement
-delta) and are pinned by INV-XC-31 / INV-TRANSACT-44 with on-chain tests.
+No invariant of tags 0 to 17 remains untested by design: INV-XC-30's
+formerly-"unreachable" codes were shown reachable (7004 full-tree append, 7010
+post-CPI settlement delta) and are pinned by INV-XC-31 / INV-TRANSACT-44 with
+on-chain tests.
+
+The recursive settlement instructions are the standing gap. No test drives tag
+19 or tag 20 through the program's own dispatch, so their authorization, data
+validation, frame, and rollback entries are untested, and no test settles part
+of a batch and then fails it (INV-AGGREGATE-11). The rollback entries matter
+more here than elsewhere, because every one of these instructions writes the
+trees before it verifies its proof.
 
 INV-MERGE-08 / INV-MERGE-09 (merge owner- and viewing-key substitution) were
 closed this pass by `spp-test-validator/tests/lifecycle.rs`
@@ -174,13 +203,13 @@ closed this pass by `spp-test-validator/tests/lifecycle.rs`
 submitted with owner B's `user_record` fails with 7008, leaving the tree and the
 fixture's spendable set unchanged.
 
-21 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
+24 invariants are PARTIAL -- their behavior is exercised end-to-end but an exact
 count/delta assertion or the full-batch/localnet leg is missing. The notable ones:
 INV-MERGE-12/13/14 (real localnet merges pass but do not assert the exact +8/+1
 tree deltas or the event field-by-field), INV-BATCH-NULL-04/05/06 (the
 tampered-proof-on-a-full-batch and success-path legs need 250 queued nullifiers via
 the localnet forester), INV-XC-04 (rollback is asserted for most instructions but
-not a full per-instruction account-equality sweep of all 18), and INV-XC-11
+not a full per-instruction account-equality sweep of every tag), and INV-XC-11
 (golden vectors + tamper tests cover the public-input binding, but not an
 exhaustive per-field bit-flip loop). Each PARTIAL row names precisely what is left.
 

@@ -2,7 +2,8 @@ use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::BatchUpdateNullifierTreeData,
+    error::ShieldedPoolError,
+    instruction::{BatchUpdateNullifierTreeData, BatchUpdateNullifierTreeFoldedData},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
 use zolana_tree::TreeAccount;
@@ -37,7 +38,7 @@ pub fn process_batch_update_nullifier_tree(
         tree_account
             .nullifer_tree()
             .update_tree_from_address_queue(instruction)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?
+            .map_err(ShieldedPoolError::from)?
     };
 
     // The emit self-CPI passes no accounts, so the tree borrow does not conflict.
@@ -50,5 +51,46 @@ pub fn process_batch_update_nullifier_tree(
         reimburse_forester(tree, reimbursement_recipient, event.num_update)?;
         emit_batch_address_append_event(&event)?;
     }
+    Ok(())
+}
+
+/// Settle a run of consecutive appends against one folded proof.
+///
+/// The run advances the tree by `run` zkp batches but appends one root, because
+/// the intermediate roots are private to the fold. See
+/// `update_tree_from_address_queue_folded` for why that is sound and what it
+/// changes for readers of root history.
+pub fn process_batch_update_nullifier_tree_folded(
+    accounts: &mut [AccountView],
+    data: &[u8],
+) -> ProgramResult {
+    let (run, instruction) = <(u32, BatchUpdateNullifierTreeFoldedData)>::try_from_slice(data)
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+    let mut iter = AccountIterator::new(accounts);
+    let authority = iter.next_signer("authority")?;
+    let protocol_config = iter.next_account("protocol_config")?;
+    let tree = iter.next_mut("tree")?;
+    let reimbursement_recipient = iter.next_mut("reimbursement_recipient")?;
+
+    let config = load_protocol_config(protocol_config)?;
+    config
+        .check_forester_authority(authority.address())
+        .map_err(ShieldedPoolError::from)?;
+    drop(config);
+
+    let event = {
+        let mut tree_account =
+            TreeAccount::from_account_view_mut(&mut *tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
+                .map_err(ShieldedPoolError::from)?;
+        tree_account
+            .nullifer_tree()
+            .update_tree_from_address_queue_folded(&instruction, run)
+            .map_err(ShieldedPoolError::from)?
+    };
+
+    // INVARIANT: the event emit must remain the LAST fallible operation, for the
+    // reason given on `process_batch_update_nullifier_tree`.
+    reimburse_forester(tree, reimbursement_recipient, event.num_update)?;
+    emit_batch_address_append_event(&event)?;
     Ok(())
 }

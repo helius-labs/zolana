@@ -281,7 +281,9 @@ test-proofless-programs: build-programs
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
 
-# Aggregate of all CI-runnable Rust tests.
+# Aggregate of all CI-runnable Rust tests. The aggregate and nullifier-fold
+# tiers are absent on purpose, because their proving keys are unpublished, so
+# they run locally and on the manual aggregate-tiers workflow.
 test-all: test test-programs test-user-registry-litesvm test-swap-program
 
 # Rust-only verification for machines without Go installed.
@@ -868,6 +870,76 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p ring-test-program --test proof_cu --release --no-capture
+
+# Generate whatever aggregate proving keys are missing from {{spp-keys-dir}}.
+# The keys are unpublished, so every machine makes its own. Setup samples fresh
+# toxic waste, so a cold run also rewrites the verifying-key constants the
+# programs compile in, which is why every aggregate recipe runs it before
+# build-programs. A warm run keeps the committed constants, because the wrapper
+# reverts the generator's unconditional re-export, which vk_fingerprint rejects.
+ensure-aggregate-keys:
+    ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_aggregate.sh \
+        "{{spp-keys-dir}}" program-libs/interface/src/verifying_keys
+
+# Generate whatever nullifier fold keys are missing from {{spp-keys-dir}}. Same
+# contract as ensure-aggregate-keys, including the verifying-key rewrite.
+ensure-nullifier-fold-keys:
+    ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_nullifier_fold.sh \
+        "{{spp-keys-dir}}" program-libs/batched-merkle-tree/src/verify/verifying_keys
+
+# The nullifier fold tier. Local only, and on the manual aggregate-tiers
+# workflow, because the keys are neither published nor pinned by the lockfile.
+test-nullifier-fold: ensure-nullifier-fold-keys build-programs build-prover-server build-cli
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The spawned prover reads its keys from here, and the fold keys are local
+    # only, so without this it looks in the shared CLI directory and fails.
+    export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
+    cargo nextest run -p zolana-batched-merkle-tree --features test-only --test nullifier_tree --no-capture
+    cd prover/server && go test ./circuits/nullifier_fold/... ./prover/nullifier_fold/...
+
+# The aggregate tier. Local only, and on the manual aggregate-tiers workflow,
+# because the keys are neither published nor pinned by the lockfile. A cold box
+# reproduces it by running this recipe, which generates the keys first.
+test-aggregate: ensure-aggregate-keys build-programs build-prover-server build-cli ensure-swap-keys test-ring-validator-aggregate-cu
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The spawned prover reads its keys from here, and the aggregate keys are
+    # local only, so without this it looks in the shared CLI directory.
+    export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
+    cargo nextest run -p shielded-pool-tests --features aggregate --test aggregate_cu --no-capture
+    cargo nextest run -p swap-test-validator --features aggregate --test take_batch --no-capture
+    cd prover/server && go test -tags aggregate_keys ./prover/aggregate/...
+
+# Compute and proving cost of batched ring transfers against the solo path.
+# Local only, and on the manual aggregate-tiers workflow, because the outer keys
+# are neither published nor pinned by the lockfile.
+test-ring-validator-aggregate-cu: ensure-aggregate-keys build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(cargo run -q -p xtask -- program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export USER_REGISTRY_PROGRAM_ID
+    export RING_TEST_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      cargo nextest run -p ring-test-program --features aggregate --test aggregate_cu --release --no-capture
+
+# Compute and proving cost of batched swap fills against the solo path, under
+# LiteSVM because a batch exceeds the 1232-byte transaction limit. Local only,
+# and on the manual aggregate-tiers workflow, because the outer keys are neither
+# published nor pinned by the lockfile.
+test-swap-batch: ensure-aggregate-keys ensure-swap-keys build-programs build-prover-server build-cli
+    cargo nextest run -p swap-test-validator --features aggregate --test take_batch --no-capture
 
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
 # create+cancel swap flows over a fresh validator

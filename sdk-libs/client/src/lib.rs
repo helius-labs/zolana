@@ -30,6 +30,7 @@ pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
     canonical_shape,
     merge::MergeWitness,
+    nullifier_fold::{FoldAppend, NullifierFoldInputs},
     resolve_shape, spawn_prover, spawn_prover_with_artifacts,
     transact::{
         assemble, assemble_with_dummy_policy, into_prover, into_prover_with_dummy_policy,

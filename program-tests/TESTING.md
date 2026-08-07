@@ -12,6 +12,12 @@ end-to-end check.
 | Groth16 integration | Every supported transfer/merge shape and ownership rail proves and verifies | `just test-program-proofs` |
 | Validator + Photon | RPC submission, CPI, indexing, wallet sync, lifecycle rollback, and seed-replayable randomized workloads | `just test-spp-validator`, `just test-ring-validator` |
 | Cross-program swap | Swap, shielded pool, registry, smart-account, prover, and indexer compose correctly | `just test-swap-validator` |
+| Aggregate (local only) | Batched legs settle against one recursive proof, on every batchable rail, and a merge chain collapses its levels | `just test-aggregate` |
+| Nullifier fold (local only) | A run of consecutive appends settles against one folded proof | `just test-nullifier-fold` |
+
+The aggregate and nullifier-fold tiers prove against keys that are neither
+published nor pinned by the lockfile, so they run locally and on the manual
+`aggregate tiers` workflow, which samples the keys on the runner.
 
 ## Coverage map
 
@@ -26,6 +32,9 @@ end-to-end check.
 | Ring authority and policy gates | ✓ | account mutations | shapes, owners, boundary | ✓ |
 | Rejected-transaction atomicity | full account snapshots | not asserted; failures return input copies | — | full account snapshots |
 | Wallet/indexer consistency | — | — | fixture indexer | ✓ |
+| Merge chains | — | — | level shapes, aggregate tier | — |
+| Recursive aggregate batches | — | — | every batchable rail, aggregate tier | ✓ |
+| Nullifier fold runs | — | — | one folded append proof, fold tier | — |
 
 Shielded-pool LiteSVM and Mollusk coverage is organized by instruction family.
 The "Model/property binary" column names behavioral-model and property suites
@@ -153,6 +162,18 @@ Tests never silently skip because an artifact is absent.
   create that directory and lazily download a missing key, but an invalid parent
   path fails before process startup.
 - Use `ZOLANA_PORT_OFFSET` in `.env` when multiple worktrees run local services.
+- The aggregate keys are unpublished and not in the lockfile, so `just
+  test-aggregate` generates the missing ones and rewrites the verifying-key
+  constants they pin before it builds the programs. The tier is behind the
+  `aggregate` cargo feature and the `aggregate_keys` Go build tag, so no other
+  recipe builds it.
+- The nullifier fold keys are unpublished on the same terms. `just
+  test-nullifier-fold` generates the missing ones and rewrites the
+  verifying-key constants they pin before it builds the programs.
+- A test recipe must leave the tree clean. A generator exports a constant for
+  every key on disk, so a warm run would rewrite the committed ones with no new
+  setup behind them. `tools/ensure-generated-keys.sh` reverts that, and a cold
+  run keeps its rewrite because the constant must match the key just sampled.
 
 ## Mollusk mutation tests and fuzz fixtures
 

@@ -5,6 +5,12 @@ edition.workspace = true
 publish = false
 autotests = false
 
+[features]
+default = []
+# Gates the batched-fill binary, whose aggregate proving keys are unpublished
+# and regenerated per machine by scripts/generate_keys_aggregate.sh.
+aggregate = []
+
 [dependencies]
 anyhow = { workspace = true }
 swap-program = { path = "../program" }
@@ -60,3 +66,8 @@ path = "tests/cancel.rs"
 [[test]]
 name = "take_verifiable_encryption"
 path = "tests/take_verifiable_encryption.rs"
+
+[[test]]
+name = "take_batch"
+path = "tests/take_batch.rs"
+required-features = ["aggregate"]

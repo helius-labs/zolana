@@ -68,6 +68,12 @@ pub enum BatchedMerkleTreeError {
     ArithmeticOverflow,
     #[error("Batch state word holds an invalid value.")]
     InvalidBatchState,
+    #[error("The folded run reaches past the finalized zkp batches.")]
+    FoldedRunNotReady,
+    #[error("A folded run must cover at least two zkp batches.")]
+    FoldedRunTooShort,
+    #[error("The folded span does not start at the account tree root.")]
+    FoldedSpanRootMismatch,
 }
 
 impl From<BatchedMerkleTreeError> for u32 {
@@ -85,13 +91,20 @@ impl From<BatchedMerkleTreeError> for u32 {
             BatchedMerkleTreeError::HashChainNotReady => 14314,
             BatchedMerkleTreeError::ArithmeticOverflow => 14315,
             BatchedMerkleTreeError::InvalidBatchState => 14316,
+            BatchedMerkleTreeError::FoldedRunNotReady => 14317,
+            BatchedMerkleTreeError::FoldedSpanRootMismatch => 14318,
+            BatchedMerkleTreeError::FoldedRunTooShort => 14320,
             BatchedMerkleTreeError::Hasher(e) => e.into(),
             BatchedMerkleTreeError::ZeroCopy(e) => e.into(),
             BatchedMerkleTreeError::MerkleTreeMetadata(e) => e.into(),
             BatchedMerkleTreeError::BloomFilter(e) => e.into(),
             BatchedMerkleTreeError::VerifierErrorError(e) => e.into(),
-            #[allow(clippy::useless_conversion)]
-            BatchedMerkleTreeError::ProgramError(e) => u32::try_from(u64::from(e)).unwrap(),
+            // Only a custom code survives the round trip back into
+            // ProgramError::Custom. Builtin variants have no u32 code.
+            BatchedMerkleTreeError::ProgramError(e) => match e {
+                solana_program_error::ProgramError::Custom(code) => code,
+                _ => 14319,
+            },
             BatchedMerkleTreeError::AccountError(e) => e.into(),
         }
     }
