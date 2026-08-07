@@ -139,6 +139,7 @@ where
     // Separate stream, separate watermark: reaching the tip of the transaction
     // stream says nothing about the encrypted-utxo stream.
     let mut proofless_scanned_to_tip: HashSet<ViewTag> = HashSet::new();
+    let mut nullifier_scanned_to_tip: HashSet<[u8; 32]> = HashSet::new();
     let mut report = SyncReport::default();
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
 
@@ -180,6 +181,7 @@ where
                 &mut transactions,
                 config,
                 freshness_gate.take(),
+                &mut nullifier_scanned_to_tip,
             )?;
         }
         {
@@ -275,6 +277,7 @@ where
     // Separate stream, separate watermark: reaching the tip of the transaction
     // stream says nothing about the encrypted-utxo stream.
     let mut proofless_scanned_to_tip: HashSet<ViewTag> = HashSet::new();
+    let mut nullifier_scanned_to_tip: HashSet<[u8; 32]> = HashSet::new();
     let mut report = SyncReport::default();
     let mut txs = Vec::new();
 
@@ -301,6 +304,7 @@ where
             &mut transactions,
             config,
             freshness_gate.take(),
+            &mut nullifier_scanned_to_tip,
         )
         .await?;
         fetch_proofless_deposits_async(
@@ -654,8 +658,14 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    scanned_to_tip: &mut HashSet<[u8; 32]>,
 ) -> Result<(), ClientError> {
-    for chunk in nullifiers.chunks(config.tag_query_chunk) {
+    let pending: Vec<[u8; 32]> = nullifiers
+        .iter()
+        .copied()
+        .filter(|nullifier| !scanned_to_tip.contains(nullifier))
+        .collect();
+    for chunk in pending.chunks(config.tag_query_chunk) {
         let mut cursor = None;
         loop {
             let response = indexer.get_shielded_transactions_by_nullifiers(
@@ -673,6 +683,7 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
                 break;
             }
         }
+        scanned_to_tip.extend(chunk.iter().copied());
     }
     Ok(())
 }
@@ -683,8 +694,14 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    scanned_to_tip: &mut HashSet<[u8; 32]>,
 ) -> Result<(), ClientError> {
-    for chunk in nullifiers.chunks(config.tag_query_chunk) {
+    let pending: Vec<[u8; 32]> = nullifiers
+        .iter()
+        .copied()
+        .filter(|nullifier| !scanned_to_tip.contains(nullifier))
+        .collect();
+    for chunk in pending.chunks(config.tag_query_chunk) {
         let mut cursor = None;
         loop {
             let response = indexer
@@ -704,6 +721,7 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
                 break;
             }
         }
+        scanned_to_tip.extend(chunk.iter().copied());
     }
     Ok(())
 }
