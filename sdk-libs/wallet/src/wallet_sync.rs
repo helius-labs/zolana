@@ -133,6 +133,12 @@ where
     let material = authority.sync_material()?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
+    // Tags read to the tip during THIS sync. Unlike `wallet.sync_cursors` this
+    // is deliberately not persisted: "the tip" means the tip as of now.
+    let mut scanned_to_tip: HashSet<ViewTag> = HashSet::new();
+    // Separate stream, separate watermark: reaching the tip of the transaction
+    // stream says nothing about the encrypted-utxo stream.
+    let mut proofless_scanned_to_tip: HashSet<ViewTag> = HashSet::new();
     let mut report = SyncReport::default();
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
 
@@ -150,13 +156,21 @@ where
         timing::note(round, "nullifiers", nullifiers.len());
         {
             let _t = timing::Phase::start("fetch_shielded_by_tags", round);
-            fetch_shielded_transactions(
+            // Cursors are taken out of the wallet and put back, rather than held
+            // borrowed: `wallet` is needed mutably further down this loop.
+            let mut cursors = std::mem::take(&mut wallet.sync_cursors);
+            let result = fetch_shielded_transactions_incremental(
                 indexer,
                 &tags,
                 &mut transactions,
                 config,
                 freshness_gate.take(),
-            )?;
+                &mut cursors,
+                &mut scanned_to_tip,
+            );
+            wallet.sync_cursors = cursors;
+            result?;
+            timing::note(round, "tag_cursors", wallet.sync_cursors.len());
         }
         {
             let _t = timing::Phase::start("fetch_shielded_by_nullifiers", round);
@@ -176,6 +190,7 @@ where
                 &mut proofless_deposits,
                 config,
                 freshness_gate.take(),
+                &mut proofless_scanned_to_tip,
             )?;
         }
         timing::note(round, "transactions", transactions.len());
@@ -254,6 +269,12 @@ where
     let material = authority.sync_material().await?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
+    // Tags read to the tip during THIS sync. Unlike `wallet.sync_cursors` this
+    // is deliberately not persisted: "the tip" means the tip as of now.
+    let mut scanned_to_tip: HashSet<ViewTag> = HashSet::new();
+    // Separate stream, separate watermark: reaching the tip of the transaction
+    // stream says nothing about the encrypted-utxo stream.
+    let mut proofless_scanned_to_tip: HashSet<ViewTag> = HashSet::new();
     let mut report = SyncReport::default();
     let mut txs = Vec::new();
 
@@ -261,14 +282,19 @@ where
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         let nullifiers = wallet_query_nullifiers(wallet);
-        fetch_shielded_transactions_async(
+        let mut cursors = std::mem::take(&mut wallet.sync_cursors);
+        let fetched = fetch_shielded_transactions_incremental_async(
             indexer,
             &tags,
             &mut transactions,
             config,
             freshness_gate.take(),
+            &mut cursors,
+            &mut scanned_to_tip,
         )
-        .await?;
+        .await;
+        wallet.sync_cursors = cursors;
+        fetched?;
         fetch_shielded_transactions_by_nullifiers_async(
             indexer,
             &nullifiers,
@@ -283,6 +309,7 @@ where
             &mut proofless_deposits,
             config,
             freshness_gate.take(),
+            &mut proofless_scanned_to_tip,
         )
         .await?;
 
@@ -469,71 +496,153 @@ fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
     wallet.utxos.iter().map(|utxo| utxo.nullifier).collect()
 }
 
-fn fetch_shielded_transactions<I: Rpc>(
+/// Fetch shielded transactions for `tags`, resuming each tag from where it was
+/// last seen.
+///
+/// The cursor photon returns is a position in a GLOBAL ordering -- slot, then
+/// signature, then event index -- and that ordering does not depend on which tags
+/// were requested. So a cursor obtained from a query over {A, B, C} is a valid
+/// statement about each of A, B and C individually: everything matching that tag
+/// up to this position has been seen. It says nothing about a tag that was not in
+/// the query, which is exactly why a single shared cursor is unsafe.
+///
+/// Tags are therefore grouped by the cursor they carry, and one query is issued
+/// per group. In the steady state every known tag shares one cursor and newly
+/// derived tags have none, so this is two queries regardless of how many tags the
+/// wallet has -- against one query per 64-tag chunk, repeated every sync, before.
+///
+/// Without this, a tag that becomes relevant only after the cursor advanced past
+/// its transactions would never be scanned for them. That is not hypothetical: a
+/// wallet's tag set is derived from a local counter plus a window of 64, and a
+/// second device spending further ahead than that window makes the counter lag by
+/// more than the window can absorb.
+fn fetch_shielded_transactions_incremental<I: Rpc>(
     indexer: &I,
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    cursors: &mut HashMap<ViewTag, Vec<u8>>,
+    scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError> {
-    for chunk in tags.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer.get_shielded_transactions_by_tags(
-                chunk.to_vec(),
-                cursor,
-                Some(config.page_limit),
-                rpc_config,
-            )?;
-            for tx in response.transactions {
-                // Photon may surface proofless/plaintext deposits from this
-                // endpoint before marking them as proofless. They are discovered
-                // through `get_encrypted_utxos_by_tags` below, not as decryptable
-                // shielded transfers.
-                if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
-                    continue;
+    // Group by resume point. `None` (never queried) is its own group.
+    let mut groups: HashMap<Option<Vec<u8>>, Vec<ViewTag>> = HashMap::new();
+    for tag in tags {
+        // Already read to the tip earlier in this same sync -- a second request
+        // would return the same rows the accumulator already holds.
+        if scanned_to_tip.contains(tag) {
+            continue;
+        }
+        groups
+            .entry(cursors.get(tag).cloned())
+            .or_default()
+            .push(*tag);
+    }
+
+    for (start, group) in groups {
+        for chunk in group.chunks(config.tag_query_chunk) {
+            let mut cursor = start.clone();
+            let mut furthest = start.clone();
+            loop {
+                let response = indexer.get_shielded_transactions_by_tags(
+                    chunk.to_vec(),
+                    cursor.clone(),
+                    Some(config.page_limit),
+                    rpc_config,
+                )?;
+                for tx in response.transactions {
+                    if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
+                        continue;
+                    }
+                    let key = tx.tx_signature.to_string();
+                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
-                let key = tx.tx_signature.to_string();
-                out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                if response.next_cursor.is_some() {
+                    furthest = response.next_cursor.clone();
+                }
+                cursor = response.next_cursor;
+                if cursor.is_none() {
+                    break;
+                }
             }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
-                break;
+
+            // Advance every tag in this chunk to the end of the stream. Only sound
+            // because the ordering is global: each of these tags has now been
+            // scanned to that position.
+            if let Some(position) = furthest {
+                for tag in chunk {
+                    cursors.insert(*tag, position.clone());
+                }
             }
+            // The loop above only exits once the stream is exhausted.
+            scanned_to_tip.extend(chunk.iter().copied());
         }
     }
     Ok(())
 }
 
-async fn fetch_shielded_transactions_async<I: AsyncRpc>(
+/// Async twin of [`fetch_shielded_transactions_incremental`].
+///
+/// Kept deliberately parallel rather than shared: the sync and async paths differ
+/// only in `.await`, and an async client that did not get the per-tag cursor rule
+/// would carry the multi-device bug the sync path just fixed.
+async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     indexer: &I,
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    cursors: &mut HashMap<ViewTag, Vec<u8>>,
+    scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError> {
-    for chunk in tags.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer
-                .get_shielded_transactions_by_tags(
-                    chunk.to_vec(),
-                    cursor,
-                    Some(config.page_limit),
-                    rpc_config,
-                )
-                .await?;
-            for tx in response.transactions {
-                if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
-                    continue;
+    let mut groups: HashMap<Option<Vec<u8>>, Vec<ViewTag>> = HashMap::new();
+    for tag in tags {
+        // Already read to the tip earlier in this same sync -- a second request
+        // would return the same rows the accumulator already holds.
+        if scanned_to_tip.contains(tag) {
+            continue;
+        }
+        groups
+            .entry(cursors.get(tag).cloned())
+            .or_default()
+            .push(*tag);
+    }
+
+    for (start, group) in groups {
+        for chunk in group.chunks(config.tag_query_chunk) {
+            let mut cursor = start.clone();
+            let mut furthest = start.clone();
+            loop {
+                let response = indexer
+                    .get_shielded_transactions_by_tags(
+                        chunk.to_vec(),
+                        cursor.clone(),
+                        Some(config.page_limit),
+                        rpc_config,
+                    )
+                    .await?;
+                for tx in response.transactions {
+                    if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
+                        continue;
+                    }
+                    let key = tx.tx_signature.to_string();
+                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
                 }
-                let key = tx.tx_signature.to_string();
-                out.entry(key).or_insert(convert_sync_transaction(tx)?);
+                if response.next_cursor.is_some() {
+                    furthest = response.next_cursor.clone();
+                }
+                cursor = response.next_cursor;
+                if cursor.is_none() {
+                    break;
+                }
             }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
-                break;
+            if let Some(position) = furthest {
+                for tag in chunk {
+                    cursors.insert(*tag, position.clone());
+                }
             }
+            // The loop above only exits once the stream is exhausted.
+            scanned_to_tip.extend(chunk.iter().copied());
         }
     }
     Ok(())
@@ -605,11 +714,17 @@ fn fetch_proofless_deposits<I>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError>
 where
     I: Rpc,
 {
-    for chunk in tags.chunks(config.tag_query_chunk) {
+    let pending: Vec<ViewTag> = tags
+        .iter()
+        .copied()
+        .filter(|tag| !scanned_to_tip.contains(tag))
+        .collect();
+    for chunk in pending.chunks(config.tag_query_chunk) {
         let mut cursor = None;
         loop {
             let response = indexer.get_encrypted_utxos_by_tags(
@@ -638,6 +753,7 @@ where
                 break;
             }
         }
+        scanned_to_tip.extend(chunk.iter().copied());
     }
     Ok(())
 }
@@ -648,8 +764,14 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError> {
-    for chunk in tags.chunks(config.tag_query_chunk) {
+    let pending: Vec<ViewTag> = tags
+        .iter()
+        .copied()
+        .filter(|tag| !scanned_to_tip.contains(tag))
+        .collect();
+    for chunk in pending.chunks(config.tag_query_chunk) {
         let mut cursor = None;
         loop {
             let response = indexer
@@ -680,6 +802,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                 break;
             }
         }
+        scanned_to_tip.extend(chunk.iter().copied());
     }
     Ok(())
 }
@@ -753,7 +876,7 @@ fn now_unix_ts() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use solana_signature::Signature;
     use zolana_interface::event::{encode_output_data, ProoflessOutput};
@@ -776,6 +899,80 @@ mod tests {
         Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
+
+    /// A mock that behaves like photon: filters by tag, honours the cursor, and
+    /// orders globally by slot.
+    ///
+    /// The existing `MockIndexer` ignores both tags and cursor, which is fine for
+    /// decryption tests and useless for this one -- the bug being pinned here is
+    /// precisely an interaction between the two.
+    #[derive(Default)]
+    struct TaggedIndexer {
+        /// (slot, view tag) pairs. Signature is derived from the slot so the sort
+        /// key is total, as it is in photon.
+        entries: Vec<(u64, ViewTag)>,
+        /// Every (tags, cursor) pair the client asked for, for call accounting.
+        calls: std::cell::RefCell<Vec<(usize, Option<u64>)>>,
+    }
+
+    impl TaggedIndexer {
+        /// Cursor is the slot of the last row returned, encoded as 8 bytes. Real
+        /// photon encodes (slot, signature, event_index); slot alone is a total
+        /// order here because each fixture uses a distinct slot.
+        fn matching(
+            &self,
+            tags: &[ViewTag],
+            cursor: Option<Vec<u8>>,
+            limit: usize,
+        ) -> (Vec<ShieldedTransaction>, Option<Vec<u8>>) {
+            let after = cursor.as_ref().map(|bytes| {
+                u64::from_be_bytes(bytes.as_slice().try_into().expect("8-byte cursor"))
+            });
+            self.calls.borrow_mut().push((tags.len(), after));
+
+            let mut rows: Vec<_> = self
+                .entries
+                .iter()
+                .filter(|(slot, tag)| tags.contains(tag) && after.is_none_or(|after| *slot > after))
+                .collect();
+            rows.sort_by_key(|(slot, _)| *slot);
+
+            // Photon's rule (`next_cursor_from_rows`): a page shorter than the
+            // limit is the end of the stream and carries no cursor. Modelling
+            // this matters -- a mock that always returns a cursor lets a client
+            // look incremental in tests while rescanning from zero in
+            // production.
+            let short_page = rows.len() < limit;
+            rows.truncate(limit);
+            let next = if short_page {
+                None
+            } else {
+                rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec())
+            };
+            let transactions = rows
+                .into_iter()
+                .map(|(slot, tag)| ShieldedTransaction {
+                    slot: *slot,
+                    tx_signature: Signature::from([*slot as u8; 64]),
+                    tx_viewing_pk: None,
+                    salt: None,
+                    output_slots: vec![OutputSlot {
+                        view_tag: *tag,
+                        output_context: OutputContext {
+                            hash: [0u8; 32],
+                            tree: Address::default(),
+                            leaf_index: *slot,
+                        },
+                        payload: Vec::new(),
+                    }],
+                    messages: Vec::new(),
+                    nullifiers: Vec::new(),
+                    proofless: false,
+                })
+                .collect();
+            (transactions, next)
+        }
+    }
 
     #[derive(Default)]
     struct MockIndexer {
@@ -849,6 +1046,263 @@ mod tests {
                 next_cursor: None,
             })
         }
+    }
+
+    impl Rpc for TaggedIndexer {
+        fn get_program_accounts(
+            &self,
+            _program_id: Address,
+        ) -> Result<Vec<(Address, solana_account::Account)>, ClientError> {
+            Ok(Vec::new())
+        }
+
+        fn get_encrypted_utxos_by_tags(
+            &self,
+            _tags: Vec<ViewTag>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
+            Ok(GetEncryptedUtxosByTagsResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                matches: Vec::new(),
+                next_cursor: None,
+            })
+        }
+
+        fn get_shielded_transactions_by_tags(
+            &self,
+            tags: Vec<ViewTag>,
+            cursor: Option<Vec<u8>>,
+            limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+            let limit = limit.unwrap_or(1_000).max(1) as usize;
+            let (transactions, next_cursor) = self.matching(&tags, cursor, limit);
+            Ok(GetShieldedTransactionsByTagsResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                transactions,
+                next_cursor,
+            })
+        }
+
+        fn get_shielded_transactions_by_nullifiers(
+            &self,
+            _nullifiers: Vec<ViewTag>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            _config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+            Ok(GetShieldedTransactionsByNullifiersResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                transactions: Vec::new(),
+                next_cursor: None,
+            })
+        }
+    }
+
+    /// A tag that becomes relevant only AFTER an earlier sync has already moved
+    /// past the slot its transactions live at must still be scanned from zero.
+    ///
+    /// This is the multi-device case. Tags are derived from a local counter plus a
+    /// window of 64; when another device spends far enough ahead, this wallet's
+    /// counter lags by more than the window and it does not yet know to ask for
+    /// those tags. It learns the counter later -- by which time a single global
+    /// cursor has advanced past the slots involved, and those transactions would
+    /// be skipped permanently.
+    ///
+    /// A sync runs several rounds so that tags discovered by decrypting round N
+    /// can be queried in round N+1. Tags already scanned to the tip of the
+    /// stream must not be re-queried in the later rounds: on devnet that repeat
+    /// was refetching the wallet's entire history a second time, and it is the
+    /// single largest cost in a sync.
+    ///
+    /// Anything that lands mid-sync is picked up by the next sync, the same as
+    /// a transaction landing a millisecond after the sync returns.
+    #[test]
+    fn a_tag_scanned_to_the_tip_is_not_requeried_in_a_later_round() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let viewing = keypair.viewing_key.clone();
+        let early = viewing.get_sender_view_tag(0).expect("early tag");
+        let late = viewing.get_sender_view_tag(500).expect("late tag");
+
+        let indexer = TaggedIndexer {
+            entries: vec![(10, early), (50, late)],
+            ..Default::default()
+        };
+
+        let config = SyncWalletConfig::default();
+        let mut out = HashMap::new();
+        let mut cursors: HashMap<ViewTag, Vec<u8>> = HashMap::new();
+        let mut scanned = HashSet::new();
+
+        // Round 0: only the early tag is known.
+        fetch_shielded_transactions_incremental(
+            &indexer,
+            &[early],
+            &mut out,
+            config,
+            None,
+            &mut cursors,
+            &mut scanned,
+        )
+        .expect("round 0");
+
+        // Round 1: decryption revealed the late tag. The early tag is already
+        // scanned to the tip, so only the late one is worth a request.
+        fetch_shielded_transactions_incremental(
+            &indexer,
+            &[early, late],
+            &mut out,
+            config,
+            None,
+            &mut cursors,
+            &mut scanned,
+        )
+        .expect("round 1");
+
+        assert_eq!(
+            *indexer.calls.borrow(),
+            vec![(1, None), (1, None)],
+            "round 1 must ask for the late tag alone, not both tags again"
+        );
+    }
+
+    /// Photon returns `next_cursor: None` for any page shorter than the limit
+    /// (`next_cursor_from_rows`), so a wallet whose whole history fits in one
+    /// page records no cursor at all. That is correct, not a miss: the next
+    /// sync rescans at most one page, so sync cost is bounded by the page size
+    /// rather than by history length.
+    ///
+    /// Pinned because the opposite mock -- one that always hands back a cursor
+    /// -- makes a client look incremental in tests while it rescans everything
+    /// in production.
+    #[test]
+    fn a_short_page_ends_the_stream_and_advances_no_cursor() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let tag = keypair.viewing_key.get_sender_view_tag(0).expect("tag");
+
+        let indexer = TaggedIndexer {
+            entries: vec![(10, tag), (50, tag)],
+            ..Default::default()
+        };
+
+        let mut out = HashMap::new();
+        let mut cursors: HashMap<ViewTag, Vec<u8>> = HashMap::new();
+        fetch_shielded_transactions_incremental(
+            &indexer,
+            &[tag],
+            &mut out,
+            SyncWalletConfig::default(),
+            None,
+            &mut cursors,
+            &mut HashSet::new(),
+        )
+        .expect("sync");
+
+        assert!(
+            cursors.is_empty(),
+            "a short page is the end of the stream and carries no cursor"
+        );
+        assert_eq!(
+            *indexer.calls.borrow(),
+            vec![(1, None)],
+            "one request, from the start, and no follow-up to discover the end"
+        );
+    }
+
+    /// Guards the fix: cursors are tracked PER TAG, so a newly-discovered tag
+    /// starts from None regardless of how far other tags have advanced.
+    #[test]
+    fn a_late_discovered_tag_is_scanned_from_the_beginning() {
+        let keypair = ShieldedKeypair::new().expect("keypair");
+        let viewing = keypair.viewing_key.clone();
+
+        // The tag this wallet knows about from the start, and one far outside the
+        // initial window -- what a second device would have been using.
+        let early = viewing.get_sender_view_tag(0).expect("early tag");
+        let late = viewing.get_sender_view_tag(500).expect("late tag");
+        assert_ne!(early, late);
+
+        let indexer = TaggedIndexer {
+            // The late tag's transaction sits at a LOWER slot than the early
+            // one's, so a global cursor advanced past slot 50 would skip it.
+            entries: vec![(10, late), (50, early)],
+            ..Default::default()
+        };
+
+        // page_limit 1 so every page is full and photon hands back a cursor.
+        // At the default limit these two rows are one short page, which by
+        // photon's rule carries no cursor at all -- see
+        // `a_short_page_ends_the_stream_and_advances_no_cursor`.
+        let config = SyncWalletConfig {
+            page_limit: 1,
+            ..SyncWalletConfig::default()
+        };
+        let mut cursors: HashMap<ViewTag, Vec<u8>> = HashMap::new();
+
+        // First sync knows only the early tag, and advances past slot 50.
+        let mut first = HashMap::new();
+        fetch_shielded_transactions_incremental(
+            &indexer,
+            &[early],
+            &mut first,
+            config,
+            None,
+            &mut cursors,
+            // A fresh set per sync: "scanned to the tip" is only true of the
+            // sync that did the scanning.
+            &mut HashSet::new(),
+        )
+        .expect("first sync");
+        assert_eq!(
+            cursors
+                .get(&early)
+                .map(|c| u64::from_be_bytes(c.as_slice().try_into().unwrap())),
+            Some(50),
+            "the early tag should have advanced to the last row it saw"
+        );
+        assert!(
+            !cursors.contains_key(&late),
+            "a tag that was never queried must not carry a cursor"
+        );
+
+        // Second sync has learned the late tag.
+        indexer.calls.borrow_mut().clear();
+        let mut second = HashMap::new();
+        fetch_shielded_transactions_incremental(
+            &indexer,
+            &[early, late],
+            &mut second,
+            config,
+            None,
+            &mut cursors,
+            &mut HashSet::new(),
+        )
+        .expect("second sync");
+
+        // Asserting on what was REQUESTED rather than what was decrypted: the
+        // invariant is which rows the indexer was asked for, and fabricating
+        // decryptable P256 payloads would test the crypto instead.
+        let calls = indexer.calls.borrow();
+        assert!(
+            calls.iter().any(|(_, after)| after.is_none()),
+            "the newly discovered tag must be scanned from the beginning, not from \
+             the cursor another tag advanced to; calls were {calls:?}"
+        );
+        assert!(
+            calls.iter().any(|(_, after)| *after == Some(50)),
+            "the already-synced tag should resume rather than rescan; calls were {calls:?}"
+        );
     }
 
     #[async_trait::async_trait]
@@ -1174,12 +1628,14 @@ mod tests {
         };
         let mut out = HashMap::new();
 
-        fetch_shielded_transactions(
+        fetch_shielded_transactions_incremental(
             &indexer,
             &[[1u8; 32]],
             &mut out,
             SyncWalletConfig::default(),
             None,
+            &mut HashMap::new(),
+            &mut HashSet::new(),
         )
         .expect("skip plaintext row");
 
@@ -1204,6 +1660,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            &mut HashSet::new(),
         )
         .expect("decode proofless payload");
 
@@ -1322,6 +1779,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            &mut HashSet::new(),
         )
         .expect("skip encrypted row");
 

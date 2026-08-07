@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_keypair::{shielded::ShieldedAddress, P256Pubkey};
+use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
 
 use crate::{
     error::TransactionError, instructions::transact::OutputContext, utxo::Utxo, AssetRegistry,
@@ -144,6 +144,20 @@ pub struct Wallet {
     /// spent.
     pub nullifiers: HashSet<[u8; 32]>,
     pub last_synced: i64,
+    /// Per-view-tag sync watermarks: for each tag, the indexer cursor up to which
+    /// every matching transaction has already been seen.
+    ///
+    /// Per tag rather than one shared position, because the tag set GROWS. Tags
+    /// are derived from a local counter plus a window, and a second device
+    /// spending beyond that window makes the counter lag by more than the window
+    /// absorbs. A tag learned late must be scanned from the beginning even though
+    /// other tags have advanced far past the slots involved; a single cursor would
+    /// skip those transactions permanently.
+    ///
+    /// Kept in memory only. A client that persists wallet state across restarts
+    /// should persist this with it -- without it, sync is correct but pays for the
+    /// full history every time.
+    pub sync_cursors: HashMap<ViewTag, Vec<u8>>,
 }
 
 impl Wallet {
@@ -160,6 +174,7 @@ impl Wallet {
             transactions: Vec::new(),
             nullifiers: HashSet::new(),
             last_synced: 0,
+            sync_cursors: HashMap::new(),
         })
     }
 
