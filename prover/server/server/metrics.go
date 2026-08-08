@@ -214,6 +214,28 @@ var (
 		[]string{"queue", "stage"},
 	)
 
+	// How many jobs are waiting, published so autoscaling can react to backlog
+	// rather than to CPU.
+	//
+	// CPU does track load here -- 30-43% at 2 tps, 98% at 4 tps -- but it is
+	// bounded at 100%, and target tracking sizes the fleet by metric/target. At
+	// 98% against a 70% target that is a 1.4x step whether five jobs are waiting
+	// or five hundred, so recovering from a burst takes many cooldowns. Backlog
+	// per task is unbounded and moves proportionally to the actual deficit. CPU
+	// also cannot separate "busy" from "backlogged": 98% with an empty queue and
+	// 98% with eighty jobs waiting are the same reading, and only one of them
+	// has clients waiting.
+	//
+	// Every task reports the same global depth, since the queue is one Redis
+	// list. Dividing by running task count is done in the scaling policy.
+	QueueDepth = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_queue_depth",
+			Help: "Jobs currently waiting in each queue",
+		},
+		[]string{"queue"},
+	)
+
 	SystemMemoryUsage = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "prover_system_memory_bytes",
