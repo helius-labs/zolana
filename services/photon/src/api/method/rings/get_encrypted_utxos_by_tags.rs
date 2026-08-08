@@ -138,32 +138,18 @@ fn encrypted_utxo_cursor_sql(
     let signature = cursor.signature.to_vec();
     // "po", matching this query's ORDER BY. Reading the cursor from
     // rings_outputs is what lets idx_rings_outputs_view_tag_order serve the
-    // filter and the sort together, so the scan stops at LIMIT instead of
-    // walking rings_transactions.
-    let tx_cursor_condition = tx_cursor_sql_condition(
+    // filter and the sort together, so the scan seeks to the cursor and stops
+    // at LIMIT instead of walking rings_transactions.
+    let condition = tx_cursor_sql_condition(
         "po",
         cursor.slot,
         &signature,
         cursor.event_index,
+        &[("output_index", i32::from(cursor.output_index))],
         backend,
         params,
     )?;
-    let slot = bind_u64_as_i64(params, backend, cursor.slot)?;
-    let signature = crate::common::bind_sql_value(params, backend, signature);
-    let event_index = crate::common::bind_sql_value(params, backend, i32::from(cursor.event_index));
-    let output_index =
-        crate::common::bind_sql_value(params, backend, i32::from(cursor.output_index));
-    Ok(format!(
-        "AND (
-            {tx_cursor_condition}
-            OR (
-                po.slot = {slot}
-                AND po.signature = {signature}
-                AND po.event_index = {event_index}
-                AND po.output_index > {output_index}
-            )
-        )"
-    ))
+    Ok(format!("AND {condition}"))
 }
 
 fn encrypted_utxo_cursor_from_row(row: &EncryptedUtxoRow) -> Result<Vec<u8>, PhotonApiError> {

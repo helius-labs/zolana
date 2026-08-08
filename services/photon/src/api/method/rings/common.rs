@@ -283,35 +283,53 @@ pub(super) fn bind_u64_as_i64(
     Ok(bind_sql_value(params, backend, value))
 }
 
-/// Builds the `(slot, signature, event_index)` "after this position" predicate.
+/// Builds the "strictly after this position" predicate as a row comparison.
 ///
 /// `alias` selects which table the predicate reads from, and it must be the
-/// same table the query's ORDER BY uses. Both columns exist on
-/// `rings_transactions` and, since they are denormalized, on `rings_outputs`
-/// too — but a cursor that filters on one table while sorting by another is
-/// only accidentally correct, and it also costs the index: filtering on
-/// `rings_outputs.view_tag` while ordering by `rings_transactions` columns is
-/// what made the planner walk the transactions table and discard most of what
-/// it read.
+/// table the query's ORDER BY uses: a cursor that filters on one table while
+/// sorting by another is only accidentally correct, and it costs the index.
+/// Filtering on `rings_outputs.view_tag` while ordering by
+/// `rings_transactions` columns is what made the planner walk the transactions
+/// table and discard most of what it read.
+///
+/// `trailing` appends further columns to the comparison, for callers whose sort
+/// key extends past the transaction (the UTXO endpoint adds `output_index`).
+///
+/// Written as `(a, b, c) > (x, y, z)` rather than the equivalent chain of ORs.
+/// They mean the same thing, but Postgres can start an index scan at a row
+/// comparison and cannot at the OR form: with the OR chain the plan still read
+/// from the first row of the tag and threw away everything before the cursor
+/// (`Rows Removed by Filter: 1201` for one page), so paging cost grew with how
+/// far in the client had read. The row comparison seeks straight to the cursor,
+/// which makes every page cost the same. It is also simply easier to read.
 pub(super) fn tx_cursor_sql_condition(
     alias: &str,
     slot: u64,
     signature: &[u8],
     event_index: u16,
+    trailing: &[(&str, i32)],
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
-    let slot_for_gt = bind_u64_as_i64(params, backend, slot)?;
-    let slot_for_signature = bind_u64_as_i64(params, backend, slot)?;
-    let signature_for_signature = bind_sql_value(params, backend, signature.to_vec());
-    let slot_for_event = bind_u64_as_i64(params, backend, slot)?;
-    let signature_for_event = bind_sql_value(params, backend, signature.to_vec());
-    let event_index = bind_sql_value(params, backend, i32::from(event_index));
+    let slot = bind_u64_as_i64(params, backend, slot)?;
+    let signature = bind_sql_value(params, backend, signature.to_vec());
+    let event_index_value = bind_sql_value(params, backend, i32::from(event_index));
+
+    let mut columns = vec![
+        format!("{alias}.slot"),
+        format!("{alias}.signature"),
+        format!("{alias}.event_index"),
+    ];
+    let mut values = vec![slot, signature, event_index_value];
+    for (column, value) in trailing {
+        columns.push(format!("{alias}.{column}"));
+        values.push(bind_sql_value(params, backend, *value));
+    }
 
     Ok(format!(
-        "{alias}.slot > {slot_for_gt}
-            OR ({alias}.slot = {slot_for_signature} AND {alias}.signature > {signature_for_signature})
-            OR ({alias}.slot = {slot_for_event} AND {alias}.signature = {signature_for_event} AND {alias}.event_index > {event_index})"
+        "({}) > ({})",
+        columns.join(", "),
+        values.join(", ")
     ))
 }
 
@@ -529,6 +547,7 @@ mod tests {
             42,
             &[7u8; 64],
             3,
+            &[],
             DatabaseBackend::Postgres,
             &mut params,
         )
@@ -543,6 +562,36 @@ mod tests {
         }
     }
 
+    /// The predicate has to stay a row comparison rather than the equivalent
+    /// chain of ORs. Postgres can begin an index scan at `(a, b) > (x, y)` and
+    /// cannot at `a > x OR (a = x AND b > y)`: with the OR form the plan read
+    /// from the tag's first row and discarded everything before the cursor, so
+    /// each page cost more than the last.
+    #[test]
+    fn the_cursor_predicate_is_a_row_comparison_so_the_index_can_seek() {
+        let mut params = Vec::new();
+        let sql = tx_cursor_sql_condition(
+            "po",
+            42,
+            &[7u8; 64],
+            3,
+            &[("output_index", 5)],
+            DatabaseBackend::Postgres,
+            &mut params,
+        )
+        .expect("condition");
+
+        assert!(
+            !sql.contains(" OR "),
+            "an OR chain cannot be used as an index seek: {sql}"
+        );
+        assert!(
+            sql.starts_with("(po.slot, po.signature, po.event_index, po.output_index) > ("),
+            "expected a single row comparison in sort-key order: {sql}"
+        );
+        assert_eq!(params.len(), 4, "one bind per column in the comparison");
+    }
+
     /// And the transactions endpoint keeps ordering by, and filtering on, the
     /// transactions table — the aliases are not interchangeable.
     #[test]
@@ -553,6 +602,7 @@ mod tests {
             42,
             &[7u8; 64],
             3,
+            &[],
             DatabaseBackend::Postgres,
             &mut params,
         )
