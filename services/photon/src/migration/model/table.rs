@@ -79,6 +79,11 @@ pub enum RingsOutputs {
     LeafIndex,
     ViewTag,
     UtxoHash,
+    // Copied from rings_transactions, like Slot above, so that the tag queries
+    // can order by their cursor key without joining. See
+    // m20260809_000001_denormalize_rings_output_ordering.
+    Signature,
+    EventIndex,
 }
 
 #[derive(Copy, Clone, Iden)]

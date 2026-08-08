@@ -17,6 +17,13 @@ pub struct Model {
     pub view_tag: Vec<u8>,
     #[sea_orm(column_type = "VarBinary(StringLen::None)")]
     pub utxo_hash: Vec<u8>,
+    /// Copied from `rings_transactions`, as `slot` above already is, so the tag
+    /// queries can order by their cursor key without joining. Nullable only
+    /// because the column was added to a populated table; the ingester always
+    /// writes both.
+    #[sea_orm(column_type = "VarBinary(StringLen::None)", nullable)]
+    pub signature: Option<Vec<u8>>,
+    pub event_index: Option<i16>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
