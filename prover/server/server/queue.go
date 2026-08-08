@@ -728,28 +728,25 @@ func (rq *RedisQueue) CleanupStuckProcessingJobs() error {
 		"zk_transfer_processing_queue",
 	}
 
-	totalRecovered := int64(0)
 	totalFailed := int64(0)
 
 	for _, queueName := range processingQueues {
-		recovered, failed, err := rq.recoverStuckJobsFromQueue(queueName, processingTimeout)
+		failed, err := rq.failStuckJobsFromQueue(queueName, processingTimeout)
 		if err != nil {
 			logging.Logger().Error().
 				Err(err).
 				Str("queue", queueName).
-				Msg("Failed to recover stuck jobs from processing queue")
+				Msg("Failed to clear stuck jobs from processing queue")
 			continue
 		}
-		totalRecovered += recovered
 		totalFailed += failed
 	}
 
-	if totalRecovered > 0 || totalFailed > 0 {
+	if totalFailed > 0 {
 		logging.Logger().Info().
-			Int64("recovered_jobs", totalRecovered).
 			Int64("failed_jobs", totalFailed).
 			Time("timeout_cutoff", processingTimeout).
-			Msg("Processed stuck jobs from processing queues")
+			Msg("Failed out stuck jobs from processing queues")
 	}
 
 	return nil
@@ -776,13 +773,24 @@ func (rq *RedisQueue) CleanupOldFailedJobs() error {
 	return nil
 }
 
-func (rq *RedisQueue) recoverStuckJobsFromQueue(queueName string, timeoutCutoff time.Time) (int64, int64, error) {
+// failStuckJobsFromQueue moves jobs abandoned in a processing queue to the
+// failed queue, so the client's poll returns an error instead of hanging until
+// its own deadline.
+//
+// It used to have a second path that re-enqueued a stuck job for another
+// attempt, and it was unreachable: the only caller passes a cutoff of
+// now-10min, and the re-enqueue branch was guarded by "created after now-5min",
+// which nothing older than ten minutes can satisfy. It would also have been
+// futile if reached -- JobExpirationTimeout is 600s, so processJobs expires a
+// re-enqueued job on the next dequeue and sends it straight back to the failed
+// queue without proving it. Removing it changes no behaviour; the function is
+// named for what it actually does.
+func (rq *RedisQueue) failStuckJobsFromQueue(queueName string, timeoutCutoff time.Time) (int64, error) {
 	items, err := rq.Client.LRange(rq.Ctx, queueName, 0, -1).Result()
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get processing queue items: %w", err)
+		return 0, fmt.Errorf("failed to get processing queue items: %w", err)
 	}
 
-	var recoveredCount int64
 	var failedCount int64
 
 	for _, item := range items {
@@ -805,98 +813,57 @@ func (rq *RedisQueue) recoverStuckJobsFromQueue(queueName string, timeoutCutoff 
 						originalJobID = job.ID[:len(job.ID)-11]
 					}
 
-					fiveMinutesAgo := time.Now().Add(-5 * time.Minute)
-					if job.CreatedAt.Before(fiveMinutesAgo) {
-						// Extract circuit type from payload for debugging, but don't store full payload
-						// to prevent memory issues (payloads can be hundreds of KB)
-						var circuitType string
-						var payloadMeta map[string]interface{}
-						if json.Unmarshal(job.Payload, &payloadMeta) == nil {
-							if ct, ok := payloadMeta["circuitType"].(string); ok {
-								circuitType = ct
-							}
+					// Extract circuit type from payload for debugging, but don't store full payload
+					// to prevent memory issues (payloads can be hundreds of KB)
+					var circuitType string
+					var payloadMeta map[string]interface{}
+					if json.Unmarshal(job.Payload, &payloadMeta) == nil {
+						if ct, ok := payloadMeta["circuitType"].(string); ok {
+							circuitType = ct
 						}
+					}
 
-						failureDetails := map[string]interface{}{
-							"original_job": map[string]interface{}{
-								"id":           originalJobID,
-								"type":         "zk_proof",
-								"circuit_type": circuitType,
-								"payload_size": len(job.Payload),
-								"created_at":   job.CreatedAt,
-							},
-							"error":     "Job timed out in processing queue (stuck for >5 minutes)",
-							"failed_at": time.Now(),
-							"timeout":   true,
-						}
+					failureDetails := map[string]interface{}{
+						"original_job": map[string]interface{}{
+							"id":           originalJobID,
+							"type":         "zk_proof",
+							"circuit_type": circuitType,
+							"payload_size": len(job.Payload),
+							"created_at":   job.CreatedAt,
+						},
+						"error":     fmt.Sprintf("Job timed out in processing queue (stuck since %s)", job.CreatedAt.Format(time.RFC3339)),
+						"failed_at": time.Now(),
+						"timeout":   true,
+					}
 
-						failedData, _ := json.Marshal(failureDetails)
-						failedJob := &ProofJob{
-							ID:        originalJobID + "_failed",
-							Type:      "failed",
-							Payload:   json.RawMessage(failedData),
-							CreatedAt: time.Now(),
-						}
+					failedData, _ := json.Marshal(failureDetails)
+					failedJob := &ProofJob{
+						ID:        originalJobID + "_failed",
+						Type:      "failed",
+						Payload:   json.RawMessage(failedData),
+						CreatedAt: time.Now(),
+					}
 
-						err = rq.EnqueueProof("zk_failed_queue", failedJob)
-						if err != nil {
-							logging.Logger().Error().
-								Err(err).
-								Str("job_id", originalJobID).
-								Msg("Failed to move timed out job to failed queue")
-						} else {
-							failedCount++
-							logging.Logger().Warn().
-								Str("job_id", originalJobID).
-								Str("processing_queue", queueName).
-								Time("stuck_since", job.CreatedAt).
-								Msg("Moved timed out job to failed queue (processing timeout >5min)")
-						}
+					err = rq.EnqueueProof("zk_failed_queue", failedJob)
+					if err != nil {
+						logging.Logger().Error().
+							Err(err).
+							Str("job_id", originalJobID).
+							Msg("Failed to move timed out job to failed queue")
 					} else {
-						originalQueue := getOriginalQueueFromProcessing(queueName)
-						if originalQueue != "" {
-							originalJob := &ProofJob{
-								ID:        originalJobID,
-								Type:      "zk_proof",
-								Payload:   job.Payload,
-								CreatedAt: job.CreatedAt,
-							}
-
-							err = rq.EnqueueProof(originalQueue, originalJob)
-							if err != nil {
-								logging.Logger().Error().
-									Err(err).
-									Str("job_id", originalJobID).
-									Str("target_queue", originalQueue).
-									Msg("Failed to recover stuck job")
-							} else {
-								recoveredCount++
-								logging.Logger().Info().
-									Str("job_id", originalJobID).
-									Str("from_queue", queueName).
-									Str("to_queue", originalQueue).
-									Time("stuck_since", job.CreatedAt).
-									Msg("Recovered stuck job")
-							}
-						}
+						failedCount++
+						logging.Logger().Warn().
+							Str("job_id", originalJobID).
+							Str("processing_queue", queueName).
+							Time("stuck_since", job.CreatedAt).
+							Msg("Moved timed out job to failed queue")
 					}
 				}
 			}
 		}
 	}
 
-	return recoveredCount, failedCount, nil
-}
-
-func getOriginalQueueFromProcessing(processingQueueName string) string {
-	switch processingQueueName {
-	case "zk_address_append_processing_queue":
-		return "zk_address_append_queue"
-	case "zk_transfer_processing_queue":
-		return "zk_transfer_queue"
-	default:
-		return ""
-	}
+	return failedCount, nil
 }
 
 func (rq *RedisQueue) cleanupOldRequestsFromQueue(queueName string, cutoffTime time.Time) (int64, error) {
