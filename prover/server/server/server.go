@@ -453,6 +453,11 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Bool("queue_available", handler.enableQueue && handler.redisQueue != nil).
 		Msg("Processing prove request")
 
+	// Counted here because every request passes this point exactly once.
+	// A count inside the handlers doubles the queued path.
+	ProofRequestsTotal.WithLabelValues(string(proofRequestMeta.CircuitType)).Inc()
+	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(buf))
+
 	if shouldUseQueue && handler.enableQueue && handler.redisQueue != nil {
 		handler.handleAsyncProof(w, r, buf, proofRequestMeta)
 	} else {
@@ -853,9 +858,6 @@ type healthHandler struct {
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
-	ProofRequestsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
-	RecordCircuitInputSize(string(meta.CircuitType), len(buf))
-
 	queueName := GetQueueNameForCircuit(meta.CircuitType)
 
 	// Compute input hash for deduplication
@@ -1024,7 +1026,6 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		}()
 
 		timer := StartProofTimer(string(meta.CircuitType))
-		RecordCircuitInputSize(string(meta.CircuitType), len(buf))
 
 		proof, proofError := handler.processProofSync(buf)
 
