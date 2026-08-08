@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 )
 
@@ -75,7 +75,7 @@ func ProveBatchAddressAppend(ps *common.BatchProofSystem, params *BatchAddressAp
 		return nil, fmt.Errorf("error creating witness: %v", err)
 	}
 
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	proof, err := gpuprove.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 	if err != nil {
 		return nil, fmt.Errorf("error proving: %v", err)
 	}

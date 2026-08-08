@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 
+	"zolana/prover/prover/gpuprove"
+
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	groth16bn254 "github.com/consensys/gnark/backend/groth16/bn254"
@@ -222,7 +224,7 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	}
 	ps.RequiresP256 = requiresP256 != 0
 
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	ps.ProvingKey = gpuprove.NewProvingKey()
 	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
 	totalRead += keyRead
 	if err != nil {
@@ -376,7 +378,7 @@ func (ps *BatchProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 		*field = binary.BigEndian.Uint32(intBuf[:])
 	}
 
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	ps.ProvingKey = gpuprove.NewProvingKey()
 	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
 	totalRead += keyRead
 	if err != nil {
