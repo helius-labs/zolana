@@ -82,14 +82,17 @@ impl StateUpdate {
             .collect::<Vec<_>>();
 
         let transactions = if had_rings_transactions {
-            let retained_rings_signatures = rings_transactions
+            // Squads key events reference `transactions` too, so a signature
+            // that keeps one must survive the unknown-tree filter.
+            let retained_signatures = rings_transactions
                 .iter()
                 .map(|rings_tx| rings_tx.signature)
+                .chain(self.squads_key_events.iter().map(|event| event.signature))
                 .collect::<HashSet<_>>();
             self.transactions
                 .into_iter()
                 .filter(|transaction| {
-                    if retained_rings_signatures.contains(&transaction.signature) {
+                    if retained_signatures.contains(&transaction.signature) {
                         true
                     } else {
                         debug!(
@@ -108,6 +111,8 @@ impl StateUpdate {
             state_update: StateUpdate {
                 transactions,
                 rings_transactions,
+                // Key events bind to no tree, so no tree can be unknown for them.
+                squads_key_events: self.squads_key_events,
                 nullifier_tree_batch_updates,
             },
             tree_info_cache,

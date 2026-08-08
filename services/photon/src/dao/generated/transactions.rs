@@ -28,6 +28,8 @@ pub enum Relation {
     Blocks,
     #[sea_orm(has_many = "super::rings_transactions::Entity")]
     RingsTransactions,
+    #[sea_orm(has_many = "super::squads_key_events::Entity")]
+    SquadsKeyEvents,
 }
 
 impl Related<super::blocks::Entity> for Entity {
@@ -39,6 +41,12 @@ impl Related<super::blocks::Entity> for Entity {
 impl Related<super::rings_transactions::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::RingsTransactions.def()
+    }
+}
+
+impl Related<super::squads_key_events::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::SquadsKeyEvents.def()
     }
 }
 

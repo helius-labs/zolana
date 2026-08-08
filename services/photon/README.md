@@ -94,6 +94,21 @@ block batch until the underlying data or code is fixed. Alert on stale `getIndex
 `block_batch_index_failures`, and errors containing `Cannot reconstruct nullifier batch` or
 `Reconstructed nullifier root mismatch`.
 
+### Squads key-material log
+
+The `squads_key_events` migration creates the table but writes no rows. A key
+rotation or an account close is recorded only for the blocks this build indexes,
+so writes from before the upgrade stay absent until you re-index the slots that
+contain them. The record lives in the transaction inner instructions, so a
+re-index recovers it while the block source still holds those blocks. After
+that the key material is unrecoverable, because the write overwrote the account
+that held it.
+
+The migration is additive and safe to repeat. It creates one table with a
+foreign key to `transactions` and changes no existing table, and the ingester
+inserts with conflict-do-nothing on the transaction signature and the event
+index, so a re-index of the same slot writes no duplicate row.
+
 ### Container releases
 
 Production images are published by `.github/workflows/photon-image.yml` through

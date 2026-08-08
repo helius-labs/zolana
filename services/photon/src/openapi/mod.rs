@@ -16,6 +16,9 @@ use zolana_indexer_api::{
     RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction,
 };
 
+use crate::api::method::rings::{
+    GetSquadsKeyEventsRequest, GetSquadsKeyEventsResponse, SquadsKeyEvent,
+};
 use crate::common::relative_project_path;
 
 use utoipa::openapi::path::OperationBuilder;
@@ -69,6 +72,9 @@ const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
     GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse,
     NullifierQueueElement,
+    GetSquadsKeyEventsRequest,
+    GetSquadsKeyEventsResponse,
+    SquadsKeyEvent,
 )))]
 struct ApiDoc;
 

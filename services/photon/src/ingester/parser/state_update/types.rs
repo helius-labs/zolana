@@ -81,10 +81,34 @@ pub struct RingsTransactionUpdate {
     pub nullifiers: Vec<RingsNullifierUpdate>,
 }
 
+/// One Squads zone key-material event. The scalar fields identify and order the
+/// event, `raw_event` carries the destroyed key material as the program encoded
+/// it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SquadsKeyEventUpdate {
+    pub signature: Signature,
+    pub event_index: i16,
+    pub slot: u64,
+    pub squads_program_id: [u8; 32],
+    pub source_instruction_tag: i16,
+    pub event_kind: i16,
+    pub account: [u8; 32],
+    pub owner: [u8; 32],
+    /// Nonce of the account state before the emitting instruction wrote it.
+    pub key_nonce: u64,
+    /// Nonce the rotation wrote. A close writes none.
+    pub new_key_nonce: Option<u64>,
+    /// Rotation commitment the proof was bound to. A close has none.
+    pub old_state_hash: Option<[u8; 32]>,
+    pub raw_event: Vec<u8>,
+    pub parse_version: i16,
+}
+
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct StateUpdate {
     pub transactions: HashSet<Transaction>,
     pub rings_transactions: Vec<RingsTransactionUpdate>,
+    pub squads_key_events: Vec<SquadsKeyEventUpdate>,
     pub nullifier_tree_batch_updates: Vec<NullifierTreeBatchUpdate>,
 }
 
@@ -104,6 +128,7 @@ impl StateUpdate {
         for update in updates {
             merged.transactions.extend(update.transactions);
             merged.rings_transactions.extend(update.rings_transactions);
+            merged.squads_key_events.extend(update.squads_key_events);
             merged
                 .nullifier_tree_batch_updates
                 .extend(update.nullifier_tree_batch_updates);

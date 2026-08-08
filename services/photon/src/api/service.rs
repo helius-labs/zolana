@@ -26,6 +26,8 @@ use super::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
             get_nullifier_queue_elements, get_shielded_transactions_by_nullifiers,
             get_shielded_transactions_by_signature, get_shielded_transactions_by_tags,
+            get_squads_key_events, GetSquadsKeyEvents, GetSquadsKeyEventsRequest,
+            GetSquadsKeyEventsResponse,
         },
     },
 };
@@ -133,6 +135,13 @@ impl PhotonApi {
         get_nullifier_queue_elements(self.db_conn.as_ref(), request).await
     }
 
+    pub async fn get_squads_key_events(
+        &self,
+        request: GetSquadsKeyEventsRequest,
+    ) -> Result<GetSquadsKeyEventsResponse, PhotonApiError> {
+        get_squads_key_events(self.db_conn.as_ref(), request).await
+    }
+
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
         vec![
             method_api_spec::<GetEncryptedUtxosByTags>(),
@@ -142,6 +151,7 @@ impl PhotonApi {
             method_api_spec::<GetMerkleProofs>(),
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
+            method_api_spec::<GetSquadsKeyEvents>(),
         ]
     }
 }

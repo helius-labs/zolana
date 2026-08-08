@@ -1,6 +1,7 @@
 use nullifier_tree_batch_update_parser::parse_nullifier_tree_batch_update;
 use rings_event_parser::parse_rings_events;
 use solana_pubkey::Pubkey;
+use squads_event_parser::parse_squads_events;
 use std::collections::HashSet;
 
 use super::{error::IngesterError, typedefs::block_info::TransactionInfo};
@@ -9,8 +10,10 @@ use self::state_update::{StateUpdate, Transaction};
 use self::tree_info::TreeInfo;
 pub use self::tree_info::TreeResolver;
 
+mod event_site;
 pub mod nullifier_tree_batch_update_parser;
 pub mod rings_event_parser;
+pub mod squads_event_parser;
 pub mod state_update;
 pub mod tree_info;
 
@@ -33,11 +36,17 @@ where
     }
 
     let mut state_updates = Vec::new();
-    let mut is_rings_transaction = false;
+    // Both event logs reference the `transactions` row, so either one requires it.
+    let mut needs_transaction_row = false;
 
     if let Some(rings_state_update) = parse_rings_events(tx, slot)? {
-        is_rings_transaction = true;
+        needs_transaction_row = true;
         state_updates.push(rings_state_update);
+    }
+
+    if let Some(squads_state_update) = parse_squads_events(tx, slot)? {
+        needs_transaction_row = true;
+        state_updates.push(squads_state_update);
     }
 
     for instruction_group in &tx.instruction_groups {
@@ -56,7 +65,7 @@ where
     if state_update != StateUpdate::default() {
         discover_rings_trees(conn, &state_update, slot, resolver).await?;
     }
-    if is_rings_transaction {
+    if needs_transaction_row {
         state_update.transactions.insert(Transaction {
             signature: tx.signature,
             slot,

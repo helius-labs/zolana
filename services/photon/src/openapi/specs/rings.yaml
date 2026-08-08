@@ -882,6 +882,146 @@ paths:
                     type: string
                   jsonrpc:
                     type: string
+  /get_squads_key_events:
+    summary: get_squads_key_events
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - get_squads_key_events
+                params:
+                  type: object
+                  properties:
+                    account:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/SerializablePubkey'
+                        description: |-
+                          The rotated or closed viewing key account. Required unless `owner` is
+                          given, and combined with it when both are.
+                    cursor:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/Base64String'
+                    limit:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/Limit'
+                    owner:
+                      oneOf:
+                      - type: 'null'
+                      - $ref: '#/components/schemas/Hash'
+                        description: |-
+                          The owner the account carried before the write. It is a hash for a smart
+                          account owner, so it is not an address.
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    required:
+                    - context
+                    - events
+                    properties:
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      events:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SquadsKeyEvent'
+                        description: |-
+                          Oldest key material first, so a holder replays rotations in the order
+                          the chain applied them.
+                      next_cursor:
+                        oneOf:
+                        - type: 'null'
+                        - $ref: '#/components/schemas/Base64String'
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
 components:
   schemas:
     Base64String:
@@ -891,10 +1031,16 @@ components:
       type: object
       required:
       - block_time
+      - slot
       properties:
         block_time:
           type: integer
           format: int64
+        slot:
+          type: integer
+          format: u-int64
+          description: Highest slot the indexer has persisted, for slot-based freshness checks.
+          minimum: 0
       additionalProperties: false
     EncryptedUtxoMatch:
       type: object
@@ -1136,4 +1282,69 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/Base64String'
+      additionalProperties: false
+    SquadsKeyEvent:
+      type: object
+      required:
+      - slot
+      - tx_signature
+      - event_index
+      - source_instruction_tag
+      - event_kind
+      - account
+      - owner
+      - key_nonce
+      - raw_event
+      - parse_version
+      properties:
+        account:
+          $ref: '#/components/schemas/SerializablePubkey'
+        event_index:
+          type: integer
+          format: u-int16
+          minimum: 0
+        event_kind:
+          type: integer
+          format: int16
+          description: |-
+            Kind byte as the program wrote it. Negative when the record carried
+            none.
+        key_nonce:
+          type: integer
+          format: u-int64
+          description: Nonce of the account state before the emitting instruction wrote it.
+          minimum: 0
+        new_key_nonce:
+          type:
+          - integer
+          - 'null'
+          format: u-int64
+          description: Nonce the rotation wrote. A close writes none.
+          minimum: 0
+        old_state_hash:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Hash'
+            description: Rotation commitment the proof was bound to. A close has none.
+        owner:
+          $ref: '#/components/schemas/Hash'
+        parse_version:
+          type: integer
+          format: int16
+          description: |-
+            Zero when the indexer could not decode the record, and then every field
+            above except `event_kind` and `raw_event` is unset.
+        raw_event:
+          $ref: '#/components/schemas/Base64String'
+          description: '`[kind, payload]` as emitted, holding the destroyed key material.'
+        slot:
+          type: integer
+          format: u-int64
+          minimum: 0
+        source_instruction_tag:
+          type: integer
+          format: u-int16
+          minimum: 0
+        tx_signature:
+          $ref: '#/components/schemas/SerializableSignature'
       additionalProperties: false

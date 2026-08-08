@@ -338,7 +338,7 @@ pub(super) fn hash_from_vec(bytes: Vec<u8>) -> Result<Hash, PhotonApiError> {
         .map_err(|_| PhotonApiError::UnexpectedError("Invalid 32-byte value".to_string()))
 }
 
-fn pubkey_from_vec(bytes: Vec<u8>) -> Result<SerializablePubkey, PhotonApiError> {
+pub(super) fn pubkey_from_vec(bytes: Vec<u8>) -> Result<SerializablePubkey, PhotonApiError> {
     SerializablePubkey::try_from(bytes)
         .map_err(|_| PhotonApiError::UnexpectedError("Invalid public key bytes".to_string()))
 }

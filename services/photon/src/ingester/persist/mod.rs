@@ -18,6 +18,7 @@ use sea_orm::{
     QueryFilter, QueryTrait, Set,
 };
 use solana_pubkey::Pubkey;
+use squads_key_events::persist_squads_key_events;
 use std::collections::HashMap;
 use zolana_indexer_api::Hash;
 
@@ -35,6 +36,7 @@ mod leaf_node;
 mod leaf_node_proof;
 mod merkle_proof_with_context;
 mod rings_transactions;
+mod squads_key_events;
 
 pub use self::leaf_node::{persist_leaf_nodes, LeafNode};
 pub use self::leaf_node_proof::{
@@ -63,6 +65,7 @@ pub async fn persist_state_update(
     let StateUpdate {
         transactions,
         rings_transactions,
+        squads_key_events,
         nullifier_tree_batch_updates,
     } = state_update;
 
@@ -76,6 +79,9 @@ pub async fn persist_state_update(
     debug!("Persisting Rings transactions...");
     persist_rings_output_leaf_nodes(txn, &rings_transactions, &tree_info_cache).await?;
     persist_rings_transactions(txn, &rings_transactions).await?;
+
+    debug!("Persisting Squads key events...");
+    persist_squads_key_events(txn, &squads_key_events).await?;
 
     debug!("Persisting reconstructed nullifier tree batch updates...");
     persist_nullifier_tree_batch_updates(txn, &nullifier_tree_batch_updates, &tree_info_cache)
