@@ -177,6 +177,43 @@ var (
 		[]string{"queue"},
 	)
 
+	// Where the dequeue loop's time goes, broken down by stage.
+	//
+	// One goroutine per queue feeds every proof worker, so whatever that loop
+	// spends per job is a hard ceiling on admission rate no matter how much
+	// proving capacity exists behind it. Queue wait told us jobs waited ~105s;
+	// it could not say why. The stages separate the three candidates:
+	//
+	//   dequeue   - blocked in BLPop. High only when there is no work.
+	//   dedup     - the cached-result and cached-failure lookups. This is where
+	//               an O(n) queue scan was costing 100ms + 1.53ms per stored
+	//               result, capping admission at 0.8 jobs/s.
+	//   semaphore - blocked because all workers are busy. This one is healthy
+	//               backpressure; the other two are not.
+	DispatchLast = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_dispatch_seconds_last",
+			Help: "Most recent duration of a dequeue-loop stage, by queue and stage",
+		},
+		[]string{"queue", "stage"},
+	)
+
+	DispatchMean = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_dispatch_seconds_mean",
+			Help: "Mean duration of a dequeue-loop stage over the last 100 jobs",
+		},
+		[]string{"queue", "stage"},
+	)
+
+	DispatchMax = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_dispatch_seconds_max",
+			Help: "Longest duration of a dequeue-loop stage over the last 100 jobs",
+		},
+		[]string{"queue", "stage"},
+	)
+
 	SystemMemoryUsage = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "prover_system_memory_bytes",
@@ -254,6 +291,24 @@ func RecordQueueWait(queueName string, waited time.Duration) {
 	QueueWaitLast.WithLabelValues(queueName).Set(seconds)
 	QueueWaitMean.WithLabelValues(queueName).Set(mean)
 	QueueWaitMax.WithLabelValues(queueName).Set(max)
+}
+
+// Dispatch stages keep their own window, keyed by queue and stage together.
+var dispatchStages = &rollingStats{byCircuit: map[string]*window{}}
+
+// RecordDispatchStage publishes how long one stage of the dequeue loop took.
+//
+// Stage names are fixed ("dequeue", "dedup", "semaphore") so the series stay
+// bounded; see the DispatchLast comment for what each one means.
+func RecordDispatchStage(queueName, stage string, took time.Duration) {
+	seconds := took.Seconds()
+	if seconds < 0 {
+		return
+	}
+	mean, max, _ := dispatchStages.observe(queueName+"|"+stage, seconds, 0)
+	DispatchLast.WithLabelValues(queueName, stage).Set(seconds)
+	DispatchMean.WithLabelValues(queueName, stage).Set(mean)
+	DispatchMax.WithLabelValues(queueName, stage).Set(max)
 }
 
 // observe records a duration and a memory delta, returning the mean and max

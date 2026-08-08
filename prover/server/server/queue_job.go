@@ -183,7 +183,9 @@ func (w *BaseQueueWorker) Stop() {
 }
 
 func (w *BaseQueueWorker) processJobs() {
+	dequeueStart := time.Now()
 	job, err := w.queue.DequeueProof(w.queueName, 5*time.Second)
+	RecordDispatchStage(w.queueName, "dequeue", time.Since(dequeueStart))
 	if err != nil {
 		logging.Logger().Error().Err(err).Str("queue", w.queueName).Msg("Error dequeuing from queue")
 		time.Sleep(2 * time.Second)
@@ -239,7 +241,12 @@ func (w *BaseQueueWorker) processJobs() {
 		Str("queue", w.queueName).
 		Msg("Dequeued proof job")
 
-	// Check for duplicate inputs before processing
+	// Check for duplicate inputs before processing.
+	//
+	// Everything from here to the semaphore runs on the loop that feeds every
+	// worker, so it is timed as "dedup": time spent here is admission rate lost,
+	// including on the cache-hit paths that return without ever proving.
+	dedupStart := time.Now()
 	inputHash := ComputeInputHash(job.Payload)
 
 	// Check if we already have a successful result for this input
@@ -273,6 +280,7 @@ func (w *BaseQueueWorker) processJobs() {
 		w.queue.StoreResult(job.ID, cachedProof)
 		w.queue.StoreInputHash(job.ID, inputHash)
 		w.queue.IndexResultByHash(inputHash, job.ID)
+		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 		return
 	}
 
@@ -326,14 +334,20 @@ func (w *BaseQueueWorker) processJobs() {
 		}
 		w.queue.StoreInputHash(job.ID, inputHash)
 		w.queue.IndexFailureByHash(inputHash, job.ID)
+		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 		return
 	}
 
 	// No cached result found, proceed with normal processing
 	// Store the input hash for this job to enable future deduplication
 	w.queue.StoreInputHash(job.ID, inputHash)
+	RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 
+	// Blocking here means every worker is busy, which is the one healthy reason
+	// for the loop to stall. Separated from dedup so the two are never confused.
+	semaphoreStart := time.Now()
 	w.semaphore <- struct{}{}
+	RecordDispatchStage(w.queueName, "semaphore", time.Since(semaphoreStart))
 
 	go func(job *ProofJob, inputHash string) {
 		defer func() {
