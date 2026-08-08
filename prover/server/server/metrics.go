@@ -146,6 +146,37 @@ var (
 		[]string{"circuit_type"},
 	)
 
+	// How long a job sat in Redis between being accepted and being picked up.
+	//
+	// The gap nobody measured. A client-observed "prove" phase of 118s was
+	// reconciled against 0.28s of compute and an idle worker, and there was no
+	// way to tell whether the missing two minutes were queue wait or the client
+	// polling too slowly for its result. Stamped from the job's CreatedAt at
+	// dequeue, which the expiry check already relies on.
+	QueueWaitLast = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_queue_wait_seconds_last",
+			Help: "Enqueue-to-dequeue delay of the most recent job, by queue",
+		},
+		[]string{"queue"},
+	)
+
+	QueueWaitMean = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_queue_wait_seconds_mean",
+			Help: "Mean enqueue-to-dequeue delay over the last 100 jobs, by queue",
+		},
+		[]string{"queue"},
+	)
+
+	QueueWaitMax = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_queue_wait_seconds_max",
+			Help: "Longest enqueue-to-dequeue delay over the last 100 jobs, by queue",
+		},
+		[]string{"queue"},
+	)
+
 	SystemMemoryUsage = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "prover_system_memory_bytes",
@@ -206,6 +237,24 @@ type window struct {
 }
 
 var rolling = &rollingStats{byCircuit: map[string]*window{}}
+
+// Queue waits keep their own window, keyed by queue rather than circuit.
+var queueWaits = &rollingStats{byCircuit: map[string]*window{}}
+
+// RecordQueueWait publishes how long a job sat between accept and dequeue.
+//
+// Called with the job's age at pickup. Zero CreatedAt means the job predates
+// the field, so it is skipped rather than reported as an enormous wait.
+func RecordQueueWait(queueName string, waited time.Duration) {
+	seconds := waited.Seconds()
+	if seconds < 0 {
+		return
+	}
+	mean, max, _ := queueWaits.observe(queueName, seconds, 0)
+	QueueWaitLast.WithLabelValues(queueName).Set(seconds)
+	QueueWaitMean.WithLabelValues(queueName).Set(mean)
+	QueueWaitMax.WithLabelValues(queueName).Set(max)
+}
 
 // observe records a duration and a memory delta, returning the mean and max
 // duration over the retained window and the all-time peak memory.
