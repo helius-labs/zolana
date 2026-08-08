@@ -132,7 +132,7 @@ async fn get_shielded_transactions(
 
     let matched_txs =
         fetch_matching_rings_transactions(&tx, values, cursor.as_ref(), limit, match_by).await?;
-    let next_cursor = next_cursor_from_rows(&matched_txs, limit, shielded_tx_cursor_from_row)?;
+    let next_cursor = next_cursor_from_rows(&matched_txs, shielded_tx_cursor_from_row)?;
 
     let transactions = hydrate_shielded_transactions(&tx, matched_txs)
         .await?

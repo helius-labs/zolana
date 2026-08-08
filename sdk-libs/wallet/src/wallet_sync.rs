@@ -995,18 +995,12 @@ mod tests {
                 .collect();
             rows.sort_by_key(|(slot, _)| *slot);
 
-            // Photon's rule (`next_cursor_from_rows`): a page shorter than the
-            // limit is the end of the stream and carries no cursor. Modelling
-            // this matters -- a mock that always returns a cursor lets a client
-            // look incremental in tests while rescanning from zero in
-            // production.
-            let short_page = rows.len() < limit;
+            // Photon's rule (`next_cursor_from_rows`): the position of the last
+            // row returned, or None when there were none. A short page still
+            // carries a cursor, so the client can resume from the tip next sync
+            // instead of rescanning; the loop ends on the following empty page.
             rows.truncate(limit);
-            let next = if short_page {
-                None
-            } else {
-                rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec())
-            };
+            let next = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
             let transactions = rows
                 .into_iter()
                 .map(|(slot, tag)| ShieldedTransaction {
@@ -1228,24 +1222,26 @@ mod tests {
         )
         .expect("round 1");
 
+        // Each chunk costs two requests now: one for the rows, one that comes
+        // back empty and ends the stream. What matters is that no request ever
+        // carries two tags -- the early tag is never re-queried.
         assert_eq!(
             *indexer.calls.borrow(),
-            vec![(1, None), (1, None)],
+            vec![(1, None), (1, Some(10)), (1, None), (1, Some(50))],
             "round 1 must ask for the late tag alone, not both tags again"
         );
     }
 
-    /// Photon returns `next_cursor: None` for any page shorter than the limit
-    /// (`next_cursor_from_rows`), so a wallet whose whole history fits in one
-    /// page records no cursor at all. That is correct, not a miss: the next
-    /// sync rescans at most one page, so sync cost is bounded by the page size
-    /// rather than by history length.
+    /// A wallet whose whole history fits in one page must still record where it
+    /// got to. Photon used to return no cursor for a short page, which is right
+    /// for pagination and wrong for resumption: such a wallet recorded nothing
+    /// and refetched its entire history on every sync, growing with every
+    /// transfer. On devnet an 881-transaction wallet spent 2.4s of a 5.0s sync
+    /// doing exactly that.
     ///
-    /// Pinned because the opposite mock -- one that always hands back a cursor
-    /// -- makes a client look incremental in tests while it rescans everything
-    /// in production.
+    /// The stream now ends on the following empty page instead.
     #[test]
-    fn a_short_page_ends_the_stream_and_advances_no_cursor() {
+    fn a_short_page_still_advances_the_cursor_to_the_tip() {
         let keypair = ShieldedKeypair::new().expect("keypair");
         let tag = keypair.viewing_key.get_sender_view_tag(0).expect("tag");
 
@@ -1267,14 +1263,17 @@ mod tests {
         )
         .expect("sync");
 
-        assert!(
-            cursors.is_empty(),
-            "a short page is the end of the stream and carries no cursor"
+        assert_eq!(
+            cursors
+                .get(&tag)
+                .map(|c| u64::from_be_bytes(c.as_slice().try_into().expect("8-byte cursor"))),
+            Some(50),
+            "a short page still records the tip, so the next sync resumes there"
         );
         assert_eq!(
             *indexer.calls.borrow(),
-            vec![(1, None)],
-            "one request, from the start, and no follow-up to discover the end"
+            vec![(1, None), (1, Some(50))],
+            "one request for the rows, one more that returns none and ends the loop"
         );
     }
 
