@@ -654,6 +654,15 @@ func TestQueuedCommittedProofResultRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal committed proof result: %v", err)
 	}
+
+	// Both, because the worker does both: StoreResult writes zk_result_<id>,
+	// which is what GetResult reads, and the queue entry is what cleanup ages
+	// out. This test used to enqueue only, and passed because GetResult would
+	// scan the whole results queue on a miss -- a scan that ran on every status
+	// poll and pinned Redis's engine thread at 99%.
+	if err := rq.StoreResult(jobID, result); err != nil {
+		t.Fatalf("store committed proof result: %v", err)
+	}
 	if err := rq.EnqueueProof("zk_results_queue", &server.ProofJob{
 		ID:        jobID,
 		Type:      "result",

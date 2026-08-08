@@ -504,31 +504,24 @@ func (rq *RedisQueue) GetResult(jobID string) (interface{}, error) {
 		return nil, err
 	}
 
-	return rq.searchResultInQueue(jobID)
-}
-
-func (rq *RedisQueue) searchResultInQueue(jobID string) (interface{}, error) {
-	items, err := rq.Client.LRange(rq.Ctx, "zk_results_queue", 0, -1).Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to search results queue: %w", err)
-	}
-
-	for _, item := range items {
-		var resultJob ProofJob
-		if json.Unmarshal([]byte(item), &resultJob) == nil {
-			if resultJob.ID == jobID && resultJob.Type == "result" {
-				var proofWithTiming common.ProofWithTiming
-				err = json.Unmarshal(resultJob.Payload, &proofWithTiming)
-				if err != nil {
-					return nil, fmt.Errorf("failed to unmarshal queued result: %w", err)
-				}
-				rq.StoreResult(jobID, &proofWithTiming)
-
-				return &proofWithTiming, nil
-			}
-		}
-	}
-
+	// A miss means "not finished yet", which is the answer to almost every poll.
+	//
+	// This used to fall back to scanning zk_results_queue: an LRange of every
+	// stored proof, then a JSON unmarshal per entry, to find one job ID. Clients
+	// poll /prove/status from 25ms and back off, so a single transfer misses ten
+	// or more times before its proof lands -- and each of those misses dragged
+	// the whole results queue across the wire.
+	//
+	// Measured on devnet at ~7 tps: 37 GET and 35 list commands per transfer,
+	// with ElastiCache's engine thread (Redis executes commands on one core)
+	// pinned at 99%. Every dispatch stage degraded together as a result --
+	// dequeue 0.17s to 5.4s, dedup 0.24s to 2.7s, semaphore 0.88s to 17.5s --
+	// while proving itself stayed under a second. Throughput collapsed from
+	// 7 tps to 0.3.
+	//
+	// StoreResult writes zk_result_<id> for every completed proof, so the key
+	// lookup above is authoritative and the scan could only ever find what it
+	// had already found.
 	return nil, redis.Nil
 }
 
