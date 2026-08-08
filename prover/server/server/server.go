@@ -453,6 +453,15 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Bool("queue_available", handler.enableQueue && handler.redisQueue != nil).
 		Msg("Processing prove request")
 
+	// Counted here, once, because this is the only point every request passes
+	// through exactly once. Counting inside the handlers double-counted the
+	// queued path -- once at submission and again when the worker called
+	// StartProofTimer -- while the direct-sync path counted once, so the metric
+	// read 2x on the only path production uses. It reported 498 proofs for a run
+	// whose logs show 249.
+	ProofRequestsTotal.WithLabelValues(string(proofRequestMeta.CircuitType)).Inc()
+	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(buf))
+
 	if shouldUseQueue && handler.enableQueue && handler.redisQueue != nil {
 		handler.handleAsyncProof(w, r, buf, proofRequestMeta)
 	} else {
@@ -853,9 +862,6 @@ type healthHandler struct {
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
-	ProofRequestsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
-	RecordCircuitInputSize(string(meta.CircuitType), len(buf))
-
 	queueName := GetQueueNameForCircuit(meta.CircuitType)
 
 	// Compute input hash for deduplication
@@ -1024,7 +1030,6 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		}()
 
 		timer := StartProofTimer(string(meta.CircuitType))
-		RecordCircuitInputSize(string(meta.CircuitType), len(buf))
 
 		proof, proofError := handler.processProofSync(buf)
 

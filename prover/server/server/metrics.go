@@ -229,8 +229,15 @@ type MetricTimer struct {
 	startHeapAlloc uint64
 }
 
+// StartProofTimer marks the beginning of one proof *execution*.
+//
+// It deliberately does not touch ProofRequestsTotal. It used to, and since the
+// HTTP handler counts the request too, every queued proof was counted twice --
+// the metric read 498 for a run whose logs show 249 dequeues, 249 starts and
+// 249 completions. Requests are counted once at the routing point in
+// proveHandler; executions are visible through ActiveJobs, the duration gauges,
+// and prover_jobs_processed_total.
 func StartProofTimer(circuitType string) *MetricTimer {
-	ProofRequestsTotal.WithLabelValues(circuitType).Inc()
 	ActiveJobs.Inc()
 
 	// Capture memory state before proof generation
