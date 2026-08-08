@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"time"
@@ -15,39 +14,23 @@ import (
 )
 
 const (
-	// JobExpirationTimeout should match the forester's max_wait_time (600 seconds)
+	// JobExpirationTimeout must match the forester's max_wait_time.
 	JobExpirationTimeout = 600 * time.Second
 
-	// Memory estimates per circuit type (in GB)
-	// Based on live measurements: ~11GB per batch-500 proof
-	// batch_update_32_500:        ~11GB (8M constraints)
-	// batch_append_32_500:        ~11GB (7.8M constraints)
-	// batch_address-append_40_250: ~15GB (larger tree height)
-	//
-	// For safety, we use the largest (address-append) as the baseline
+	// MemoryPerProofGB is sized to the heaviest circuit (batch address-append).
 	MemoryPerProofGB = 15
 
-	// MemoryReserveGB is memory to reserve for OS, proving keys, and other processes
-	// Proving keys can be 10-20GB depending on which circuits are loaded
+	// MemoryReserveGB reserves headroom for the OS, loaded proving keys, and other processes.
 	MemoryReserveGB = 20
 
-	// NumQueueWorkers is the number of queue workers (update, append, address-append)
 	NumQueueWorkers = 3
 
-	// MinConcurrencyPerWorker is the minimum concurrency per worker
 	MinConcurrencyPerWorker = 1
 
-	// MaxConcurrencyPerWorker is the maximum concurrency per worker (safety cap)
 	MaxConcurrencyPerWorker = 100
 )
 
-// getMaxConcurrency returns the max concurrency per worker.
-// Configuration priority:
-//  1. PROVER_MAX_CONCURRENCY env var
-//  2. Auto-calculate from PROVER_TOTAL_MEMORY_GB env var
-//  3. Default to MinConcurrencyPerWorker
 func getMaxConcurrency() int {
-	// Check for explicit concurrency override
 	if val := os.Getenv("PROVER_MAX_CONCURRENCY"); val != "" {
 		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
 			logging.Logger().Info().
@@ -57,7 +40,6 @@ func getMaxConcurrency() int {
 		}
 	}
 
-	// Check for memory-based configuration
 	if val := os.Getenv("PROVER_TOTAL_MEMORY_GB"); val != "" {
 		if totalMemGB, err := strconv.Atoi(val); err == nil && totalMemGB > 0 {
 			concurrency := calculateConcurrency(totalMemGB)
@@ -69,7 +51,6 @@ func getMaxConcurrency() int {
 		}
 	}
 
-	// Default fallback
 	logging.Logger().Info().
 		Int("max_concurrency", MinConcurrencyPerWorker).
 		Msg("Using default min concurrency (set PROVER_MAX_CONCURRENCY or PROVER_TOTAL_MEMORY_GB to configure)")
@@ -92,8 +73,6 @@ func getTransferMaxConcurrency() int {
 	return getMaxConcurrency()
 }
 
-// calculateConcurrency computes per-worker concurrency from total memory.
-// Formula: (TotalRAM - Reserve) / (MemoryPerProof * NumWorkers)
 func calculateConcurrency(totalMemGB int) int {
 	availableMemGB := totalMemGB - MemoryReserveGB
 	if availableMemGB < MemoryPerProofGB {
@@ -118,12 +97,9 @@ type ProofJob struct {
 	Type      string          `json:"type"`
 	Payload   json.RawMessage `json:"payload"`
 	CreatedAt time.Time       `json:"created_at"`
-	// TreeID is the merkle tree pubkey - used for fair queuing across trees
-	// If empty, job goes to the default queue (backwards compatible)
+	// TreeID enables fair queuing across trees. Empty routes to the default queue.
 	TreeID string `json:"tree_id,omitempty"`
-	// BatchIndex is the batch sequence number within a tree - used to process batches in order
-	// Lower batch indices should be processed first to enable sequential transaction submission
-	// -1 means no batch index (legacy requests, FIFO)
+	// BatchIndex orders batches within a tree. -1 means no batch index (FIFO).
 	BatchIndex int64 `json:"batch_index"`
 }
 
@@ -183,7 +159,9 @@ func (w *BaseQueueWorker) Stop() {
 }
 
 func (w *BaseQueueWorker) processJobs() {
+	dequeueStart := time.Now()
 	job, err := w.queue.DequeueProof(w.queueName, 5*time.Second)
+	RecordDispatchStage(w.queueName, "dequeue", time.Since(dequeueStart))
 	if err != nil {
 		logging.Logger().Error().Err(err).Str("queue", w.queueName).Msg("Error dequeuing from queue")
 		time.Sleep(2 * time.Second)
@@ -195,9 +173,10 @@ func (w *BaseQueueWorker) processJobs() {
 		return
 	}
 
-	// Check if a job has expired
 	if !job.CreatedAt.IsZero() {
 		jobAge := time.Since(job.CreatedAt)
+		// Recorded before the expiry branch so expired jobs still count as wait.
+		RecordQueueWait(w.queueName, jobAge)
 		if jobAge > JobExpirationTimeout {
 			logging.Logger().Warn().
 				Str("job_id", job.ID).
@@ -208,10 +187,8 @@ func (w *BaseQueueWorker) processJobs() {
 				Time("created_at", job.CreatedAt).
 				Msg("Skipping expired job - forester likely timed out")
 
-			// Record metrics for expired jobs
 			ExpiredJobsCounter.WithLabelValues(w.queueName).Inc()
 
-			// Add to failed queue with expiration reason
 			expirationErr := fmt.Errorf("job expired after %v (max: %v)", jobAge, JobExpirationTimeout)
 			expiredInputHash := ComputeInputHash(job.Payload)
 			w.addToFailedQueue(job, expiredInputHash, expirationErr)
@@ -235,10 +212,11 @@ func (w *BaseQueueWorker) processJobs() {
 		Str("queue", w.queueName).
 		Msg("Dequeued proof job")
 
-	// Check for duplicate inputs before processing
+	// Everything from here to the semaphore runs on the loop that feeds every
+	// worker. The dedup stage times it, cache-hit paths included.
+	dedupStart := time.Now()
 	inputHash := ComputeInputHash(job.Payload)
 
-	// Check if we already have a successful result for this input
 	cachedProof, cachedJobID, err := w.queue.FindCachedResult(inputHash)
 	if err != nil {
 		logging.Logger().Warn().
@@ -247,14 +225,12 @@ func (w *BaseQueueWorker) processJobs() {
 			Str("input_hash", inputHash).
 			Msg("Error searching for cached result, continuing with processing")
 	} else if cachedProof != nil {
-		// Found a cached successful result, return it immediately
 		logging.Logger().Info().
 			Str("job_id", job.ID).
 			Str("cached_job_id", cachedJobID).
 			Str("input_hash", inputHash).
 			Msg("Returning cached successful proof result without re-processing")
 
-		// Store result for new job ID
 		resultData, _ := json.Marshal(cachedProof)
 		resultJob := &ProofJob{
 			ID:        job.ID,
@@ -269,6 +245,7 @@ func (w *BaseQueueWorker) processJobs() {
 		w.queue.StoreResult(job.ID, cachedProof)
 		w.queue.StoreInputHash(job.ID, inputHash)
 		w.queue.IndexResultByHash(inputHash, job.ID)
+		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 		return
 	}
 
@@ -280,14 +257,12 @@ func (w *BaseQueueWorker) processJobs() {
 			Str("input_hash", inputHash).
 			Msg("Error searching for cached failure, continuing with processing")
 	} else if cachedFailure != nil {
-		// Found a cached failure, return it immediately
 		logging.Logger().Info().
 			Str("job_id", job.ID).
 			Str("cached_job_id", cachedFailedJobID).
 			Str("input_hash", inputHash).
 			Msg("Returning cached failure without re-processing")
 
-		// Extract error message from cached failure
 		var errorMsg string
 		if errMsg, ok := cachedFailure["error"].(string); ok {
 			errorMsg = errMsg
@@ -295,7 +270,7 @@ func (w *BaseQueueWorker) processJobs() {
 			errorMsg = "Proof generation failed (cached failure)"
 		}
 
-		// Add to failed queue with new job ID (without full payload to save memory)
+		// Omit the full payload to bound Redis memory.
 		failedJob := map[string]interface{}{
 			"original_job": map[string]interface{}{
 				"id":           job.ID,
@@ -322,14 +297,18 @@ func (w *BaseQueueWorker) processJobs() {
 		}
 		w.queue.StoreInputHash(job.ID, inputHash)
 		w.queue.IndexFailureByHash(inputHash, job.ID)
+		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 		return
 	}
 
-	// No cached result found, proceed with normal processing
-	// Store the input hash for this job to enable future deduplication
 	w.queue.StoreInputHash(job.ID, inputHash)
+	RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 
+	// Blocking here means every worker is busy, the one healthy reason for the
+	// loop to stall.
+	semaphoreStart := time.Now()
 	w.semaphore <- struct{}{}
+	RecordDispatchStage(w.queueName, "semaphore", time.Since(semaphoreStart))
 
 	go func(job *ProofJob, inputHash string) {
 		defer func() {
@@ -396,7 +375,7 @@ func (w *BaseQueueWorker) processJobs() {
 			return
 		}
 
-		proof, err := w.generateProof(job)
+		proof, backend, err := w.generateProof(job)
 		w.removeFromProcessingQueue(job.ID)
 
 		proofDuration := time.Since(proofStartTime)
@@ -411,7 +390,7 @@ func (w *BaseQueueWorker) processJobs() {
 
 			w.addToFailedQueue(job, inputHash, err)
 
-			// On failure: clean up in-flight marker to allow retry with new job
+			// Delete the in-flight marker so a new job can retry the same input.
 			if delErr := w.queue.DeleteInFlightJob(inputHash, job.ID); delErr != nil {
 				logging.Logger().Warn().
 					Err(delErr).
@@ -419,7 +398,6 @@ func (w *BaseQueueWorker) processJobs() {
 					Str("input_hash", inputHash).
 					Msg("Failed to delete in-flight job marker (non-critical)")
 			}
-			// Clean up job metadata
 			if delErr := w.queue.DeleteJobMeta(job.ID); delErr != nil {
 				logging.Logger().Warn().
 					Err(delErr).
@@ -427,10 +405,10 @@ func (w *BaseQueueWorker) processJobs() {
 					Msg("Failed to delete job metadata (non-critical)")
 			}
 		} else {
-			// Store result with timing information
 			proofWithTiming := &common.ProofWithTiming{
 				Proof:           proof,
 				ProofDurationMs: proofDuration.Milliseconds(),
+				Backend:         backend,
 			}
 
 			resultData, _ := json.Marshal(proofWithTiming)
@@ -467,10 +445,9 @@ func (w *BaseQueueWorker) processJobs() {
 				Int64("duration_ms", proofDuration.Milliseconds()).
 				Msg("Proof job completed successfully")
 
-			// On success: DON'T delete in-flight marker - let it expire with the result.
-			// This allows future requests with identical inputs to get the cached result
-			// instead of creating a new job. Both marker and result have 10-min TTL.
-			// Only clean up job metadata (no longer needed since result is stored).
+			// Keep the in-flight marker on success. It expires with the cached result on
+			// the same TTL, so identical inputs reuse the result instead of creating a new
+			// job.
 			if delErr := w.queue.DeleteJobMeta(job.ID); delErr != nil {
 				logging.Logger().Warn().
 					Err(delErr).
@@ -519,21 +496,21 @@ func (w *TransferQueueWorker) Stop() {
 	w.BaseQueueWorker.Stop()
 }
 
-// generateProof generates a proof for the given job and returns it.
-// Result storage is handled by the caller to include timing information.
-func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
+// generateProof generates a proof for the given job and returns it with the
+// backend that served it (empty on single-backend routes). Result storage is
+// handled by the caller to include timing information.
+func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, string, error) {
 	proofRequestMeta, err := common.ParseProofRequestMeta(job.Payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse proof request: %w", err)
+		return nil, "", fmt.Errorf("failed to parse proof request: %w", err)
 	}
 
 	timer := StartProofTimer(string(proofRequestMeta.CircuitType))
 	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(job.Payload))
 
 	var proof *common.Proof
+	var backend string
 	var proofError error
-
-	log.Printf("proofRequestMeta.CircuitType: %s", proofRequestMeta.CircuitType)
 
 	switch proofRequestMeta.CircuitType {
 	case common.BatchAddressAppendCircuitType:
@@ -549,13 +526,13 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 	case common.MergeRingCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
 	default:
-		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
+		return nil, "", fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
 
 	if proofError != nil {
 		timer.ObserveError("proof_generation_failed")
 		RecordJobComplete(false)
-		return nil, proofError
+		return nil, backend, proofError
 	}
 
 	timer.ObserveDuration()
@@ -566,7 +543,7 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		RecordProofSize(string(proofRequestMeta.CircuitType), len(proofBytes))
 	}
 
-	return proof, nil
+	return proof, backend, nil
 }
 
 func (w *BaseQueueWorker) processBatchAddressAppendProof(payload json.RawMessage) (*common.Proof, error) {
@@ -646,8 +623,7 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(jobID string) {
 }
 
 func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err error) {
-	// Extract circuit type from payload for debugging, but don't store full payload
-	// to prevent memory issues (payloads can be hundreds of KB)
+	// Store the circuit type only. Full payloads would grow Redis without bound.
 	var circuitType string
 	var payloadMeta map[string]interface{}
 	if json.Unmarshal(job.Payload, &payloadMeta) == nil {
@@ -684,7 +660,6 @@ func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err 
 			Msg("Failed to add job to failed queue")
 	}
 
-	// Index the failure for O(1) cached lookups
 	if inputHash != "" {
 		if indexErr := w.queue.IndexFailureByHash(inputHash, job.ID); indexErr != nil {
 			logging.Logger().Warn().

@@ -504,31 +504,8 @@ func (rq *RedisQueue) GetResult(jobID string) (interface{}, error) {
 		return nil, err
 	}
 
-	return rq.searchResultInQueue(jobID)
-}
-
-func (rq *RedisQueue) searchResultInQueue(jobID string) (interface{}, error) {
-	items, err := rq.Client.LRange(rq.Ctx, "zk_results_queue", 0, -1).Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to search results queue: %w", err)
-	}
-
-	for _, item := range items {
-		var resultJob ProofJob
-		if json.Unmarshal([]byte(item), &resultJob) == nil {
-			if resultJob.ID == jobID && resultJob.Type == "result" {
-				var proofWithTiming common.ProofWithTiming
-				err = json.Unmarshal(resultJob.Payload, &proofWithTiming)
-				if err != nil {
-					return nil, fmt.Errorf("failed to unmarshal queued result: %w", err)
-				}
-				rq.StoreResult(jobID, &proofWithTiming)
-
-				return &proofWithTiming, nil
-			}
-		}
-	}
-
+	// A miss means not finished yet. StoreResult writes zk_result_<id> for
+	// every completed proof, so the key lookup above is authoritative.
 	return nil, redis.Nil
 }
 
@@ -728,28 +705,25 @@ func (rq *RedisQueue) CleanupStuckProcessingJobs() error {
 		"zk_transfer_processing_queue",
 	}
 
-	totalRecovered := int64(0)
 	totalFailed := int64(0)
 
 	for _, queueName := range processingQueues {
-		recovered, failed, err := rq.recoverStuckJobsFromQueue(queueName, processingTimeout)
+		failed, err := rq.failStuckJobsFromQueue(queueName, processingTimeout)
 		if err != nil {
 			logging.Logger().Error().
 				Err(err).
 				Str("queue", queueName).
-				Msg("Failed to recover stuck jobs from processing queue")
+				Msg("Failed to clear stuck jobs from processing queue")
 			continue
 		}
-		totalRecovered += recovered
 		totalFailed += failed
 	}
 
-	if totalRecovered > 0 || totalFailed > 0 {
+	if totalFailed > 0 {
 		logging.Logger().Info().
-			Int64("recovered_jobs", totalRecovered).
 			Int64("failed_jobs", totalFailed).
 			Time("timeout_cutoff", processingTimeout).
-			Msg("Processed stuck jobs from processing queues")
+			Msg("Failed out stuck jobs from processing queues")
 	}
 
 	return nil
@@ -776,13 +750,15 @@ func (rq *RedisQueue) CleanupOldFailedJobs() error {
 	return nil
 }
 
-func (rq *RedisQueue) recoverStuckJobsFromQueue(queueName string, timeoutCutoff time.Time) (int64, int64, error) {
+// failStuckJobsFromQueue moves jobs abandoned in a processing queue to the
+// failed queue, so the client's poll returns an error instead of hanging until
+// its own deadline.
+func (rq *RedisQueue) failStuckJobsFromQueue(queueName string, timeoutCutoff time.Time) (int64, error) {
 	items, err := rq.Client.LRange(rq.Ctx, queueName, 0, -1).Result()
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get processing queue items: %w", err)
+		return 0, fmt.Errorf("failed to get processing queue items: %w", err)
 	}
 
-	var recoveredCount int64
 	var failedCount int64
 
 	for _, item := range items {
@@ -805,98 +781,57 @@ func (rq *RedisQueue) recoverStuckJobsFromQueue(queueName string, timeoutCutoff 
 						originalJobID = job.ID[:len(job.ID)-11]
 					}
 
-					fiveMinutesAgo := time.Now().Add(-5 * time.Minute)
-					if job.CreatedAt.Before(fiveMinutesAgo) {
-						// Extract circuit type from payload for debugging, but don't store full payload
-						// to prevent memory issues (payloads can be hundreds of KB)
-						var circuitType string
-						var payloadMeta map[string]interface{}
-						if json.Unmarshal(job.Payload, &payloadMeta) == nil {
-							if ct, ok := payloadMeta["circuitType"].(string); ok {
-								circuitType = ct
-							}
+					// Extract circuit type from payload for debugging, but don't store full payload
+					// to prevent memory issues (payloads can be hundreds of KB)
+					var circuitType string
+					var payloadMeta map[string]interface{}
+					if json.Unmarshal(job.Payload, &payloadMeta) == nil {
+						if ct, ok := payloadMeta["circuitType"].(string); ok {
+							circuitType = ct
 						}
+					}
 
-						failureDetails := map[string]interface{}{
-							"original_job": map[string]interface{}{
-								"id":           originalJobID,
-								"type":         "zk_proof",
-								"circuit_type": circuitType,
-								"payload_size": len(job.Payload),
-								"created_at":   job.CreatedAt,
-							},
-							"error":     "Job timed out in processing queue (stuck for >5 minutes)",
-							"failed_at": time.Now(),
-							"timeout":   true,
-						}
+					failureDetails := map[string]interface{}{
+						"original_job": map[string]interface{}{
+							"id":           originalJobID,
+							"type":         "zk_proof",
+							"circuit_type": circuitType,
+							"payload_size": len(job.Payload),
+							"created_at":   job.CreatedAt,
+						},
+						"error":     fmt.Sprintf("Job timed out in processing queue (stuck since %s)", job.CreatedAt.Format(time.RFC3339)),
+						"failed_at": time.Now(),
+						"timeout":   true,
+					}
 
-						failedData, _ := json.Marshal(failureDetails)
-						failedJob := &ProofJob{
-							ID:        originalJobID + "_failed",
-							Type:      "failed",
-							Payload:   json.RawMessage(failedData),
-							CreatedAt: time.Now(),
-						}
+					failedData, _ := json.Marshal(failureDetails)
+					failedJob := &ProofJob{
+						ID:        originalJobID + "_failed",
+						Type:      "failed",
+						Payload:   json.RawMessage(failedData),
+						CreatedAt: time.Now(),
+					}
 
-						err = rq.EnqueueProof("zk_failed_queue", failedJob)
-						if err != nil {
-							logging.Logger().Error().
-								Err(err).
-								Str("job_id", originalJobID).
-								Msg("Failed to move timed out job to failed queue")
-						} else {
-							failedCount++
-							logging.Logger().Warn().
-								Str("job_id", originalJobID).
-								Str("processing_queue", queueName).
-								Time("stuck_since", job.CreatedAt).
-								Msg("Moved timed out job to failed queue (processing timeout >5min)")
-						}
+					err = rq.EnqueueProof("zk_failed_queue", failedJob)
+					if err != nil {
+						logging.Logger().Error().
+							Err(err).
+							Str("job_id", originalJobID).
+							Msg("Failed to move timed out job to failed queue")
 					} else {
-						originalQueue := getOriginalQueueFromProcessing(queueName)
-						if originalQueue != "" {
-							originalJob := &ProofJob{
-								ID:        originalJobID,
-								Type:      "zk_proof",
-								Payload:   job.Payload,
-								CreatedAt: job.CreatedAt,
-							}
-
-							err = rq.EnqueueProof(originalQueue, originalJob)
-							if err != nil {
-								logging.Logger().Error().
-									Err(err).
-									Str("job_id", originalJobID).
-									Str("target_queue", originalQueue).
-									Msg("Failed to recover stuck job")
-							} else {
-								recoveredCount++
-								logging.Logger().Info().
-									Str("job_id", originalJobID).
-									Str("from_queue", queueName).
-									Str("to_queue", originalQueue).
-									Time("stuck_since", job.CreatedAt).
-									Msg("Recovered stuck job")
-							}
-						}
+						failedCount++
+						logging.Logger().Warn().
+							Str("job_id", originalJobID).
+							Str("processing_queue", queueName).
+							Time("stuck_since", job.CreatedAt).
+							Msg("Moved timed out job to failed queue")
 					}
 				}
 			}
 		}
 	}
 
-	return recoveredCount, failedCount, nil
-}
-
-func getOriginalQueueFromProcessing(processingQueueName string) string {
-	switch processingQueueName {
-	case "zk_address_append_processing_queue":
-		return "zk_address_append_queue"
-	case "zk_transfer_processing_queue":
-		return "zk_transfer_queue"
-	default:
-		return ""
-	}
+	return failedCount, nil
 }
 
 func (rq *RedisQueue) cleanupOldRequestsFromQueue(queueName string, cutoffTime time.Time) (int64, error) {
@@ -971,73 +906,47 @@ func ComputeInputHash(payload json.RawMessage) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// FindCachedResult searches for a cached result by input hash.
-// Returns the proof result (as ProofWithTiming) and job ID if found, otherwise returns nil.
+// FindCachedResult searches for a cached result by input hash. The index is
+// authoritative. Every stored result is indexed in the same step and cleanup
+// removes both together, so a miss means not cached.
 func (rq *RedisQueue) FindCachedResult(inputHash string) (*common.ProofWithTiming, string, error) {
 	jobID, err := rq.Client.HGet(rq.Ctx, ResultsIndexKey, inputHash).Result()
-	if err == nil && jobID != "" {
-		result, fetchErr := rq.Client.Get(rq.Ctx, fmt.Sprintf("zk_result_%s", jobID)).Result()
-		if fetchErr == nil {
-			var proofWithTiming common.ProofWithTiming
-			if json.Unmarshal([]byte(result), &proofWithTiming) == nil {
-				logging.Logger().Info().
-					Str("input_hash", inputHash).
-					Str("cached_job_id", jobID).
-					Int64("proof_duration_ms", proofWithTiming.ProofDurationMs).
-					Msg("Found cached successful proof result via index")
-				return &proofWithTiming, jobID, nil
-			}
-		}
-		// Index entry exists but result is missing/invalid - clean up stale index entry
+	if err == redis.Nil || (err == nil && jobID == "") {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to query results index: %w", err)
+	}
+
+	result, err := rq.Client.Get(rq.Ctx, fmt.Sprintf("zk_result_%s", jobID)).Result()
+	if err != nil {
+		// Results carry a TTL, the index hash does not, so an entry can outlive
+		// what it points at. Drop it and report a miss.
 		logging.Logger().Debug().
 			Str("input_hash", inputHash).
 			Str("job_id", jobID).
-			Msg("Stale index entry, removing and falling back to queue scan")
+			Msg("Stale result index entry, removing")
 		rq.RemoveResultIndex(inputHash)
-	} else if err != nil && err != redis.Nil {
+		return nil, "", nil
+	}
+
+	var proofWithTiming common.ProofWithTiming
+	if err := json.Unmarshal([]byte(result), &proofWithTiming); err != nil {
 		logging.Logger().Warn().
 			Err(err).
 			Str("input_hash", inputHash).
-			Msg("Error querying results index, falling back to queue scan")
+			Str("job_id", jobID).
+			Msg("Cached result is unreadable, removing index entry")
+		rq.RemoveResultIndex(inputHash)
+		return nil, "", nil
 	}
 
-	// Fallback: O(n) queue scan for backward compatibility with unindexed results
-	items, err := rq.Client.LRange(rq.Ctx, "zk_results_queue", 0, -1).Result()
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to search results queue: %w", err)
-	}
-
-	for _, item := range items {
-		var resultJob ProofJob
-		if json.Unmarshal([]byte(item), &resultJob) == nil && resultJob.Type == "result" {
-			// Check if this result has the same input hash
-			storedHash, err := rq.Client.Get(rq.Ctx, fmt.Sprintf("zk_input_hash_%s", resultJob.ID)).Result()
-			if err == nil && storedHash == inputHash {
-				var proofWithTiming common.ProofWithTiming
-				err = json.Unmarshal(resultJob.Payload, &proofWithTiming)
-				if err != nil {
-					logging.Logger().Warn().
-						Err(err).
-						Str("input_hash", inputHash).
-						Str("job_id", resultJob.ID).
-						Msg("Failed to unmarshal cached result payload, skipping")
-					continue
-				}
-
-				logging.Logger().Info().
-					Str("input_hash", inputHash).
-					Str("cached_job_id", resultJob.ID).
-					Int64("proof_duration_ms", proofWithTiming.ProofDurationMs).
-					Msg("Found cached successful proof result via queue scan")
-
-				rq.IndexResultByHash(inputHash, resultJob.ID)
-
-				return &proofWithTiming, resultJob.ID, nil
-			}
-		}
-	}
-
-	return nil, "", nil
+	logging.Logger().Info().
+		Str("input_hash", inputHash).
+		Str("cached_job_id", jobID).
+		Int64("proof_duration_ms", proofWithTiming.ProofDurationMs).
+		Msg("Found cached successful proof result via index")
+	return &proofWithTiming, jobID, nil
 }
 
 // FindCachedFailure searches for a cached failure by input hash.
@@ -1067,53 +976,14 @@ func (rq *RedisQueue) FindCachedFailure(inputHash string) (map[string]interface{
 		logging.Logger().Debug().
 			Str("input_hash", inputHash).
 			Str("job_id", jobID).
-			Msg("Stale failure index entry, removing and falling back to queue scan")
+			Msg("Stale failure index entry, removing")
 		rq.RemoveFailureIndex(inputHash)
+		return nil, "", nil
 	} else if err != nil && err != redis.Nil {
-		logging.Logger().Warn().
-			Err(err).
-			Str("input_hash", inputHash).
-			Msg("Error querying failed index, falling back to queue scan")
+		return nil, "", fmt.Errorf("failed to query failed index: %w", err)
 	}
 
-	// Fallback: O(n) queue scan for backward compatibility with unindexed failures
-	items, err := rq.Client.LRange(rq.Ctx, "zk_failed_queue", 0, -1).Result()
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to search failed queue: %w", err)
-	}
-
-	for _, item := range items {
-		var failedJob ProofJob
-		if json.Unmarshal([]byte(item), &failedJob) == nil && failedJob.Type == "failed" {
-			// Extract the original job ID (remove _failed suffix)
-			originalJobID := failedJob.ID
-			if len(failedJob.ID) > 7 && failedJob.ID[len(failedJob.ID)-7:] == "_failed" {
-				originalJobID = failedJob.ID[:len(failedJob.ID)-7]
-			}
-
-			// Check if this failure has the same input hash
-			storedHash, err := rq.Client.Get(rq.Ctx, fmt.Sprintf("zk_input_hash_%s", originalJobID)).Result()
-			if err == nil && storedHash == inputHash {
-				// Found a matching failure
-				var failureDetails map[string]interface{}
-				err = json.Unmarshal(failedJob.Payload, &failureDetails)
-				if err != nil {
-					continue
-				}
-
-				logging.Logger().Info().
-					Str("input_hash", inputHash).
-					Str("cached_job_id", originalJobID).
-					Msg("Found cached failed proof result via queue scan")
-
-				// Backfill the index for future O(1) lookups
-				rq.IndexFailureByHash(inputHash, originalJobID)
-
-				return failureDetails, originalJobID, nil
-			}
-		}
-	}
-
+	// A miss means no cached failure. There is no fallback scan.
 	return nil, "", nil
 }
 

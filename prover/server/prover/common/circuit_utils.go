@@ -9,10 +9,12 @@ type Proof struct {
 	Proof groth16.Proof
 }
 
-// ProofWithTiming wraps a proof with timing information for metrics
 type ProofWithTiming struct {
 	Proof           *Proof `json:"proof"`
 	ProofDurationMs int64  `json:"proof_duration_ms"`
+	// Backend names the prover that served the job. Set on routes with more
+	// than one backend.
+	Backend string `json:"backend,omitempty"`
 }
 
 type BatchProofSystem struct {
