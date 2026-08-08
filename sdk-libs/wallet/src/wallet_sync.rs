@@ -517,7 +517,7 @@ fn wallet_query_nullifiers(wallet: &Wallet) -> Vec<[u8; 32]> {
 /// wallet's tag set is derived from a local counter plus a window of 64, and a
 /// second device spending further ahead than that window makes the counter lag by
 /// more than the window can absorb.
-fn fetch_shielded_transactions_incremental<I: Rpc>(
+fn fetch_shielded_transactions_incremental<I: Rpc + Sync>(
     indexer: &I,
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
@@ -540,45 +540,87 @@ fn fetch_shielded_transactions_incremental<I: Rpc>(
             .push(*tag);
     }
 
-    for (start, group) in groups {
-        for chunk in group.chunks(config.tag_query_chunk) {
-            let mut cursor = start.clone();
-            let mut furthest = start.clone();
-            loop {
-                let response = indexer.get_shielded_transactions_by_tags(
-                    chunk.to_vec(),
-                    cursor.clone(),
-                    Some(config.page_limit),
-                    rpc_config,
-                )?;
-                for tx in response.transactions {
-                    if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
-                        continue;
-                    }
-                    let key = tx.tx_signature.to_string();
-                    out.entry(key).or_insert(convert_sync_transaction(tx)?);
-                }
-                if response.next_cursor.is_some() {
-                    furthest = response.next_cursor.clone();
-                }
-                cursor = response.next_cursor;
-                if cursor.is_none() {
-                    break;
-                }
-            }
+    // Flatten to independent units of work first: every (resume point, chunk)
+    // pair is its own query against the same stream. Sequentially this was the
+    // largest item in a cold sync -- 2960ms of round-trip latency for a wallet
+    // whose tags span a few chunks.
+    let units: Vec<(Option<Vec<u8>>, &[ViewTag])> = groups
+        .iter()
+        .flat_map(|(start, group)| {
+            group
+                .chunks(config.tag_query_chunk)
+                .map(move |chunk| (start.clone(), chunk))
+        })
+        .collect();
 
-            // Advance every tag in this chunk to the end of the stream. Only sound
-            // because the ordering is global: each of these tags has now been
-            // scanned to that position.
-            if let Some(position) = furthest {
-                for tag in chunk {
-                    cursors.insert(*tag, position.clone());
-                }
-            }
-            // The loop above only exits once the stream is exhausted.
-            scanned_to_tip.extend(chunk.iter().copied());
+    type ChunkOutcome = (HashMap<String, ShieldedTransaction>, Option<Vec<u8>>);
+    let collected: Vec<Result<ChunkOutcome, ClientError>> = thread::scope(|scope| {
+        let handles: Vec<_> = units
+            .iter()
+            .map(|(start, chunk)| {
+                let start = start.clone();
+                scope.spawn(move || {
+                    let mut found = HashMap::new();
+                    let mut cursor = start.clone();
+                    let mut furthest = start;
+                    loop {
+                        let response = indexer.get_shielded_transactions_by_tags(
+                            chunk.to_vec(),
+                            cursor.clone(),
+                            Some(config.page_limit),
+                            rpc_config,
+                        )?;
+                        // A page below the limit is the end of the stream, so
+                        // there is no need to spend a round trip discovering
+                        // that. The cursor is still kept: it is the resume point
+                        // for the next sync, a different question from whether
+                        // another page exists.
+                        let last_page = response.transactions.len() < config.page_limit as usize;
+                        for tx in response.transactions {
+                            if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
+                                continue;
+                            }
+                            let key = tx.tx_signature.to_string();
+                            found.entry(key).or_insert(convert_sync_transaction(tx)?);
+                        }
+                        if response.next_cursor.is_some() {
+                            furthest = response.next_cursor.clone();
+                        }
+                        cursor = response.next_cursor;
+                        if last_page || cursor.is_none() {
+                            break;
+                        }
+                    }
+                    Ok((found, furthest))
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|payload| resume_unwind(payload))
+            })
+            .collect()
+    });
+
+    for (outcome, (_, chunk)) in collected.into_iter().zip(units.iter()) {
+        let (found, furthest) = outcome?;
+        for (key, tx) in found {
+            out.entry(key).or_insert(tx);
         }
+        // Advance every tag in this chunk to the end of the stream. Only sound
+        // because the ordering is global: each of these tags has now been
+        // scanned to that position.
+        if let Some(position) = furthest {
+            for tag in *chunk {
+                cursors.insert(*tag, position.clone());
+            }
+        }
+        scanned_to_tip.extend(chunk.iter().copied());
     }
+
     Ok(())
 }
 
@@ -622,6 +664,11 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                         rpc_config,
                     )
                     .await?;
+                // A page below the limit is the end of the stream, so there is
+                // no need to spend a round trip discovering that. The cursor is
+                // still kept: it is the resume point for the next sync, which
+                // is a different question from whether another page exists.
+                let last_page = response.transactions.len() < config.page_limit as usize;
                 for tx in response.transactions {
                     if tx.proofless || tx.tx_viewing_pk.is_none() || tx.salt.is_none() {
                         continue;
@@ -633,7 +680,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
                     furthest = response.next_cursor.clone();
                 }
                 cursor = response.next_cursor;
-                if cursor.is_none() {
+                if last_page || cursor.is_none() {
                     break;
                 }
             }
@@ -649,7 +696,7 @@ async fn fetch_shielded_transactions_incremental_async<I: AsyncRpc>(
     Ok(())
 }
 
-fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
+fn fetch_shielded_transactions_by_nullifiers<I: Rpc + Sync>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
     out: &mut HashMap<String, ShieldedTransaction>,
@@ -662,24 +709,57 @@ fn fetch_shielded_transactions_by_nullifiers<I: Rpc>(
         .copied()
         .filter(|nullifier| !scanned_to_tip.contains(nullifier))
         .collect();
-    for chunk in pending.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer.get_shielded_transactions_by_nullifiers(
-                chunk.to_vec(),
-                cursor,
-                Some(config.page_limit),
-                rpc_config,
-            )?;
-            for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
-                let key = tx.tx_signature.to_string();
-                out.entry(key).or_insert(convert_sync_transaction(tx)?);
-            }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
-                break;
-            }
+    // Chunks are independent queries against the same stream, so they run
+    // concurrently. A wallet that has spent 529 notes asks in 9 chunks, and run
+    // one after another that was 3349ms of a 6830ms sync -- the largest single
+    // item in a cold sync, and pure round-trip latency.
+    let chunks: Vec<&[[u8; 32]]> = pending.chunks(config.tag_query_chunk).collect();
+    let collected: Vec<Result<HashMap<String, ShieldedTransaction>, ClientError>> =
+        thread::scope(|scope| {
+            let handles: Vec<_> = chunks
+                .iter()
+                .map(|chunk| {
+                    scope.spawn(move || {
+                        let mut found = HashMap::new();
+                        let mut cursor = None;
+                        loop {
+                            let response = indexer.get_shielded_transactions_by_nullifiers(
+                                chunk.to_vec(),
+                                cursor,
+                                Some(config.page_limit),
+                                rpc_config,
+                            )?;
+                            let last_page =
+                                response.transactions.len() < config.page_limit as usize;
+                            for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
+                                let key = tx.tx_signature.to_string();
+                                found.entry(key).or_insert(convert_sync_transaction(tx)?);
+                            }
+                            cursor = response.next_cursor;
+                            if last_page || cursor.is_none() {
+                                break;
+                            }
+                        }
+                        Ok(found)
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .unwrap_or_else(|payload| resume_unwind(payload))
+                })
+                .collect()
+        });
+
+    for found in collected {
+        for (key, tx) in found? {
+            out.entry(key).or_insert(tx);
         }
+    }
+    for chunk in chunks {
         scanned_to_tip.extend(chunk.iter().copied());
     }
     Ok(())
@@ -709,12 +789,13 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
                     rpc_config,
                 )
                 .await?;
+            let last_page = response.transactions.len() < config.page_limit as usize;
             for tx in response.transactions.into_iter().filter(|tx| !tx.proofless) {
                 let key = tx.tx_signature.to_string();
                 out.entry(key).or_insert(convert_sync_transaction(tx)?);
             }
             cursor = response.next_cursor;
-            if cursor.is_none() {
+            if last_page || cursor.is_none() {
                 break;
             }
         }
@@ -748,6 +829,7 @@ where
                 Some(config.page_limit),
                 rpc_config,
             )?;
+            let last_page = response.matches.len() < config.page_limit as usize;
             for item in response.matches {
                 if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                     continue;
@@ -764,7 +846,7 @@ where
                 }
             }
             cursor = response.next_cursor;
-            if cursor.is_none() {
+            if last_page || cursor.is_none() {
                 break;
             }
         }
@@ -797,6 +879,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                     rpc_config,
                 )
                 .await?;
+            let last_page = response.matches.len() < config.page_limit as usize;
             for item in response.matches {
                 if item.tx_viewing_pk.is_some() || item.salt.is_some() {
                     continue;
@@ -813,7 +896,7 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
                 }
             }
             cursor = response.next_cursor;
-            if cursor.is_none() {
+            if last_page || cursor.is_none() {
                 break;
             }
         }
@@ -927,7 +1010,11 @@ mod tests {
         /// key is total, as it is in photon.
         entries: Vec<(u64, ViewTag)>,
         /// Every (tags, cursor) pair the client asked for, for call accounting.
-        calls: std::cell::RefCell<Vec<(usize, Option<u64>)>>,
+        ///
+        /// A Mutex rather than a RefCell because chunks are queried
+        /// concurrently, which also means the recorded order is not meaningful
+        /// -- assertions sort before comparing.
+        calls: std::sync::Mutex<Vec<(usize, Option<u64>)>>,
     }
 
     impl TaggedIndexer {
@@ -943,7 +1030,10 @@ mod tests {
             let after = cursor.as_ref().map(|bytes| {
                 u64::from_be_bytes(bytes.as_slice().try_into().expect("8-byte cursor"))
             });
-            self.calls.borrow_mut().push((tags.len(), after));
+            self.calls
+                .lock()
+                .expect("calls poisoned")
+                .push((tags.len(), after));
 
             let mut rows: Vec<_> = self
                 .entries
@@ -981,6 +1071,14 @@ mod tests {
                 .collect();
             (transactions, next)
         }
+    }
+
+    /// Chunks are queried concurrently, so the order calls land in is not
+    /// meaningful. Sort before comparing, and assert on the multiset instead.
+    fn sorted_calls(indexer: &TaggedIndexer) -> Vec<(usize, Option<u64>)> {
+        let mut calls = indexer.calls.lock().expect("calls poisoned").clone();
+        calls.sort();
+        calls
     }
 
     #[derive(Default)]
@@ -1179,12 +1277,9 @@ mod tests {
         )
         .expect("round 1");
 
-        // Each chunk costs two requests now: one for the rows, one that comes
-        // back empty and ends the stream. What matters is that no request ever
-        // carries two tags -- the early tag is never re-queried.
         assert_eq!(
-            *indexer.calls.borrow(),
-            vec![(1, None), (1, Some(10)), (1, None), (1, Some(50))],
+            sorted_calls(&indexer),
+            vec![(1, None), (1, None)],
             "round 1 must ask for the late tag alone, not both tags again"
         );
     }
@@ -1228,9 +1323,10 @@ mod tests {
             "a short page still records the tip, so the next sync resumes there"
         );
         assert_eq!(
-            *indexer.calls.borrow(),
-            vec![(1, None), (1, Some(50))],
-            "one request for the rows, one more that returns none and ends the loop"
+            sorted_calls(&indexer),
+            vec![(1, None)],
+            "a page below the limit is already known to be the last, so the tip \
+             costs no extra round trip"
         );
     }
 
@@ -1291,7 +1387,7 @@ mod tests {
         );
 
         // Second sync has learned the late tag.
-        indexer.calls.borrow_mut().clear();
+        indexer.calls.lock().expect("calls poisoned").clear();
         let mut second = HashMap::new();
         fetch_shielded_transactions_incremental(
             &indexer,
@@ -1307,7 +1403,7 @@ mod tests {
         // Asserting on what was REQUESTED rather than what was decrypted: the
         // invariant is which rows the indexer was asked for, and fabricating
         // decryptable P256 payloads would test the crypto instead.
-        let calls = indexer.calls.borrow();
+        let calls = indexer.calls.lock().expect("calls poisoned");
         assert!(
             calls.iter().any(|(_, after)| after.is_none()),
             "the newly discovered tag must be scanned from the beginning, not from \
