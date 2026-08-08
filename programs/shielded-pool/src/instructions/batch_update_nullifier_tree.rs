@@ -9,8 +9,9 @@ use zolana_interface::{
 use zolana_tree::TreeAccount;
 
 use crate::instructions::{
-    event::emit_batch_address_append_event, protocol_config::loader::load_protocol_config,
-    shared::reimburse_forester,
+    event::emit_batch_address_append_event,
+    protocol_config::loader::load_protocol_config,
+    shared::{reimburse_forester, take_program_and_registry},
 };
 
 pub fn process_batch_update_nullifier_tree(
@@ -24,12 +25,7 @@ pub fn process_batch_update_nullifier_tree(
     let protocol_config = iter.next_account("protocol_config")?;
     let tree = iter.next_mut("tree")?;
     let reimbursement_recipient = iter.next_mut("reimbursement_recipient")?;
-    #[cfg(feature = "vk-registry")]
-    let vk_registry = if iter.iterator_is_empty() {
-        None
-    } else {
-        Some(&*iter.next_non_mut("vk_registry")?)
-    };
+    let vk_registry = take_program_and_registry(&mut iter)?;
 
     let config = load_protocol_config(protocol_config)?;
     config
@@ -44,13 +40,12 @@ pub fn process_batch_update_nullifier_tree(
         #[cfg(feature = "vk-registry")]
         match vk_registry {
             Some(registry) => {
-                // Spec selection mirrors the verify-side batch-size match; the
-                // batch size comes from tree state, not instruction data.
+                // The batch size comes from tree state, not instruction data.
                 let batch_size = tree_account.nullifer_tree().queue_batches.zkp_batch_size;
                 let spec = match batch_size {
                     10 => &zolana_interface::verifying_keys::registry::BATCH_ADDRESS_APPEND_40_10_REGISTRY,
                     250 => &zolana_interface::verifying_keys::registry::BATCH_ADDRESS_APPEND_40_250_REGISTRY,
-                    _ => return Err(ShieldedPoolError::NullifierTreeUpdateFailed.into()),
+                    _ => return Err(ShieldedPoolError::UnsupportedNullifierProofShape.into()),
                 };
                 let data =
                     crate::instructions::vk_registry::load_finalized_vk_registry(registry, spec)?;
@@ -58,24 +53,27 @@ pub fn process_batch_update_nullifier_tree(
                 tree_account
                     .nullifer_tree()
                     .update_tree_from_address_queue_registered(instruction, &refs)
-                    .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?
+                    .map_err(ShieldedPoolError::from)?
             }
             None => tree_account
                 .nullifer_tree()
                 .update_tree_from_address_queue(instruction)
-                .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?,
+                .map_err(ShieldedPoolError::from)?,
         }
         #[cfg(not(feature = "vk-registry"))]
-        tree_account
-            .nullifer_tree()
-            .update_tree_from_address_queue(instruction)
-            .map_err(ShieldedPoolError::from)?
+        {
+            let _ = vk_registry;
+            tree_account
+                .nullifer_tree()
+                .update_tree_from_address_queue(instruction)
+                .map_err(ShieldedPoolError::from)?
+        }
     };
 
     // The emit self-CPI passes no accounts, so the tree borrow does not conflict.
     // INVARIANT: the event emit must remain the LAST fallible operation in this
     // processor. Photon's parser records batch updates from the emitted event in
-    // successful transactions only (its `tx.error` guard); an emit-then-fail
+    // successful transactions only (its `tx.error` guard). An emit-then-fail
     // shape would either drop a genuine update or wedge the indexer on a forged
     // one. Keep every fallible step (including `reimburse_forester`) above it.
     if let Some(event) = event {

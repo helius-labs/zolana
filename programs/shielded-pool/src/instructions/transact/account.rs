@@ -23,19 +23,15 @@ pub struct TransactAccounts<'a> {
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
     /// Optional trailing VK-registry account (read-only). Present selects the
-    /// prepared-operand verification path; absent keeps today's path.
+    /// prepared-operand verification path.
     #[cfg(feature = "vk-registry")]
     pub vk_registry: Option<&'a AccountView>,
 }
 
 impl<'a> TransactAccounts<'a> {
-    /// 1. payer - mut signer
-    /// 2. input tree - mut
-    /// 3. output tree - mut
-    /// 4. self program - program id match
-    /// 5. system program - program id match
-    /// 6. N signers - signer
-    ///    6 + N: transfer settlement accounts -
+    /// Account order is payer (writable signer), input tree (writable), output
+    /// tree (writable), this program, system program, N owner signers, then the
+    /// transfer settlement accounts.
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
@@ -50,7 +46,6 @@ impl<'a> TransactAccounts<'a> {
         Self::from_iter(iter, ix, payer, input_tree, output_tree, true)
     }
 
-    /// 1. Validate spl interface transfers.
     pub(crate) fn from_iter(
         iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
@@ -59,11 +54,9 @@ impl<'a> TransactAccounts<'a> {
         output_tree: &'a mut AccountView,
         allow_owner_signers: bool,
     ) -> Result<Box<Self>, ProgramError> {
-        // Check non-zero amounts and the protocol transfer bound.
         validate_interface_transfers(&ix.interface_transfers)?;
 
         let remaining = iter.remaining_unchecked_mut()?;
-        // 2. Search first account that is not signer.
         let signer_count = remaining
             .iter()
             .position(|account| !account.is_signer())
@@ -74,7 +67,6 @@ impl<'a> TransactAccounts<'a> {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
         let (owner_signers, settlement_accounts) = remaining.split_at_mut(signer_count);
-        // 3. Check transfer settlement accounts.
         let mut iter = AccountIterator::new(settlement_accounts);
         let mut settlements = ArrayVec::new();
         for transfer in &ix.interface_transfers {
@@ -155,7 +147,7 @@ impl<'a> TransactAccounts<'a> {
                 .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
         }
         // One trailing account after the settlements is the optional VK
-        // registry; anything more keeps failing the shape check.
+        // registry. Anything more fails the shape check.
         #[cfg(feature = "vk-registry")]
         let vk_registry = if iter.iterator_is_empty() {
             None
@@ -181,13 +173,13 @@ impl<'a> TransactAccounts<'a> {
 pub struct RingTransactAccounts;
 
 impl RingTransactAccounts {
-    /// Parse the accounts shared by `ring_transact` and `ring_authority_transact`:
-    /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `RingConfig`
-    /// account (the ring's `ring_auth` PDA), then owner signers and settlement
-    /// accounts. Returns the parsed transact accounts and the ring's
-    /// `program_id`, read from the validated, unpaused `RingConfig` (never
-    /// re-derived; the create-time `ring_auth` derivation already bound it).
-    /// `require_enabled` additionally requires
+    /// Parse the accounts shared by `ring_transact` and `ring_authority_transact`.
+    /// Order is `payer`, `input_tree`, `output_tree`, SPP, System Program, the
+    /// `RingConfig` account (the ring's `ring_auth` PDA), then owner signers and
+    /// settlement accounts. Returns the parsed transact accounts and the ring's
+    /// `program_id`, read from the validated, unpaused `RingConfig`. It is never
+    /// re-derived because the create-time `ring_auth` derivation already bound it.
+    /// `require_ring_authority_enabled` additionally requires
     /// `ring_authority_transact_is_enabled` (only `ring_authority_transact` sets it).
     pub fn validate_and_parse<'a>(
         accounts: &'a mut [AccountView],
@@ -199,9 +191,8 @@ impl RingTransactAccounts {
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
         validate_program_prefix(&mut iter)?;
-        // The `ring_config` must sign (only the ring program can sign for its
-        // `ring_auth` PDA); validate owner / discriminator / active state and
-        // read the bound ring `program_id`.
+        // Only the ring program can sign for its `ring_auth` PDA, so the
+        // `ring_config` signature is the ring's authorization.
         let ring_config = iter.next_signer("ring_config")?;
         let (ring_program_id, ring_authority_is_enabled) = {
             let config = load_active_ring_config(ring_config)?;

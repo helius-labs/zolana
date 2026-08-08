@@ -16,9 +16,9 @@ pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
     /// registry record -- `pk_field(owner_p256)`. Verified against `merge_8_1`.
     Registry { signing_pk_field: [u8; 32] },
-    /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
+    /// Policy-ring merge (`merge_ring`). `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the output `ring_data_hash` the ring program
-    /// selected; the proof asserts it against the output's
+    /// selected. The proof asserts it against the output's
     /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_8_1`.
     Ring {
         ring_program_id: [u8; 32],
@@ -47,77 +47,71 @@ impl<'a> MergeProof<'a> {
         Self { ix, derived }
     }
 
+    /// A `vk-registry` build always goes through `verify_registered`, which
+    /// falls back to the plain path itself.
+    #[cfg(not(feature = "vk-registry"))]
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
-        // The policy-ring merge (`merge_ring`) commits `ring_program_id`, so it uses
-        // its own verifying key; the default-ring merge uses `merge_8_1`.
-        let verifying_key = match self.derived.owner_binding {
-            MergeOwnerBinding::Registry { .. } => &merge_8_1::VERIFYINGKEY,
-            MergeOwnerBinding::Ring { .. } => &merge_ring_8_1::VERIFYINGKEY,
-        };
-        let p = &self.ix.proof;
-        verifier::Groth16Statement {
-            proof: verifier::CompressedGroth16Proof {
-                a: p.a,
-                b: p.b,
-                c: p.c,
-                commitment: None,
-            },
-            public_input_hash: self.public_input_hash()?,
-            verifying_key,
-            encoding_err: ShieldedPoolError::InvalidTransactProofEncoding,
-            verify_err: ShieldedPoolError::TransactProofVerificationFailed,
-        }
-        .verify()
+        self.statement()?.0.verify()
     }
 
-    /// Registry-backed verification; `None` falls back to [`Self::verify`].
-    /// The spec is selected by the owner binding, matching the verifying key
-    /// the same match below picks.
+    /// Registry-backed verification. `None` falls back to [`Self::verify`].
+    /// The owner binding selects the spec together with the verifying key, so
+    /// they cannot disagree.
     #[cfg(feature = "vk-registry")]
     #[inline(never)]
     pub fn verify_registered(&self, registry: Option<&pinocchio::AccountView>) -> ProgramResult {
+        let (statement, spec) = self.statement()?;
+        statement.verify_registered(registry, spec)
+    }
+
+    /// The statement and the registry spec its key commits to. The owner
+    /// binding names both, so a merge cannot be settled against a ring key.
+    fn statement(
+        &self,
+    ) -> Result<
+        (
+            verifier::Groth16Statement<'_>,
+            &'static zolana_interface::verifying_keys::registry_spec::VkRegistrySpec,
+        ),
+        ProgramError,
+    > {
         use zolana_interface::verifying_keys::registry::{
             MERGE_8_1_REGISTRY, MERGE_RING_8_1_REGISTRY,
         };
 
-        let Some(registry) = registry else {
-            return self.verify();
-        };
-        let (vk, spec) = match self.derived.owner_binding {
+        let (verifying_key, spec) = match self.derived.owner_binding {
             MergeOwnerBinding::Registry { .. } => (&merge_8_1::VERIFYINGKEY, &MERGE_8_1_REGISTRY),
             MergeOwnerBinding::Ring { .. } => {
                 (&merge_ring_8_1::VERIFYINGKEY, &MERGE_RING_8_1_REGISTRY)
             }
         };
-        let data = crate::instructions::vk_registry::load_finalized_vk_registry(registry, spec)?;
-        let public_input_hash = self.public_input_hash()?;
         let p = &self.ix.proof;
-        verifier::verify_groth16_registered(
-            verifier::CompressedGroth16Proof {
-                a: p.a,
-                b: p.b,
-                c: p.c,
-                commitment: None,
+        Ok((
+            verifier::Groth16Statement {
+                proof: verifier::CompressedGroth16Proof {
+                    a: p.a,
+                    b: p.b,
+                    c: p.c,
+                    commitment: None,
+                },
+                public_input_hash: self.public_input_hash()?,
+                verifying_key,
+                encoding_err: ShieldedPoolError::InvalidTransactProofEncoding,
+                verify_err: ShieldedPoolError::TransactProofVerificationFailed,
             },
-            public_input_hash,
-            vk,
-            &data,
             spec,
-            ShieldedPoolError::InvalidTransactProofEncoding,
-            ShieldedPoolError::TransactProofVerificationFailed,
-        )
+        ))
     }
 
     /// The Poseidon hash chain the circuit folds into its single public input
     /// (`prover/server/circuits/spp_merge/{default,ring}.go`).
     ///
-    /// Both variants share the same 7 leading elements (including the
-    /// proof-wide dummy-input policy);
-    /// the default merge then folds the owner's signing `pk_field` (bound from
-    /// the user registry), while the policy-ring merge omits owner identity (no
-    /// registry to bind it against) and appends the output `ring_data_hash` and
-    /// `ring_program_id`.
+    /// Both variants share the same 7 leading elements, including the proof-wide
+    /// dummy-input policy. The default merge then folds the owner's signing
+    /// `pk_field` (bound from the user registry). The policy-ring merge omits
+    /// owner identity (no registry to bind it against) and appends the output
+    /// `ring_data_hash` and `ring_program_id`.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         let nullifiers = create_hash_chain_from_slice(&self.ix.nullifiers)?;
         let utxo_roots = create_hash_chain_from_slice(&self.derived.utxo_roots)?;

@@ -58,9 +58,9 @@ pub struct TransactProofInputs {
     pub ring_program_id: [u8; 32],
     pub allow_dummy_inputs: [u8; 32],
     /// Number of unique entries at the head of `signer_pk_hashes` (payer
-    /// first); the remaining slots are zero padding. Public only so the moved
-    /// circuit-vector tests can pin the assembly; production code writes it
-    /// exclusively through `fill_owner_signer_hashes`.
+    /// first). The remaining slots are zero padding. Public so the
+    /// circuit-vector tests can pin the assembly. Production code writes it
+    /// only through `fill_owner_signer_hashes`.
     pub unique_owner_signer_count: u8,
     assignments: u8,
 }
@@ -270,10 +270,10 @@ fn signed_amount(transfer: InterfaceTransfer) -> i128 {
 
 pub struct TransactProof<'a> {
     ix: &'a TransactIxDataRef<'a>,
-    // Borrowed, not owned: `TransactProofInputs` is ~1 KB of fixed arrays. Holding
-    // it by value would copy it onto the caller's stack frame (on top of the
-    // owner's copy) and overflow the SBF 4 KB frame limit, so the verifier reads it
-    // through a reference instead.
+    // `TransactProofInputs` is about 1 KB of fixed arrays. Holding it by value
+    // would copy it onto the caller's stack frame on top of the owner's copy and
+    // overflow the SBF 4 KB frame limit, so the verifier reads it through a
+    // reference.
     derived: &'a TransactProofInputs,
 }
 
@@ -285,10 +285,33 @@ impl<'a> TransactProof<'a> {
     /// The processor validates the selector against the dispatched instruction
     /// before account parsing. The validated selector is then the source of truth
     /// for the public-input layout and verifying key.
+    /// A `vk-registry` build always goes through `verify_registered`, which
+    /// falls back to the plain path itself.
+    #[cfg(not(feature = "vk-registry"))]
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
+        self.statement()?.verify()
+    }
+
+    /// Registry-backed verification. `None` falls back to [`Self::verify`]
+    /// unchanged. `Some` requires the account address to equal the circuit's
+    /// codegen'd spec (the address is the commitment, nothing else is trusted)
+    /// and the account to be finalized.
+    #[cfg(feature = "vk-registry")]
+    #[inline(never)]
+    pub fn verify_registered(&self, registry: Option<&pinocchio::AccountView>) -> ProgramResult {
+        // One selector names the key and the spec, so they cannot disagree.
+        let spec = self
+            .ix
+            .circuit
+            .vk_registry_spec()
+            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+        self.statement()?.verify_registered(registry, spec)
+    }
+
+    fn statement(&self) -> Result<verifier::Groth16Statement<'_>, ProgramError> {
         let proof_data = &self.ix.proof;
-        verifier::Groth16Statement {
+        Ok(verifier::Groth16Statement {
             proof: verifier::CompressedGroth16Proof {
                 a: &proof_data.a,
                 b: &proof_data.b,
@@ -307,53 +330,7 @@ impl<'a> TransactProof<'a> {
                 .ok_or(ShieldedPoolError::InvalidTransactShape)?,
             encoding_err: ShieldedPoolError::InvalidTransactProofEncoding,
             verify_err: ShieldedPoolError::TransactProofVerificationFailed,
-        }
-        .verify()
-    }
-
-    /// Registry-backed verification. `None` falls back to [`Self::verify`]
-    /// unchanged; `Some` requires the account address to equal the circuit's
-    /// codegen'd spec (the address is the commitment; nothing else is
-    /// trusted) and the account to be finalized.
-    #[cfg(feature = "vk-registry")]
-    #[inline(never)]
-    pub fn verify_registered(&self, registry: Option<&pinocchio::AccountView>) -> ProgramResult {
-        let Some(registry) = registry else {
-            return self.verify();
-        };
-        let spec = self
-            .ix
-            .circuit
-            .vk_registry_spec()
-            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
-        let data = crate::instructions::vk_registry::load_finalized_vk_registry(registry, spec)?;
-
-        let public_input_hash = self.public_input_hash()?;
-        let verifying_key = self
-            .ix
-            .circuit
-            .verifying_key()
-            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
-        let proof_data = &self.ix.proof;
-        let commitment = self
-            .ix
-            .circuit
-            .bsb22_commitment()
-            .map(|value| (&value.commitment, &value.commitment_pok));
-        verifier::verify_groth16_registered(
-            verifier::CompressedGroth16Proof {
-                a: &proof_data.a,
-                b: &proof_data.b,
-                c: &proof_data.c,
-                commitment,
-            },
-            public_input_hash,
-            verifying_key,
-            &data,
-            spec,
-            ShieldedPoolError::InvalidTransactProofEncoding,
-            ShieldedPoolError::TransactProofVerificationFailed,
-        )
+        })
     }
 
     fn n_inputs(&self) -> usize {

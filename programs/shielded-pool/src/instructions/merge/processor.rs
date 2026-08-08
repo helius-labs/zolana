@@ -38,17 +38,14 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
 
-    // Per-user merge opt-in: the owner must have enabled merging. Any caller may
-    // then run the merge.
+    // Any caller may run the merge once the owner opted in.
     if !pk_fields.merging_enabled {
         return Err(ShieldedPoolError::MergeDisabled.into());
     }
 
     let signing_pk_field = pk_fields.signing_pk_field;
-    // Owner-indexing view tag for the merged output: the owner signing pubkey (the
-    // confidential default-ring tag, like every other confidential output). The
-    // proof binds `signing_pk_field` to the same registered key, so a relayer cannot
-    // alter it.
+    // The proof binds `signing_pk_field` to the same registered key as the view
+    // tag, so a relayer cannot alter it.
     let output_view_tag = pk_fields.signing_view_tag;
 
     let external_data_hash = MergeExternalDataHash {
@@ -60,89 +57,110 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
     let vk_registry = merge_accounts.vk_registry();
-    process_merge_core(
-        merge_accounts.input_tree,
-        merge_accounts.output_tree,
-        merge_accounts.payer,
-        &ix,
+    MergeCore {
+        ix: &ix,
         external_data_hash,
-        MergeOwnerBinding::Registry { signing_pk_field },
+        owner_binding: MergeOwnerBinding::Registry { signing_pk_field },
         output_view_tag,
-        Vec::new(),
+        output_data: Vec::new(),
+    }
+    .process(MergeCoreAccounts {
+        input_tree: merge_accounts.input_tree,
+        output_tree: merge_accounts.output_tree,
+        payer: merge_accounts.payer,
         vk_registry,
-    )
+    })
 }
 
-/// Shared tail for `merge_transact` and `merge_ring`: read roots, nullify the
-/// inputs, append the output, verify the proof, and emit the event. The
-/// tree-derived dummy-input policy is
-/// captured before any queue insertion or state append.
-/// `output_data` is the event's output payload: empty for `merge_transact`, the
-/// output `ring_data_hash` for `merge_ring`.
-#[inline(never)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn process_merge_core(
-    input_tree_account: &mut AccountView,
-    output_tree_account: &mut AccountView,
-    payer: &AccountView,
-    ix: &MergeTransactIxDataRef<'_>,
-    external_data_hash: [u8; 32],
-    owner_binding: MergeOwnerBinding,
-    output_view_tag: [u8; 32],
-    output_data: Vec<u8>,
-    vk_registry: Option<&AccountView>,
-) -> ProgramResult {
-    let (inputs, derived, zkp_batch_size) = {
-        let input_tree = input_tree_account.address().to_bytes();
-        let mut tree = TreeAccount::from_account_view_mut(
-            &mut *input_tree_account,
-            &crate::ID,
-            TREE_ACCOUNT_DISCRIMINATOR,
-        )
-        .map_err(tree_error)?;
-        let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
-        let mut derived = MergeProofInputs {
-            utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
-            nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
-            external_data_hash,
-            allow_dummy_inputs: bool_field(allow_dummy_inputs),
-            owner_binding,
-        };
-        let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
-        let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
-        (inputs, derived, zkp_batch_size)
-    };
-    let tree_write = {
-        let output_tree = output_tree_account.address().to_bytes();
-        let mut tree = TreeAccount::from_account_view_mut(
-            &mut *output_tree_account,
-            &crate::ID,
-            TREE_ACCOUNT_DISCRIMINATOR,
-        )
-        .map_err(tree_error)?;
-        apply_output_tree(&mut tree, ix.output_utxo_hash, output_tree, inputs)?
-    };
+/// Accounts the shared merge tail reads and writes.
+pub(crate) struct MergeCoreAccounts<'a> {
+    pub input_tree: &'a mut AccountView,
+    pub output_tree: &'a mut AccountView,
+    pub payer: &'a AccountView,
+    pub vk_registry: Option<&'a AccountView>,
+}
 
-    let event = build_merge_event(
-        *ix.output_utxo_hash,
-        tree_write,
-        output_view_tag,
-        output_data,
-    );
-    #[cfg(feature = "vk-registry")]
-    MergeProof::new(ix, derived).verify_registered(vk_registry)?;
-    #[cfg(not(feature = "vk-registry"))]
-    {
-        let _ = vk_registry;
-        MergeProof::new(ix, derived).verify()?;
+/// Shared tail for `merge_transact` and `merge_ring`. `output_data` is the
+/// event's output payload, empty for `merge_transact`, the output
+/// `ring_data_hash` for `merge_ring`.
+pub(crate) struct MergeCore<'a, 'd> {
+    pub ix: &'a MergeTransactIxDataRef<'d>,
+    pub external_data_hash: [u8; 32],
+    pub owner_binding: MergeOwnerBinding,
+    pub output_view_tag: [u8; 32],
+    pub output_data: Vec<u8>,
+}
+
+impl MergeCore<'_, '_> {
+    /// The tree-derived dummy-input policy is captured before any queue
+    /// insertion or state append.
+    #[inline(never)]
+    pub(crate) fn process(self, accounts: MergeCoreAccounts<'_>) -> ProgramResult {
+        let MergeCore {
+            ix,
+            external_data_hash,
+            owner_binding,
+            output_view_tag,
+            output_data,
+        } = self;
+        let MergeCoreAccounts {
+            input_tree: input_tree_account,
+            output_tree: output_tree_account,
+            payer,
+            vk_registry,
+        } = accounts;
+        let (inputs, derived, zkp_batch_size) = {
+            let input_tree = input_tree_account.address().to_bytes();
+            let mut tree = TreeAccount::from_account_view_mut(
+                &mut *input_tree_account,
+                &crate::ID,
+                TREE_ACCOUNT_DISCRIMINATOR,
+            )
+            .map_err(tree_error)?;
+            let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
+            let mut derived = MergeProofInputs {
+                utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
+                nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
+                external_data_hash,
+                allow_dummy_inputs: bool_field(allow_dummy_inputs),
+                owner_binding,
+            };
+            let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
+            let zkp_batch_size = tree.nullifer_tree().queue_batches.zkp_batch_size;
+            (inputs, derived, zkp_batch_size)
+        };
+        let tree_write = {
+            let output_tree = output_tree_account.address().to_bytes();
+            let mut tree = TreeAccount::from_account_view_mut(
+                &mut *output_tree_account,
+                &crate::ID,
+                TREE_ACCOUNT_DISCRIMINATOR,
+            )
+            .map_err(tree_error)?;
+            apply_output_tree(&mut tree, ix.output_utxo_hash, output_tree, inputs)?
+        };
+
+        let event = build_merge_event(
+            *ix.output_utxo_hash,
+            tree_write,
+            output_view_tag,
+            output_data,
+        );
+        #[cfg(feature = "vk-registry")]
+        MergeProof::new(ix, derived).verify_registered(vk_registry)?;
+        #[cfg(not(feature = "vk-registry"))]
+        {
+            let _ = vk_registry;
+            MergeProof::new(ix, derived).verify()?;
+        }
+        collect_forester_fee(
+            payer,
+            input_tree_account,
+            MERGE_INPUT_COUNT as u64,
+            zkp_batch_size,
+        )?;
+        emit_general_event(EventKind::Merge, event)
     }
-    collect_forester_fee(
-        payer,
-        input_tree_account,
-        MERGE_INPUT_COUNT as u64,
-        zkp_batch_size,
-    )?;
-    emit_general_event(EventKind::Merge, event)
 }
 
 #[inline(never)]

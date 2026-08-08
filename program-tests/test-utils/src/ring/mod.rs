@@ -2,10 +2,9 @@
 //! implementations.
 //!
 //! The validator/prover/indexer bring-up, actor management, and SPL asset
-//! registration live in [`crate::harness::LocalnetHarness`]; this struct embeds
-//! it and adds the ring-config state only the policy-ring lifecycle needs. Both
-//! `ring-test-program` test binaries (`ring_lifecycle` and `proof_cu`) consume
-//! this module, so each composes exactly the fixture surface it uses.
+//! registration live in [`crate::harness::LocalnetHarness`]. This struct
+//! embeds it and adds the ring-config state only the policy-ring lifecycle
+//! needs.
 
 pub mod aggregate_transact;
 pub(crate) mod merge_ring;
@@ -118,7 +117,6 @@ impl RingHarness {
         })
     }
 
-    /// Create the ring config through the fixture's `CREATE_RING_CONFIG` instruction.
     /// The fixture signs the `ring_auth` PDA (which IS the config account) on the CPI
     /// into SPP. Stores the resulting `ring_auth` PDA in `self.ring_config`. The
     /// caller owns the authority keypair and is responsible for setting
@@ -202,7 +200,7 @@ impl RingHarness {
     /// Build the `WalletUtxo` an actor should hold for a known output `utxo`,
     /// locating its on-chain output context in the indexed transaction so
     /// `assert_utxos` cross-checks the synced wallet. A ring-owned output's
-    /// `ring_program_id` binds the ring into the hash; a default-pool output
+    /// `ring_program_id` binds the ring into the hash. A default-pool output
     /// carries `None`.
     pub fn build_expected(
         &self,

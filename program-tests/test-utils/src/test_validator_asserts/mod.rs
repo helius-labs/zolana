@@ -5,6 +5,8 @@ pub mod protocol_config;
 pub mod ring_deposit;
 pub mod ring_transact;
 pub mod spl_deposit;
+pub mod squads_deposit;
+pub mod squads_withdrawal;
 
 use std::time::{Duration, Instant};
 
@@ -19,6 +21,10 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 pub use spl_deposit::{assert_spl_deposit, SplDepositAssertArgs};
+pub use squads_deposit::{assert_squads_deposit, SquadsDepositAssertArgs, SquadsDepositSettlement};
+pub use squads_withdrawal::{
+    assert_squads_withdrawal, SquadsWithdrawalAssertArgs, SquadsWithdrawalSettlement,
+};
 use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
     SolanaRpc,
@@ -175,6 +181,21 @@ pub fn state_root_from(account: &Account) -> [u8; 32] {
     root
 }
 
+/// The tree's `next_index` (leaf count). It sits immediately before the state
+/// root in the tree layout (`root` is 8 bytes into the utxo layout, right after
+/// the 8-byte `next_index`), so it lives at `state_root_offset() - 8`.
+#[track_caller]
+pub fn tree_next_index(account: &Account) -> u64 {
+    let offset = state_root_offset() - 8;
+    let bytes = account
+        .data
+        .get(offset..offset + 8)
+        .expect("next index slice")
+        .try_into()
+        .expect("next index is 8 bytes");
+    u64::from_le_bytes(bytes)
+}
+
 #[track_caller]
 pub fn token_amount(account: &Account) -> u64 {
     let bytes = account
@@ -264,7 +285,7 @@ pub fn wait_for_nullifier_present<I: Rpc>(indexer: &I, tree: Address, leaf: [u8;
         match indexer.get_non_inclusion_proofs(tree, vec![leaf], None) {
             // Photon refuses a non-inclusion proof for a nullifier that is
             // used or queued ("Nullifier leaf .. is already used or queued",
-            // get_non_inclusion_proofs.rs); that specific refusal is the
+            // get_non_inclusion_proofs.rs). That specific refusal is the
             // positive signal. Any other error (transport, indexer restart)
             // retries until the deadline instead of silently counting as
             // success, and both non-terminal states surface as the "last

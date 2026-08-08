@@ -153,7 +153,7 @@ impl Batch {
             self.num_inserted_zkp_batches = 0;
             // Defensive: already 0 because Full is only reachable via
             // add_to_hash_chain, which zeroes num_inserted when the final zkp
-            // batch completes; reset here so the invariant is local.
+            // batch completes. Reset here so the invariant is local.
             self.num_inserted = 0;
             if let Some(start_index) = start_index {
                 self.start_index = start_index;
@@ -265,7 +265,7 @@ impl Batch {
     ///
     /// Error-atomic: every fallible check runs before any mutation, so a
     /// failed insert leaves the batch, both bloom filters, and the hash chain
-    /// untouched. (On-chain a failed instruction rolls back anyway; this
+    /// untouched. (On-chain a failed instruction rolls back anyway. This
     /// matters for host callers that keep the account after an error.)
     /// 1. Check that value is not in any bloom filter (also covers same-batch
     ///    duplicates, which therefore error as `NonInclusionCheckFailed`).
@@ -474,8 +474,7 @@ mod tests {
                 let chain_index = batch.num_full_zkp_batches as usize;
                 let mut value = [0u8; 32];
                 value[24..].copy_from_slice(&i.to_be_bytes());
-                #[allow(clippy::manual_is_multiple_of)]
-                let ref_hash_chain = if i % batch.zkp_batch_size == 0 {
+                let ref_hash_chain = if i.is_multiple_of(batch.zkp_batch_size) {
                     value
                 } else {
                     Poseidon::hashv(&[&hash_chain_store[chain_index], &value]).unwrap()
@@ -699,8 +698,7 @@ mod tests {
                     .insert(&value, &value, &mut blooms, &mut hash_chain_store, 0)
                     .unwrap();
             }
-            #[allow(clippy::manual_is_multiple_of)]
-            if (i + 1) % batch.zkp_batch_size == 0 && i != 0 {
+            if (i + 1).is_multiple_of(batch.zkp_batch_size) && i != 0 {
                 assert_eq!(
                     batch.get_first_ready_zkp_batch().unwrap(),
                     i / batch.zkp_batch_size

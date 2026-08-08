@@ -8,7 +8,7 @@ use crate::{
         NULLIFIER_TREE_INIT_ROOT_40,
     },
     errors::BatchedMerkleTreeError,
-    merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount},
+    merkle_tree::{get_merkle_tree_account_size, BatchedMerkleTreeAccount, BatchedMerkleTreeInit},
     merkle_tree_metadata::TreeType,
     rent::check_account_balance_is_rent_exempt,
     zero_copy::TreeAccountLayout,
@@ -142,12 +142,14 @@ fn init_batched_indexed_merkle_tree_account<
     BatchedMerkleTreeAccount::init(
         mt_account_data,
         &pubkey,
-        params.root_history_capacity,
-        params.input_queue_batch_size,
-        params.input_queue_zkp_batch_size,
-        params.height,
-        TreeType::AddressV2,
-        address_init_root,
+        BatchedMerkleTreeInit {
+            root_history_capacity: params.root_history_capacity,
+            input_queue_batch_size: params.input_queue_batch_size,
+            input_queue_zkp_batch_size: params.input_queue_zkp_batch_size,
+            height: params.height,
+            tree_type: TreeType::AddressV2,
+            address_init_root,
+        },
     )
 }
 
@@ -168,12 +170,14 @@ pub fn init_batched_nullifier_merkle_tree_into_layout<
     BatchedMerkleTreeAccount::init_from_layout(
         layout,
         &pubkey,
-        params.root_history_capacity,
-        params.input_queue_batch_size,
-        params.input_queue_zkp_batch_size,
-        params.height,
-        TreeType::AddressV2,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
+        BatchedMerkleTreeInit {
+            root_history_capacity: params.root_history_capacity,
+            input_queue_batch_size: params.input_queue_batch_size,
+            input_queue_zkp_batch_size: params.input_queue_zkp_batch_size,
+            height: params.height,
+            tree_type: TreeType::AddressV2,
+            address_init_root: Some(NULLIFIER_TREE_INIT_ROOT_40),
+        },
     )
 }
 

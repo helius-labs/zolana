@@ -76,14 +76,12 @@ solana-pubkey = { workspace = true }
 solana-program-error = { workspace = true }
 proptest = { workspace = true }
 
-# Test targets are declared explicitly (`autotests = false`): each `[[test]]`
-# maps one binary directly to its leaf file under `tests/<domain>/<intent>.rs`,
-# mirroring the domain-first layout. Shared setup lives in the `src/support`
-# library, imported as `shielded_pool_tests::support::*` -- there are no thin
-# `#[path]` wrapper entrypoints. Groupings below match the test tiers the
-# justfile and CI select.
+# Test targets are declared explicitly. Each `[[test]]` maps one binary to its
+# leaf file under `tests/<domain>/<intent>.rs`. Shared setup lives in the
+# `src/support` library, imported as `shielded_pool_tests::support::*`.
+# Groupings below match the test tiers the justfile and CI select.
 
-# --- Fast functional / rejection (hermetic LiteSVM + Mollusk) ---
+# Fast functional and rejection tier (hermetic LiteSVM + Mollusk)
 
 [[test]]
 name = "admin_functional"
@@ -153,7 +151,7 @@ path = "tests/dispatch/rejection.rs"
 name = "transact_guard"
 path = "tests/transact/guard.rs"
 
-# --- Behavioral model and cross-cutting contracts ---
+# Behavioral model and cross-cutting contract tier
 
 [[test]]
 name = "deposit_model"
@@ -182,22 +180,18 @@ name = "merge_functional"
 path = "tests/merge/functional.rs"
 required-features = ["proofs"]
 
-# --- Mollusk mutation coverage ---
+# Mollusk mutation coverage tier
 
 [[test]]
 name = "deposit_mutation"
 path = "tests/deposit/mutation.rs"
 
-# --- Proof-backed integration (spawns the local prover) ---
+# Proof-backed integration tier (spawns the local prover)
 
 [[test]]
 name = "aggregate_cu"
 path = "tests/aggregate/cu.rs"
 required-features = ["aggregate"]
-
-[[test]]
-name = "aggregate_guard"
-path = "tests/aggregate/guard.rs"
 
 # The merge chain proving key is unpublished and regenerated per machine, like
 # the aggregate keys, so it sits in the same tier.
@@ -205,6 +199,10 @@ path = "tests/aggregate/guard.rs"
 name = "merge_chain_functional"
 path = "tests/merge_chain/functional.rs"
 required-features = ["aggregate"]
+
+[[test]]
+name = "aggregate_guard"
+path = "tests/aggregate/guard.rs"
 
 [[test]]
 name = "transact_functional"
@@ -220,8 +218,6 @@ required-features = ["proofs"]
 name = "interface_transfers"
 path = "tests/transact/interface_transfers.rs"
 
-# Proof-backed (spawns the local prover and proves with the real circuits), so
-# it sits in the proofs tier with the other Groth16-backed binaries.
 [[test]]
 name = "mixed_interface_transfers"
 path = "tests/transact/mixed_interface_transfers.rs"
@@ -232,7 +228,7 @@ name = "transact_settlement"
 path = "tests/transact/settlement.rs"
 required-features = ["proofs"]
 
-# --- Localnet / Photon (needs a running validator + indexer) ---
+# Localnet / Photon tier (needs a running validator and indexer)
 
 [[test]]
 name = "localnet_e2e"
@@ -254,7 +250,7 @@ name = "localnet_wallet_cli"
 path = "tests/localnet/wallet_cli.rs"
 required-features = ["localnet"]
 
-# --- Benchmarks (CU profiling; run with `-- --ignored`) ---
+# Benchmark tier (CU profiling, run with `-- --ignored`)
 
 [[test]]
 name = "bench_cu"

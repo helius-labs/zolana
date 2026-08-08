@@ -51,6 +51,19 @@ pub fn process_aggregate_transact_ix(accounts: &mut [AccountView], data: &[u8]) 
         }
         declared += count;
     }
+    // One trailing account past the declared total is the registry for the
+    // outer key. It must satisfy the address commitment or the batch is
+    // rejected. One account serves the whole batch because the selector fixes
+    // one outer key.
+    #[cfg(feature = "vk-registry")]
+    let (vk_registry, accounts) = if accounts.len() == declared + 1 {
+        let (registry, rest) = accounts
+            .split_last_mut()
+            .ok_or(ShieldedPoolError::InvalidAggregateBatch)?;
+        (Some(&*registry), rest)
+    } else {
+        (None, accounts)
+    };
     if declared != accounts.len() {
         return Err(ShieldedPoolError::InvalidAggregateBatch.into());
     }
@@ -70,7 +83,7 @@ pub fn process_aggregate_transact_ix(accounts: &mut [AccountView], data: &[u8]) 
         .circuit
         .verifying_key()
         .ok_or(ShieldedPoolError::InvalidAggregateBatch)?;
-    verifier::Groth16Statement {
+    let statement = verifier::Groth16Statement {
         proof: verifier::CompressedGroth16Proof {
             a: &ix.proof.a,
             b: &ix.proof.b,
@@ -84,8 +97,17 @@ pub fn process_aggregate_transact_ix(accounts: &mut [AccountView], data: &[u8]) 
         verifying_key,
         encoding_err: ShieldedPoolError::InvalidTransactProofEncoding,
         verify_err: ShieldedPoolError::AggregateProofVerificationFailed,
+    };
+    #[cfg(feature = "vk-registry")]
+    {
+        // The selector fixes one outer key, so one spec serves the whole batch.
+        let spec =
+            zolana_interface::verifying_keys::registry_spec::vk_registry_spec_for(verifying_key)
+                .ok_or(ShieldedPoolError::InvalidVkRegistryAccount)?;
+        statement.verify_registered(vk_registry, spec)
     }
-    .verify()
+    #[cfg(not(feature = "vk-registry"))]
+    statement.verify()
 }
 
 /// The selector names the outer verifying key, so a mismatch is rejected before

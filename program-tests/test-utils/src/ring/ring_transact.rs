@@ -61,7 +61,7 @@ pub enum RingRail {
 }
 
 /// Cross-rail grafting and proof-data tampering for the negative cases. The
-/// prover always runs on `rail`; the tamper only changes what goes on the wire.
+/// prover always runs on `rail`. The tamper only changes what goes on the wire.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum ProofTamper {
     #[default]
@@ -70,8 +70,8 @@ enum ProofTamper {
     BadCommitment,
     /// A P256 proof submitted under the RingEddsa selector (pairing fails, 7008).
     P256ProofUnderEddsaSelector,
-    /// An eddsa proof submitted under the RingP256 selector (no valid BSB22
-    /// commitment can exist for it, so encoding fails first, 7007).
+    /// An eddsa proof submitted under the RingP256 selector (its zeroed BSB22
+    /// commitment decodes as the point at infinity, so pairing fails, 7008).
     EddsaProofUnderP256Selector,
     /// A wrong `default_owner_tag` in the proof data (pairing fails, 7008).
     BadDefaultOwnerTag,
@@ -95,6 +95,17 @@ struct RingTransferOperation<'a> {
     withdrawal: Option<Pubkey>,
     rail: RingRail,
     tamper: ProofTamper,
+}
+
+/// A ring transfer expected to be rejected, plus the rejection it must produce.
+struct TamperedRingTransfer<'a> {
+    from: &'a str,
+    to: &'a str,
+    asset: Address,
+    amount: u64,
+    rail: RingRail,
+    tamper: ProofTamper,
+    expected: ShieldedPoolError,
 }
 
 impl RingHarness {
@@ -153,7 +164,7 @@ impl RingHarness {
 
     /// Build, prove (`ring_transact` rail), send, and verify a ring transfer or
     /// withdrawal. `withdrawal` is `Some(recipient)` for a public-amount SOL
-    /// withdrawal; `None` for a pure shielded transfer. Pushes the indexed
+    /// withdrawal, `None` for a pure shielded transfer. Pushes the indexed
     /// transaction, tracks the recipient / change UTXOs, and marks consumed
     /// inputs spent — mirroring the default-ring `transact` flow.
     fn execute_ring_transfer(
@@ -205,9 +216,6 @@ impl RingHarness {
             },
         )?;
 
-        // Rebuild the expected recipient / change UTXOs from the committed output
-        // blindings (decoded independently of `Wallet::sync`), then mark consumed
-        // inputs spent, so `assert_utxos` is a real cross-check of the synced wallet.
         let discovered = self.track_outputs(from, to, &inputs, send_asset, amount, &indexed)?;
         self.indexed.push(indexed);
 
@@ -264,8 +272,6 @@ impl RingHarness {
         Ok(taken)
     }
 
-    /// Assemble the proved `TransactIxData`, send the `RingTransact` instruction, and
-    /// wait for the indexed transaction.
     fn send_ring_transfer(
         &mut self,
         operation: RingTransferOperation<'_>,
@@ -292,7 +298,7 @@ impl RingHarness {
             .transpose()?;
         let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
 
-        // An eddsa actor pays and signs its own spend; a P256 actor falls back
+        // An eddsa actor pays and signs its own spend. A P256 actor falls back
         // to the harness payer because ownership is proven inside the proof.
         let fee_payer = self
             .actor(from)
@@ -303,7 +309,7 @@ impl RingHarness {
         let payer_address = Address::new_from_array(fee_payer.pubkey().to_bytes());
 
         // The high-level builder produces a decryptable SppProofInputs (outputs,
-        // ciphertexts, external_data) exactly as a confidential transact; the ring
+        // ciphertexts, external_data) exactly as a confidential transact. The ring
         // rail differs only in the prover and the instruction, plus the public
         // ring_program_id and the rebound discriminator.
         let spends: Vec<SppProofInputUtxo> = inputs
@@ -391,9 +397,7 @@ impl RingHarness {
     }
 
     /// Drive the ring prover rail and fold the result into a `TransactIxData`,
-    /// mirroring `witness.rs::assemble`. The prover always runs on `rail`;
-    /// `tamper` only changes what lands on the wire (grafted selector or
-    /// corrupted proof data).
+    /// mirroring `witness.rs::assemble`.
     fn prove_and_assemble(
         &self,
         proof_inputs: &SppProofInputs,
@@ -423,32 +427,34 @@ impl RingHarness {
                 let proof = ProverClient::local().prove_transfer_ring(&result.inputs)?;
                 let proof = pack_transact_proof(&proof)?;
                 if tamper == ProofTamper::EddsaProofUnderP256Selector {
-                    // No valid BSB22 commitment can exist for an eddsa proof; a
-                    // zeroed one is rejected at the encoding check.
-                    assemble_ix_data(
+                    // No valid BSB22 commitment can exist for an eddsa proof. The
+                    // zeroed one decodes as the point at infinity and fails at pairing.
+                    RingIxDataParts {
                         proof_inputs,
-                        &result.nullifiers,
-                        result.private_tx_hash,
-                        &result.input_root_indices,
-                        RingRail::P256,
+                        nullifiers: &result.nullifiers,
+                        private_tx_hash: result.private_tx_hash,
+                        root_indices: &result.input_root_indices,
+                        rail: RingRail::P256,
                         proof,
-                        Some(Bsb22Commitment {
+                        commitment: Some(Bsb22Commitment {
                             commitment: [0u8; 32],
                             commitment_pok: [0u8; 32],
                         }),
-                        None,
-                    )
+                        default_owner_tag: None,
+                    }
+                    .assemble()
                 } else {
-                    assemble_ix_data(
+                    RingIxDataParts {
                         proof_inputs,
-                        &result.nullifiers,
-                        result.private_tx_hash,
-                        &result.input_root_indices,
-                        RingRail::Eddsa,
+                        nullifiers: &result.nullifiers,
+                        private_tx_hash: result.private_tx_hash,
+                        root_indices: &result.input_root_indices,
+                        rail: RingRail::Eddsa,
                         proof,
-                        None,
-                        None,
-                    )
+                        commitment: None,
+                        default_owner_tag: None,
+                    }
+                    .assemble()
                 }
             }
             RingRail::P256 => {
@@ -482,16 +488,17 @@ impl RingHarness {
                 } else {
                     result.default_owner_tag
                 };
-                assemble_ix_data(
+                RingIxDataParts {
                     proof_inputs,
-                    &result.nullifiers,
-                    result.private_tx_hash,
-                    &result.input_root_indices,
-                    wire_rail,
+                    nullifiers: &result.nullifiers,
+                    private_tx_hash: result.private_tx_hash,
+                    root_indices: &result.input_root_indices,
+                    rail: wire_rail,
                     proof,
-                    Some(commitment),
+                    commitment: Some(commitment),
                     default_owner_tag,
-                )
+                }
+                .assemble()
             }
         }
     }
@@ -543,7 +550,7 @@ impl RingHarness {
     /// Track the expected recipient and per-asset sender-change UTXOs and mark the
     /// consumed inputs spent, rebuilt independently from the decoded output blindings
     /// so `assert_utxos` cross-checks the synced wallet. Mirrors the default-ring
-    /// `transact` flow; a withdrawal has no recipient slot and reduces the SOL change
+    /// `transact` flow. A withdrawal has no recipient slot and reduces the SOL change
     /// by the public amount.
     fn track_outputs(
         &mut self,
@@ -594,7 +601,7 @@ impl RingHarness {
 
         // Per-asset sender change: SPL change at output position 0, SOL change at
         // position 1 (the fixed-position output layout). A withdrawal (no recipient
-        // slot) sends the public amount out of the pool; the rest is SOL change.
+        // slot) sends the public amount out of the pool. The rest is SOL change.
         let spl_asset = inputs.iter().map(|u| u.asset).find(|a| *a != SOL_MINT);
         for (change_asset, position) in [
             (spl_asset, SPL_CHANGE_POSITION),
@@ -640,7 +647,7 @@ impl RingHarness {
         Ok(discovered)
     }
 
-    /// Attempt a ring transfer whose proof bytes are zeroed; SPP's shared transact
+    /// Attempt a ring transfer whose proof bytes are zeroed. SPP's shared transact
     /// proof verifier must reject it. Builds the same instruction the happy path
     /// does (real inputs, padded dummies, decryptable outputs) but replaces the
     /// proof with `TransactProof::zeroed`, so only proof verification fails.
@@ -708,16 +715,17 @@ impl RingHarness {
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
         };
         let result = prover.build()?;
-        let data = assemble_ix_data(
-            &proof_inputs,
-            &result.nullifiers,
-            result.private_tx_hash,
-            &result.input_root_indices,
-            RingRail::Eddsa,
-            TransactProof::zeroed(),
-            None,
-            None,
-        )?;
+        let data = RingIxDataParts {
+            proof_inputs: &proof_inputs,
+            nullifiers: &result.nullifiers,
+            private_tx_hash: result.private_tx_hash,
+            root_indices: &result.input_root_indices,
+            rail: RingRail::Eddsa,
+            proof: TransactProof::zeroed(),
+            commitment: None,
+            default_owner_tag: None,
+        }
+        .assemble()?;
 
         let transfer_ix = RingTransact {
             payer: fee_payer.pubkey(),
@@ -780,17 +788,16 @@ impl RingHarness {
     /// Run a tampered ring-transfer attempt and assert the exact rejection plus
     /// an untouched tree. The inputs are peeked, so `from`'s spendable set is
     /// unchanged for a later happy-path attempt.
-    #[allow(clippy::too_many_arguments)]
-    fn expect_tampered_rejection(
-        &mut self,
-        from: &str,
-        to: &str,
-        asset: Address,
-        amount: u64,
-        rail: RingRail,
-        tamper: ProofTamper,
-        expected: ShieldedPoolError,
-    ) -> Result<()> {
+    fn expect_tampered_rejection(&mut self, attempt: TamperedRingTransfer<'_>) -> Result<()> {
+        let TamperedRingTransfer {
+            from,
+            to,
+            asset,
+            amount,
+            rail,
+            tamper,
+            expected,
+        } = attempt;
         if self.ring_config.is_none() {
             self.create_enabled_ring_config()?;
         }
@@ -832,15 +839,15 @@ impl RingHarness {
         asset: Address,
         amount: u64,
     ) -> Result<()> {
-        self.expect_tampered_rejection(
+        self.expect_tampered_rejection(TamperedRingTransfer {
             from,
             to,
             asset,
             amount,
-            RingRail::P256,
-            ProofTamper::BadCommitment,
-            ShieldedPoolError::InvalidTransactProofEncoding,
-        )
+            rail: RingRail::P256,
+            tamper: ProofTamper::BadCommitment,
+            expected: ShieldedPoolError::InvalidTransactProofEncoding,
+        })
     }
 
     /// Cross-rail grafting: a valid P256 proof submitted under the RingEddsa
@@ -853,15 +860,15 @@ impl RingHarness {
         asset: Address,
         amount: u64,
     ) -> Result<()> {
-        self.expect_tampered_rejection(
+        self.expect_tampered_rejection(TamperedRingTransfer {
             from,
             to,
             asset,
             amount,
-            RingRail::P256,
-            ProofTamper::P256ProofUnderEddsaSelector,
-            ShieldedPoolError::TransactProofVerificationFailed,
-        )
+            rail: RingRail::P256,
+            tamper: ProofTamper::P256ProofUnderEddsaSelector,
+            expected: ShieldedPoolError::TransactProofVerificationFailed,
+        })
     }
 
     /// Cross-rail grafting: a valid eddsa proof submitted under the RingP256
@@ -877,15 +884,15 @@ impl RingHarness {
         asset: Address,
         amount: u64,
     ) -> Result<()> {
-        self.expect_tampered_rejection(
+        self.expect_tampered_rejection(TamperedRingTransfer {
             from,
             to,
             asset,
             amount,
-            RingRail::Eddsa,
-            ProofTamper::EddsaProofUnderP256Selector,
-            ShieldedPoolError::TransactProofVerificationFailed,
-        )
+            rail: RingRail::Eddsa,
+            tamper: ProofTamper::EddsaProofUnderP256Selector,
+            expected: ShieldedPoolError::TransactProofVerificationFailed,
+        })
     }
 
     /// Ring-transfer over the P256 rail spending DEFAULT-ring P256 inputs: the
@@ -980,81 +987,90 @@ impl RingHarness {
     }
 }
 
-/// Assemble the `TransactIxData` from the signed transaction's external data and
-/// the prover result, mirroring `client::prover::transact::witness::assemble`. Each
-/// padded input carries its nullifier hash and root indices; authorization comes
-/// from the leading signer run in the accounts array (payer first), not from any
-/// per-input field. `external_data` fields flow through unchanged (already
-/// rebound to `RING_TRANSACT`).
-#[allow(clippy::too_many_arguments)]
-fn assemble_ix_data(
-    proof_inputs: &SppProofInputs,
-    nullifiers: &[[u8; 32]],
+/// The signed transaction's external data and the prover result, ready to be
+/// folded into a `TransactIxData`.
+struct RingIxDataParts<'a> {
+    proof_inputs: &'a SppProofInputs,
+    nullifiers: &'a [[u8; 32]],
     private_tx_hash: [u8; 32],
-    root_indices: &[(u16, u16)],
+    root_indices: &'a [(u16, u16)],
     rail: RingRail,
     proof: TransactProof,
     commitment: Option<Bsb22Commitment>,
     default_owner_tag: Option<[u8; 32]>,
-) -> Result<TransactIxData> {
-    let n_inputs = proof_inputs.check_shape()?.n_inputs();
-    if nullifiers.len() != n_inputs || root_indices.len() != n_inputs {
-        return Err(anyhow!(
-            "witness input count {} / {} does not match shape {n_inputs}",
-            nullifiers.len(),
-            root_indices.len()
-        ));
-    }
+}
 
-    let mut inputs = Vec::with_capacity(n_inputs);
-    for i in 0..n_inputs {
-        let nullifier_hash = *nullifiers
-            .get(i)
-            .ok_or_else(|| anyhow!("missing nullifier {i}"))?;
-        let &(utxo_tree_root_index, nullifier_tree_root_index) = root_indices
-            .get(i)
-            .ok_or_else(|| anyhow!("missing root index {i}"))?;
-        inputs.push(InputUtxo {
-            nullifier_hash,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
-        });
-    }
+impl RingIxDataParts<'_> {
+    /// Assemble the `TransactIxData`, mirroring
+    /// `client::prover::transact::witness::assemble`. Each padded input carries
+    /// its nullifier hash and root indices. Authorization comes from the leading
+    /// signer run in the accounts array (payer first), not from any per-input
+    /// field. `external_data` fields flow through unchanged (already rebound to
+    /// `RING_TRANSACT`).
+    fn assemble(self) -> Result<TransactIxData> {
+        let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
+        if self.nullifiers.len() != n_inputs || self.root_indices.len() != n_inputs {
+            return Err(anyhow!(
+                "witness input count {} / {} does not match shape {n_inputs}",
+                self.nullifiers.len(),
+                self.root_indices.len()
+            ));
+        }
 
-    let external = &proof_inputs.external_data;
-    let n_outputs = external.outputs.len() as u8;
-    let n_slots = zolana_interface::N_PUBLIC_SLOTS as u8;
-    let circuit = match rail {
-        RingRail::Eddsa => CircuitId::RingEddsa(n_inputs as u8, n_outputs, n_slots),
-        RingRail::P256 => CircuitId::RingP256(
-            n_inputs as u8,
-            n_outputs,
-            n_slots,
-            RingP256ProofData {
-                bsb22_commitment: commitment
-                    .ok_or_else(|| anyhow!("P256 proof is missing its BSB22 commitment"))?,
-                default_owner_tag,
-            },
-        ),
-    };
-    Ok(TransactIxData {
-        proof,
-        expiry_unix_ts: external.expiry_unix_ts,
-        private_tx_hash,
-        circuit,
-        inputs,
-        interface_transfers: external
-            .interface_transfers
-            .iter()
-            .map(|transfer| transfer.interface_transfer())
-            .collect(),
-        data_hash: external.data_hash,
-        ring_data_hash: external.ring_data_hash,
-        tx_viewing_pk: external.tx_viewing_pk,
-        salt: external.salt,
-        outputs: external.outputs.clone(),
-        messages: external.messages.clone(),
-    })
+        let mut inputs = Vec::with_capacity(n_inputs);
+        for i in 0..n_inputs {
+            let nullifier_hash = *self
+                .nullifiers
+                .get(i)
+                .ok_or_else(|| anyhow!("missing nullifier {i}"))?;
+            let &(utxo_tree_root_index, nullifier_tree_root_index) = self
+                .root_indices
+                .get(i)
+                .ok_or_else(|| anyhow!("missing root index {i}"))?;
+            inputs.push(InputUtxo {
+                nullifier_hash,
+                nullifier_tree_root_index,
+                utxo_tree_root_index,
+            });
+        }
+
+        let external = &self.proof_inputs.external_data;
+        let n_outputs = u8::try_from(external.outputs.len())?;
+        let n_slots = zolana_interface::N_PUBLIC_SLOTS as u8;
+        let n_inputs_selector = u8::try_from(n_inputs)?;
+        let circuit = match self.rail {
+            RingRail::Eddsa => CircuitId::RingEddsa(n_inputs_selector, n_outputs, n_slots),
+            RingRail::P256 => CircuitId::RingP256(
+                n_inputs_selector,
+                n_outputs,
+                n_slots,
+                RingP256ProofData {
+                    bsb22_commitment: self
+                        .commitment
+                        .ok_or_else(|| anyhow!("P256 proof is missing its BSB22 commitment"))?,
+                    default_owner_tag: self.default_owner_tag,
+                },
+            ),
+        };
+        Ok(TransactIxData {
+            proof: self.proof,
+            expiry_unix_ts: external.expiry_unix_ts,
+            private_tx_hash: self.private_tx_hash,
+            circuit,
+            inputs,
+            interface_transfers: external
+                .interface_transfers
+                .iter()
+                .map(|transfer| transfer.interface_transfer())
+                .collect(),
+            data_hash: external.data_hash,
+            ring_data_hash: external.ring_data_hash,
+            tx_viewing_pk: external.tx_viewing_pk,
+            salt: external.salt,
+            outputs: external.outputs.clone(),
+            messages: external.messages.clone(),
+        })
+    }
 }
 
 /// Lowercase hex of a 32-byte hash for error messages.

@@ -68,7 +68,7 @@ impl MergeTransactIxData {
 }
 
 /// Read config for the borrowed view: identical to the default config used by
-/// [`MergeTransactIxData::serialize`]; every sequence carries an explicit
+/// [`MergeTransactIxData::serialize`]. Every sequence carries an explicit
 /// `FixIntLen<u8>` override, so the config choice never surfaces on the wire.
 pub(crate) type RefConfig = wincode::config::Configuration<
     true,
@@ -77,7 +77,7 @@ pub(crate) type RefConfig = wincode::config::Configuration<
 >;
 
 /// Zero-copy view of [`MergeTransactIxData`]. The proof points alias the
-/// instruction buffer; only the small element vectors are read owned.
+/// instruction buffer. Only the small element vectors are read owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct MergeTransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
@@ -95,7 +95,7 @@ pub struct MergeTransactIxDataRef<'a> {
 
 impl<'a> MergeTransactIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
+        let parsed: Self = wincode::config::deserialize_exact(data, RefConfig::new())?;
         parsed.validate_shape()?;
         Ok(parsed)
     }
@@ -182,6 +182,15 @@ mod tests {
         // expiry(8) || proof(128) || output_hash(32) || eddsa_owner(1) ||
         // private_tx_hash(32) || 3 vecs with u8 lens.
         assert_eq!(bytes.len(), 204 + 36 * MERGE_INPUT_COUNT);
+    }
+
+    /// One logical instruction must have one byte encoding. Trailing bytes are
+    /// unconstrained payload the proof never covers.
+    #[test]
+    fn rejects_trailing_bytes() {
+        let mut bytes = data().serialize().unwrap();
+        bytes.push(0);
+        assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_err());
     }
 
     #[test]

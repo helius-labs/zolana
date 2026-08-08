@@ -5,14 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-# Only the explicit `ring_lifecycle` and `proof_cu` test targets build; both
-# consume the shared fixture from `zolana-test-utils` (`ring` module).
 autotests = false
-
-# Test-only fixture: a minimal "policy ring" program that CPIs into SPP,
-# signing with its `ring_auth` PDA. It enforces no policy — it exists so
-# integration tests can exercise the ring-signer path (a PDA can only sign via
-# a CPI from its owning program).
 
 [lib]
 crate-type = ["cdylib", "lib"]

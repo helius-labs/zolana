@@ -16,7 +16,8 @@ use zolana_batched_merkle_tree::merkle_tree_metadata::TreeType;
 use zolana_batched_merkle_tree::{
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     merkle_tree::{
-        get_merkle_tree_account_size, BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
+        get_merkle_tree_account_size, BatchedMerkleTreeAccount, BatchedMerkleTreeInit,
+        InstructionDataAddressAppendInputs,
     },
     verify::CompressedProof,
     zero_copy::{CachedTreeUpdate, TreeAccountLayout},
@@ -155,12 +156,14 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
     AddressTree::init(
         &mut account_data,
         &pubkey,
-        ADDRESS_ROOT_HISTORY_CAPACITY,
-        ADDRESS_BATCH_SIZE,
-        ADDRESS_ZKP_BATCH_SIZE,
-        ADDRESS_HEIGHT,
-        TreeType::AddressV2,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
+        BatchedMerkleTreeInit {
+            root_history_capacity: ADDRESS_ROOT_HISTORY_CAPACITY,
+            input_queue_batch_size: ADDRESS_BATCH_SIZE,
+            input_queue_zkp_batch_size: ADDRESS_ZKP_BATCH_SIZE,
+            height: ADDRESS_HEIGHT,
+            tree_type: TreeType::AddressV2,
+            address_init_root: Some(NULLIFIER_TREE_INIT_ROOT_40),
+        },
     )
     .unwrap();
 

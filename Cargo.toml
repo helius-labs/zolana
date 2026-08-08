@@ -47,6 +47,8 @@ members = [
     "sdk-tests/timelock-escrow/test",
     "xtask",
 ]
+# Nested workspace; built on its own (own lockfile, main-repo crates by path).
+exclude = ["zones/squads"]
 default-members = [
     "forester",
     "program-libs/interface",
@@ -81,8 +83,11 @@ zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version 
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
-# Atamanov branch alex/vk-registry: d0b84554 (chunked BSB22 hash-to-field)
-# plus the vk-registry feature (prepared-operand verification).
+# Fork of Lightprotocol/groth16-solana@43fee1a. Reduces the 48-byte BSB22
+# hash-to-field buffer in two 24-byte halves, which takes a BSB22 verify from
+# 211,461 to 144,138 CU at one public input. Upstream PR is prepared, not filed.
+# Rev 93c04c75 is d0b84554 plus the vk-registry feature (prepared-operand
+# verification), which only vk-registry program builds enable.
 groth16-solana = { git = "https://github.com/Atamanov/groth16-solana", rev = "93c04c7589ab765a98d88443b56bdeebd0205538", features = ["bsb22"] }
 
 # Published Light Protocol crates.

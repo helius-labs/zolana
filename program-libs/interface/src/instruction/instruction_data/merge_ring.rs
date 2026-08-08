@@ -5,7 +5,7 @@ use super::merge_transact::{MergeTransactIxData, MergeTransactIxDataRef, RefConf
 /// `merge_ring` instruction data (spec: SPP `merge_ring`): the
 /// [`MergeTransactIxData`] body plus the output `ring_data_hash` the calling
 /// ring program selected. The merge proof asserts it against
-/// `Output.Utxo.RingDataHash` and folds it into the public-input hash; the
+/// `Output.Utxo.RingDataHash` and folds it into the public-input hash. The
 /// wallet reads it from the event to reconstruct the merged ring output.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeRingIxData {
@@ -23,8 +23,9 @@ impl MergeRingIxData {
     }
 }
 
-/// Zero-copy view of [`MergeRingIxData`]; the embedded [`MergeTransactIxDataRef`]
-/// aliases the instruction buffer exactly as in `merge_transact`.
+/// Zero-copy view of [`MergeRingIxData`]. The embedded
+/// [`MergeTransactIxDataRef`] aliases the instruction buffer exactly as in
+/// `merge_transact`.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct MergeRingIxDataRef<'a> {
     pub output_ring_data_hash: &'a [u8; 32],
@@ -33,7 +34,7 @@ pub struct MergeRingIxDataRef<'a> {
 
 impl<'a> MergeRingIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
+        let parsed: Self = wincode::config::deserialize_exact(data, RefConfig::new())?;
         parsed.merge.validate_shape()?;
         Ok(parsed)
     }

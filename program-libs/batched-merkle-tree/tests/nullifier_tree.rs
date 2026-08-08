@@ -11,8 +11,8 @@ use zolana_batched_merkle_tree::{
     errors::BatchedMerkleTreeError,
     initialize_address_tree::InitAddressTreeAccountsInstructionData,
     merkle_tree::{
-        get_merkle_tree_account_size, BatchedMerkleTreeAccount, FoldedAddressAppendInputs,
-        InstructionDataAddressAppendInputs,
+        get_merkle_tree_account_size, BatchedMerkleTreeAccount, BatchedMerkleTreeInit,
+        FoldedAddressAppendInputs, InstructionDataAddressAppendInputs,
     },
     verify::{CommittedProof, CompressedProof},
 };
@@ -50,12 +50,14 @@ fn init_nullifier_tree<'a>(account_data: &'a mut [u8], pubkey: &Address) -> Null
     BatchedMerkleTreeAccount::init(
         account_data,
         pubkey,
-        params.root_history_capacity,
-        params.input_queue_batch_size,
-        params.input_queue_zkp_batch_size,
-        params.height,
-        TreeType::AddressV2,
-        Some(NULLIFIER_TREE_INIT_ROOT_40),
+        BatchedMerkleTreeInit {
+            root_history_capacity: params.root_history_capacity,
+            input_queue_batch_size: params.input_queue_batch_size,
+            input_queue_zkp_batch_size: params.input_queue_zkp_batch_size,
+            height: params.height,
+            tree_type: TreeType::AddressV2,
+            address_init_root: Some(NULLIFIER_TREE_INIT_ROOT_40),
+        },
     )
     .unwrap()
 }

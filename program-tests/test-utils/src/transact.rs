@@ -164,7 +164,7 @@ pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
 ///
 /// Two rules every caller relies on: a real output's owner tag is its owner's
 /// `confidential_view_tag` (so the program's `hash_bytes(resolved_owner_tag)`
-/// equals that owner's `owner_pk_field`), and PR164's `AssertDummyTags` gate
+/// equals that owner's `owner_pk_field`), and the `AssertDummyTags` gate
 /// requires every DUMMY output to name a transaction participant, so dummy
 /// slots reuse a real participant's tag rather than a fresh key's.
 pub fn set_output_owner_tags(
@@ -337,6 +337,9 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
     }
 }
 
+/// Prove and locally verify a transfer on the fixed (2 inputs, 3 outputs)
+/// confidential eddsa shape every current caller uses; the verifying key is
+/// pinned to that shape.
 /// Like [`prove_and_verify_transfer`], but also returns the prover's proof.
 /// Aggregation consumes the uncompressed points, where the on-chain path takes
 /// the compressed and negated ones.
@@ -425,9 +428,6 @@ pub fn prove_and_verify_p256_raw(
     Ok((packed, compressed, proof))
 }
 
-/// Prove and locally verify a transfer on the fixed (2 inputs, 3 outputs)
-/// confidential eddsa shape every current caller uses; the verifying key is
-/// pinned to that shape.
 pub fn prove_and_verify_transfer(
     prover_inputs: &TransferInputs,
     public_input_hash: [u8; 32],
@@ -493,7 +493,7 @@ pub fn real_output(
 /// non-inclusion witness for that nullifier from `nf_tree` (the circuit checks
 /// non-inclusion for every slot). Returns the input and its nullifier — SPP
 /// inserts dummy nullifiers exactly like real ones. The dummy's `ownerPkHash`
-/// is pinned to zero: PR172's signer resolution (`AuthorizedEddsaInputOwners`)
+/// is pinned to zero because the signer resolution (`AuthorizedEddsaInputOwners`)
 /// rejects any non-zero owner identity on a content-less slot.
 pub fn dummy_input(
     blinding: &[u8; 31],
@@ -826,40 +826,81 @@ pub fn build_spl_withdrawal(
 }
 
 /// Valid (2,3) confidential-eddsa `transact` instruction data with a real
-/// proof: one real zero-value input the payer just deposited (PR164 requires
-/// a real input for the dummy-participant gate) plus one dummy input and
+/// proof. It has one real zero-value input the payer just deposited (the
+/// dummy-participant gate requires a real input) plus one dummy input and
 /// three dummy outputs, bound to the on-chain roots, the payer, and
 /// `discriminator`. Deterministic blindings, so one environment supports one
-/// send; boot a fresh backend per transaction.
+/// send. Boot a fresh backend per transaction.
 pub fn build_valid_confidential_transact_ix(
     env: &mut crate::backend::LiteSvmPoolBackend,
     input_owner: Pubkey,
     discriminator: u8,
 ) -> Result<TransactIxData> {
+    let mut legs = build_valid_confidential_transact_legs(env, input_owner, discriminator, 1)?;
+    Ok(legs.pop().expect("one leg").data)
+}
+
+/// One aggregate-ready leg. It holds the instruction data with its compressed
+/// proof set, plus the prover's uncompressed proof and the public input hash an
+/// outer circuit witnesses.
+pub struct ConfidentialTransactLeg {
+    pub data: TransactIxData,
+    pub proof: Proof,
+    pub public_input_hash: [u8; 32],
+}
+
+/// `count` legs of the shape [`build_valid_confidential_transact_ix`] builds,
+/// with per-leg blindings and nullifier secrets so no nullifier repeats
+/// inside one batch. Every deposit lands before any leg proves, so leg `i`
+/// spends leaf `i` against the root at index `count`.
+pub fn build_valid_confidential_transact_legs(
+    env: &mut crate::backend::LiteSvmPoolBackend,
+    input_owner: Pubkey,
+    discriminator: u8,
+    count: u8,
+) -> Result<Vec<ConfidentialTransactLeg>> {
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let input_owner_bytes = input_owner.to_bytes();
     let zero = [0u8; 32];
-
-    let blinding = zolana_program_test::test_blinding(7);
-    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
-    let nullifier_pk = nullifier_key.pubkey()?;
     let owner_public_key = PublicKey::from_ed25519(&input_owner_bytes);
     let owner_pk_hash = owner_public_key.owner_proof_input_hash()?;
-    let owner_field = owner_hash(&owner_public_key, &nullifier_pk)?;
-    let utxo = Utxo {
-        owner: owner_public_key,
-        asset: zolana_transaction::SOL_MINT,
-        amount: 0,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    env.rpc
-        .deposit_sol(&env.tree.pubkey(), &payer, 0, owner_field, blinding)
-        .map_err(|e| anyhow!("proofless zero deposit: {e:?}"))?;
 
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero)?;
+    struct SeededInput {
+        blinding: [u8; 32],
+        nullifier_key: NullifierKey,
+        nullifier_pk: [u8; 32],
+        utxo: Utxo,
+        utxo_hash: [u8; 32],
+    }
+    let mut seeded = Vec::with_capacity(usize::from(count));
+    for index in 0..count {
+        let blinding = zolana_program_test::test_blinding(7 + index);
+        let nullifier_key = NullifierKey::from_secret([9 + index; 31]);
+        let nullifier_pk = nullifier_key.pubkey()?;
+        let owner_field = owner_hash(&owner_public_key, &nullifier_pk)?;
+        let utxo = Utxo {
+            owner: PublicKey::from_ed25519(&input_owner_bytes),
+            asset: zolana_transaction::SOL_MINT,
+            amount: 0,
+            blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        };
+        env.rpc
+            .deposit_sol(&env.tree.pubkey(), &payer, 0, owner_field, blinding)
+            .map_err(|e| anyhow!("proofless zero deposit: {e:?}"))?;
+        let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero)?;
+        seeded.push(SeededInput {
+            blinding,
+            nullifier_key,
+            nullifier_pk,
+            utxo,
+            utxo_hash,
+        });
+    }
+
+    let root_index = u16::from(count);
     let (utxo_root, nullifier_root) = {
         let mut data = env
             .rpc
@@ -869,7 +910,7 @@ pub fn build_valid_confidential_transact_ix(
             .map_err(|e| anyhow!("load tree: {e:?}"))?;
         (
             account
-                .get_utxo_tree_root(1)
+                .get_utxo_tree_root(root_index)
                 .map_err(|e| anyhow!("utxo root: {e:?}"))?,
             account
                 .get_nullifier_tree_root(0)
@@ -877,108 +918,130 @@ pub fn build_valid_confidential_transact_ix(
         )
     };
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
-    state_tree.append(&utxo_hash)?;
+    for input in &seeded {
+        state_tree.append(&input.utxo_hash)?;
+    }
     if state_tree.root() != utxo_root {
         return Err(anyhow!("state root gate"));
     }
-    let state_path: Vec<[u8; 32]> = state_tree.get_proof_of_leaf(0, true)?.to_vec();
     let nf_tree = nullifier_tree()?;
     if nf_tree.root() != nullifier_root {
         return Err(anyhow!("nullifier root gate"));
     }
-    let nullifier = nullifier_key.nullifier(&utxo_hash, &blinding)?;
-    let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
-
     let roots = (utxo_root, nullifier_root);
-    let (dummy_input_1, dummy_nullifier) = dummy_input(&[2u8; 31], &nf_tree, roots)?;
-    let real_input = spend_input(SpendInputArgs {
-        utxo: &utxo,
-        owner_field: &owner_field,
-        state_path: &state_path,
-        state_path_index: 0,
-        non_inclusion: &non_inclusion,
-        roots,
-        nullifier: &nullifier,
-        owner_pk_hash: &owner_pk_hash,
-        nullifier_key: &nullifier_key,
-    })?;
 
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(dummy_transfer_output)
-        .collect::<Result<_>>()?;
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let mut legs = Vec::with_capacity(usize::from(count));
+    for (index, input) in seeded.iter().enumerate() {
+        let owner_field = owner_hash(&owner_public_key, &input.nullifier_pk)?;
+        let state_path: Vec<[u8; 32]> = state_tree.get_proof_of_leaf(index, true)?.to_vec();
+        let nullifier = input
+            .nullifier_key
+            .nullifier(&input.utxo_hash, &input.blinding)?;
+        let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
 
-    let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
-        ],
-        Vec::new(),
-        inline_outputs(&output_hashes, &[input_owner_bytes; 3]),
-    );
+        let (dummy_input_1, dummy_nullifier) =
+            dummy_input(&[64 + index as u8; 31], &nf_tree, roots)?;
+        let real_input = spend_input(SpendInputArgs {
+            utxo: &input.utxo,
+            owner_field: &owner_field,
+            state_path: &state_path,
+            state_path_index: index as u64,
+            non_inclusion: &non_inclusion,
+            roots,
+            nullifier: &nullifier,
+            owner_pk_hash: &owner_pk_hash,
+            nullifier_key: &input.nullifier_key,
+        })?;
 
-    let owner_pk_hashes = output_owner_pk_hashes(&transact_ix_data.outputs)?;
-    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
+        let output_seeds: [[u8; 31]; 3] = [1u8, 2, 3].map(|offset| [3 * index as u8 + offset; 31]);
+        let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = output_seeds
+            .iter()
+            .map(dummy_transfer_output)
+            .collect::<Result<_>>()?;
+        let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
+        let mut outputs: Vec<TransferOutput> =
+            dummy_outputs.into_iter().map(|(out, _)| out).collect();
 
-    let external_data_hash = {
-        let resolved = resolve_outputs(&transact_ix_data)?;
-        ExternalDataHash {
-            spp_instruction_discriminator: discriminator,
-            expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-            interface_transfers: &[],
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
-            salt: &transact_ix_data.salt,
-            outputs: &resolved,
-            messages: &transact_ix_data.messages,
+        let mut transact_ix_data = new_transact_ix_data(
+            vec![
+                eddsa_input_utxo(nullifier, root_index),
+                eddsa_input_utxo(dummy_nullifier, root_index),
+            ],
+            Vec::new(),
+            inline_outputs(&output_hashes, &[input_owner_bytes; 3]),
+        );
+
+        let owner_pk_hashes = output_owner_pk_hashes(&transact_ix_data.outputs)?;
+        set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
+
+        let external_data_hash = {
+            let resolved = resolve_outputs(&transact_ix_data)?;
+            ExternalDataHash {
+                spp_instruction_discriminator: discriminator,
+                expiry_unix_ts: transact_ix_data.expiry_unix_ts,
+                interface_transfers: &[],
+                data_hash: None,
+                ring_data_hash: None,
+                tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
+                salt: &transact_ix_data.salt,
+                outputs: &resolved,
+                messages: &transact_ix_data.messages,
+            }
+            .hash()?
+        };
+
+        let private_tx = PrivateTxHash::new(
+            &[input.utxo_hash, zero],
+            &[zero, zero, zero],
+            &external_data_hash,
+        )
+        .hash()?;
+
+        let payer_hash = hash_bytes(&payer_bytes)?;
+        let owner_signer_hash = hash_bytes(&input_owner_bytes)?;
+        let signer_hashes = if input_owner_bytes == payer_bytes {
+            [payer_hash, zero, zero]
+        } else {
+            [payer_hash, owner_signer_hash, zero]
+        };
+        let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
+        let public_input_hash = PublicInputs {
+            nullifiers: &[nullifier, dummy_nullifier],
+            output_hashes: &output_hashes,
+            utxo_roots: &[utxo_root, utxo_root],
+            nullifier_tree_roots: &[nullifier_root, nullifier_root],
+            private_tx: &private_tx,
+            external_data_hash: &external_data_hash,
+            public_transfers: &PublicTransfers {
+                assets: public_slot_assets,
+                amounts: public_slot_amounts,
+            },
+            ring_program_id: &zero,
+            allow_dummy_inputs: &fe(1),
+            signer_pk_hashes: &signer_hashes,
+            output_owner_pk_hashes: Some(&owner_pk_hashes),
         }
-        .hash()?
-    };
+        .hash()?;
 
-    let private_tx =
-        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash).hash()?;
-
-    let payer_hash = hash_bytes(&payer_bytes)?;
-    let owner_signer_hash = hash_bytes(&input_owner_bytes)?;
-    let signer_hashes = if input_owner_bytes == payer_bytes {
-        [payer_hash, zero, zero]
-    } else {
-        [payer_hash, owner_signer_hash, zero]
-    };
-    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
-    let public_input_hash = PublicInputs {
-        nullifiers: &[nullifier, dummy_nullifier],
-        output_hashes: &output_hashes,
-        utxo_roots: &[utxo_root, utxo_root],
-        nullifier_tree_roots: &[nullifier_root, nullifier_root],
-        private_tx: &private_tx,
-        external_data_hash: &external_data_hash,
-        public_transfers: &PublicTransfers {
-            assets: public_slot_assets,
-            amounts: public_slot_amounts,
-        },
-        ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
-        signer_pk_hashes: &signer_hashes,
-        output_owner_pk_hashes: Some(&owner_pk_hashes),
+        let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+            inputs: vec![real_input, dummy_input_1],
+            outputs,
+            external_data_hash,
+            private_tx_hash: private_tx,
+            public_slot_assets,
+            public_slot_amounts,
+            signer_pk_hashes: signer_hashes.to_vec(),
+            public_input_hash,
+        });
+        let (packed, raw) =
+            prove_and_verify_transfer_raw(&prover_inputs, public_input_hash, "transact")?;
+        transact_ix_data.proof = packed;
+        transact_ix_data.private_tx_hash = private_tx;
+        legs.push(ConfidentialTransactLeg {
+            data: transact_ix_data,
+            proof: raw,
+            public_input_hash,
+        });
     }
-    .hash()?;
-
-    let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![real_input, dummy_input_1],
-        outputs,
-        external_data_hash,
-        private_tx_hash: private_tx,
-        public_slot_assets,
-        public_slot_amounts,
-        signer_pk_hashes: signer_hashes.to_vec(),
-        public_input_hash,
-    });
-    transact_ix_data.proof =
-        prove_and_verify_transfer(&prover_inputs, public_input_hash, "transact")?;
-    transact_ix_data.private_tx_hash = private_tx;
-    Ok(transact_ix_data)
+    Ok(legs)
 }

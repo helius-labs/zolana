@@ -8,9 +8,8 @@ use zolana_interface::{
 
 use crate::instructions::verifier;
 
-/// Derived public inputs the program resolves from the tree and the user
-/// record, folded into the chain public-input hash alongside the instruction
-/// fields.
+/// Derived public inputs the program resolves from the tree and the registry,
+/// folded into the chain public-input hash alongside the instruction fields.
 ///
 /// The roots are per tree-backed slot, in the same leg then slot order as
 /// `nullifiers`. A chained slot has no entry. It spends a UTXO no tree holds
@@ -33,9 +32,26 @@ impl<'a> MergeChainProof<'a> {
         Self { ix, derived }
     }
 
+    /// A `vk-registry` build always goes through `verify_registered`, which
+    /// falls back to the plain path itself.
+    #[cfg(not(feature = "vk-registry"))]
     #[inline(never)]
     pub fn verify(&self) -> ProgramResult {
         self.statement()?.verify()
+    }
+
+    /// Registry-backed verification. `None` falls back to [`Self::verify`].
+    /// The level shape names the outer key and the spec resolves from that
+    /// key, so shape and registry cannot disagree.
+    #[cfg(feature = "vk-registry")]
+    #[inline(never)]
+    pub fn verify_registered(&self, registry: Option<&pinocchio::AccountView>) -> ProgramResult {
+        let statement = self.statement()?;
+        let spec = zolana_interface::verifying_keys::registry_spec::vk_registry_spec_for(
+            statement.verifying_key,
+        )
+        .ok_or(ShieldedPoolError::InvalidVkRegistryAccount)?;
+        statement.verify_registered(registry, spec)
     }
 
     fn statement(&self) -> Result<verifier::Groth16Statement<'_>, ProgramError> {

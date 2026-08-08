@@ -95,7 +95,8 @@ fn batch_update_rejects_a_proof_for_an_unready_zkp_batch() {
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[&authority])
         .expect_err("a proof for an unready zkp batch must be rejected");
-    Rejection::pool(ShieldedPoolError::NullifierTreeUpdateFailed).assert_litesvm(error);
+    // Retriable. The forester resends once the hash chain finalizes.
+    Rejection::pool(ShieldedPoolError::NullifierBatchNotReady).assert_litesvm(error);
     assert_eq!(
         rpc.account_data(&tree.pubkey()).expect("tree data"),
         tree_before,
@@ -106,7 +107,7 @@ fn batch_update_rejects_a_proof_for_an_unready_zkp_batch() {
         .expect("rejected transaction trace")
         .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 
-    // An out-of-range zkp batch index is rejected with the same error.
+    // An out-of-range zkp batch index is a malformed request, not a retriable one.
     let out_of_range = BatchUpdateNullifierTree {
         authority: authority.pubkey(),
         tree: tree.pubkey(),

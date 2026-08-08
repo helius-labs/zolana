@@ -45,15 +45,8 @@ pub struct FoldedAddressAppendInputs {
 
 pub type InstructionDataBatchAppendInputs = InstructionDataBatchNullifyInputs;
 
-/// Batched Merkle tree zero copy account.
-/// The account is used for batched state and address Merkle trees,
-/// plus the input and address queues.
-///
-/// Tree roots can be used in zk proofs
-/// outside of Light Protocol programs.
-///
-/// To access a tree root by index use:
-/// - get_root_by_index
+/// Batched Merkle tree zero-copy account, used for batched state and address
+/// Merkle trees plus the input and address queues.
 pub struct BatchedMerkleTreeAccount<
     'a,
     const RH: usize,
@@ -102,15 +95,26 @@ impl<const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP: usi
     }
 }
 
+/// Layout parameters written once when a tree account is initialized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BatchedMerkleTreeInit {
+    pub root_history_capacity: u32,
+    pub input_queue_batch_size: u64,
+    pub input_queue_zkp_batch_size: u64,
+    pub height: u32,
+    pub tree_type: TreeType,
+    /// Init root for indexed (`AddressV2`) trees. `None` uses the default
+    /// address sentinel root (`ADDRESS_TREE_INIT_ROOT_40`). `Some` seeds an
+    /// indexed tree with a different sentinel, e.g. the BN254 `p-1`
+    /// nullifier-tree root (`NULLIFIER_TREE_INIT_ROOT_40`).
+    pub address_init_root: Option<[u8; 32]>,
+}
+
 impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP: usize>
     BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>
 {
-    /// Deserialize a batched address Merkle tree from account info.
-    /// Should be used in solana programs.
-    /// Checks that:
-    /// 1. the account owner is `program_id`,
-    /// 2. discriminator,
-    /// 3. tree type is batched address tree type.
+    /// Deserialize a batched address Merkle tree from account info. Checks the
+    /// account owner (`program_id`), the discriminator, and the tree type.
     pub fn address_from_account_info(
         program_id: &[u8; 32],
         account_info: &mut AccountView,
@@ -128,7 +132,9 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         let pubkey = *account_info.address();
         let mut data = account_info.try_borrow_mut()?;
 
-        // Necessary to convince the borrow checker.
+        // SAFETY: extends the borrowed slice to 'a. Sound only because the account
+        // data lives for 'a and no other borrow of it is taken while the returned
+        // layout is alive.
         let data_slice: &'a mut [u8] =
             unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr(), data.len()) };
         Self::from_bytes::<TREE_TYPE>(data_slice, &pubkey)
@@ -136,7 +142,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
 
     /// Deserialize an address BatchedMerkleTreeAccount from bytes. Checks
     /// the discriminator and tree type. Available on both host and Solana
-    /// SBF targets; callers that also need program-owner enforcement should
+    /// SBF targets. Callers that also need program-owner enforcement should
     /// use `address_from_account_info`.
     pub fn address_from_bytes(
         account_data: &'a mut [u8],
@@ -162,20 +168,10 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn init(
         account_data: &'a mut [u8],
         pubkey: &Pubkey,
-        root_history_capacity: u32,
-        input_queue_batch_size: u64,
-        input_queue_zkp_batch_size: u64,
-        height: u32,
-        tree_type: TreeType,
-        // Init root for indexed (`AddressV2`) trees. `None` uses the default
-        // address sentinel root (`ADDRESS_TREE_INIT_ROOT_40`). Pass `Some` to
-        // seed an indexed tree with a different sentinel, e.g. the BN254 `p-1`
-        // nullifier-tree root (`NULLIFIER_TREE_INIT_ROOT_40`).
-        address_init_root: Option<[u8; 32]>,
+        params: BatchedMerkleTreeInit,
     ) -> Result<BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError>
     {
         if account_data.len() != size_of::<TreeAccountLayout<RH, NUM_ITERS, BLOOM, ZKP>>() {
@@ -184,16 +180,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
 
         let layout: &'a mut TreeAccountLayout<RH, NUM_ITERS, BLOOM, ZKP> =
             wincode::deserialize_mut(account_data).map_err(|_| ZeroCopyError::Size)?;
-        Self::init_from_layout(
-            layout,
-            pubkey,
-            root_history_capacity,
-            input_queue_batch_size,
-            input_queue_zkp_batch_size,
-            height,
-            tree_type,
-            address_init_root,
-        )
+        Self::init_from_layout(layout, pubkey, params)
     }
 
     pub fn from_layout(
@@ -206,18 +193,20 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn init_from_layout(
         layout: &'a mut TreeAccountLayout<RH, NUM_ITERS, BLOOM, ZKP>,
         pubkey: &Pubkey,
-        root_history_capacity: u32,
-        input_queue_batch_size: u64,
-        input_queue_zkp_batch_size: u64,
-        height: u32,
-        tree_type: TreeType,
-        address_init_root: Option<[u8; 32]>,
+        params: BatchedMerkleTreeInit,
     ) -> Result<BatchedMerkleTreeAccount<'a, RH, NUM_ITERS, BLOOM, ZKP>, BatchedMerkleTreeError>
     {
+        let BatchedMerkleTreeInit {
+            root_history_capacity,
+            input_queue_batch_size,
+            input_queue_zkp_batch_size,
+            height,
+            tree_type,
+            address_init_root,
+        } = params;
         layout.discriminator = Self::LIGHT_DISCRIMINATOR;
 
         let account_metadata = &mut layout.metadata;
@@ -230,15 +219,12 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .queue_batches
             .init(input_queue_batch_size, input_queue_zkp_batch_size)?;
 
-        // Root history is read from zero-initialized account memory.
-        // Zeroed roots enable unified logic to zero out roots,
-        // an unitialized root history vector would be an edge case.
-        //
-        // Initialize root history array with initial root.
-        // Batch zkp updates require an input Merkle root.
-        // The initial root is written at index 0 and the write head advanced to 1.
+        // The root history region comes zero-initialized from fresh account memory,
+        // so zeroed roots are the uniform empty state the zero-out logic relies on.
+        // Batch zkp updates need an input Merkle root, so the initial root is written
+        // at index 0 and the write head advanced to 1.
         let init_root = if tree_type == TreeType::AddressV2 {
-            // Sanity check since init value is hardcoded.
+            // ADDRESS_TREE_INIT_ROOT_40 is only valid at height 40.
             #[cfg(not(test))]
             if height != 40 {
                 return Err(MerkleTreeMetadataError::InvalidHeight.into());
@@ -256,10 +242,9 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         } else {
             None
         };
-        // Root history is a cyclic ring buffer. Upstream fills the entire ring
-        // (length == capacity) on init, then seeds the first root. Write the
-        // cyclic header `[current_index, length, capacity]`: capacity and length
-        // are both ROOT_HISTORY; current_index advances to 1 when a root is seeded.
+        // Root history is a cyclic ring buffer with header
+        // [current_index, length, capacity]. Init fills the ring (length == capacity).
+        // Seeding an init root advances current_index to 1.
         layout.root_history.header[CYCLIC_LENGTH] = RH as u64;
         layout.root_history.header[CYCLIC_CAPACITY] = RH as u64;
         layout.root_history.header[CYCLIC_CURRENT_INDEX] = 0;
@@ -269,7 +254,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             }
             layout.root_history.header[CYCLIC_CURRENT_INDEX] = 1;
         }
-        // Bounded hash-chain regions: length 0, capacity ZKP.
         for hash_chain in layout.hash_chains.iter_mut() {
             hash_chain.header[BOUNDED_LENGTH] = 0;
             hash_chain.header[BOUNDED_CAPACITY] = ZKP as u64;
@@ -298,8 +282,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             return Err(MerkleTreeMetadataError::InvalidTreeType.into());
         }
 
-        // Ensure that all elements that are inserted into the queue
-        // can be inserted into the tree.
         self.check_queue_next_index_reached_tree_capacity()?;
 
         {
@@ -323,17 +305,10 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         Ok(())
     }
 
-    /// Zero out roots corresponding to batch.sequence numbers > tree.sequence_number.
-    /// The batch.sequence_number indicates when roots no longer contain values
-    /// from the queue's previous batch, as they've been overwritten by newer updates.
-    /// Root from the previous batch can prove inclusion of nullified values.
-    /// Hence these roots must not exists after the bloom filter has been zeroed.
-    ///
-    /// Steps:
-    /// 1. Check whether overlapping roots exist.
-    /// 2. If yes:
-    ///    2.1. Get, first safe root index.
-    ///    2.2. Zero out roots from the oldest root to first safe root.
+    /// Zero out roots with batch sequence numbers greater than the tree sequence
+    /// number. Roots recorded before the previous batch's final update can still
+    /// prove inclusion of values nullified in that batch, so they must not survive
+    /// the bloom filter zeroing.
     ///
     /// Note on security for root buffer:
     /// Account {
@@ -379,18 +354,13 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             root_history,
             ..
         } = &mut *self.layout;
-        // 1. Check whether overlapping roots exist.
         let overlapping_roots_exits = sequence_number > metadata.sequence_number;
         if overlapping_roots_exits {
             let mut oldest_root_index = root_history.header[CYCLIC_CURRENT_INDEX] as usize;
-            // 2.1. Get, num of remaining roots.
-            //    Remaining roots have not been updated since
-            //    the update of the previous batch therfore allow anyone to prove
-            //    inclusion of values nullified in the previous batch.
+            // Roots older than first_safe_root_index still allow inclusion proofs for
+            // values nullified in the previous batch.
             let num_remaining_roots = sequence_number - metadata.sequence_number;
-            // 2.2. Zero out roots oldest to first safe root index.
-            //      Skip one iteration we don't need to zero out
-            //      the first safe root.
+            // Start at the oldest root and stop before the first safe root.
             for _ in 1..num_remaining_roots {
                 if let Some(root) = root_history.data.get_mut(oldest_root_index) {
                     *root = [0u8; 32];
@@ -398,7 +368,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                 oldest_root_index += 1;
                 oldest_root_index %= root_history.data.len();
             }
-            // Defensive assert, it should never fail.
             assert_eq!(
                 oldest_root_index, first_safe_root_index as usize,
                 "Zeroing out roots failed."
@@ -406,29 +375,14 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         }
     }
 
-    /// Zero out bloom filter of previous batch if 50% of the
-    /// current batch has been processed.
+    /// Zero out the previous batch's bloom filter once the current batch is half
+    /// full.
     ///
-    /// Idea:
-    /// 1. Zeroing out the bloom filter of the previous batch is expensive
-    ///    -> the forester should do it.
-    /// 2. We don't want to zero out the bloom filter when inserting
-    ///    the last zkp of a batch for this might result in failing user tx.
-    /// 3. Wait until next batch is 50% full as grace period for clients
-    ///    to switch from proof by index to proof by zkp
-    ///    for values inserted in the previous batch.
-    ///
-    /// Steps:
-    /// 1. Previous batch must be inserted and bloom filter must not be zeroed out.
-    /// 2. Current batch must be 50% full
-    /// 3. if yes
-    ///    3.1. mark bloom filter as zeroed
-    ///    3.2. zero out bloom filter
-    ///    3.3. zero out roots if needed
-    ///
-    ///   Initial state: 0 pending -> 1 previous pending even though it was never used
-    ///   0 inserted -> 1 pending 0 -> 1 pending 50% - zero out 0 -> 1 inserted
-    ///   0 pending -> 1 inserted
+    /// Zeroing is expensive, so it happens on forester-driven updates, and never
+    /// while inserting the last zkp of a batch, where it could fail a user
+    /// transaction. The half-full threshold is a grace period for clients to
+    /// switch from proof by index to proof by zkp for values inserted in the
+    /// previous batch.
     pub(crate) fn zero_out_previous_batch_bloom_filter(
         &mut self,
     ) -> Result<(), BatchedMerkleTreeError> {
@@ -458,13 +412,10 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         let previous_batch_is_ready =
             previous_batch_is_inserted && !previous_pending_batch.bloom_filter_is_zeroed();
 
-        // Current batch is at least half full, previous batch is inserted, and not zeroed.
         if current_batch_is_half_full && previous_batch_is_ready {
-            // 3.1. Mark bloom filter zeroed.
             previous_pending_batch.set_bloom_filter_to_zeroed();
             let seq = previous_pending_batch.sequence_number;
             let root_index = previous_pending_batch.root_index;
-            // 3.2. Zero out bloom filter.
             {
                 let bloom_filter = self
                     .layout
@@ -473,9 +424,8 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
                     .ok_or(BatchedMerkleTreeError::InvalidBatchIndex)?;
                 bloom_filter.zero();
             }
-            // 3.3. Zero out roots if a root exists in root history
-            // which allows to prove inclusion of a value
-            // that was inserted into the bloom filter just zeroed out.
+            // Zero out roots that can still prove inclusion of values from the
+            // just-zeroed bloom filter.
             {
                 self.zero_out_roots(seq, root_index);
             }
@@ -507,9 +457,8 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         }
         self.layout.root_history.header[CYCLIC_CURRENT_INDEX] =
             ((current_index + 1) % capacity) as u64;
-        // Cyclic vec length saturates at capacity once the ring is full. Upstream
-        // init already fills length to capacity, so this is a no-op in practice
-        // but keeps the header consistent if a fresh region is ever appended to.
+        // Length saturates at capacity once the ring is full. Init already fills
+        // length to capacity, so this only matters for a fresh region.
         let len = self.layout.root_history.header[CYCLIC_LENGTH];
         if (len as usize) < capacity {
             self.layout.root_history.header[CYCLIC_LENGTH] = len + 1;
@@ -526,12 +475,10 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
         self.get_latest_root().copied()
     }
 
-    /// Return root from the root history by index.
     pub fn get_root_by_index(&self, index: usize) -> Option<&[u8; 32]> {
         self.layout.root_history.data.get(index)
     }
 
-    /// Return the full root history.
     pub fn root_history(&self) -> &[[u8; 32]] {
         &self.layout.root_history.data
     }
@@ -545,12 +492,10 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .copied()
     }
 
-    /// Return a reference to the metadata of the tree.
     pub fn get_metadata(&self) -> &BatchedMerkleTreeMetadata {
         &self.layout.metadata
     }
 
-    /// Return a mutable reference to the metadata of the tree.
     pub fn get_metadata_mut(&mut self) -> &mut BatchedMerkleTreeMetadata {
         &mut self.layout.metadata
     }
@@ -587,7 +532,7 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
     /// Checks that the next queued value still fits into the tree. Queued
     /// values are appended in queue order starting at the current batch's
     /// `start_index` (the init element occupies leaf 0, so queue sequence
-    /// numbers are one behind tree leaf indices); the value fits iff that
+    /// numbers are one behind tree leaf indices). The value fits iff that
     /// leaf index is below `capacity`.
     pub fn check_queue_next_index_reached_tree_capacity(
         &self,
@@ -616,8 +561,6 @@ impl<'a, const RH: usize, const NUM_ITERS: usize, const BLOOM: usize, const ZKP:
             .ok_or(BatchedMerkleTreeError::ArithmeticOverflow)
     }
 
-    /// Checks if the tree is full, optionally for a batch size.
-    /// If batch_size is provided, checks if there is enough space for the batch.
     pub fn check_tree_is_full(
         &self,
         batch_size: Option<u64>,
@@ -775,12 +718,14 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 4>::init(
             &mut account_data,
             &pubkey,
-            10,
-            4,
-            1,
-            40,
-            TreeType::AddressV2,
-            None,
+            BatchedMerkleTreeInit {
+                root_history_capacity: 10,
+                input_queue_batch_size: 4,
+                input_queue_zkp_batch_size: 1,
+                height: 40,
+                tree_type: TreeType::AddressV2,
+                address_init_root: None,
+            },
         )
         .unwrap();
 
@@ -832,12 +777,14 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 4>::init(
             &mut account_data,
             &pubkey,
-            10,
-            4,
-            1,
-            40,
-            TreeType::AddressV2,
-            None,
+            BatchedMerkleTreeInit {
+                root_history_capacity: 10,
+                input_queue_batch_size: 4,
+                input_queue_zkp_batch_size: 1,
+                height: 40,
+                tree_type: TreeType::AddressV2,
+                address_init_root: None,
+            },
         )
         .unwrap();
 
@@ -851,7 +798,7 @@ mod test {
 
         // Cache an update at zkp batch 0 of a freshly initialized address tree.
         // Re-submitting the same slot is rejected as already cached, so submit
-        // returns false and apply never runs; the update stays in place.
+        // returns false and apply never runs. The update stays in place.
         let cached = CachedTreeUpdate {
             old_root: [9u8; 32],
             new_root: [8u8; 32],
@@ -912,12 +859,14 @@ mod test {
         BatchedMerkleTreeAccount::<10, 3, 1000, 4>::init(
             &mut account_data,
             &pubkey,
-            root_history_len,
-            batch_size,
-            zkp_batch_size,
-            40,
-            TreeType::AddressV2,
-            None,
+            BatchedMerkleTreeInit {
+                root_history_capacity: root_history_len,
+                input_queue_batch_size: batch_size,
+                input_queue_zkp_batch_size: zkp_batch_size,
+                height: 40,
+                tree_type: TreeType::AddressV2,
+                address_init_root: None,
+            },
         )
         .unwrap();
         let rng = &mut rand::rngs::StdRng::from_seed([0u8; 32]);
@@ -1345,12 +1294,14 @@ mod test {
         let account = BatchedMerkleTreeAccount::<10, 3, 1000, 200>::init(
             &mut account_data,
             &pubkey,
-            root_history_len,
-            batch_size,
-            zkp_batch_size,
-            height,
-            TreeType::AddressV2,
-            None,
+            BatchedMerkleTreeInit {
+                root_history_capacity: root_history_len,
+                input_queue_batch_size: batch_size,
+                input_queue_zkp_batch_size: zkp_batch_size,
+                height: height,
+                tree_type: TreeType::AddressV2,
+                address_init_root: None,
+            },
         )
         .unwrap();
         // 1. empty tree is not full
@@ -1397,12 +1348,14 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 5>::init(
             &mut account_data,
             &Pubkey::new_unique(),
-            root_history_len,
-            batch_size,
-            zkp_batch_size,
-            height,
-            TreeType::AddressV2,
-            None,
+            BatchedMerkleTreeInit {
+                root_history_capacity: root_history_len,
+                input_queue_batch_size: batch_size,
+                input_queue_zkp_batch_size: zkp_batch_size,
+                height: height,
+                tree_type: TreeType::AddressV2,
+                address_init_root: None,
+            },
         )
         .unwrap();
         // 1. empty tree is not full
@@ -1478,12 +1431,14 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 5>::init(
             &mut account_data,
             &Pubkey::new_unique(),
-            root_history_len,
-            batch_size,
-            zkp_batch_size,
-            height,
-            TreeType::AddressV2,
-            None,
+            BatchedMerkleTreeInit {
+                root_history_capacity: root_history_len,
+                input_queue_batch_size: batch_size,
+                input_queue_zkp_batch_size: zkp_batch_size,
+                height: height,
+                tree_type: TreeType::AddressV2,
+                address_init_root: None,
+            },
         )
         .unwrap();
         // 1. empty tree is not full
@@ -1532,12 +1487,14 @@ mod test {
         let mut account = BatchedMerkleTreeAccount::<10, 3, 1000, 5>::init(
             &mut account_data,
             &pubkey,
-            root_history_len,
-            batch_size,
-            zkp_batch_size,
-            height,
-            TreeType::AddressV2,
-            None,
+            BatchedMerkleTreeInit {
+                root_history_capacity: root_history_len,
+                input_queue_batch_size: batch_size,
+                input_queue_zkp_batch_size: zkp_batch_size,
+                height: height,
+                tree_type: TreeType::AddressV2,
+                address_init_root: None,
+            },
         )
         .unwrap();
         let previous_next_index = account.next_index;
@@ -1566,12 +1523,14 @@ mod test {
         let account = BatchedMerkleTreeAccount::<10, 3, 1000, 5>::init(
             &mut account_data,
             &pubkey,
-            root_history_len,
-            batch_size,
-            zkp_batch_size,
-            height,
-            TreeType::AddressV2,
-            None,
+            BatchedMerkleTreeInit {
+                root_history_capacity: root_history_len,
+                input_queue_batch_size: batch_size,
+                input_queue_zkp_batch_size: zkp_batch_size,
+                height: height,
+                tree_type: TreeType::AddressV2,
+                address_init_root: None,
+            },
         )
         .unwrap();
         assert_eq!(*account.pubkey(), pubkey);

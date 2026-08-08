@@ -1,12 +1,14 @@
 use bytemuck::{from_bytes, from_bytes_mut, Pod};
 use pinocchio::{
     account::{Ref, RefMut},
+    address::address_eq,
     cpi::{Seed, Signer},
     error::ProgramError,
     sysvars::{clock::Clock, rent::Rent, Sysvar},
     AccountView, Address, ProgramResult,
 };
 use pinocchio_system::instructions::Transfer;
+use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError,
     state::{forester_fee_per_queue_element, FORESTER_REIMBURSEMENT_LAMPORTS},
@@ -17,6 +19,26 @@ pub(crate) fn bool_field(value: bool) -> [u8; 32] {
     let mut field = [0u8; 32];
     field[31] = u8::from(value);
     field
+}
+
+/// Consume the trailing self-CPI program account, then the optional VK
+/// registry that follows it.
+///
+/// The registry is always last, so the program account MUST be consumed first.
+/// Testing for a leftover account without it accepts the program account as a
+/// registry and fails the address compare on every well-formed instruction.
+pub(crate) fn take_program_and_registry<'a>(
+    iter: &mut AccountIterator<'a>,
+) -> Result<Option<&'a AccountView>, ProgramError> {
+    let program = iter.next_account("shielded_pool_program")?;
+    if !address_eq(program.address(), &crate::ID) {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+    #[cfg(feature = "vk-registry")]
+    if !iter.iterator_is_empty() {
+        return Ok(Some(&*iter.next_non_mut("vk_registry")?));
+    }
+    Ok(None)
 }
 
 pub fn tree_error(error: TreeError) -> ProgramError {
@@ -157,10 +179,10 @@ pub fn check_not_expired(expiry_unix_ts: u64, clock: &Clock) -> ProgramResult {
 
 /// Create a program-derived account. Handles both the hot path (the account has
 /// no lamports) and the cold path (an attacker pre-funded the address) via the
-/// pinocchio system helper; a raw `CreateAccount` would fail on a donated
+/// pinocchio system helper. A raw `CreateAccount` would fail on a donated
 /// balance and let an attacker DoS the creation.
 ///
-/// `signer_seeds` must NOT include the bump; it is appended automatically.
+/// `signer_seeds` must NOT include the bump. It is appended automatically.
 pub struct CreatePdaAccount<'a, const N: usize> {
     pub fee_payer: &'a AccountView,
     pub new_account: &'a mut AccountView,
@@ -235,4 +257,47 @@ pub fn verify_pda(
     _program_id: &Address,
 ) -> Result<u8, ProgramError> {
     unimplemented!("verify_pda requires Solana runtime syscalls")
+}
+
+#[cfg(test)]
+mod tests {
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+
+    use super::*;
+
+    fn account(address: [u8; 32]) -> AccountView {
+        get_account_view(address, [0u8; 32], false, false, false, Vec::new())
+    }
+
+    /// Every builder ends the account list with the program account for the
+    /// event self-CPI. A registry can only follow it, so a well-formed
+    /// instruction that passes no registry must resolve to `None`.
+    #[test]
+    fn the_trailing_program_account_is_not_a_registry() {
+        let mut accounts = [account(crate::ID.to_bytes())];
+        let mut iter = AccountIterator::new(&mut accounts);
+        assert!(take_program_and_registry(&mut iter)
+            .expect("parse")
+            .is_none());
+    }
+
+    #[cfg(feature = "vk-registry")]
+    #[test]
+    fn the_registry_follows_the_program_account() {
+        let registry = [7u8; 32];
+        let mut accounts = [account(crate::ID.to_bytes()), account(registry)];
+        let mut iter = AccountIterator::new(&mut accounts);
+        let parsed = take_program_and_registry(&mut iter).expect("parse");
+        assert_eq!(parsed.map(|a| a.address().to_bytes()), Some(registry));
+    }
+
+    #[test]
+    fn another_program_in_the_self_cpi_slot_is_rejected() {
+        let mut accounts = [account([9u8; 32])];
+        let mut iter = AccountIterator::new(&mut accounts);
+        assert_eq!(
+            take_program_and_registry(&mut iter),
+            Err(ProgramError::IncorrectProgramId)
+        );
+    }
 }

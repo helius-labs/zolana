@@ -1,8 +1,7 @@
 pub mod instructions;
 
-/// Test-only re-exports for the program-tests crate (`test-sbf` is never
-/// enabled for the shipped .so): the smallest surface the moved unit tests
-/// need, nothing more.
+/// Test-only re-exports for the program-tests crate. `test-sbf` is never
+/// enabled for the shipped .so.
 #[cfg(feature = "test-sbf")]
 pub mod testing {
     pub use crate::instructions::hash::solana_pk_hash;
@@ -77,7 +76,7 @@ pub fn process_instruction(
     match ix_tag {
         // Deliberate no-op: the event self-CPI exists only to record inner-
         // instruction data. Anyone can invoke this tag (directly or via CPI)
-        // with forged bytes; indexers MUST filter events by parent instruction
+        // with forged bytes. Indexers MUST filter events by parent instruction
         // (see `zolana_event::tag::EMIT_EVENT`).
         InstructionTag::EmitEvent => Ok(()),
         InstructionTag::Transact

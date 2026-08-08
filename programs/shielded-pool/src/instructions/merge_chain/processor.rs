@@ -98,6 +98,9 @@ pub fn process_merge_chain_transact_ix(accounts: &mut [AccountView], data: &[u8]
         pk_fields.signing_view_tag,
         ix.levels.clone(),
     );
+    #[cfg(feature = "vk-registry")]
+    MergeChainProof::new(&ix, derived).verify_registered(merge_accounts.vk_registry())?;
+    #[cfg(not(feature = "vk-registry"))]
     MergeChainProof::new(&ix, derived).verify()?;
     collect_forester_fee(
         merge_accounts.payer,

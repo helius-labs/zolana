@@ -61,7 +61,7 @@ fn emit_event_is_an_explicit_account_free_noop() {
 /// proof) on the given circuit selector. The transact-family processors map a
 /// parse failure to the same bare `InvalidInstructionData` as the dispatcher,
 /// so distinguishing dispatch from rejection for those tags needs a payload
-/// that parses; the selector family must match the dispatched tag (7039).
+/// that parses. The selector family must match the dispatched tag (7039).
 fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
     TransactIxData {
         proof: TransactProof::zeroed(),

@@ -13,7 +13,10 @@ use zolana_interface::{
 
 use super::account::MergeRingAccounts;
 use crate::instructions::{
-    merge::{processor::process_merge_core, verify::MergeOwnerBinding},
+    merge::{
+        processor::{MergeCore, MergeCoreAccounts},
+        verify::MergeOwnerBinding,
+    },
     shared::check_not_expired,
 };
 
@@ -39,34 +42,31 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     .hash()
     .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
 
-    // The ring merge proof binds `ring_program_id` from the signing `ring_config`
-    // and the output `ring_data_hash` the ring program selected, and is verified
-    // against the `merge_ring_8_1` key. A policy ring has no `user_record`
-    // registry, so the `Ring` binding omits owner identity entirely (see
-    // `MergeProof::public_input_hash`); the binding also selects the
-    // `merge_ring_8_1` verifying key.
+    // The proof binds `ring_program_id` from the signing `ring_config` and the
+    // output `ring_data_hash` the ring program selected. A policy ring has no
+    // `user_record` registry, so the `Ring` binding omits owner identity (see
+    // `MergeProof::public_input_hash`).
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,
         output_ring_data_hash: *ix.output_ring_data_hash,
     };
 
-    // The merged output is indexed by the first input nullifier. The output
-    // `ring_data_hash` is published in the event so the wallet can reconstruct
-    // the ring output.
     let vk_registry = merge_accounts.vk_registry();
-    process_merge_core(
-        merge_accounts.input_tree,
-        merge_accounts.output_tree,
-        merge_accounts.payer,
-        merge,
+    MergeCore {
+        ix: merge,
         external_data_hash,
         owner_binding,
-        *merge
+        output_view_tag: *merge
             .nullifiers
             .first()
             .ok_or(ShieldedPoolError::InvalidMergeShape)?,
-        ix.output_ring_data_hash.to_vec(),
+        output_data: ix.output_ring_data_hash.to_vec(),
+    }
+    .process(MergeCoreAccounts {
+        input_tree: merge_accounts.input_tree,
+        output_tree: merge_accounts.output_tree,
+        payer: merge_accounts.payer,
         vk_registry,
-    )
+    })
 }

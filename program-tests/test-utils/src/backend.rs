@@ -1,9 +1,4 @@
 //! Shared shielded-pool workflow backends.
-//!
-//! Integration tests should build protocol state through this module instead
-//! of defining per-binary environment structs. The LiteSVM backend owns the
-//! authority and tree lifecycle and exposes the automatically journaled
-//! [`ZolanaProgramTest`] transaction history.
 
 use solana_keypair::Keypair;
 use solana_signer::Signer;

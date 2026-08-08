@@ -16,9 +16,8 @@ no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
-# Registry-backed verification via the local/bn254-prepared-stateless agave
-# fork's syscalls. Default OFF: a build with this feature does not load on a
-# stock validator.
+# Registry-backed verification through the bn254-prepared agave fork's
+# syscalls. A build with this feature does not load on a stock validator.
 vk-registry = [
     "groth16-solana/vk-registry",
     "pinocchio/account-resize",

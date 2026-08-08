@@ -6,18 +6,20 @@ use zolana_user_registry_interface::{
     state::UserRecord, USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
 };
 
-/// Validated accounts for `merge_transact`, in loader order: `input_tree` and
+use crate::instructions::shared::take_program_and_registry;
+
+/// Validated accounts for `merge_transact`. Loader order is `input_tree` and
 /// `output_tree` (writable), `payer` (signer, pays fees), `user_record`
-/// (read-only).
+/// (read-only), `system_program`, this program for the event self-CPI, then the
+/// optional VK registry.
 pub struct MergeTransactAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
-    /// Optional trailing VK-registry account (read-only); selects the
+    /// Optional trailing VK-registry account (read-only). Present selects the
     /// prepared-operand verification path.
-    #[cfg(feature = "vk-registry")]
-    pub vk_registry: Option<&'a AccountView>,
+    vk_registry: Option<&'a AccountView>,
 }
 
 impl<'a> MergeTransactAccounts<'a> {
@@ -31,18 +33,12 @@ impl<'a> MergeTransactAccounts<'a> {
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }
-        #[cfg(feature = "vk-registry")]
-        let vk_registry = if iter.iterator_is_empty() {
-            None
-        } else {
-            Some(&*iter.next_non_mut("vk_registry")?)
-        };
+        let vk_registry = take_program_and_registry(&mut iter)?;
         Ok(Self {
             input_tree,
             output_tree,
             payer,
             user_record,
-            #[cfg(feature = "vk-registry")]
             vk_registry,
         })
     }
@@ -50,37 +46,31 @@ impl<'a> MergeTransactAccounts<'a> {
     /// `None` outside `vk-registry` builds, so callers thread one value
     /// without per-site feature gates.
     pub fn vk_registry(&self) -> Option<&'a AccountView> {
-        #[cfg(feature = "vk-registry")]
-        {
-            self.vk_registry
-        }
-        #[cfg(not(feature = "vk-registry"))]
-        {
-            None
-        }
+        self.vk_registry
     }
 }
 
-/// The registry-derived owner identity public inputs: the already-derived
-/// `pk_field` of the signing key and its owner-pubkey index tag. Feeding these
-/// into the recomputed public-input hash binds the proof to the registered key.
+/// The registry-derived owner identity public inputs. Feeding the derived
+/// `pk_field` of the signing key and its owner-pubkey index tag into the
+/// recomputed public-input hash binds the proof to the registered key.
 ///
-/// `signing_view_tag` is the owner-pubkey index tag for the merged output (the
-/// confidential default-ring tag): the signing key's 32-byte x-coordinate for a
-/// P256 owner, or the full ed25519 key. Rail-selected like `signing_pk_field`.
+/// `signing_view_tag` is the owner-pubkey index tag for the merged output, the
+/// confidential default-ring tag. It is the signing key's 32-byte x-coordinate
+/// for a P256 owner, or the full ed25519 key. Rail-selected like
+/// `signing_pk_field`.
 pub struct UserPkFields {
     pub signing_pk_field: [u8; 32],
     pub signing_view_tag: [u8; 32],
     pub merging_enabled: bool,
 }
 
-/// Load and validate the `user_record`: owned by the registry program, stored at
-/// the canonical PDA for its owner, and containing a valid `UserRecord`
-/// discriminator/body. Returns the per-user `merging_enabled` opt-in alongside
-/// the rail-selected owner identity; the processor rejects the merge when it is
-/// `false`. The owner identity is rail-selected by `eddsa_owner`: a Solana owner
-/// derives `signing_pk_field` from the registry account `owner` (ed25519), a P256
-/// owner from `owner_p256`.
+/// Load and validate the `user_record`. It must be owned by the registry
+/// program, stored at the canonical PDA for its owner, and contain a valid
+/// `UserRecord` discriminator and body. Returns the per-user `merging_enabled`
+/// opt-in alongside the rail-selected owner identity. The processor rejects the
+/// merge when the opt-in is `false`. The owner identity is rail-selected by
+/// `eddsa_owner`. A Solana owner derives `signing_pk_field` from the registry
+/// account `owner` (ed25519), a P256 owner from `owner_p256`.
 #[inline(never)]
 pub fn load_user_record(
     account: &AccountView,

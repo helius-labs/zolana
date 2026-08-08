@@ -2,14 +2,17 @@ use pinocchio::{error::ProgramError, AccountView, Address};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::error::ShieldedPoolError;
 
-use crate::instructions::ring_config::loader::load_active_ring_config;
+use crate::instructions::{
+    ring_config::loader::load_active_ring_config, shared::take_program_and_registry,
+};
 
-/// Validated accounts for `merge_ring`, in loader order: `input_tree` and
+/// Validated accounts for `merge_ring`. Loader order is `input_tree` and
 /// `output_tree` (writable), `ring_config` (the ring's `ring_auth` PDA, signer),
-/// `payer` (signer). The `ring_config` must sign, be unpaused, and be a valid
-/// SPP-owned config: only the ring program can sign for its `ring_auth` PDA, so
-/// the signature plus the owner + discriminator + active-state check is the
-/// ring's authorization.
+/// `payer` (signer), `system_program`, this program for the event self-CPI,
+/// then the optional VK registry. The `ring_config` must sign, be unpaused, and be a
+/// valid SPP-owned config. Only the ring program can sign for its `ring_auth`
+/// PDA, so the signature plus the owner, discriminator, and active-state check
+/// is the ring's authorization.
 pub struct MergeRingAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
@@ -17,10 +20,9 @@ pub struct MergeRingAccounts<'a> {
     /// The calling ring's `program_id`, read from the signed `ring_config`. Bound
     /// into the proof as the UTXO `ring_program_id`.
     pub ring_program_id: Address,
-    /// Optional trailing VK-registry account (read-only); selects the
+    /// Optional trailing VK-registry account (read-only). Present selects the
     /// prepared-operand verification path.
-    #[cfg(feature = "vk-registry")]
-    pub vk_registry: Option<&'a AccountView>,
+    vk_registry: Option<&'a AccountView>,
 }
 
 impl<'a> MergeRingAccounts<'a> {
@@ -35,18 +37,12 @@ impl<'a> MergeRingAccounts<'a> {
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }
-        #[cfg(feature = "vk-registry")]
-        let vk_registry = if iter.iterator_is_empty() {
-            None
-        } else {
-            Some(&*iter.next_non_mut("vk_registry")?)
-        };
+        let vk_registry = take_program_and_registry(&mut iter)?;
         Ok(Self {
             input_tree,
             output_tree,
             payer,
             ring_program_id,
-            #[cfg(feature = "vk-registry")]
             vk_registry,
         })
     }
@@ -54,13 +50,6 @@ impl<'a> MergeRingAccounts<'a> {
     /// `None` outside `vk-registry` builds, so callers thread one value
     /// without per-site feature gates.
     pub fn vk_registry(&self) -> Option<&'a AccountView> {
-        #[cfg(feature = "vk-registry")]
-        {
-            self.vk_registry
-        }
-        #[cfg(not(feature = "vk-registry"))]
-        {
-            None
-        }
+        self.vk_registry
     }
 }

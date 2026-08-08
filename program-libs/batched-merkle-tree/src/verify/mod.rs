@@ -108,30 +108,31 @@ pub fn verify<const N: usize>(
     let proof_c = decompress_g1(&proof.c).map_err(|_| DecompressG1Failed)?;
     let mut verifier = Groth16Verifier::new(&proof_a, &proof_b, &proof_c, public_inputs, vk)
         .map_err(|_| {
-            #[cfg(feature = "log")]
-            {
-                use solana_msg::msg;
-                msg!("Proof verification failed");
-                msg!("Public inputs: {:?}", public_inputs);
-                msg!("Proof A: {:?}", proof_a);
-                msg!("Proof B: {:?}", proof_b);
-                msg!("Proof C: {:?}", proof_c);
-            }
+            log_verification_failure(public_inputs, &proof_a, &proof_b, &proof_c);
             CreateGroth16VerifierFailed
         })?;
     verifier.verify().map_err(|_| {
-        #[cfg(feature = "log")]
-        {
-            use solana_msg::msg;
-            msg!("Proof verification failed");
-            msg!("Public inputs: {:?}", public_inputs);
-            msg!("Proof A: {:?}", proof_a);
-            msg!("Proof B: {:?}", proof_b);
-            msg!("Proof C: {:?}", proof_c);
-        }
+        log_verification_failure(public_inputs, &proof_a, &proof_b, &proof_c);
         ProofVerificationFailed
     })?;
     Ok(())
+}
+
+fn log_verification_failure<const N: usize>(
+    _public_inputs: &[[u8; 32]; N],
+    _proof_a: &impl core::fmt::Debug,
+    _proof_b: &impl core::fmt::Debug,
+    _proof_c: &impl core::fmt::Debug,
+) {
+    #[cfg(feature = "log")]
+    {
+        use solana_msg::msg;
+        msg!("Proof verification failed");
+        msg!("Public inputs: {:?}", _public_inputs);
+        msg!("Proof A: {:?}", _proof_a);
+        msg!("Proof B: {:?}", _proof_b);
+        msg!("Proof C: {:?}", _proof_c);
+    }
 }
 
 /// A fold proof and its BSB22 commitment. The recursion verifier commits
@@ -232,7 +233,7 @@ fn address_append_vk(
 
 /// Registered variant of [`verify_batch_address_update`]. The caller selects
 /// the registry account by the tree's batch size, authenticates it by
-/// address, and borrows the prepared refs; a wrong blob can only fail this
+/// address, and borrows the prepared refs. A wrong blob can only fail this
 /// verification.
 #[cfg(feature = "vk-registry")]
 #[inline(never)]
@@ -242,11 +243,7 @@ pub fn verify_batch_address_update_registered(
     compressed_proof: &CompressedProof,
     refs: &groth16_solana::groth16::PreparedVkRefs,
 ) -> Result<(), VerifierError> {
-    let vk = match batch_size {
-        10 => &batch_address_append_40_10::VERIFYINGKEY,
-        250 => &batch_address_append_40_250::VERIFYINGKEY,
-        _ => return Err(InvalidPublicInputsLength),
-    };
+    let vk = address_append_vk(batch_size)?;
     let proof_a = decompress_g1(&compressed_proof.a).map_err(|_| DecompressG1Failed)?;
     let proof_b = decompress_g2(&compressed_proof.b).map_err(|_| DecompressG2Failed)?;
     let proof_c = decompress_g1(&compressed_proof.c).map_err(|_| DecompressG1Failed)?;
