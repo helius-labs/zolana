@@ -388,8 +388,16 @@ fn shielded_tx_cursor_sql(
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
     let signature = cursor.signature.to_vec();
-    let tx_cursor_condition =
-        tx_cursor_sql_condition(cursor.slot, &signature, cursor.event_index, backend, params)?;
+    // "pt": this query returns transactions and orders by them, so the cursor
+    // reads from the same table it sorts by.
+    let tx_cursor_condition = tx_cursor_sql_condition(
+        "pt",
+        cursor.slot,
+        &signature,
+        cursor.event_index,
+        backend,
+        params,
+    )?;
     Ok(format!(
         "AND (
             {tx_cursor_condition}

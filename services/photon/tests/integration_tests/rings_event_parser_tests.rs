@@ -705,6 +705,10 @@ async fn rings_merkle_proofs_reject_duplicate_output_hashes() {
         leaf_index: Set(i64::try_from(output.leaf_index + 1).unwrap()),
         view_tag: Set(output.view_tag.to_vec()),
         utxo_hash: Set(output.utxo_hash.to_vec()),
+        // Copied from the transaction this output belongs to, as the ingester
+        // does.
+        signature: Set(Some(rings_tx.signature.clone())),
+        event_index: Set(Some(rings_tx.event_index)),
     })
     .exec(&db)
     .await

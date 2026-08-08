@@ -283,7 +283,18 @@ pub(super) fn bind_u64_as_i64(
     Ok(bind_sql_value(params, backend, value))
 }
 
+/// Builds the `(slot, signature, event_index)` "after this position" predicate.
+///
+/// `alias` selects which table the predicate reads from, and it must be the
+/// same table the query's ORDER BY uses. Both columns exist on
+/// `rings_transactions` and, since they are denormalized, on `rings_outputs`
+/// too — but a cursor that filters on one table while sorting by another is
+/// only accidentally correct, and it also costs the index: filtering on
+/// `rings_outputs.view_tag` while ordering by `rings_transactions` columns is
+/// what made the planner walk the transactions table and discard most of what
+/// it read.
 pub(super) fn tx_cursor_sql_condition(
+    alias: &str,
     slot: u64,
     signature: &[u8],
     event_index: u16,
@@ -298,9 +309,9 @@ pub(super) fn tx_cursor_sql_condition(
     let event_index = bind_sql_value(params, backend, i32::from(event_index));
 
     Ok(format!(
-        "pt.slot > {slot_for_gt}
-            OR (pt.slot = {slot_for_signature} AND pt.signature > {signature_for_signature})
-            OR (pt.slot = {slot_for_event} AND pt.signature = {signature_for_event} AND pt.event_index > {event_index})"
+        "{alias}.slot > {slot_for_gt}
+            OR ({alias}.slot = {slot_for_signature} AND {alias}.signature > {signature_for_signature})
+            OR ({alias}.slot = {slot_for_event} AND {alias}.signature = {signature_for_event} AND {alias}.event_index > {event_index})"
     ))
 }
 
@@ -499,5 +510,55 @@ mod tests {
             result.is_err(),
             "a capacity mismatch must fail loudly, not produce an index"
         );
+    }
+
+    /// The cursor must read from whichever table the query sorts by.
+    ///
+    /// `get_encrypted_utxos_by_tags` filters on `rings_outputs.view_tag`, so
+    /// when it also sorted by `rings_transactions` columns no index could serve
+    /// both: the planner walked `rings_transactions` and threw away most of what
+    /// it read (~3540 rows examined to return 101), and the cost grew with
+    /// transaction history rather than page size. Reading the cursor from `po`
+    /// is half of what keeps that query on its index; the ORDER BY is the other
+    /// half, and the two have to agree.
+    #[test]
+    fn the_cursor_predicate_reads_from_the_table_it_is_told_to() {
+        let mut params = Vec::new();
+        let sql = tx_cursor_sql_condition(
+            "po",
+            42,
+            &[7u8; 64],
+            3,
+            DatabaseBackend::Postgres,
+            &mut params,
+        )
+        .expect("condition");
+
+        assert!(
+            !sql.contains("pt."),
+            "a po-ordered query must not filter on pt: {sql}"
+        );
+        for column in ["po.slot", "po.signature", "po.event_index"] {
+            assert!(sql.contains(column), "expected {column} in: {sql}");
+        }
+    }
+
+    /// And the transactions endpoint keeps ordering by, and filtering on, the
+    /// transactions table — the aliases are not interchangeable.
+    #[test]
+    fn the_transactions_cursor_still_reads_from_the_transactions_table() {
+        let mut params = Vec::new();
+        let sql = tx_cursor_sql_condition(
+            "pt",
+            42,
+            &[7u8; 64],
+            3,
+            DatabaseBackend::Postgres,
+            &mut params,
+        )
+        .expect("condition");
+
+        assert!(!sql.contains("po."), "unexpected po reference in: {sql}");
+        assert!(sql.contains("pt.slot"), "expected pt.slot in: {sql}");
     }
 }

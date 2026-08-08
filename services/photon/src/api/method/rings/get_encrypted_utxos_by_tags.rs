@@ -118,7 +118,7 @@ async fn fetch_encrypted_utxo_rows(
          JOIN rings_output_payloads pop ON pop.output_id = po.output_id
          WHERE po.view_tag IN ({tag_filter})
          {cursor_filter}
-         ORDER BY pt.slot ASC, pt.signature ASC, pt.event_index ASC, po.output_index ASC
+         ORDER BY po.slot ASC, po.signature ASC, po.event_index ASC, po.output_index ASC
          LIMIT {limit}"
     );
 
@@ -136,8 +136,18 @@ fn encrypted_utxo_cursor_sql(
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
     let signature = cursor.signature.to_vec();
-    let tx_cursor_condition =
-        tx_cursor_sql_condition(cursor.slot, &signature, cursor.event_index, backend, params)?;
+    // "po", matching this query's ORDER BY. Reading the cursor from
+    // rings_outputs is what lets idx_rings_outputs_view_tag_order serve the
+    // filter and the sort together, so the scan stops at LIMIT instead of
+    // walking rings_transactions.
+    let tx_cursor_condition = tx_cursor_sql_condition(
+        "po",
+        cursor.slot,
+        &signature,
+        cursor.event_index,
+        backend,
+        params,
+    )?;
     let slot = bind_u64_as_i64(params, backend, cursor.slot)?;
     let signature = crate::common::bind_sql_value(params, backend, signature);
     let event_index = crate::common::bind_sql_value(params, backend, i32::from(cursor.event_index));
@@ -147,9 +157,9 @@ fn encrypted_utxo_cursor_sql(
         "AND (
             {tx_cursor_condition}
             OR (
-                pt.slot = {slot}
-                AND pt.signature = {signature}
-                AND pt.event_index = {event_index}
+                po.slot = {slot}
+                AND po.signature = {signature}
+                AND po.event_index = {event_index}
                 AND po.output_index > {output_index}
             )
         )"

@@ -84,7 +84,7 @@ pub(super) async fn persist_rings_transactions(
     for update in rings_updates {
         let signature = Into::<[u8; 64]>::into(update.signature).to_vec();
         let rings_tx_id = *rings_tx_ids
-            .get(&(signature, update.event_index))
+            .get(&(signature.clone(), update.event_index))
             .ok_or_else(|| {
                 IngesterError::DatabaseError(format!(
                     "Missing persisted rings transaction {}:{}",
@@ -112,6 +112,12 @@ pub(super) async fn persist_rings_transactions(
                 )?),
                 view_tag: Set(output.view_tag.to_vec()),
                 utxo_hash: Set(output.utxo_hash.to_vec()),
+                // The tag queries sort by these. They live on
+                // rings_transactions too; copied here so the sort does not need
+                // the join, which is what let an index cover filter and order
+                // together.
+                signature: Set(Some(signature.clone())),
+                event_index: Set(Some(update.event_index)),
             });
         }
 
