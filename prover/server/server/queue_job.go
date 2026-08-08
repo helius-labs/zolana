@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
+	"strings"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
@@ -17,19 +19,82 @@ const (
 	// JobExpirationTimeout must match the forester's max_wait_time.
 	JobExpirationTimeout = 600 * time.Second
 
-	// MemoryPerProofGB is sized to the heaviest circuit (batch address-append).
-	MemoryPerProofGB = 15
+	// batchProofMemoryGB sizes the heaviest circuit, batch address-append.
+	batchProofMemoryGB = 15
 
-	// MemoryReserveGB reserves headroom for the OS, loaded proving keys, and other processes.
-	MemoryReserveGB = 20
+	// transferProofMemoryGB sizes a transfer proof, far lighter than a batch.
+	transferProofMemoryGB = 2
 
-	NumQueueWorkers = 3
+	// hostMemoryReserveGB is headroom left for the OS. MemAvailable already
+	// excludes the resident proving keys, so this covers only the rest.
+	hostMemoryReserveGB = 4
 
 	MinConcurrencyPerWorker = 1
 
 	MaxConcurrencyPerWorker = 100
 )
 
+// workerConcurrency sizes one worker from cores and memory together. It starts
+// no more proofs than the cores serve, nor more than availableGB holds at
+// proofGB each. A Groth16 prove cannot be interrupted, so exceeding the memory
+// budget is an OOM, not a queue. The light transfer worker lands core-bound,
+// the heavy batch worker memory-bound, on one formula.
+func workerConcurrency(proofGB, numCPU, availableGB int) int {
+	n := numCPU
+	if byMemory := availableGB / proofGB; byMemory < n {
+		n = byMemory
+	}
+	if n < MinConcurrencyPerWorker {
+		return MinConcurrencyPerWorker
+	}
+	if n > MaxConcurrencyPerWorker {
+		return MaxConcurrencyPerWorker
+	}
+	return n
+}
+
+// budgetGB is the memory one worker may schedule into. PROVER_TOTAL_MEMORY_GB
+// wins, else live MemAvailable, else zero which forces the minimum. The budget
+// is per worker, so a host running both heavy workers at once must cap them
+// with the env overrides.
+func budgetGB() int {
+	if val := os.Getenv("PROVER_TOTAL_MEMORY_GB"); val != "" {
+		if totalMemGB, err := strconv.Atoi(val); err == nil && totalMemGB > 0 {
+			return totalMemGB - hostMemoryReserveGB
+		}
+	}
+	if avail := availableMemoryGB(); avail > 0 {
+		return avail - hostMemoryReserveGB
+	}
+	return 0
+}
+
+// availableMemoryGB reads MemAvailable from /proc/meminfo. Zero means the
+// platform does not expose it and the caller keeps the safe minimum.
+func availableMemoryGB() int {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "MemAvailable:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0
+		}
+		kb, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return 0
+		}
+		return kb / (1024 * 1024)
+	}
+	return 0
+}
+
+// getMaxConcurrency sizes the batch address-append worker. PROVER_MAX_CONCURRENCY
+// overrides.
 func getMaxConcurrency() int {
 	if val := os.Getenv("PROVER_MAX_CONCURRENCY"); val != "" {
 		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
@@ -39,28 +104,16 @@ func getMaxConcurrency() int {
 			return concurrency
 		}
 	}
-
-	if val := os.Getenv("PROVER_TOTAL_MEMORY_GB"); val != "" {
-		if totalMemGB, err := strconv.Atoi(val); err == nil && totalMemGB > 0 {
-			concurrency := calculateConcurrency(totalMemGB)
-			logging.Logger().Info().
-				Int("total_memory_gb", totalMemGB).
-				Int("max_concurrency", concurrency).
-				Msg("Calculated concurrency from PROVER_TOTAL_MEMORY_GB")
-			return concurrency
-		}
-	}
-
+	concurrency := workerConcurrency(batchProofMemoryGB, runtime.NumCPU(), budgetGB())
 	logging.Logger().Info().
-		Int("max_concurrency", MinConcurrencyPerWorker).
-		Msg("Using default min concurrency (set PROVER_MAX_CONCURRENCY or PROVER_TOTAL_MEMORY_GB to configure)")
-	return MinConcurrencyPerWorker
+		Int("max_concurrency", concurrency).
+		Msg("Sized batch worker from cores and available memory (set PROVER_MAX_CONCURRENCY or PROVER_TOTAL_MEMORY_GB to override)")
+	return concurrency
 }
 
-// getTransferMaxConcurrency returns how many transfer proofs the transfer worker
-// runs at once. Transfer proofs are far lighter than batch address-append, so the
-// operator can raise TRANSFER_WORKER_CONCURRENCY above the shared default (which
-// getMaxConcurrency keeps conservative for the heavy batch worker).
+// getTransferMaxConcurrency sizes the transfer worker. A transfer proof is far
+// lighter than a batch, so it lands core-bound on any real host.
+// TRANSFER_WORKER_CONCURRENCY overrides.
 func getTransferMaxConcurrency() int {
 	if val := os.Getenv("TRANSFER_WORKER_CONCURRENCY"); val != "" {
 		if concurrency, err := strconv.Atoi(val); err == nil && concurrency > 0 {
@@ -70,26 +123,11 @@ func getTransferMaxConcurrency() int {
 			return concurrency
 		}
 	}
-	return getMaxConcurrency()
-}
-
-func calculateConcurrency(totalMemGB int) int {
-	availableMemGB := totalMemGB - MemoryReserveGB
-	if availableMemGB < MemoryPerProofGB {
-		return MinConcurrencyPerWorker
-	}
-
-	totalConcurrentProofs := availableMemGB / MemoryPerProofGB
-	perWorkerConcurrency := totalConcurrentProofs / NumQueueWorkers
-
-	if perWorkerConcurrency < MinConcurrencyPerWorker {
-		return MinConcurrencyPerWorker
-	}
-	if perWorkerConcurrency > MaxConcurrencyPerWorker {
-		return MaxConcurrencyPerWorker
-	}
-
-	return perWorkerConcurrency
+	concurrency := workerConcurrency(transferProofMemoryGB, runtime.NumCPU(), budgetGB())
+	logging.Logger().Info().
+		Int("max_concurrency", concurrency).
+		Msg("Sized transfer worker from cores and available memory (set TRANSFER_WORKER_CONCURRENCY to override)")
+	return concurrency
 }
 
 type ProofJob struct {
