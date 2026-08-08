@@ -27,7 +27,10 @@ solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-interface = { workspace = true }
+zolana-interface = { workspace = true, features = ["registry-derive"] }
+# Registry-spec codegen reads the sdk-test programs' VK consts and ids.
+timelock-escrow-program = { path = "../sdk-tests/timelock-escrow/program", features = ["no-entrypoint"] }
+dynamic-swap-program = { path = "../sdk-tests/dynamic-swap/program", features = ["no-entrypoint"] }
 zolana-smart-account-client = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-test-utils = { workspace = true }

@@ -129,7 +129,16 @@ pub enum ShieldedPoolError {
     AggregateProofVerificationFailed = 7050,
     #[error("merge chain names no generated verifying key")]
     UnsupportedMergeChainShape = 7051,
-    // Codes 7052 to 7056 are reserved. Never reuse them.
+    #[error("VK registry account address does not match the circuit's spec")]
+    InvalidVkRegistryAccount = 7052,
+    #[error("VK registry index is out of range")]
+    InvalidVkRegistryIndex = 7053,
+    #[error("VK registry account is already finalized")]
+    VkRegistryAlreadyInitialized = 7054,
+    #[error("VK registry account is not finalized")]
+    VkRegistryNotReady = 7055,
+    #[error("VK registry init syscall rejected the account or sources")]
+    VkRegistryInitFailed = 7056,
     #[error("nullifier tree append proof verification failed")]
     NullifierProofVerificationFailed = 7057,
     #[error("nullifier tree batch is not finalized yet")]
@@ -259,6 +268,11 @@ mod tests {
                 AggregateLegCarriesProof => 7049,
                 AggregateProofVerificationFailed => 7050,
                 UnsupportedMergeChainShape => 7051,
+                InvalidVkRegistryAccount => 7052,
+                InvalidVkRegistryIndex => 7053,
+                VkRegistryAlreadyInitialized => 7054,
+                VkRegistryNotReady => 7055,
+                VkRegistryInitFailed => 7056,
                 NullifierProofVerificationFailed => 7057,
                 NullifierBatchNotReady => 7058,
                 UnsupportedNullifierProofShape => 7059,
@@ -316,6 +330,11 @@ mod tests {
             AggregateLegCarriesProof,
             AggregateProofVerificationFailed,
             UnsupportedMergeChainShape,
+            InvalidVkRegistryAccount,
+            InvalidVkRegistryIndex,
+            VkRegistryAlreadyInitialized,
+            VkRegistryNotReady,
+            VkRegistryInitFailed,
             NullifierProofVerificationFailed,
             NullifierBatchNotReady,
             UnsupportedNullifierProofShape,
@@ -328,6 +347,6 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        assert_eq!(variants.len(), 52, "variant count drifted");
+        assert_eq!(variants.len(), 57, "variant count drifted");
     }
 }

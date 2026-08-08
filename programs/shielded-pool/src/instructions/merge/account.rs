@@ -14,6 +14,10 @@ pub struct MergeTransactAccounts<'a> {
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
+    /// Optional trailing VK-registry account (read-only); selects the
+    /// prepared-operand verification path.
+    #[cfg(feature = "vk-registry")]
+    pub vk_registry: Option<&'a AccountView>,
 }
 
 impl<'a> MergeTransactAccounts<'a> {
@@ -27,12 +31,33 @@ impl<'a> MergeTransactAccounts<'a> {
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }
+        #[cfg(feature = "vk-registry")]
+        let vk_registry = if iter.iterator_is_empty() {
+            None
+        } else {
+            Some(&*iter.next_non_mut("vk_registry")?)
+        };
         Ok(Self {
             input_tree,
             output_tree,
             payer,
             user_record,
+            #[cfg(feature = "vk-registry")]
+            vk_registry,
         })
+    }
+
+    /// `None` outside `vk-registry` builds, so callers thread one value
+    /// without per-site feature gates.
+    pub fn vk_registry(&self) -> Option<&'a AccountView> {
+        #[cfg(feature = "vk-registry")]
+        {
+            self.vk_registry
+        }
+        #[cfg(not(feature = "vk-registry"))]
+        {
+            None
+        }
     }
 }
 

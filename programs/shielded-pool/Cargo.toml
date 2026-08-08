@@ -16,6 +16,14 @@ no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
+# Registry-backed verification via the local/bn254-prepared-stateless agave
+# fork's syscalls. Default OFF: a build with this feature does not load on a
+# stock validator.
+vk-registry = [
+    "groth16-solana/vk-registry",
+    "pinocchio/account-resize",
+    "zolana-batched-merkle-tree/vk-registry",
+]
 
 [dependencies]
 arrayvec = { workspace = true }
@@ -34,6 +42,7 @@ pinocchio-system = { workspace = true }
 pinocchio = { workspace = true }
 spl-token-2022-interface = { workspace = true }
 tinyvec = { workspace = true }
+zolana-batched-merkle-tree = { workspace = true }
 zolana-interface = { workspace = true, features = ["borsh"] }
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true }

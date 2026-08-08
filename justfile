@@ -1094,6 +1094,23 @@ install-surfpool:
 build-programs:
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
+# Registry-enabled shielded-pool build into its own artifact dir. The default
+# `build-programs` output stays untouched; this binary needs the
+# local/bn254-prepared-stateless agave fork's syscalls to load.
+build-programs-vk-registry:
+    mkdir -p target/deploy-vk-registry
+    cargo build-sbf --tools-version {{sbf-tools-version}} \
+        --sbf-out-dir target/deploy-vk-registry \
+        --manifest-path programs/shielded-pool/Cargo.toml \
+        -- --locked --features "bpf-entrypoint vk-registry"
+
+# VK-registry integration tests against the shimmed prepared-operand
+# syscalls (fetched from the pinned Atamanov agave fork rev). The e2e needs
+# the workspace prover toolchain like the other proof-backed suites.
+test-vk-registry:
+    just build-programs-vk-registry
+    cargo test -p vk-registry-test
+
 # Deploy/upgrade programs to devnet using the local `solana` CLI config.
 # Pass program names to deploy a subset, e.g. `just deploy-devnet shielded-pool`.
 # Requires `just build-programs` first and that the local config keypair is

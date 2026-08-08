@@ -15,9 +15,19 @@ no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
+# Registry-backed verification; needs the local/bn254-prepared-stateless
+# agave fork's syscalls to load.
+vk-registry = [
+    "groth16-solana/vk-registry",
+    "pinocchio/account-resize",
+    "dep:pinocchio-system",
+    "dep:bytemuck",
+]
 
 [dependencies]
+bytemuck = { workspace = true, optional = true }
 groth16-solana = { workspace = true, features = ["bsb22"] }
+pinocchio-system = { workspace = true, optional = true }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-program-error = { workspace = true }
@@ -33,3 +43,6 @@ check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',
 ]
+
+[dev-dependencies]
+zolana-interface = { workspace = true, features = ["registry-derive"] }

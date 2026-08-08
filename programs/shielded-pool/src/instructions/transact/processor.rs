@@ -106,6 +106,9 @@ pub fn process_transact_ix(
     proof_inputs.assign_external_data_hash(external_data_hash);
     proof_inputs.ensure_complete()?;
 
+    #[cfg(feature = "vk-registry")]
+    TransactProof::new(&ix, &proof_inputs).verify_registered(transact_accounts.vk_registry)?;
+    #[cfg(not(feature = "vk-registry"))]
     TransactProof::new(&ix, &proof_inputs).verify()?;
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;

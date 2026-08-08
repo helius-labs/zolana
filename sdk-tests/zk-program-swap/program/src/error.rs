@@ -25,7 +25,16 @@ pub enum SwapError {
     HashingFailed = 8016,
     #[error("take batch carries a different number of proofs than legs")]
     TakeProofCountMismatch = 8017,
-    // Codes 8018 to 8022 are reserved. Never reuse them.
+    #[error("VK registry account does not match the instruction's spec")]
+    InvalidVkRegistryAccount = 8018,
+    #[error("VK registry index is out of range")]
+    InvalidVkRegistryIndex = 8019,
+    #[error("VK registry account is already finalized")]
+    VkRegistryAlreadyInitialized = 8020,
+    #[error("VK registry account is not finalized")]
+    VkRegistryNotReady = 8021,
+    #[error("VK registry init syscall rejected the account or sources")]
+    VkRegistryInitFailed = 8022,
     #[error("serializing program-authored data failed")]
     SerializationFailed = 8023,
 }

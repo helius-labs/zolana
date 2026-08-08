@@ -1,6 +1,9 @@
 pub mod error;
 pub mod instructions;
 pub mod verifying_keys;
+#[cfg(feature = "vk-registry")]
+pub mod vk_registry;
+pub mod vk_registry_specs;
 
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
 
@@ -15,6 +18,8 @@ pub mod tag {
     pub const CANCEL: u8 = 4;
     pub const TAKE_VERIFIABLE_ENCRYPTION: u8 = 5;
     pub const TAKE_BATCH: u8 = 6;
+    /// Only handled by a `vk-registry` build.
+    pub const INIT_VK_REGISTRY: u8 = 7;
 }
 
 pub const ORDER_AUTHORITY_PDA_SEED: &[u8] = b"order_authority";
@@ -45,6 +50,8 @@ pub fn process_instruction(
         tag::CANCEL => process_cancel_ix(accounts, ix_data),
         tag::TAKE_VERIFIABLE_ENCRYPTION => process_take_verifiable_encryption_ix(accounts, ix_data),
         tag::TAKE_BATCH => process_take_batch_ix(accounts, ix_data),
+        #[cfg(feature = "vk-registry")]
+        tag::INIT_VK_REGISTRY => vk_registry::process_init_vk_registry_ix(accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

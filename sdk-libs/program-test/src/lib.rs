@@ -127,12 +127,20 @@ impl ZolanaProgramTest {
     }
 
     pub fn with_program_path(path: &Path) -> Result<Self, ProgramTestError> {
+        Self::with_svm_and_program_path(LiteSVM::new(), path)
+    }
+
+    /// [`Self::with_program_path`] over a caller-prepared `LiteSVM`, for
+    /// harnesses that must install custom syscalls before `add_program`.
+    pub fn with_svm_and_program_path(
+        mut svm: LiteSVM,
+        path: &Path,
+    ) -> Result<Self, ProgramTestError> {
         if !path.exists() {
             return Err(ProgramTestError::MissingProgram(path.to_path_buf()));
         }
 
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-        let mut svm = LiteSVM::new();
         let program_bytes = std::fs::read(path)?;
         svm.add_program(program_id, &program_bytes)
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;

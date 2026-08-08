@@ -5,11 +5,13 @@ use zolana_account_checks::AccountIterator;
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
+#[cfg(not(feature = "vk-registry"))]
+use crate::instructions::verifier::verify_groth16;
 use crate::{
     error::DynamicSwapError,
     instructions::{
         shared::{cpi_spp_transact_signed, u64_right_align},
-        verifier::{verify_groth16, CompressedGroth16Proof},
+        verifier::CompressedGroth16Proof,
     },
     state::{load_escrow_mut, load_pair},
 };
@@ -106,6 +108,33 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         return Err(DynamicSwapError::RentRecipientMismatch.into());
     }
 
+    let spp_accounts = iter.remaining()?;
+    #[cfg(feature = "vk-registry")]
+    let (vk_registry, spp_accounts) = crate::vk_registry::split_vk_registry(
+        spp_accounts,
+        &crate::vk_registry_specs::ESCROW_SETTLE_REGISTRY,
+    );
+    #[cfg(feature = "vk-registry")]
+    crate::instructions::verifier::verify_groth16_registered(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        SettlePublicInput {
+            private_tx_hash: &transact.private_tx_hash,
+            execution_price: escrow.execution_price,
+            order_in_hash: &escrow.escrow_utxo_hash,
+            reservation_in_hash: &escrow.reservation_utxo_hash,
+            authority_owner_hash: &pair.authority_owner_hash,
+        }
+        .hash()?,
+        &crate::verifying_keys::escrow_settle::VERIFYINGKEY,
+        vk_registry,
+        &crate::vk_registry_specs::ESCROW_SETTLE_REGISTRY,
+    )?;
+    #[cfg(not(feature = "vk-registry"))]
     verify_groth16(
         CompressedGroth16Proof {
             a: &proof.proof_a,
@@ -130,7 +159,6 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
 
     // Both spent inputs (order, reservation) are owned by the escrow_authority PDA,
     // so only that one PDA must be flipped to a signer in the `transact` CPI.
-    let spp_accounts = iter.remaining()?;
     cpi_spp_transact_signed(
         &pair_address,
         crate::ESCROW_AUTHORITY_PDA_SEED,

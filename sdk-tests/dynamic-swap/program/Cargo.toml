@@ -15,6 +15,12 @@ no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
+# Registry-backed verification; needs the local/bn254-prepared-stateless
+# agave fork's syscalls to load.
+vk-registry = [
+    "groth16-solana/vk-registry",
+    "pinocchio/account-resize",
+]
 
 [dependencies]
 borsh = { workspace = true }
@@ -36,3 +42,6 @@ check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',
 ]
+
+[dev-dependencies]
+zolana-interface = { workspace = true, features = ["registry-derive"] }

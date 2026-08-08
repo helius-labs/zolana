@@ -10,11 +10,13 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
+#[cfg(not(feature = "vk-registry"))]
+use crate::instructions::verifier::verify_groth16;
 use crate::{
     error::TimelockEscrowError,
     instructions::{
         shared::{check_after_window, cpi_spp_transact_signed, u64_right_align},
-        verifier::{verify_groth16, CompressedGroth16Proof},
+        verifier::CompressedGroth16Proof,
     },
 };
 
@@ -77,25 +79,42 @@ pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     let clock = Clock::get()?;
     check_after_window(clock.unix_timestamp, unlock_timestamp)?;
 
+    let spp_accounts = iter.remaining()?;
+    #[cfg(feature = "vk-registry")]
+    let (vk_registry, spp_accounts) = crate::vk_registry::split_vk_registry(
+        spp_accounts,
+        &crate::vk_registry_specs::WITHDRAW_REGISTRY,
+    );
+
+    let proof = CompressedGroth16Proof {
+        a: &proof.proof_a,
+        b: &proof.proof_b,
+        c: &proof.proof_c,
+        commitment: None,
+    };
+    let public_input_hash = WithdrawPublicInput {
+        private_tx_hash: &transact.private_tx_hash,
+        unlock: unlock_timestamp,
+        owner_pk_field: &owner_pk_field,
+    }
+    .hash()?;
+    #[cfg(feature = "vk-registry")]
+    crate::instructions::verifier::verify_groth16_registered(
+        proof,
+        public_input_hash,
+        &crate::verifying_keys::withdraw::VERIFYINGKEY,
+        vk_registry,
+        &crate::vk_registry_specs::WITHDRAW_REGISTRY,
+    )?;
+    #[cfg(not(feature = "vk-registry"))]
     verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        WithdrawPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            unlock: unlock_timestamp,
-            owner_pk_field: &owner_pk_field,
-        }
-        .hash()?,
+        proof,
+        public_input_hash,
         &crate::verifying_keys::withdraw::VERIFYINGKEY,
     )?;
 
     let transact_bytes = transact
         .serialize()
         .map_err(|_| TimelockEscrowError::InvalidInstructionData)?;
-    let spp_accounts = iter.remaining()?;
     cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

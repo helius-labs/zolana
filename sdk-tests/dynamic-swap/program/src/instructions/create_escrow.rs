@@ -1,3 +1,5 @@
+#[cfg(not(feature = "vk-registry"))]
+use crate::instructions::verifier::verify_groth16;
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -16,7 +18,7 @@ use crate::{
             cpi_spp_transact_signed, escrow_authority_owner_hash, u64_right_align, verify_pda,
             CreatePdaAccount,
         },
-        verifier::{verify_groth16, CompressedGroth16Proof},
+        verifier::CompressedGroth16Proof,
     },
     state::{discriminator::ESCROW, load_pair, Escrow},
 };
@@ -160,6 +162,26 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     }
     .hash()?;
 
+    let spp_accounts = iter.remaining()?;
+    #[cfg(feature = "vk-registry")]
+    let (vk_registry, spp_accounts) = crate::vk_registry::split_vk_registry(
+        spp_accounts,
+        &crate::vk_registry_specs::ESCROW_OPEN_REGISTRY,
+    );
+    #[cfg(feature = "vk-registry")]
+    crate::instructions::verifier::verify_groth16_registered(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        public_input_hash,
+        &crate::verifying_keys::escrow_open::VERIFYINGKEY,
+        vk_registry,
+        &crate::vk_registry_specs::ESCROW_OPEN_REGISTRY,
+    )?;
+    #[cfg(not(feature = "vk-registry"))]
     verify_groth16(
         CompressedGroth16Proof {
             a: &proof.proof_a,
@@ -228,7 +250,6 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // The source input is authorized by the taker's outer signature. The
     // reservation-funding input is owned by the per-pair escrow-authority PDA,
     // which also authorizes the data-bearing order and reservation outputs.
-    let spp_accounts = iter.remaining()?;
     cpi_spp_transact_signed(
         &pair_address,
         crate::ESCROW_AUTHORITY_PDA_SEED,

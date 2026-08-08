@@ -17,6 +17,10 @@ pub struct MergeRingAccounts<'a> {
     /// The calling ring's `program_id`, read from the signed `ring_config`. Bound
     /// into the proof as the UTXO `ring_program_id`.
     pub ring_program_id: Address,
+    /// Optional trailing VK-registry account (read-only); selects the
+    /// prepared-operand verification path.
+    #[cfg(feature = "vk-registry")]
+    pub vk_registry: Option<&'a AccountView>,
 }
 
 impl<'a> MergeRingAccounts<'a> {
@@ -31,11 +35,32 @@ impl<'a> MergeRingAccounts<'a> {
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }
+        #[cfg(feature = "vk-registry")]
+        let vk_registry = if iter.iterator_is_empty() {
+            None
+        } else {
+            Some(&*iter.next_non_mut("vk_registry")?)
+        };
         Ok(Self {
             input_tree,
             output_tree,
             payer,
             ring_program_id,
+            #[cfg(feature = "vk-registry")]
+            vk_registry,
         })
+    }
+
+    /// `None` outside `vk-registry` builds, so callers thread one value
+    /// without per-site feature gates.
+    pub fn vk_registry(&self) -> Option<&'a AccountView> {
+        #[cfg(feature = "vk-registry")]
+        {
+            self.vk_registry
+        }
+        #[cfg(not(feature = "vk-registry"))]
+        {
+            None
+        }
     }
 }

@@ -17,6 +17,16 @@ pub enum TimelockEscrowError {
     HashingFailed = 9004,
     #[error("escrow has not yet unlocked")]
     NotYetUnlocked = 9005,
+    #[error("VK registry account does not match the instruction's spec")]
+    InvalidVkRegistryAccount = 9006,
+    #[error("VK registry index is out of range")]
+    InvalidVkRegistryIndex = 9007,
+    #[error("VK registry account is already finalized")]
+    VkRegistryAlreadyInitialized = 9008,
+    #[error("VK registry account is not finalized")]
+    VkRegistryNotReady = 9009,
+    #[error("VK registry init syscall rejected the account or sources")]
+    VkRegistryInitFailed = 9010,
 }
 
 impl From<TimelockEscrowError> for ProgramError {

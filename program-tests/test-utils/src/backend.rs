@@ -18,7 +18,12 @@ pub struct LiteSvmPoolBackend {
 
 impl LiteSvmPoolBackend {
     pub fn new() -> Result<Self, ProgramTestError> {
-        let mut rpc = ZolanaProgramTest::new()?;
+        Self::with_rpc(ZolanaProgramTest::new()?)
+    }
+
+    /// Boot the pool state over a caller-prepared runtime, for harnesses
+    /// that load a non-default program build or custom syscalls.
+    pub fn with_rpc(mut rpc: ZolanaProgramTest) -> Result<Self, ProgramTestError> {
         let authority = Keypair::new();
         rpc.create_protocol_config(&authority)?;
         let tree = rpc.create_tree(tree_account_size() as u64, &authority)?;

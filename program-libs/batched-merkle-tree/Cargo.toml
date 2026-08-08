@@ -18,6 +18,10 @@ default = []
 test-only = []
 log = ["dep:solana-msg"]
 profile-program = ["dep:light-program-profiler", "light-program-profiler/profile-program"]
+# Prepared-operand proof verification against caller-authenticated registry
+# blobs (the caller selects and authenticates the account; this crate only
+# consumes the borrowed refs).
+vk-registry = ["groth16-solana/vk-registry"]
 
 [dependencies]
 zolana-account-checks = { workspace = true }

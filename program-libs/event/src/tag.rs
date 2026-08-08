@@ -41,12 +41,20 @@ pub const BATCH_UPDATE_NULLIFIER_TREE_FOLDED: u8 = 19;
 /// Tree of `merge` legs settled against one recursive proof.
 pub const MERGE_CHAIN_TRANSACT: u8 = 20;
 
+/// Permissionless one-time creation of a per-verifying-key registry
+/// account. Only handled by a `vk-registry` program build. It is deliberately
+/// not an [`InstructionTag`] variant so the default build's dispatch stays
+/// untouched and a default program still rejects it as unknown.
+pub const INIT_VK_REGISTRY: u8 = 21;
+
 /// The next unused instruction tag.
 ///
-/// Every byte below this one dispatches. A branch that claims a byte without
-/// moving this constant shadows the instruction it collides with instead of
-/// failing to build.
-pub const NEXT_FREE_TAG: u8 = 21;
+/// Every byte below this one dispatches. A tag that is handled outside
+/// [`InstructionTag`], as a feature-gated arm ahead of the enum match, still
+/// consumes a byte. The arm runs first, so reusing a dispatched byte shadows
+/// that instruction silently instead of failing to build. `NEXT_FREE_TAG` is
+/// what such a tag takes.
+pub const NEXT_FREE_TAG: u8 = 22;
 
 /// Implemented instruction tags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,7 +123,7 @@ mod tests {
     /// constant fails here rather than at the dispatch it would shadow.
     #[test]
     fn next_free_tag_is_the_first_unclaimed_byte() {
-        for byte in 0..NEXT_FREE_TAG {
+        for byte in (0..NEXT_FREE_TAG).filter(|byte| *byte != INIT_VK_REGISTRY) {
             assert!(
                 InstructionTag::try_from(byte).is_ok(),
                 "tag {byte} is below NEXT_FREE_TAG but dispatches to nothing"
@@ -125,5 +133,14 @@ mod tests {
             InstructionTag::try_from(NEXT_FREE_TAG).is_err(),
             "NEXT_FREE_TAG {NEXT_FREE_TAG} is already claimed"
         );
+    }
+
+    /// `INIT_VK_REGISTRY` dispatches ahead of the enum under a feature gate, so
+    /// it claims its byte without being a variant. A variant added for it would
+    /// make a default build accept the instruction it must reject.
+    #[test]
+    fn init_vk_registry_claims_its_byte_outside_the_enum() {
+        const { assert!(INIT_VK_REGISTRY < NEXT_FREE_TAG) };
+        assert!(InstructionTag::try_from(INIT_VK_REGISTRY).is_err());
     }
 }

@@ -311,6 +311,51 @@ impl<'a> TransactProof<'a> {
         .verify()
     }
 
+    /// Registry-backed verification. `None` falls back to [`Self::verify`]
+    /// unchanged; `Some` requires the account address to equal the circuit's
+    /// codegen'd spec (the address is the commitment; nothing else is
+    /// trusted) and the account to be finalized.
+    #[cfg(feature = "vk-registry")]
+    #[inline(never)]
+    pub fn verify_registered(&self, registry: Option<&pinocchio::AccountView>) -> ProgramResult {
+        let Some(registry) = registry else {
+            return self.verify();
+        };
+        let spec = self
+            .ix
+            .circuit
+            .vk_registry_spec()
+            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+        let data = crate::instructions::vk_registry::load_finalized_vk_registry(registry, spec)?;
+
+        let public_input_hash = self.public_input_hash()?;
+        let verifying_key = self
+            .ix
+            .circuit
+            .verifying_key()
+            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+        let proof_data = &self.ix.proof;
+        let commitment = self
+            .ix
+            .circuit
+            .bsb22_commitment()
+            .map(|value| (&value.commitment, &value.commitment_pok));
+        verifier::verify_groth16_registered(
+            verifier::CompressedGroth16Proof {
+                a: &proof_data.a,
+                b: &proof_data.b,
+                c: &proof_data.c,
+                commitment,
+            },
+            public_input_hash,
+            verifying_key,
+            &data,
+            spec,
+            ShieldedPoolError::InvalidTransactProofEncoding,
+            ShieldedPoolError::TransactProofVerificationFailed,
+        )
+    }
+
     fn n_inputs(&self) -> usize {
         usize::from(self.ix.circuit.num_inputs())
     }

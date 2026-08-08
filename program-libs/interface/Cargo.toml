@@ -12,6 +12,9 @@ borsh = ["dep:borsh", "solana-address/borsh"]
 solana = ["dep:solana-instruction", "borsh"]
 events = []
 verifying-keys = ["dep:groth16-solana"]
+# Derives VK-registry digests and addresses for xtask codegen and the pin
+# test. The program never enables this feature.
+registry-derive = ["verifying-keys", "dep:sha3"]
 tree = ["dep:zolana-tree"]
 
 [dependencies]
@@ -21,6 +24,7 @@ solana-address = { workspace = true, features = ["bytemuck"] }
 solana-instruction = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
+sha3 = { version = "0.10", optional = true }
 zolana-batched-merkle-tree = { workspace = true }
 zolana-hasher = { workspace = true, features = ["sha256"] }
 solana-program-error = { workspace = true }
@@ -30,6 +34,11 @@ zolana-event = { workspace = true }
 zolana-tree = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Self dev-dependency so `cargo test -p zolana-interface` unifies
+# `registry-derive` into the lib under test. The program never gets the
+# feature, and `vk_registry_spec.rs` is the only check that the catalogue and
+# the committed spec table agree, so it must not be silently skipped.
+zolana-interface = { path = ".", features = ["registry-derive"] }
 bytemuck = { workspace = true }
 proptest = { workspace = true }
 solana-address = { workspace = true }

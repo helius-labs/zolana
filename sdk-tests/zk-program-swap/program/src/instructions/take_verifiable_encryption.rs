@@ -1,3 +1,5 @@
+#[cfg(not(feature = "vk-registry"))]
+use crate::instructions::verifier::verify_groth16;
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -15,7 +17,7 @@ use crate::{
     error::SwapError,
     instructions::{
         shared::{check_within_window, cpi_spp_transact_signed, u64_right_align},
-        verifier::{verify_groth16, CompressedGroth16Proof},
+        verifier::CompressedGroth16Proof,
     },
 };
 
@@ -78,6 +80,31 @@ pub fn process_take_verifiable_encryption_ix(
         .and_then(|output| output.data.as_deref())
         .ok_or(SwapError::InvalidInstructionData)?;
 
+    let spp_accounts = iter.remaining()?;
+    #[cfg(feature = "vk-registry")]
+    let (vk_registry, spp_accounts) = crate::vk_registry::split_vk_registry(
+        spp_accounts,
+        &crate::vk_registry_specs::TAKE_VERIFIABLE_ENCRYPTION_REGISTRY,
+    );
+    #[cfg(feature = "vk-registry")]
+    crate::instructions::verifier::verify_groth16_registered(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: Some((&proof.commitment, &proof.commitment_pok)),
+        },
+        TakeVerifiableEncryptionPublicInput {
+            private_tx_hash: &transact.private_tx_hash,
+            expiry: transact.expiry_unix_ts,
+            destination_ciphertext,
+        }
+        .hash()?,
+        &crate::verifying_keys::take_verifiable_encryption::VERIFYINGKEY,
+        vk_registry,
+        &crate::vk_registry_specs::TAKE_VERIFIABLE_ENCRYPTION_REGISTRY,
+    )?;
+    #[cfg(not(feature = "vk-registry"))]
     verify_groth16(
         CompressedGroth16Proof {
             a: &proof.proof_a,
@@ -97,6 +124,5 @@ pub fn process_take_verifiable_encryption_ix(
     let transact_bytes = transact
         .serialize()
         .map_err(|_| SwapError::InvalidInstructionData)?;
-    let spp_accounts = iter.remaining()?;
     cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }
