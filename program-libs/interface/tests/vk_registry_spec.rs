@@ -19,12 +19,12 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 
-/// Generated keys are `const`, so two references to one key need not share an
-/// address. Resolution must read the contents.
 #[test]
 fn registry_lookup_uses_key_contents_not_constant_address() {
     use groth16_solana::groth16::Groth16Verifyingkey;
-    use zolana_interface::verifying_keys::registry_spec::vk_registry_spec_for;
+    use zolana_interface::verifying_keys::{
+        catalog::VK_CATALOG, registry_spec::vk_registry_spec_for,
+    };
 
     let original = VK_CATALOG[0].1;
     let copied = Groth16Verifyingkey {

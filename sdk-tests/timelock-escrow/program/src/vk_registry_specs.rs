@@ -29,5 +29,5 @@ pub const WITHDRAW_REGISTRY: VkRegistrySpec = VkRegistrySpec {
     bump: 254,
 };
 
-/// Indexed in catalog order; init instructions select here by index.
+/// Indexed in catalog order. Init instructions select here by index.
 pub static VK_REGISTRY_SPECS: [VkRegistrySpec; 2] = [ESCROW_REGISTRY, WITHDRAW_REGISTRY];

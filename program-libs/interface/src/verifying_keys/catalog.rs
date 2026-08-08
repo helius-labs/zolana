@@ -29,7 +29,7 @@ pub fn vk_catalog_entry(
 
 macro_rules! catalog {
     ($(($name:literal, $vk:expr),)*) => {
-        pub static VK_CATALOG: [(&str, &Groth16Verifyingkey<'static>); 38] = [
+        pub static VK_CATALOG: [(&str, &Groth16Verifyingkey<'static>); 48] = [
             $(($name, $vk),)*
         ];
     };
@@ -44,7 +44,17 @@ catalog!(
         "batch_address_append_40_250",
         &zolana_batched_merkle_tree::verify::verifying_keys::batch_address_append_40_250::VERIFYINGKEY
     ),
+    ("aggregate_transfer_confidential_2_2_b2", &aggregate_transfer_confidential_2_2_b2::VERIFYINGKEY),
+    ("aggregate_transfer_confidential_2_2_b3", &aggregate_transfer_confidential_2_2_b3::VERIFYINGKEY),
+    ("aggregate_transfer_confidential_2_3_b2", &aggregate_transfer_confidential_2_3_b2::VERIFYINGKEY),
+    ("aggregate_transfer_confidential_2_3_b3", &aggregate_transfer_confidential_2_3_b3::VERIFYINGKEY),
+    ("aggregate_transfer_p256_ring_2_3_b2", &aggregate_transfer_p256_ring_2_3_b2::VERIFYINGKEY),
+    ("aggregate_transfer_p256_ring_2_3_b3", &aggregate_transfer_p256_ring_2_3_b3::VERIFYINGKEY),
+    ("aggregate_transfer_ring_2_3_b2", &aggregate_transfer_ring_2_3_b2::VERIFYINGKEY),
+    ("aggregate_transfer_ring_2_3_b3", &aggregate_transfer_ring_2_3_b3::VERIFYINGKEY),
     ("merge_8_1", &merge_8_1::VERIFYINGKEY),
+    ("merge_chain_1_1", &merge_chain_1_1::VERIFYINGKEY),
+    ("merge_chain_2_1", &merge_chain_2_1::VERIFYINGKEY),
     ("merge_ring_8_1", &merge_ring_8_1::VERIFYINGKEY),
     ("transfer_confidential_1_1", &transfer_confidential_1_1::VERIFYINGKEY),
     ("transfer_confidential_1_2", &transfer_confidential_1_2::VERIFYINGKEY),

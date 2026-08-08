@@ -1,6 +1,7 @@
 //! Per-verifying-key registry accounts for this program, mirroring the
-//! shielded pool's `instructions/vk_registry.rs`: permissionless step-machine
-//! creation, address-commitment authentication, prepared-operand verify.
+//! shielded pool's `instructions/vk_registry.rs`, with permissionless
+//! step-machine creation, address-commitment authentication, prepared-operand
+//! verify.
 
 use pinocchio::{
     address::{address_eq, Address},
@@ -166,7 +167,7 @@ pub fn split_vk_registry<'a>(
 }
 
 /// Borrow finalized registry data. The address compare in
-/// [`split_vk_registry`] is the trust decision; owner and header checks are
+/// [`split_vk_registry`] is the trust decision. Owner and header checks are
 /// defense in depth.
 pub fn load_finalized_vk_registry<'a>(
     registry: &'a AccountView,

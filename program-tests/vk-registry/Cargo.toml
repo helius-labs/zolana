@@ -20,11 +20,24 @@ solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
-# Atamanov agave fork, branch alex/bn254-prepared-stateless: the pure
+# Atamanov agave fork, branch helius/alex/bn254-prepared: the pure
 # prepared-operand math the syscall shims delegate to. Never enters a
 # program build.
-solana-bn254-batch-syscall = { git = "https://github.com/Atamanov/agave", rev = "950fa0d827cc71fbf05787060d9f0d991934f92a", features = ["agave-unstable-api"] }
+solana-bn254-batch-syscall = { git = "https://github.com/Atamanov/agave", rev = "ea16b0871c820b2ee1d106b013dd1aac45aeef88", features = ["agave-unstable-api"] }
 
 [dev-dependencies]
+groth16-solana = { workspace = true }
+solana-compute-budget-interface = { workspace = true }
+zolana-client = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-test-utils = { workspace = true }
+
+[features]
+# Registered outer verify for recursive batches. Needs the local aggregate
+# keys, so the tier is opt-in like `test-aggregate`.
+aggregate = []
+
+[[test]]
+name = "aggregate_e2e"
+path = "tests/aggregate_e2e.rs"
+required-features = ["aggregate"]

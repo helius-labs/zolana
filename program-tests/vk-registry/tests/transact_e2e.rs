@@ -1,8 +1,5 @@
-//! Proof-carrying transact against the registry-enabled program: the same
-//! real (2,3) confidential proof verifies through today's path and through
-//! the prepared-operand path, and the registered path is cheaper. Needs
-//! `just build-programs-vk-registry` and the workspace prover (started
-//! automatically; the transfer_confidential_2_3 proving key loads lazily).
+//! The same real (2,3) confidential proof verifies through the plain path and
+//! the prepared-operand registry path, and the registered path costs less.
 
 use litesvm::LiteSVM;
 use solana_pubkey::Pubkey;
@@ -26,9 +23,8 @@ fn registry_program_path() -> std::path::PathBuf {
         .join("target/deploy-vk-registry/shielded_pool_program.so")
 }
 
-/// Fresh pool over the registry-enabled program and shimmed syscalls. One
-/// backend per transaction: the fixture's deterministic blindings mean a
-/// second send would replay the same nullifiers.
+/// One backend per transaction. The fixture's deterministic blindings make a
+/// second send replay the same nullifiers.
 fn boot() -> LiteSvmPoolBackend {
     let path = registry_program_path();
     assert!(
@@ -94,8 +90,8 @@ fn registered_transact_verifies_and_undercuts_the_plain_path() {
     let registered_cu = transact_cu(&mut boot(), true);
 
     // The registered path drops the alpha-beta pair and skips subgroup checks
-    // and line preparation on gamma and delta. The exact figure belongs to
-    // the tariff tests; here only the direction is pinned.
+    // and line preparation on gamma and delta. The tariff tests pin the exact
+    // figure. Here only the direction is pinned.
     assert!(
         registered_cu < plain_cu,
         "registered transact ({registered_cu} CU) must undercut the plain path ({plain_cu} CU)"

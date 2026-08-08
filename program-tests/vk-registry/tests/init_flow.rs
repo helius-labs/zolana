@@ -1,6 +1,6 @@
 //! Drives the permissionless registry-init step machine end to end through
 //! the shimmed prepared-operand syscalls and pins the resulting account
-//! bytes. Needs `just build-programs-vk-registry` first.
+//! bytes.
 
 use litesvm::LiteSVM;
 use solana_instruction::Instruction;

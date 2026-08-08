@@ -1,10 +1,10 @@
-//! LiteSVM harness for the stateless prepared-operand syscalls.
+//! LiteSVM harness for the prepared-operand syscalls.
 //!
 //! The shims delegate their math to the fork's `solana-bn254-batch-syscall`
 //! backend and charge the fork validator's lane tariff, so CU assertions in
 //! tests match what the fork runtime would charge. Only test builds link
-//! this; a stock validator never sees these syscalls, which is why the
-//! program feature `vk-registry` is default-off.
+//! this. A stock validator never sees these syscalls, so the program
+//! feature `vk-registry` is default-off.
 
 use litesvm::LiteSVM;
 use solana_bn254_batch_syscall::{
@@ -86,14 +86,35 @@ fn translate(
     Ok(unsafe { std::slice::from_raw_parts(host_addr as *const u8, len as usize) })
 }
 
-#[allow(clippy::mut_from_ref)]
-fn translate_mut(
-    memory_mapping: &MemoryMapping,
-    vm_addr: u64,
-    len: u64,
-) -> Result<&mut [u8], Box<dyn std::error::Error>> {
-    let host_addr: u64 = Result::from(memory_mapping.map(AccessType::Store, vm_addr, len))?;
-    Ok(unsafe { std::slice::from_raw_parts_mut(host_addr as *mut u8, len as usize) })
+/// Host handle for a guest region a syscall writes its result into. The
+/// pointer is kept raw because the guest memory it addresses outlives no Rust
+/// borrow the mapping could hand out.
+struct StoreRegion {
+    ptr: *mut u8,
+    len: usize,
+}
+
+impl StoreRegion {
+    fn map(
+        memory_mapping: &MemoryMapping,
+        vm_addr: u64,
+        len: u64,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let host_addr: u64 = Result::from(memory_mapping.map(AccessType::Store, vm_addr, len))?;
+        Ok(Self {
+            ptr: host_addr as *mut u8,
+            len: len as usize,
+        })
+    }
+
+    /// Consuming, so the mutable slice below is the only live view of the
+    /// region. Each syscall maps its output once and writes it whole, and no
+    /// input region of the same call overlaps it.
+    fn write(self, bytes: &[u8]) {
+        // SAFETY: `map` validated `[ptr, ptr + len)` as guest-writable, and
+        // `self` is consumed, so no second view of these bytes exists.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }.copy_from_slice(bytes);
+    }
 }
 
 fn pod_slice<T: bytemuck::Pod>(bytes: &[u8]) -> Result<&[T], Box<dyn std::error::Error>> {
@@ -173,12 +194,12 @@ declare_builtin_function!(
         let Ok(prepared) = g2_prepare(&solana_bn254_batch_syscall::PodG2Point(source)) else {
             return Ok(1);
         };
-        translate_mut(
+        StoreRegion::map(
             memory_mapping,
             prepared_out_addr,
             PREPARED_G2_WIRE_BYTES as u64,
         )?
-        .copy_from_slice(&prepared.to_wire_bytes());
+        .write(&prepared.to_wire_bytes());
         Ok(0)
     }
 );
@@ -238,8 +259,8 @@ declare_builtin_function!(
         let Ok(verdict) = verdict else {
             return Ok(1);
         };
-        translate_mut(memory_mapping, result_addr, 32)?
-            .copy_from_slice(&PodPairingResult::from_verdict(verdict).0);
+        StoreRegion::map(memory_mapping, result_addr, 32)?
+            .write(&PodPairingResult::from_verdict(verdict).0);
         Ok(0)
     }
 );
@@ -292,14 +313,14 @@ declare_builtin_function!(
         let Ok(mapped) = pairing_map_prepared(full, &refs) else {
             return Ok(1);
         };
-        translate_mut(memory_mapping, result_addr, FQ12_BYTES as u64)?.copy_from_slice(&mapped.0);
+        StoreRegion::map(memory_mapping, result_addr, FQ12_BYTES as u64)?.write(&mapped.0);
         Ok(0)
     }
 );
 
 declare_builtin_function!(
     /// Full-pair map, used at init time for the cached GT target. Charged at
-    /// the plain lane tariff (no credits; all pairs are full).
+    /// the plain lane tariff, with no credits. All pairs are full.
     SyscallPairingMap,
     fn rust(
         invoke_context: &mut InvokeContext<'_, '_>,
@@ -325,8 +346,7 @@ declare_builtin_function!(
         ) else {
             return Ok(1);
         };
-        translate_mut(memory_mapping, result_addr, FQ12_BYTES as u64)?
-            .copy_from_slice(&mapped.0);
+        StoreRegion::map(memory_mapping, result_addr, FQ12_BYTES as u64)?.write(&mapped.0);
         Ok(0)
     }
 );

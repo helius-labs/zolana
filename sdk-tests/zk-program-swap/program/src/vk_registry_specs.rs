@@ -55,7 +55,7 @@ pub const TAKE_VERIFIABLE_ENCRYPTION_REGISTRY: VkRegistrySpec = VkRegistrySpec {
     bump: 255,
 };
 
-/// Indexed in catalog order; init instructions select here by index.
+/// Indexed in catalog order. Init instructions select here by index.
 pub static VK_REGISTRY_SPECS: [VkRegistrySpec; 4] = [
     CANCEL_REGISTRY,
     MAKE_REGISTRY,

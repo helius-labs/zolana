@@ -7,10 +7,10 @@ use crate::{
 };
 
 /// Permissionless registry creation for `VK_CATALOG[vk_index]`. The account
-/// exceeds the per-transaction allocation cap, so creation is a stateless
-/// step machine: send [`Self::instruction`] repeatedly (create, then one
-/// resize per transaction, then finalize); [`Self::transaction_count`] says
-/// how many sends reach the finalized state.
+/// exceeds the per-transaction allocation cap, so creation is a step machine.
+/// Send [`Self::instruction`] repeatedly (create, then one resize per
+/// transaction, then finalize). [`Self::transaction_count`] says how many
+/// sends reach the finalized state.
 pub struct InitVkRegistry {
     pub payer: Pubkey,
     pub vk_index: u8,

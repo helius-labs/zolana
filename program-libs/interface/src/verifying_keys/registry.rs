@@ -29,6 +29,110 @@ pub const BATCH_ADDRESS_APPEND_40_250_REGISTRY: VkRegistrySpec = VkRegistrySpec 
     bump: 255,
 };
 
+pub const AGGREGATE_TRANSFER_CONFIDENTIAL_2_2_B2_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        41, 160, 18, 211, 20, 230, 50, 229, 71, 167, 166, 54, 190, 121, 112, 161, 138, 155, 229,
+        162, 128, 100, 166, 31, 252, 232, 144, 147, 5, 155, 247, 253,
+    ],
+    address: [
+        56, 40, 211, 30, 203, 144, 113, 58, 161, 94, 187, 13, 193, 144, 79, 163, 222, 106, 122,
+        115, 100, 46, 19, 193, 197, 2, 78, 44, 142, 154, 102, 114,
+    ],
+    bump: 254,
+};
+
+pub const AGGREGATE_TRANSFER_CONFIDENTIAL_2_2_B3_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        15, 145, 63, 2, 236, 137, 46, 47, 24, 37, 101, 173, 51, 60, 255, 29, 9, 65, 218, 69, 91,
+        139, 67, 85, 206, 92, 161, 23, 151, 192, 134, 86,
+    ],
+    address: [
+        190, 120, 62, 246, 166, 231, 34, 58, 99, 204, 250, 152, 24, 77, 221, 136, 18, 200, 152,
+        241, 143, 150, 128, 88, 18, 51, 22, 65, 21, 172, 66, 25,
+    ],
+    bump: 251,
+};
+
+pub const AGGREGATE_TRANSFER_CONFIDENTIAL_2_3_B2_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        109, 201, 189, 137, 80, 145, 150, 89, 187, 66, 118, 250, 200, 200, 204, 154, 78, 188, 220,
+        158, 133, 181, 120, 29, 45, 224, 155, 14, 72, 33, 153, 247,
+    ],
+    address: [
+        173, 183, 30, 154, 70, 158, 164, 34, 143, 4, 56, 62, 143, 38, 243, 234, 147, 114, 99, 121,
+        202, 205, 134, 213, 116, 173, 21, 120, 2, 193, 31, 40,
+    ],
+    bump: 254,
+};
+
+pub const AGGREGATE_TRANSFER_CONFIDENTIAL_2_3_B3_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        251, 78, 88, 216, 159, 157, 120, 226, 232, 31, 177, 81, 69, 46, 108, 61, 247, 27, 58, 7,
+        225, 215, 82, 212, 13, 95, 32, 36, 191, 225, 126, 36,
+    ],
+    address: [
+        134, 83, 19, 60, 222, 94, 240, 90, 120, 101, 239, 49, 34, 252, 196, 53, 227, 136, 153, 170,
+        95, 241, 227, 112, 207, 66, 93, 170, 120, 6, 156, 44,
+    ],
+    bump: 255,
+};
+
+pub const AGGREGATE_TRANSFER_P256_RING_2_3_B2_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        166, 214, 2, 189, 74, 10, 169, 254, 151, 71, 201, 129, 58, 230, 29, 133, 167, 154, 156, 41,
+        35, 241, 163, 40, 238, 106, 88, 164, 161, 214, 1, 35,
+    ],
+    address: [
+        154, 106, 17, 46, 212, 152, 18, 64, 44, 50, 165, 243, 119, 78, 31, 35, 15, 22, 209, 183,
+        182, 98, 230, 115, 214, 72, 147, 63, 55, 204, 204, 138,
+    ],
+    bump: 255,
+};
+
+pub const AGGREGATE_TRANSFER_P256_RING_2_3_B3_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        227, 221, 232, 190, 1, 101, 151, 30, 242, 221, 50, 67, 167, 98, 15, 29, 159, 81, 250, 104,
+        156, 178, 45, 121, 158, 22, 172, 240, 119, 230, 87, 166,
+    ],
+    address: [
+        184, 130, 68, 97, 106, 51, 158, 214, 62, 108, 232, 0, 217, 87, 60, 174, 218, 192, 86, 215,
+        33, 115, 180, 101, 224, 182, 24, 190, 148, 19, 21, 4,
+    ],
+    bump: 253,
+};
+
+pub const AGGREGATE_TRANSFER_RING_2_3_B2_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        125, 236, 164, 44, 33, 92, 38, 74, 253, 172, 233, 128, 32, 118, 68, 2, 249, 188, 32, 27,
+        135, 140, 224, 200, 172, 158, 16, 46, 59, 44, 213, 224,
+    ],
+    address: [
+        149, 83, 206, 57, 21, 208, 64, 19, 255, 67, 78, 228, 69, 85, 234, 155, 41, 57, 83, 176, 20,
+        191, 221, 226, 40, 201, 83, 123, 229, 248, 39, 22,
+    ],
+    bump: 250,
+};
+
+pub const AGGREGATE_TRANSFER_RING_2_3_B3_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        148, 101, 222, 173, 173, 140, 125, 226, 127, 229, 193, 111, 67, 92, 194, 0, 60, 154, 167,
+        75, 15, 207, 124, 200, 252, 143, 3, 9, 11, 77, 27, 7,
+    ],
+    address: [
+        22, 68, 93, 171, 39, 232, 183, 8, 29, 80, 212, 141, 80, 2, 220, 224, 184, 162, 8, 123, 5,
+        30, 198, 126, 110, 218, 255, 117, 33, 67, 72, 9,
+    ],
+    bump: 255,
+};
+
 pub const MERGE_8_1_REGISTRY: VkRegistrySpec = VkRegistrySpec {
     g2_count: 3,
     digest: [
@@ -40,6 +144,32 @@ pub const MERGE_8_1_REGISTRY: VkRegistrySpec = VkRegistrySpec {
         151, 143, 232, 80, 113, 144, 200, 19, 36, 126, 51, 238,
     ],
     bump: 250,
+};
+
+pub const MERGE_CHAIN_1_1_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        193, 16, 206, 35, 17, 215, 61, 188, 15, 170, 189, 100, 31, 87, 249, 115, 76, 116, 93, 98,
+        11, 12, 167, 51, 92, 169, 149, 46, 105, 74, 62, 8,
+    ],
+    address: [
+        63, 204, 71, 230, 209, 228, 51, 129, 162, 121, 26, 114, 103, 15, 205, 53, 133, 68, 102, 98,
+        18, 145, 103, 1, 30, 159, 201, 223, 205, 123, 239, 171,
+    ],
+    bump: 254,
+};
+
+pub const MERGE_CHAIN_2_1_REGISTRY: VkRegistrySpec = VkRegistrySpec {
+    g2_count: 5,
+    digest: [
+        91, 133, 210, 164, 211, 28, 131, 244, 146, 239, 235, 165, 231, 137, 53, 65, 84, 12, 248,
+        97, 60, 222, 112, 85, 85, 163, 229, 160, 180, 196, 23, 104,
+    ],
+    address: [
+        202, 146, 158, 212, 202, 171, 6, 27, 218, 249, 55, 60, 243, 112, 98, 29, 42, 97, 83, 166,
+        213, 16, 195, 43, 47, 63, 54, 150, 87, 67, 143, 56,
+    ],
+    bump: 254,
 };
 
 pub const MERGE_RING_8_1_REGISTRY: VkRegistrySpec = VkRegistrySpec {
@@ -497,11 +627,21 @@ pub const TRANSFER_RING_AUTHORITY_4_4_REGISTRY: VkRegistrySpec = VkRegistrySpec 
     bump: 255,
 };
 
-/// Indexed in catalog order; init instructions select here by index.
-pub static VK_REGISTRY_SPECS: [VkRegistrySpec; 38] = [
+/// Indexed in catalog order. Init instructions select here by index.
+pub static VK_REGISTRY_SPECS: [VkRegistrySpec; 48] = [
     BATCH_ADDRESS_APPEND_40_10_REGISTRY,
     BATCH_ADDRESS_APPEND_40_250_REGISTRY,
+    AGGREGATE_TRANSFER_CONFIDENTIAL_2_2_B2_REGISTRY,
+    AGGREGATE_TRANSFER_CONFIDENTIAL_2_2_B3_REGISTRY,
+    AGGREGATE_TRANSFER_CONFIDENTIAL_2_3_B2_REGISTRY,
+    AGGREGATE_TRANSFER_CONFIDENTIAL_2_3_B3_REGISTRY,
+    AGGREGATE_TRANSFER_P256_RING_2_3_B2_REGISTRY,
+    AGGREGATE_TRANSFER_P256_RING_2_3_B3_REGISTRY,
+    AGGREGATE_TRANSFER_RING_2_3_B2_REGISTRY,
+    AGGREGATE_TRANSFER_RING_2_3_B3_REGISTRY,
     MERGE_8_1_REGISTRY,
+    MERGE_CHAIN_1_1_REGISTRY,
+    MERGE_CHAIN_2_1_REGISTRY,
     MERGE_RING_8_1_REGISTRY,
     TRANSFER_CONFIDENTIAL_1_1_REGISTRY,
     TRANSFER_CONFIDENTIAL_1_2_REGISTRY,
