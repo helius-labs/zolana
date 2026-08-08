@@ -220,21 +220,30 @@ impl<R: Rpc> ZolanaClient<R> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
-        let spend_proofs = fetch_spend_proofs(
-            self.blocking_indexer(),
-            signed.input_tree,
-            &commitments,
-            None,
-        )?;
-        let dummy_proofs = fetch_dummy_nullifier_proofs(
-            self.blocking_indexer(),
-            signed.input_tree,
-            &signed.transaction,
-            None,
-        )?;
+        let spend_proofs = {
+            let _t = crate::timing::Phase::start("fetch_spend_proofs", 0);
+            fetch_spend_proofs(
+                self.blocking_indexer(),
+                signed.input_tree,
+                &commitments,
+                None,
+            )?
+        };
+        let dummy_proofs = {
+            let _t = crate::timing::Phase::start("fetch_dummy_nullifier_proofs", 0);
+            fetch_dummy_nullifier_proofs(
+                self.blocking_indexer(),
+                signed.input_tree,
+                &signed.transaction,
+                None,
+            )?
+        };
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
-        let proof = self.blocking_prover().prove_transfer(inputs)?;
+        let proof = {
+            let _t = crate::timing::Phase::start("prove_transfer", 0);
+            self.blocking_prover().prove_transfer(inputs)?
+        };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
         build_unsigned_solana_transaction(
             ComputeBudgetConfig {

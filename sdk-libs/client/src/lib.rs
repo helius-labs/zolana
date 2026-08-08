@@ -21,6 +21,7 @@ pub mod retry;
 pub mod rpc;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
+pub mod timing;
 
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
