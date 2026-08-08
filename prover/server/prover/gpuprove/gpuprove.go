@@ -3,13 +3,18 @@
 // PROVER_GPU=auto|on|off controls the choice. auto (the default) uses the
 // GPU only when the binary is built with the cuda tag and a CUDA device
 // answers, on requires the GPU and fails otherwise, off forces the CPU.
-// The variable is read once per process.
+// In auto mode circuits below PROVER_GPU_MIN_CONSTRAINTS (default 80000)
+// prove on the CPU even when a GPU is present. Below that size the CPU
+// witness solve inside the serialized device section dominates and the CPU
+// prover is faster. Routing small circuits to the CPU lets both backends
+// work at once. The variables are read once per process.
 package gpuprove
 
 import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 
 	"github.com/consensys/gnark/backend/groth16"
@@ -28,7 +33,7 @@ func Prove(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, w witness.Wit
 	if err != nil {
 		return nil, err
 	}
-	if gpu {
+	if gpu && routeToGPU(ccs) {
 		logBackend("gpu")
 		return proveGPU(ccs, pk, w)
 	}
@@ -72,6 +77,36 @@ func Backend() string {
 		return "gpu"
 	}
 	return "cpu"
+}
+
+// routeToGPU applies the auto-mode size threshold. PROVER_GPU=on bypasses it.
+func routeToGPU(ccs constraint.ConstraintSystem) bool {
+	if m, _ := selectedMode(); m == gpuOn {
+		return true
+	}
+	return ccs.GetNbConstraints() >= minGPUConstraints()
+}
+
+const defaultMinGPUConstraints = 80000
+
+var (
+	minConstraintsOnce sync.Once
+	minConstraints     int
+)
+
+func minGPUConstraints() int {
+	minConstraintsOnce.Do(func() {
+		minConstraints = defaultMinGPUConstraints
+		if v := os.Getenv("PROVER_GPU_MIN_CONSTRAINTS"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				logging.Logger().Warn().Str("value", v).Msg("invalid PROVER_GPU_MIN_CONSTRAINTS, using default")
+				return
+			}
+			minConstraints = n
+		}
+	})
+	return minConstraints
 }
 
 type gpuMode int
