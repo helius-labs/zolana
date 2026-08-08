@@ -211,13 +211,20 @@ impl<R: Rpc> ZolanaClient<R> {
             .prove_transact(proof_inputs, &spend_proofs, &dummy_proofs)
     }
 
+    /// Fetches the blockhash itself, after proving rather than before.
+    ///
+    /// Callers used to fetch one and hand it in, which put a multi-second proof
+    /// between the blockhash and the send. Under load that window exceeded the
+    /// blockhash lifetime and the transaction was rejected at submission,
+    /// having already paid for the sync and the proof: an 80-worker run lost
+    /// 297 of 337 transfers to "Blockhash not found".
+    ///
     /// `R: Sync` because the two proof fetches below share the indexer across
     /// scoped threads.
     pub fn finish_submission_unsigned_sync(
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
-        recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError>
     where
         R: Sync,
@@ -261,6 +268,9 @@ impl<R: Rpc> ZolanaClient<R> {
             self.blocking_prover().prove_transfer(inputs)?
         };
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
+        // Last thing before building, so the blockhash is as young as it can be
+        // when the transaction reaches the cluster.
+        let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
         build_unsigned_solana_transaction(
             ComputeBudgetConfig {
                 cu_limit: self.cu_limit,

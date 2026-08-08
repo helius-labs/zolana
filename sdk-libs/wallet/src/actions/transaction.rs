@@ -702,8 +702,7 @@ pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + 
     fee_payer: Pubkey,
 ) -> Result<SolanaTransaction, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
-    let (blockhash, _) = client.rpc().get_latest_blockhash()?;
-    client.finish_submission_unsigned_sync(&shielded, fee_payer, blockhash)
+    client.finish_submission_unsigned_sync(&shielded, fee_payer)
 }
 
 pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + Sync>(
@@ -739,14 +738,13 @@ pub fn sign_private_transaction_sync_with_signers<
         let _t = timing::Phase::start("sign_shielded", 0);
         sign_shielded_transaction_sync(transaction, wallet, authority)?
     };
-    let (blockhash, _) = {
-        let _t = timing::Phase::start("get_latest_blockhash", 0);
-        client.rpc().get_latest_blockhash()?
-    };
     let mut native = {
         let _t = timing::Phase::start("finish_submission", 0);
-        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey(), blockhash)?
+        client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey())?
     };
+    // Whatever the built message carries: it is fetched after proving now, so
+    // there is no separate blockhash here to keep in step with it.
+    let blockhash = native.message.recent_blockhash;
     let mut signers = Vec::with_capacity(1 + additional_native_signers.len());
     signers.push(fee_payer);
     signers.extend_from_slice(additional_native_signers);
