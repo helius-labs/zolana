@@ -16,8 +16,8 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
-use zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 
+#[derive(Debug)]
 struct ReconstructedBatch {
     updates: HashMap<(Pubkey, u64), IndexedTreeLeafUpdate>,
 }
@@ -39,12 +39,12 @@ async fn persist_nullifier_tree_batch_update(
     batch_update: &NullifierTreeBatchUpdate,
     tree_info_cache: &HashMap<Pubkey, TreeInfo>,
 ) -> Result<(), IngesterError> {
-    let tree_info = tree_info_cache.get(&batch_update.tree).ok_or_else(|| {
-        IngesterError::ParserError(format!(
+    if !tree_info_cache.contains_key(&batch_update.tree) {
+        return Err(IngesterError::ParserError(format!(
             "Tree metadata not found for nullifier batch update tree {}",
             batch_update.tree
-        ))
-    })?;
+        )));
+    }
 
     if let Some(root) = current_root(txn, batch_update.tree).await? {
         if root.hash == batch_update.new_root.to_vec() {
@@ -53,7 +53,7 @@ async fn persist_nullifier_tree_batch_update(
     }
 
     let batch_seq = next_root_sequence(txn, batch_update.tree).await?;
-    let reconstructed = reconstruct_batch_updates(txn, batch_update, tree_info, batch_seq).await?;
+    let reconstructed = reconstruct_batch_updates(txn, batch_update, batch_seq).await?;
     persist_indexed_tree_updates(txn, reconstructed.updates, tree_info_cache).await?;
     verify_reconstructed_root(txn, batch_update).await
 }
@@ -61,15 +61,24 @@ async fn persist_nullifier_tree_batch_update(
 async fn reconstruct_batch_updates(
     txn: &DatabaseTransaction,
     batch_update: &NullifierTreeBatchUpdate,
-    tree_info: &TreeInfo,
     batch_seq: u64,
 ) -> Result<ReconstructedBatch, IngesterError> {
     let tree_bytes = batch_update.tree.to_bytes().to_vec();
     let mut batch_elements = HashMap::new();
     let processed_count = current_nullifier_count(txn, batch_update.tree).await?;
-    let batch_size = batch_size_for_update(tree_info);
+    // The event reports every zkp batch the instruction applied, which is more
+    // than one whenever it unblocked proofs cached out of order. All of them
+    // must be replayed before the root is comparable.
+    let appended_count = batch_update.appended_count();
+    if appended_count == 0 {
+        return Err(IngesterError::ParserError(format!(
+            "Batch append event for tree {} applied no zkp batches",
+            batch_update.tree
+        )));
+    }
     let queued_nullifiers =
-        queued_nullifiers_for_batch(txn, batch_update.tree, processed_count, batch_size).await?;
+        queued_nullifiers_for_batch(txn, batch_update.tree, processed_count, appended_count)
+            .await?;
     let mut updates = HashMap::new();
 
     for (offset, nullifier) in queued_nullifiers.into_iter().enumerate() {
@@ -117,14 +126,6 @@ async fn reconstruct_batch_updates(
     Ok(ReconstructedBatch { updates })
 }
 
-fn batch_size_for_update(tree_info: &TreeInfo) -> u64 {
-    if tree_info.input_queue_zkp_batch_size == 0 {
-        ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE
-    } else {
-        tree_info.input_queue_zkp_batch_size
-    }
-}
-
 async fn current_nullifier_count(
     txn: &DatabaseTransaction,
     tree: Pubkey,
@@ -143,7 +144,7 @@ async fn queued_nullifiers_for_batch(
     txn: &DatabaseTransaction,
     tree: Pubkey,
     start_queue_seq: u64,
-    batch_size: u64,
+    appended_count: u64,
 ) -> Result<Vec<rings_tx_nullifiers::Model>, IngesterError> {
     let rows = rings_tx_nullifiers::Entity::find()
         .filter(rings_tx_nullifiers::Column::NullifierTree.eq(tree.to_bytes().to_vec()))
@@ -152,7 +153,7 @@ async fn queued_nullifiers_for_batch(
                 .gte(i64_from_u64(start_queue_seq, "input queue sequence")?),
         )
         .order_by_asc(rings_tx_nullifiers::Column::InputQueueSeq)
-        .limit(batch_size)
+        .limit(appended_count)
         .all(txn)
         .await?;
 
@@ -162,10 +163,10 @@ async fn queued_nullifiers_for_batch(
             rows.len()
         ))
     })?;
-    if actual_len != batch_size {
+    if actual_len != appended_count {
         return Err(IngesterError::ParserError(format!(
             "Cannot reconstruct nullifier batch for tree {} at queue seq {}: expected {} queued nullifiers, found {}",
-            tree, start_queue_seq, batch_size, actual_len
+            tree, start_queue_seq, appended_count, actual_len
         )));
     }
 
@@ -372,6 +373,7 @@ mod tests {
     use sea_orm::{Database, DatabaseConnection, Set, TransactionTrait};
     use sea_orm_migration::MigratorTrait;
     use solana_signature::Signature;
+    use zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 
     async fn setup_test_db() -> DatabaseConnection {
         let db = Database::connect("sqlite::memory:").await.unwrap();
@@ -450,71 +452,70 @@ mod tests {
         .unwrap();
     }
 
+    /// Queue `count` nullifiers at consecutive input queue sequences from 0.
+    async fn seed_queued_nullifiers(tx: &DatabaseTransaction, tree: Pubkey, count: u64) {
+        insert_test_rings_transaction(tx, 1, tree).await;
+        for seq in 0..count {
+            let mut nullifier = [0u8; 32];
+            nullifier[24..].copy_from_slice(&(seq + 1).to_be_bytes());
+            let row = rings_tx_nullifiers::ActiveModel {
+                nullifier_id: Default::default(),
+                rings_tx_id: Set(1),
+                slot: Set(1),
+                input_index: Set(i16::try_from(seq).unwrap_or(0)),
+                nullifier_tree: Set(tree.to_bytes().to_vec()),
+                input_queue_seq: Set(i64_from_u64(seq, "input queue seq").unwrap()),
+                nullifier: Set(nullifier.to_vec()),
+            };
+            rings_tx_nullifiers::Entity::insert(row)
+                .exec(tx)
+                .await
+                .unwrap();
+        }
+    }
+
+    fn batch_event(tree: Pubkey, num_update: u32) -> NullifierTreeBatchUpdate {
+        NullifierTreeBatchUpdate {
+            tree,
+            new_root: [0; 32],
+            zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+            num_update,
+            signature: Signature::from([8; 64]),
+        }
+    }
+
+    /// Apply one event covering `num_update` zkp batches and return the root it
+    /// leaves behind. Skips `verify_reconstructed_root`, which needs a real root
+    /// from chain; these tests compare reconstructions against each other.
+    async fn apply_event(
+        tx: &DatabaseTransaction,
+        tree: Pubkey,
+        tree_info_cache: &HashMap<Pubkey, TreeInfo>,
+        num_update: u32,
+    ) -> Vec<u8> {
+        let batch_update = batch_event(tree, num_update);
+        let batch_seq = next_root_sequence(tx, tree).await.unwrap();
+        let reconstructed = reconstruct_batch_updates(tx, &batch_update, batch_seq)
+            .await
+            .unwrap();
+        persist_indexed_tree_updates(tx, reconstructed.updates, tree_info_cache)
+            .await
+            .unwrap();
+        current_root(tx, tree).await.unwrap().unwrap().hash
+    }
+
     #[tokio::test]
     async fn reconstructs_batch_from_contiguous_queued_nullifiers() {
         let db = setup_test_db().await;
         let tree = Pubkey::new_from_array([7; 32]);
         let tree_info_cache = insert_test_tree(&db, tree).await;
-        let batch_update = NullifierTreeBatchUpdate {
-            tree,
-            new_root: [0; 32],
-            signature: Signature::from([8; 64]),
-        };
+        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 
         let tx = db.begin().await.unwrap();
-        insert_test_rings_transaction(&tx, 1, tree).await;
-        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
-        for seq in 0..batch_size {
-            let mut nullifier = [0u8; 32];
-            nullifier[24..].copy_from_slice(&(seq + 1).to_be_bytes());
-            let row = rings_tx_nullifiers::ActiveModel {
-                nullifier_id: Default::default(),
-                rings_tx_id: sea_orm::Set(1),
-                slot: sea_orm::Set(1),
-                input_index: sea_orm::Set(i16::try_from(seq).unwrap_or(0)),
-                nullifier_tree: sea_orm::Set(tree.to_bytes().to_vec()),
-                input_queue_seq: sea_orm::Set(i64_from_u64(seq, "input queue seq").unwrap()),
-                nullifier: sea_orm::Set(nullifier.to_vec()),
-            };
-            rings_tx_nullifiers::Entity::insert(row)
-                .exec(&tx)
-                .await
-                .unwrap();
-        }
+        seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
 
-        let reconstructed =
-            reconstruct_batch_updates(&tx, &batch_update, tree_info_cache.get(&tree).unwrap(), 1)
-                .await
-                .unwrap();
-        persist_indexed_tree_updates(&tx, reconstructed.updates, &tree_info_cache)
-            .await
-            .unwrap();
-
-        insert_test_rings_transaction(&tx, 2, tree).await;
-        for seq in batch_size..(batch_size * 2) {
-            let mut nullifier = [0u8; 32];
-            nullifier[24..].copy_from_slice(&(seq + 1).to_be_bytes());
-            let row = rings_tx_nullifiers::ActiveModel {
-                nullifier_id: Default::default(),
-                rings_tx_id: sea_orm::Set(2),
-                slot: sea_orm::Set(1),
-                input_index: sea_orm::Set(i16::try_from(seq - batch_size).unwrap_or(0)),
-                nullifier_tree: sea_orm::Set(tree.to_bytes().to_vec()),
-                input_queue_seq: sea_orm::Set(i64_from_u64(seq, "input queue seq").unwrap()),
-                nullifier: sea_orm::Set(nullifier.to_vec()),
-            };
-            rings_tx_nullifiers::Entity::insert(row)
-                .exec(&tx)
-                .await
-                .unwrap();
-        }
-        let reconstructed =
-            reconstruct_batch_updates(&tx, &batch_update, tree_info_cache.get(&tree).unwrap(), 2)
-                .await
-                .unwrap();
-        persist_indexed_tree_updates(&tx, reconstructed.updates, &tree_info_cache)
-            .await
-            .unwrap();
+        apply_event(&tx, tree, &tree_info_cache, 1).await;
+        apply_event(&tx, tree, &tree_info_cache, 1).await;
 
         let max_leaf = indexed_trees::Entity::find()
             .filter(indexed_trees::Column::Tree.eq(tree.to_bytes().to_vec()))
@@ -528,16 +529,104 @@ mod tests {
             batch_size * 2
         );
 
+        // An event whose root photon already holds is a no-op, not a replay.
         let root = current_root(&tx, tree).await.unwrap().unwrap();
         let already_applied = NullifierTreeBatchUpdate {
-            tree,
             new_root: fixed_32(root.hash, "root hash").unwrap(),
             signature: Signature::from([9; 64]),
+            ..batch_event(tree, 1)
         };
         persist_nullifier_tree_batch_update(&tx, &already_applied, &tree_info_cache)
             .await
             .unwrap();
 
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cascade_lands_the_same_tree_as_the_batches_applied_one_at_a_time() {
+        // The regression this file exists for: a proof cached out of order makes
+        // the program apply several zkp batches under one event. Photon must
+        // reach the root the chain reached, which is the root after all of them,
+        // not after the first.
+        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+        let tree = Pubkey::new_from_array([7; 32]);
+
+        let sequential_db = setup_test_db().await;
+        let sequential_cache = insert_test_tree(&sequential_db, tree).await;
+        let sequential_tx = sequential_db.begin().await.unwrap();
+        seed_queued_nullifiers(&sequential_tx, tree, batch_size * 3).await;
+        for _ in 0..3 {
+            apply_event(&sequential_tx, tree, &sequential_cache, 1).await;
+        }
+        let sequential_root = current_root(&sequential_tx, tree)
+            .await
+            .unwrap()
+            .unwrap()
+            .hash;
+
+        let cascade_db = setup_test_db().await;
+        let cascade_cache = insert_test_tree(&cascade_db, tree).await;
+        let cascade_tx = cascade_db.begin().await.unwrap();
+        seed_queued_nullifiers(&cascade_tx, tree, batch_size * 3).await;
+        let cascade_root = apply_event(&cascade_tx, tree, &cascade_cache, 3).await;
+
+        assert_eq!(cascade_root, sequential_root);
+
+        let max_leaf = indexed_trees::Entity::find()
+            .filter(indexed_trees::Column::Tree.eq(tree.to_bytes().to_vec()))
+            .order_by_desc(indexed_trees::Column::LeafIndex)
+            .one(&cascade_tx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            u64_from_i64(max_leaf.leaf_index, "indexed leaf index").unwrap(),
+            batch_size * 3
+        );
+
+        sequential_tx.rollback().await.unwrap();
+        cascade_tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cascade_needs_every_batch_of_queued_nullifiers() {
+        // Only two batches are queued, so a three-batch cascade cannot be
+        // reconstructed. It must fail loudly rather than apply what it has and
+        // report a root that does not match.
+        let batch_size = ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+        let tree = Pubkey::new_from_array([7; 32]);
+        let db = setup_test_db().await;
+        insert_test_tree(&db, tree).await;
+
+        let tx = db.begin().await.unwrap();
+        seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
+
+        let err = reconstruct_batch_updates(&tx, &batch_event(tree, 3), 1)
+            .await
+            .unwrap_err();
+
+        assert!(
+            format!("{err}").contains("expected 750 queued nullifiers, found 500"),
+            "unexpected error: {err}"
+        );
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_event_that_applied_no_batches() {
+        let tree = Pubkey::new_from_array([7; 32]);
+        let db = setup_test_db().await;
+        let tx = db.begin().await.unwrap();
+
+        let err = reconstruct_batch_updates(&tx, &batch_event(tree, 0), 1)
+            .await
+            .unwrap_err();
+
+        assert!(
+            format!("{err}").contains("applied no zkp batches"),
+            "unexpected error: {err}"
+        );
         tx.rollback().await.unwrap();
     }
 
@@ -549,12 +638,12 @@ mod tests {
         insert_test_rings_transaction(&tx, 1, tree).await;
         let row = rings_tx_nullifiers::ActiveModel {
             nullifier_id: Default::default(),
-            rings_tx_id: sea_orm::Set(1),
-            slot: sea_orm::Set(1),
-            input_index: sea_orm::Set(0),
-            nullifier_tree: sea_orm::Set(tree.to_bytes().to_vec()),
-            input_queue_seq: sea_orm::Set(1),
-            nullifier: sea_orm::Set([1u8; 32].to_vec()),
+            rings_tx_id: Set(1),
+            slot: Set(1),
+            input_index: Set(0),
+            nullifier_tree: Set(tree.to_bytes().to_vec()),
+            input_queue_seq: Set(1),
+            nullifier: Set([1u8; 32].to_vec()),
         };
         rings_tx_nullifiers::Entity::insert(row)
             .exec(&tx)

@@ -54,11 +54,25 @@ pub struct RingsNullifierUpdate {
     pub nullifier: [u8; 32],
 }
 
+/// One `BatchAddressAppendEvent`: the zkp batches the program actually applied,
+/// which is not always the one its instruction asked for. An out-of-order proof
+/// is cached and applied later, so a single instruction can land several batches
+/// at once -- `num_update` of them, `zkp_batch_size` nullifiers each -- and
+/// `new_root` is the root after all of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NullifierTreeBatchUpdate {
     pub tree: Pubkey,
     pub new_root: [u8; 32],
+    pub zkp_batch_size: u64,
+    pub num_update: u32,
     pub signature: Signature,
+}
+
+impl NullifierTreeBatchUpdate {
+    /// Nullifiers appended by this event across all of its zkp batches.
+    pub fn appended_count(&self) -> u64 {
+        self.zkp_batch_size * u64::from(self.num_update)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

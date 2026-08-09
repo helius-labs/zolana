@@ -1,55 +1,80 @@
+use super::event_site::{find_event_sites, to_rings_instruction_groups};
 use crate::ingester::error::IngesterError;
 use crate::ingester::parser::state_update::{NullifierTreeBatchUpdate, StateUpdate};
-use crate::ingester::typedefs::block_info::{Instruction, TransactionInfo};
+use crate::ingester::typedefs::block_info::TransactionInfo;
 use borsh::BorshDeserialize;
-use zolana_interface::{
-    instruction::{tag, BatchUpdateNullifierTreeData},
-    pda,
-};
+use solana_pubkey::Pubkey;
+use zolana_event::{BatchAddressAppendEvent, EventKind};
+use zolana_interface::{instruction::tag, pda};
 
-const NULLIFIER_TREE_ACCOUNT_INDEX: usize = 2;
-
-pub fn parse_nullifier_tree_batch_update(
-    instruction: &Instruction,
+/// Read the nullifier-tree batch updates a transaction actually performed.
+///
+/// This must come from the emitted `BatchAddressAppendEvent` rather than from
+/// the `BatchUpdateNullifierTree` instruction that carries it. The instruction
+/// is a request: when its proof arrives out of order the program caches it and
+/// applies nothing, and when it unblocks earlier cached proofs the program
+/// applies several zkp batches at once. Only the event says which batches
+/// landed and what the resulting root is.
+pub fn parse_nullifier_tree_batch_updates(
     tx: &TransactionInfo,
 ) -> Result<Option<StateUpdate>, IngesterError> {
-    if tx.error.is_some() || instruction.program_id != pda::shielded_pool_program_id() {
+    if tx.error.is_some() {
         return Ok(None);
     }
 
-    let Some((instruction_tag, payload)) = instruction.data.split_first() else {
-        return Ok(None);
-    };
-    if *instruction_tag != tag::BATCH_UPDATE_NULLIFIER_TREE {
-        return Ok(None);
-    }
-
-    let tree = *instruction
-        .accounts
-        .get(NULLIFIER_TREE_ACCOUNT_INDEX)
-        .ok_or_else(|| {
-            IngesterError::ParserError(format!(
-                "BatchUpdateNullifierTree instruction {} is missing tree account at index {}",
-                tx.signature, NULLIFIER_TREE_ACCOUNT_INDEX
-            ))
-        })?;
-
-    let data = BatchUpdateNullifierTreeData::try_from_slice(payload).map_err(|err| {
-        IngesterError::ParserError(format!(
-            "Failed to decode BatchUpdateNullifierTree instruction {}: {}",
-            tx.signature, err
-        ))
+    let groups = to_rings_instruction_groups(&tx.instruction_groups);
+    let event_sites = find_event_sites(&groups, pda::shielded_pool_program_id(), |source| {
+        source == tag::BATCH_UPDATE_NULLIFIER_TREE
     })?;
+    if event_sites.is_empty() {
+        return Ok(None);
+    }
 
     let mut state_update = StateUpdate::new();
-    state_update
-        .nullifier_tree_batch_updates
-        .push(NullifierTreeBatchUpdate {
-            tree,
-            new_root: data.new_root,
-            signature: tx.signature,
-        });
+
+    for event_site in &event_sites {
+        let Some(event) = decode_batch_address_append(&event_site.payload, tx)? else {
+            continue;
+        };
+
+        state_update
+            .nullifier_tree_batch_updates
+            .push(NullifierTreeBatchUpdate {
+                tree: Pubkey::new_from_array(event.merkle_tree_pubkey),
+                new_root: event.new_root,
+                zkp_batch_size: u64::from(event.zkp_batch_size),
+                num_update: event.num_update,
+                signature: tx.signature,
+            });
+    }
+
+    if state_update.nullifier_tree_batch_updates.is_empty() {
+        return Ok(None);
+    }
     Ok(Some(state_update))
+}
+
+/// Decode an event payload (`[kind, borsh(body)]`) as a batch append, or return
+/// `None` for any other kind emitted under this instruction.
+fn decode_batch_address_append(
+    payload: &[u8],
+    tx: &TransactionInfo,
+) -> Result<Option<BatchAddressAppendEvent>, IngesterError> {
+    let Some((kind, body)) = payload.split_first() else {
+        return Ok(None);
+    };
+    if EventKind::from_byte(*kind) != Some(EventKind::BatchAddressAppend) {
+        return Ok(None);
+    }
+
+    BatchAddressAppendEvent::try_from_slice(body)
+        .map(Some)
+        .map_err(|err| {
+            IngesterError::ParserError(format!(
+                "Failed to decode BatchAddressAppendEvent in {}: {}",
+                tx.signature, err
+            ))
+        })
 }
 
 pub fn has_nullifier_tree_batch_update(tx: &TransactionInfo) -> bool {
@@ -60,89 +85,154 @@ pub fn has_nullifier_tree_batch_update(tx: &TransactionInfo) -> bool {
     tx.instruction_groups.iter().any(|instruction_group| {
         std::iter::once(&instruction_group.outer_instruction)
             .chain(instruction_group.inner_instructions.iter())
-            .any(is_nullifier_tree_batch_update)
+            .any(|instruction| {
+                instruction.program_id == pda::shielded_pool_program_id()
+                    && instruction.data.first() == Some(&tag::BATCH_UPDATE_NULLIFIER_TREE)
+            })
     })
-}
-
-fn is_nullifier_tree_batch_update(instruction: &Instruction) -> bool {
-    instruction.program_id == pda::shielded_pool_program_id()
-        && instruction.data.first() == Some(&tag::BATCH_UPDATE_NULLIFIER_TREE)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ingester::typedefs::block_info::InstructionGroup;
-    use solana_pubkey::Pubkey;
+    use crate::ingester::typedefs::block_info::{Instruction, InstructionGroup};
+    use borsh::BorshSerialize;
     use solana_signature::Signature;
-    use zolana_interface::instruction::{encode_instruction, CompressedProof};
+    use zolana_event::{encode_event_instruction_with, tag as event_tag};
+
+    fn tree() -> Pubkey {
+        Pubkey::new_from_array([7; 32])
+    }
+
+    fn event(num_update: u32) -> BatchAddressAppendEvent {
+        BatchAddressAppendEvent {
+            merkle_tree_pubkey: tree().to_bytes(),
+            zkp_batch_size: 250,
+            old_next_index: 500,
+            start_sequence_number: 3,
+            first_root_index: 4,
+            num_update,
+            first_zkp_batch_index: 2,
+            new_root: [9; 32],
+        }
+    }
+
+    fn instruction(program_id: Pubkey, data: Vec<u8>, stack_height: u32) -> Instruction {
+        Instruction {
+            program_id,
+            accounts: vec![],
+            data,
+            stack_height: Some(stack_height),
+        }
+    }
+
+    fn tx_emitting(event: &impl BorshSerialize) -> TransactionInfo {
+        let outer = instruction(
+            pda::shielded_pool_program_id(),
+            vec![tag::BATCH_UPDATE_NULLIFIER_TREE, 1, 2, 3],
+            1,
+        );
+        let emit = instruction(
+            pda::shielded_pool_program_id(),
+            encode_event_instruction_with(EventKind::BatchAddressAppend, event),
+            2,
+        );
+        TransactionInfo {
+            instruction_groups: vec![InstructionGroup {
+                outer_instruction: outer,
+                inner_instructions: vec![emit],
+            }],
+            signature: Signature::from([8; 64]),
+            error: None,
+        }
+    }
 
     #[test]
-    fn parses_batch_update_instruction() {
-        let tree = Pubkey::new_from_array([7; 32]);
-        let new_root = [9; 32];
-        let data = BatchUpdateNullifierTreeData {
-            new_root,
-            old_root: [8; 32],
-            zkp_batch_index: 0,
-            compressed_proof: CompressedProof {
-                a: [1; 32],
-                b: [2; 64],
-                c: [3; 32],
-            },
-        };
-        let instruction = Instruction {
-            program_id: pda::shielded_pool_program_id(),
-            accounts: vec![
-                Pubkey::new_from_array([4; 32]),
-                Pubkey::new_from_array([5; 32]),
-                tree,
-            ],
-            data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),
-            stack_height: None,
-        };
+    fn parses_single_batch_event() {
+        let tx = tx_emitting(&event(1));
+
+        let state_update = parse_nullifier_tree_batch_updates(&tx).unwrap().unwrap();
+
+        assert_eq!(state_update.nullifier_tree_batch_updates.len(), 1);
+        let update = state_update
+            .nullifier_tree_batch_updates
+            .first()
+            .expect("one update");
+        assert_eq!(update.tree, tree());
+        assert_eq!(update.new_root, [9; 32]);
+        assert_eq!(update.zkp_batch_size, 250);
+        assert_eq!(update.num_update, 1);
+        assert_eq!(update.appended_count(), 250);
+        assert_eq!(update.signature, tx.signature);
+        assert!(has_nullifier_tree_batch_update(&tx));
+    }
+
+    #[test]
+    fn parses_cascade_of_three_batches() {
+        // The instruction that triggers a cascade looks no different; only the
+        // event says three batches landed under it.
+        let tx = tx_emitting(&event(3));
+
+        let state_update = parse_nullifier_tree_batch_updates(&tx).unwrap().unwrap();
+
+        let update = state_update
+            .nullifier_tree_batch_updates
+            .first()
+            .expect("one update");
+        assert_eq!(update.num_update, 3);
+        assert_eq!(update.appended_count(), 750);
+    }
+
+    #[test]
+    fn ignores_instruction_that_emitted_no_event() {
+        // A proof cached out of order applies nothing and emits nothing. Reading
+        // the instruction instead would record a root the tree never took.
         let tx = TransactionInfo {
             instruction_groups: vec![InstructionGroup {
-                outer_instruction: instruction.clone(),
+                outer_instruction: instruction(
+                    pda::shielded_pool_program_id(),
+                    vec![tag::BATCH_UPDATE_NULLIFIER_TREE, 1, 2, 3],
+                    1,
+                ),
                 inner_instructions: vec![],
             }],
             signature: Signature::from([8; 64]),
             error: None,
         };
 
-        let state_update = parse_nullifier_tree_batch_update(&instruction, &tx)
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(state_update.nullifier_tree_batch_updates.len(), 1);
-        assert_eq!(state_update.nullifier_tree_batch_updates[0].tree, tree);
-        assert_eq!(
-            state_update.nullifier_tree_batch_updates[0].new_root,
-            new_root
-        );
-        assert_eq!(
-            state_update.nullifier_tree_batch_updates[0].signature,
-            tx.signature
-        );
+        assert!(parse_nullifier_tree_batch_updates(&tx).unwrap().is_none());
         assert!(has_nullifier_tree_batch_update(&tx));
     }
 
     #[test]
-    fn ignores_non_batch_update_instruction() {
-        let instruction = Instruction {
-            program_id: pda::shielded_pool_program_id(),
-            accounts: vec![],
-            data: vec![tag::TRANSACT],
-            stack_height: None,
-        };
+    fn ignores_general_event_under_a_transact() {
         let tx = TransactionInfo {
-            instruction_groups: vec![],
+            instruction_groups: vec![InstructionGroup {
+                outer_instruction: instruction(
+                    pda::shielded_pool_program_id(),
+                    vec![tag::TRANSACT],
+                    1,
+                ),
+                inner_instructions: vec![instruction(
+                    pda::shielded_pool_program_id(),
+                    vec![event_tag::EMIT_EVENT, EventKind::Transact as u8],
+                    2,
+                )],
+            }],
             signature: Signature::from([8; 64]),
             error: None,
         };
 
-        assert!(parse_nullifier_tree_batch_update(&instruction, &tx)
-            .unwrap()
-            .is_none());
+        assert!(parse_nullifier_tree_batch_updates(&tx).unwrap().is_none());
+        assert!(!has_nullifier_tree_batch_update(&tx));
+    }
+
+    #[test]
+    fn ignores_event_forged_by_a_foreign_parent() {
+        let mut tx = tx_emitting(&event(1));
+        let group = tx.instruction_groups.first_mut().expect("one group");
+        group.outer_instruction.program_id = Pubkey::new_from_array([9; 32]);
+
+        assert!(parse_nullifier_tree_batch_updates(&tx).unwrap().is_none());
     }
 }

@@ -10048,6 +10048,7 @@ dependencies = [
  "zolana-account-checks",
  "zolana-bloom-filter",
  "zolana-client",
+ "zolana-event",
  "zolana-hasher",
  "zolana-indexed-array",
  "zolana-merkle-tree",
