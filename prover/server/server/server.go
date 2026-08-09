@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"zolana/prover/logging"
@@ -247,6 +248,104 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
 		return
+	}
+}
+
+// proofWaitHandler blocks until the job finishes or the timeout passes, so a
+// client gets its proof one round trip after completion instead of on its next
+// poll. Timeout answers 202 and the client falls back to /prove/status, which
+// also covers jobs whose reply already expired and job IDs that never existed.
+type proofWaitHandler struct {
+	redisQueue *RedisQueue
+}
+
+const (
+	defaultWaitTimeout = 30 * time.Second
+	// maxWaitTimeout stays below common load-balancer idle timeouts, so a
+	// blocked wait is answered by this server and not severed upstream.
+	maxWaitTimeout = 55 * time.Second
+)
+
+func (handler proofWaitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	jobID := r.URL.Query().Get("job_id")
+	if jobID == "" {
+		malformedBodyError(fmt.Errorf("job_id parameter required")).send(w)
+		return
+	}
+	if !isValidJobID(jobID) {
+		(&Error{
+			StatusCode: http.StatusBadRequest,
+			Code:       "invalid_job_id",
+			Message:    "Invalid job ID format. Job ID must be a valid UUID.",
+		}).send(w)
+		return
+	}
+
+	timeout := defaultWaitTimeout
+	if v := r.URL.Query().Get("timeout_s"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			malformedBodyError(fmt.Errorf("timeout_s must be a positive integer")).send(w)
+			return
+		}
+		timeout = time.Duration(n) * time.Second
+	}
+	if timeout > maxWaitTimeout {
+		timeout = maxWaitTimeout
+	}
+
+	// The result may already be stored, then no wait is needed and an expired
+	// reply does not matter.
+	if result, err := handler.redisQueue.GetResult(jobID); err == nil && result != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"job_id": jobID,
+			"status": "completed",
+			"result": result,
+		})
+		return
+	}
+
+	reply, err := handler.redisQueue.WaitReply(jobID, timeout)
+	if err != nil {
+		unexpectedError(err).send(w)
+		return
+	}
+	if reply == nil {
+		writeJSON(w, http.StatusAccepted, map[string]interface{}{
+			"job_id":  jobID,
+			"status":  "pending",
+			"message": "Job did not finish within the wait timeout. Poll /prove/status.",
+		})
+		return
+	}
+
+	RecordResultDelivered(reply.Queue, time.Since(reply.FinishedAt))
+
+	if reply.Status == JobReplyFailed {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"job_id": jobID,
+			"status": "failed",
+			"error":  reply.Error,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"job_id": jobID,
+		"status": "completed",
+		"result": json.RawMessage(reply.Result),
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, body map[string]interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		logging.Logger().Error().Err(err).Msg("Failed to encode JSON response")
 	}
 }
 
@@ -630,6 +729,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 
 	if redisQueue != nil {
 		proverMux.Handle("/prove/status", proofStatusHandler{redisQueue: redisQueue})
+		proverMux.Handle("/prove/wait", proofWaitHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/stats", queueStatsHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/health", queueHealthHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/cleanup", queueCleanupHandler{redisQueue: redisQueue})

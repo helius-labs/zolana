@@ -533,6 +533,76 @@ func (rq *RedisQueue) StoreResult(jobID string, result interface{}) error {
 	return nil
 }
 
+// JobReply is the completion signal pushed to zk_reply:<jobID> when a job
+// finishes. It carries the marshaled result so a blocked waiter answers from
+// one BLPOP. Polling GetResult stays unchanged as the fallback and serves
+// waiters that arrive after the reply expired.
+type JobReply struct {
+	Status     string          `json:"status"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	Queue      string          `json:"queue,omitempty"`
+	FinishedAt time.Time       `json:"finished_at"`
+}
+
+const (
+	// JobReplyCompleted and JobReplyFailed are the only reply states. Both are
+	// final, a waiter never sees an intermediate reply.
+	JobReplyCompleted = "completed"
+	JobReplyFailed    = "failed"
+
+	// replyTTL matches the stored result TTL, so a reply never outlives the
+	// result it points at.
+	replyTTL = 1 * time.Hour
+)
+
+func replyKey(jobID string) string {
+	return fmt.Sprintf("zk_reply:%s", jobID)
+}
+
+// PushReply signals job completion to blocked waiters.
+func (rq *RedisQueue) PushReply(jobID string, reply *JobReply) error {
+	data, err := json.Marshal(reply)
+	if err != nil {
+		return fmt.Errorf("failed to marshal job reply: %w", err)
+	}
+	pipe := rq.Client.TxPipeline()
+	pipe.RPush(rq.Ctx, replyKey(jobID), data)
+	pipe.Expire(rq.Ctx, replyKey(jobID), replyTTL)
+	if _, err := pipe.Exec(rq.Ctx); err != nil {
+		return fmt.Errorf("failed to push job reply: %w", err)
+	}
+	return nil
+}
+
+// WaitReply blocks until a reply for the job arrives or the timeout passes.
+// A nil reply with a nil error means timeout, the caller falls back to
+// polling. The reply is pushed back after pickup so concurrent and late
+// waiters are served too.
+func (rq *RedisQueue) WaitReply(jobID string, timeout time.Duration) (*JobReply, error) {
+	res, err := rq.Client.BLPop(rq.Ctx, timeout, replyKey(jobID)).Result()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to wait for job reply: %w", err)
+	}
+	var reply JobReply
+	if err := json.Unmarshal([]byte(res[1]), &reply); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal job reply: %w", err)
+	}
+	pipe := rq.Client.TxPipeline()
+	pipe.RPush(rq.Ctx, replyKey(jobID), res[1])
+	pipe.Expire(rq.Ctx, replyKey(jobID), replyTTL)
+	if _, err := pipe.Exec(rq.Ctx); err != nil {
+		logging.Logger().Warn().
+			Err(err).
+			Str("job_id", jobID).
+			Msg("Failed to restore job reply, later waiters fall back to polling")
+	}
+	return &reply, nil
+}
+
 // IndexResultByHash atomically adds inputHash → jobID to the results index hash.
 func (rq *RedisQueue) IndexResultByHash(inputHash, jobID string) error {
 	err := rq.Client.HSet(rq.Ctx, ResultsIndexKey, inputHash, jobID).Err()

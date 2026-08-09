@@ -193,6 +193,33 @@ var (
 		[]string{"queue", "stage"},
 	)
 
+	// Finish-to-pickup delay of pushed replies, the last edge of the wait
+	// breakdown. Queue wait and the dispatch stages end at proof completion,
+	// this one ends when a blocked waiter receives the reply.
+	ResultDeliveredLast = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_result_delivered_seconds_last",
+			Help: "Finish-to-pickup delay of the most recent delivered reply, by queue",
+		},
+		[]string{"queue"},
+	)
+
+	ResultDeliveredMean = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_result_delivered_seconds_mean",
+			Help: "Mean finish-to-pickup delay over the last 100 delivered replies, by queue",
+		},
+		[]string{"queue"},
+	)
+
+	ResultDeliveredMax = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "prover_result_delivered_seconds_max",
+			Help: "Longest finish-to-pickup delay over the last 100 delivered replies, by queue",
+		},
+		[]string{"queue"},
+	)
+
 	// Autoscaling tracks backlog, not CPU. CPU saturates at 100% and cannot
 	// separate busy from backlogged. Every task reports the same global depth,
 	// the queue is one Redis list. The scaling policy divides by task count.
@@ -291,6 +318,21 @@ func RecordDispatchStage(queueName, stage string, took time.Duration) {
 	DispatchLast.WithLabelValues(queueName, stage).Set(seconds)
 	DispatchMean.WithLabelValues(queueName, stage).Set(mean)
 	DispatchMax.WithLabelValues(queueName, stage).Set(max)
+}
+
+// Delivered replies keep their own window, keyed by queue.
+var resultDeliveries = &rollingStats{byCircuit: map[string]*window{}}
+
+// RecordResultDelivered publishes the finish-to-pickup delay of one reply.
+func RecordResultDelivered(queueName string, delay time.Duration) {
+	seconds := delay.Seconds()
+	if seconds < 0 {
+		return
+	}
+	mean, max, _ := resultDeliveries.observe(queueName, seconds, 0)
+	ResultDeliveredLast.WithLabelValues(queueName).Set(seconds)
+	ResultDeliveredMean.WithLabelValues(queueName).Set(mean)
+	ResultDeliveredMax.WithLabelValues(queueName).Set(max)
 }
 
 // observe records a duration and a memory delta, returning the mean and max

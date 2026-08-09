@@ -283,6 +283,12 @@ func (w *BaseQueueWorker) processJobs() {
 		w.queue.StoreResult(job.ID, cachedProof)
 		w.queue.StoreInputHash(job.ID, inputHash)
 		w.queue.IndexResultByHash(inputHash, job.ID)
+		w.pushReply(job.ID, &JobReply{
+			Status:     JobReplyCompleted,
+			Result:     resultData,
+			Queue:      w.queueName,
+			FinishedAt: time.Now(),
+		})
 		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 		return
 	}
@@ -335,6 +341,12 @@ func (w *BaseQueueWorker) processJobs() {
 		}
 		w.queue.StoreInputHash(job.ID, inputHash)
 		w.queue.IndexFailureByHash(inputHash, job.ID)
+		w.pushReply(job.ID, &JobReply{
+			Status:     JobReplyFailed,
+			Error:      errorMsg,
+			Queue:      w.queueName,
+			FinishedAt: time.Now(),
+		})
 		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
 		return
 	}
@@ -475,6 +487,15 @@ func (w *BaseQueueWorker) processJobs() {
 					Str("job_id", job.ID).
 					Msg("Failed to index result (non-critical)")
 			}
+
+			// After StoreResult, so a woken waiter always finds the stored
+			// result even when the reply itself is lost.
+			w.pushReply(job.ID, &JobReply{
+				Status:     JobReplyCompleted,
+				Result:     resultData,
+				Queue:      w.queueName,
+				FinishedAt: time.Now(),
+			})
 
 			logging.Logger().Info().
 				Str("job_id", job.ID).
@@ -705,5 +726,22 @@ func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err 
 				Str("job_id", job.ID).
 				Msg("Failed to index failure (non-critical)")
 		}
+	}
+
+	w.pushReply(job.ID, &JobReply{
+		Status:     JobReplyFailed,
+		Error:      err.Error(),
+		Queue:      w.queueName,
+		FinishedAt: time.Now(),
+	})
+}
+
+// pushReply is best effort. A lost reply degrades the waiter to polling.
+func (w *BaseQueueWorker) pushReply(jobID string, reply *JobReply) {
+	if err := w.queue.PushReply(jobID, reply); err != nil {
+		logging.Logger().Warn().
+			Err(err).
+			Str("job_id", jobID).
+			Msg("Failed to push job reply, waiters fall back to polling")
 	}
 }
