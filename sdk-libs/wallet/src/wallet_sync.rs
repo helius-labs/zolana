@@ -124,6 +124,7 @@ where
             // Cursors come out of the wallet and go back rather than staying
             // borrowed, because `wallet` is needed mutably further down.
             let mut cursors = std::mem::take(&mut wallet.sync_cursors);
+            let mut proofless_cursors = std::mem::take(&mut wallet.proofless_cursors);
             let mut by_nullifier: HashMap<String, ShieldedTransaction> = HashMap::new();
             // One gate for the whole round, not one per call: every query in a
             // round should read the chain at the same freshness bound, and
@@ -163,6 +164,7 @@ where
                         &mut proofless_deposits,
                         config,
                         gate,
+                        &mut proofless_cursors,
                         &mut proofless_scanned_to_tip,
                     )
                 });
@@ -174,6 +176,7 @@ where
             });
 
             wallet.sync_cursors = cursors;
+            wallet.proofless_cursors = proofless_cursors;
             // Propagate a panic rather than swallowing it into a sync error: a
             // panicked fetch means a bug here, not an unreachable indexer.
             let tag_result = tag_result.unwrap_or_else(|payload| resume_unwind(payload));
@@ -304,15 +307,19 @@ where
             &mut nullifier_scanned_to_tip,
         )
         .await?;
-        fetch_proofless_deposits_async(
+        let mut proofless_cursors = std::mem::take(&mut wallet.proofless_cursors);
+        let fetched_proofless = fetch_proofless_deposits_async(
             indexer,
             &tags,
             &mut proofless_deposits,
             config,
             freshness_gate.take(),
+            &mut proofless_cursors,
             &mut proofless_scanned_to_tip,
         )
-        .await?;
+        .await;
+        wallet.proofless_cursors = proofless_cursors;
+        fetched_proofless?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -804,103 +811,159 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
     Ok(())
 }
 
+/// Reads new proofless deposits, resuming from where the last sync stopped.
+///
+/// Resume points are per tag and persisted on the wallet, for the same reason
+/// [`fetch_shielded_transactions_incremental`] keeps them that way: the tag set
+/// grows, and a tag learned late has to be scanned from the beginning while
+/// tags learned earlier are far ahead.
+///
+/// Without the persisted cursor this paged the entire encrypted-utxo history for
+/// every tag on every sync and then discarded all but the deposits client-side --
+/// 909ms to keep 2.5 rows on devnet, a third of the sync phase, growing with
+/// history. The rows it re-read were ones it had already seen and dropped.
 fn fetch_proofless_deposits<I>(
     indexer: &I,
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    cursors: &mut HashMap<ViewTag, Vec<u8>>,
     scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError>
 where
     I: Rpc,
 {
-    let pending: Vec<ViewTag> = tags
-        .iter()
-        .copied()
-        .filter(|tag| !scanned_to_tip.contains(tag))
-        .collect();
-    for chunk in pending.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer.get_encrypted_utxos_by_tags(
-                chunk.to_vec(),
-                cursor,
-                Some(config.page_limit),
-                rpc_config,
-            )?;
-            let last_page = response.matches.len() < config.page_limit as usize;
-            for item in response.matches {
-                if item.tx_viewing_pk.is_some() || item.salt.is_some() {
-                    continue;
-                }
-                let key = format!(
-                    "{}:{}",
-                    item.tx_signature, item.output_slot.output_context.leaf_index
-                );
-                if out.contains_key(&key) {
-                    continue;
-                }
-                if let Some(view) = proofless_deposit_from_indexed_match(item)? {
-                    out.insert(key, view);
-                }
-            }
-            cursor = response.next_cursor;
-            if last_page || cursor.is_none() {
-                break;
-            }
+    // Group by resume point, so tags at the same position share a query.
+    let mut groups: HashMap<Option<Vec<u8>>, Vec<ViewTag>> = HashMap::new();
+    for tag in tags {
+        if scanned_to_tip.contains(tag) {
+            continue;
         }
-        scanned_to_tip.extend(chunk.iter().copied());
+        groups
+            .entry(cursors.get(tag).cloned())
+            .or_default()
+            .push(*tag);
+    }
+
+    for (start, group) in groups {
+        for chunk in group.chunks(config.tag_query_chunk) {
+            let mut cursor = start.clone();
+            let mut furthest = start.clone();
+            loop {
+                let response = indexer.get_encrypted_utxos_by_tags(
+                    chunk.to_vec(),
+                    cursor,
+                    Some(config.page_limit),
+                    rpc_config,
+                )?;
+                let last_page = response.matches.len() < config.page_limit as usize;
+                for item in response.matches {
+                    if item.tx_viewing_pk.is_some() || item.salt.is_some() {
+                        continue;
+                    }
+                    let key = format!(
+                        "{}:{}",
+                        item.tx_signature, item.output_slot.output_context.leaf_index
+                    );
+                    if out.contains_key(&key) {
+                        continue;
+                    }
+                    if let Some(view) = proofless_deposit_from_indexed_match(item)? {
+                        out.insert(key, view);
+                    }
+                }
+                if response.next_cursor.is_some() {
+                    furthest = response.next_cursor.clone();
+                }
+                cursor = response.next_cursor;
+                if last_page || cursor.is_none() {
+                    break;
+                }
+            }
+            // Sound only because the stream is globally ordered: every tag in
+            // this chunk has now been read to that position.
+            if let Some(position) = furthest {
+                for tag in chunk {
+                    cursors.insert(*tag, position.clone());
+                }
+            }
+            scanned_to_tip.extend(chunk.iter().copied());
+        }
     }
     Ok(())
 }
 
+/// Async twin of [`fetch_proofless_deposits`].
+///
+/// Kept deliberately parallel rather than shared, for the reason given on
+/// [`fetch_shielded_transactions_incremental_async`]: an async client that did
+/// not get the persisted cursor would keep re-reading the whole encrypted-utxo
+/// history on every sync.
 async fn fetch_proofless_deposits_async<I: AsyncRpc>(
     indexer: &I,
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    cursors: &mut HashMap<ViewTag, Vec<u8>>,
     scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError> {
-    let pending: Vec<ViewTag> = tags
-        .iter()
-        .copied()
-        .filter(|tag| !scanned_to_tip.contains(tag))
-        .collect();
-    for chunk in pending.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer
-                .get_encrypted_utxos_by_tags(
-                    chunk.to_vec(),
-                    cursor,
-                    Some(config.page_limit),
-                    rpc_config,
-                )
-                .await?;
-            let last_page = response.matches.len() < config.page_limit as usize;
-            for item in response.matches {
-                if item.tx_viewing_pk.is_some() || item.salt.is_some() {
-                    continue;
-                }
-                let key = format!(
-                    "{}:{}",
-                    item.tx_signature, item.output_slot.output_context.leaf_index
-                );
-                if out.contains_key(&key) {
-                    continue;
-                }
-                if let Some(view) = proofless_deposit_from_indexed_match(item)? {
-                    out.insert(key, view);
-                }
-            }
-            cursor = response.next_cursor;
-            if last_page || cursor.is_none() {
-                break;
-            }
+    let mut groups: HashMap<Option<Vec<u8>>, Vec<ViewTag>> = HashMap::new();
+    for tag in tags {
+        if scanned_to_tip.contains(tag) {
+            continue;
         }
-        scanned_to_tip.extend(chunk.iter().copied());
+        groups
+            .entry(cursors.get(tag).cloned())
+            .or_default()
+            .push(*tag);
+    }
+
+    for (start, group) in groups {
+        for chunk in group.chunks(config.tag_query_chunk) {
+            let mut cursor = start.clone();
+            let mut furthest = start.clone();
+            loop {
+                let response = indexer
+                    .get_encrypted_utxos_by_tags(
+                        chunk.to_vec(),
+                        cursor,
+                        Some(config.page_limit),
+                        rpc_config,
+                    )
+                    .await?;
+                let last_page = response.matches.len() < config.page_limit as usize;
+                for item in response.matches {
+                    if item.tx_viewing_pk.is_some() || item.salt.is_some() {
+                        continue;
+                    }
+                    let key = format!(
+                        "{}:{}",
+                        item.tx_signature, item.output_slot.output_context.leaf_index
+                    );
+                    if out.contains_key(&key) {
+                        continue;
+                    }
+                    if let Some(view) = proofless_deposit_from_indexed_match(item)? {
+                        out.insert(key, view);
+                    }
+                }
+                if response.next_cursor.is_some() {
+                    furthest = response.next_cursor.clone();
+                }
+                cursor = response.next_cursor;
+                if last_page || cursor.is_none() {
+                    break;
+                }
+            }
+            if let Some(position) = furthest {
+                for tag in chunk {
+                    cursors.insert(*tag, position.clone());
+                }
+            }
+            scanned_to_tip.extend(chunk.iter().copied());
+        }
     }
     Ok(())
 }
@@ -1770,6 +1833,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            &mut HashMap::new(),
             &mut HashSet::new(),
         )
         .expect("decode proofless payload");
@@ -1889,6 +1953,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            &mut HashMap::new(),
             &mut HashSet::new(),
         )
         .expect("skip encrypted row");

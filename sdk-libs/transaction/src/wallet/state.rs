@@ -147,6 +147,19 @@ pub struct Wallet {
     /// Per-view-tag sync watermarks: for each tag, the indexer cursor up to which
     /// every matching transaction has already been seen.    
     pub sync_cursors: HashMap<ViewTag, Vec<u8>>,
+    /// The same watermarks for the encrypted-utxo stream, which proofless
+    /// deposits are read from.
+    ///
+    /// Separate from `sync_cursors` because they are positions in different
+    /// streams: reaching the tip of the transaction stream says nothing about
+    /// where the encrypted-utxo stream has been read to, and sharing one cursor
+    /// between them would skip rows in whichever stream is behind.
+    ///
+    /// This existed only for the duration of a single sync before, so every sync
+    /// re-read the whole encrypted-utxo history for every tag and discarded all
+    /// but the deposits. Measured on devnet: 909ms per sync to keep 2.5 rows,
+    /// about a third of the sync phase, and growing with history.
+    pub proofless_cursors: HashMap<ViewTag, Vec<u8>>,
 }
 
 impl Wallet {
@@ -164,6 +177,7 @@ impl Wallet {
             nullifiers: HashSet::new(),
             last_synced: 0,
             sync_cursors: HashMap::new(),
+            proofless_cursors: HashMap::new(),
         })
     }
 
