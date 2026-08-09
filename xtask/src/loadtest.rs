@@ -166,7 +166,7 @@ impl Options {
 /// the shielded keypair is derived from the funding key, so the funding key is
 /// the only secret needed and there is no reason to reimplement the CLI's file
 /// parsing here.
-fn load_keypairs(dir: &Path) -> Result<Vec<Keypair>> {
+pub(crate) fn load_keypairs(dir: &Path) -> Result<Vec<Keypair>> {
     let mut paths: Vec<PathBuf> = fs::read_dir(dir)
         .with_context(|| format!("read {}", dir.display()))?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
