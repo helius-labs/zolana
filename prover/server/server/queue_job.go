@@ -350,6 +350,9 @@ func (w *BaseQueueWorker) processJobs() {
 	RecordDispatchStage(w.queueName, "semaphore", time.Since(semaphoreStart))
 
 	go func(job *ProofJob, inputHash string) {
+		// Set once the processing entry exists; the panic handler below reads
+		// whatever it holds at that point, which is "" if we never got that far.
+		var processingItem string
 		defer func() {
 			if r := recover(); r != nil {
 				circuitType := "unknown"
@@ -371,7 +374,7 @@ func (w *BaseQueueWorker) processJobs() {
 					Str("circuit_type", circuitType).
 					Msg("Panic recovered in proof processing")
 
-				w.removeFromProcessingQueue(job.ID)
+				w.removeFromProcessingQueue(processingItem)
 				w.addToFailedQueue(job, inputHash, panicErr)
 
 				if delErr := w.queue.DeleteInFlightJob(inputHash, job.ID); delErr != nil {
@@ -404,7 +407,9 @@ func (w *BaseQueueWorker) processJobs() {
 			Payload:   job.Payload,
 			CreatedAt: time.Now(),
 		}
-		err := w.queue.EnqueueProof(w.processingQueueName, processingJob)
+		// Keep the stored bytes: they are the only handle LREM can match, and
+		// searching for them later costs a round trip per queue entry.
+		storedItem, err := w.queue.EnqueueProofReturning(w.processingQueueName, processingJob)
 		if err != nil {
 			logging.Logger().Error().
 				Err(err).
@@ -413,9 +418,10 @@ func (w *BaseQueueWorker) processJobs() {
 				Msg("Failed to add job to processing queue")
 			return
 		}
+		processingItem = storedItem
 
 		proof, err := w.generateProof(job)
-		w.removeFromProcessingQueue(job.ID)
+		w.removeFromProcessingQueue(processingItem)
 
 		proofDuration := time.Since(proofStartTime)
 
@@ -646,20 +652,29 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 	return mergeprover.ProveMerge(ps, &params)
 }
 
-func (w *BaseQueueWorker) removeFromProcessingQueue(jobID string) {
-	processingQueueLength, _ := w.queue.Client.LLen(w.queue.Ctx, w.processingQueueName).Result()
-
-	for i := range processingQueueLength {
-		item, err := w.queue.Client.LIndex(w.queue.Ctx, w.processingQueueName, i).Result()
-		if err != nil {
-			continue
-		}
-
-		var job ProofJob
-		if json.Unmarshal([]byte(item), &job) == nil && job.ID == jobID+"_processing" {
-			w.queue.Client.LRem(w.queue.Ctx, w.processingQueueName, 1, item)
-			break
-		}
+// removeFromProcessingQueue drops the entry a worker added when it started, by
+// value, in one command.
+//
+// It used to search: LLen, then an LINDEX round trip per position until the
+// job id matched. That is O(queue length) *round trips* per completed proof,
+// paid while holding a semaphore slot -- so the longer the processing queue
+// grew, the longer each slot was held, the more work sat in flight, and the
+// longer the queue grew. Measured on devnet at 220 workers: the processing
+// queue climbed 210 -> 751 during one run when at most 128 proofs can actually
+// be in flight, jobs waited 4.5-7s to be picked up behind a 108-deep pending
+// queue, and the provers themselves sat at 12-33% CPU proving in 0.25s.
+//
+// The caller already holds the exact bytes it pushed, which is the only thing
+// LREM can match on, so no search is needed.
+func (w *BaseQueueWorker) removeFromProcessingQueue(item string) {
+	if item == "" {
+		return
+	}
+	if err := w.queue.Client.LRem(w.queue.Ctx, w.processingQueueName, 1, item).Err(); err != nil {
+		logging.Logger().Warn().
+			Err(err).
+			Str("processing_queue", w.processingQueueName).
+			Msg("Failed to remove entry from processing queue (cleanup will age it out)")
 	}
 }
 

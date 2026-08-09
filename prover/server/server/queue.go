@@ -65,9 +65,19 @@ func NewRedisQueue(redisURL string) (*RedisQueue, error) {
 }
 
 func (rq *RedisQueue) EnqueueProof(queueName string, job *ProofJob) error {
+	_, err := rq.EnqueueProofReturning(queueName, job)
+	return err
+}
+
+// EnqueueProofReturning enqueues a job and returns the exact bytes stored.
+//
+// A Redis list can only be removed from by value, and the value is this
+// serialization. Handing it back lets a caller that will later remove the entry
+// do it with one LREM instead of walking the list to find what it pushed.
+func (rq *RedisQueue) EnqueueProofReturning(queueName string, job *ProofJob) (string, error) {
 	data, err := json.Marshal(job)
 	if err != nil {
-		return fmt.Errorf("failed to marshal job: %w", err)
+		return "", fmt.Errorf("failed to marshal job: %w", err)
 	}
 
 	// Use tree-specific sub-queue for fair queuing if TreeID is set
@@ -79,9 +89,8 @@ func (rq *RedisQueue) EnqueueProof(queueName string, job *ProofJob) error {
 		rq.Client.SAdd(rq.Ctx, treesSetKey, job.TreeID)
 	}
 
-	err = rq.Client.RPush(rq.Ctx, actualQueueName, data).Err()
-	if err != nil {
-		return fmt.Errorf("failed to enqueue job: %w", err)
+	if err := rq.Client.RPush(rq.Ctx, actualQueueName, data).Err(); err != nil {
+		return "", fmt.Errorf("failed to enqueue job: %w", err)
 	}
 
 	logging.Logger().Info().
@@ -90,7 +99,7 @@ func (rq *RedisQueue) EnqueueProof(queueName string, job *ProofJob) error {
 		Str("tree_id", job.TreeID).
 		Str("redis_addr", rq.Client.Options().Addr).
 		Msg("Job enqueued successfully")
-	return nil
+	return string(data), nil
 }
 
 // isFairQueueEnabled returns true for queues that support fair queuing per tree
