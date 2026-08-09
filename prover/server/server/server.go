@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
@@ -872,7 +873,14 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	)
 
 	authHandler := conditionalAuthMiddleware(apiKey)
-	proverServer := &http.Server{Addr: config.ProverAddress, Handler: corsHandler(authHandler(proverMux))}
+	proverServer := &http.Server{
+		Addr:    config.ProverAddress,
+		Handler: corsHandler(authHandler(proverMux)),
+		// The deadline covers the whole exchange after the request headers, so
+		// it must stay above maxSyncProofTimeout. A shorter one severs the
+		// connection of a proof that is still allowed to run.
+		WriteTimeout: maxSyncProofTimeout + time.Minute,
+	}
 	proverJob := spawnServerJob(proverServer, "prover server")
 
 	if redisQueue != nil {
@@ -910,6 +918,10 @@ func provingError(err error) *Error {
 
 func unexpectedError(err error) *Error {
 	return &Error{StatusCode: http.StatusInternalServerError, Code: "unexpected_error", Message: err.Error()}
+}
+
+func requestAbandonedError(err error) *Error {
+	return &Error{StatusCode: http.StatusRequestTimeout, Code: "request_abandoned", Message: err.Error()}
 }
 
 func (error *Error) MarshalJSON() ([]byte, error) {
@@ -1081,6 +1093,23 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		Msg("Batch operation job queued successfully")
 }
 
+const (
+	minSyncProofTimeout = 10 * time.Second
+	maxSyncProofTimeout = 300 * time.Second
+)
+
+// syncProofSlots bounds the proofs the synchronous path starts, the way the
+// queue workers bound theirs. Each prove holds a proving key and its witness,
+// so an unbounded request count exhausts memory long before it saturates the
+// cores.
+var syncProofSlots = sync.OnceValue(func() chan struct{} {
+	slots := getMaxConcurrency()
+	logging.Logger().Info().
+		Int("max_concurrency", slots).
+		Msg("Bounding synchronous proofs")
+	return make(chan struct{}, slots)
+})
+
 func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
 	if handler.isBatchOperation(meta.CircuitType) {
 		warning := fmt.Sprintf("WARNING: %s is a heavy operation that should be processed asynchronously. Consider using X-Async: true header.", meta.CircuitType)
@@ -1092,15 +1121,30 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 	estimatedTime := handler.getEstimatedTimeSeconds(meta.CircuitType)
 	timeoutDuration := time.Duration(estimatedTime*2) * time.Second
-	if timeoutDuration < 10*time.Second {
-		timeoutDuration = 10 * time.Second
+	if timeoutDuration < minSyncProofTimeout {
+		timeoutDuration = minSyncProofTimeout
 	}
-	if timeoutDuration > 300*time.Second {
-		timeoutDuration = 300 * time.Second
+	if timeoutDuration > maxSyncProofTimeout {
+		timeoutDuration = maxSyncProofTimeout
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
+
+	slots := syncProofSlots()
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		(&Error{
+			StatusCode: http.StatusServiceUnavailable,
+			Code:       "prover_busy",
+			Message:    "Every prover slot is taken. Retry, or use asynchronous mode with the X-Async: true header.",
+		}).send(w)
+		logging.Logger().Warn().
+			Str("circuit_type", string(meta.CircuitType)).
+			Msg("Synchronous proof gave up waiting for a prover slot")
+		return
+	}
 
 	type proofResult struct {
 		proof *common.Proof
@@ -1110,7 +1154,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	resultChan := make(chan proofResult, 1)
 
 	go func() {
-		// Recover from panics to prevent server crash from malformed input
+		defer func() { <-slots }()
 		defer func() {
 			if r := recover(); r != nil {
 				ProofPanicsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
@@ -1127,7 +1171,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 		timer := StartProofTimer(string(meta.CircuitType))
 
-		proof, proofError := handler.processProofSync(buf)
+		proof, proofError := handler.processProofSync(ctx, buf)
 
 		if proofError != nil {
 			timer.ObserveError(proofError.Code)
@@ -1136,8 +1180,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			timer.ObserveDuration()
 			RecordJobComplete(true)
 			if proof != nil {
-				proofBytes, _ := json.Marshal(proof)
-				RecordProofSize(string(meta.CircuitType), len(proofBytes))
+				if proofBytes, marshalErr := json.Marshal(proof); marshalErr == nil {
+					RecordProofSize(string(meta.CircuitType), len(proofBytes))
+				}
 			}
 		}
 
@@ -1235,10 +1280,16 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 	}
 }
 
-func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error) {
+func (handler proveHandler) processProofSync(ctx context.Context, buf []byte) (*common.Proof, *Error) {
 	proofRequestMeta, err := common.ParseProofRequestMeta(buf)
 	if err != nil {
 		return nil, malformedBodyError(err)
+	}
+
+	// The last point the work can stop. A Groth16 prove cannot be interrupted,
+	// so a request whose client already left must not reach a proving key.
+	if err := ctx.Err(); err != nil {
+		return nil, requestAbandonedError(err)
 	}
 
 	switch proofRequestMeta.CircuitType {
