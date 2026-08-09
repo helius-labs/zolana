@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
@@ -154,6 +155,9 @@ type BaseQueueWorker struct {
 	processingQueueName string
 	maxConcurrency      int
 	semaphore           chan struct{}
+	// inFlight counts the proofs that already left Redis. Stop waits on it, so
+	// shutdown cannot drop a job that no queue holds any more.
+	inFlight sync.WaitGroup
 }
 
 type AddressAppendQueueWorker struct {
@@ -194,6 +198,7 @@ func (w *BaseQueueWorker) Start() {
 
 func (w *BaseQueueWorker) Stop() {
 	close(w.stopChan)
+	w.inFlight.Wait()
 }
 
 func (w *BaseQueueWorker) processJobs() {
@@ -269,7 +274,14 @@ func (w *BaseQueueWorker) processJobs() {
 			Str("input_hash", inputHash).
 			Msg("Returning cached successful proof result without re-processing")
 
-		resultData, _ := json.Marshal(cachedProof)
+		resultData, marshalErr := json.Marshal(cachedProof)
+		if marshalErr != nil {
+			// A nil reply body reaches the waiter as a completed job with no
+			// proof in it. Fail the job instead.
+			RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
+			w.failJob(job, inputHash, fmt.Errorf("failed to marshal the cached result: %w", marshalErr))
+			return
+		}
 		resultJob := &ProofJob{
 			ID:        job.ID,
 			Type:      "result",
@@ -327,17 +339,22 @@ func (w *BaseQueueWorker) processJobs() {
 			"cached_from": cachedFailedJobID,
 		}
 
-		failedData, _ := json.Marshal(failedJob)
-		failedJobStruct := &ProofJob{
-			ID:        job.ID + "_failed",
-			Type:      "failed",
-			Payload:   json.RawMessage(failedData),
-			CreatedAt: time.Now(),
-		}
-
-		err = w.queue.EnqueueProof("zk_failed_queue", failedJobStruct)
-		if err != nil {
-			logging.Logger().Error().Err(err).Str("job_id", job.ID).Msg("Failed to enqueue cached failure")
+		failedData, marshalErr := json.Marshal(failedJob)
+		if marshalErr != nil {
+			logging.Logger().Error().
+				Err(marshalErr).
+				Str("job_id", job.ID).
+				Msg("Failed to marshal the cached failure")
+		} else {
+			failedJobStruct := &ProofJob{
+				ID:        job.ID + "_failed",
+				Type:      "failed",
+				Payload:   json.RawMessage(failedData),
+				CreatedAt: time.Now(),
+			}
+			if enqueueErr := w.queue.EnqueueProof("zk_failed_queue", failedJobStruct); enqueueErr != nil {
+				logging.Logger().Error().Err(enqueueErr).Str("job_id", job.ID).Msg("Failed to enqueue cached failure")
+			}
 		}
 		w.queue.StoreInputHash(job.ID, inputHash)
 		w.queue.IndexFailureByHash(inputHash, job.ID)
@@ -357,10 +374,20 @@ func (w *BaseQueueWorker) processJobs() {
 	// Blocking here means every worker is busy, the one healthy reason for the
 	// loop to stall.
 	semaphoreStart := time.Now()
-	w.semaphore <- struct{}{}
+	select {
+	case w.semaphore <- struct{}{}:
+	case <-w.stopChan:
+		RecordDispatchStage(w.queueName, "semaphore", time.Since(semaphoreStart))
+		// The job is out of Redis already. Fail it rather than let shutdown
+		// swallow it with no reply and no failed-queue entry.
+		w.failJob(job, inputHash, fmt.Errorf("worker stopped before the proof started"))
+		return
+	}
 	RecordDispatchStage(w.queueName, "semaphore", time.Since(semaphoreStart))
 
+	w.inFlight.Add(1)
 	go func(job *ProofJob, inputHash string) {
+		defer w.inFlight.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				circuitType := "unknown"
@@ -383,21 +410,7 @@ func (w *BaseQueueWorker) processJobs() {
 					Msg("Panic recovered in proof processing")
 
 				w.removeFromProcessingQueue(job.ID)
-				w.addToFailedQueue(job, inputHash, panicErr)
-
-				if delErr := w.queue.DeleteInFlightJob(inputHash, job.ID); delErr != nil {
-					logging.Logger().Warn().
-						Err(delErr).
-						Str("job_id", job.ID).
-						Str("input_hash", inputHash).
-						Msg("Failed to delete in-flight job marker (non-critical)")
-				}
-				if delErr := w.queue.DeleteJobMeta(job.ID); delErr != nil {
-					logging.Logger().Warn().
-						Err(delErr).
-						Str("job_id", job.ID).
-						Msg("Failed to delete job metadata (non-critical)")
-				}
+				w.failJob(job, inputHash, panicErr)
 			}
 			<-w.semaphore
 		}()
@@ -422,6 +435,11 @@ func (w *BaseQueueWorker) processJobs() {
 				Str("job_id", job.ID).
 				Str("processing_queue", w.processingQueueName).
 				Msg("Failed to add job to processing queue")
+			// The dequeue already took the job out of its source queue. Without
+			// a failure the job sits in no queue at all, the client is never
+			// answered, and the in-flight marker hands the dead id to every
+			// identical request.
+			w.failJob(job, inputHash, fmt.Errorf("failed to enter the processing queue: %w", err))
 			return
 		}
 
@@ -438,22 +456,7 @@ func (w *BaseQueueWorker) processJobs() {
 				Dur("duration", proofDuration).
 				Msg("Failed to process proof job")
 
-			w.addToFailedQueue(job, inputHash, err)
-
-			// Delete the in-flight marker so a new job can retry the same input.
-			if delErr := w.queue.DeleteInFlightJob(inputHash, job.ID); delErr != nil {
-				logging.Logger().Warn().
-					Err(delErr).
-					Str("job_id", job.ID).
-					Str("input_hash", inputHash).
-					Msg("Failed to delete in-flight job marker (non-critical)")
-			}
-			if delErr := w.queue.DeleteJobMeta(job.ID); delErr != nil {
-				logging.Logger().Warn().
-					Err(delErr).
-					Str("job_id", job.ID).
-					Msg("Failed to delete job metadata (non-critical)")
-			}
+			w.failJob(job, inputHash, err)
 		} else {
 			proofWithTiming := &common.ProofWithTiming{
 				Proof:           proof,
@@ -461,7 +464,13 @@ func (w *BaseQueueWorker) processJobs() {
 				Backend:         backend,
 			}
 
-			resultData, _ := json.Marshal(proofWithTiming)
+			resultData, marshalErr := json.Marshal(proofWithTiming)
+			if marshalErr != nil {
+				// A nil reply body reaches the waiter as a completed job with
+				// no proof in it. Fail the job instead.
+				w.failJob(job, inputHash, fmt.Errorf("failed to marshal the proof: %w", marshalErr))
+				return
+			}
 			resultJob := &ProofJob{
 				ID:        job.ID,
 				Type:      "result",
@@ -598,8 +607,9 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, string, e
 	RecordJobComplete(true)
 
 	if proof != nil {
-		proofBytes, _ := json.Marshal(proof)
-		RecordProofSize(string(proofRequestMeta.CircuitType), len(proofBytes))
+		if proofBytes, marshalErr := json.Marshal(proof); marshalErr == nil {
+			RecordProofSize(string(proofRequestMeta.CircuitType), len(proofBytes))
+		}
 	}
 
 	return proof, backend, nil
@@ -681,6 +691,28 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(jobID string) {
 	}
 }
 
+// failJob is the terminal state of a dequeued job. It answers the client, files
+// the failure, and drops the in-flight marker so the same input can be retried.
+// Every post-dequeue failure must pass through here, a job that skips it exists
+// in no queue and no client ever learns its fate.
+func (w *BaseQueueWorker) failJob(job *ProofJob, inputHash string, err error) {
+	w.addToFailedQueue(job, inputHash, err)
+
+	if delErr := w.queue.DeleteInFlightJob(inputHash, job.ID); delErr != nil {
+		logging.Logger().Warn().
+			Err(delErr).
+			Str("job_id", job.ID).
+			Str("input_hash", inputHash).
+			Msg("Failed to delete in-flight job marker (non-critical)")
+	}
+	if delErr := w.queue.DeleteJobMeta(job.ID); delErr != nil {
+		logging.Logger().Warn().
+			Err(delErr).
+			Str("job_id", job.ID).
+			Msg("Failed to delete job metadata (non-critical)")
+	}
+}
+
 func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err error) {
 	// Store the circuit type only. Full payloads would grow Redis without bound.
 	var circuitType string
@@ -703,20 +735,28 @@ func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err 
 		"failed_at": time.Now(),
 	}
 
-	failedData, _ := json.Marshal(failedJob)
-	failedJobStruct := &ProofJob{
-		ID:        job.ID + "_failed",
-		Type:      "failed",
-		Payload:   json.RawMessage(failedData),
-		CreatedAt: time.Now(),
-	}
-
-	enqueueErr := w.queue.EnqueueProof("zk_failed_queue", failedJobStruct)
-	if enqueueErr != nil {
+	// The reply below carries the error on its own, so a payload that cannot be
+	// marshaled must not stop the client from being answered.
+	failedData, marshalErr := json.Marshal(failedJob)
+	if marshalErr != nil {
 		logging.Logger().Error().
-			Err(enqueueErr).
+			Err(marshalErr).
 			Str("job_id", job.ID).
-			Msg("Failed to add job to failed queue")
+			Msg("Failed to marshal the failure details")
+	} else {
+		failedJobStruct := &ProofJob{
+			ID:        job.ID + "_failed",
+			Type:      "failed",
+			Payload:   json.RawMessage(failedData),
+			CreatedAt: time.Now(),
+		}
+
+		if enqueueErr := w.queue.EnqueueProof("zk_failed_queue", failedJobStruct); enqueueErr != nil {
+			logging.Logger().Error().
+				Err(enqueueErr).
+				Str("job_id", job.ID).
+				Msg("Failed to add job to failed queue")
+		}
 	}
 
 	if inputHash != "" {

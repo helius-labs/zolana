@@ -74,13 +74,17 @@ func (rq *RedisQueue) EnqueueProof(queueName string, job *ProofJob) error {
 	actualQueueName := queueName
 	if job.TreeID != "" && isFairQueueEnabled(queueName) {
 		actualQueueName = fmt.Sprintf("%s:%s", queueName, job.TreeID)
-		// Track this tree in the trees set for round-robin
+		// The trees set is the only path fair queuing reaches a tree sub-queue
+		// through. One transaction keeps a pushed job from being invisible to
+		// every worker until the cleanup deletes it.
 		treesSetKey := fmt.Sprintf("%s:trees", queueName)
-		rq.Client.SAdd(rq.Ctx, treesSetKey, job.TreeID)
-	}
-
-	err = rq.Client.RPush(rq.Ctx, actualQueueName, data).Err()
-	if err != nil {
+		pipe := rq.Client.TxPipeline()
+		pipe.SAdd(rq.Ctx, treesSetKey, job.TreeID)
+		pipe.RPush(rq.Ctx, actualQueueName, data)
+		if _, err := pipe.Exec(rq.Ctx); err != nil {
+			return fmt.Errorf("failed to enqueue job: %w", err)
+		}
+	} else if err := rq.Client.RPush(rq.Ctx, actualQueueName, data).Err(); err != nil {
 		return fmt.Errorf("failed to enqueue job: %w", err)
 	}
 
@@ -290,6 +294,11 @@ func (rq *RedisQueue) dequeueWithFairQueuing(queueName string, timeout time.Dura
 // BatchIndexScanLimit is the maximum number of items to scan when looking for the lowest batch_index.
 const BatchIndexScanLimit = 100
 
+// dequeueRemoveRetries bounds the retry after another worker removed the chosen
+// item first. Each attempt re-reads the queue, so an unbounded retry keeps one
+// dequeue loop busy for as long as other workers keep winning the race.
+const dequeueRemoveRetries = 8
+
 // dequeueLowestBatchIndex finds and removes the job with the lowest batch_index from the queue.
 // This ensures that batches are processed in order within each tree, enabling the forester
 // to send transactions sequentially as proofs complete.
@@ -297,91 +306,96 @@ const BatchIndexScanLimit = 100
 // but after jobs with explicit batch indices.
 //
 // Scans up to BatchIndexScanLimit items for performance. If the item was removed by another
-// worker between find and remove, retries automatically.
+// worker between find and remove, retries up to dequeueRemoveRetries times and then reports
+// the contention, which leaves the tree in the trees set for the next round.
 func (rq *RedisQueue) dequeueLowestBatchIndex(queueName string) (*ProofJob, error) {
-	// Scan up to BatchIndexScanLimit items instead of the entire queue
-	items, err := rq.Client.LRange(rq.Ctx, queueName, 0, BatchIndexScanLimit-1).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(items) == 0 {
-		return nil, redis.Nil
-	}
-
-	if len(items) == 1 {
-		result, err := rq.Client.LPop(rq.Ctx, queueName).Result()
+	for range dequeueRemoveRetries {
+		// Scan up to BatchIndexScanLimit items instead of the entire queue
+		items, err := rq.Client.LRange(rq.Ctx, queueName, 0, BatchIndexScanLimit-1).Result()
 		if err != nil {
 			return nil, err
 		}
-		var job ProofJob
-		if err := json.Unmarshal([]byte(result), &job); err != nil {
-			return nil, err
-		}
-		return &job, nil
-	}
 
-	var lowestJob *ProofJob
-	lowestIdx := -1
-	lowestBatchIndex := int64(^uint64(0) >> 1)
-
-	for i, item := range items {
-		var job ProofJob
-		if err := json.Unmarshal([]byte(item), &job); err != nil {
-			logging.Logger().Warn().
-				Err(err).
-				Str("queue", queueName).
-				Int("index", i).
-				Msg("Failed to unmarshal job while searching for lowest batch_index")
-			continue
+		if len(items) == 0 {
+			return nil, redis.Nil
 		}
 
-		// Jobs with batch_index >= 0 have priority over legacy jobs (batch_index -1)
-		// Among jobs with batch_index >= 0, lower index wins
-		// Among legacy jobs, first in queue wins (FIFO)
-		if job.BatchIndex >= 0 {
-			if lowestJob == nil || lowestJob.BatchIndex < 0 || job.BatchIndex < lowestBatchIndex {
+		if len(items) == 1 {
+			result, err := rq.Client.LPop(rq.Ctx, queueName).Result()
+			if err != nil {
+				return nil, err
+			}
+			var job ProofJob
+			if err := json.Unmarshal([]byte(result), &job); err != nil {
+				return nil, err
+			}
+			return &job, nil
+		}
+
+		var lowestJob *ProofJob
+		lowestIdx := -1
+		lowestBatchIndex := int64(^uint64(0) >> 1)
+
+		for i, item := range items {
+			var job ProofJob
+			if err := json.Unmarshal([]byte(item), &job); err != nil {
+				logging.Logger().Warn().
+					Err(err).
+					Str("queue", queueName).
+					Int("index", i).
+					Msg("Failed to unmarshal job while searching for lowest batch_index")
+				continue
+			}
+
+			// Jobs with batch_index >= 0 have priority over legacy jobs (batch_index -1)
+			// Among jobs with batch_index >= 0, lower index wins
+			// Among legacy jobs, first in queue wins (FIFO)
+			if job.BatchIndex >= 0 {
+				if lowestJob == nil || lowestJob.BatchIndex < 0 || job.BatchIndex < lowestBatchIndex {
+					lowestJob = &job
+					lowestIdx = i
+					lowestBatchIndex = job.BatchIndex
+				}
+			} else if lowestJob == nil || (lowestJob.BatchIndex < 0 && lowestIdx > i) {
+				// Legacy job, only take if no better candidate or this is earlier in queue
 				lowestJob = &job
 				lowestIdx = i
 				lowestBatchIndex = job.BatchIndex
 			}
-		} else if lowestJob == nil || (lowestJob.BatchIndex < 0 && lowestIdx > i) {
-			// Legacy job, only take if no better candidate or this is earlier in queue
-			lowestJob = &job
-			lowestIdx = i
-			lowestBatchIndex = job.BatchIndex
 		}
-	}
 
-	if lowestJob == nil {
-		return nil, redis.Nil
-	}
+		if lowestJob == nil {
+			return nil, redis.Nil
+		}
 
-	// Remove the selected job from the queue
-	itemToRemove := items[lowestIdx]
-	removed, err := rq.Client.LRem(rq.Ctx, queueName, 1, itemToRemove).Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to remove job from queue: %w", err)
-	}
+		// Remove the selected job from the queue
+		itemToRemove := items[lowestIdx]
+		removed, err := rq.Client.LRem(rq.Ctx, queueName, 1, itemToRemove).Result()
+		if err != nil {
+			return nil, fmt.Errorf("failed to remove job from queue: %w", err)
+		}
 
-	if removed == 0 {
-		// Item was already removed by another worker, retry
+		if removed == 0 {
+			// Item was already removed by another worker, retry
+			logging.Logger().Debug().
+				Str("job_id", lowestJob.ID).
+				Str("queue", queueName).
+				Msg("Job was already removed from queue, retrying")
+			continue
+		}
+
 		logging.Logger().Debug().
 			Str("job_id", lowestJob.ID).
+			Int64("batch_index", lowestJob.BatchIndex).
+			Int("queue_position", lowestIdx).
+			Int("scanned", len(items)).
 			Str("queue", queueName).
-			Msg("Job was already removed from queue, retrying")
-		return rq.dequeueLowestBatchIndex(queueName)
+			Msg("Dequeued job with lowest batch_index")
+
+		return lowestJob, nil
 	}
 
-	logging.Logger().Debug().
-		Str("job_id", lowestJob.ID).
-		Int64("batch_index", lowestJob.BatchIndex).
-		Int("queue_position", lowestIdx).
-		Int("scanned", len(items)).
-		Str("queue", queueName).
-		Msg("Dequeued job with lowest batch_index")
-
-	return lowestJob, nil
+	return nil, fmt.Errorf("lost the removal race on %s %d times", queueName, dequeueRemoveRetries)
 }
 
 func (rq *RedisQueue) GetQueueStats() (map[string]int64, error) {
@@ -587,6 +601,9 @@ func (rq *RedisQueue) WaitReply(jobID string, timeout time.Duration) (*JobReply,
 	if err != nil {
 		return nil, fmt.Errorf("failed to wait for job reply: %w", err)
 	}
+	if len(res) < 2 {
+		return nil, fmt.Errorf("invalid reply from Redis")
+	}
 	var reply JobReply
 	if err := json.Unmarshal([]byte(res[1]), &reply); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal job reply: %w", err)
@@ -723,36 +740,49 @@ func (rq *RedisQueue) CleanupOldRequests() error {
 	return nil
 }
 
+// resultKeyScanBatch bounds one SCAN step. KEYS walks the whole keyspace in one
+// blocking call, which stalls every worker's blocking pop and every status poll
+// for as long as it runs.
+const resultKeyScanBatch = 500
+
 func (rq *RedisQueue) CleanupOldResultKeys() error {
 	ctx := context.Background()
 
-	keys, err := rq.Client.Keys(ctx, "zk_result_*").Result()
-	if err != nil {
-		return fmt.Errorf("failed to get result keys: %w", err)
-	}
-
 	var removedCount int64
+	var cursor uint64
 
-	for _, key := range keys {
-		ttl, err := rq.Client.TTL(ctx, key).Result()
+	for {
+		keys, next, err := rq.Client.Scan(ctx, cursor, "zk_result_*", resultKeyScanBatch).Result()
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to scan result keys: %w", err)
 		}
 
-		if ttl == -1 || ttl < -time.Hour {
-			err = rq.Client.Del(ctx, key).Err()
+		for _, key := range keys {
+			ttl, err := rq.Client.TTL(ctx, key).Result()
 			if err != nil {
-				logging.Logger().Error().
-					Err(err).
-					Str("key", key).
-					Msg("Failed to delete old result key")
-			} else {
-				removedCount++
-				logging.Logger().Debug().
-					Str("key", key).
-					Dur("ttl", ttl).
-					Msg("Removed old result key")
+				continue
 			}
+
+			if ttl == -1 || ttl < -time.Hour {
+				err = rq.Client.Del(ctx, key).Err()
+				if err != nil {
+					logging.Logger().Error().
+						Err(err).
+						Str("key", key).
+						Msg("Failed to delete old result key")
+				} else {
+					removedCount++
+					logging.Logger().Debug().
+						Str("key", key).
+						Dur("ttl", ttl).
+						Msg("Removed old result key")
+				}
+			}
+		}
+
+		cursor = next
+		if cursor == 0 {
+			break
 		}
 	}
 
@@ -874,7 +904,14 @@ func (rq *RedisQueue) failStuckJobsFromQueue(queueName string, timeoutCutoff tim
 						"timeout":   true,
 					}
 
-					failedData, _ := json.Marshal(failureDetails)
+					failedData, marshalErr := json.Marshal(failureDetails)
+					if marshalErr != nil {
+						logging.Logger().Error().
+							Err(marshalErr).
+							Str("job_id", originalJobID).
+							Msg("Failed to marshal the timeout details")
+						continue
+					}
 					failedJob := &ProofJob{
 						ID:        originalJobID + "_failed",
 						Type:      "failed",

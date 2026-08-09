@@ -708,6 +708,49 @@ func TestResultCleanup(t *testing.T) {
 	}
 }
 
+// A result key with no TTL never expires on its own, so the cleanup is the only
+// thing that removes it. The scan must reach every one of them, past the size of
+// a single batch.
+func TestOldResultKeyCleanupReachesEveryKey(t *testing.T) {
+	rq := setupRedisQueue(t)
+	defer teardownRedisQueue(t, rq)
+
+	ctx := context.Background()
+	const persistentCount = 1200
+	for i := 0; i < persistentCount; i++ {
+		key := fmt.Sprintf("zk_result_persistent-%d", i)
+		if err := rq.Client.Set(ctx, key, `{"test":"data"}`, 0).Err(); err != nil {
+			t.Fatalf("Failed to store %s: %v", key, err)
+		}
+	}
+	if err := rq.Client.Set(ctx, "zk_result_fresh", `{"test":"data"}`, time.Hour).Err(); err != nil {
+		t.Fatalf("Failed to store the fresh result key: %v", err)
+	}
+
+	if err := rq.CleanupOldResultKeys(); err != nil {
+		t.Fatalf("Failed to cleanup old result keys: %v", err)
+	}
+
+	for i := 0; i < persistentCount; i++ {
+		key := fmt.Sprintf("zk_result_persistent-%d", i)
+		exists, err := rq.Client.Exists(ctx, key).Result()
+		if err != nil {
+			t.Fatalf("Failed to check %s: %v", key, err)
+		}
+		if exists != 0 {
+			t.Fatalf("Expected %s to be removed by cleanup", key)
+		}
+	}
+
+	exists, err := rq.Client.Exists(ctx, "zk_result_fresh").Result()
+	if err != nil {
+		t.Fatalf("Failed to check the fresh result key: %v", err)
+	}
+	if exists != 1 {
+		t.Error("Expected the result key with a live TTL to survive cleanup")
+	}
+}
+
 func TestWorkerCreation(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
