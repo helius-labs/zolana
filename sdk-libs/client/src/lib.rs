@@ -25,7 +25,7 @@ pub mod timing;
 
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
-pub use error::ClientError;
+pub use error::{ClientError, Unavailable};
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{

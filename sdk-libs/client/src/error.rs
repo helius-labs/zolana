@@ -238,10 +238,17 @@ pub enum ClientError {
     #[error("indexer error: {0}")]
     Indexer(String),
 
-    /// The indexer answered with a rate-limit or internal JSON-RPC error.
+    /// The indexer could not answer, for a reason that may not persist.
     /// Acted on by `Rpc::should_retry` during the confirmation poll.
-    #[error("indexer temporarily unavailable: {0}")]
-    IndexerUnavailable(String),
+    ///
+    /// `reason` is what callers should branch on. `detail` is for humans and
+    /// carries the transport's own wording, which is often not what it looks
+    /// like: reqwest renders a body-read timeout as "error decoding response
+    /// body", which reads like a deserialization bug and is not one. Deciding
+    /// anything by searching that text is how a load generator ended up
+    /// classifying throttling with `message.contains("429")`.
+    #[error("indexer temporarily unavailable: {reason} ({detail})")]
+    IndexerUnavailable { reason: Unavailable, detail: String },
 
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
@@ -273,4 +280,36 @@ pub enum ClientError {
 
     #[error("SOL deposit funding account {sender:?} must be the signing authority")]
     DepositSenderNotSigner { sender: [u8; 32] },
+}
+
+/// Why an indexer request failed, in a form callers can match on.
+///
+/// Exists so that nothing has to inspect an error message to decide what to do.
+/// The load generator used to separate throttling from real failure with
+/// `message.contains("429") || message.contains("rate")`, which counts a
+/// signature containing "429" as a rate limit and the word "generate" as one
+/// too, while missing a 503 entirely.
+///
+/// Every variant is retryable today. That is worth stating rather than
+/// assuming: the set is explicit, so adding a reason that is *not* retryable
+/// forces `should_retry` to be revisited instead of silently inheriting
+/// "retry anything unavailable".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum Unavailable {
+    /// Includes a timeout while reading the response body, which the transport
+    /// renders as "error decoding response body".
+    #[error("request timed out")]
+    Timeout,
+
+    #[error("could not connect")]
+    Connect,
+
+    #[error("rate limited")]
+    RateLimited,
+
+    #[error("server error {status}")]
+    ServerError { status: u16 },
+
+    #[error("indexer reported an internal error")]
+    JsonRpcInternal,
 }
