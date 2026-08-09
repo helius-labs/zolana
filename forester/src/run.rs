@@ -184,6 +184,8 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
     tracing::info!(tree = %opts.tree, "forester run: draining nullifier queue");
 
     let mut submitted_total: u64 = 0;
+    // Carried across passes: see ReferenceCache.
+    let mut cache = ReferenceCache::default();
     loop {
         // Liveness. Without this, "is the forester running?" is only answerable
         // by reading logs.
@@ -208,6 +210,7 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
             opts.tree,
             remaining,
             opts.proof_concurrency,
+            &mut cache,
         )?;
         let submitted = match outcome {
             DrainOutcome::Drained(submitted) => submitted,
@@ -407,12 +410,94 @@ fn collect_nullifier_pages(
 /// Fetch queued values from photon, replay the already-appended prefix into a
 /// fresh reference tree, and verify the reconstructed root matches on-chain.
 /// Returns the reference tree (at the on-chain state) and the fetched values.
+/// The replayed nullifier tree, kept between drain passes.
+///
+/// Rebuilding it means appending every already-applied nullifier again --
+/// sequential, Poseidon-heavy, and single-threaded. At ~30k applied values it
+/// pegged the forester's core for over ten minutes per pass while the prover
+/// sat at 0.002%, and the cost grows with every batch ever forested. Carrying
+/// the tree forward makes the usual pass append nothing.
+#[derive(Default)]
+struct ReferenceCache {
+    /// `None` until the first successful reconstruction.
+    tree: Option<ReferenceNullifierTree>,
+    /// How many queued values `tree` holds. Not the applied count: a drain pass
+    /// advances the tree through every witness it builds, including batches
+    /// whose submission then failed.
+    appended: u64,
+}
+
+impl ReferenceCache {
+    /// Extend the tree to hold exactly `applied` values, rebuilding it only
+    /// when it cannot be extended.
+    ///
+    /// An `IndexedMerkleTree` only appends, so a tree that has run ahead of the
+    /// chain -- a witness was built for a batch that never landed -- cannot be
+    /// rewound and is rebuilt. That is the self-healing path, not the common
+    /// one: when every batch lands, `appended` and `applied` meet exactly.
+    fn advance_to(&mut self, applied: u64, values: &[[u8; 32]], height: u32) -> Result<()> {
+        if self.appended > applied {
+            tracing::info!(
+                appended = self.appended,
+                applied,
+                "reference tree is ahead of chain; rebuilding"
+            );
+            self.invalidate();
+        }
+
+        let mut tree = match self.tree.take() {
+            Some(tree) => tree,
+            None => reference_nullifier_tree(height)?,
+        };
+        let from = usize::try_from(self.appended)
+            .map_err(|_| anyhow!("appended nullifier count {} exceeds usize", self.appended))?;
+        let pending = values
+            .get(from..)
+            .ok_or_else(|| anyhow!("queued nullifier prefix is shorter than {from}"))?;
+        for value in pending {
+            tree.append(&BigUint::from_bytes_be(value))
+                .map_err(|err| anyhow!("replay appended nullifier: {err:?}"))?;
+        }
+
+        self.appended = applied;
+        self.tree = Some(tree);
+        Ok(())
+    }
+
+    fn tree_mut(&mut self) -> Result<&mut ReferenceNullifierTree> {
+        self.tree
+            .as_mut()
+            .ok_or_else(|| anyhow!("reference tree is not reconstructed"))
+    }
+
+    fn root(&self) -> Result<[u8; 32]> {
+        self.tree
+            .as_ref()
+            .map(|tree| tree.root())
+            .ok_or_else(|| anyhow!("reference tree is not reconstructed"))
+    }
+
+    /// Record how far a drain pass advanced the tree past the applied count.
+    fn advanced_by(&mut self, values: u64) {
+        self.appended = self.appended.saturating_add(values);
+    }
+
+    /// Drop the tree so the next pass rebuilds it.
+    fn invalidate(&mut self) {
+        self.tree = None;
+        self.appended = 0;
+    }
+}
+
+/// Fetch the queued nullifiers and bring `cache` up to the chain's applied
+/// count, verifying that the replay reproduces the on-chain root.
 fn reconstruct_and_verify(
     photon: &BlockingZolanaApi,
     tree: Pubkey,
     snapshot: &TreeSnapshot,
     fetch_total: u64,
-) -> Result<(ReferenceNullifierTree, Vec<[u8; 32]>)> {
+    cache: &mut ReferenceCache,
+) -> Result<Vec<[u8; 32]>> {
     let applied = applied_count(snapshot)?;
     let values = fetch_nullifier_values(photon, tree, fetch_total)?;
     if let Some(not_ready) = indexed_value_shortage(
@@ -429,20 +514,18 @@ fn reconstruct_and_verify(
         .get(..applied_len)
         .ok_or_else(|| anyhow!("queued nullifier prefix length {applied_len} out of range"))?;
 
-    let mut reference = reference_nullifier_tree(snapshot.height)?;
-    for value in applied_values {
-        reference
-            .append(&BigUint::from_bytes_be(value))
-            .map_err(|err| anyhow!("replay appended nullifier: {err:?}"))?;
-    }
-    if reference.root() != snapshot.on_chain_root {
+    cache.advance_to(applied, applied_values, snapshot.height)?;
+    let reconstructed = cache.root()?;
+    if reconstructed != snapshot.on_chain_root {
+        // A carried-forward tree that disagrees must not poison the next pass.
+        cache.invalidate();
         bail!(
             "reconstructed nullifier root {} does not match on-chain root {}; refusing to proceed",
-            hex::encode(reference.root()),
+            hex::encode(reconstructed),
             hex::encode(snapshot.on_chain_root)
         );
     }
-    Ok((reference, values))
+    Ok(values)
 }
 
 /// Wait for one in-flight proof, turning a panicked worker into an error.
@@ -465,6 +548,7 @@ fn drain_once(
     tree: Pubkey,
     limit: Option<u64>,
     proof_concurrency: usize,
+    cache: &mut ReferenceCache,
 ) -> Result<DrainOutcome> {
     let snapshot = read_snapshot(rpc_url, tree)?;
     if snapshot.ready == 0 {
@@ -479,8 +563,8 @@ fn drain_once(
 
     let applied = applied_count(&snapshot)?;
     let needed = applied + snapshot.ready * snapshot.zkp_batch_size;
-    let (mut reference, values) = match reconstruct_and_verify(photon, tree, &snapshot, needed) {
-        Ok(reconstructed) => reconstructed,
+    let values = match reconstruct_and_verify(photon, tree, &snapshot, needed, cache) {
+        Ok(values) => values,
         Err(err) => {
             let not_ready = err.downcast::<PhotonIndexNotReady>()?;
             return Ok(DrainOutcome::NotReady(not_ready));
@@ -518,6 +602,7 @@ fn drain_once(
     // one at a time: building a group's witnesses pegged the forester's single
     // core while the prover idled, then the prover ran while the forester idled.
     // Overlapping them is the entire point.
+    let reference = cache.tree_mut()?;
     let submitted = AtomicU64::new(0);
     thread::scope(|scope| -> Result<()> {
         let mut in_flight = VecDeque::with_capacity(concurrency);
@@ -554,7 +639,7 @@ fn drain_once(
             let old_root = reference.root();
 
             let (inputs, new_root) = build_inputs(
-                &mut reference,
+                reference,
                 batch_next_index,
                 snapshot.height,
                 hash_chain,
@@ -608,6 +693,10 @@ fn drain_once(
         in_flight.into_iter().try_for_each(join_proof)
     })?;
 
+    // Every witness built advanced the tree, whether or not its batch landed.
+    // Recording that is what lets the next pass tell "extend" from "rebuild".
+    cache.advanced_by(cap * snapshot.zkp_batch_size);
+
     Ok(DrainOutcome::Drained(submitted.into_inner()))
 }
 
@@ -620,7 +709,9 @@ fn check_once(rpc_url: &str, photon: &BlockingZolanaApi, tree: Pubkey) -> Result
     // Fetch the applied prefix plus the pending batch's queued values so the
     // report reflects the full known queue depth.
     let fetch_total = applied + snapshot.pending_queued;
-    let (reference, values) = reconstruct_and_verify(photon, tree, &snapshot, fetch_total)?;
+    let mut cache = ReferenceCache::default();
+    let values = reconstruct_and_verify(photon, tree, &snapshot, fetch_total, &mut cache)?;
+    let reference = cache.tree_mut()?;
 
     println!("forester dry-run for tree {tree}");
     println!(
@@ -801,6 +892,46 @@ mod tests {
         })
         .unwrap();
         assert!(values.is_empty());
+    }
+
+    fn appended(values: &[[u8; 32]]) -> [u8; 32] {
+        let mut tree = reference_nullifier_tree(40).unwrap();
+        for value in values {
+            tree.append(&BigUint::from_bytes_be(value)).unwrap();
+        }
+        tree.root()
+    }
+
+    /// The point of the cache: a later pass appends only what is new.
+    ///
+    /// Replaying from zero costs one Poseidon-heavy append per already-applied
+    /// nullifier, single-threaded. At ~30k applied it held the forester's core
+    /// for over ten minutes per pass while the prover sat idle.
+    #[test]
+    fn a_later_pass_extends_the_tree_rather_than_replaying_it() {
+        let values: Vec<[u8; 32]> = (1..=4u8).map(nullifier).collect();
+        let mut cache = ReferenceCache::default();
+
+        cache.advance_to(2, values.get(..2).unwrap(), 40).unwrap();
+        assert_eq!(cache.root().unwrap(), appended(values.get(..2).unwrap()));
+
+        cache.advance_to(4, &values, 40).unwrap();
+        assert_eq!(cache.root().unwrap(), appended(&values));
+    }
+
+    /// A tree left ahead of the chain -- a witness was built for a batch whose
+    /// submission then failed -- cannot be rewound, so the next pass starts over
+    /// rather than carrying a state the chain never reached.
+    #[test]
+    fn a_tree_ahead_of_the_chain_is_rebuilt() {
+        let values: Vec<[u8; 32]> = (1..=4u8).map(nullifier).collect();
+        let mut cache = ReferenceCache::default();
+
+        cache.advance_to(4, &values, 40).unwrap();
+        cache.advanced_by(500);
+
+        cache.advance_to(2, values.get(..2).unwrap(), 40).unwrap();
+        assert_eq!(cache.root().unwrap(), appended(values.get(..2).unwrap()));
     }
 
     #[test]
