@@ -17,7 +17,7 @@ use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
 use zolana_transaction::instructions::transact::SppProofInputs;
 
 use crate::{
-    error::ClientError,
+    error::{ClientError, Unavailable},
     prover::{transact::SpendProof, ProverClient},
     retry::IndexerRpcConfig,
     rpc::{
@@ -203,7 +203,7 @@ impl AsyncZolanaIndexer {
 
 impl Rpc for ZolanaIndexer {
     fn should_retry(&self, error: &ClientError) -> bool {
-        matches!(error, ClientError::IndexerUnavailable(_))
+        matches!(error, ClientError::IndexerUnavailable { .. })
     }
 
     fn get_encrypted_utxos_by_tags(
@@ -407,7 +407,7 @@ impl Rpc for ZolanaIndexer {
 #[async_trait]
 impl AsyncRpc for AsyncZolanaIndexer {
     fn should_retry(&self, error: &ClientError) -> bool {
-        matches!(error, ClientError::IndexerUnavailable(_))
+        matches!(error, ClientError::IndexerUnavailable { .. })
     }
 
     async fn get_encrypted_utxos_by_tags(
@@ -603,15 +603,27 @@ impl AsyncRpc for AsyncZolanaIndexer {
 /// retried and the caller is handed the last one it saw rather than a bare
 /// timeout.
 fn indexer_error(error: zolana_api::ApiError) -> ClientError {
-    let message = error.to_string();
+    let detail = error.to_string();
+    let unavailable = |reason| ClientError::IndexerUnavailable {
+        reason,
+        detail: detail.clone(),
+    };
     match error {
-        zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
-            ClientError::IndexerUnavailable(message)
+        zolana_api::ApiError::Request(ref error) if error.is_timeout() => {
+            unavailable(Unavailable::Timeout)
+        }
+        zolana_api::ApiError::Request(ref error) if error.is_connect() => {
+            unavailable(Unavailable::Connect)
         }
         zolana_api::ApiError::Response { status, .. }
-            if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() =>
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS =>
         {
-            ClientError::IndexerUnavailable(message)
+            unavailable(Unavailable::RateLimited)
+        }
+        zolana_api::ApiError::Response { status, .. } if status.is_server_error() => {
+            unavailable(Unavailable::ServerError {
+                status: status.as_u16(),
+            })
         }
         zolana_api::ApiError::JsonRpc {
             method,
@@ -621,8 +633,8 @@ fn indexer_error(error: zolana_api::ApiError) -> ClientError {
         zolana_api::ApiError::JsonRpc {
             code: Some(JSON_RPC_INTERNAL_ERROR),
             ..
-        } => ClientError::IndexerUnavailable(message),
-        _ => ClientError::Indexer(message),
+        } => unavailable(Unavailable::JsonRpcInternal),
+        _ => ClientError::Indexer(detail),
     }
 }
 
@@ -1233,14 +1245,26 @@ mod tests {
             status: reqwest::StatusCode::TOO_MANY_REQUESTS,
             body: "retry later".to_string(),
         });
-        assert!(matches!(rate_limit, ClientError::IndexerUnavailable(_)));
+        assert!(matches!(
+            rate_limit,
+            ClientError::IndexerUnavailable {
+                reason: Unavailable::RateLimited,
+                ..
+            }
+        ));
 
         let internal_error = indexer_error(zolana_api::ApiError::JsonRpc {
             method: "get_shielded_transactions_by_signature",
             code: Some(-32603),
             message: Some("Internal error".to_string()),
         });
-        assert!(matches!(internal_error, ClientError::IndexerUnavailable(_)));
+        assert!(matches!(
+            internal_error,
+            ClientError::IndexerUnavailable {
+                reason: Unavailable::JsonRpcInternal,
+                ..
+            }
+        ));
     }
 
     #[test]

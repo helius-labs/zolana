@@ -31,7 +31,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction, which is a trait method rather than
 // an inherent one on SolanaRpc.
-use zolana_client::{Rpc, SolanaRpc, ZolanaClient};
+use zolana_client::{ClientError, Rpc, SolanaRpc, Unavailable, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
 use zolana_wallet::{
@@ -456,7 +456,7 @@ fn worker(
         // This phase is the one that grows with the wallet's note count.
         let mark = Instant::now();
         if let Err(error) = sync_wallet(&mut wallet, &authority, &client) {
-            classify(&error.to_string(), stats, &mut backoff);
+            classify(&error, stats, &mut backoff);
             continue;
         }
         timing.sync_ms = mark.elapsed().as_millis() as u64;
@@ -484,7 +484,7 @@ fn worker(
         }) {
             Ok(signed) => signed,
             Err(error) => {
-                classify(&error.to_string(), stats, &mut backoff);
+                classify(&error, stats, &mut backoff);
                 continue;
             }
         };
@@ -494,7 +494,7 @@ fn worker(
         let signature = match client.rpc().send_transaction(&transfer) {
             Ok(signature) => signature,
             Err(error) => {
-                classify(&error.to_string(), stats, &mut backoff);
+                classify(&error, stats, &mut backoff);
                 continue;
             }
         };
@@ -502,7 +502,7 @@ fn worker(
 
         let mark = Instant::now();
         if let Err(error) = client.confirm_private_transaction_sync(signature) {
-            classify(&error.to_string(), stats, &mut backoff);
+            classify(&error, stats, &mut backoff);
             continue;
         }
         timing.confirm_ms = mark.elapsed().as_millis() as u64;
@@ -523,14 +523,26 @@ fn worker(
 /// A load generator without backoff measures the rate limiter rather than the
 /// system under test: an earlier shell-driven run lost 101 of 220 transfers to
 /// Helius 403s and reported it as protocol failure.
-fn classify(message: &str, stats: &mut Stats, backoff: &mut Duration) {
+fn classify(error: &ClientError, stats: &mut Stats, backoff: &mut Duration) {
     // Truncated: these carry request ids and addresses that would make every
     // occurrence look distinct and defeat the grouping.
-    let key: String = message.chars().take(160).collect();
+    let key: String = error.to_string().chars().take(160).collect();
     *stats.errors.entry(key).or_insert(0) += 1;
 
-    let lowered = message.to_ascii_lowercase();
-    if lowered.contains("403") || lowered.contains("429") || lowered.contains("rate") {
+    // Matched on the error's type, not its text. This used to ask whether the
+    // message contained "403", "429" or "rate", which counts a signature
+    // containing "429" as throttling and the word "generate" as well, while
+    // missing a 503 entirely -- and it silently misreads any error whose
+    // wording changes.
+    let throttled = matches!(
+        error,
+        ClientError::IndexerUnavailable {
+            reason: Unavailable::RateLimited,
+            ..
+        }
+    );
+
+    if throttled {
         stats.throttled += 1;
         thread::sleep(*backoff);
         *backoff = (*backoff * 2).min(Duration::from_secs(30));
