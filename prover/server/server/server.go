@@ -859,23 +859,9 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		})
 	}
 
-	corsHandler := handlers.CORS(
-		handlers.AllowedHeaders([]string{
-			"X-Requested-With",
-			"Content-Type",
-			"Authorization",
-			"X-API-Key",
-			"X-Async",
-			"X-Sync",
-		}),
-		handlers.AllowedOrigins([]string{"*"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-	)
-
-	authHandler := conditionalAuthMiddleware(apiKey)
 	proverServer := &http.Server{
 		Addr:    config.ProverAddress,
-		Handler: corsHandler(authHandler(proverMux)),
+		Handler: proverHandlerChain(apiKey, proverMux),
 		// The deadline covers the whole exchange after the request headers, so
 		// it must stay above maxSyncProofTimeout. A shorter one severs the
 		// connection of a proof that is still allowed to run.
@@ -896,6 +882,26 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	}
 
 	return CombineJobs(metricsJob, proverJob)
+}
+
+// proverHandlerChain puts authentication outside CORS. The CORS handler answers
+// a preflight on its own, so an outer CORS handler would serve it before any
+// credential is checked.
+func proverHandlerChain(apiKey string, next http.Handler) http.Handler {
+	corsHandler := handlers.CORS(
+		handlers.AllowedHeaders([]string{
+			"X-Requested-With",
+			"Content-Type",
+			"Authorization",
+			"X-API-Key",
+			"X-Async",
+			"X-Sync",
+		}),
+		handlers.AllowedOrigins([]string{"*"}),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+	)
+
+	return conditionalAuthMiddleware(apiKey)(corsHandler(next))
 }
 
 func Run(config *Config, keyManager *common.LazyKeyManager) RunningJob {
