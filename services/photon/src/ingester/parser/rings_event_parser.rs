@@ -1,35 +1,22 @@
+use super::event_site::{find_event_sites, to_instruction_groups};
 use super::state_update::{
     RingsMessageUpdate, RingsNullifierUpdate, RingsOutputUpdate, RingsTransactionUpdate,
     StateUpdate,
 };
-use crate::ingester::{
-    error::IngesterError,
-    typedefs::block_info::{
-        Instruction as PhotonInstruction, InstructionGroup as PhotonInstructionGroup,
-        TransactionInfo,
-    },
-};
+use crate::ingester::{error::IngesterError, typedefs::block_info::TransactionInfo};
 use solana_pubkey::Pubkey;
-use zolana_event::{
-    decode_event_payload, tag, InstructionGroup as RingsInstructionGroup,
-    ParsedInstruction as RingsInstruction,
-};
+use zolana_event::{decode_event_payload, tag, ParsedInstruction as RingsInstruction};
 use zolana_interface::pda;
 
 const RINGS_PARSE_VERSION: i16 = 3;
-
-struct EventSite {
-    source_instruction_tag: u8,
-    payload: Vec<u8>,
-}
 
 pub fn parse_rings_events(
     tx: &TransactionInfo,
     slot: u64,
 ) -> Result<Option<StateUpdate>, IngesterError> {
     let rings_program_id = pda::shielded_pool_program_id();
-    let groups = to_rings_instruction_groups(&tx.instruction_groups);
-    let event_sites = find_event_sites(&groups, rings_program_id)?;
+    let groups = to_instruction_groups(&tx.instruction_groups);
+    let event_sites = find_event_sites(&groups, rings_program_id, is_emit_event, is_event_source)?;
 
     if event_sites.is_empty() {
         return Ok(None);
@@ -41,7 +28,9 @@ pub fn parse_rings_events(
         let event_index_i16 = i16::try_from(event_index).map_err(|_| {
             IngesterError::ParserError(format!("Event index {} does not fit in i16", event_index))
         })?;
-        let event = decode_event_payload(&event_site.payload).map_err(|err| {
+        // Bytes after the `EMIT_EVENT` tag, `[EventKind, borsh(GeneralEvent)]`.
+        let payload = event_site.data.get(1..).unwrap_or_default().to_vec();
+        let event = decode_event_payload(&payload).map_err(|err| {
             IngesterError::ParserError(format!(
                 "Failed to decode Rings event for {} event {}: {:?}",
                 tx.signature, event_index, err
@@ -149,7 +138,7 @@ pub fn parse_rings_events(
                 salt,
                 proofless,
                 encrypted_utxos: None,
-                raw_event: Some(event_site.payload),
+                raw_event: Some(payload),
                 parse_version: RINGS_PARSE_VERSION,
                 outputs,
                 messages,
@@ -158,97 +147,6 @@ pub fn parse_rings_events(
     }
 
     Ok(Some(state_update))
-}
-
-fn to_rings_instruction_groups(groups: &[PhotonInstructionGroup]) -> Vec<RingsInstructionGroup> {
-    let to_rings_instruction = |instruction: &PhotonInstruction| {
-        RingsInstruction::new(
-            instruction.program_id,
-            instruction.accounts.clone(),
-            instruction.data.clone(),
-            instruction.stack_height,
-        )
-    };
-
-    groups
-        .iter()
-        .map(|group| RingsInstructionGroup {
-            outer: to_rings_instruction(&group.outer_instruction),
-            inner: group
-                .inner_instructions
-                .iter()
-                .map(to_rings_instruction)
-                .collect(),
-        })
-        .collect()
-}
-
-fn find_event_sites(
-    groups: &[RingsInstructionGroup],
-    rings_program_id: Pubkey,
-) -> Result<Vec<EventSite>, IngesterError> {
-    let mut sites = Vec::new();
-
-    for group in groups {
-        for (index, instruction) in group.inner.iter().enumerate() {
-            if !is_emit_event(rings_program_id, instruction) {
-                continue;
-            }
-
-            let Some(parent) = event_parent(group, index)? else {
-                continue;
-            };
-
-            if !is_event_source(rings_program_id, parent) {
-                continue;
-            }
-
-            let source_instruction_tag = parent.data.first().copied().ok_or_else(|| {
-                IngesterError::ParserError(
-                    "Rings event parent instruction is missing source tag".to_string(),
-                )
-            })?;
-
-            sites.push(EventSite {
-                source_instruction_tag,
-                payload: instruction.data.get(1..).unwrap_or_default().to_vec(),
-            });
-        }
-    }
-
-    Ok(sites)
-}
-
-fn event_parent(
-    group: &RingsInstructionGroup,
-    event_index: usize,
-) -> Result<Option<&RingsInstruction>, IngesterError> {
-    let event_instruction = group.inner.get(event_index).ok_or_else(|| {
-        IngesterError::ParserError(format!(
-            "Rings event index {} is out of bounds for {} inner instructions",
-            event_index,
-            group.inner.len()
-        ))
-    })?;
-    let Some(event_height) = event_instruction.stack_height else {
-        return Ok(None);
-    };
-    let Some(parent_height) = event_height.checked_sub(1) else {
-        return Ok(None);
-    };
-    let previous_instructions = group.inner.get(..event_index).ok_or_else(|| {
-        IngesterError::ParserError(format!(
-            "Rings event parent search index {} is out of bounds for {} inner instructions",
-            event_index,
-            group.inner.len()
-        ))
-    })?;
-
-    Ok(previous_instructions
-        .iter()
-        .rev()
-        .find(|instruction| instruction.stack_height == Some(parent_height))
-        .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer)))
 }
 
 fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bool {
@@ -281,6 +179,7 @@ fn is_emit_event(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ingester::parser::event_site::EventSite;
     use zolana_event::{InstructionGroup, ParsedInstruction};
 
     fn spp() -> Pubkey {
@@ -302,7 +201,7 @@ mod tests {
     }
 
     fn event_sites(groups: &[InstructionGroup]) -> Vec<EventSite> {
-        find_event_sites(groups, spp()).unwrap()
+        find_event_sites(groups, spp(), is_emit_event, is_event_source).unwrap()
     }
 
     #[test]

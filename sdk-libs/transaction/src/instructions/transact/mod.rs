@@ -20,8 +20,8 @@ pub use shape::{canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES};
 pub use slots::{encode_confidential_slots, encrypt_transaction_data, EncryptedTransactionData};
 pub use split::{ConfidentialSplit, PreparedSplit};
 pub use spp_proof_inputs::{
-    first_nullifier, get_transaction_viewing_key, inputs_require_p256, signed_magnitude_to_field,
-    signed_to_field, PublicTransfers, SppProofInputs,
+    asset_field, first_nullifier, get_transaction_viewing_key, inputs_require_p256,
+    signed_magnitude_to_field, signed_to_field, PublicTransfers, SppProofInputs, BN254_MODULUS_DEC,
 };
 pub use transfer::{
     ConfidentialTransfer, PreparedTransfer, PublicTransferRequest, Recipient, SettlementTarget,

@@ -27,6 +27,17 @@ use crate::{
 pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
 
+/// Whether the RPC simulates a transaction before it forwards it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Preflight {
+    /// Simulate first, so a failing transaction is rejected before it pays a fee.
+    Simulate,
+    /// Forward without simulating. A transaction that resolves a freshly created
+    /// address lookup table can fail simulation against a bank that has not yet
+    /// loaded the table, while real execution resolves it.
+    Skip,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Context {
     pub block_time: i64,
@@ -257,6 +268,7 @@ pub trait Rpc {
         payer: Address,
         signers: &[&Keypair],
         address_lookup_tables: &[AddressLookupTableAccount],
+        preflight: Preflight,
     ) -> Result<Signature, ClientError> {
         Err(unsupported("create_and_send_versioned_transaction"))
     }

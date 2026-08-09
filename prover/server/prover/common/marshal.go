@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -223,7 +224,145 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	}
 	ps.RequiresP256 = requiresP256 != 0
 
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	ps.ProvingKey = gpuprove.NewProvingKey()
+	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
+	keyRead, err = ps.VerifyingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
+	keyRead, err = ps.ConstraintSystem.ReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	return totalRead, nil
+}
+
+func (ps *SquadsZoneProofSystem) WriteTo(w io.Writer) (int64, error) {
+	var totalWritten int64 = 0
+	var intBuf [4]byte
+
+	for _, field := range []uint32{ps.NInputs, ps.NOutputs} {
+		binary.BigEndian.PutUint32(intBuf[:], field)
+		written, err := w.Write(intBuf[:])
+		totalWritten += int64(written)
+		if err != nil {
+			return totalWritten, err
+		}
+	}
+
+	keyWritten, err := ps.ProvingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.VerifyingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.ConstraintSystem.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	return totalWritten, nil
+}
+
+func (ps *SquadsZoneProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	var totalRead int64 = 0
+	var intBuf [4]byte
+
+	for _, field := range []*uint32{&ps.NInputs, &ps.NOutputs} {
+		read, err := io.ReadFull(r, intBuf[:])
+		totalRead += int64(read)
+		if err != nil {
+			return totalRead, err
+		}
+		*field = binary.BigEndian.Uint32(intBuf[:])
+	}
+
+	ps.ProvingKey = gpuprove.NewProvingKey()
+	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.VerifyingKey = groth16.NewVerifyingKey(ecc.BN254)
+	keyRead, err = ps.VerifyingKey.UnsafeReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	ps.ConstraintSystem = groth16.NewCS(ecc.BN254)
+	keyRead, err = ps.ConstraintSystem.ReadFrom(r)
+	totalRead += keyRead
+	if err != nil {
+		return totalRead, err
+	}
+
+	return totalRead, nil
+}
+
+func (ps *SquadsKeyEncryptionProofSystem) WriteTo(w io.Writer) (int64, error) {
+	var totalWritten int64 = 0
+	var intBuf [4]byte
+
+	binary.BigEndian.PutUint32(intBuf[:], ps.NumKeys)
+	written, err := w.Write(intBuf[:])
+	totalWritten += int64(written)
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err := ps.ProvingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.VerifyingKey.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	keyWritten, err = ps.ConstraintSystem.WriteTo(w)
+	totalWritten += keyWritten
+	if err != nil {
+		return totalWritten, err
+	}
+
+	return totalWritten, nil
+}
+
+func (ps *SquadsKeyEncryptionProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+	var totalRead int64 = 0
+	var intBuf [4]byte
+
+	read, err := io.ReadFull(r, intBuf[:])
+	totalRead += int64(read)
+	if err != nil {
+		return totalRead, err
+	}
+	ps.NumKeys = binary.BigEndian.Uint32(intBuf[:])
+
+	ps.ProvingKey = gpuprove.NewProvingKey()
 	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
 	totalRead += keyRead
 	if err != nil {
@@ -282,12 +421,62 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		return ps, nil
 	}
-
 	// Checked before "transfer" because an aggregate key names the rail it
 	// batches. Its file name contains "transfer" too and would otherwise be read
 	// with the wrong header.
 	if strings.Contains(name, "aggregate") {
 		ps := new(AggregateProofSystem)
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	} else if strings.Contains(name, "squads_key_encryption_fold") {
+		// Checked before the unfolded name it extends, which it contains.
+		ps := new(SquadsKeyEncryptionFoldProofSystem)
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	} else if strings.Contains(name, "squads_zone_fold") {
+		ps := new(SquadsZoneFoldProofSystem)
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	} else if strings.Contains(name, "squads_key_encryption") {
+		ps := new(SquadsKeyEncryptionProofSystem)
+		ps.CircuitType = SquadsKeyEncryptionCircuitType
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	} else if strings.Contains(name, "squads_zone") {
+		ps := new(SquadsZoneProofSystem)
+		ps.CircuitType = SquadsZoneCircuitType
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, err
@@ -309,13 +498,11 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		// Transfer variants are resolved from canonical key filenames. The
-		// RequiresP256 header is retained as a consistency check for P256 keys.
+		// The variant comes from the key file name. The RequiresP256 header is only a
+		// consistency check for P256 keys.
 		ring := strings.Contains(name, "ring")
 		p256Ring := strings.Contains(name, "p256_ring")
-		// Ring-authority keys are named transfer_ring_authority_*.key (Solana-only,
-		// anonymous). Detect it before the plain "ring" case: the name contains both
-		// "transfer" (matched this branch) and "ring".
+		// A ring_authority name also contains "ring", so the switch must test it first.
 		ringAuthority := strings.Contains(name, "ring_authority")
 		switch {
 		case ringAuthority:
@@ -330,9 +517,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		ps.Confidential = !ringAuthority
 		return ps, nil
 	} else if strings.Contains(name, "merge") {
-		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name
-		// (merge_8_1.key) carries no "transfer" substring, so it needs its own
-		// branch or it would fall through to the unrecognized-file error.
+		// Merge reuses TransferProofSystem. A merge key name has no "transfer"
+		// substring, so it needs its own branch.
 		ps := new(TransferProofSystem)
 		file, err := os.Open(path)
 		if err != nil {
@@ -343,8 +529,6 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		if _, err = ps.UnsafeReadFrom(file); err != nil {
 			return nil, err
 		}
-		// merge_ring_8_1.key is the policy-ring variant; the default merge file is
-		// merge_8_1.key.
 		if strings.Contains(name, "ring") {
 			ps.CircuitType = MergeRingCircuitType
 		} else {
@@ -427,7 +611,7 @@ func (ps *BatchProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 		*field = binary.BigEndian.Uint32(intBuf[:])
 	}
 
-	ps.ProvingKey = groth16.NewProvingKey(ecc.BN254)
+	ps.ProvingKey = gpuprove.NewProvingKey()
 	keyRead, err := ps.ProvingKey.UnsafeReadFrom(r)
 	totalRead += keyRead
 	if err != nil {

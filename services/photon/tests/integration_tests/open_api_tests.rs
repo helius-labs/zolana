@@ -1,7 +1,7 @@
 use photon_indexer::openapi::update_docs;
 use utoipa::openapi::{OpenApi, RefOr, Required};
 
-const METHODS: [&str; 7] = [
+const METHODS: [&str; 8] = [
     "get_encrypted_utxos_by_tags",
     "get_merkle_proofs",
     "get_non_inclusion_proofs",
@@ -9,6 +9,7 @@ const METHODS: [&str; 7] = [
     "get_shielded_transactions_by_nullifiers",
     "get_shielded_transactions_by_signature",
     "get_shielded_transactions_by_tags",
+    "get_squads_key_events",
 ];
 
 #[test]

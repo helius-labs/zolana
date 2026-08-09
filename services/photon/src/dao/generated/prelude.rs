@@ -8,6 +8,7 @@ pub use super::rings_outputs::Entity as RingsOutputs;
 pub use super::rings_transaction_payloads::Entity as RingsTransactionPayloads;
 pub use super::rings_transactions::Entity as RingsTransactions;
 pub use super::rings_tx_nullifiers::Entity as RingsTxNullifiers;
+pub use super::squads_key_events::Entity as SquadsKeyEvents;
 pub use super::state_trees::Entity as StateTrees;
 pub use super::transactions::Entity as Transactions;
 pub use super::tree_metadata::Entity as TreeMetadata;

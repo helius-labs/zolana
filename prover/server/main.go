@@ -15,16 +15,19 @@ import (
 	aggregateprover "zolana/prover/prover/aggregate"
 	"zolana/prover/prover/common"
 	"zolana/prover/prover/extractor"
+	keyencryption "zolana/prover/prover/key_encryption"
 	mergeprover "zolana/prover/prover/merge"
 	mergechainprover "zolana/prover/prover/merge_chain"
 	nullifierfoldprover "zolana/prover/prover/nullifier_fold"
 	"zolana/prover/prover/nullifier_tree"
+	keyencryptionfold "zolana/prover/prover/squads_key_encryption_fold"
+	squadszone "zolana/prover/prover/squads_zone"
+	zonefold "zolana/prover/prover/squads_zone_fold"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 	"zolana/prover/server"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
-	"github.com/consensys/gnark/constraint"
 	gnarkLogger "github.com/consensys/gnark/logger"
 	"github.com/urfave/cli/v2"
 )
@@ -61,25 +64,16 @@ func runCli() {
 					batchAddressAppendTreeHeight := uint32(context.Uint("address-append-tree-height"))
 					batchAddressAppendBatchSize := uint32(context.Uint("address-append-batch-size"))
 
-					if (batchAddressAppendTreeHeight == 0 || batchAddressAppendBatchSize == 0) && circuit == common.BatchAddressAppendCircuitType {
+					if batchAddressAppendTreeHeight == 0 || batchAddressAppendBatchSize == 0 {
 						return fmt.Errorf("[Batch address append]: tree height and batch size must be provided")
 					}
 
 					logging.Logger().Info().Msg("Running setup")
-					var err error
-					if circuit == common.BatchAddressAppendCircuitType {
-						fmt.Println("Generating Address Append Circuit")
-						var system *common.BatchProofSystem
-						system, err = nullifiertree.SetupBatchOperationCircuit(common.BatchAddressAppendCircuitType, batchAddressAppendTreeHeight, batchAddressAppendBatchSize)
-						if err != nil {
-							return err
-						}
-						err = common.WriteProvingSystem(system, path, pathVkey)
-					} else {
-						return fmt.Errorf("unsupported circuit: %s", circuit)
-					}
-
+					system, err := nullifiertree.SetupBatchOperationCircuit(common.BatchAddressAppendCircuitType, batchAddressAppendTreeHeight, batchAddressAppendBatchSize)
 					if err != nil {
+						return err
+					}
+					if err := common.WriteProvingSystem(system, path, pathVkey); err != nil {
 						return err
 					}
 
@@ -117,17 +111,7 @@ func runCli() {
 						return err
 					}
 
-					file, err := os.Create(path)
-					if err != nil {
-						return err
-					}
-					defer func(file *os.File) {
-						if cerr := file.Close(); cerr != nil {
-							logging.Logger().Error().Err(cerr).Msg("error closing file")
-						}
-					}(file)
-
-					written, err := ps.WriteTo(file)
+					written, err := writeProvingSystem(ps, path)
 					if err != nil {
 						return err
 					}
@@ -162,17 +146,7 @@ func runCli() {
 					if err != nil {
 						return err
 					}
-					file, err := os.Create(path)
-					if err != nil {
-						return err
-					}
-					defer func(file *os.File) {
-						if cerr := file.Close(); cerr != nil {
-							logging.Logger().Error().Err(cerr).Msg("error closing file")
-						}
-					}(file)
-
-					written, err := ps.WriteTo(file)
+					written, err := writeProvingSystem(ps, path)
 					if err != nil {
 						return err
 					}
@@ -369,6 +343,149 @@ func runCli() {
 				},
 			},
 			{
+				Name: "setup-zone",
+				Flags: []cli.Flag{
+					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
+					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots (2 = transfer, 1 = withdrawal)", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					nInputs := uint32(context.Uint("n-inputs"))
+					nOutputs := uint32(context.Uint("n-outputs"))
+					path := context.String("output")
+
+					ps, err := squadszone.SetupZone(nInputs, nOutputs)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("n_inputs", nInputs).
+						Uint32("n_outputs", nOutputs).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Squads zone proving system written")
+					return nil
+				},
+			},
+			{
+				Name: "setup-key-encryption",
+				Flags: []cli.Flag{
+					&cli.UintFlag{Name: "num-keys", Usage: "Number of recipient keys (recovery + auditor)", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					numKeys := uint32(context.Uint("num-keys"))
+					path := context.String("output")
+
+					ps, err := keyencryption.SetupKeyEncryption(numKeys)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("num_keys", numKeys).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Squads key encryption proving system written")
+					return nil
+				},
+			},
+			{
+				Name:  "setup-zone-fold",
+				Usage: "Trusted setup for one squads zone fold. Needs the leg key it folds.",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the folded zone shape", Required: true},
+					&cli.UintFlag{Name: "legs", Usage: "Number of zone proofs per fold", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					innerPath := context.String("inner-keys-file")
+					path := context.String("output")
+
+					system, err := common.ReadSystemFromFile(innerPath)
+					if err != nil {
+						return fmt.Errorf("read inner keys: %w", err)
+					}
+					inner, ok := system.(*common.SquadsZoneProofSystem)
+					if !ok {
+						return fmt.Errorf("%s is not a squads zone proving system", innerPath)
+					}
+
+					ps, err := zonefold.SetupFold(zonefold.Params{
+						NInputs:  inner.NInputs,
+						NOutputs: inner.NOutputs,
+						Legs:     uint32(context.Uint("legs")),
+					}, inner)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("n_inputs", ps.NInputs).
+						Uint32("n_outputs", ps.NOutputs).
+						Uint32("legs", ps.Legs).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Squads zone fold proving system written")
+					return nil
+				},
+			},
+			{
+				Name:  "setup-key-encryption-fold",
+				Usage: "Trusted setup for one squads key encryption fold. Needs the leg key it folds.",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the folded recipient count", Required: true},
+					&cli.UintFlag{Name: "legs", Usage: "Number of key encryption proofs per fold", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					innerPath := context.String("inner-keys-file")
+					path := context.String("output")
+
+					system, err := common.ReadSystemFromFile(innerPath)
+					if err != nil {
+						return fmt.Errorf("read inner keys: %w", err)
+					}
+					inner, ok := system.(*common.SquadsKeyEncryptionProofSystem)
+					if !ok {
+						return fmt.Errorf("%s is not a squads key encryption proving system", innerPath)
+					}
+
+					ps, err := keyencryptionfold.SetupFold(keyencryptionfold.Params{
+						KeysPerLeg: inner.NumKeys,
+						Legs:       uint32(context.Uint("legs")),
+					}, inner)
+					if err != nil {
+						return err
+					}
+
+					written, err := writeProvingSystem(ps, path)
+					if err != nil {
+						return err
+					}
+					logging.Logger().Info().
+						Uint32("keys_per_leg", ps.KeysPerLeg).
+						Uint32("legs", ps.Legs).
+						Int64("bytes_written", written).
+						Str("output", path).
+						Msg("Squads key encryption fold proving system written")
+					return nil
+				},
+			},
+			{
 				Name: "r1cs",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
@@ -386,34 +503,25 @@ func runCli() {
 					batchAddressAppendTreeHeight := uint32(context.Uint("address-append-tree-height"))
 					batchAddressAppendBatchSize := uint32(context.Uint("address-append-batch-size"))
 
-					if (batchAddressAppendTreeHeight == 0 || batchAddressAppendBatchSize == 0) && circuit == common.BatchAddressAppendCircuitType {
+					if batchAddressAppendTreeHeight == 0 || batchAddressAppendBatchSize == 0 {
 						return fmt.Errorf("[Batch address append]: tree height and batch size must be provided")
 					}
 
 					logging.Logger().Info().Msg("Building R1CS")
 
-					var cs constraint.ConstraintSystem
-					var err error
-
-					if circuit == common.BatchAddressAppendCircuitType {
-						cs, err = nullifiertree.R1CSBatchAddressAppend(batchAddressAppendTreeHeight, batchAddressAppendBatchSize)
-					} else {
-						return fmt.Errorf("invalid circuit type %s", circuit)
-					}
-
+					cs, err := nullifiertree.R1CSBatchAddressAppend(batchAddressAppendTreeHeight, batchAddressAppendBatchSize)
 					if err != nil {
 						return err
 					}
 					file, err := os.Create(path)
-					defer func(file *os.File) {
-						err := file.Close()
-						if err != nil {
-							logging.Logger().Error().Err(err).Msg("error closing file")
-						}
-					}(file)
 					if err != nil {
 						return err
 					}
+					defer func(file *os.File) {
+						if err := file.Close(); err != nil {
+							logging.Logger().Error().Err(err).Msg("error closing file")
+						}
+					}(file)
 					written, err := cs.WriteTo(file)
 					if err != nil {
 						return err
@@ -503,6 +611,14 @@ func runCli() {
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.MergeChainProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.SquadsZoneProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.SquadsKeyEncryptionProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.SquadsZoneFoldProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
+					case *common.SquadsKeyEncryptionFoldProofSystem:
+						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					default:
 						return fmt.Errorf("unknown proving system type")
 					}
@@ -570,6 +686,10 @@ func runCli() {
 						Name:  "circuit",
 						Usage: "Download keys for specific circuits (address-append, address-append-test)",
 					},
+					&cli.StringSliceFlag{
+						Name:  "key",
+						Usage: "Download a key by lockfile name, for keys no run mode preloads",
+					},
 					&cli.StringFlag{
 						Name:  "keys-dir",
 						Usage: "Directory where key files will be stored",
@@ -596,7 +716,6 @@ func runCli() {
 					keysDirPath := context.String("keys-dir")
 					verifyOnly := context.Bool("verify-only")
 
-					// Configure download settings
 					downloadConfig := &common.DownloadConfig{
 						MaxRetries:    context.Int("max-retries"),
 						RetryDelay:    common.DefaultRetryDelay,
@@ -612,8 +731,12 @@ func runCli() {
 						Int("max_retries", downloadConfig.MaxRetries).
 						Msg("Download configuration")
 
-					// Get required keys
 					keys := common.GetKeys(keysDirPath, runMode, circuits)
+					// Transfer, merge, and aggregate keys load lazily per
+					// request, so no run mode names them.
+					for _, name := range context.StringSlice("key") {
+						keys = append(keys, filepath.Join(keysDirPath, name))
+					}
 
 					if len(keys) == 0 {
 						return fmt.Errorf("no keys to download for run-mode=%s circuits=%v", runMode, circuits)
@@ -623,7 +746,6 @@ func runCli() {
 						Int("total_keys", len(keys)).
 						Msg("Starting key download/verification")
 
-					// Download/verify keys
 					if err := common.EnsureKeysExist(keys, downloadConfig); err != nil {
 						return fmt.Errorf("failed to ensure keys exist: %w", err)
 					}
@@ -641,8 +763,9 @@ func runCli() {
 				Name: "start",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "json-logging", Usage: "enable JSON logging", Required: false},
-					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server", Value: "0.0.0.0:5000", Required: false},
-					&cli.StringFlag{Name: "metrics-address", Usage: "address for the metrics server", Value: "0.0.0.0:9998", Required: false},
+					&cli.StringFlag{Name: "prover-address", Usage: "address for the prover server (set explicitly to expose it beyond localhost)", Value: "127.0.0.1:5000", Required: false},
+					&cli.StringFlag{Name: "metrics-address", Usage: "address for the metrics server (set explicitly to expose it beyond localhost)", Value: "127.0.0.1:9998", Required: false},
+					&cli.Int64Flag{Name: "max-request-bytes", Usage: "maximum JSON request body size accepted by proof endpoints", Value: server.DefaultMaxRequestBodyBytes, Required: false},
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
@@ -687,10 +810,12 @@ func runCli() {
 					if context.Bool("json-logging") {
 						logging.SetJSONOutput()
 					}
+					if context.Int64("max-request-bytes") <= 0 {
+						return fmt.Errorf("--max-request-bytes must be greater than zero")
+					}
 
 					var keysDirPath = context.String("keys-dir")
 
-					// Configure download settings
 					downloadConfig := &common.DownloadConfig{
 						MaxRetries:    context.Int("download-max-retries"),
 						RetryDelay:    common.DefaultRetryDelay,
@@ -818,8 +943,9 @@ func runCli() {
 
 					if enableServer {
 						config := server.Config{
-							ProverAddress:  context.String("prover-address"),
-							MetricsAddress: context.String("metrics-address"),
+							ProverAddress:       context.String("prover-address"),
+							MetricsAddress:      context.String("metrics-address"),
+							MaxRequestBodyBytes: context.Int64("max-request-bytes"),
 						}
 
 						if redisQueue != nil {
@@ -957,6 +1083,44 @@ func runCli() {
 	}
 }
 
+// readAggregateSlot reads one --slot spec. A transfer slot is an inner key
+// file, checked against the pinned lockfile because the outer circuit compiles
+// the verifying key in. The swap take slot is "swap-take:<raw-vk-file>", a
+// gnark raw verifying key with no lockfile entry, so its pin lives with the
+// swap program's key checksums.
+func readAggregateSlot(spec string) (common.AggregateSlot, groth16.VerifyingKey, error) {
+	if vkPath, ok := strings.CutPrefix(spec, "swap-take:"); ok {
+		file, err := os.Open(vkPath)
+		if err != nil {
+			return common.AggregateSlot{}, nil, err
+		}
+		defer func() {
+			if cerr := file.Close(); cerr != nil {
+				logging.Logger().Error().Err(cerr).Msg("error closing file")
+			}
+		}()
+		vk := groth16.NewVerifyingKey(ecc.BN254)
+		if _, err := vk.ReadFrom(file); err != nil {
+			return common.AggregateSlot{}, nil, fmt.Errorf("read take verifying key %s: %w", vkPath, err)
+		}
+		return common.AggregateSlot{Inner: common.SwapTakeCircuitType}, vk, nil
+	}
+
+	if err := common.EnsureProvingKey(spec, false, nil); err != nil {
+		return common.AggregateSlot{}, nil, fmt.Errorf("inner key is not the pinned one: %w", err)
+	}
+	system, err := common.ReadSystemFromFile(spec)
+	if err != nil {
+		return common.AggregateSlot{}, nil, fmt.Errorf("read inner keys: %w", err)
+	}
+	inner, ok := system.(*common.TransferProofSystem)
+	if !ok {
+		return common.AggregateSlot{}, nil, fmt.Errorf("%s is not a transfer proving system", spec)
+	}
+	slot := common.AggregateSlot{Inner: inner.CircuitType, NInputs: inner.NInputs, NOutputs: inner.NOutputs}
+	return slot, inner.VerifyingKey, nil
+}
+
 func parseRunMode(runModeString string) (common.RunMode, error) {
 	runMode := common.LocalRpc
 	switch runModeString {
@@ -976,50 +1140,12 @@ func parseRunMode(runModeString string) (common.RunMode, error) {
 		logging.Logger().Info().Msg("Running in full mode")
 		runMode = common.Full
 	case "full-test":
-		logging.Logger().Info().Msg("Running in full mode")
+		logging.Logger().Info().Msg("Running in full-test mode")
 		runMode = common.FullTest
 	default:
 		return "", fmt.Errorf("invalid run mode %s", runModeString)
 	}
 	return runMode, nil
-}
-
-func debugProvingSystemKeys(keysDirPath string, runMode common.RunMode, circuits []string) {
-	logging.Logger().Info().
-		Str("keysDirPath", keysDirPath).
-		Str("runMode", string(runMode)).
-		Strs("circuits", circuits).
-		Msg("Debug: Loading proving system keys")
-
-	keys := common.GetKeys(keysDirPath, runMode, circuits)
-	for _, key := range keys {
-		if _, err := os.Stat(key); err != nil {
-			if os.IsNotExist(err) {
-				logging.Logger().Error().
-					Str("key", key).
-					Msg("Key file does not exist")
-			} else {
-				logging.Logger().Error().
-					Str("key", key).
-					Err(err).
-					Msg("Error checking key file")
-			}
-		} else {
-			fileInfo, err := os.Stat(key)
-			if err != nil {
-				logging.Logger().Error().
-					Str("key", key).
-					Err(err).
-					Msg("Error getting key file info")
-			} else {
-				logging.Logger().Info().
-					Str("key", key).
-					Int64("size", fileInfo.Size()).
-					Str("mode", fileInfo.Mode().String()).
-					Msg("Key file exists")
-			}
-		}
-	}
 }
 
 func startCleanupRoutines(redisQueue *server.RedisQueue) {
@@ -1080,6 +1206,28 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 		}
 	}()
 
+	// Autoscaling reacts to backlog, so depth must publish faster than the
+	// scaler's minute-granularity view of it.
+	go func() {
+		depthTicker := time.NewTicker(10 * time.Second)
+		defer depthTicker.Stop()
+
+		logging.Logger().Info().Msg("Started queue depth publisher (every 10 seconds)")
+
+		for range depthTicker.C {
+			stats, err := redisQueue.GetQueueStats()
+			if err != nil {
+				logging.Logger().Warn().
+					Err(err).
+					Msg("Failed to read queue depths for metrics")
+				continue
+			}
+			for queueName, depth := range stats {
+				server.QueueDepth.WithLabelValues(queueName).Set(float64(depth))
+			}
+		}
+	}()
+
 	// Start cleanup for old proof requests (every 10 minutes)
 	go func() {
 		requestTicker := time.NewTicker(10 * time.Minute)
@@ -1098,7 +1246,6 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 		}
 	}()
 
-	// Start cleanup for old failed jobs (every 30 minutes)
 	go func() {
 		failedTicker := time.NewTicker(30 * time.Minute)
 		defer failedTicker.Stop()
@@ -1116,7 +1263,6 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 		}
 	}()
 
-	// Start cleanup for old results (every 30 minutes)
 	go func() {
 		resultTicker := time.NewTicker(30 * time.Minute)
 		defer resultTicker.Stop()
@@ -1141,39 +1287,6 @@ func startCleanupRoutines(redisQueue *server.RedisQueue) {
 			}
 		}
 	}()
-}
-
-func readAggregateSlot(spec string) (common.AggregateSlot, groth16.VerifyingKey, error) {
-	if vkPath, ok := strings.CutPrefix(spec, "swap-take:"); ok {
-		file, err := os.Open(vkPath)
-		if err != nil {
-			return common.AggregateSlot{}, nil, err
-		}
-		defer func() {
-			if cerr := file.Close(); cerr != nil {
-				logging.Logger().Error().Err(cerr).Msg("error closing file")
-			}
-		}()
-		vk := groth16.NewVerifyingKey(ecc.BN254)
-		if _, err := vk.ReadFrom(file); err != nil {
-			return common.AggregateSlot{}, nil, fmt.Errorf("read take verifying key %s: %w", vkPath, err)
-		}
-		return common.AggregateSlot{Inner: common.SwapTakeCircuitType}, vk, nil
-	}
-
-	if err := common.EnsureProvingKey(spec, false, nil); err != nil {
-		return common.AggregateSlot{}, nil, fmt.Errorf("inner key is not the pinned one: %w", err)
-	}
-	system, err := common.ReadSystemFromFile(spec)
-	if err != nil {
-		return common.AggregateSlot{}, nil, fmt.Errorf("read inner keys: %w", err)
-	}
-	inner, ok := system.(*common.TransferProofSystem)
-	if !ok {
-		return common.AggregateSlot{}, nil, fmt.Errorf("%s is not a transfer proving system", spec)
-	}
-	slot := common.AggregateSlot{Inner: inner.CircuitType, NInputs: inner.NInputs, NOutputs: inner.NOutputs}
-	return slot, inner.VerifyingKey, nil
 }
 
 func writeProvingSystem(ps io.WriterTo, path string) (int64, error) {

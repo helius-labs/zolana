@@ -110,3 +110,22 @@ pub enum RingsTxNullifiers {
     InputQueueSeq,
     Nullifier,
 }
+
+#[derive(Copy, Clone, Iden)]
+pub enum SquadsKeyEvents {
+    Table,
+    SquadsKeyEventId,
+    Signature,
+    EventIndex,
+    Slot,
+    SquadsProgramId,
+    SourceInstructionTag,
+    EventKind,
+    Account,
+    Owner,
+    KeyNonce,
+    NewKeyNonce,
+    OldStateHash,
+    RawEvent,
+    ParseVersion,
+}

@@ -9,6 +9,14 @@ entered the coverage set and failed the job.
 
 Everything under `EXCLUDED_DIRS` is left out; every other workspace member is
 covered, so a new library crate is measured the day it lands.
+
+`zones/` is not reachable from here and is not measured. Each zone is a nested
+workspace that the root `Cargo.toml` excludes, so `cargo metadata` below never
+lists its crates. Measuring one needs its own `cargo llvm-cov` collection
+against its manifest, and that writes into the nested workspace's own target
+dir, which the root `cargo llvm-cov report` does not read. Until the two
+profiles are merged, a zone's coverage is a separate report, not a gap in this
+list.
 """
 
 import json

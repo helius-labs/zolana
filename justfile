@@ -52,6 +52,8 @@ check:
 # Check the entire workspace.
 check-all:
     cargo check --workspace --all-targets
+    cd zones/squads && cargo check --workspace --all-targets --all-features
+    cargo run -q -p xtask -- ts-interface-consts --check
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
@@ -94,6 +96,38 @@ test-program-mollusk: build-programs
 # Swap wrapper unit, wire-contract, and SBF-backed negative tests.
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
+
+# Squads zone unit and LiteSVM suites. `zones/squads` is a nested workspace with
+# its own lockfile and target dir, so it needs its own manifest path here. The
+# proof-backed binaries under `integration-tests` need the zone proving keys,
+# which are unpublished (prover/server/scripts/generate_keys_squads.sh), so they
+# stay out of this tier. `init_spp_zone_config_e2e` needs no keys but its fixture
+# is rejected with InvalidInitializationAuthority, so it is out until that is
+# fixed. Plain `cargo test`, because nextest resolves a profile against the
+# workspace root and the nested workspace defines none, so `NEXTEST_PROFILE=ci`
+# would not resolve there.
+# None of the binaries here load the SPP binary, so the tier needs only the zone
+# build. `init_spp_zone_config_e2e` and `composed_localnet` do, so adding either
+# one also adds `build-programs`.
+test-squads: build-programs-squads
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Nothing in the nested workspace exports the per-clone ports, so its suites
+    # reach the right validator, indexer, and prover only from here.
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    export ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}"
+    export ZOLANA_INDEXER_URL="{{localnet-photon-url}}"
+    manifest=zones/squads/Cargo.toml
+    # One package per invocation. Selecting the client together with the SDK
+    # unifies features, which turns on the SDK's `prover` module and with it the
+    # zone proof tests that need the unpublished keys.
+    cargo test --manifest-path "$manifest" -p zolana-squads-interface
+    cargo test --manifest-path "$manifest" -p zolana-squads-sdk
+    cargo test --manifest-path "$manifest" -p zolana-squads-client
+    cargo test --manifest-path "$manifest" -p squads-zone-tests \
+        --test zone_config --test viewing_key --test proposal --test key_update \
+        --test merge_transact_cpi --test deferred_settlement
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
@@ -281,10 +315,11 @@ test-proofless-programs: build-programs
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
 
-# Aggregate of all CI-runnable Rust tests. The aggregate and nullifier-fold
-# tiers are absent on purpose, because their proving keys are unpublished, so
-# they run locally and on the manual aggregate-tiers workflow.
-test-all: test test-programs test-user-registry-litesvm test-swap-program
+# Aggregate of all CI-runnable Rust tests. The aggregate, nullifier-fold, and
+# vk-registry-aggregate tiers are absent on purpose, because their proving keys
+# are unpublished, so they run locally and on the manual aggregate-tiers
+# workflow.
+test-all: test test-programs test-user-registry-litesvm test-swap-program test-squads test-vk-registry
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
@@ -877,6 +912,7 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
 # programs compile in, which is why every aggregate recipe runs it before
 # build-programs. A warm run keeps the committed constants, because the wrapper
 # reverts the generator's unconditional re-export, which vk_fingerprint rejects.
+# Set ZOLANA_AGGREGATE_NO_AUTOGEN=1 to fail with the missing names instead.
 ensure-aggregate-keys:
     ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_aggregate.sh \
         "{{spp-keys-dir}}" program-libs/interface/src/verifying_keys
@@ -886,6 +922,14 @@ ensure-aggregate-keys:
 ensure-nullifier-fold-keys:
     ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_nullifier_fold.sh \
         "{{spp-keys-dir}}" program-libs/batched-merkle-tree/src/verify/verifying_keys
+
+# Generate whatever Squads zone keys are missing from {{spp-keys-dir}}. Same
+# contract as ensure-aggregate-keys. The proof-backed suites under
+# zones/squads/integration-tests need these, and the zone program must be
+# rebuilt after a cold run.
+ensure-squads-keys:
+    ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_squads.sh \
+        "{{spp-keys-dir}}" zones/squads/interface/src/verifying_keys
 
 # The nullifier fold tier. Local only, and on the manual aggregate-tiers
 # workflow, because the keys are neither published nor pinned by the lockfile.
@@ -1094,9 +1138,15 @@ install-surfpool:
 build-programs:
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
+# Build the Squads zone SBF binary. `zones/squads` is its own workspace, so the
+# artifact lands in `zones/squads/target/deploy`, which is where the integration
+# harness looks for it (`SQUADS_ZONE_PROGRAM_PATH` overrides).
+build-programs-squads:
+    cd zones/squads/program && cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint
+
 # Registry-enabled shielded-pool build into its own artifact dir. The default
 # `build-programs` output stays untouched; this binary needs the
-# local/bn254-prepared-stateless agave fork's syscalls to load.
+# helius/alex/bn254-prepared agave fork's syscalls to load.
 build-programs-vk-registry:
     mkdir -p target/deploy-vk-registry
     cargo build-sbf --tools-version {{sbf-tools-version}} \
@@ -1106,10 +1156,18 @@ build-programs-vk-registry:
 
 # VK-registry integration tests against the shimmed prepared-operand
 # syscalls (fetched from the pinned Atamanov agave fork rev). The e2e needs
-# the workspace prover toolchain like the other proof-backed suites.
-test-vk-registry:
+# the workspace prover toolchain like the other proof-backed suites, because it
+# spawns the prover through the zolana CLI.
+test-vk-registry: build-prover-server build-cli
     just build-programs-vk-registry
     cargo test -p vk-registry-test
+
+# Registered outer verify for an aggregate batch. Local only like
+# `test-aggregate`: the outer keys are unpublished, so the recipe generates
+# whatever is missing first.
+test-vk-registry-aggregate: ensure-aggregate-keys build-prover-server build-cli
+    just build-programs-vk-registry
+    cargo test -p vk-registry-test --features aggregate --test aggregate_e2e
 
 # Deploy/upgrade programs to devnet using the local `solana` CLI config.
 # Pass program names to deploy a subset, e.g. `just deploy-devnet shielded-pool`.
@@ -1215,17 +1273,42 @@ release tag *args: build-programs fetch-smart-account
 
 # === Formatting and linting ===
 
+# zones/squads is its own workspace (excluded from the root one), so every
+# formatting and linting recipe needs a second invocation or nothing covers it.
 fmt:
     cargo fmt --all
+    cd zones/squads && cargo fmt --all
 
 fmt-check:
     cargo fmt --all -- --check
+    cd zones/squads && cargo fmt --all -- --check
 
+# `vk-registry` is a non-default feature, so the registered verify path, the
+# finalized loader, and the permissionless init machine compile only under the
+# explicit pass below.
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy -p shielded-pool-program --all-targets --features vk-registry -- -D warnings
+    cargo clippy -p zolana-batched-merkle-tree --all-targets --features vk-registry -- -D warnings
+    cd zones/squads && cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh
+
+# Fail when a recipe left tracked files changed. CI runs it after each test tier
+# because the unpublished-key generators rewrite committed verifying keys, which
+# vk_fingerprint pins.
+check-tree-clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Tracked files only. The localnet recipes drop ledgers and service logs
+    # wherever the spawning process runs, and those are artifacts, not changes.
+    dirty="$(git status --porcelain --untracked-files=no)"
+    if [[ -n "$dirty" ]]; then
+        echo "the working tree is not clean after the run:" >&2
+        printf '%s\n' "$dirty" >&2
+        exit 1
+    fi
 
 # === Prover server ===
 
@@ -1244,9 +1327,9 @@ prover-server-test:
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
     go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
-    # The `server` package's handler tests need redis, but the queue-routing
-    # unit test does not -- run it explicitly so routing stays covered in CI.
-    go test ./server/ -run '^TestGetQueueNameForCircuit$'
+    # The queue tests run against an in-process redis unless TEST_REDIS_URL
+    # points at a real one, so the root and server packages run everywhere.
+    go test . ./server/
 
 [private]
 xtask-create-verifying-keys:

@@ -31,6 +31,11 @@ prover
 - go prover server
 - rust prover client
 
+zones
+- policy zones over the shielded pool, one nested Cargo workspace each
+- excluded from the root workspace, so each has its own lockfile and target dir
+- external dependency versions must mirror the root workspace
+
 ## Workspace Shape
 
 - `programs/shielded-pool`: the SPP Solana program.
@@ -42,6 +47,11 @@ prover
 - `forester`: compilable forester skeleton for future nullifier-tree
   maintenance work.
 - `prover`: proof client and prover server.
+- `zones/squads`: the Squads policy zone, a nested workspace that depends on the
+  root crates by path and settles through SPP by CPI. `tools/check-test-hygiene.sh`
+  compares every external dependency the zone consumes against the root pin,
+  because a type from a divergent revision fails only when it crosses the
+  workspace boundary.
 
 ## Project Structure
 
@@ -79,6 +89,13 @@ cli/                   -- root Zolana developer/operator CLI
 forester/              -- forester skeleton
 prover/                -- Rust prover client and Go prover server
 xtask/                 -- workspace maintenance tools
+
+zones/squads/
+  program/             -- on-chain zone program, verifies the zone proof and CPIs SPP
+  interface/           -- tags, builders, instruction data, state, verifying keys
+  sdk/                 -- zone crypto, proposal building, prover glue
+  client/              -- zone client
+  integration-tests/   -- LiteSVM and localnet suites, load the built zone .so
 ```
 
 ## Common Commands
@@ -99,6 +116,20 @@ Program tests that load real SBF binaries need the local builds:
 ```bash
 just build-programs
 ```
+
+`zones/squads` is a nested workspace, so it needs its own build and test
+recipes. `just fmt`, `just fmt-check`, `just check-all`, and `just clippy`
+already cover it in a second invocation.
+
+```bash
+just build-programs-squads   # zones/squads/target/deploy/zolana_squads_program.so
+just test-squads             # unit and LiteSVM suites, no zone proving keys
+```
+
+The proof-backed zone suites need the zone proving keys, which are unpublished.
+Generate them with `prover/server/scripts/generate_keys_squads.sh`, which also
+rewrites the committed verifying-key constants they pin, then rebuild the zone
+program before proving.
 
 ### Per-clone port isolation (`ZOLANA_PORT_OFFSET`)
 

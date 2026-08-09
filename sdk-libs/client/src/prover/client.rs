@@ -1,5 +1,6 @@
 use std::{
     env,
+    net::IpAddr,
     path::Path,
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
@@ -27,6 +28,8 @@ use crate::{
 pub const SERVER_ADDRESS: &str = "http://127.0.0.1:3001";
 pub const HEALTH_CHECK: &str = "/health";
 pub const PROVE_PATH: &str = "/prove";
+const CLIENT_API_KEY_ENV: &str = "ZOLANA_PROVER_API_KEY";
+const SHARED_API_KEY_ENV: &str = "PROVER_API_KEY";
 
 /// Default prover port, mirrored from the CLI's `DEFAULT_PROVER_PORT`. Used as
 /// the fallback when a custom [`server_address`] has no parseable port.
@@ -57,26 +60,22 @@ fn prover_port(server_address: &str) -> u16 {
 const STARTUP_HEALTH_CHECK_RETRIES: usize = 300;
 static IS_LOADING: AtomicBool = AtomicBool::new(false);
 
-// A heavy cold proof (the first P256 request loads a 63MB key and runs a
-// 205k-constraint Groth16 prove) can drop the HTTP connection under CPU/memory
-// contention while the server stays up. Proof generation is idempotent, so the
-// request is retried; the key is warm by the next attempt and proves quickly.
+// A cold proof can drop the HTTP connection under load while the server stays up.
+// Proof generation is idempotent, so the request is retried and the warm key proves
+// quickly.
 const PROVE_MAX_ATTEMPTS: usize = 3;
 const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
-// Generous bound so a slow cold prove never hangs the client forever; the server
-// caps sync work at 120–180s depending on circuit, so a clean timeout returns
-// well before this.
+// Upper bound so a slow cold prove cannot hang the client. The server times out sync
+// work first.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
-/// Polling cadence and ceiling for async (queued) proofs. Redis-backed provers
-/// queue batch, transfer, and merge proofs and return a job handle immediately
-/// instead of blocking; the client then polls the status endpoint until the
-/// proof completes or `max_wait_secs` elapses. The first batch job loads a
-/// multi-GB proving key before proving, so the default ceiling is generous.
+/// Polling cadence and ceiling for async (queued) proofs. Queue-backed provers
+/// return a job handle immediately. The client polls the status endpoint until
+/// the proof completes or `max_wait_secs` elapses. The first batch job loads its
+/// proving key before proving, so the default ceiling is generous.
 ///
 /// Held on the [`ProverClient`] and overridable via
-/// [`ProverClient::with_async_poll_config`], mirroring light-client's
-/// `RetryConfig` (a client-held config with a `Default`).
+/// [`ProverClient::with_async_poll_config`].
 #[derive(Clone, Copy, Debug)]
 pub struct AsyncPollConfig {
     /// Seconds between `/prove/status` polls (floored at 1 so it can't spin).
@@ -100,7 +99,7 @@ fn build_http_client() -> reqwest::blocking::Client {
         .connect_timeout(Duration::from_secs(PROVE_CONNECT_TIMEOUT_SECS))
         .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
         .build()
-        .expect("failed to build HTTP client")
+        .expect("client options are valid, only a broken TLS backend can fail here")
 }
 
 fn build_async_http_client() -> reqwest::Client {
@@ -109,7 +108,83 @@ fn build_async_http_client() -> reqwest::Client {
         .connect_timeout(Duration::from_secs(PROVE_CONNECT_TIMEOUT_SECS))
         .timeout(Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS))
         .build()
-        .expect("failed to build HTTP client")
+        .expect("client options are valid, only a broken TLS backend can fail here")
+}
+
+fn configured_api_key() -> Option<String> {
+    [CLIENT_API_KEY_ENV, SHARED_API_KEY_ENV]
+        .into_iter()
+        .find_map(|name| env::var(name).ok().and_then(nonempty_api_key))
+}
+
+fn nonempty_api_key(api_key: String) -> Option<String> {
+    let api_key = api_key.trim();
+    (!api_key.is_empty()).then(|| api_key.to_string())
+}
+
+/// What a proof request's inputs reveal to whoever proves them. The
+/// classification travels with the payload, so a new request type cannot pick
+/// up a transport policy by which method happened to send it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputSensitivity {
+    /// The payload carries wallet secrets. `merge-chain` legs carry the
+    /// commitment-to-nullifier linkage and the owner identity the protocol
+    /// hides, so they belong here with the spend circuits.
+    WalletSecrets,
+    /// The payload carries only hashes and roots that are already public.
+    PublicOnly,
+}
+
+/// A prove request and what its inputs reveal.
+pub(crate) struct ProofRequest {
+    body: String,
+    sensitivity: InputSensitivity,
+}
+
+impl ProofRequest {
+    pub(crate) fn wallet_secrets(body: String) -> Self {
+        Self {
+            body,
+            sensitivity: InputSensitivity::WalletSecrets,
+        }
+    }
+
+    pub(crate) fn public_only(body: String) -> Self {
+        Self {
+            body,
+            sensitivity: InputSensitivity::PublicOnly,
+        }
+    }
+}
+
+fn validate_prover_transport(
+    server_address: &str,
+    sensitivity: InputSensitivity,
+) -> Result<(), ClientError> {
+    let url = reqwest::Url::parse(server_address).map_err(|_| ClientError::ProverUrlMalformed {
+        server_address: server_address.to_string(),
+    })?;
+    let loopback = url.host_str().is_some_and(|host| {
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+    });
+    if loopback {
+        return Ok(());
+    }
+    if sensitivity == InputSensitivity::WalletSecrets {
+        return Err(ClientError::ProverRequiresLocalTransport {
+            server_address: server_address.to_string(),
+        });
+    }
+    if url.scheme() != "https" {
+        return Err(ClientError::ProverTransportNotHttps {
+            server_address: server_address.to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Blocking client for the transfer proving endpoints of the prover server.
@@ -117,6 +192,7 @@ pub struct ProverClient {
     server_address: String,
     http: reqwest::blocking::Client,
     async_poll: AsyncPollConfig,
+    api_key: Option<String>,
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -124,6 +200,7 @@ pub struct AsyncProverClient {
     server_address: String,
     http: reqwest::Client,
     async_poll: AsyncPollConfig,
+    api_key: Option<String>,
 }
 
 impl Default for ProverClient {
@@ -148,7 +225,24 @@ impl ProverClient {
             server_address,
             http: build_http_client(),
             async_poll: AsyncPollConfig::default(),
+            api_key: configured_api_key(),
         }
+    }
+
+    /// Authenticate prover requests with a bearer token. An empty token is a
+    /// configuration mistake, so it is rejected rather than read as a request
+    /// to send unauthenticated.
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Result<Self, ClientError> {
+        self.api_key =
+            Some(nonempty_api_key(api_key.into()).ok_or(ClientError::EmptyProverApiKey)?);
+        Ok(self)
+    }
+
+    /// Send prover requests unauthenticated, dropping any key the environment
+    /// supplied.
+    pub fn without_api_key(mut self) -> Self {
+        self.api_key = None;
+        self
     }
 
     /// Override the async-proof polling config (see [`AsyncPollConfig`]).
@@ -160,32 +254,43 @@ impl ProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs))
+        self.send(ProofRequest::wallet_secrets(to_json(inputs)))
     }
 
     /// Prove an 8-in/1-out merge, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs))
+        self.send(ProofRequest::wallet_secrets(to_json_merge(inputs)))
     }
 
     /// Prove a ring-authority transfer (anonymous, no signature), returning the
-    /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`] witness;
-    /// call [`Proof::compress`] for the wire format.
+    /// uncompressed negated proof. Reuses the Solana-only [`TransferInputs`].
+    /// Call [`Proof::compress`] for the wire format.
     pub fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs))
+        self.send(ProofRequest::wallet_secrets(to_json_ring_authority(inputs)))
     }
 
     /// Prove a policy-ring merge (`merge-ring`), returning the uncompressed negated
-    /// proof. Reuses the [`MergeInputs`] witness; call [`Proof::compress`] for the
-    /// wire format.
+    /// proof. Reuses [`MergeInputs`]. Call [`Proof::compress`] for the wire format.
     pub fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs))
+        self.send(ProofRequest::wallet_secrets(to_json_merge_ring(inputs)))
     }
 
     /// Prove an eddsa confidential policy-ring transfer (`transfer-ring`).
     pub fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs))
+        self.send(ProofRequest::wallet_secrets(to_json_ring(inputs)))
+    }
+
+    /// Batch transfer proofs into one recursive proof.
+    pub fn prove_aggregate(&self, inputs: &AggregateInputs) -> Result<Proof, ClientError> {
+        self.send(ProofRequest::public_only(to_json_aggregate(inputs)))
+    }
+
+    /// Chain merge proofs into one recursive proof, collapsing more UTXOs than
+    /// the merge circuit's fixed eight inputs. Each leg names its input UTXO
+    /// hashes, nullifiers and signer, so the request stays on the device.
+    pub fn prove_merge_chain(&self, inputs: &MergeChainInputs) -> Result<Proof, ClientError> {
+        self.send(ProofRequest::wallet_secrets(to_json_merge_chain(inputs)))
     }
 
     /// Prove a custom-ring P256 transfer.
@@ -193,7 +298,7 @@ impl ProverClient {
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs))
+        self.send(ProofRequest::wallet_secrets(to_json_p256_ring(inputs)))
     }
 
     /// Prove a nullifier-tree batch address-append update, returning the
@@ -203,36 +308,57 @@ impl ProverClient {
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs))
+        self.send(ProofRequest::public_only(to_json_batch_address_append(
+            inputs,
+        )))
     }
 
-    /// Fold a run of consecutive address appends into one proof.
     pub fn prove_nullifier_fold(&self, inputs: &NullifierFoldInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_nullifier_fold(inputs))
+        self.send(ProofRequest::public_only(to_json_nullifier_fold(inputs)))
     }
 
-    /// Batch transfer proofs into one recursive proof.
-    pub fn prove_aggregate(&self, inputs: &AggregateInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_aggregate(inputs))
+    /// POST a prove request and return the gnark proof object as JSON text.
+    /// Callers that parse a circuit-specific proof shape use this instead of the
+    /// typed prove methods.
+    pub fn send_raw(
+        &self,
+        body: String,
+        sensitivity: InputSensitivity,
+    ) -> Result<String, ClientError> {
+        let value = self.send_value(ProofRequest { body, sensitivity })?;
+        let proof_value = value.get("proof").unwrap_or(&value);
+        if proof_value.is_null() {
+            return Err(ClientError::ProverServer(
+                "server returned a null proof".to_string(),
+            ));
+        }
+        serde_json::to_string(proof_value)
+            .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))
     }
 
-    /// Chain merge proofs into one recursive proof, collapsing more UTXOs than
-    /// the merge circuit's fixed eight inputs.
-    pub fn prove_merge_chain(&self, inputs: &MergeChainInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_chain(inputs))
+    fn send(&self, request: ProofRequest) -> Result<Proof, ClientError> {
+        let value = self.send_value(request)?;
+        Self::proof_from_value(&value, &value.to_string())
     }
 
-    fn send(&self, body: String) -> Result<Proof, ClientError> {
+    /// Run one prove request to completion, polling a queued job if the server
+    /// returned a handle, and return the response value.
+    fn send_value(&self, request: ProofRequest) -> Result<serde_json::Value, ClientError> {
+        let ProofRequest { body, sensitivity } = request;
+        validate_prover_transport(&self.server_address, sensitivity)?;
         let url = format!("{}{}", self.server_address, PROVE_PATH);
         let mut attempt = 0;
         let response = loop {
             attempt += 1;
-            let outcome = self
+            let mut request = self
                 .http
                 .post(&url)
                 .header("Content-Type", "application/json")
-                .body(body.clone())
-                .send();
+                .body(body.clone());
+            if let Some(api_key) = &self.api_key {
+                request = request.bearer_auth(api_key);
+            }
+            let outcome = request.send();
             match outcome {
                 Ok(response) => break response,
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
@@ -268,17 +394,21 @@ impl ProverClient {
                 return self.poll_async(job_id);
             }
         }
-        Self::proof_from_value(&value, &text)
+        Ok(value)
     }
 
     /// Poll the async job status endpoint until the queued proof completes.
-    fn poll_async(&self, job_id: &str) -> Result<Proof, ClientError> {
+    fn poll_async(&self, job_id: &str) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}/prove/status?job_id={}", self.server_address, job_id);
         let poll_interval = self.async_poll.poll_interval_secs.max(1);
         let max_wait = self.async_poll.max_wait_secs;
         let mut waited = 0u64;
         loop {
-            let response = match self.http.get(&url).send() {
+            let mut request = self.http.get(&url);
+            if let Some(api_key) = &self.api_key {
+                request = request.bearer_auth(api_key);
+            }
+            let response = match request.send() {
                 Ok(response) => response,
                 Err(_) => {
                     wait_or_timeout(job_id, &mut waited, max_wait, poll_interval)?;
@@ -314,8 +444,7 @@ impl ProverClient {
                 // The completed result is a `{ proof, proof_duration_ms }` envelope
                 // nested under `result`.
                 Some("completed") => {
-                    let result = value.get("result").map_or(&value, |result| result);
-                    return Self::proof_from_value(result, &text);
+                    return Ok(value.get("result").cloned().unwrap_or(value));
                 }
                 Some("failed") => {
                     return Err(ClientError::ProverServer(format!(
@@ -375,7 +504,24 @@ impl AsyncProverClient {
             server_address,
             http: build_async_http_client(),
             async_poll: AsyncPollConfig::default(),
+            api_key: configured_api_key(),
         }
+    }
+
+    /// Authenticate prover requests with a bearer token. An empty token is a
+    /// configuration mistake, so it is rejected rather than read as a request
+    /// to send unauthenticated.
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Result<Self, ClientError> {
+        self.api_key =
+            Some(nonempty_api_key(api_key.into()).ok_or(ClientError::EmptyProverApiKey)?);
+        Ok(self)
+    }
+
+    /// Send prover requests unauthenticated, dropping any key the environment
+    /// supplied.
+    pub fn without_api_key(mut self) -> Self {
+        self.api_key = None;
+        self
     }
 
     /// Override the queued-proof polling config (see [`AsyncPollConfig`]).
@@ -387,58 +533,72 @@ impl AsyncProverClient {
     /// Prove a Solana-only (eddsa) transfer, returning the uncompressed negated proof.
     /// Call [`Proof::compress`] for the wire format.
     pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json(inputs)).await
+        self.send(ProofRequest::wallet_secrets(to_json(inputs)))
+            .await
     }
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge(inputs)).await
+        self.send(ProofRequest::wallet_secrets(to_json_merge(inputs)))
+            .await
     }
 
     pub async fn prove_ring_authority(
         &self,
         inputs: &TransferInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_ring_authority(inputs)).await
+        self.send(ProofRequest::wallet_secrets(to_json_ring_authority(inputs)))
+            .await
     }
 
     pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_ring(inputs)).await
+        self.send(ProofRequest::wallet_secrets(to_json_merge_ring(inputs)))
+            .await
     }
 
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_ring(inputs)).await
+        self.send(ProofRequest::wallet_secrets(to_json_ring(inputs)))
+            .await
     }
 
     pub async fn prove_transfer_p256_ring(
         &self,
         inputs: &TransferP256Inputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_p256_ring(inputs)).await
+        self.send(ProofRequest::wallet_secrets(to_json_p256_ring(inputs)))
+            .await
     }
 
     pub async fn prove_batch_address_append(
         &self,
         inputs: &BatchAddressAppendInputs,
     ) -> Result<Proof, ClientError> {
-        self.send(to_json_batch_address_append(inputs)).await
+        self.send(ProofRequest::public_only(to_json_batch_address_append(
+            inputs,
+        )))
+        .await
     }
 
     pub async fn prove_merge_chain(&self, inputs: &MergeChainInputs) -> Result<Proof, ClientError> {
-        self.send(to_json_merge_chain(inputs)).await
+        self.send(ProofRequest::wallet_secrets(to_json_merge_chain(inputs)))
+            .await
     }
 
-    async fn send(&self, body: String) -> Result<Proof, ClientError> {
+    async fn send(&self, request: ProofRequest) -> Result<Proof, ClientError> {
+        let ProofRequest { body, sensitivity } = request;
+        validate_prover_transport(&self.server_address, sensitivity)?;
         let url = format!("{}{}", self.server_address, PROVE_PATH);
         let mut attempt = 0;
         loop {
             attempt += 1;
-            let outcome = self
+            let mut request = self
                 .http
                 .post(&url)
                 .header("Content-Type", "application/json")
-                .body(body.clone())
-                .send()
-                .await;
+                .body(body.clone());
+            if let Some(api_key) = &self.api_key {
+                request = request.bearer_auth(api_key);
+            }
+            let outcome = request.send().await;
             match outcome {
                 Ok(response) => {
                     let status = response.status();
@@ -479,7 +639,11 @@ impl AsyncProverClient {
         let max_wait = self.async_poll.max_wait_secs;
         let mut waited = 0u64;
         loop {
-            let response = match self.http.get(&url).send().await {
+            let mut request = self.http.get(&url);
+            if let Some(api_key) = &self.api_key {
+                request = request.bearer_auth(api_key);
+            }
+            let response = match request.send().await {
                 Ok(response) => response,
                 Err(_) => {
                     async_wait_or_timeout(job_id, &mut waited, max_wait, poll_interval).await?;
@@ -792,7 +956,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send(ProofRequest::public_only("{}".to_string()))
             .expect("queued proof should complete");
         let requests = server.requests();
 
@@ -811,6 +975,64 @@ mod tests {
     }
 
     #[test]
+    fn prover_client_authenticates_prove_requests() {
+        let server = MockServer::respond_with(vec![MockResponse::json(200, gnark_proof())]);
+        ProverClient::new(server.url().to_string())
+            .with_api_key("test-api-key")
+            .expect("a non-empty api key is accepted")
+            .send(ProofRequest::public_only("{}".to_string()))
+            .expect("authenticated proof request should complete");
+
+        let requests = server.requests();
+        assert_eq!(
+            requests[0].authorization.as_deref(),
+            Some("Bearer test-api-key")
+        );
+    }
+
+    #[test]
+    fn prover_client_authenticates_status_requests() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "job_id": "authenticated-job" })),
+            MockResponse::json(
+                200,
+                json!({
+                    "status": "completed",
+                    "result": { "proof": gnark_proof() },
+                }),
+            ),
+        ]);
+        ProverClient::new(server.url().to_string())
+            .with_api_key("test-api-key")
+            .expect("a non-empty api key is accepted")
+            .send(ProofRequest::public_only("{}".to_string()))
+            .expect("authenticated queued proof should complete");
+
+        let requests = server.requests();
+        assert_eq!(requests.len(), 2);
+        assert!(requests
+            .iter()
+            .all(|request| { request.authorization.as_deref() == Some("Bearer test-api-key") }));
+    }
+
+    #[tokio::test]
+    async fn async_prover_client_authenticates_prove_requests() {
+        let server = MockServer::respond_with(vec![MockResponse::json(200, gnark_proof())]);
+        AsyncProverClient::new(server.url().to_string())
+            .with_api_key("test-api-key")
+            .expect("a non-empty api key is accepted")
+            .send(ProofRequest::public_only("{}".to_string()))
+            .await
+            .expect("authenticated proof request should complete");
+
+        let requests = server.requests();
+        assert_eq!(
+            requests[0].authorization.as_deref(),
+            Some("Bearer test-api-key")
+        );
+    }
+
+    #[test]
     fn poll_async_failed_status_errors() {
         let server = MockServer::respond_with(vec![
             MockResponse::json(202, json!({ "job_id": "job-failed" })),
@@ -823,7 +1045,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send(ProofRequest::public_only("{}".to_string()))
             .expect_err("failed async status should surface");
         let requests = server.requests();
 
@@ -841,7 +1063,7 @@ mod tests {
             MockResponse::json(200, json!({ "status": "processing" })),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send(ProofRequest::public_only("{}".to_string()))
             .expect_err("slow async proof should time out");
         let requests = server.requests();
 
@@ -863,7 +1085,7 @@ mod tests {
             MockResponse::text(200, "not json"),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send(ProofRequest::public_only("{}".to_string()))
             .expect_err("malformed status body should fail");
         let requests = server.requests();
 
@@ -884,7 +1106,7 @@ mod tests {
             ),
         ]);
         let err = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send(ProofRequest::public_only("{}".to_string()))
             .expect_err("404 status should fail immediately");
         let requests = server.requests();
 
@@ -911,7 +1133,7 @@ mod tests {
             ),
         ]);
         let proof = queued_prover_client(server.url())
-            .send("{}".to_string())
+            .send(ProofRequest::public_only("{}".to_string()))
             .expect("transient poll error should be retried");
         let requests = server.requests();
 
@@ -943,7 +1165,7 @@ mod tests {
             ),
         ]);
         let proof = async_prover_client(server.url())
-            .send("{}".to_string())
+            .send(ProofRequest::public_only("{}".to_string()))
             .await
             .expect("queued async proof should complete");
         let requests = server.requests();
@@ -975,7 +1197,7 @@ mod tests {
             ),
         ]);
         async_prover_client(server.url())
-            .send("{}".to_string())
+            .send(ProofRequest::public_only("{}".to_string()))
             .await
             .expect("transient async poll error should be retried");
         let requests = server.requests();
@@ -1002,6 +1224,61 @@ mod tests {
         assert_eq!(prover_port("garbage"), DEFAULT_PROVER_PORT);
         // The default const and SERVER_ADDRESS stay in agreement.
         assert_eq!(prover_port(SERVER_ADDRESS), DEFAULT_PROVER_PORT);
+    }
+
+    #[test]
+    fn remote_prover_requires_https() {
+        use InputSensitivity::{PublicOnly, WalletSecrets};
+
+        assert!(validate_prover_transport("https://prover.example", PublicOnly).is_ok());
+        assert!(validate_prover_transport("http://127.0.0.1:3001", WalletSecrets).is_ok());
+        assert!(validate_prover_transport("http://localhost:3001", WalletSecrets).is_ok());
+        assert!(validate_prover_transport("http://[::1]:3001", WalletSecrets).is_ok());
+
+        let error = validate_prover_transport("http://prover.example", PublicOnly)
+            .expect_err("remote plaintext prover must be rejected");
+        assert!(matches!(error, ClientError::ProverTransportNotHttps { .. }));
+    }
+
+    #[test]
+    fn wallet_secret_proofs_require_a_local_prover() {
+        let error =
+            validate_prover_transport("https://prover.example", InputSensitivity::WalletSecrets)
+                .expect_err("wallet secrets must not leave the device");
+        assert!(matches!(
+            error,
+            ClientError::ProverRequiresLocalTransport { .. }
+        ));
+    }
+
+    /// Each merge chain leg names its input UTXO hashes, its nullifiers and its
+    /// signer, so the linkage the protocol hides must not reach a third-party
+    /// prover.
+    #[test]
+    fn merge_chain_inputs_are_classified_as_wallet_secrets() {
+        let error = ProverClient::new("https://prover.example".to_string())
+            .prove_merge_chain(&MergeChainInputs {
+                levels: vec![1],
+                legs: Vec::new(),
+            })
+            .expect_err("merge chain legs must not leave the device");
+        assert!(matches!(
+            error,
+            ClientError::ProverRequiresLocalTransport { .. }
+        ));
+    }
+
+    #[test]
+    fn empty_api_key_is_rejected() {
+        let result = ProverClient::local().with_api_key("   ");
+        assert!(matches!(result.err(), Some(ClientError::EmptyProverApiKey)));
+    }
+
+    #[test]
+    fn malformed_prover_url_is_named() {
+        let error = validate_prover_transport("not a url", InputSensitivity::PublicOnly)
+            .expect_err("a malformed URL must be rejected");
+        assert!(matches!(error, ClientError::ProverUrlMalformed { .. }));
     }
 
     fn queued_prover_client(url: &str) -> ProverClient {
@@ -1042,6 +1319,7 @@ mod tests {
 
     struct RecordedRequest {
         path: String,
+        authorization: Option<String>,
     }
 
     enum MockResponse {
@@ -1161,7 +1439,15 @@ mod tests {
             .and_then(|line| line.split_whitespace().nth(1))
             .expect("request line should include a path")
             .to_string();
-        RecordedRequest { path }
+        let authorization = header.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("authorization")
+                .then(|| value.trim().to_string())
+        });
+        RecordedRequest {
+            path,
+            authorization,
+        }
     }
 
     fn parse_content_length(header: &str) -> Option<usize> {

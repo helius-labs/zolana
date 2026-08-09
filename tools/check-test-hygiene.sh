@@ -15,12 +15,31 @@ require_paths() {
   done
 }
 
+# Every check below searches this list, so a suite that moves out of it stops
+# being checked silently. `zones/squads` is a nested workspace but the same git
+# repository, so its tests are searched the same way.
+test_roots=(
+  program-tests
+  sdk-libs/client/tests
+  sdk-libs/keypair/tests
+  sdk-libs/transaction/tests
+  sdk-tests/zk-program-swap/test
+  zones/squads/integration-tests
+  zones/squads/interface/tests
+  zones/squads/client/tests
+)
+
+# Test packages whose `[[test]]` binaries are pinned by manifest path.
+manifest_pinned_suites=(
+  program-tests/shielded-pool
+  zones/squads/integration-tests
+)
+
 require_paths \
-  Cargo.toml justfile program-tests sdk-libs/client sdk-libs/client/tests \
-  sdk-libs/keypair/tests sdk-libs/transaction/tests \
-  sdk-tests/zk-program-swap/test \
+  Cargo.toml justfile sdk-libs/client \
   program-tests/spp-test-validator program-tests/spp-test-validator/tests \
-  program-tests/ring-test-program program-tests/ring-test-program/tests
+  program-tests/ring-test-program program-tests/ring-test-program/tests \
+  "${test_roots[@]}" "${manifest_pinned_suites[@]}"
 
 # git grep exits 0 on a match (a hygiene violation), 1 on no match (clean),
 # and >1 on a fatal error such as an invalid pathspec; the fatal case must
@@ -42,17 +61,12 @@ report_matches() {
 report_matches \
   "legacy scenario-test terminology or dependencies are not allowed" \
   '(cucumber|gherkin|(^|[^[:alnum:]_])bdd([^[:alnum:]_]|$))' -- \
-  Cargo.toml ':(glob)**/Cargo.toml' justfile program-tests \
-  sdk-libs/client/tests sdk-libs/keypair/tests sdk-libs/transaction/tests \
-  sdk-tests/zk-program-swap/test
+  Cargo.toml ':(glob)**/Cargo.toml' justfile "${test_roots[@]}"
 
-if find program-tests sdk-libs/client/tests sdk-libs/keypair/tests \
-  sdk-libs/transaction/tests sdk-tests/zk-program-swap/test -type f \
-  \( -path '*/features/*' -o -path '*/steps/*' -o -name '*.feature' \) -print \
-  | grep -q .; then
-  find program-tests sdk-libs/client/tests sdk-libs/keypair/tests \
-    sdk-libs/transaction/tests sdk-tests/zk-program-swap/test -type f \
-    \( -path '*/features/*' -o -path '*/steps/*' -o -name '*.feature' \) -print
+scenario_files=$(find "${test_roots[@]}" -type f \
+  \( -path '*/features/*' -o -path '*/steps/*' -o -name '*.feature' \) -print)
+if [ -n "$scenario_files" ]; then
+  printf '%s\n' "$scenario_files" >&2
   echo "legacy scenario-test files are not allowed" >&2
   failed=1
 fi
@@ -60,7 +74,7 @@ fi
 report_matches \
   "program tests must use the standard Rust test harness" \
   'harness[[:space:]]*=[[:space:]]*false' -- \
-  program-tests sdk-libs/client sdk-tests/zk-program-swap/test
+  sdk-libs/client "${test_roots[@]}"
 
 report_matches \
   "validator failures must inspect typed errors, not formatted strings" \
@@ -72,62 +86,75 @@ report_matches \
   '(LifecycleWorld|TransferWorld|MergeWorld|RingTransferWorld|RingAuthorityWorld|mod[[:space:]]+world|_world[[:space:]]*:)' -- \
   program-tests/spp-test-validator program-tests/ring-test-program ':(glob)sdk-libs/*/tests/**'
 
-# --- shielded-pool test-suite structural hygiene ---
+# Manifest-pinned test-suite structural hygiene.
 #
-# The shielded-pool suite maps each `[[test]]` binary directly to one leaf file
-# under `tests/<domain>/<intent>.rs` and owns shared setup in the `src/support`
-# library. These checks keep that mapping honest: no dangling manifest paths, no
-# orphaned or wrapper leaves, and no committed runtime artifacts.
-sp_dir=program-tests/shielded-pool
-sp_manifest="$sp_dir/Cargo.toml"
+# These suites map each `[[test]]` binary directly to one leaf file under
+# `tests/<domain>/<intent>.rs` and own shared setup in a library target. The
+# checks keep that mapping honest: no dangling manifest paths, no orphaned or
+# wrapper leaves, and no committed runtime artifacts.
+for suite_dir in "${manifest_pinned_suites[@]}"; do
+  declared_test_paths=$(grep -E '^path = "tests/' "$suite_dir/Cargo.toml" \
+    | sed -E 's/^path = "([^"]+)"/\1/')
 
-declared_test_paths=$(grep -E '^path = "tests/' "$sp_manifest" | sed -E 's/^path = "([^"]+)"/\1/')
-
-# (a) Every declared [[test]] path must exist on disk.
-while IFS= read -r rel; do
-  [ -z "$rel" ] && continue
-  if [ ! -f "$sp_dir/$rel" ]; then
-    echo "shielded-pool [[test]] path does not exist: $sp_dir/$rel" >&2
-    failed=1
-  fi
-done <<EOF
+  # (a) Every declared [[test]] path must exist on disk.
+  while IFS= read -r rel; do
+    [ -z "$rel" ] && continue
+    if [ ! -f "$suite_dir/$rel" ]; then
+      echo "[[test]] path does not exist: $suite_dir/$rel" >&2
+      failed=1
+    fi
+  done <<EOF
 $declared_test_paths
 EOF
 
-# (b) The obsolete `tests/common` `#[path]`-wrapper module tree must be gone
-#     (shared setup now lives in `src/support`).
-if [ -e "$sp_dir/tests/common" ]; then
-  echo "obsolete tests/common wrapper module tree is still present under $sp_dir" >&2
-  failed=1
-fi
+  # (b) The obsolete `tests/common` `#[path]`-wrapper module tree must be gone
+  #     (shared setup now lives in the package's library target).
+  if [ -e "$suite_dir/tests/common" ]; then
+    echo "obsolete tests/common wrapper module tree is still present under $suite_dir" >&2
+    failed=1
+  fi
 
-# (c) Every leaf under tests/ is either a declared [[test]] path or a submodule
-#     intentionally included by one (ordinary `mod` or an explicit `#[path]`).
-#     Catches orphaned files left behind by a move and re-introduced wrappers.
-while IFS= read -r leaf; do
-  rel=${leaf#"$sp_dir/"}
-  if printf '%s\n' "$declared_test_paths" | grep -qxF "$rel"; then
-    continue
-  fi
-  base=$(basename "$leaf")
-  stem=${base%.rs}
-  # The inclusion reference must live in the leaf's own directory or its parent
-  # (the `<domain>.rs` sibling that declares the leaf's module): a same-stem
-  # module in a sibling directory does not include this leaf.
-  if grep -rqE "(#\[path = \"[^\"]*${base}\"\]|^[[:space:]]*mod[[:space:]]+${stem};)" \
-    "$(dirname "$leaf")" "$(dirname "$(dirname "$leaf")")" 2>/dev/null; then
-    continue
-  fi
-  echo "orphan shielded-pool test leaf (neither a [[test]] nor included by one): $leaf" >&2
-  failed=1
-done < <(find "$sp_dir/tests" -name '*.rs')
+  # (c) Every nested leaf under tests/ is either a declared [[test]] path or a
+  #     submodule intentionally included by one (ordinary `mod` or an explicit
+  #     `#[path]`). Catches orphaned files left behind by a move and
+  #     re-introduced wrappers. Files directly under `tests/` are exempt, because
+  #     cargo auto-discovers those as test binaries whether or not they are
+  #     declared.
+  while IFS= read -r leaf; do
+    rel=${leaf#"$suite_dir/"}
+    case "$rel" in
+      tests/*/*) ;;
+      *) continue ;;
+    esac
+    if printf '%s\n' "$declared_test_paths" | grep -qxF "$rel"; then
+      continue
+    fi
+    base=$(basename "$leaf")
+    # A `mod.rs` is reached through its directory's name, not its own.
+    if [ "$base" = mod.rs ]; then
+      stem=$(basename "$(dirname "$leaf")")
+    else
+      stem=${base%.rs}
+    fi
+    # The inclusion reference must live in the leaf's own directory or its parent
+    # (the `<domain>.rs` sibling that declares the leaf's module): a same-stem
+    # module in a sibling directory does not include this leaf.
+    if grep -rqE "(#\[path = \"[^\"]*${base}\"\]|^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?mod[[:space:]]+${stem};)" \
+      "$(dirname "$leaf")" "$(dirname "$(dirname "$leaf")")" 2>/dev/null; then
+      continue
+    fi
+    echo "orphan test leaf (neither a [[test]] nor included by one): $leaf" >&2
+    failed=1
+  done < <(find "$suite_dir/tests" -name '*.rs')
+done
 
 # (d) Generated ledger/log runtime artifacts must never be tracked under a
 #     source test package (they are gitignored; this catches an accidental add).
 #     `*.proptest-regressions` corpora are NOT artifacts: TESTING.md documents
 #     them as deliberately committed regression guards.
 tracked_artifacts=$(git ls-files -- \
-  'program-tests/**/test-ledger/**' 'program-tests/**/*.log' 2>/dev/null || true)
+  'program-tests/**/test-ledger/**' 'program-tests/**/*.log' \
+  'zones/**/test-ledger/**' 'zones/**/*.log' 2>/dev/null || true)
 if [ -n "$tracked_artifacts" ]; then
   echo "generated runtime artifacts must not be committed under source test packages:" >&2
   printf '%s\n' "$tracked_artifacts" >&2
@@ -318,6 +345,59 @@ done <<< "$na_notes"
 if (( na_fail )); then
   failed=1
 fi
+
+# zones/squads is its own workspace and re-pins the shared external crates by
+# hand. Two groth16-solana revisions in one graph compile until a verifying key
+# crosses the boundary, then fail as "a different Groth16Verifyingkey", so the
+# pins are compared here rather than at that call site. Every shared crate is
+# compared, not only groth16-solana. The nested manifest states that its
+# versions mirror the root, and a type from any shared crate can cross the same
+# boundary.
+#
+# Only crates a member of the nested workspace actually consumes
+# (`{ workspace = true }`) are compared. An entry no member inherits pins
+# nothing, so a stale version there is dead text rather than a build hazard.
+workspace_pin() {
+  awk -v want="$2" '
+    /^\[workspace\.dependencies\]/ { in_deps = 1; next }
+    /^\[/ { in_deps = 0 }
+    in_deps && $1 == want && $2 == "=" {
+      if ($0 ~ /path[[:space:]]*=/) exit
+      if (match($0, /rev[[:space:]]*=[[:space:]]*"[^"]+"/)) {
+        pin = substr($0, RSTART, RLENGTH)
+      } else if (match($0, /version[[:space:]]*=[[:space:]]*"[^"]+"/)) {
+        pin = substr($0, RSTART, RLENGTH)
+      } else if (match($0, /=[[:space:]]*"[^"]+"/)) {
+        pin = substr($0, RSTART, RLENGTH)
+      } else {
+        exit
+      }
+      gsub(/^[^"]*"|"$/, "", pin)
+      # "3.2" and "3.2.0" are the same requirement, so compare three components.
+      if (pin ~ /^[0-9]+\.[0-9]+$/) pin = pin ".0"
+      print pin
+      exit
+    }
+  ' "$1"
+}
+
+consumed_shared_deps=$(grep -hoE '^[a-z0-9_-]+ = \{ workspace = true' zones/squads/*/Cargo.toml \
+  | awk '{ print $1 }' | sort -u)
+
+while IFS= read -r dep; do
+  [ -z "$dep" ] && continue
+  root_pin=$(workspace_pin Cargo.toml "$dep")
+  squads_pin=$(workspace_pin zones/squads/Cargo.toml "$dep")
+  [ -n "$root_pin" ] && [ -n "$squads_pin" ] || continue
+  if [ "$root_pin" != "$squads_pin" ]; then
+    echo "$dep pin differs between workspaces:" >&2
+    echo "  Cargo.toml              $root_pin" >&2
+    echo "  zones/squads/Cargo.toml $squads_pin" >&2
+    failed=1
+  fi
+done <<EOF
+$consumed_shared_deps
+EOF
 
 if (( failed )); then
   exit 1

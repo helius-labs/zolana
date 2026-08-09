@@ -54,6 +54,24 @@ pub struct RingTransferP256ProofResult {
 }
 
 impl RingTransferP256Prover {
+    /// The digest the P256 owner signs. It covers only the inputs, outputs, and
+    /// external data, so a caller that signs out of band (passkey, hardware
+    /// key) can read it before it holds a signature and pass the same prover
+    /// back with the real one. `build` derives its digest here, so the value
+    /// signed and the value proved cannot diverge.
+    pub fn private_tx_hash(&self) -> Result<[u8; 32], ClientError> {
+        let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::RingP256)?;
+        let assembled_outputs = assemble_outputs(&self.outputs)?;
+        let external_data_hash = self.external_data.hash()?;
+        PrivateTxHash::new(
+            &assembled_inputs.input_hashes,
+            &assembled_outputs.private_tx_output_hashes,
+            &external_data_hash,
+        )
+        .hash()
+        .map_err(ClientError::from)
+    }
+
     pub fn build(self) -> Result<RingTransferP256ProofResult, ClientError> {
         let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.n_inputs() + 1 {
@@ -63,17 +81,12 @@ impl RingTransferP256Prover {
             });
         }
 
+        let private_tx = self.private_tx_hash()?;
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::RingP256)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let published_output_owner_pk_hashes =
             confidential_marked_output_owner_pk_hashes(&self.external_data)?;
-        let private_tx = PrivateTxHash::new(
-            &assembled_inputs.input_hashes,
-            &assembled_outputs.private_tx_output_hashes,
-            &external_data_hash,
-        )
-        .hash()?;
         let message_digest = sha256(&private_tx);
         validate_authorization(&self.inputs, &self.authorization, &message_digest)?;
 
@@ -148,6 +161,7 @@ fn has_default_p256_input(inputs: &[TransferSpendInput]) -> Result<bool, ClientE
     for spend in inputs {
         if spend.proof.is_some()
             && spend.utxo.ring_program_id.is_none()
+            && !spend.utxo.owner.is_precomputed_owner_field()
             && spend.utxo.owner.signature_type()? == SignatureType::P256
         {
             return Ok(true);
@@ -166,7 +180,9 @@ fn validate_authorization(
         if spend.proof.is_none() {
             continue;
         }
-        if spend.utxo.owner.signature_type()? != SignatureType::P256 {
+        if spend.utxo.owner.is_precomputed_owner_field()
+            || spend.utxo.owner.signature_type()? != SignatureType::P256
+        {
             continue;
         }
         found_p256 = true;

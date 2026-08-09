@@ -75,13 +75,13 @@ func UtxoHashCircuit(api frontend.API, u UtxoCircuitFields) frontend.Variable {
 	return abstractor.Call(api, u)
 }
 
-// ownerHashGadget binds an owner key hash to a nullifier public key — the owner
-// commitment verified in step 3.3.
-type ownerHashGadget struct {
+// OwnerHashGadget binds an owner key hash to a nullifier public key, the
+// owner commitment the input ownership check verifies.
+type OwnerHashGadget struct {
 	OwnerKeyHash frontend.Variable
 	NullifierPk  frontend.Variable
 }
 
-func (gadget ownerHashGadget) DefineGadget(api frontend.API) interface{} {
+func (gadget OwnerHashGadget) DefineGadget(api frontend.API) interface{} {
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.OwnerKeyHash, gadget.NullifierPk})
 }

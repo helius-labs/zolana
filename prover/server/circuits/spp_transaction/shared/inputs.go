@@ -96,7 +96,7 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 		nullifierPk := abstractor.Call(api, nullifierPkGadget{
 			NullifierSecret: in.NullifierSecret,
 		})
-		ownerHash := abstractor.Call(api, ownerHashGadget{
+		ownerHash := abstractor.Call(api, OwnerHashGadget{
 			OwnerKeyHash: signals.SignerPk,
 			NullifierPk:  nullifierPk,
 		})

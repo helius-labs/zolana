@@ -51,9 +51,9 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		return ProofRequestMeta{}, fmt.Errorf("missing or invalid 'circuitType' %s", rawInput)
 	}
 
-	// Transfer, merge, aggregate, and merge-chain circuits are keyed by their
-	// fixed shape instead of a tree height, so they are exempt from the
-	// tree-height requirement below.
+	// Transfer, merge, aggregate, merge-chain, and squads circuits are keyed by
+	// their fixed shape instead of a tree height, so they are exempt from the tree-height
+	// requirement below.
 	isShapeKeyed := CircuitType(circuitType) == TransferConfidentialCircuitType ||
 		CircuitType(circuitType) == TransferRingCircuitType ||
 		CircuitType(circuitType) == TransferP256RingCircuitType ||
@@ -61,7 +61,11 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		CircuitType(circuitType) == AggregateCircuitType ||
 		CircuitType(circuitType) == MergeCircuitType ||
 		CircuitType(circuitType) == MergeRingCircuitType ||
-		CircuitType(circuitType) == MergeChainCircuitType
+		CircuitType(circuitType) == MergeChainCircuitType ||
+		CircuitType(circuitType) == SquadsZoneCircuitType ||
+		CircuitType(circuitType) == SquadsKeyEncryptionCircuitType ||
+		CircuitType(circuitType) == SquadsZoneFoldCircuitType ||
+		CircuitType(circuitType) == SquadsKeyEncryptionFoldCircuitType
 
 	// nInputs/nOutputs feed logging and metrics only. The handler re-reads the
 	// authoritative values from the unmarshalled params.

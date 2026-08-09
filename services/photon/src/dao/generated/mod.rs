@@ -10,6 +10,7 @@ pub mod rings_outputs;
 pub mod rings_transaction_payloads;
 pub mod rings_transactions;
 pub mod rings_tx_nullifiers;
+pub mod squads_key_events;
 pub mod state_trees;
 pub mod transactions;
 pub mod tree_metadata;

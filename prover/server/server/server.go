@@ -7,15 +7,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"zolana/prover/logging"
 	aggregateprover "zolana/prover/prover/aggregate"
 	"zolana/prover/prover/common"
+	keyencryption "zolana/prover/prover/key_encryption"
 	mergeprover "zolana/prover/prover/merge"
 	mergechainprover "zolana/prover/prover/merge_chain"
 	nullifierfoldprover "zolana/prover/prover/nullifier_fold"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
+	keyencryptionfold "zolana/prover/prover/squads_key_encryption_fold"
+	squadszone "zolana/prover/prover/squads_zone"
+	zonefold "zolana/prover/prover/squads_zone_fold"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
 	"github.com/google/uuid"
@@ -91,8 +97,8 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	jobExists, jobStatus, jobInfo := handler.checkJobExistsDetailed(jobID)
 
 	if !jobExists {
-		// Fallback: check job metadata - this catches jobs that were submitted but not yet
-		// visible in queues due to Redis replica lag or race conditions
+		// Job metadata catches jobs submitted but not yet visible in queues due to Redis
+		// replica lag or races.
 		jobMeta, metaErr := handler.redisQueue.GetJobMeta(jobID)
 		if metaErr != nil {
 			logging.Logger().Warn().
@@ -102,7 +108,6 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		}
 
 		if jobMeta != nil {
-			// Job was submitted (we have metadata) but not found in queues - return queued status
 			logging.Logger().Info().
 				Str("job_id", jobID).
 				Interface("job_meta", jobMeta).
@@ -151,8 +156,7 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			}
 		}
 
-		// Clean up any stale in-flight marker for this job ID
-		// This allows new requests with the same input to create fresh jobs
+		// A stale in-flight marker would block new jobs for the same input.
 		handler.redisQueue.CleanupStaleInFlightMarker(jobID)
 
 		notFoundError := &Error{
@@ -164,7 +168,7 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Log job status without payload to avoid filling up log buffer
+	// Omit the payload to bound log size.
 	logEvent := logging.Logger().Info().
 		Str("job_id", jobID).
 		Str("status", jobStatus)
@@ -183,7 +187,6 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		"status": jobStatus,
 	}
 
-	// Handle completed jobs - include result if available
 	if jobStatus == "completed" && jobInfo != nil {
 		if result, ok := jobInfo["result"]; ok {
 			response["result"] = result
@@ -193,7 +196,6 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Handle failed jobs specially - extract actual error details
 	if jobStatus == "failed" && jobInfo != nil {
 		if payloadRaw, ok := jobInfo["payload"]; ok {
 			if payloadStr, ok := payloadRaw.(string); ok {
@@ -221,7 +223,6 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 			response["message"] = "Job processing failed. No failure details available."
 		}
 	} else {
-		// Use generic message for non-failed jobs
 		response["message"] = getStatusMessage(jobStatus)
 
 		if jobInfo != nil {
@@ -236,7 +237,6 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 
-	// Return 200 OK if job is completed with result, otherwise 202 Accepted
 	if jobStatus == "completed" {
 		if _, hasResult := response["result"]; hasResult {
 			w.WriteHeader(http.StatusOK)
@@ -250,6 +250,104 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
 		return
+	}
+}
+
+// proofWaitHandler blocks until the job finishes or the timeout passes, so a
+// client gets its proof one round trip after completion instead of on its next
+// poll. Timeout answers 202 and the client falls back to /prove/status, which
+// also covers jobs whose reply already expired and job IDs that never existed.
+type proofWaitHandler struct {
+	redisQueue *RedisQueue
+}
+
+const (
+	defaultWaitTimeout = 30 * time.Second
+	// maxWaitTimeout stays below common load-balancer idle timeouts, so a
+	// blocked wait is answered by this server and not severed upstream.
+	maxWaitTimeout = 55 * time.Second
+)
+
+func (handler proofWaitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	jobID := r.URL.Query().Get("job_id")
+	if jobID == "" {
+		malformedBodyError(fmt.Errorf("job_id parameter required")).send(w)
+		return
+	}
+	if !isValidJobID(jobID) {
+		(&Error{
+			StatusCode: http.StatusBadRequest,
+			Code:       "invalid_job_id",
+			Message:    "Invalid job ID format. Job ID must be a valid UUID.",
+		}).send(w)
+		return
+	}
+
+	timeout := defaultWaitTimeout
+	if v := r.URL.Query().Get("timeout_s"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			malformedBodyError(fmt.Errorf("timeout_s must be a positive integer")).send(w)
+			return
+		}
+		timeout = time.Duration(n) * time.Second
+	}
+	if timeout > maxWaitTimeout {
+		timeout = maxWaitTimeout
+	}
+
+	// The result may already be stored, then no wait is needed and an expired
+	// reply does not matter.
+	if result, err := handler.redisQueue.GetResult(jobID); err == nil && result != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"job_id": jobID,
+			"status": "completed",
+			"result": result,
+		})
+		return
+	}
+
+	reply, err := handler.redisQueue.WaitReply(jobID, timeout)
+	if err != nil {
+		unexpectedError(err).send(w)
+		return
+	}
+	if reply == nil {
+		writeJSON(w, http.StatusAccepted, map[string]interface{}{
+			"job_id":  jobID,
+			"status":  "pending",
+			"message": "Job did not finish within the wait timeout. Poll /prove/status.",
+		})
+		return
+	}
+
+	RecordResultDelivered(reply.Queue, time.Since(reply.FinishedAt))
+
+	if reply.Status == JobReplyFailed {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"job_id": jobID,
+			"status": "failed",
+			"error":  reply.Error,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"job_id": jobID,
+		"status": "completed",
+		"result": json.RawMessage(reply.Result),
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, body map[string]interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		logging.Logger().Error().Err(err).Msg("Failed to encode JSON response")
 	}
 }
 
@@ -274,7 +372,6 @@ func getStatusMessage(status string) string {
 }
 
 func (handler proofStatusHandler) checkJobExistsDetailed(jobID string) (bool, string, map[string]interface{}) {
-	// First check result cache (fast O(1) lookup)
 	result, err := handler.redisQueue.GetResult(jobID)
 	if err == nil && result != nil {
 		logging.Logger().Debug().
@@ -288,17 +385,13 @@ func (handler proofStatusHandler) checkJobExistsDetailed(jobID string) (bool, st
 		return true, "completed", jobInfo
 	}
 
-	// Check job metadata to determine which queue to search (avoids full scan of all queues)
+	// Metadata names the queue, so the search avoids a scan of every queue.
 	jobMeta, metaErr := handler.redisQueue.GetJobMeta(jobID)
 	if metaErr == nil && jobMeta != nil {
-		// We have metadata - check only the relevant queues based on queue name
 		if queueName, ok := jobMeta["queue"].(string); ok {
-			// Check main queue first
 			if job, found := handler.findJobInQueue(queueName, jobID); found {
 				return true, "queued", job
 			}
-			// Check processing queue for this circuit type
-			// Validate queueName before slicing to avoid panic
 			if len(queueName) >= 6 && strings.HasSuffix(queueName, "_queue") {
 				base := queueName[:len(queueName)-6]
 				processingQueue := base + "_processing_queue"
@@ -312,17 +405,14 @@ func (handler proofStatusHandler) checkJobExistsDetailed(jobID string) (bool, st
 					Msg("Malformed queue name in job metadata - skipping processing queue check")
 			}
 		}
-		// Job has metadata but not found in expected queues - may be in results or failed
 		if job, found := handler.findJobInQueue("zk_failed_queue", jobID); found {
 			return true, "failed", job
 		}
-		// Check results queue
 		if job, found := handler.findJobInQueue("zk_results_queue", jobID); found {
 			handler.extractResultFromPayload(job)
 			return true, "completed", job
 		}
-		// Return metadata-based status even if not found in queues
-		// This handles race conditions where job moved between queues
+		// The job may have moved between queues mid-scan, so fall back to the metadata status.
 		status := "queued"
 		if metaStatus, ok := jobMeta["status"].(string); ok {
 			status = metaStatus
@@ -334,8 +424,7 @@ func (handler proofStatusHandler) checkJobExistsDetailed(jobID string) (bool, st
 		}
 	}
 
-	// No metadata - fall back to checking failed and results queues only
-	// (These are the terminal states where jobs might exist without metadata)
+	// Terminal states can outlive job metadata, so check the failed and results queues.
 	if job, found := handler.findJobInQueue("zk_failed_queue", jobID); found {
 		return true, "failed", job
 	}
@@ -381,7 +470,6 @@ func (handler proofStatusHandler) findJobInQueue(queueName, jobID string) (map[s
 					"created_at": job.CreatedAt,
 				}
 
-				// Include payload for all jobs, especially important for failed jobs
 				if len(job.Payload) > 0 {
 					jobInfo["payload"] = string(job.Payload)
 
@@ -413,15 +501,17 @@ type QueueConfig struct {
 }
 
 type EnhancedConfig struct {
-	ProverAddress  string
-	MetricsAddress string
-	Queue          *QueueConfig
+	ProverAddress       string
+	MetricsAddress      string
+	MaxRequestBodyBytes int64
+	Queue               *QueueConfig
 }
 
 type proveHandler struct {
-	keyManager  *common.LazyKeyManager
-	redisQueue  *RedisQueue
-	enableQueue bool
+	keyManager          *common.LazyKeyManager
+	redisQueue          *RedisQueue
+	enableQueue         bool
+	maxRequestBodyBytes int64
 }
 
 func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -430,10 +520,9 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buf, err := io.ReadAll(r.Body)
-	if err != nil {
-		logging.Logger().Error().Err(err).Msg("Error reading request body")
-		malformedBodyError(err).send(w)
+	buf, requestError := readRequestBody(w, r, handler.maxRequestBodyBytes)
+	if requestError != nil {
+		requestError.send(w)
 		return
 	}
 
@@ -456,6 +545,11 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Bool("queue_available", handler.enableQueue && handler.redisQueue != nil).
 		Msg("Processing prove request")
 
+	// Counted here because every request passes this point exactly once.
+	// A count inside the handlers doubles the queued path.
+	ProofRequestsTotal.WithLabelValues(string(proofRequestMeta.CircuitType)).Inc()
+	RecordCircuitInputSize(string(proofRequestMeta.CircuitType), len(buf))
+
 	if shouldUseQueue && handler.enableQueue && handler.redisQueue != nil {
 		handler.handleAsyncProof(w, r, buf, proofRequestMeta)
 	} else {
@@ -468,9 +562,6 @@ func (handler proveHandler) shouldUseQueueForCircuit(circuitType common.CircuitT
 		return false
 	}
 
-	// A circuit is queueable iff it has a dedicated queue. address-append is heavy
-	// and must go async; transfer/merge circuits now share zk_transfer_queue so a
-	// shared prover doesn't get stampeded by concurrent synchronous transfers.
 	return GetQueueNameForCircuit(circuitType) != ""
 }
 
@@ -595,8 +686,9 @@ func (handler queueCleanupHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 
 func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
 	return RunEnhanced(&EnhancedConfig{
-		ProverAddress:  config.ProverAddress,
-		MetricsAddress: config.MetricsAddress,
+		ProverAddress:       config.ProverAddress,
+		MetricsAddress:      config.MetricsAddress,
+		MaxRequestBodyBytes: config.MaxRequestBodyBytes,
 		Queue: &QueueConfig{
 			Enabled: redisQueue != nil,
 		},
@@ -604,30 +696,40 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 }
 
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) RunningJob {
+	maxRequestBodyBytes := config.MaxRequestBodyBytes
+	if maxRequestBodyBytes <= 0 {
+		maxRequestBodyBytes = DefaultMaxRequestBodyBytes
+	}
+
 	apiKey := getAPIKeyFromEnv()
+	requireConfiguredKey := !isLoopbackBindAddress(config.ProverAddress)
 	if apiKey != "" {
 		logging.Logger().Info().Msg("API key authentication enabled for prover server")
+	} else if requireConfiguredKey {
+		logging.Logger().Error().Msg("ZOLANA_PROVER_API_KEY or PROVER_API_KEY is required because the prover listens beyond localhost; protected endpoints will reject requests")
 	} else {
-		logging.Logger().Warn().Msg("No API key configured - server will accept all requests. Set PROVER_API_KEY environment variable to enable authentication.")
+		logging.Logger().Warn().Msg("No API key configured; prover endpoints are available only through the loopback listener")
 	}
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", promhttp.Handler())
-	metricsServer := &http.Server{Addr: config.MetricsAddress, Handler: metricsMux}
+	metricsServer := newHTTPServer(config.MetricsAddress, metricsMux)
 	metricsJob := spawnServerJob(metricsServer, "metrics server")
 	logging.Logger().Info().Str("addr", config.MetricsAddress).Msg("metrics server started")
 
 	proverMux := http.NewServeMux()
 
 	proverMux.Handle("/prove", proveHandler{
-		keyManager:  keyManager,
-		redisQueue:  redisQueue,
-		enableQueue: config.Queue != nil && config.Queue.Enabled,
+		keyManager:          keyManager,
+		redisQueue:          redisQueue,
+		enableQueue:         config.Queue != nil && config.Queue.Enabled,
+		maxRequestBodyBytes: maxRequestBodyBytes,
 	})
 
 	proverMux.Handle("/health", healthHandler{})
 
 	if redisQueue != nil {
 		proverMux.Handle("/prove/status", proofStatusHandler{redisQueue: redisQueue})
+		proverMux.Handle("/prove/wait", proofWaitHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/stats", queueStatsHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/health", queueHealthHandler{redisQueue: redisQueue})
 		proverMux.Handle("/queue/cleanup", queueCleanupHandler{redisQueue: redisQueue})
@@ -638,9 +740,9 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 				return
 			}
 
-			buf, err := io.ReadAll(r.Body)
-			if err != nil {
-				malformedBodyError(err).send(w)
+			buf, requestError := readRequestBody(w, r, maxRequestBodyBytes)
+			if requestError != nil {
+				requestError.send(w)
 				return
 			}
 
@@ -651,11 +753,17 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			}
 
 			queueName := GetQueueNameForCircuit(proofRequestMeta.CircuitType)
+			if queueName == "" {
+				(&Error{
+					StatusCode: http.StatusBadRequest,
+					Code:       "circuit_not_queueable",
+					Message:    fmt.Sprintf("circuit %s cannot be persisted in the proof queue", proofRequestMeta.CircuitType),
+				}).send(w)
+				return
+			}
 
-			// Compute input hash for deduplication
 			inputHash := ComputeInputHash(json.RawMessage(buf))
 
-			// Check for existing in-flight job with same input
 			dedupResult, err := redisQueue.DeduplicateJob(inputHash)
 			if err != nil {
 				logging.Logger().Error().
@@ -666,7 +774,6 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 				return
 			}
 
-			// If deduplicated to an existing job, return early
 			if dedupResult.IsDeduplicated {
 				response := map[string]interface{}{
 					"job_id":       dedupResult.JobID,
@@ -695,7 +802,6 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 				return
 			}
 
-			// This is a new job
 			jobID := dedupResult.JobID
 
 			job := &ProofJob{
@@ -717,12 +823,10 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 					Msg("Failed to store job metadata (will still attempt to enqueue)")
 			}
 
-			// Store input hash mapping for cleanup when job completes
 			redisQueue.StoreInputHash(jobID, inputHash)
 
 			err = redisQueue.EnqueueProof(queueName, job)
 			if err != nil {
-				// Clean up in-flight marker and metadata since we failed to enqueue
 				if delErr := redisQueue.DeleteInFlightJob(inputHash, jobID); delErr != nil {
 					logging.Logger().Error().Err(delErr).Str("job_id", jobID).Msg("Failed to cleanup in-flight marker after enqueue failure - may cause stale deduplication")
 				}
@@ -756,21 +860,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		})
 	}
 
-	corsHandler := handlers.CORS(
-		handlers.AllowedHeaders([]string{
-			"X-Requested-With",
-			"Content-Type",
-			"Authorization",
-			"X-API-Key",
-			"X-Async",
-			"X-Sync",
-		}),
-		handlers.AllowedOrigins([]string{"*"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-	)
-
-	authHandler := conditionalAuthMiddleware(apiKey)
-	proverServer := &http.Server{Addr: config.ProverAddress, Handler: corsHandler(authHandler(proverMux))}
+	proverServer := newHTTPServer(config.ProverAddress, proverHandlerChain(apiKey, requireConfiguredKey, proverMux))
 	proverJob := spawnServerJob(proverServer, "prover server")
 
 	if redisQueue != nil {
@@ -788,6 +878,26 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	return CombineJobs(metricsJob, proverJob)
 }
 
+// proverHandlerChain puts authentication outside CORS. The CORS handler answers
+// a preflight on its own, so an outer CORS handler would serve it before any
+// credential is checked.
+func proverHandlerChain(apiKey string, requireConfiguredKey bool, next http.Handler) http.Handler {
+	corsHandler := handlers.CORS(
+		handlers.AllowedHeaders([]string{
+			"X-Requested-With",
+			"Content-Type",
+			"Authorization",
+			"X-API-Key",
+			"X-Async",
+			"X-Sync",
+		}),
+		handlers.AllowedOrigins([]string{"*"}),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+	)
+
+	return conditionalAuthMiddleware(apiKey, requireConfiguredKey)(corsHandler(next))
+}
+
 func Run(config *Config, keyManager *common.LazyKeyManager) RunningJob {
 	return RunWithQueue(config, nil, keyManager)
 }
@@ -802,12 +912,24 @@ func malformedBodyError(err error) *Error {
 	return &Error{StatusCode: http.StatusBadRequest, Code: "malformed_body", Message: err.Error()}
 }
 
+func requestBodyTooLargeError(maxBytes int64) *Error {
+	return &Error{
+		StatusCode: http.StatusRequestEntityTooLarge,
+		Code:       "request_too_large",
+		Message:    fmt.Sprintf("request body exceeds the %d byte limit", maxBytes),
+	}
+}
+
 func provingError(err error) *Error {
 	return &Error{StatusCode: http.StatusBadRequest, Code: "proving_error", Message: err.Error()}
 }
 
 func unexpectedError(err error) *Error {
 	return &Error{StatusCode: http.StatusInternalServerError, Code: "unexpected_error", Message: err.Error()}
+}
+
+func requestAbandonedError(err error) *Error {
+	return &Error{StatusCode: http.StatusRequestTimeout, Code: "request_abandoned", Message: err.Error()}
 }
 
 func (error *Error) MarshalJSON() ([]byte, error) {
@@ -830,8 +952,50 @@ func (error *Error) send(w http.ResponseWriter) {
 }
 
 type Config struct {
-	ProverAddress  string
-	MetricsAddress string
+	ProverAddress       string
+	MetricsAddress      string
+	MaxRequestBodyBytes int64
+}
+
+const (
+	DefaultMaxRequestBodyBytes = int64(16 << 20)
+	defaultMaxHeaderBytes      = 64 << 10
+	defaultReadHeaderTimeout   = 10 * time.Second
+	defaultReadTimeout         = 30 * time.Second
+	defaultIdleTimeout         = 2 * time.Minute
+	// defaultWriteTimeout must stay above maxSyncProofTimeout. The deadline
+	// covers the whole exchange after the request headers, so a shorter one
+	// severs the connection of a proof that is still allowed to run.
+	defaultWriteTimeout = maxSyncProofTimeout + time.Minute
+)
+
+func readRequestBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, *Error) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxRequestBodyBytes
+	}
+
+	buf, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBytes))
+	if err == nil {
+		return buf, nil
+	}
+
+	var maxBytesError *http.MaxBytesError
+	if errors.As(err, &maxBytesError) {
+		return nil, requestBodyTooLargeError(maxBytes)
+	}
+	return nil, malformedBodyError(err)
+}
+
+func newHTTPServer(address string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       defaultReadTimeout,
+		WriteTimeout:      defaultWriteTimeout,
+		IdleTimeout:       defaultIdleTimeout,
+		MaxHeaderBytes:    defaultMaxHeaderBytes,
+	}
 }
 
 func spawnServerJob(server *http.Server, label string) RunningJob {
@@ -856,15 +1020,10 @@ type healthHandler struct {
 }
 
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
-	ProofRequestsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
-	RecordCircuitInputSize(string(meta.CircuitType), len(buf))
-
 	queueName := GetQueueNameForCircuit(meta.CircuitType)
 
-	// Compute input hash for deduplication
 	inputHash := ComputeInputHash(json.RawMessage(buf))
 
-	// Check for existing in-flight job with same input
 	dedupResult, err := handler.redisQueue.DeduplicateJob(inputHash)
 	if err != nil {
 		logging.Logger().Error().
@@ -875,7 +1034,6 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// If deduplicated to an existing job, return early
 	if dedupResult.IsDeduplicated {
 		response := map[string]interface{}{
 			"job_id":       dedupResult.JobID,
@@ -904,7 +1062,6 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// This is a new job
 	jobID := dedupResult.JobID
 
 	job := &ProofJob{
@@ -926,14 +1083,12 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 			Msg("Failed to store job metadata (will still attempt to enqueue)")
 	}
 
-	// Store input hash mapping for cleanup when job completes
 	handler.redisQueue.StoreInputHash(jobID, inputHash)
 
 	err = handler.redisQueue.EnqueueProof(queueName, job)
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("Failed to enqueue proof job")
 
-		// Clean up in-flight marker and metadata since we failed to enqueue
 		if delErr := handler.redisQueue.DeleteInFlightJob(inputHash, jobID); delErr != nil {
 			logging.Logger().Error().Err(delErr).Str("job_id", jobID).Msg("Failed to cleanup in-flight marker after enqueue failure - may cause stale deduplication")
 		}
@@ -982,6 +1137,23 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		Msg("Batch operation job queued successfully")
 }
 
+const (
+	minSyncProofTimeout = 10 * time.Second
+	maxSyncProofTimeout = 300 * time.Second
+)
+
+// syncProofSlots bounds the proofs the synchronous path starts, the way the
+// queue workers bound theirs. Each prove holds a proving key and its witness,
+// so an unbounded request count exhausts memory long before it saturates the
+// cores.
+var syncProofSlots = sync.OnceValue(func() chan struct{} {
+	slots := getMaxConcurrency()
+	logging.Logger().Info().
+		Int("max_concurrency", slots).
+		Msg("Bounding synchronous proofs")
+	return make(chan struct{}, slots)
+})
+
 func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
 	if handler.isBatchOperation(meta.CircuitType) {
 		warning := fmt.Sprintf("WARNING: %s is a heavy operation that should be processed asynchronously. Consider using X-Async: true header.", meta.CircuitType)
@@ -993,15 +1165,30 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 
 	estimatedTime := handler.getEstimatedTimeSeconds(meta.CircuitType)
 	timeoutDuration := time.Duration(estimatedTime*2) * time.Second
-	if timeoutDuration < 10*time.Second {
-		timeoutDuration = 10 * time.Second
+	if timeoutDuration < minSyncProofTimeout {
+		timeoutDuration = minSyncProofTimeout
 	}
-	if timeoutDuration > 300*time.Second {
-		timeoutDuration = 300 * time.Second
+	if timeoutDuration > maxSyncProofTimeout {
+		timeoutDuration = maxSyncProofTimeout
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
+
+	slots := syncProofSlots()
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		(&Error{
+			StatusCode: http.StatusServiceUnavailable,
+			Code:       "prover_busy",
+			Message:    "Every prover slot is taken. Retry, or use asynchronous mode with the X-Async: true header.",
+		}).send(w)
+		logging.Logger().Warn().
+			Str("circuit_type", string(meta.CircuitType)).
+			Msg("Synchronous proof gave up waiting for a prover slot")
+		return
+	}
 
 	type proofResult struct {
 		proof *common.Proof
@@ -1011,7 +1198,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 	resultChan := make(chan proofResult, 1)
 
 	go func() {
-		// Recover from panics to prevent server crash from malformed input
+		defer func() { <-slots }()
 		defer func() {
 			if r := recover(); r != nil {
 				ProofPanicsTotal.WithLabelValues(string(meta.CircuitType)).Inc()
@@ -1027,9 +1214,8 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 		}()
 
 		timer := StartProofTimer(string(meta.CircuitType))
-		RecordCircuitInputSize(string(meta.CircuitType), len(buf))
 
-		proof, proofError := handler.processProofSync(buf)
+		proof, proofError := handler.processProofSync(ctx, buf)
 
 		if proofError != nil {
 			timer.ObserveError(proofError.Code)
@@ -1038,8 +1224,9 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			timer.ObserveDuration()
 			RecordJobComplete(true)
 			if proof != nil {
-				proofBytes, _ := json.Marshal(proof)
-				RecordProofSize(string(meta.CircuitType), len(proofBytes))
+				if proofBytes, marshalErr := json.Marshal(proof); marshalErr == nil {
+					RecordProofSize(string(meta.CircuitType), len(proofBytes))
+				}
 			}
 		}
 
@@ -1102,15 +1289,8 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.NullifierFoldCircuitType,
 		common.MergeChainCircuitType:
 		// These recursive requests contain proofs and public commitments, not
-		// wallet secrets. Raw transfer and merge proof inputs are deliberately
+		// wallet secrets. Raw transfer and merge witnesses are deliberately
 		// synchronous so Redis never persists their private key material.
-		return "zk_transfer_queue"
-	case common.TransferConfidentialCircuitType,
-		common.TransferRingCircuitType,
-		common.TransferP256RingCircuitType,
-		common.TransferRingAuthorityCircuitType,
-		common.MergeCircuitType,
-		common.MergeRingCircuitType:
 		return "zk_transfer_queue"
 	default:
 		return ""
@@ -1138,18 +1318,33 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 		return 180
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
+	case common.AggregateCircuitType, common.MergeChainCircuitType:
+		return 600
+	case common.NullifierFoldCircuitType:
+		return 600
 	case common.MergeCircuitType, common.MergeRingCircuitType:
-		// 8-in/1-out with emulated P256 + AES-CTR: heaviest shape.
 		return 60
+	case common.SquadsKeyEncryptionCircuitType:
+		return 120
+	case common.SquadsZoneCircuitType:
+		return 90
+	case common.SquadsZoneFoldCircuitType, common.SquadsKeyEncryptionFoldCircuitType:
+		return 600
 	default:
 		return 1
 	}
 }
 
-func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error) {
+func (handler proveHandler) processProofSync(ctx context.Context, buf []byte) (*common.Proof, *Error) {
 	proofRequestMeta, err := common.ParseProofRequestMeta(buf)
 	if err != nil {
 		return nil, malformedBodyError(err)
+	}
+
+	// The last point the work can stop. A Groth16 prove cannot be interrupted,
+	// so a request whose client already left must not reach a proving key.
+	if err := ctx.Err(); err != nil {
+		return nil, requestAbandonedError(err)
 	}
 
 	switch proofRequestMeta.CircuitType {
@@ -1161,53 +1356,36 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.transferEddsaProof(buf)
 	case common.TransferP256RingCircuitType:
 		return handler.transferP256Proof(buf)
-	case common.MergeCircuitType:
-		return handler.mergeProof(buf)
-	case common.MergeRingCircuitType:
-		return handler.mergeRingProof(buf)
 	case common.AggregateCircuitType:
 		return handler.aggregateProof(buf)
 	case common.NullifierFoldCircuitType:
 		return handler.nullifierFoldProof(buf)
 	case common.MergeChainCircuitType:
 		return handler.mergeChainProof(buf)
+	case common.MergeCircuitType, common.MergeRingCircuitType:
+		return handler.mergeProof(buf, proofRequestMeta.CircuitType)
+	case common.SquadsZoneCircuitType:
+		return handler.squadsZoneProof(buf)
+	case common.SquadsKeyEncryptionCircuitType:
+		return handler.squadsKeyEncryptionProof(buf)
+	case common.SquadsZoneFoldCircuitType:
+		return handler.squadsZoneFoldProof(buf)
+	case common.SquadsKeyEncryptionFoldCircuitType:
+		return handler.squadsKeyEncryptionFoldProof(buf)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
 	}
 }
 
-func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
+func (handler proveHandler) mergeProof(buf []byte, circuitType common.CircuitType) (*common.Proof, *Error) {
 	var params mergeprover.MergeParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	ps, err := handler.keyManager.GetTransferSystem(circuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
 	if err != nil {
-		return nil, provingError(fmt.Errorf("merge: %w", err))
-	}
-
-	proof, err := mergeprover.ProveMerge(ps, &params)
-	if err != nil {
-		logging.Logger().Err(err)
-		return nil, provingError(err)
-	}
-	return proof, nil
-}
-
-func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
-	var params mergeprover.MergeParameters
-	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
-		return nil, malformedBodyError(err)
-	}
-
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeRingCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
-	if err != nil {
-		return nil, provingError(fmt.Errorf("merge-ring: %w", err))
+		return nil, provingError(fmt.Errorf("%s: %w", circuitType, err))
 	}
 
 	proof, err := mergeprover.ProveMerge(ps, &params)
@@ -1222,8 +1400,6 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 	var params nullifiertree.BatchAddressAppendParameters
 	err := json.Unmarshal(buf, &params)
 	if err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
 		return nil, malformedBodyError(err)
 	}
 
@@ -1243,11 +1419,92 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 	return proof, nil
 }
 
+func (handler proveHandler) squadsZoneProof(buf []byte) (*common.Proof, *Error) {
+	var params squadszone.ZoneParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetZoneSystem(params.NInputs, params.NOutputs)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-zone: %w", err))
+	}
+
+	proof, err := squadszone.ProveZone(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsKeyEncryptionProof(buf []byte) (*common.Proof, *Error) {
+	var params keyencryption.KeyEncryptionParameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetKeyEncryptionSystem(params.NumKeys)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-key-encryption: %w", err))
+	}
+
+	proof, err := keyencryption.ProveKeyEncryption(ps, &params)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsZoneFoldProof(buf []byte) (*common.Proof, *Error) {
+	var params zonefold.Parameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetZoneFoldSystem(
+		params.Params.NInputs,
+		params.Params.NOutputs,
+		params.Params.Legs,
+	)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-zone-fold: %w", err))
+	}
+
+	proof, err := zonefold.ProveFold(ps, params.Legs)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
+func (handler proveHandler) squadsKeyEncryptionFoldProof(buf []byte) (*common.Proof, *Error) {
+	var params keyencryptionfold.Parameters
+	if err := json.Unmarshal(buf, &params); err != nil {
+		return nil, malformedBodyError(err)
+	}
+
+	ps, err := handler.keyManager.GetKeyEncryptionFoldSystem(
+		params.Params.KeysPerLeg,
+		params.Params.Legs,
+	)
+	if err != nil {
+		return nil, provingError(fmt.Errorf("squads-key-encryption-fold: %w", err))
+	}
+
+	proof, err := keyencryptionfold.ProveFold(ps, params.Legs)
+	if err != nil {
+		logging.Logger().Err(err)
+		return nil, provingError(err)
+	}
+	return proof, nil
+}
+
 func (handler proveHandler) transferEddsaProof(buf []byte) (*common.Proof, *Error) {
 	var params transfereddsaonly.TransferParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
-		logging.Logger().Info().Msg("error Unmarshal")
-		logging.Logger().Info().Msg(err.Error())
 		return nil, malformedBodyError(err)
 	}
 
@@ -1295,11 +1552,12 @@ func (handler proveHandler) aggregateProof(buf []byte) (*common.Proof, *Error) {
 	if err != nil {
 		return nil, provingError(fmt.Errorf("aggregate: %w", err))
 	}
-	proof, err := aggregateprover.ProveAggregate(ps, params.Legs)
+	proof, backend, err := aggregateprover.ProveAggregateBackend(ps, params.Legs)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
 	}
+	logging.Logger().Info().Str("backend", string(backend)).Msg("aggregate proof served")
 	return proof, nil
 }
 

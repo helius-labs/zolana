@@ -17,6 +17,7 @@ use zolana_indexer_api::{
     RpcMethod,
 };
 
+use super::method::rings::GetSquadsKeyEvents;
 use super::service::PhotonApi;
 
 pub async fn run_server(
@@ -165,6 +166,17 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
         },
     )?;
 
+    module.register_async_method(
+        GetSquadsKeyEvents::NAME,
+        |rpc_params, rpc_context, _extensions| async move {
+            let api = rpc_context.as_ref();
+            let payload = rpc_params.parse()?;
+            api.get_squads_key_events(payload)
+                .await
+                .map_err(ErrorObjectOwned::from)
+        },
+    )?;
+
     Ok(module)
 }
 
@@ -190,6 +202,7 @@ mod tests {
         assert!(methods.contains(&"get_merkle_proofs"));
         assert!(methods.contains(&"get_non_inclusion_proofs"));
         assert!(methods.contains(&"get_nullifier_queue_elements"));
+        assert!(methods.contains(&"get_squads_key_events"));
     }
 
     async fn test_api() -> PhotonApi {
