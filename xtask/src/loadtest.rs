@@ -526,7 +526,19 @@ fn worker(
 fn classify(error: &ClientError, stats: &mut Stats, backoff: &mut Duration) {
     // Truncated: these carry request ids and addresses that would make every
     // occurrence look distinct and defeat the grouping.
-    let key: String = error.to_string().chars().take(160).collect();
+    //
+    // 160 was too short by a handful of characters, and in the worst possible
+    // place. A simulation failure reads
+    //
+    //   Solana RPC transaction failed during send_transaction: RPC response
+    //   error -32002: Transaction simulation failed: Error processing
+    //   Instruction 1: custom program error: 0x1b60
+    //
+    // where the program error code -- the only part that identifies the
+    // failure -- begins at roughly character 160. A run reporting 10748
+    // failures said nothing about what they were. Long enough to keep the code,
+    // short enough that ids and addresses still fall off the end.
+    let key: String = error.to_string().chars().take(220).collect();
     *stats.errors.entry(key).or_insert(0) += 1;
 
     // Matched on the error's type, not its text. This used to ask whether the
