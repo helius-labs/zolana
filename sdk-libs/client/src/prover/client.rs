@@ -4,7 +4,7 @@ use std::{
     process::Command,
     sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tokio::time::sleep as async_sleep;
@@ -70,6 +70,14 @@ const PROVE_RETRY_BACKOFF_SECS: u64 = 2;
 // well before this.
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
+/// Per-request bound on a `/prove/status` poll.
+///
+/// The status endpoint reads one Redis key and returns; it is not the request
+/// that 600s was sized for. Sharing the prove timeout let a single hung poll
+/// block a worker for ten minutes, and since the poll loop retries, the delays
+/// stacked: a 220-worker run whose proofs had all finished or been reaped sat
+/// wedged for over half an hour, every worker parked inside a status GET.
+const STATUS_POLL_TIMEOUT_SECS: u64 = 30;
 /// Polling cadence and ceiling for async (queued) proofs. Redis-backed provers
 /// queue batch, transfer, and merge proofs and return a job handle immediately
 /// instead of blocking; the client then polls the status endpoint until the
@@ -83,7 +91,13 @@ const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
 pub struct AsyncPollConfig {
     /// Seconds between `/prove/status` polls (floored at 1 so it can't spin).
     pub poll_interval_secs: u64,
-    /// Max seconds to wait for a queued proof before returning a timeout error.
+    /// Wall-clock seconds to wait for a queued proof before returning a timeout
+    /// error.
+    ///
+    /// Wall clock, measured from the first poll. It used to be a running total
+    /// of time *slept*, which bounds nothing: the time inside each request did
+    /// not count, so with a 600s request timeout this "1200s" ceiling permitted
+    /// well over a day of waiting.
     pub max_wait_secs: u64,
 }
 
@@ -284,14 +298,19 @@ impl ProverClient {
             .poll_interval_secs
             .saturating_mul(1_000)
             .max(INITIAL_POLL_MS);
-        let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1_000);
-        let mut waited_ms = 0u64;
+        let max_wait = Duration::from_secs(self.async_poll.max_wait_secs);
+        let started = Instant::now();
         let mut interval_ms = INITIAL_POLL_MS;
         loop {
-            let response = match self.http.get(&url).send() {
+            let response = match self
+                .http
+                .get(&url)
+                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                .send()
+            {
                 Ok(response) => response,
                 Err(_) => {
-                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms)?;
+                    wait_or_timeout(job_id, started, max_wait, interval_ms)?;
                     interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
@@ -307,7 +326,7 @@ impl ProverClient {
                 )));
             }
             if status.is_server_error() {
-                wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms)?;
+                wait_or_timeout(job_id, started, max_wait, interval_ms)?;
                 interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 continue;
             }
@@ -315,7 +334,7 @@ impl ProverClient {
             let text = match response.text() {
                 Ok(text) => text,
                 Err(_) => {
-                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms)?;
+                    wait_or_timeout(job_id, started, max_wait, interval_ms)?;
                     interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
@@ -337,7 +356,7 @@ impl ProverClient {
                 }
                 // queued / processing / unknown: keep polling until the bound.
                 _ => {
-                    wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms)?;
+                    wait_or_timeout(job_id, started, max_wait, interval_ms)?;
                     interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 }
             }
@@ -376,22 +395,40 @@ fn next_poll_interval_ms(current_ms: u64, cap_ms: u64) -> u64 {
         .min(cap_ms.max(INITIAL_POLL_MS))
 }
 
+/// How long is left before the deadline, or `Err` if it has passed.
+///
+/// Shared by the blocking and async poll loops so one definition of "expired"
+/// covers both. `started`/`max_wait` are wall clock: the previous version added
+/// up only the sleeps, which meant time spent inside a request was free and the
+/// ceiling bounded nothing.
+fn remaining_before_deadline(
+    job_id: &str,
+    started: Instant,
+    max_wait: Duration,
+    poll_interval_ms: u64,
+) -> Result<Duration, ClientError> {
+    let elapsed = started.elapsed();
+    let Some(remaining) = max_wait.checked_sub(elapsed) else {
+        return Err(ClientError::ProverServer(format!(
+            "async proof timed out after {}s (job {job_id})",
+            elapsed.as_secs()
+        )));
+    };
+    Ok(Duration::from_millis(poll_interval_ms).min(remaining))
+}
+
 fn wait_or_timeout(
     job_id: &str,
-    waited_ms: &mut u64,
-    max_wait_ms: u64,
+    started: Instant,
+    max_wait: Duration,
     poll_interval_ms: u64,
 ) -> Result<(), ClientError> {
-    if *waited_ms >= max_wait_ms {
-        let waited_secs = *waited_ms / 1_000;
-        return Err(ClientError::ProverServer(format!(
-            "async proof timed out after {waited_secs}s (job {job_id})"
-        )));
-    }
-    let remaining = max_wait_ms.saturating_sub(*waited_ms);
-    let sleep_ms = poll_interval_ms.min(remaining);
-    sleep(Duration::from_millis(sleep_ms));
-    *waited_ms = (*waited_ms).saturating_add(sleep_ms);
+    sleep(remaining_before_deadline(
+        job_id,
+        started,
+        max_wait,
+        poll_interval_ms,
+    )?);
     Ok(())
 }
 
@@ -506,14 +543,20 @@ impl AsyncProverClient {
             .poll_interval_secs
             .saturating_mul(1_000)
             .max(INITIAL_POLL_MS);
-        let max_wait_ms = self.async_poll.max_wait_secs.saturating_mul(1_000);
-        let mut waited_ms = 0u64;
+        let max_wait = Duration::from_secs(self.async_poll.max_wait_secs);
+        let started = Instant::now();
         let mut interval_ms = INITIAL_POLL_MS;
         loop {
-            let response = match self.http.get(&url).send().await {
+            let response = match self
+                .http
+                .get(&url)
+                .timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                .send()
+                .await
+            {
                 Ok(response) => response,
                 Err(_) => {
-                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms).await?;
+                    async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
                     interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
@@ -529,7 +572,7 @@ impl AsyncProverClient {
                 )));
             }
             if status.is_server_error() {
-                async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms).await?;
+                async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
                 interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 continue;
             }
@@ -537,7 +580,7 @@ impl AsyncProverClient {
             let text = match response.text().await {
                 Ok(text) => text,
                 Err(_) => {
-                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms).await?;
+                    async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
                     interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                     continue;
                 }
@@ -556,7 +599,7 @@ impl AsyncProverClient {
                     )));
                 }
                 _ => {
-                    async_wait_or_timeout(job_id, &mut waited_ms, max_wait_ms, interval_ms).await?;
+                    async_wait_or_timeout(job_id, started, max_wait, interval_ms).await?;
                     interval_ms = next_poll_interval_ms(interval_ms, poll_cap_ms);
                 }
             }
@@ -566,20 +609,17 @@ impl AsyncProverClient {
 
 async fn async_wait_or_timeout(
     job_id: &str,
-    waited_ms: &mut u64,
-    max_wait_ms: u64,
+    started: Instant,
+    max_wait: Duration,
     poll_interval_ms: u64,
 ) -> Result<(), ClientError> {
-    if *waited_ms >= max_wait_ms {
-        let waited_secs = *waited_ms / 1_000;
-        return Err(ClientError::ProverServer(format!(
-            "async proof timed out after {waited_secs}s (job {job_id})"
-        )));
-    }
-    let remaining = max_wait_ms.saturating_sub(*waited_ms);
-    let sleep_ms = poll_interval_ms.min(remaining);
-    async_sleep(Duration::from_millis(sleep_ms)).await;
-    *waited_ms = (*waited_ms).saturating_add(sleep_ms);
+    async_sleep(remaining_before_deadline(
+        job_id,
+        started,
+        max_wait,
+        poll_interval_ms,
+    )?)
+    .await;
     Ok(())
 }
 
@@ -775,7 +815,7 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
-        sync::mpsc,
+        sync::{mpsc, Arc},
         thread,
     };
 
@@ -924,6 +964,56 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("async proof failed"));
         assert!(message.contains("prover rejected witness"));
+    }
+
+    /// The deadline is wall clock, so a slow-but-alive status endpoint cannot
+    /// stretch it.
+    ///
+    /// This is the case the old accounting missed. It summed only the time
+    /// *slept* between polls, so a poll that took 1.5s to answer added nothing
+    /// to the total: the client stayed under a 1s "ceiling" indefinitely. In
+    /// production, with a 600s request timeout inherited from the prove call,
+    /// that turned a 1200s bound into a hang -- 220 workers sat wedged for 35
+    /// minutes with the prover queue empty.
+    ///
+    /// The single poll here answers after 1.5s against a 1s ceiling, so the
+    /// client must give up on it alone. Under the old rule that poll counted as
+    /// 0ms, leaving the whole budget unspent, and polling continued -- so the
+    /// server is held open to record any further polls rather than refusing
+    /// them where they would go unseen.
+    #[test]
+    fn a_slow_status_endpoint_cannot_extend_the_deadline() {
+        let server = MockServer::respond_then_hold(vec![
+            MockResponse::json(202, json!({ "job_id": "job-slow-status" })),
+            MockResponse::slow_json(
+                200,
+                json!({ "status": "processing" }),
+                Duration::from_millis(1_500),
+            ),
+        ]);
+
+        let started = Instant::now();
+        let err = queued_prover_client(server.url())
+            .send("{}".to_string())
+            .expect_err("a deadline measured in wall clock must expire");
+        let elapsed = started.elapsed();
+
+        assert!(
+            err.to_string().contains("async proof timed out"),
+            "expected a timeout, got {err}"
+        );
+        // The slow poll alone exceeds the ceiling; anything much beyond it means
+        // the deadline is still being measured in slept time.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "gave up only after {elapsed:?}"
+        );
+        // The slow poll is the last one. A second status request would mean the
+        // time it spent waiting had not been charged against the deadline.
+        assert_paths(
+            &server.requests(),
+            ["/prove", "/prove/status?job_id=job-slow-status"],
+        );
     }
 
     #[test]
@@ -1138,7 +1228,18 @@ mod tests {
     }
 
     enum MockResponse {
-        Http { status: u16, body: String },
+        Http {
+            status: u16,
+            body: String,
+        },
+        /// Answers, but only after `delay`. Models a status endpoint that is
+        /// reachable and slow rather than down -- the case the poll deadline has
+        /// to survive, and the one a fast mock cannot exercise.
+        SlowHttp {
+            status: u16,
+            body: String,
+            delay: Duration,
+        },
         Disconnect,
     }
 
@@ -1157,6 +1258,14 @@ mod tests {
             }
         }
 
+        fn slow_json(status: u16, body: Value, delay: Duration) -> Self {
+            Self::SlowHttp {
+                status,
+                body: body.to_string(),
+                delay,
+            }
+        }
+
         fn disconnect() -> Self {
             Self::Disconnect
         }
@@ -1166,6 +1275,9 @@ mod tests {
         url: String,
         request_rx: mpsc::Receiver<RecordedRequest>,
         handle: thread::JoinHandle<()>,
+        /// Set only by [`MockServer::respond_then_hold`], whose server would
+        /// otherwise never stop accepting.
+        stop: Option<Arc<AtomicBool>>,
     }
 
     impl MockServer {
@@ -1188,8 +1300,19 @@ mod tests {
                     request_tx
                         .send(request)
                         .expect("mock request receiver should stay open");
-                    if let MockResponse::Http { status, body } = response {
-                        write_http_response(&mut stream, status, &body);
+                    match response {
+                        MockResponse::Http { status, body } => {
+                            write_http_response(&mut stream, status, &body)
+                        }
+                        MockResponse::SlowHttp {
+                            status,
+                            body,
+                            delay,
+                        } => {
+                            thread::sleep(delay);
+                            write_http_response(&mut stream, status, &body);
+                        }
+                        MockResponse::Disconnect => {}
                     }
                 }
             });
@@ -1197,6 +1320,69 @@ mod tests {
                 url,
                 request_rx,
                 handle,
+                stop: None,
+            }
+        }
+
+        /// Like [`respond_with`], but after the scripted responses run out the
+        /// last one repeats for as long as the client keeps asking.
+        ///
+        /// `respond_with` stops answering once its list is exhausted, which
+        /// makes "the client polled more times than it should have" invisible:
+        /// the extra polls hit a closed port and go unrecorded. Holding the
+        /// server open records them, so a test can assert on the exact number
+        /// of polls. [`requests`] stops the server.
+        fn respond_then_hold(responses: Vec<MockResponse>) -> Self {
+            let listener =
+                TcpListener::bind("127.0.0.1:0").expect("mock server should bind to a local port");
+            let url = format!(
+                "http://{}",
+                listener
+                    .local_addr()
+                    .expect("mock server should expose its local address")
+            );
+            let (request_tx, request_rx) = mpsc::channel();
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread_stop = Arc::clone(&stop);
+            let handle = thread::spawn(move || {
+                let mut remaining = responses.into_iter().peekable();
+                let mut last: Option<(u16, String)> = None;
+                while let Ok((mut stream, _)) = listener.accept() {
+                    if thread_stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let request = read_http_request(&mut stream);
+                    if request_tx.send(request).is_err() {
+                        break;
+                    }
+                    match remaining.next() {
+                        Some(MockResponse::Http { status, body }) => {
+                            write_http_response(&mut stream, status, &body);
+                            last = Some((status, body));
+                        }
+                        Some(MockResponse::SlowHttp {
+                            status,
+                            body,
+                            delay,
+                        }) => {
+                            thread::sleep(delay);
+                            write_http_response(&mut stream, status, &body);
+                            last = Some((status, body));
+                        }
+                        Some(MockResponse::Disconnect) => {}
+                        None => {
+                            if let Some((status, body)) = last.as_ref() {
+                                write_http_response(&mut stream, *status, body);
+                            }
+                        }
+                    }
+                }
+            });
+            Self {
+                url,
+                request_rx,
+                handle,
+                stop: Some(stop),
             }
         }
 
@@ -1205,6 +1391,12 @@ mod tests {
         }
 
         fn requests(self) -> Vec<RecordedRequest> {
+            if let Some(stop) = self.stop.as_ref() {
+                stop.store(true, Ordering::SeqCst);
+                // The server is parked in accept(); one throwaway connection
+                // wakes it so it can observe the flag and exit.
+                let _ = TcpStream::connect(self.url.trim_start_matches("http://"));
+            }
             self.handle
                 .join()
                 .expect("mock server thread should finish");
