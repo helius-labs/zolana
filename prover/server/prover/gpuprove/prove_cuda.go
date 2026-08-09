@@ -3,6 +3,7 @@
 package gpuprove
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
@@ -78,7 +79,7 @@ func proveGPU(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, w witness.
 	}
 	workerOnce.Do(func() {
 		gpuJobs = make(chan gpuJob)
-		go gpuWorker()
+		go gpuWorkerLoop()
 	})
 	res := make(chan gpuResult, 1)
 	gpuJobs <- gpuJob{ccs: ccs, pk: pk, w: w, res: res}
@@ -86,7 +87,25 @@ func proveGPU(ccs constraint.ConstraintSystem, pk groth16.ProvingKey, w witness.
 	return r.proof, r.err
 }
 
+// gpuWorkerLoop keeps a reader on gpuJobs for the life of the process. gpuJobs
+// is never closed and has no buffer, so a worker that stops leaves every later
+// send blocked forever.
+func gpuWorkerLoop() {
+	for {
+		gpuWorker()
+		logging.Logger().Error().Msg("gpu worker stopped, restarting it")
+	}
+}
+
 func gpuWorker() {
+	// Backstop for a panic outside a job. The loop can only put a reader back
+	// on gpuJobs if this frame returns instead of unwinding the process.
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Logger().Error().Interface("panic", r).Msg("gpu worker panicked")
+		}
+	}()
+
 	opts := []icicle.Option{icicle.WithDeviceID(0)}
 	// Pinning keeps every loaded proving key resident in GPU memory. Off by
 	// default, the full pinned key set can exceed device memory.
@@ -94,9 +113,22 @@ func gpuWorker() {
 		opts = append(opts, icicle.WithPinKeysToGPU(true))
 	}
 	for job := range gpuJobs {
-		proof, err := icicle_groth16.Prove(job.ccs, job.pk, job.w, opts...)
-		job.res <- gpuResult{proof: proof, err: err}
+		job.res <- proveOnDevice(job, opts)
 	}
+}
+
+// proveOnDevice turns a panic in the icicle prover, which a malformed witness
+// or a device out of memory raises, into a result. An escaping panic would
+// leave the caller blocked on its result channel with no worker to answer it.
+func proveOnDevice(job gpuJob, opts []icicle.Option) (result gpuResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Logger().Error().Interface("panic", r).Msg("gpu prove panicked")
+			result = gpuResult{err: fmt.Errorf("gpu prove panicked: %v", r)}
+		}
+	}()
+	proof, err := icicle_groth16.Prove(job.ccs, job.pk, job.w, opts...)
+	return gpuResult{proof: proof, err: err}
 }
 
 // proveCPU unwraps the icicle key wrapper, the stock dispatcher type-asserts
