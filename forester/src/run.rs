@@ -11,11 +11,25 @@
 //! ordered queued nullifier values (served by photon) into an in-memory
 //! reference `IndexedMerkleTree`, verify the reconstructed root matches the
 //! on-chain root, then build each ready zkp-batch's witness, prove it on the
-//! forester prover, and submit the updates in root order. Each on-chain update
-//! checks `old_root == current root`, so submission is strictly sequential;
-//! proving could be parallelised (see PR #89) as a follow-up.
+//! forester prover, and submit the updates in root order.
+//!
+//! Only one of the three stages is ordered. Witness construction is sequential,
+//! because a batch's `old_root` is the previous batch's `new_root`. Proving
+//! depends on nothing but its own witness. Submission is unordered: the program
+//! caches a verified update at its `zkp_batch_index` and applies whatever has
+//! become contiguous, so a later batch may land first and wait, and a gap left
+//! by a failed proof heals on the next pass.
+//!
+//! So `drain_once` serialises witness construction alone and runs
+//! `proof_concurrency` prove-and-submit workers alongside it.
 
-use std::{fmt, thread, time::Duration};
+use std::{
+    collections::VecDeque,
+    fmt,
+    sync::atomic::{AtomicU64, Ordering},
+    thread::{self, ScopedJoinHandle},
+    time::Duration,
+};
 
 use anyhow::{anyhow, bail, Result};
 use num_bigint::BigUint;
@@ -67,7 +81,27 @@ pub struct RunOptions {
     /// reconstruct the reference tree, verify the reconstructed root matches
     /// on-chain, and report — without proving or submitting.
     pub dry_run: bool,
+    /// Zkp-batch proofs to run at once.
+    ///
+    /// This is the protocol's throughput knob. One proof clears
+    /// `zkp_batch_size` nullifiers and takes about a minute, so proving them
+    /// one at a time caps the whole pool at `zkp_batch_size / 60` spends per
+    /// second — 4.2/s on devnet, against a client comfortably sustaining 24.
+    /// Above that the queue only fills, and once full the program rejects
+    /// spends outright with `NullifierTreeUpdateFailed`.
+    ///
+    /// The ceiling on this is the prover fleet's memory, not the forester: a
+    /// batch address-append proof needs on the order of 15GB, so raising it
+    /// past what the fleet can hold just moves the queueing into the prover.
+    pub proof_concurrency: usize,
 }
+
+/// Zkp-batch proofs in flight at once when unset.
+///
+/// Deliberately above 1 and well below the prover fleet's limit. One is the
+/// behaviour this replaced; a large default would silently depend on a fleet
+/// size that varies per environment.
+pub const DEFAULT_PROOF_CONCURRENCY: usize = 4;
 
 /// Read-once view of the nullifier tree's batch state.
 struct TreeSnapshot {
@@ -173,6 +207,7 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
             opts.account_index,
             opts.tree,
             remaining,
+            opts.proof_concurrency,
         )?;
         let submitted = match outcome {
             DrainOutcome::Drained(submitted) => submitted,
@@ -410,6 +445,13 @@ fn reconstruct_and_verify(
     Ok((reference, values))
 }
 
+/// Wait for one in-flight proof, turning a panicked worker into an error.
+fn join_proof(handle: ScopedJoinHandle<'_, Result<()>>) -> Result<()> {
+    handle
+        .join()
+        .unwrap_or_else(|_| bail!("proving thread panicked"))
+}
+
 /// One drain pass: prove+submit the pending batch's ready zkp-batches (capped by
 /// `limit`). Returns how many were submitted.
 #[allow(clippy::too_many_arguments)]
@@ -422,6 +464,7 @@ fn drain_once(
     account_index: u8,
     tree: Pubkey,
     limit: Option<u64>,
+    proof_concurrency: usize,
 ) -> Result<DrainOutcome> {
     let snapshot = read_snapshot(rpc_url, tree)?;
     if snapshot.ready == 0 {
@@ -454,73 +497,118 @@ fn drain_once(
     let cap = limit
         .map(|limit| limit.min(snapshot.ready))
         .unwrap_or(snapshot.ready);
-    let mut submitted = 0u64;
-    for i in 0..cap {
-        let zkp_index = snapshot.already_applied + i;
-        let batch_next_index = snapshot.next_index + i * snapshot.zkp_batch_size;
-        let start = usize::try_from(applied + i * snapshot.zkp_batch_size)
-            .map_err(|_| anyhow!("zkp-batch {zkp_index} start exceeds usize"))?;
-        let end =
-            start
+    let concurrency = proof_concurrency.max(1);
+
+    // Build the next witness while the previous proofs are still running.
+    //
+    // Each stage has a different constraint, and only one of them is ordering:
+    //
+    //   witness  sequential -- a batch's `old_root` is the previous batch's
+    //            `new_root`, so the reference tree must be walked in order.
+    //   prove    independent -- a proof reads only its own witness.
+    //   submit   unordered -- the program caches a verified update at its
+    //            `zkp_batch_index` and applies whatever has become contiguous,
+    //            so a later batch may land first and simply wait. A mismatched
+    //            `old_root` is evicted rather than rejected, so a gap left by a
+    //            failed proof heals on the next pass.
+    //
+    // So proving and submitting both belong to the worker, and the only thing
+    // this loop serialises is witness construction. An earlier version proved in
+    // fixed groups and submitted in order, which measured no faster than proving
+    // one at a time: building a group's witnesses pegged the forester's single
+    // core while the prover idled, then the prover ran while the forester idled.
+    // Overlapping them is the entire point.
+    let submitted = AtomicU64::new(0);
+    thread::scope(|scope| -> Result<()> {
+        let mut in_flight = VecDeque::with_capacity(concurrency);
+        for i in 0..cap {
+            // Bound the window by retiring the oldest proof before starting
+            // another. Proof durations are near-identical, so taking them in
+            // order costs nothing a completion queue would save.
+            if in_flight.len() == concurrency {
+                if let Some(oldest) = in_flight.pop_front() {
+                    join_proof(oldest)?;
+                }
+            }
+
+            let zkp_index = snapshot.already_applied + i;
+            let batch_next_index = snapshot.next_index + i * snapshot.zkp_batch_size;
+            let start = usize::try_from(applied + i * snapshot.zkp_batch_size)
+                .map_err(|_| anyhow!("zkp-batch {zkp_index} start exceeds usize"))?;
+            let end = start
                 .checked_add(usize::try_from(snapshot.zkp_batch_size).map_err(|_| {
                     anyhow!("zkp_batch_size {} exceeds usize", snapshot.zkp_batch_size)
                 })?)
                 .ok_or_else(|| anyhow!("zkp-batch {zkp_index} end overflows usize"))?;
-        let batch_values = values
-            .get(start..end)
-            .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
-        let hash_chain = snapshot
-            .hash_chains
-            .get(
-                usize::try_from(i)
-                    .map_err(|_| anyhow!("ready zkp-batch index {i} exceeds usize"))?,
-            )
-            .copied()
-            .ok_or_else(|| anyhow!("missing hash chain for ready zkp-batch {i}"))?;
-        let old_root = reference.root();
+            let batch_values = values
+                .get(start..end)
+                .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
+            let hash_chain = snapshot
+                .hash_chains
+                .get(
+                    usize::try_from(i)
+                        .map_err(|_| anyhow!("ready zkp-batch index {i} exceeds usize"))?,
+                )
+                .copied()
+                .ok_or_else(|| anyhow!("missing hash chain for ready zkp-batch {i}"))?;
+            let old_root = reference.root();
 
-        let (inputs, new_root) = build_inputs(
-            &mut reference,
-            batch_next_index,
-            snapshot.height,
-            hash_chain,
-            old_root,
-            batch_values,
-        )?;
-
-        let proof = prover
-            .prove_batch_address_append(&inputs)
-            .map_err(|err| anyhow!("prove zkp-batch {zkp_index}: {err}"))?;
-        let compressed = ProofCompressed::try_from(proof)
-            .map_err(|err| anyhow!("compress proof for zkp-batch {zkp_index}: {err:?}"))?;
-
-        let signature = batch_update_nullifier_tree_once(ForestParams {
-            rpc_url,
-            member,
-            settings,
-            account_index,
-            pool_tree: tree,
-            batch_update: BatchUpdateNullifierTreeData {
-                new_root,
+            let (inputs, new_root) = build_inputs(
+                &mut reference,
+                batch_next_index,
+                snapshot.height,
+                hash_chain,
                 old_root,
-                // `zkp_index` is bounded by the batch's `num_zkp_batches`
-                // (= batch_size / zkp_batch_size), well within `u16`, so the
-                // cast cannot truncate.
-                zkp_batch_index: zkp_index as u16,
-                compressed_proof: CompressedProof {
-                    a: compressed.a,
-                    b: compressed.b,
-                    c: compressed.c,
-                },
-            },
-        })
-        .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;
+                batch_values,
+            )?;
 
-        tracing::info!(%signature, zkp_index, new_root = %hex::encode(new_root), "submitted nullifier batch update");
-        submitted += 1;
-    }
+            // Scoped threads rather than an async runtime: the prover client is
+            // blocking, and `run` is documented to hold no Tokio runtime.
+            let submitted = &submitted;
+            in_flight.push_back(scope.spawn(move || {
+                let proof = prover
+                    .prove_batch_address_append(&inputs)
+                    .map_err(|err| anyhow!("prove zkp-batch {zkp_index}: {err}"))?;
+                let proof = ProofCompressed::try_from(proof)
+                    .map_err(|err| anyhow!("compress proof for zkp-batch {zkp_index}: {err:?}"))?;
 
-    Ok(DrainOutcome::Drained(submitted))
+                let signature = batch_update_nullifier_tree_once(ForestParams {
+                    rpc_url,
+                    member,
+                    settings,
+                    account_index,
+                    pool_tree: tree,
+                    batch_update: BatchUpdateNullifierTreeData {
+                        new_root,
+                        old_root,
+                        // `zkp_index` is bounded by the batch's `num_zkp_batches`
+                        // (= batch_size / zkp_batch_size), well within `u16`, so
+                        // the cast cannot truncate.
+                        zkp_batch_index: zkp_index as u16,
+                        compressed_proof: CompressedProof {
+                            a: proof.a,
+                            b: proof.b,
+                            c: proof.c,
+                        },
+                    },
+                })
+                .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;
+
+                submitted.fetch_add(1, Ordering::Relaxed);
+                tracing::info!(
+                    %signature,
+                    zkp_index,
+                    new_root = %hex::encode(new_root),
+                    "submitted nullifier batch update"
+                );
+                Ok(())
+            }));
+        }
+
+        in_flight.into_iter().try_for_each(join_proof)
+    })?;
+
+    Ok(DrainOutcome::Drained(submitted.into_inner()))
 }
 
 /// Preflight: validate the tree-read / photon / reconstruct / root-match path
@@ -742,5 +830,48 @@ mod tests {
             full.append(&BigUint::from_bytes_be(value)).unwrap();
         }
         assert_eq!(new1, full.root());
+    }
+
+    /// Witnesses must be built in order even though their proofs are not.
+    ///
+    /// This is the invariant `drain_once` relies on to fan proving out: it
+    /// builds a group of witnesses sequentially, then proves them together.
+    /// Building them out of order would produce roots that chain to a state the
+    /// chain never reaches, and every proof in the group would be rejected -- so
+    /// the property is worth holding directly rather than inferring it from the
+    /// happy path.
+    #[test]
+    fn a_group_of_witnesses_chains_head_to_tail() {
+        let mut reference = reference_nullifier_tree(40).unwrap();
+        let values: Vec<[u8; 32]> = (1..=6u8).map(nullifier).collect();
+
+        // Three zkp-batches of two, the shape one concurrent group takes.
+        let mut built = Vec::new();
+        for (batch, chunk) in values.chunks(2).enumerate() {
+            let next_index = 1 + (batch as u64) * 2;
+            let old_root = reference.root();
+            let (_, new_root) =
+                build_inputs(&mut reference, next_index, 40, [0u8; 32], old_root, chunk).unwrap();
+            built.push((old_root, new_root));
+        }
+
+        // Each batch continues from the one before, in order.
+        for pair in built.windows(2) {
+            let [(_, earlier_new), (later_old, _)] = pair else {
+                unreachable!("windows(2) yields pairs")
+            };
+            assert_eq!(
+                earlier_new, later_old,
+                "a batch's old_root must be its predecessor's new_root"
+            );
+        }
+
+        // And the group as a whole lands where appending every value does.
+        let mut full = reference_nullifier_tree(40).unwrap();
+        for value in &values {
+            full.append(&BigUint::from_bytes_be(value)).unwrap();
+        }
+        let (_, last_new) = built.last().unwrap();
+        assert_eq!(*last_new, full.root());
     }
 }

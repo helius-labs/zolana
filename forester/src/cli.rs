@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use solana_pubkey::Pubkey;
 
+use crate::run::DEFAULT_PROOF_CONCURRENCY;
+
 /// Default SPP pool tree the forester maintains (devnet/localnet fixture).
 pub const DEFAULT_TREE: Pubkey = Pubkey::from_str_const(zolana_interface::DEFAULT_TREE_ADDRESS);
 
@@ -59,5 +61,13 @@ pub enum Commands {
         /// serves nothing. Names come from forester/metrics-contract.json.
         #[arg(long)]
         metrics_address: Option<String>,
+        /// Zkp-batch proofs to run at once.
+        ///
+        /// Each proof clears one zkp-batch of nullifiers and takes about a
+        /// minute, so this sets how fast spends can be absorbed. Bounded in
+        /// practice by the prover fleet's memory (~15GB per batch proof), not by
+        /// the forester.
+        #[arg(long, default_value_t = DEFAULT_PROOF_CONCURRENCY)]
+        proof_concurrency: usize,
     },
 }
