@@ -37,3 +37,9 @@ zolana-user-registry-interface = { workspace = true }
 zolana-program-test = { workspace = true }
 swap-program = { path = "../sdk-tests/zk-program-swap/program" }
 custom-ring-program = { path = "../custom-ring-tests/program" }
+
+[dev-dependencies]
+# To build a real ClientError::SolanaRpcTransaction in the loadtest error-grouping
+# tests. Constructing the genuine error is the point: a hand-rolled stand-in
+# would not exercise get_transaction_error, which is what the grouping reads.
+solana-rpc-client-api = { workspace = true }

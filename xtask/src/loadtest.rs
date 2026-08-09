@@ -39,6 +39,28 @@ use zolana_wallet::{
     create_transfer_sync, sign_private_transaction_sync, sync_wallet, TransferParams,
 };
 
+/// Identity of a failure, for grouping.
+///
+/// The variant plus, for a chain rejection, the program's own error code. Two
+/// failures share a key exactly when they are the same failure, which a
+/// truncated message cannot express: the same rejection arrives with different
+/// wrappers from simulation and from send, so a prefix groups them apart while
+/// a longer prefix groups unrelated errors together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ErrorKey {
+    variant: std::mem::Discriminant<ClientError>,
+    program_code: Option<u32>,
+}
+
+impl ErrorKey {
+    fn of(error: &ClientError) -> Self {
+        Self {
+            variant: std::mem::discriminant(error),
+            program_code: error.program_error_code(),
+        }
+    }
+}
+
 /// One completed transfer, broken into the phases that can each be slow for a
 /// different reason.
 #[derive(Clone, Copy, Default)]
@@ -58,12 +80,21 @@ struct Stats {
     ok: u64,
     failed: u64,
     throttled: u64,
-    /// Distinct error messages and how often each occurred.
+    /// Distinct failures and how often each occurred.
     ///
     /// Counting failures without recording them makes a run unactionable: "43
     /// failed" says nothing about whether the prover is down, the wallet is
     /// empty, or the indexer is behind.
-    errors: std::collections::BTreeMap<String, u64>,
+    ///
+    /// Keyed by what the failure *is*, never by how it renders.
+    ///
+    /// `mem::discriminant` identifies the `ClientError` variant exactly, and the
+    /// program error code splits one variant into the distinct on-chain
+    /// rejections it carries. Neither can drift when a message is reworded, and
+    /// nothing depends on where a substring happens to fall. The stored `String`
+    /// is one real example per group, shown to a reader and used for nothing
+    /// else.
+    errors: std::collections::HashMap<ErrorKey, (String, u64)>,
     /// This worker's first sync, before it sent anything.
     ///
     /// Stands in for how much history its wallet already carried. Sync cost
@@ -346,8 +377,9 @@ pub fn run(options: Options) -> Result<()> {
                 shared.ok += local.ok;
                 shared.failed += local.failed;
                 shared.throttled += local.throttled;
-                for (message, count) in local.errors {
-                    *shared.errors.entry(message).or_insert(0) += count;
+                for (key, (sample, count)) in local.errors {
+                    let entry = shared.errors.entry(key).or_insert((sample, 0));
+                    entry.1 += count;
                 }
             });
         }
@@ -373,10 +405,12 @@ pub fn run(options: Options) -> Result<()> {
     );
     if !stats.errors.is_empty() {
         println!("\nerrors:");
-        let mut ranked: Vec<_> = stats.errors.iter().collect();
-        ranked.sort_by(|a, b| b.1.cmp(a.1));
-        for (message, count) in ranked.into_iter().take(5) {
-            println!("  {count:>5}x  {message}");
+        let mut ranked: Vec<_> = stats.errors.values().collect();
+        // Ties break on the message so two runs of the same workload print the
+        // same report; hash order alone would shuffle equal counts.
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        for (sample, count) in ranked.into_iter().take(8) {
+            println!("  {count:>5}x  {sample}");
         }
     }
 
@@ -529,30 +563,41 @@ fn worker(
 /// A load generator without backoff measures the rate limiter rather than the
 /// system under test: an earlier shell-driven run lost 101 of 220 transfers to
 /// Helius 403s and reported it as protocol failure.
-fn classify(error: &ClientError, stats: &mut Stats, backoff: &mut Duration) {
-    // Group by the program's own error code when the chain rejected the
-    // transaction, and name it.
-    //
-    // Reading the code out of the rendered message does not work: the same
-    // rejection arrives with two different wrappers depending on whether it
-    // failed in simulation or on send, so truncating to group them put the code
-    // inside the prefix for one and past the cut for the other. A run reporting
-    // 10748 failures identified none of them, while 318 of the *same* error
-    // showed up separately as "0x1b60" purely because their wrapper was shorter.
-    //
-    // Solana models this properly -- TransactionError carries
-    // InstructionError::Custom(u32) -- so match on it and let
-    // ShieldedPoolError name the number.
-    let key = match error.program_error_code() {
+/// A readable one-line description of a failure.
+///
+/// Names the on-chain error when there is one, because a client otherwise sees
+/// only a number. Long transport messages are shortened here and only here:
+/// this is display, and grouping never consults it.
+fn describe(error: &ClientError) -> String {
+    match error.program_error_code() {
         Some(code) => match ShieldedPoolError::from_code(code) {
             Some(named) => format!("program error {code:#x} ({named})"),
             None => format!("program error {code:#x} (unknown to this build)"),
         },
-        // Everything else still groups by message, truncated: those carry
-        // request ids and addresses that would make each occurrence distinct.
-        None => error.to_string().chars().take(160).collect(),
-    };
-    *stats.errors.entry(key).or_insert(0) += 1;
+        None => {
+            let text = error.to_string();
+            match text.char_indices().nth(160) {
+                Some((cut, _)) => format!("{}...", &text[..cut]),
+                None => text,
+            }
+        }
+    }
+}
+
+fn classify(error: &ClientError, stats: &mut Stats, backoff: &mut Duration) {
+    // Identity comes from the type, never from the text. The message is kept
+    // only as a readable example of the group.
+    //
+    // Grouping by a message prefix failed in both directions at once: the same
+    // chain rejection arrives with two wrappers depending on whether it failed
+    // in simulation or on send, so 10748 occurrences landed under a key that
+    // named none of them while 318 of the *same* error grouped separately as
+    // "0x1b60" purely because their wrapper was shorter.
+    stats
+        .errors
+        .entry(ErrorKey::of(error))
+        .or_insert_with(|| (describe(error), 0))
+        .1 += 1;
 
     // Matched on the error's type, not its text. This used to ask whether the
     // message contained "403", "429" or "rate", which counts a signature
@@ -574,5 +619,92 @@ fn classify(error: &ClientError, stats: &mut Stats, backoff: &mut Duration) {
     } else {
         stats.failed += 1;
         thread::sleep(Duration::from_millis(250));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rpc_program_error(operation: &'static str, code: u32) -> ClientError {
+        use solana_instruction::error::InstructionError;
+        use solana_rpc_client_api::client_error::{Error as RpcError, TransactionError};
+
+        ClientError::SolanaRpcTransaction {
+            operation,
+            source: RpcError::from(TransactionError::InstructionError(
+                0,
+                InstructionError::Custom(code),
+            )),
+        }
+    }
+
+    /// The failure that motivated all of this: one on-chain rejection reported
+    /// as two unrelated lines because the wrappers rendered at different
+    /// lengths.
+    #[test]
+    fn one_rejection_groups_under_one_key_whatever_the_wrapper() {
+        let simulate = rpc_program_error("simulate", 7008);
+        let send = rpc_program_error("send", 7008);
+
+        assert_ne!(
+            simulate.to_string(),
+            send.to_string(),
+            "vacuous unless the two render differently"
+        );
+        assert_eq!(ErrorKey::of(&simulate), ErrorKey::of(&send));
+    }
+
+    #[test]
+    fn different_program_codes_stay_apart() {
+        assert_ne!(
+            ErrorKey::of(&rpc_program_error("send", 7008)),
+            ErrorKey::of(&rpc_program_error("send", 7015)),
+        );
+    }
+
+    /// Off-chain failures group by variant, so per-occurrence detail -- slots,
+    /// attempt counts, addresses -- cannot split one cause across many lines.
+    #[test]
+    fn per_occurrence_detail_does_not_split_a_group() {
+        let early = ClientError::IndexerNotCaughtUp {
+            required: 1,
+            indexed: 0,
+            attempts: 3,
+        };
+        let late = ClientError::IndexerNotCaughtUp {
+            required: 99_999,
+            indexed: 42,
+            attempts: 7,
+        };
+
+        assert_ne!(early.to_string(), late.to_string());
+        assert_eq!(ErrorKey::of(&early), ErrorKey::of(&late));
+        assert_ne!(
+            ErrorKey::of(&early),
+            ErrorKey::of(&ClientError::IndexerTimeout)
+        );
+    }
+
+    #[test]
+    fn the_report_names_the_program_error() {
+        let described = describe(&rpc_program_error("send", 7008));
+        assert!(
+            described.starts_with("program error 0x1b60 ("),
+            "expected a named code, got {described}"
+        );
+        assert!(
+            described.contains(&ShieldedPoolError::TransactProofVerificationFailed.to_string()),
+            "expected the name from ShieldedPoolError, got {described}"
+        );
+    }
+
+    /// Shortening is display-only, so it may not silently swallow the tail.
+    #[test]
+    fn a_long_message_is_marked_when_shortened() {
+        let long = ClientError::AddressResolution("x".repeat(400));
+        let described = describe(&long);
+        assert!(described.ends_with("..."), "got {described}");
+        assert!(described.chars().count() < long.to_string().chars().count());
     }
 }

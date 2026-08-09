@@ -10570,6 +10570,7 @@ dependencies = [
  "solana-loader-v3-interface 8.0.1",
  "solana-message",
  "solana-pubkey 4.2.0",
+ "solana-rpc-client-api",
  "solana-signer",
  "solana-transaction",
  "swap-program",
