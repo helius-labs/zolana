@@ -125,6 +125,7 @@ where
             // borrowed, because `wallet` is needed mutably further down.
             let mut cursors = std::mem::take(&mut wallet.sync_cursors);
             let mut nullifier_cursors = std::mem::take(&mut wallet.nullifier_cursors);
+            let mut proofless_cursors = std::mem::take(&mut wallet.proofless_cursors);
             let mut by_nullifier: HashMap<String, ShieldedTransaction> = HashMap::new();
             // One gate for the whole round, not one per call: every query in a
             // round should read the chain at the same freshness bound, and
@@ -165,6 +166,7 @@ where
                         &mut proofless_deposits,
                         config,
                         gate,
+                        &mut proofless_cursors,
                         &mut proofless_scanned_to_tip,
                     )
                 });
@@ -177,6 +179,7 @@ where
 
             wallet.sync_cursors = cursors;
             wallet.nullifier_cursors = nullifier_cursors;
+            wallet.proofless_cursors = proofless_cursors;
             // Propagate a panic rather than swallowing it into a sync error: a
             // panicked fetch means a bug here, not an unreachable indexer.
             let tag_result = tag_result.unwrap_or_else(|payload| resume_unwind(payload));
@@ -312,15 +315,19 @@ where
         .await;
         wallet.nullifier_cursors = nullifier_cursors;
         nullifiers_fetched?;
-        fetch_proofless_deposits_async(
+        let mut proofless_cursors = std::mem::take(&mut wallet.proofless_cursors);
+        let fetched_proofless = fetch_proofless_deposits_async(
             indexer,
             &tags,
             &mut proofless_deposits,
             config,
             freshness_gate.take(),
+            &mut proofless_cursors,
             &mut proofless_scanned_to_tip,
         )
-        .await?;
+        .await;
+        wallet.proofless_cursors = proofless_cursors;
+        fetched_proofless?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
@@ -788,101 +795,136 @@ async fn fetch_shielded_transactions_by_nullifiers_async<I: AsyncRpc>(
     Ok(())
 }
 
+/// Reads new proofless deposits, resuming from where the last sync stopped.
+///
+/// Resume points are per tag and persisted on the wallet, for the same reason
+/// [`fetch_shielded_transactions_incremental`] keeps them that way: the tag set
+/// grows, and a tag learned late has to be scanned from the beginning while
+/// tags learned earlier are far ahead.
+///
+/// Without the persisted cursor this paged the entire encrypted-utxo history for
+/// every tag on every sync and then discarded all but the deposits client-side --
+/// 909ms to keep 2.5 rows on devnet, a third of the sync phase, growing with
+/// history. The rows it re-read were ones it had already seen and dropped.
 fn fetch_proofless_deposits<I>(
     indexer: &I,
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    cursors: &mut HashMap<ViewTag, Vec<u8>>,
     scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError>
 where
     I: Rpc,
 {
-    let pending: Vec<ViewTag> = tags
-        .iter()
-        .copied()
-        .filter(|tag| !scanned_to_tip.contains(tag))
-        .collect();
-    for chunk in pending.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer.get_encrypted_utxos_by_tags(
-                chunk.to_vec(),
-                cursor,
-                Some(config.page_limit),
-                rpc_config,
-            )?;
-            for item in response.matches {
-                if item.tx_viewing_pk.is_some() || item.salt.is_some() {
-                    continue;
+    for (start, group) in group_by_resume_point(tags, cursors, scanned_to_tip) {
+        for chunk in group.chunks(config.tag_query_chunk) {
+            let mut cursor = start.clone();
+            let mut furthest = start.clone();
+            loop {
+                let response = indexer.get_encrypted_utxos_by_tags(
+                    chunk.to_vec(),
+                    cursor,
+                    Some(config.page_limit),
+                    rpc_config,
+                )?;
+                let last_page = response.matches.len() < config.page_limit as usize;
+                for item in response.matches {
+                    if item.tx_viewing_pk.is_some() || item.salt.is_some() {
+                        continue;
+                    }
+                    let key = format!(
+                        "{}:{}",
+                        item.tx_signature, item.output_slot.output_context.leaf_index
+                    );
+                    if out.contains_key(&key) {
+                        continue;
+                    }
+                    if let Some(view) = proofless_deposit_from_indexed_match(item)? {
+                        out.insert(key, view);
+                    }
                 }
-                let key = format!(
-                    "{}:{}",
-                    item.tx_signature, item.output_slot.output_context.leaf_index
-                );
-                if out.contains_key(&key) {
-                    continue;
+                if response.next_cursor.is_some() {
+                    furthest = response.next_cursor.clone();
                 }
-                if let Some(view) = proofless_deposit_from_indexed_match(item)? {
-                    out.insert(key, view);
+                cursor = response.next_cursor;
+                if last_page || cursor.is_none() {
+                    break;
                 }
             }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
-                break;
+            // Sound only because the stream is globally ordered: every tag in
+            // this chunk has now been read to that position.
+            if let Some(position) = furthest {
+                for tag in chunk {
+                    cursors.insert(*tag, position.clone());
+                }
             }
+            scanned_to_tip.extend(chunk.iter().copied());
         }
-        scanned_to_tip.extend(chunk.iter().copied());
     }
     Ok(())
 }
 
+/// Async twin of [`fetch_proofless_deposits`].
+///
+/// Kept deliberately parallel rather than shared, for the reason given on
+/// [`fetch_shielded_transactions_incremental_async`]: an async client that did
+/// not get the persisted cursor would keep re-reading the whole encrypted-utxo
+/// history on every sync.
 async fn fetch_proofless_deposits_async<I: AsyncRpc>(
     indexer: &I,
     tags: &[ViewTag],
     out: &mut HashMap<String, ShieldedTransaction>,
     config: SyncWalletConfig,
     rpc_config: Option<IndexerRpcConfig>,
+    cursors: &mut HashMap<ViewTag, Vec<u8>>,
     scanned_to_tip: &mut HashSet<ViewTag>,
 ) -> Result<(), ClientError> {
-    let pending: Vec<ViewTag> = tags
-        .iter()
-        .copied()
-        .filter(|tag| !scanned_to_tip.contains(tag))
-        .collect();
-    for chunk in pending.chunks(config.tag_query_chunk) {
-        let mut cursor = None;
-        loop {
-            let response = indexer
-                .get_encrypted_utxos_by_tags(
-                    chunk.to_vec(),
-                    cursor,
-                    Some(config.page_limit),
-                    rpc_config,
-                )
-                .await?;
-            for item in response.matches {
-                if item.tx_viewing_pk.is_some() || item.salt.is_some() {
-                    continue;
+    for (start, group) in group_by_resume_point(tags, cursors, scanned_to_tip) {
+        for chunk in group.chunks(config.tag_query_chunk) {
+            let mut cursor = start.clone();
+            let mut furthest = start.clone();
+            loop {
+                let response = indexer
+                    .get_encrypted_utxos_by_tags(
+                        chunk.to_vec(),
+                        cursor,
+                        Some(config.page_limit),
+                        rpc_config,
+                    )
+                    .await?;
+                let last_page = response.matches.len() < config.page_limit as usize;
+                for item in response.matches {
+                    if item.tx_viewing_pk.is_some() || item.salt.is_some() {
+                        continue;
+                    }
+                    let key = format!(
+                        "{}:{}",
+                        item.tx_signature, item.output_slot.output_context.leaf_index
+                    );
+                    if out.contains_key(&key) {
+                        continue;
+                    }
+                    if let Some(view) = proofless_deposit_from_indexed_match(item)? {
+                        out.insert(key, view);
+                    }
                 }
-                let key = format!(
-                    "{}:{}",
-                    item.tx_signature, item.output_slot.output_context.leaf_index
-                );
-                if out.contains_key(&key) {
-                    continue;
+                if response.next_cursor.is_some() {
+                    furthest = response.next_cursor.clone();
                 }
-                if let Some(view) = proofless_deposit_from_indexed_match(item)? {
-                    out.insert(key, view);
+                cursor = response.next_cursor;
+                if last_page || cursor.is_none() {
+                    break;
                 }
             }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
-                break;
+            if let Some(position) = furthest {
+                for tag in chunk {
+                    cursors.insert(*tag, position.clone());
+                }
             }
+            scanned_to_tip.extend(chunk.iter().copied());
         }
-        scanned_to_tip.extend(chunk.iter().copied());
     }
     Ok(())
 }
@@ -993,10 +1035,16 @@ mod tests {
         entries: Vec<(u64, ViewTag)>,
         /// (slot, nullifier) pairs: the transaction at `slot` spent `nullifier`.
         spends: Vec<(u64, [u8; 32])>,
+        /// (slot, view tag) pairs in the encrypted-utxo stream, which proofless
+        /// deposits are read from. A separate stream from `entries`, and paged
+        /// separately.
+        utxo_entries: Vec<(u64, ViewTag)>,
         /// Every (tags, cursor) pair the client asked for, for call accounting.
         calls: std::cell::RefCell<Vec<(usize, Option<u64>)>>,
         /// The same, for the nullifier stream.
         nullifier_calls: std::cell::RefCell<Vec<(usize, Option<u64>)>>,
+        /// The same, for the encrypted-utxo stream.
+        utxo_calls: std::cell::RefCell<Vec<(usize, Option<u64>)>>,
     }
 
     impl TaggedIndexer {
@@ -1196,20 +1244,57 @@ mod tests {
             Ok(Vec::new())
         }
 
+        /// Pages the encrypted-utxo stream on the same rule as the tag stream,
+        /// so a resume can be observed rather than assumed. The rows carry no
+        /// decryptable payload -- this pins which positions were asked for, not
+        /// what came back.
         fn get_encrypted_utxos_by_tags(
             &self,
-            _tags: Vec<ViewTag>,
-            _cursor: Option<Vec<u8>>,
-            _limit: Option<u32>,
+            tags: Vec<ViewTag>,
+            cursor: Option<Vec<u8>>,
+            limit: Option<u32>,
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
+            let limit = limit.unwrap_or(1_000).max(1) as usize;
+            let after = cursor.as_ref().map(|bytes| {
+                u64::from_be_bytes(bytes.as_slice().try_into().expect("8-byte cursor"))
+            });
+            self.utxo_calls.borrow_mut().push((tags.len(), after));
+
+            let mut rows: Vec<_> = self
+                .utxo_entries
+                .iter()
+                .filter(|(slot, tag)| tags.contains(tag) && after.is_none_or(|after| *slot > after))
+                .collect();
+            rows.sort_by_key(|(slot, _)| *slot);
+            rows.truncate(limit);
+
+            let next_cursor = rows.last().map(|(slot, _)| slot.to_be_bytes().to_vec());
+            let matches = rows
+                .into_iter()
+                .map(|(slot, tag)| EncryptedUtxoMatch {
+                    slot: *slot,
+                    tx_signature: Signature::from([*slot as u8; 64]),
+                    output_slot: OutputSlot {
+                        view_tag: *tag,
+                        output_context: OutputContext {
+                            hash: [0u8; 32],
+                            tree: Address::default(),
+                            leaf_index: *slot,
+                        },
+                        payload: Vec::new(),
+                    },
+                    tx_viewing_pk: None,
+                    salt: None,
+                })
+                .collect();
             Ok(GetEncryptedUtxosByTagsResponse {
                 context: Context {
                     block_time: 0,
                     slot: 1,
                 },
-                matches: Vec::new(),
-                next_cursor: None,
+                matches,
+                next_cursor,
             })
         }
 
@@ -1481,6 +1566,65 @@ mod tests {
             *indexer.nullifier_calls.borrow(),
             vec![(1, Some(50))],
             "the second sync resumes at 50 rather than rescanning from zero"
+        );
+    }
+
+    /// A second sync resumes the encrypted-utxo stream instead of re-reading it.
+    ///
+    /// This is the test the change that introduced `proofless_cursors` said it
+    /// could not write: the old mock answered every page with `next_cursor:
+    /// None`, so the client looked incremental while re-reading everything. It
+    /// pins what the client *sends* -- that the second sync carries the position
+    /// the first one reached. Whether photon reports that position the same way
+    /// is the local stack's job, not this one's.
+    #[test]
+    fn a_second_sync_resumes_the_proofless_stream() {
+        let tag = ViewTag::from([5u8; 32]);
+        let indexer = TaggedIndexer {
+            utxo_entries: vec![(10, tag), (50, tag)],
+            ..Default::default()
+        };
+
+        let config = SyncWalletConfig::default();
+        let mut out = HashMap::new();
+        let mut cursors: HashMap<ViewTag, Vec<u8>> = HashMap::new();
+
+        fetch_proofless_deposits(
+            &indexer,
+            &[tag],
+            &mut out,
+            config,
+            None,
+            &mut cursors,
+            &mut HashSet::new(),
+        )
+        .expect("first sync");
+
+        assert_eq!(
+            cursors
+                .get(&tag)
+                .map(|c| u64::from_be_bytes(c.as_slice().try_into().expect("8-byte cursor"))),
+            Some(50),
+            "the scan read to the last row, so that is where it resumes"
+        );
+
+        // A fresh scanned_to_tip, as a later sync would have.
+        indexer.utxo_calls.borrow_mut().clear();
+        fetch_proofless_deposits(
+            &indexer,
+            &[tag],
+            &mut out,
+            config,
+            None,
+            &mut cursors,
+            &mut HashSet::new(),
+        )
+        .expect("second sync");
+
+        assert_eq!(
+            *indexer.utxo_calls.borrow(),
+            vec![(1, Some(50))],
+            "the second sync resumes at 50 rather than re-reading the stream"
         );
     }
 
@@ -1924,6 +2068,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            &mut HashMap::new(),
             &mut HashSet::new(),
         )
         .expect("decode proofless payload");
@@ -2043,6 +2188,7 @@ mod tests {
             &mut out,
             SyncWalletConfig::default(),
             None,
+            &mut HashMap::new(),
             &mut HashSet::new(),
         )
         .expect("skip encrypted row");
