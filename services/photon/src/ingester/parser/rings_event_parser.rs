@@ -150,13 +150,12 @@ pub fn parse_rings_events(
 }
 
 fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bool {
-    // Keep this in sync with shielded-pool processors that call
+    // Keep in sync with the shielded-pool processors that call
     // `emit_general_event`, directly or via process_transact_core /
-    // process_merge_core. Self-emitting instructions: TRANSACT, RING_TRANSACT,
-    // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
-    // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
-    // drops those transactions from the index (they never get a rings_transactions
-    // row).
+    // process_merge_core. MERGE_CHAIN_TRANSACT emits one event for the whole
+    // chain and AGGREGATE_TRANSACT one per settled leg, numbered by `event_index`.
+    // A tag missing here silently drops those transactions from the index.
+    // `every_instruction_tag_is_classified` fails until a new tag is classified.
     instruction.program_id == rings_program_id
         && matches!(
             instruction.data.first().copied(),
@@ -166,6 +165,8 @@ fn is_event_source(rings_program_id: Pubkey, instruction: &RingsInstruction) -> 
                     | tag::RING_AUTHORITY_TRANSACT
                     | tag::MERGE_TRANSACT
                     | tag::RING_MERGE_TRANSACT
+                    | tag::MERGE_CHAIN_TRANSACT
+                    | tag::AGGREGATE_TRANSACT
                     | tag::DEPOSIT
                     | tag::RING_DEPOSIT
             )
@@ -180,6 +181,7 @@ fn is_emit_event(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bo
 mod tests {
     use super::*;
     use crate::ingester::parser::event_site::EventSite;
+    use zolana_event::tag::InstructionTag;
     use zolana_event::{InstructionGroup, ParsedInstruction};
 
     fn spp() -> Pubkey {
@@ -235,7 +237,7 @@ mod tests {
 
     #[test]
     fn drops_event_forged_by_direct_foreign_cpi() {
-        // Attacker program CPIs SPP with EMIT_EVENT; the event's parent is the
+        // Attacker program CPIs SPP with EMIT_EVENT. The event's parent is the
         // attacker's top-level instruction.
         let groups = [InstructionGroup {
             outer: ix(foreign(), 0, 1),
@@ -248,7 +250,7 @@ mod tests {
     #[test]
     fn drops_event_forged_under_a_foreign_inner_parent() {
         // Attacker nests one level deeper so the forged event's stack height
-        // matches the genuine ring-rail shape; the parent is still foreign.
+        // matches the genuine ring-rail shape. The parent is still foreign.
         let groups = [InstructionGroup {
             outer: ix(foreign(), 0, 1),
             inner: vec![ix(foreign(), 0, 2), ix(spp(), tag::EMIT_EVENT, 3)],
@@ -259,8 +261,8 @@ mod tests {
 
     #[test]
     fn drops_event_parented_to_another_emit_event() {
-        // A second EMIT_EVENT whose reconstructed parent is the first
-        // EMIT_EVENT: the event-source whitelist never includes EMIT_EVENT.
+        // A second EMIT_EVENT whose reconstructed parent is the first EMIT_EVENT.
+        // The event-source whitelist never includes EMIT_EVENT.
         let groups = [InstructionGroup {
             outer: ix(spp(), tag::TRANSACT, 1),
             inner: vec![ix(spp(), tag::EMIT_EVENT, 2), ix(spp(), tag::EMIT_EVENT, 3)],
@@ -284,5 +286,62 @@ mod tests {
         }];
 
         assert!(event_sites(&groups).is_empty());
+    }
+
+    /// Every implemented instruction tag is either an event source or listed
+    /// here as silent. A new tag matches neither and fails, which is the only
+    /// thing standing between an emitting instruction and being dropped from
+    /// the index.
+    #[test]
+    fn every_instruction_tag_is_classified() {
+        // Processors that never call `emit_general_event` are configuration,
+        // account creation, tree maintenance, and the event carrier itself.
+        const SILENT: [u8; 12] = [
+            tag::CREATE_PROTOCOL_CONFIG,
+            tag::UPDATE_PROTOCOL_CONFIG,
+            tag::CREATE_TREE,
+            tag::PAUSE_TREE,
+            tag::BATCH_UPDATE_NULLIFIER_TREE,
+            tag::BATCH_UPDATE_NULLIFIER_TREE_FOLDED,
+            tag::CREATE_ASSET_COUNTER,
+            tag::CREATE_SPL_INTERFACE,
+            tag::CREATE_RING_CONFIG,
+            tag::UPDATE_RING_CONFIG,
+            tag::UPDATE_RING_CONFIG_OWNER,
+            tag::EMIT_EVENT,
+        ];
+
+        for byte in 0..=u8::MAX {
+            if InstructionTag::try_from(byte).is_err() {
+                continue;
+            }
+            let source = is_event_source(spp(), &ix(spp(), byte, 1));
+            assert_ne!(
+                source,
+                SILENT.contains(&byte),
+                "tag {byte} is neither an event source nor listed as silent"
+            );
+        }
+    }
+
+    /// The two tree-maintenance tags emit their own append event and settle no
+    /// UTXOs, so they must not be mistaken for a settlement site.
+    #[test]
+    fn tree_maintenance_is_not_an_event_source() {
+        for byte in [
+            tag::BATCH_UPDATE_NULLIFIER_TREE,
+            tag::BATCH_UPDATE_NULLIFIER_TREE_FOLDED,
+        ] {
+            assert!(!is_event_source(spp(), &ix(spp(), byte, 1)));
+        }
+    }
+
+    /// Both recursive rails settle through `emit_general_event`, so a batch and
+    /// a chained merge each get a row.
+    #[test]
+    fn recursive_rails_are_event_sources() {
+        for byte in [tag::AGGREGATE_TRANSACT, tag::MERGE_CHAIN_TRANSACT] {
+            assert!(is_event_source(spp(), &ix(spp(), byte, 1)));
+        }
     }
 }
