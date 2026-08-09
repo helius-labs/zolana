@@ -52,6 +52,7 @@ check:
 # Check the entire workspace.
 check-all:
     cargo check --workspace --all-targets
+    cd zones/squads && cargo check --workspace --all-targets --all-features
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
@@ -94,6 +95,38 @@ test-program-mollusk: build-programs
 # Swap wrapper unit, wire-contract, and SBF-backed negative tests.
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
+
+# Squads zone unit and LiteSVM suites. `zones/squads` is a nested workspace with
+# its own lockfile and target dir, so it needs its own manifest path here. The
+# proof-backed binaries under `integration-tests` need the zone proving keys,
+# which are unpublished (prover/server/scripts/generate_keys_squads.sh), so they
+# stay out of this tier. `init_spp_zone_config_e2e` needs no keys but its fixture
+# is rejected with InvalidInitializationAuthority, so it is out until that is
+# fixed. Plain `cargo test`, because nextest resolves a profile against the
+# workspace root and the nested workspace defines none, so `NEXTEST_PROFILE=ci`
+# would not resolve there.
+# None of the binaries here load the SPP binary, so the tier needs only the zone
+# build. `init_spp_zone_config_e2e` and `composed_localnet` do, so adding either
+# one also adds `build-programs`.
+test-squads: build-programs-squads
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Nothing in the nested workspace exports the per-clone ports, so its suites
+    # reach the right validator, indexer, and prover only from here.
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    export ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}"
+    export ZOLANA_INDEXER_URL="{{localnet-photon-url}}"
+    manifest=zones/squads/Cargo.toml
+    # One package per invocation. Selecting the client together with the SDK
+    # unifies features, which turns on the SDK's `prover` module and with it the
+    # zone proof tests that need the unpublished keys.
+    cargo test --manifest-path "$manifest" -p zolana-squads-interface
+    cargo test --manifest-path "$manifest" -p zolana-squads-sdk
+    cargo test --manifest-path "$manifest" -p zolana-squads-client
+    cargo test --manifest-path "$manifest" -p squads-zone-tests \
+        --test zone_config --test viewing_key --test proposal --test key_update \
+        --test merge_transact_cpi --test deferred_settlement
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
@@ -282,7 +315,7 @@ test-proofless-programs: build-programs
     cargo nextest run -p shielded-pool-tests
 
 # Aggregate of all CI-runnable Rust tests.
-test-all: test test-programs test-user-registry-litesvm test-swap-program
+test-all: test test-programs test-user-registry-litesvm test-swap-program test-squads
 
 # Rust-only verification for machines without Go installed.
 verify-rust: check test
@@ -869,6 +902,17 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       cargo nextest run -p ring-test-program --test proof_cu --release --no-capture
 
+# Generate whatever Squads zone keys are missing from {{spp-keys-dir}}. The keys
+# are unpublished, so every machine makes its own. A cold run samples fresh toxic
+# waste and rewrites the verifying-key constants the zone program compiles in. A
+# warm run keeps the committed constants, because the wrapper reverts the
+# generator's unconditional re-export. The proof-backed suites under
+# zones/squads/integration-tests need these keys, and the zone program must be
+# rebuilt after a cold run.
+ensure-squads-keys:
+    ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_squads.sh \
+        "{{spp-keys-dir}}" zones/squads/interface/src/verifying_keys
+
 # Fully-inlined create+fill (derived and verifiable-encryption take rails) and
 # create+cancel swap flows over a fresh validator
 # (sdk-tests/zk-program-swap/test/tests/{swap,take_verifiable_encryption,cancel}.rs).
@@ -1022,6 +1066,12 @@ install-surfpool:
 build-programs:
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
+# Build the Squads zone SBF binary. `zones/squads` is its own workspace, so the
+# artifact lands in `zones/squads/target/deploy`, which is where the integration
+# harness looks for it (`SQUADS_ZONE_PROGRAM_PATH` overrides).
+build-programs-squads:
+    cd zones/squads/program && cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint
+
 # Deploy/upgrade programs to devnet using the local `solana` CLI config.
 # Pass program names to deploy a subset, e.g. `just deploy-devnet shielded-pool`.
 # Requires `just build-programs` first and that the local config keypair is
@@ -1126,14 +1176,19 @@ release tag *args: build-programs fetch-smart-account
 
 # === Formatting and linting ===
 
+# zones/squads is its own workspace (excluded from the root one), so every
+# formatting and linting recipe needs a second invocation or nothing covers it.
 fmt:
     cargo fmt --all
+    cd zones/squads && cargo fmt --all
 
 fmt-check:
     cargo fmt --all -- --check
+    cd zones/squads && cargo fmt --all -- --check
 
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
+    cd zones/squads && cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh

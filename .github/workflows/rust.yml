@@ -48,6 +48,10 @@ jobs:
       - name: Install workspace Rust toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check
+      # zones/squads is a nested workspace, so the root invocation above does not
+      # reach it. Mirrors `just fmt-check`, which this job does not use because
+      # it installs no `just`.
+      - run: cd zones/squads && cargo fmt --all -- --check
       - run: ./tools/check-test-hygiene.sh
 
   machete:
@@ -118,6 +122,26 @@ jobs:
       - name: Install pinned SBF platform tools
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - run: just test-program-fast
+
+  test-squads:
+    name: tests / squads zone
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      AGAVE_VERSION: v4.0.2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: litesvm
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install pinned SBF platform tools
+        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+      - run: just test-squads
 
   test-sdk-libs:
     name: tests / sdk-libs
