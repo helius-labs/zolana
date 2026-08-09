@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 mod create_release;
 mod find_smart_accounts;
+mod fund;
 mod init_protocol;
 mod loadtest;
 mod update_protocol_config;
@@ -60,6 +61,16 @@ fn main() {
             };
             if let Err(error) = loadtest::run(options) {
                 eprintln!("loadtest failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
+        Some("fund") => {
+            let options = match fund::Options::parse(args.collect()) {
+                Ok(options) => options,
+                Err(error) => usage_and_exit(&format!("fund: {error:#}")),
+            };
+            if let Err(error) = fund::run(options) {
+                eprintln!("fund failed: {error:?}");
                 std::process::exit(1);
             }
         }
