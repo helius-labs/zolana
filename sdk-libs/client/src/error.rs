@@ -272,6 +272,29 @@ pub enum ClientError {
     DepositSenderNotSigner { sender: [u8; 32] },
 }
 
+impl ClientError {
+    /// The on-chain program error code, when the chain rejected the transaction.
+    ///
+    /// Solana already models this: the RPC error carries a `TransactionError`,
+    /// which carries an `InstructionError::Custom(u32)`. Callers should read
+    /// that rather than the rendered message -- a load generator grouped
+    /// failures by the first 160 characters of the string, and the code sits at
+    /// roughly character 160, so a run reporting 10748 failures said nothing
+    /// about what any of them were.
+    pub fn program_error_code(&self) -> Option<u32> {
+        use solana_instruction::error::InstructionError;
+        use solana_rpc_client_api::client_error::TransactionError;
+
+        let Self::SolanaRpcTransaction { source, .. } = self else {
+            return None;
+        };
+        match source.get_transaction_error()? {
+            TransactionError::InstructionError(_, InstructionError::Custom(code)) => Some(code),
+            _ => None,
+        }
+    }
+}
+
 /// Why an indexer request failed, in a form callers can match on.
 ///
 /// Exists so that nothing has to inspect an error message to decide what to do.

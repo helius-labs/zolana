@@ -32,6 +32,7 @@ use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction, which is a trait method rather than
 // an inherent one on SolanaRpc.
 use zolana_client::{ClientError, Rpc, SolanaRpc, Unavailable, ZolanaClient};
+use zolana_interface::error::ShieldedPoolError;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{Address, AssetRegistry, LocalWalletAuthority, Wallet};
 use zolana_wallet::{
@@ -524,21 +525,28 @@ fn worker(
 /// system under test: an earlier shell-driven run lost 101 of 220 transfers to
 /// Helius 403s and reported it as protocol failure.
 fn classify(error: &ClientError, stats: &mut Stats, backoff: &mut Duration) {
-    // Truncated: these carry request ids and addresses that would make every
-    // occurrence look distinct and defeat the grouping.
+    // Group by the program's own error code when the chain rejected the
+    // transaction, and name it.
     //
-    // 160 was too short by a handful of characters, and in the worst possible
-    // place. A simulation failure reads
+    // Reading the code out of the rendered message does not work: the same
+    // rejection arrives with two different wrappers depending on whether it
+    // failed in simulation or on send, so truncating to group them put the code
+    // inside the prefix for one and past the cut for the other. A run reporting
+    // 10748 failures identified none of them, while 318 of the *same* error
+    // showed up separately as "0x1b60" purely because their wrapper was shorter.
     //
-    //   Solana RPC transaction failed during send_transaction: RPC response
-    //   error -32002: Transaction simulation failed: Error processing
-    //   Instruction 1: custom program error: 0x1b60
-    //
-    // where the program error code -- the only part that identifies the
-    // failure -- begins at roughly character 160. A run reporting 10748
-    // failures said nothing about what they were. Long enough to keep the code,
-    // short enough that ids and addresses still fall off the end.
-    let key: String = error.to_string().chars().take(220).collect();
+    // Solana models this properly -- TransactionError carries
+    // InstructionError::Custom(u32) -- so match on it and let
+    // ShieldedPoolError name the number.
+    let key = match error.program_error_code() {
+        Some(code) => match ShieldedPoolError::from_code(code) {
+            Some(named) => format!("program error {code:#x} ({named})"),
+            None => format!("program error {code:#x} (unknown to this build)"),
+        },
+        // Everything else still groups by message, truncated: those carry
+        // request ids and addresses that would make each occurrence distinct.
+        None => error.to_string().chars().take(160).collect(),
+    };
     *stats.errors.entry(key).or_insert(0) += 1;
 
     // Matched on the error's type, not its text. This used to ask whether the
