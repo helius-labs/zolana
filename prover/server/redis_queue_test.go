@@ -936,21 +936,13 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		"failed_at":    time.Now().Format(time.RFC3339),
 	}
 
-	failedData, err := json.Marshal(failureDetails)
-	if err != nil {
-		t.Fatalf("Failed to marshal failure details: %v", err)
-	}
-
-	failedJob := &server.ProofJob{
-		ID:        jobID + "_failed",
-		Type:      "failed",
-		Payload:   json.RawMessage(failedData),
-		CreatedAt: time.Now(),
-	}
-
-	err = rq.EnqueueProof("zk_failed_queue", failedJob)
-	if err != nil {
-		t.Fatalf("Failed to enqueue failed job: %v", err)
+	// Fail the job the way the workers do. This test used to write straight
+	// into zk_failed_queue and rely on the status endpoint scanning that queue
+	// to find it -- the scan that made every status poll cost O(queue length).
+	// Every producer of a failure now records it in the job metadata too, so
+	// the endpoint is answered with a single GET.
+	if err := rq.MarkJobFailed(jobID, failureDetails); err != nil {
+		t.Fatalf("Failed to mark job failed: %v", err)
 	}
 
 	statusURL := fmt.Sprintf("http://%s/prove/status?job_id=%s", config.ProverAddress, jobID)

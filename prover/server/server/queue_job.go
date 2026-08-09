@@ -221,6 +221,12 @@ func (w *BaseQueueWorker) processJobs() {
 			expirationErr := fmt.Errorf("job expired after %v (max: %v)", jobAge, JobExpirationTimeout)
 			expiredInputHash := ComputeInputHash(job.Payload)
 			w.addToFailedQueue(job, expiredInputHash, expirationErr)
+			if metaErr := w.queue.MarkJobFailed(job.ID, failureDetails(job, expirationErr)); metaErr != nil {
+				logging.Logger().Warn().
+					Err(metaErr).
+					Str("job_id", job.ID).
+					Msg("Failed to record expiry in metadata")
+			}
 			return
 		}
 
@@ -332,6 +338,14 @@ func (w *BaseQueueWorker) processJobs() {
 		if err != nil {
 			logging.Logger().Error().Err(err).Str("job_id", job.ID).Msg("Failed to enqueue cached failure")
 		}
+		// A replayed failure is still terminal for this job id, so it has to be
+		// visible to the status endpoint the same way a fresh one is.
+		if metaErr := w.queue.MarkJobFailed(job.ID, failedJob); metaErr != nil {
+			logging.Logger().Warn().
+				Err(metaErr).
+				Str("job_id", job.ID).
+				Msg("Failed to record cached failure in metadata")
+		}
 		w.queue.StoreInputHash(job.ID, inputHash)
 		w.queue.IndexFailureByHash(inputHash, job.ID)
 		RecordDispatchStage(w.queueName, "dedup", time.Since(dedupStart))
@@ -384,11 +398,14 @@ func (w *BaseQueueWorker) processJobs() {
 						Str("input_hash", inputHash).
 						Msg("Failed to delete in-flight job marker (non-critical)")
 				}
-				if delErr := w.queue.DeleteJobMeta(job.ID); delErr != nil {
+				// Keep the metadata and record why. Deleting it here left the
+				// status endpoint with nothing to answer from, which is what
+				// forced it to scan zk_failed_queue on every poll.
+				if metaErr := w.queue.MarkJobFailed(job.ID, failureDetails(job, panicErr)); metaErr != nil {
 					logging.Logger().Warn().
-						Err(delErr).
+						Err(metaErr).
 						Str("job_id", job.ID).
-						Msg("Failed to delete job metadata (non-critical)")
+						Msg("Failed to record job failure in metadata")
 				}
 			}
 			<-w.semaphore
@@ -419,6 +436,12 @@ func (w *BaseQueueWorker) processJobs() {
 			return
 		}
 		processingItem = storedItem
+		if metaErr := w.queue.MarkJobProcessing(job.ID); metaErr != nil {
+			logging.Logger().Warn().
+				Err(metaErr).
+				Str("job_id", job.ID).
+				Msg("Failed to mark job processing (status polls will still report queued)")
+		}
 
 		proof, err := w.generateProof(job)
 		w.removeFromProcessingQueue(processingItem)
@@ -443,12 +466,14 @@ func (w *BaseQueueWorker) processJobs() {
 					Str("input_hash", inputHash).
 					Msg("Failed to delete in-flight job marker (non-critical)")
 			}
-			// Clean up job metadata
-			if delErr := w.queue.DeleteJobMeta(job.ID); delErr != nil {
+			// Record the failure in the metadata rather than dropping it: this
+			// is the only record a polling client can be answered from once the
+			// status endpoint stops scanning zk_failed_queue.
+			if metaErr := w.queue.MarkJobFailed(job.ID, failureDetails(job, err)); metaErr != nil {
 				logging.Logger().Warn().
-					Err(delErr).
+					Err(metaErr).
 					Str("job_id", job.ID).
-					Msg("Failed to delete job metadata (non-critical)")
+					Msg("Failed to record job failure in metadata")
 			}
 		} else {
 			// Store result with timing information
@@ -678,9 +703,13 @@ func (w *BaseQueueWorker) removeFromProcessingQueue(item string) {
 	}
 }
 
-func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err error) {
-	// Extract circuit type from payload for debugging, but don't store full payload
-	// to prevent memory issues (payloads can be hundreds of KB)
+// failureDetails describes a failed job for both the failed queue and the job
+// metadata, so a caller sees the same thing wherever it is read from.
+//
+// The full payload is deliberately omitted -- payloads run to hundreds of KB,
+// and this is stored once per failure on a path that already has memory
+// pressure.
+func failureDetails(job *ProofJob, err error) map[string]interface{} {
 	var circuitType string
 	var payloadMeta map[string]interface{}
 	if json.Unmarshal(job.Payload, &payloadMeta) == nil {
@@ -689,7 +718,7 @@ func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err 
 		}
 	}
 
-	failedJob := map[string]interface{}{
+	return map[string]interface{}{
 		"original_job": map[string]interface{}{
 			"id":           job.ID,
 			"type":         job.Type,
@@ -700,8 +729,10 @@ func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err 
 		"error":     err.Error(),
 		"failed_at": time.Now(),
 	}
+}
 
-	failedData, _ := json.Marshal(failedJob)
+func (w *BaseQueueWorker) addToFailedQueue(job *ProofJob, inputHash string, err error) {
+	failedData, _ := json.Marshal(failureDetails(job, err))
 	failedJobStruct := &ProofJob{
 		ID:        job.ID + "_failed",
 		Type:      "failed",

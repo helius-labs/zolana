@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
@@ -192,27 +191,21 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 
 	// Handle failed jobs specially - extract actual error details
 	if jobStatus == "failed" && jobInfo != nil {
-		if payloadRaw, ok := jobInfo["payload"]; ok {
-			if payloadStr, ok := payloadRaw.(string); ok {
-				var failureDetails map[string]interface{}
-				if err := json.Unmarshal([]byte(payloadStr), &failureDetails); err == nil {
-					if errorMsg, ok := failureDetails["error"].(string); ok {
-						response["message"] = fmt.Sprintf("Job processing failed: %s", errorMsg)
-						response["error"] = errorMsg
-					}
-					if failedAt, ok := failureDetails["failed_at"]; ok {
-						response["failed_at"] = failedAt
-					}
-					if originalJob, ok := failureDetails["original_job"].(map[string]interface{}); ok {
-						if circuitType, ok := originalJob["circuit_type"]; ok {
-							response["circuit_type"] = circuitType
-						}
-					}
-				} else {
-					response["message"] = "Job processing failed. Unable to parse failure details."
+		// The details arrive already decoded, alongside the status they belong
+		// to. They used to be a JSON string lifted out of the failed queue's
+		// entry, which meant finding that entry by scanning the queue.
+		if failureDetails, ok := jobInfo["failure"].(map[string]interface{}); ok {
+			if errorMsg, ok := failureDetails["error"].(string); ok {
+				response["message"] = fmt.Sprintf("Job processing failed: %s", errorMsg)
+				response["error"] = errorMsg
+			}
+			if failedAt, ok := failureDetails["failed_at"]; ok {
+				response["failed_at"] = failedAt
+			}
+			if originalJob, ok := failureDetails["original_job"].(map[string]interface{}); ok {
+				if circuitType, ok := originalJob["circuit_type"]; ok {
+					response["circuit_type"] = circuitType
 				}
-			} else {
-				response["message"] = "Job processing failed. Unable to access failure details."
 			}
 		} else {
 			response["message"] = "Job processing failed. No failure details available."
@@ -250,6 +243,23 @@ func (handler proofStatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+type QueueConfig struct {
+	RedisURL string
+	Enabled  bool
+}
+
+type EnhancedConfig struct {
+	ProverAddress  string
+	MetricsAddress string
+	Queue          *QueueConfig
+}
+
+type proveHandler struct {
+	keyManager  *common.LazyKeyManager
+	redisQueue  *RedisQueue
+	enableQueue bool
+}
+
 func isValidJobID(jobID string) bool {
 	_, err := uuid.Parse(jobID)
 	return err == nil
@@ -270,155 +280,62 @@ func getStatusMessage(status string) string {
 	}
 }
 
+// checkJobExistsDetailed answers a status poll with two O(1) Redis reads.
+//
+// This is the hottest path in the server -- a client polls it from submission
+// until its proof lands, so polls outnumber jobs by orders of magnitude. It
+// used to walk entire Redis lists with LRANGE key 0 -1: the job's own queue,
+// then the processing queue, then zk_failed_queue, then zk_results_queue,
+// unmarshalling every element. A 220-worker run drove ~57 such polls a second
+// against a results queue holding 8237 entries, which is on the order of half a
+// million element reads per second from a single-threaded Redis. Redis returned
+// i/o timeouts, dispatch stalled behind them, health checks failed, ECS
+// replaced the tasks, and the in-flight jobs on them were orphaned.
+//
+// The scans existed only because the metadata was written once at submission
+// and never updated, so "queued" and "processing" could not be told apart
+// without looking. The workers now keep that field current (MarkJobProcessing,
+// MarkJobFailed), which costs one SET per job, so the status is simply read.
 func (handler proofStatusHandler) checkJobExistsDetailed(jobID string) (bool, string, map[string]interface{}) {
-	// First check result cache (fast O(1) lookup)
+	// Completion is answered by the result index. This is the common terminal
+	// case and stays first.
 	result, err := handler.redisQueue.GetResult(jobID)
 	if err == nil && result != nil {
 		logging.Logger().Debug().
 			Str("job_id", jobID).
 			Msg("Job found in result cache")
 
-		jobInfo := map[string]interface{}{
+		return true, "completed", map[string]interface{}{
 			"result":        result,
 			"result_cached": true,
 		}
-		return true, "completed", jobInfo
 	}
 
-	// Check job metadata to determine which queue to search (avoids full scan of all queues)
 	jobMeta, metaErr := handler.redisQueue.GetJobMeta(jobID)
-	if metaErr == nil && jobMeta != nil {
-		// We have metadata - check only the relevant queues based on queue name
-		if queueName, ok := jobMeta["queue"].(string); ok {
-			// Check main queue first
-			if job, found := handler.findJobInQueue(queueName, jobID); found {
-				return true, "queued", job
-			}
-			// Check processing queue for this circuit type
-			// Validate queueName before slicing to avoid panic
-			if len(queueName) >= 6 && strings.HasSuffix(queueName, "_queue") {
-				base := queueName[:len(queueName)-6]
-				processingQueue := base + "_processing_queue"
-				if job, found := handler.findJobInQueue(processingQueue, jobID); found {
-					return true, "processing", job
-				}
-			} else {
-				logging.Logger().Warn().
-					Str("job_id", jobID).
-					Str("queue_name", queueName).
-					Msg("Malformed queue name in job metadata - skipping processing queue check")
-			}
-		}
-		// Job has metadata but not found in expected queues - may be in results or failed
-		if job, found := handler.findJobInQueue("zk_failed_queue", jobID); found {
-			return true, "failed", job
-		}
-		// Check results queue
-		if job, found := handler.findJobInQueue("zk_results_queue", jobID); found {
-			handler.extractResultFromPayload(job)
-			return true, "completed", job
-		}
-		// Return metadata-based status even if not found in queues
-		// This handles race conditions where job moved between queues
-		status := "queued"
-		if metaStatus, ok := jobMeta["status"].(string); ok {
-			status = metaStatus
-		}
-		return true, status, map[string]interface{}{
-			"circuit_type": jobMeta["circuit_type"],
-			"submitted_at": jobMeta["submitted_at"],
-			"from_meta":    true,
-		}
+	if metaErr != nil || jobMeta == nil {
+		// Metadata is deleted on success and expires an hour after submission,
+		// so an unknown id is genuinely unknown: either it never existed, or it
+		// completed long enough ago that its result is gone too.
+		return false, "", nil
 	}
 
-	// No metadata - fall back to checking failed and results queues only
-	// (These are the terminal states where jobs might exist without metadata)
-	if job, found := handler.findJobInQueue("zk_failed_queue", jobID); found {
-		return true, "failed", job
+	status := "queued"
+	if metaStatus, ok := jobMeta["status"].(string); ok {
+		status = metaStatus
 	}
 
-	if job, found := handler.findJobInQueue("zk_results_queue", jobID); found {
-		handler.extractResultFromPayload(job)
-		return true, "completed", job
+	jobInfo := map[string]interface{}{
+		"circuit_type": jobMeta["circuit_type"],
+		"submitted_at": jobMeta["submitted_at"],
+		"from_meta":    true,
+	}
+	// A failure carries its reason with it, so the caller gets the same detail
+	// the failed queue used to supply.
+	if failure, ok := jobMeta["failure"].(map[string]interface{}); ok {
+		jobInfo["failure"] = failure
 	}
 
-	return false, "", nil
-}
-
-func (handler proofStatusHandler) extractResultFromPayload(job map[string]interface{}) {
-	if payloadRaw, ok := job["payload"]; ok {
-		if payloadStr, ok := payloadRaw.(string); ok {
-			var payloadData map[string]interface{}
-			if json.Unmarshal([]byte(payloadStr), &payloadData) == nil {
-				job["result"] = payloadData
-			}
-		}
-	}
-}
-
-func (handler proofStatusHandler) findJobInQueue(queueName, jobID string) (map[string]interface{}, bool) {
-	items, err := handler.redisQueue.Client.LRange(handler.redisQueue.Ctx, queueName, 0, -1).Result()
-	if err != nil {
-		logging.Logger().Error().
-			Err(err).
-			Str("queue", queueName).
-			Str("job_id", jobID).
-			Msg("Error searching queue")
-		return nil, false
-	}
-
-	for _, item := range items {
-		var job ProofJob
-		if json.Unmarshal([]byte(item), &job) == nil {
-			if job.ID == jobID ||
-				job.ID == jobID+"_processing" ||
-				job.ID == jobID+"_failed" {
-
-				jobInfo := map[string]interface{}{
-					"created_at": job.CreatedAt,
-				}
-
-				// Include payload for all jobs, especially important for failed jobs
-				if len(job.Payload) > 0 {
-					jobInfo["payload"] = string(job.Payload)
-
-					var meta map[string]interface{}
-					if json.Unmarshal(job.Payload, &meta) == nil {
-						if circuitType, ok := meta["circuit_type"]; ok {
-							jobInfo["circuit_type"] = circuitType
-						}
-					}
-				}
-
-				logging.Logger().Info().
-					Str("job_id", jobID).
-					Str("queue", queueName).
-					Str("found_job_id", job.ID).
-					Msg("Job found in queue")
-
-				return jobInfo, true
-			}
-		}
-	}
-
-	return nil, false
-}
-
-type QueueConfig struct {
-	RedisURL string
-	Enabled  bool
-}
-
-type EnhancedConfig struct {
-	ProverAddress  string
-	MetricsAddress string
-	Queue          *QueueConfig
-}
-
-type proveHandler struct {
-	keyManager  *common.LazyKeyManager
-	redisQueue  *RedisQueue
-	enableQueue bool
+	return true, status, jobInfo
 }
 
 func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

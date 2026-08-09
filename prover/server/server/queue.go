@@ -164,6 +164,77 @@ func (rq *RedisQueue) DeleteJobMeta(jobID string) error {
 	return rq.Client.Del(rq.Ctx, key).Err()
 }
 
+// MarkJobProcessing records that a worker has picked the job up.
+//
+// The metadata used to be written once at submission and never updated, so
+// "queued" or "processing" could only be told apart by walking both queues.
+// The status endpoint did exactly that, on every poll: see the comment on
+// checkJobExistsDetailed. One SET per job replaces a list scan per poll, and
+// polls outnumber jobs by orders of magnitude.
+//
+// KeepTTL preserves the submission-time expiry, so a job that is never
+// completed still ages out on its original schedule.
+func (rq *RedisQueue) MarkJobProcessing(jobID string) error {
+	return rq.updateJobMeta(jobID, func(meta map[string]interface{}) {
+		meta["status"] = "processing"
+		meta["started_at"] = time.Now()
+	}, redis.KeepTTL)
+}
+
+// MarkJobFailed records a terminal failure and the details a caller needs.
+//
+// The failure details live in the metadata rather than only in
+// zk_failed_queue, because reading them back out of that queue means scanning
+// it. The TTL is refreshed to a full hour here: unlike a success, which is
+// answered by the O(1) result lookup, this record is the only thing that can
+// tell a polling client to stop waiting.
+func (rq *RedisQueue) MarkJobFailed(jobID string, details map[string]interface{}) error {
+	return rq.updateJobMeta(jobID, func(meta map[string]interface{}) {
+		meta["status"] = "failed"
+		meta["failure"] = details
+	}, time.Hour)
+}
+
+// updateJobMeta applies mutate to a job's metadata and writes it back.
+//
+// A missing key is recreated rather than skipped. A job can be failed by the
+// stuck-job reaper after its metadata has expired, and a client polling such a
+// job must still be told to stop rather than being left to time out.
+func (rq *RedisQueue) updateJobMeta(
+	jobID string,
+	mutate func(map[string]interface{}),
+	ttl time.Duration,
+) error {
+	key := fmt.Sprintf("zk_job_meta_%s", jobID)
+	meta := map[string]interface{}{}
+	switch existing, err := rq.Client.Get(rq.Ctx, key).Result(); {
+	case err == redis.Nil:
+		// Recreated below with whatever mutate sets.
+	case err != nil:
+		return fmt.Errorf("failed to read job meta: %w", err)
+	default:
+		if err := json.Unmarshal([]byte(existing), &meta); err != nil {
+			return fmt.Errorf("failed to unmarshal job meta: %w", err)
+		}
+	}
+
+	mutate(meta)
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal job meta: %w", err)
+	}
+	// A recreated key cannot inherit a TTL that no longer exists, so it gets a
+	// fresh hour rather than KeepTTL's "no expiry at all".
+	if ttl == redis.KeepTTL && rq.Client.TTL(rq.Ctx, key).Val() < 0 {
+		ttl = time.Hour
+	}
+	if err := rq.Client.Set(rq.Ctx, key, data, ttl).Err(); err != nil {
+		return fmt.Errorf("failed to store job meta: %w", err)
+	}
+	return nil
+}
+
 func (rq *RedisQueue) DequeueProof(queueName string, timeout time.Duration) (*ProofJob, error) {
 	// Check if this queue supports fair queuing
 	if isFairQueueEnabled(queueName) {
@@ -825,7 +896,7 @@ func (rq *RedisQueue) failStuckJobsFromQueue(queueName string, timeoutCutoff tim
 						}
 					}
 
-					failureDetails := map[string]interface{}{
+					details := map[string]interface{}{
 						"original_job": map[string]interface{}{
 							"id":           originalJobID,
 							"type":         "zk_proof",
@@ -838,7 +909,19 @@ func (rq *RedisQueue) failStuckJobsFromQueue(queueName string, timeoutCutoff tim
 						"timeout":   true,
 					}
 
-					failedData, _ := json.Marshal(failureDetails)
+					// A reaped job is terminal, and the client polling it has no
+					// other way to learn that: the result lookup finds nothing
+					// and the status endpoint no longer scans the failed queue.
+					// Without this the caller waits out its entire deadline --
+					// which is how 197 workers ended up parked for 35 minutes.
+					if metaErr := rq.MarkJobFailed(originalJobID, details); metaErr != nil {
+						logging.Logger().Warn().
+							Err(metaErr).
+							Str("job_id", originalJobID).
+							Msg("Failed to record reaped job failure in metadata")
+					}
+
+					failedData, _ := json.Marshal(details)
 					failedJob := &ProofJob{
 						ID:        originalJobID + "_failed",
 						Type:      "failed",
