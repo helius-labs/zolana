@@ -1,13 +1,13 @@
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_squads_interface::{
     constants::{ENCRYPTION_SCHEME_P256_AES, REQUIRED_AUDITOR_KEY_COUNT, VIEWING_KEY_STATE_ACTIVE},
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::instruction_data::CreateViewingKeyAccountIxData,
     state::viewing_key_account::{OwnerKind, ViewingKeyAccount},
     VIEWING_KEY_ACCOUNT_PDA_SEED,
 };
 
-use crate::instructions::zone_config::loader::load_zone_config;
+use crate::instructions::ring_config::loader::load_ring_config;
 use crate::shared::{
     key_encryption_proof::{KeyEncryptionProof, RecipientKey},
     pda::{verify_pda, CreatePdaAccount},
@@ -17,10 +17,10 @@ use crate::shared::{
 /// initialize the per-owner viewing key account PDA.
 ///
 /// Accounts: `[enrollment_authority (signer, writable), owner_identity,
-/// viewing_key_account (writable, the PDA), zone_config (readonly),
+/// viewing_key_account (writable, the PDA), ring_config (readonly),
 /// system_program]`.
 ///
-/// `enrollment_authority` must be the configured zone co-signer and pays rent.
+/// `enrollment_authority` must be the configured ring co-signer and pays rent.
 /// `owner_identity` is an already-derived proof identity field, not a signable
 /// Solana key in the normal SDK flow. It is copied verbatim into the account and
 /// used as the PDA seed. If recovery keys are supplied, however, the account at
@@ -29,71 +29,71 @@ use crate::shared::{
 /// owner authority. The instruction carries a combined `key_ciphertexts` vector
 /// ordered recovery ciphertexts first, then auditor. The recipient public keys
 /// are the instruction's `recovery_keys` followed by the auditor keys read from
-/// `zone_config`. The proof is recomputed over `old_state_hash = 0` (creation).
+/// `ring_config`. The proof is recomputed over `old_state_hash = 0` (creation).
 #[inline(never)]
 pub fn process_create_viewing_key_account_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
     if accounts.len() < 5 {
-        return Err(SquadsZoneError::InvalidInstructionData.into());
+        return Err(SquadsRingError::InvalidInstructionData.into());
     }
     let (enrollment_authority, rest) = accounts
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let (owner_identity, rest) = rest
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let (viewing_key_account, rest) = rest
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
-    let (zone_config, rest) = rest
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
+    let (ring_config, rest) = rest
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let system_program = rest
         .first()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
 
     if !enrollment_authority.is_signer() {
-        return Err(SquadsZoneError::MissingCoSignerSignature.into());
+        return Err(SquadsRingError::MissingCoSignerSignature.into());
     }
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(ProgramError::IncorrectProgramId);
     }
 
     let ix = CreateViewingKeyAccountIxData::deserialize(data)
-        .map_err(|_| SquadsZoneError::InvalidInstructionData)?;
+        .map_err(|_| SquadsRingError::InvalidInstructionData)?;
 
     if ix.encryption_scheme != ENCRYPTION_SCHEME_P256_AES {
-        return Err(SquadsZoneError::InvalidEncryptionScheme.into());
+        return Err(SquadsRingError::InvalidEncryptionScheme.into());
     }
 
     // Reject an unknown byte at creation so the stored value always parses.
     OwnerKind::try_from(ix.owner_kind)?;
 
-    // A zone co-signer authenticates enrollment but must not be able to grant
+    // A ring co-signer authenticates enrollment but must not be able to grant
     // arbitrary recovery-key holders access to the owner's secrets. Require
     // control of the exact stored identity before accepting any non-auditor key.
     if !ix.recovery_keys.is_empty() && !owner_identity.is_signer() {
-        return Err(SquadsZoneError::MissingOwnerSignature.into());
+        return Err(SquadsRingError::MissingOwnerSignature.into());
     }
 
-    let zone_config = load_zone_config(zone_config)?;
-    if enrollment_authority.address() != &zone_config.co_signer {
-        return Err(SquadsZoneError::CoSignerMismatch.into());
+    let ring_config = load_ring_config(ring_config)?;
+    if enrollment_authority.address() != &ring_config.co_signer {
+        return Err(SquadsRingError::CoSignerMismatch.into());
     }
-    if zone_config.auditor_keys.len() != REQUIRED_AUDITOR_KEY_COUNT {
-        return Err(SquadsZoneError::InvalidAuditorKeyCount.into());
+    if ring_config.auditor_keys.len() != REQUIRED_AUDITOR_KEY_COUNT {
+        return Err(SquadsRingError::InvalidAuditorKeyCount.into());
     }
-    let auditor_keys = zone_config.auditor_keys;
+    let auditor_keys = ring_config.auditor_keys;
 
     let recovery_count = ix.recovery_keys.len();
     let auditor_count = auditor_keys.len();
     let expected_ciphertexts = recovery_count
         .checked_add(auditor_count)
-        .ok_or(SquadsZoneError::CiphertextCountMismatch)?;
+        .ok_or(SquadsRingError::CiphertextCountMismatch)?;
     if ix.key_ciphertexts.len() != expected_ciphertexts {
-        return Err(SquadsZoneError::CiphertextCountMismatch.into());
+        return Err(SquadsRingError::CiphertextCountMismatch.into());
     }
     let (recovery_key_ciphertexts, auditor_key_ciphertexts) =
         ix.key_ciphertexts.split_at(recovery_count);
@@ -164,7 +164,7 @@ pub fn process_create_viewing_key_account_ix(
         bump,
     }
     .execute()
-    .map_err(|_| SquadsZoneError::InvalidViewingKeyAccount)?;
+    .map_err(|_| SquadsRingError::InvalidViewingKeyAccount)?;
 
     write_viewing_key_account(viewing_key_account, &account)
 }
@@ -179,13 +179,13 @@ fn write_viewing_key_account(
 ) -> ProgramResult {
     let bytes = value
         .serialize()
-        .map_err(|_| SquadsZoneError::Deserialization)?;
+        .map_err(|_| SquadsRingError::Deserialization)?;
     let mut data = account
         .try_borrow_mut()
-        .map_err(|_| SquadsZoneError::InvalidViewingKeyAccount)?;
+        .map_err(|_| SquadsRingError::InvalidViewingKeyAccount)?;
     let slot = data
         .get_mut(..bytes.len())
-        .ok_or(SquadsZoneError::InvalidAccountSize)?;
+        .ok_or(SquadsRingError::InvalidAccountSize)?;
     slot.copy_from_slice(&bytes);
     Ok(())
 }

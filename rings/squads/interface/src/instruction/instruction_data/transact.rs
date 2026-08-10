@@ -22,35 +22,35 @@ pub struct InputContext {
 /// `transact` instruction data (spec: squads `transact`).
 ///
 /// Mirrors the spec's `TransactIxData`: a withdrawal or transfer carrying both
-/// the zone proof and the forwarded SPP proof. `public_amount` is `Some` for a
-/// withdrawal, `None` for a transfer. `encrypted_utxos` is the zone-serialized
+/// the ring proof and the forwarded SPP proof. `public_amount` is `Some` for a
+/// withdrawal, `None` for a transfer. `encrypted_utxos` is the ring-serialized
 /// output ciphertext blob (`tx_viewing_pk` + sender + recipient ciphertexts),
-/// checked by the zone proof and not parsed here.
+/// checked by the ring proof and not parsed here.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct TransactIxData {
-    /// Compressed Groth16 zone proof with commitment.
-    pub zone_proof: ProofBytes,
+    /// Compressed Groth16 ring proof with commitment.
+    pub ring_proof: ProofBytes,
     /// Compressed Groth16 SPP proof. Forwarded to SPP.
     pub spp_proof: ProofBytes,
     /// `Some` for a withdrawal, `None` for a transfer.
     pub public_amount: Option<u64>,
     /// Canonical bump of the per-mint SPL interface PDA, required on an SPL
     /// withdrawal. SPP validates it against the settlement accounts, so the
-    /// zone forwards it without checking.
+    /// ring forwards it without checking.
     pub spl_interface_bump: u8,
     /// Public input shared with the SPP proof.
     pub private_tx_hash: [u8; 32],
     /// Unix timestamp after which the transaction is rejected.
     pub expiry: i64,
     /// Per-transaction encryption salt shared by every output ciphertext.
-    /// Forwarded verbatim into the SPP `TransactIxData` the zone constructs
-    /// for its CPI (SPP folds it into the logged event, not the zone proof).
+    /// Forwarded verbatim into the SPP `TransactIxData` the ring constructs
+    /// for its CPI (SPP folds it into the logged event, not the ring proof).
     pub salt: [u8; 16],
-    /// One `view_tag` per SPP output-ciphertext slot the zone forwards
+    /// One `view_tag` per SPP output-ciphertext slot the ring forwards
     /// (sender bundle first, then one per recipient -- same order as
     /// `encrypted_utxos`). Folded into the forwarded SPP proof's
     /// `external_data_hash`, so it must match what the SPP-side proof
-    /// committed to. It is opaque to the zone proof itself.
+    /// committed to. It is opaque to the ring proof itself.
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub output_view_tags: Vec<[u8; 32]>,
     /// One hash per output UTXO. Length `M`.
@@ -59,8 +59,8 @@ pub struct TransactIxData {
     /// Per spent input. Length `N`.
     #[wincode(with = "containers::Vec<InputContext, FixIntLen<u8>>")]
     pub input_contexts: Vec<InputContext>,
-    /// Output ciphertexts, zone serialization (spec `EncryptedUtxos`). Parsed
-    /// inline with the rest of the instruction data and bound by the zone proof.
+    /// Output ciphertexts, ring serialization (spec `EncryptedUtxos`). Parsed
+    /// inline with the rest of the instruction data and bound by the ring proof.
     /// SPP does not parse it.
     pub encrypted_utxos: EncryptedUtxos,
 }

@@ -1,4 +1,4 @@
-//! The shapes the zone circuits are compiled for, and the domain separator a
+//! The shapes the ring circuits are compiled for, and the domain separator a
 //! proposal commitment binds.
 //!
 //! The program, the SDK, and the Go lazy key managers
@@ -7,9 +7,9 @@
 //! prover can produce a proof for but the program cannot resolve a verifying key
 //! for fails verification with no useful signal, so the table lives here once.
 
-/// Supported zone circuit shapes as `(n_inputs, n_outputs)`.
+/// Supported ring circuit shapes as `(n_inputs, n_outputs)`.
 /// `(1, 1)` is a withdrawal and `(2, 2)` is a transfer.
-pub const ZONE_SUPPORTED_SHAPES: [(u8, u8); 2] = [(1, 1), (2, 2)];
+pub const RING_SUPPORTED_SHAPES: [(u8, u8); 2] = [(1, 1), (2, 2)];
 
 /// Supported key-encryption recipient counts (recovery plus auditor keys).
 pub const KEY_ENCRYPTION_SUPPORTED_KEYS: [u8; 3] = [1, 2, 3];
@@ -31,16 +31,16 @@ pub const KEY_ENCRYPTION_FOLD_SUPPORTED_KEYS: [u8; 2] = [
     KEY_ENCRYPTION_FOLD_SUPPORTED_LEGS[1] * KEY_ENCRYPTION_FOLD_KEYS_PER_LEG,
 ];
 
-/// Leg shapes a zone fold covers. Only the transfer shape folds, because a
+/// Leg shapes a ring fold covers. Only the transfer shape folds, because a
 /// withdrawal already spends the whole balance.
-pub const ZONE_FOLD_SUPPORTED_SHAPES: [(u8, u8); 1] = [(2, 2)];
+pub const RING_FOLD_SUPPORTED_SHAPES: [(u8, u8); 1] = [(2, 2)];
 
-/// Leg counts a zone fold is compiled for.
-pub const ZONE_FOLD_SUPPORTED_LEGS: [u8; 2] = [2, 3];
+/// Leg counts a ring fold is compiled for.
+pub const RING_FOLD_SUPPORTED_LEGS: [u8; 2] = [2, 3];
 
-/// The widest supported leg count. [`ZONE_FOLD_SUPPORTED_LEGS`] is ascending, so
+/// The widest supported leg count. [`RING_FOLD_SUPPORTED_LEGS`] is ascending, so
 /// the last entry is the maximum.
-pub const ZONE_FOLD_MAX_LEGS: u8 = ZONE_FOLD_SUPPORTED_LEGS[ZONE_FOLD_SUPPORTED_LEGS.len() - 1];
+pub const RING_FOLD_MAX_LEGS: u8 = RING_FOLD_SUPPORTED_LEGS[RING_FOLD_SUPPORTED_LEGS.len() - 1];
 
 /// Domain separator for the public asset and destination binding of a v2
 /// proposal commitment.
@@ -91,9 +91,9 @@ mod tests {
     /// data vector lengths, which is only sound while one output count names one
     /// shape.
     #[test]
-    fn output_count_determines_one_zone_shape() {
-        for (_, n_outputs) in ZONE_SUPPORTED_SHAPES {
-            let matching = ZONE_SUPPORTED_SHAPES
+    fn output_count_determines_one_ring_shape() {
+        for (_, n_outputs) in RING_SUPPORTED_SHAPES {
+            let matching = RING_SUPPORTED_SHAPES
                 .iter()
                 .filter(|(_, outputs)| *outputs == n_outputs)
                 .count();

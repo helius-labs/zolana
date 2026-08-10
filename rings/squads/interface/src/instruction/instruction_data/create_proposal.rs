@@ -16,7 +16,7 @@ pub struct CreateProposalIxData {
     /// Asset mint. SOL is the default address.
     pub asset: Address,
     /// Domain-separated private proposal core. Execution combines it with the
-    /// operation, asset, and destination to derive the zone-proof commitment.
+    /// operation, asset, and destination to derive the ring-proof commitment.
     pub proposal_hash: [u8; 32],
     /// Amount and blinding encrypted to the shared viewing key.
     pub cipher_text: ProposalCiphertext,

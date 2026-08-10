@@ -6,19 +6,19 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use zolana_squads_interface::{
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::instruction_data::CreateProposalIxData,
     state::{proposal::Proposal, viewing_key_account::OwnerKind},
-    PROPOSAL_PDA_SEED, ZONE_CONFIG_PDA_SEED,
+    PROPOSAL_PDA_SEED, RING_CONFIG_PDA_SEED,
 };
 
 use crate::instructions::{
-    viewing_key_account::loader::load_viewing_key_account, zone_config::loader::load_zone_config,
+    ring_config::loader::load_ring_config, viewing_key_account::loader::load_viewing_key_account,
 };
 use crate::shared::{owner::verify_owner_identity, pda::verify_pda};
 
 /// Accounts: `[fee_payer (signer, writable, same address as owner), proposal (writable, the PDA),
-/// viewing_key_account (readonly), zone_config (readonly), system_program
+/// viewing_key_account (readonly), ring_config (readonly), system_program
 /// (readonly), owner (signer)]`.
 ///
 /// The proposal PDA is derived at `[b"proposal", owner, cipher_text[0..32]]`.
@@ -27,25 +27,25 @@ use crate::shared::{owner::verify_owner_identity, pda::verify_pda};
 /// copies the remaining fields from the instruction data.
 #[inline(never)]
 pub fn process_create_proposal_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let [fee_payer, proposal, viewing_key_account, zone_config, system_program, owner] = accounts
+    let [fee_payer, proposal, viewing_key_account, ring_config, system_program, owner] = accounts
     else {
-        return Err(SquadsZoneError::InvalidInstructionData.into());
+        return Err(SquadsRingError::InvalidInstructionData.into());
     };
 
     if !fee_payer.is_signer() {
-        return Err(SquadsZoneError::MissingAuthoritySignature.into());
+        return Err(SquadsRingError::MissingAuthoritySignature.into());
     }
     if !owner.is_signer() {
-        return Err(SquadsZoneError::MissingOwnerSignature.into());
+        return Err(SquadsRingError::MissingOwnerSignature.into());
     }
     // The crank treats the recorded rent payer as the raw sender vault. Binding
     // it to the authenticated owner prevents an unrelated payer from creating a
     // proposal that can be decrypted but can never be settled.
     if fee_payer.address() != owner.address() {
-        return Err(SquadsZoneError::ProposalPayerMismatch.into());
+        return Err(SquadsRingError::ProposalPayerMismatch.into());
     }
     if !pinocchio_system::check_id(system_program.address()) {
-        return Err(SquadsZoneError::InvalidInstructionData.into());
+        return Err(SquadsRingError::InvalidInstructionData.into());
     }
 
     // The owner identity is the pk-field-hash of the signer
@@ -54,17 +54,17 @@ pub fn process_create_proposal_ix(accounts: &mut [AccountView], data: &[u8]) -> 
     // as the proposal owner.
     let vka = load_viewing_key_account(viewing_key_account)?;
     if vka.kind()? != OwnerKind::SmartAccount {
-        return Err(SquadsZoneError::InvalidOwnerKind.into());
+        return Err(SquadsRingError::InvalidOwnerKind.into());
     }
     verify_owner_identity(owner, vka.owner.to_bytes())?;
 
-    verify_pda(zone_config.address(), &[ZONE_CONFIG_PDA_SEED], &crate::ID)?;
-    let zone = load_zone_config(zone_config)?;
+    verify_pda(ring_config.address(), &[RING_CONFIG_PDA_SEED], &crate::ID)?;
+    let ring = load_ring_config(ring_config)?;
 
     let ix = CreateProposalIxData::deserialize(data)
-        .map_err(|_| SquadsZoneError::InvalidInstructionData)?;
+        .map_err(|_| SquadsRingError::InvalidInstructionData)?;
     let now = Clock::get()?.unix_timestamp;
-    validate_proposal_expiry(now, zone.max_proposal_lifetime, ix.expiry)?;
+    validate_proposal_expiry(now, ring.max_proposal_lifetime, ix.expiry)?;
 
     // The fresh ephemeral public key lives in the ciphertext's first 33 bytes.
     // Solana caps each seed at 32 bytes, so the spec's `[0..33]` is clamped to
@@ -74,7 +74,7 @@ pub fn process_create_proposal_ix(accounts: &mut [AccountView], data: &[u8]) -> 
     let cipher_seed = ix
         .cipher_text
         .get(..32)
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
 
     let bump = verify_pda(
         proposal.address(),
@@ -97,7 +97,7 @@ pub fn process_create_proposal_ix(accounts: &mut [AccountView], data: &[u8]) -> 
         None,
         &[Signer::from(signer_seeds.as_ref())],
     )
-    .map_err(|_| SquadsZoneError::InvalidProposal)?;
+    .map_err(|_| SquadsRingError::InvalidProposal)?;
 
     let record = Proposal::new(
         owner_addr,
@@ -113,13 +113,13 @@ pub fn process_create_proposal_ix(accounts: &mut [AccountView], data: &[u8]) -> 
 
 fn validate_proposal_expiry(now: i64, max_lifetime: i64, expiry: i64) -> ProgramResult {
     if now > expiry {
-        return Err(SquadsZoneError::ProposalExpired.into());
+        return Err(SquadsRingError::ProposalExpired.into());
     }
     let latest_expiry = now
         .checked_add(max_lifetime)
-        .ok_or(SquadsZoneError::ArithmeticOverflow)?;
+        .ok_or(SquadsRingError::ArithmeticOverflow)?;
     if expiry > latest_expiry {
-        return Err(SquadsZoneError::ProposalLifetimeExceeded.into());
+        return Err(SquadsRingError::ProposalLifetimeExceeded.into());
     }
     Ok(())
 }
@@ -130,13 +130,13 @@ fn validate_proposal_expiry(now: i64, max_lifetime: i64, expiry: i64) -> Program
 fn write_proposal(account: &mut AccountView, record: &Proposal) -> ProgramResult {
     let bytes = record
         .serialize()
-        .map_err(|_| SquadsZoneError::Serialization)?;
+        .map_err(|_| SquadsRingError::Serialization)?;
     let mut data = account
         .try_borrow_mut()
-        .map_err(|_| SquadsZoneError::InvalidProposal)?;
+        .map_err(|_| SquadsRingError::InvalidProposal)?;
     let slot = data
         .get_mut(..bytes.len())
-        .ok_or(SquadsZoneError::InvalidAccountSize)?;
+        .ok_or(SquadsRingError::InvalidAccountSize)?;
     slot.copy_from_slice(&bytes);
     Ok(())
 }
@@ -151,11 +151,11 @@ mod tests {
         assert!(validate_proposal_expiry(1_000, 300, 1_300).is_ok());
         assert_eq!(
             validate_proposal_expiry(1_000, 300, 999).unwrap_err(),
-            ProgramError::Custom(SquadsZoneError::ProposalExpired as u32)
+            ProgramError::Custom(SquadsRingError::ProposalExpired as u32)
         );
         assert_eq!(
             validate_proposal_expiry(1_000, 300, 1_301).unwrap_err(),
-            ProgramError::Custom(SquadsZoneError::ProposalLifetimeExceeded as u32)
+            ProgramError::Custom(SquadsRingError::ProposalLifetimeExceeded as u32)
         );
     }
 
@@ -163,7 +163,7 @@ mod tests {
     fn expiry_window_addition_is_checked() {
         assert_eq!(
             validate_proposal_expiry(i64::MAX, 1, i64::MAX).unwrap_err(),
-            ProgramError::Custom(SquadsZoneError::ArithmeticOverflow as u32)
+            ProgramError::Custom(SquadsRingError::ArithmeticOverflow as u32)
         );
     }
 }

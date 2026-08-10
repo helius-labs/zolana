@@ -11,13 +11,13 @@ use crate::{
 
 /// Builder for the `toggle_viewing_key_account` instruction.
 ///
-/// Account order: `authority`, `viewing_key_account`, `zone_config`. The
-/// authority is the account's owner or the zone co-signer, which the program
-/// reads from `zone_config`.
+/// Account order: `authority`, `viewing_key_account`, `ring_config`. The
+/// authority is the account's owner or the ring co-signer, which the program
+/// reads from `ring_config`.
 pub struct ToggleViewingKeyAccount {
     pub authority: Pubkey,
     pub viewing_key_account: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub data: ToggleViewingKeyAccountIxData,
 }
 
@@ -28,13 +28,13 @@ impl ToggleViewingKeyAccount {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let accounts = vec![
             AccountMeta::new_readonly(self.authority, true),
             AccountMeta::new(self.viewing_key_account, false),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
         ];
 
         Instruction {

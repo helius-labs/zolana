@@ -1,37 +1,37 @@
-//! `update_zone_config` (tag 4) instruction builder (spec: squads
-//! `update_zone_config`).
+//! `update_ring_config` (tag 4) instruction builder (spec: squads
+//! `update_ring_config`).
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, UpdateZoneConfigIxData},
+    instruction::{tag, UpdateRingConfigIxData},
     PROGRAM_ID_PUBKEY,
 };
 
-/// Builder for the `update_zone_config` instruction.
+/// Builder for the `update_ring_config` instruction.
 ///
-/// Account order mirrors the spec's `update_zone_config` "Accounts" list:
-/// `authority`, `zone_config`.
-pub struct UpdateZoneConfig {
+/// Account order mirrors the spec's `update_ring_config` "Accounts" list:
+/// `authority`, `ring_config`.
+pub struct UpdateRingConfig {
     pub authority: Pubkey,
-    pub zone_config: Pubkey,
-    pub data: UpdateZoneConfigIxData,
+    pub ring_config: Pubkey,
+    pub data: UpdateRingConfigIxData,
 }
 
-impl UpdateZoneConfig {
+impl UpdateRingConfig {
     pub fn instruction(&self) -> Instruction {
-        let mut instruction_data = vec![tag::UPDATE_ZONE_CONFIG];
+        let mut instruction_data = vec![tag::UPDATE_RING_CONFIG];
         instruction_data.extend_from_slice(
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let accounts = vec![
             AccountMeta::new_readonly(self.authority, true),
-            AccountMeta::new(self.zone_config, false),
+            AccountMeta::new(self.ring_config, false),
         ];
 
         Instruction {

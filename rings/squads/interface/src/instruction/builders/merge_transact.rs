@@ -11,11 +11,11 @@ use crate::{
 /// Builder for the `merge_transact` instruction.
 ///
 /// Account order mirrors the spec's `merge_transact` "Accounts" list:
-/// `merge_authority`, `zone_config`, `owner_viewing_key_account`, `ring_auth`,
+/// `merge_authority`, `ring_config`, `owner_viewing_key_account`, `ring_auth`,
 /// `spp_program`, then the `tree_accounts` tail as remaining accounts.
 pub struct MergeTransact {
     pub merge_authority: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub owner_viewing_key_account: Pubkey,
     pub ring_auth: Pubkey,
     pub spp_program: Pubkey,
@@ -31,12 +31,12 @@ impl MergeTransact {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let mut accounts = vec![
             AccountMeta::new(self.merge_authority, true),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
             AccountMeta::new_readonly(self.owner_viewing_key_account, false),
             AccountMeta::new_readonly(self.ring_auth, false),
             AccountMeta::new_readonly(self.spp_program, false),

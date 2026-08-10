@@ -1,7 +1,7 @@
 //! Canonical viewing-key-account owner authentication.
 
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use zolana_squads_interface::error::SquadsZoneError;
+use zolana_squads_interface::error::SquadsRingError;
 
 /// Verify that `owner` controls the identity stored in a viewing key account.
 ///
@@ -12,7 +12,7 @@ pub fn verify_owner_identity(owner: &AccountView, expected_owner: [u8; 32]) -> P
     if is_owner_identity(owner, expected_owner)? {
         return Ok(());
     }
-    Err(SquadsZoneError::OwnerMismatch.into())
+    Err(SquadsRingError::OwnerMismatch.into())
 }
 
 /// The same test as [`verify_owner_identity`] for a path that accepts a second
@@ -31,7 +31,7 @@ fn owner_identity_matches(
     expected_owner: [u8; 32],
 ) -> Result<bool, ProgramError> {
     let owner_field = zolana_hasher::primitives::hash_bytes(&owner_address)
-        .map_err(|_| SquadsZoneError::ProofHashingFailed)?;
+        .map_err(|_| SquadsRingError::ProofHashingFailed)?;
     Ok(owner_field == expected_owner)
 }
 

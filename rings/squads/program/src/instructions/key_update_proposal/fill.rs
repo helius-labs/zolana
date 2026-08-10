@@ -6,7 +6,7 @@ use pinocchio::{
     AccountView, ProgramResult, Resize,
 };
 use zolana_squads_interface::{
-    error::SquadsZoneError, instruction::instruction_data::FillKeyUpdateIxData,
+    error::SquadsRingError, instruction::instruction_data::FillKeyUpdateIxData,
 };
 
 use super::loader::load_key_update_proposal;
@@ -16,29 +16,29 @@ use super::loader::load_key_update_proposal;
 #[inline(never)]
 pub fn process_fill_key_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     if accounts.len() < 2 {
-        return Err(SquadsZoneError::InvalidInstructionData.into());
+        return Err(SquadsRingError::InvalidInstructionData.into());
     }
     let (executor, rest) = accounts
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let key_update_proposal = rest
         .first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
 
     if !executor.is_signer() {
-        return Err(SquadsZoneError::MissingExecutorSignature.into());
+        return Err(SquadsRingError::MissingExecutorSignature.into());
     }
 
     let mut proposal = load_key_update_proposal(key_update_proposal)?;
     if executor.address() != &proposal.executor {
-        return Err(SquadsZoneError::ExecutorMismatch.into());
+        return Err(SquadsRingError::ExecutorMismatch.into());
     }
     if Clock::get()?.unix_timestamp > proposal.expiry {
-        return Err(SquadsZoneError::ProposalExpired.into());
+        return Err(SquadsRingError::ProposalExpired.into());
     }
 
     let ix = FillKeyUpdateIxData::deserialize(data)
-        .map_err(|_| SquadsZoneError::InvalidInstructionData)?;
+        .map_err(|_| SquadsRingError::InvalidInstructionData)?;
 
     proposal
         .new_key_ciphertexts
@@ -46,26 +46,26 @@ pub fn process_fill_key_update_ix(accounts: &mut [AccountView], data: &[u8]) -> 
 
     let bytes = proposal
         .serialize()
-        .map_err(|_| SquadsZoneError::Serialization)?;
+        .map_err(|_| SquadsRingError::Serialization)?;
 
     // The buffer grows only into rent already funded at creation. Reject any
     // append that would push the serialized length past what the account's
     // lamport balance can keep rent-exempt.
     let required = Rent::get()?.try_minimum_balance(bytes.len())?;
     if key_update_proposal.lamports() < required {
-        return Err(SquadsZoneError::KeyBufferOverflow.into());
+        return Err(SquadsRingError::KeyBufferOverflow.into());
     }
 
     key_update_proposal
         .resize(bytes.len())
-        .map_err(|_| SquadsZoneError::InvalidAccountSize)?;
+        .map_err(|_| SquadsRingError::InvalidAccountSize)?;
     {
         let mut account_data = key_update_proposal
             .try_borrow_mut()
-            .map_err(|_| SquadsZoneError::InvalidKeyUpdateProposal)?;
+            .map_err(|_| SquadsRingError::InvalidKeyUpdateProposal)?;
         let slot = account_data
             .get_mut(..bytes.len())
-            .ok_or(SquadsZoneError::InvalidAccountSize)?;
+            .ok_or(SquadsRingError::InvalidAccountSize)?;
         slot.copy_from_slice(&bytes);
     }
 

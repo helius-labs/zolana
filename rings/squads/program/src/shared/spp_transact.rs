@@ -1,5 +1,5 @@
 //! Builds the SPP `ring_transact` instruction data (tag-prefixed, wincode
-//! serialized) the zone forwards via CPI.
+//! serialized) the ring forwards via CPI.
 
 use zolana_interface::{
     instruction::{
@@ -11,7 +11,7 @@ use zolana_interface::{
     N_PUBLIC_SLOTS,
 };
 use zolana_squads_interface::{
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::instruction_data::{transact::InputContext, EncryptedUtxos},
     state::viewing_key_account::OwnerKind,
     types::ProofBytes,
@@ -19,7 +19,7 @@ use zolana_squads_interface::{
 
 use crate::shared::withdrawal::WithdrawalSettlement;
 
-/// Which SPP settlement rail the zone forwards a spend through.
+/// Which SPP settlement rail the ring forwards a spend through.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SppSettlementRail {
     /// Keypair/P256 owner: SPP `ring_transact` with a BSB22-committed P256 proof
@@ -27,7 +27,7 @@ pub enum SppSettlementRail {
     P256,
     /// Smart-account owner (a Squads vault, no signing key): SPP
     /// `ring_authority_transact` with a vanilla proof and no owner signature.
-    /// The zone authorizes via its `zone_config` PDA and (async) an approved
+    /// The ring authorizes via its `ring_config` PDA and (async) an approved
     /// proposal binds the operation.
     SmartAccount,
 }
@@ -48,10 +48,10 @@ impl SppSettlementRail {
     }
 }
 
-/// Everything the zone's own `TransactIxData` / `ExecuteProposalIxData` carries,
+/// Everything the ring's own `TransactIxData` / `ExecuteProposalIxData` carries,
 /// minus the fields SPP computes itself (`ring_program_id` from the CPI-signing
 /// `RingConfig`, `payer_pubkey_hash` from the CPI's `payer` account).
-pub struct SppZoneTransferParams<'a> {
+pub struct SppRingTransferParams<'a> {
     pub expiry_unix_ts: u64,
     pub private_tx_hash: [u8; 32],
     pub spp_proof: &'a ProofBytes,
@@ -64,9 +64,9 @@ pub struct SppZoneTransferParams<'a> {
 }
 
 /// A transfer settles nothing, so it carries no interface transfers.
-pub fn build_spp_zone_transfer_data(
-    params: SppZoneTransferParams<'_>,
-) -> Result<Vec<u8>, SquadsZoneError> {
+pub fn build_spp_ring_transfer_data(
+    params: SppRingTransferParams<'_>,
+) -> Result<Vec<u8>, SquadsRingError> {
     let outputs = build_outputs(
         params.encrypted_utxos,
         params.output_view_tags,
@@ -95,11 +95,11 @@ pub fn build_spp_zone_transfer_data(
 }
 
 /// Inputs to build SPP's `ring_transact` instruction data for a withdrawal.
-/// Same shape as [`SppZoneTransferParams`] plus the settled `amount` and its
+/// Same shape as [`SppRingTransferParams`] plus the settled `amount` and its
 /// rail. SPP folds the recipient/vault settlement addresses into
 /// `external_data_hash` itself, so `data_hash` and `ring_data_hash` stay `None`
 /// exactly as for a transfer.
-pub struct SppZoneWithdrawalParams<'a> {
+pub struct SppRingWithdrawalParams<'a> {
     pub expiry_unix_ts: u64,
     pub private_tx_hash: [u8; 32],
     pub spp_proof: &'a ProofBytes,
@@ -115,9 +115,9 @@ pub struct SppZoneWithdrawalParams<'a> {
 
 /// A withdrawal has a single change output, so `outputs` is just the sender
 /// slot.
-pub fn build_spp_zone_withdrawal_data(
-    params: SppZoneWithdrawalParams<'_>,
-) -> Result<Vec<u8>, SquadsZoneError> {
+pub fn build_spp_ring_withdrawal_data(
+    params: SppRingWithdrawalParams<'_>,
+) -> Result<Vec<u8>, SquadsRingError> {
     let outputs = build_outputs(
         params.encrypted_utxos,
         params.output_view_tags,
@@ -157,19 +157,19 @@ pub fn build_spp_zone_withdrawal_data(
 fn encode(
     rail: SppSettlementRail,
     ix_data: &SppTransactIxData,
-) -> Result<Vec<u8>, SquadsZoneError> {
+) -> Result<Vec<u8>, SquadsRingError> {
     let mut instruction_data = vec![rail.tag()];
     instruction_data.extend_from_slice(
         &ix_data
             .serialize()
-            .map_err(|_| SquadsZoneError::Serialization)?,
+            .map_err(|_| SquadsRingError::Serialization)?,
     );
     Ok(instruction_data)
 }
 
 /// The circuit selector SPP resolves its verifying key from. On the P256 rail it
 /// also carries the BSB22 commitment, without which the committed proof cannot
-/// be verified. `default_owner_tag` stays `None` because a zone spend proves
+/// be verified. `default_owner_tag` stays `None` because a ring spend proves
 /// P256 ownership inside the ring, so publishing the x-coordinate would
 /// deanonymize the owner.
 fn circuit_id(
@@ -177,8 +177,8 @@ fn circuit_id(
     rail: SppSettlementRail,
     n_inputs: usize,
     n_outputs: usize,
-) -> Result<CircuitId, SquadsZoneError> {
-    let err = SquadsZoneError::InvalidProofEncoding;
+) -> Result<CircuitId, SquadsRingError> {
+    let err = SquadsRingError::InvalidProofEncoding;
     let n_inputs = u8::try_from(n_inputs).map_err(|_| err)?;
     let n_outputs = u8::try_from(n_outputs).map_err(|_| err)?;
     let slots = N_PUBLIC_SLOTS as u8;
@@ -211,11 +211,11 @@ fn circuit_id(
     }
 }
 
-/// Split the zone's flat 192-byte forwarded proof into SPP's Groth16 triple.
+/// Split the ring's flat 192-byte forwarded proof into SPP's Groth16 triple.
 /// The trailing 64 bytes are the BSB22 commitment, which travels in the circuit
 /// selector instead.
-fn decompose_proof(bytes: &ProofBytes) -> Result<SppTransactProof, SquadsZoneError> {
-    let err = SquadsZoneError::InvalidProofEncoding;
+fn decompose_proof(bytes: &ProofBytes) -> Result<SppTransactProof, SquadsRingError> {
+    let err = SquadsRingError::InvalidProofEncoding;
     Ok(SppTransactProof {
         a: bytes.get(0..32).ok_or(err)?.try_into().map_err(|_| err)?,
         b: bytes.get(32..96).ok_or(err)?.try_into().map_err(|_| err)?,
@@ -235,17 +235,17 @@ fn build_inputs(input_contexts: &[InputContext]) -> Vec<InputUtxo> {
 }
 
 /// SPP's `outputs` is `[sender slot, then one per recipient]` in tree-append
-/// order. The zone's `EncryptedUtxos` carries exactly that data without a view
+/// order. The ring's `EncryptedUtxos` carries exactly that data without a view
 /// tag or commitment per slot, so both must have one entry per slot in the same
 /// order.
 fn build_outputs(
     encrypted_utxos: &EncryptedUtxos,
     output_view_tags: &[[u8; 32]],
     output_utxo_hashes: &[[u8; 32]],
-) -> Result<Vec<TransactOutput>, SquadsZoneError> {
+) -> Result<Vec<TransactOutput>, SquadsRingError> {
     let expected = 1 + encrypted_utxos.recipient_ciphertexts.len();
     if output_view_tags.len() != expected || output_utxo_hashes.len() != expected {
-        return Err(SquadsZoneError::InvalidInstructionData);
+        return Err(SquadsRingError::InvalidInstructionData);
     }
     let ciphertexts = core::iter::once(encrypted_utxos.sender_ciphertext.to_vec()).chain(
         encrypted_utxos
@@ -300,7 +300,7 @@ mod tests {
         let output_view_tags = vec![[10u8; 32], [11u8; 32]];
         let output_utxo_hashes = vec![[12u8; 32], [13u8; 32]];
 
-        let instruction_data = build_spp_zone_transfer_data(SppZoneTransferParams {
+        let instruction_data = build_spp_ring_transfer_data(SppRingTransferParams {
             expiry_unix_ts: 1_700_000_000,
             private_tx_hash: [6u8; 32],
             spp_proof: &proof_bytes,
@@ -378,7 +378,7 @@ mod tests {
     fn rejects_view_tag_count_mismatch() {
         let proof_bytes = sample_proof();
         let encrypted_utxos = sample_encrypted_utxos();
-        let err = build_spp_zone_transfer_data(SppZoneTransferParams {
+        let err = build_spp_ring_transfer_data(SppRingTransferParams {
             expiry_unix_ts: 0,
             private_tx_hash: [0u8; 32],
             spp_proof: &proof_bytes,
@@ -391,7 +391,7 @@ mod tests {
             rail: SppSettlementRail::P256,
         })
         .expect_err("view-tag count mismatch must be rejected");
-        assert_eq!(err, SquadsZoneError::InvalidInstructionData);
+        assert_eq!(err, SquadsRingError::InvalidInstructionData);
     }
 
     #[test]
@@ -409,7 +409,7 @@ mod tests {
             nullifier_root_index: 5,
         }];
 
-        let instruction_data = build_spp_zone_withdrawal_data(SppZoneWithdrawalParams {
+        let instruction_data = build_spp_ring_withdrawal_data(SppRingWithdrawalParams {
             expiry_unix_ts: 1_700_000_000,
             private_tx_hash: [6u8; 32],
             spp_proof: &proof_bytes,
@@ -445,7 +445,7 @@ mod tests {
             recipient_ciphertexts: vec![],
         };
 
-        let instruction_data = build_spp_zone_withdrawal_data(SppZoneWithdrawalParams {
+        let instruction_data = build_spp_ring_withdrawal_data(SppRingWithdrawalParams {
             expiry_unix_ts: 0,
             private_tx_hash: [0u8; 32],
             spp_proof: &proof_bytes,
@@ -487,7 +487,7 @@ mod tests {
             nullifier_root_index: 5,
         }];
 
-        let instruction_data = build_spp_zone_transfer_data(SppZoneTransferParams {
+        let instruction_data = build_spp_ring_transfer_data(SppRingTransferParams {
             expiry_unix_ts: 1_700_000_000,
             private_tx_hash: [6u8; 32],
             spp_proof: &proof_bytes,

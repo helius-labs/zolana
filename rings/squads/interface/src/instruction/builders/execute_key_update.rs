@@ -12,7 +12,7 @@ use crate::{
 /// Builder for the `execute_key_update` instruction.
 ///
 /// Account order mirrors the spec's `execute_key_update` "Accounts" list:
-/// `executor`, `co_signer`, `viewing_key_account`, `zone_config`,
+/// `executor`, `co_signer`, `viewing_key_account`, `ring_config`,
 /// `key_update_proposal`, `rent_recipient`, `system_program`. The program
 /// records the pre-rotation account as a self-CPI event, so `program` is
 /// appended last as a loadable target.
@@ -20,7 +20,7 @@ pub struct ExecuteKeyUpdate {
     pub executor: Pubkey,
     pub co_signer: Pubkey,
     pub viewing_key_account: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub key_update_proposal: Pubkey,
     pub rent_recipient: Pubkey,
     pub system_program: Pubkey,
@@ -34,14 +34,14 @@ impl ExecuteKeyUpdate {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let accounts = vec![
             AccountMeta::new(self.executor, true),
             AccountMeta::new_readonly(self.co_signer, true),
             AccountMeta::new(self.viewing_key_account, false),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
             AccountMeta::new(self.key_update_proposal, false),
             AccountMeta::new(self.rent_recipient, false),
             AccountMeta::new_readonly(self.system_program, false),

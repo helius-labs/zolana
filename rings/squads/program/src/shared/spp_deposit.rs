@@ -1,20 +1,20 @@
 //! Builds the SPP `ring_deposit` instruction data (tag-prefixed, wincode
-//! serialized) the zone forwards via CPI for a proofless deposit.
+//! serialized) the ring forwards via CPI for a proofless deposit.
 //!
-//! The zone's own deposit carries no zone or application data, so `data_hash`
+//! The ring's own deposit carries no ring or application data, so `data_hash`
 //! and `ring_data_hash` are empty and the created UTXO's `ring_hash` binds only
-//! the zone program id SPP reads from the signing `RingConfig`.
+//! the ring program id SPP reads from the signing `RingConfig`.
 
 use zolana_interface::instruction::{
     tag::RING_DEPOSIT, DepositAssetKind, EncryptedRingDepositData, RingDepositEntry,
     RingDepositIxData,
 };
-use zolana_squads_interface::error::SquadsZoneError;
+use zolana_squads_interface::error::SquadsRingError;
 
 /// Inputs for SPP's `ring_deposit` instruction data. `owner_utxo_hash` nests
-/// the viewing-key-derived owner with the zone's blinding, which binds the
+/// the viewing-key-derived owner with the ring's blinding, which binds the
 /// deposit to a recipient SPP itself never sees.
-pub struct SppZoneDepositParams {
+pub struct SppRingDepositParams {
     pub view_tag: [u8; 32],
     pub owner_utxo_hash: [u8; 32],
     pub asset: DepositAssetKind,
@@ -22,9 +22,9 @@ pub struct SppZoneDepositParams {
     pub encrypted: EncryptedRingDepositData,
 }
 
-pub fn build_spp_zone_deposit_data(
-    params: SppZoneDepositParams,
-) -> Result<Vec<u8>, SquadsZoneError> {
+pub fn build_spp_ring_deposit_data(
+    params: SppRingDepositParams,
+) -> Result<Vec<u8>, SquadsRingError> {
     let ix_data = RingDepositIxData {
         assets: vec![params.asset],
         deposits: vec![RingDepositEntry {
@@ -42,7 +42,7 @@ pub fn build_spp_zone_deposit_data(
     instruction_data.extend_from_slice(
         &ix_data
             .serialize()
-            .map_err(|_| SquadsZoneError::Serialization)?,
+            .map_err(|_| SquadsRingError::Serialization)?,
     );
     Ok(instruction_data)
 }
@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn builds_expected_spp_ix_data() {
-        let instruction_data = build_spp_zone_deposit_data(SppZoneDepositParams {
+        let instruction_data = build_spp_ring_deposit_data(SppRingDepositParams {
             view_tag: [1u8; 32],
             owner_utxo_hash: [2u8; 32],
             asset: DepositAssetKind::Sol,

@@ -1,9 +1,9 @@
 //! Shared withdrawal settlement plumbing for `transact` and `execute_proposal`.
 
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use zolana_squads_interface::error::SquadsZoneError;
+use zolana_squads_interface::error::SquadsRingError;
 
-use crate::shared::cpi::spp_zone_withdraw;
+use crate::shared::cpi::spp_ring_withdraw;
 
 /// SOL withdrawal forwards `[sol_interface, recipient, system_program]`.
 const SOL_WITHDRAWAL_ACCOUNTS: usize = 3;
@@ -30,16 +30,16 @@ pub fn withdrawal_settlement(
         SPL_WITHDRAWAL_ACCOUNTS => Ok(WithdrawalSettlement::Spl {
             interface_bump: spl_interface_bump,
         }),
-        _ => Err(SquadsZoneError::InvalidWithdrawalAccounts.into()),
+        _ => Err(SquadsRingError::InvalidWithdrawalAccounts.into()),
     }
 }
 
-/// Forward a withdrawal to SPP's `zone_transact`, signed by the zone-auth PDA.
+/// Forward a withdrawal to SPP's `ring_transact`, signed by the ring-auth PDA.
 /// The forwarded accounts are `[payer, tree, ring_auth, <settlement>,
 /// spp_program]` in SPP's order. `settlement` is the SOL/SPL tail parsed from
-/// the zone instruction. The trailing SPP program account is required for SPP's
+/// the ring instruction. The trailing SPP program account is required for SPP's
 /// post-settlement event self-CPI.
-pub fn forward_zone_withdrawal(
+pub fn forward_ring_withdrawal(
     spp_program: &AccountView,
     payer: &AccountView,
     tree: &AccountView,
@@ -56,5 +56,5 @@ pub fn forward_zone_withdrawal(
         cpi_accounts.push(account);
     }
     cpi_accounts.push(spp_program);
-    spp_zone_withdraw(spp_program, &cpi_accounts, spp_data, ring_auth_bump)
+    spp_ring_withdraw(spp_program, &cpi_accounts, spp_data, ring_auth_bump)
 }

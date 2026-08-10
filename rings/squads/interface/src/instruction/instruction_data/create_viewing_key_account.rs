@@ -13,7 +13,7 @@ use crate::types::{EncryptedNullifierSecret, P256Pubkey, ProofBytes, SharedKeyCi
 /// and its commitment, the shared ephemeral key, the nullifier commitment and
 /// the nullifier secret encrypted to the shared viewing key, the recovery keys,
 /// and the per-key ciphertexts (recovery keys first, then the auditor). The
-/// auditor key itself is read from `zone_config`, not instruction data.
+/// auditor key itself is read from `ring_config`, not instruction data.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateViewingKeyAccountIxData {
     /// Compressed Groth16 key encryption proof with commitment.

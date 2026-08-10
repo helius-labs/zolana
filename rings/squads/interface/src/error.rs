@@ -1,4 +1,4 @@
-//! Squads zone program errors. Shared by the program (which raises them) and
+//! Squads ring program errors. Shared by the program (which raises them) and
 //! clients (which decode `ProgramError::Custom(code)`). Codes live in the 8000
 //! space, distinct from the SPP's 7000 space. `error_codes_are_stable` pins the
 //! mapping so intentional ABI changes are explicit.
@@ -8,7 +8,7 @@ use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]
-pub enum SquadsZoneError {
+pub enum SquadsRingError {
     // Instruction data / serialization.
     #[error("invalid instruction data")]
     InvalidInstructionData = 8000,
@@ -16,8 +16,8 @@ pub enum SquadsZoneError {
     Deserialization = 8001,
 
     // Account validation.
-    #[error("zone config account is invalid")]
-    InvalidZoneConfig = 8002,
+    #[error("ring config account is invalid")]
+    InvalidRingConfig = 8002,
     #[error("viewing key account is invalid")]
     InvalidViewingKeyAccount = 8003,
     #[error("proposal account is invalid")]
@@ -34,8 +34,8 @@ pub enum SquadsZoneError {
     // PDA derivation.
     #[error("account address does not match its canonical PDA derivation")]
     InvalidPda = 8010,
-    #[error("zone auth account is not the canonical ring_auth PDA")]
-    InvalidZoneAuth = 8011,
+    #[error("ring auth account is not the canonical ring_auth PDA")]
+    InvalidRingAuth = 8011,
 
     // Required signatures.
     #[error("authority signature is missing")]
@@ -50,15 +50,15 @@ pub enum SquadsZoneError {
     MissingMergeAuthoritySignature = 8016,
 
     // Identity / authority mismatches.
-    #[error("authority does not match zone config")]
+    #[error("authority does not match ring config")]
     AuthorityMismatch = 8017,
     #[error("owner does not match the account owner")]
     OwnerMismatch = 8018,
     #[error("executor does not match the proposal executor")]
     ExecutorMismatch = 8019,
-    #[error("co-signer does not match zone config")]
+    #[error("co-signer does not match ring config")]
     CoSignerMismatch = 8020,
-    #[error("merge authority is not in the zone config allowlist")]
+    #[error("merge authority is not in the ring config allowlist")]
     MergeAuthorityNotWhitelisted = 8021,
 
     // State / policy.
@@ -68,9 +68,9 @@ pub enum SquadsZoneError {
     InvalidEncryptionScheme = 8023,
     #[error("invalid viewing key account state value")]
     InvalidViewingKeyState = 8024,
-    #[error("zone config is frozen")]
+    #[error("ring config is frozen")]
     ConfigFrozen = 8025,
-    #[error("zone config must declare exactly one auditor key")]
+    #[error("ring config must declare exactly one auditor key")]
     InvalidAuditorKeyCount = 8026,
     #[error("recovery-key and auditor-update operations cannot be mixed")]
     MixedKeyOperationTypes = 8027,
@@ -100,8 +100,8 @@ pub enum SquadsZoneError {
     // Proofs.
     #[error("proof encoding is invalid")]
     InvalidProofEncoding = 8039,
-    #[error("zone proof verification failed")]
-    ZoneProofVerificationFailed = 8040,
+    #[error("ring proof verification failed")]
+    RingProofVerificationFailed = 8040,
     #[error("key encryption proof verification failed")]
     KeyEncryptionProofVerificationFailed = 8041,
     #[error("failed to hash public inputs")]
@@ -124,7 +124,7 @@ pub enum SquadsZoneError {
     InvalidWithdrawalAccounts = 8050,
     #[error("owner kind is not a known variant")]
     InvalidOwnerKind = 8051,
-    #[error("zone config creator is not the program deploy upgrade authority")]
+    #[error("ring config creator is not the program deploy upgrade authority")]
     InvalidInitializationAuthority = 8052,
     #[error("proposal recipient does not match the execution destination")]
     ProposalRecipientMismatch = 8053,
@@ -144,8 +144,8 @@ pub enum SquadsZoneError {
     Serialization = 8060,
     #[error("the folded run carries more legs than the chain holds")]
     FoldLegCountOverflow = 8061,
-    #[error("program account does not match the squads zone program id")]
-    InvalidZoneProgram = 8062,
+    #[error("program account does not match the squads ring program id")]
+    InvalidRingProgram = 8062,
     #[error("a key rotation must keep the account's nullifier public key")]
     NullifierPubkeyRotationUnsupported = 8063,
     #[error("key update proposal was opened at an earlier key nonce")]
@@ -156,8 +156,8 @@ pub enum SquadsZoneError {
     MergeOutputTagMismatch = 8066,
 }
 
-impl From<SquadsZoneError> for ProgramError {
-    fn from(error: SquadsZoneError) -> Self {
+impl From<SquadsRingError> for ProgramError {
+    fn from(error: SquadsRingError) -> Self {
         ProgramError::Custom(error as u32)
     }
 }

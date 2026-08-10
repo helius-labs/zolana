@@ -1,9 +1,9 @@
-mod zone_config {
-    use zolana_squads_interface::{state::ZoneConfig, types::Address};
+mod ring_config {
+    use zolana_squads_interface::{state::SquadsRingConfig, types::Address};
 
     #[test]
     fn round_trip_and_size() {
-        let config = ZoneConfig::new(
+        let config = SquadsRingConfig::new(
             Address::new_from_array([1u8; 32]),
             Address::new_from_array([2u8; 32]),
             3_600,
@@ -14,9 +14,12 @@ mod zone_config {
             ],
         );
         let bytes = config.serialize().expect("serialize");
-        assert_eq!(bytes.len(), ZoneConfig::account_size(1, 2));
-        assert_eq!(bytes.first().copied(), Some(ZoneConfig::DISCRIMINATOR));
-        let decoded = ZoneConfig::deserialize(&bytes).expect("deserialize");
+        assert_eq!(bytes.len(), SquadsRingConfig::account_size(1, 2));
+        assert_eq!(
+            bytes.first().copied(),
+            Some(SquadsRingConfig::DISCRIMINATOR)
+        );
+        let decoded = SquadsRingConfig::deserialize(&bytes).expect("deserialize");
         assert_eq!(decoded, config);
     }
 }

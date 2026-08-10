@@ -1,7 +1,7 @@
 //! `fold_transact` (tag 17): several transfer legs of one account settled in
-//! one transaction under a single zone fold proof.
+//! one transaction under a single ring fold proof.
 //!
-//! The zone circuit has a key for `(1,1)` and `(2,2)` only, so a spend of three
+//! The ring circuit has a key for `(1,1)` and `(2,2)` only, so a spend of three
 //! UTXOs does not fit one leg. A fold proves every leg spends the same account
 //! and pays the same recipient, so the run is one operation. Each leg still
 //! settles through its own SPP `ring_transact`.
@@ -11,28 +11,28 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use zolana_squads_interface::{
-    constants::VIEWING_KEY_STATE_ACTIVE, error::SquadsZoneError,
+    constants::VIEWING_KEY_STATE_ACTIVE, error::SquadsRingError,
     instruction::instruction_data::FoldTransactIxData, state::viewing_key_account::OwnerKind,
     RING_AUTH_PDA_SEED,
 };
 
+use crate::instructions::ring_config::loader::load_ring_config;
 use crate::instructions::transact::account::TransactAccounts;
 use crate::instructions::viewing_key_account::loader::load_viewing_key_account;
-use crate::instructions::zone_config::loader::load_zone_config;
 use crate::shared::{
     cpi::spp_transact,
     owner::verify_owner_identity,
     pda::verify_pda,
-    shapes::{operation_shape, ZONE_FOLD_SUPPORTED_LEGS, ZONE_FOLD_SUPPORTED_SHAPES},
-    spp_transact::{build_spp_zone_transfer_data, SppSettlementRail, SppZoneTransferParams},
-    zone_proof::{ZoneFoldLeg, ZoneFoldProof},
+    ring_proof::{RingFoldLeg, RingFoldProof},
+    shapes::{operation_shape, RING_FOLD_SUPPORTED_LEGS, RING_FOLD_SUPPORTED_SHAPES},
+    spp_transact::{build_spp_ring_transfer_data, SppRingTransferParams, SppSettlementRail},
 };
 
 /// The only leg shape a fold covers. A withdrawal already spends the whole
 /// balance, so only the transfer shape has a fold key.
-const FOLD_LEG_SHAPE: (u8, u8) = ZONE_FOLD_SUPPORTED_SHAPES[0];
+const FOLD_LEG_SHAPE: (u8, u8) = RING_FOLD_SUPPORTED_SHAPES[0];
 
-/// Accounts: `[payer (signer, writable), co_signer (signer), zone_config
+/// Accounts: `[payer (signer, writable), co_signer (signer), ring_config
 /// (readonly), sender_vka (readonly), recipient_vka (readonly), ring_auth,
 /// spp_program, tree]`.
 ///
@@ -42,30 +42,30 @@ const FOLD_LEG_SHAPE: (u8, u8) = ZONE_FOLD_SUPPORTED_SHAPES[0];
 #[inline(never)]
 pub fn process_fold_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = FoldTransactIxData::deserialize(data)
-        .map_err(|_| SquadsZoneError::InvalidInstructionData)?;
+        .map_err(|_| SquadsRingError::InvalidInstructionData)?;
 
-    let legs = u8::try_from(ix.legs.len()).map_err(|_| SquadsZoneError::InvalidInstructionData)?;
-    if !ZONE_FOLD_SUPPORTED_LEGS.contains(&legs) {
-        return Err(SquadsZoneError::InvalidInstructionData.into());
+    let legs = u8::try_from(ix.legs.len()).map_err(|_| SquadsRingError::InvalidInstructionData)?;
+    if !RING_FOLD_SUPPORTED_LEGS.contains(&legs) {
+        return Err(SquadsRingError::InvalidInstructionData.into());
     }
 
     let accs = TransactAccounts::validate_and_parse(accounts, true)?;
 
     if !accs.payer.is_signer() {
-        return Err(SquadsZoneError::MissingAuthoritySignature.into());
+        return Err(SquadsRingError::MissingAuthoritySignature.into());
     }
     if !accs.co_signer.is_signer() {
-        return Err(SquadsZoneError::MissingCoSignerSignature.into());
+        return Err(SquadsRingError::MissingCoSignerSignature.into());
     }
 
-    let zone_config = load_zone_config(accs.zone_config)?;
-    if accs.co_signer.address() != &zone_config.co_signer {
-        return Err(SquadsZoneError::CoSignerMismatch.into());
+    let ring_config = load_ring_config(accs.ring_config)?;
+    if accs.co_signer.address() != &ring_config.co_signer {
+        return Err(SquadsRingError::CoSignerMismatch.into());
     }
 
     let sender_vka = load_viewing_key_account(accs.sender_vka)?;
     if sender_vka.state != VIEWING_KEY_STATE_ACTIVE {
-        return Err(SquadsZoneError::ViewingKeyAccountBlocked.into());
+        return Err(SquadsRingError::ViewingKeyAccountBlocked.into());
     }
     // Folded transfers settle over the same signatureless smart-account rail as
     // `transact`. Require the vault itself to be the signed payer so a relayer
@@ -76,15 +76,15 @@ pub fn process_fold_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     }
     let recipient_account = accs
         .recipient_vka
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let recipient_vka = load_viewing_key_account(recipient_account)?;
     if recipient_vka.state != VIEWING_KEY_STATE_ACTIVE {
-        return Err(SquadsZoneError::ViewingKeyAccountBlocked.into());
+        return Err(SquadsRingError::ViewingKeyAccountBlocked.into());
     }
 
     let now = Clock::get()?.unix_timestamp;
     if now > ix.expiry {
-        return Err(SquadsZoneError::TransactionExpired.into());
+        return Err(SquadsRingError::TransactionExpired.into());
     }
 
     let ring_auth_bump = verify_pda(accs.ring_auth.address(), &[RING_AUTH_PDA_SEED], &crate::ID)?;
@@ -97,12 +97,12 @@ pub fn process_fold_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         if operation_shape(true, leg.input_contexts.len(), leg.output_utxo_hashes.len())?
             != FOLD_LEG_SHAPE
         {
-            return Err(SquadsZoneError::ProofShapeMismatch.into());
+            return Err(SquadsRingError::ProofShapeMismatch.into());
         }
         let [recipient_ciphertext] = leg.encrypted_utxos.recipient_ciphertexts.as_slice() else {
-            return Err(SquadsZoneError::InvalidInstructionData.into());
+            return Err(SquadsRingError::InvalidInstructionData.into());
         };
-        fold_legs.push(ZoneFoldLeg {
+        fold_legs.push(RingFoldLeg {
             private_tx_hash: leg.private_tx_hash,
             sender_ciphertext: leg.encrypted_utxos.sender_ciphertext.as_slice(),
             tx_viewing_pk: &leg.encrypted_utxos.tx_viewing_pk,
@@ -110,7 +110,7 @@ pub fn process_fold_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         });
     }
 
-    ZoneFoldProof {
+    RingFoldProof {
         sender_owner: sender_vka.owner.to_bytes(),
         sender_commitment: sender_vka.shared_viewing_key_commitment,
         sender_nullifier_pubkey: sender_vka.nullifier_pubkey,
@@ -118,7 +118,7 @@ pub fn process_fold_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         recipient_viewing_pk: &recipient_vka.shared_viewing_key,
         recipient_nullifier_pubkey: recipient_vka.nullifier_pubkey,
         legs: &fold_legs,
-        proof: &ix.zone_fold_proof,
+        proof: &ix.ring_fold_proof,
         n_inputs: FOLD_LEG_SHAPE.0,
         n_outputs: FOLD_LEG_SHAPE.1,
     }
@@ -127,11 +127,11 @@ pub fn process_fold_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // The fold chains the legs in order, so the per-leg SPP CPIs must run in
     // that same order.
     let expiry_unix_ts =
-        u64::try_from(ix.expiry).map_err(|_| SquadsZoneError::InvalidInstructionData)?;
+        u64::try_from(ix.expiry).map_err(|_| SquadsRingError::InvalidInstructionData)?;
     let rail = SppSettlementRail::for_owner_kind(owner_kind);
     let cpi_accounts: [&AccountView; 4] = [accs.payer, accs.tree, accs.ring_auth, accs.spp_program];
     for leg in &ix.legs {
-        let spp_data = build_spp_zone_transfer_data(SppZoneTransferParams {
+        let spp_data = build_spp_ring_transfer_data(SppRingTransferParams {
             expiry_unix_ts,
             private_tx_hash: leg.private_tx_hash,
             spp_proof: &leg.spp_proof,

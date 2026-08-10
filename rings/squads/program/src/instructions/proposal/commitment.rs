@@ -3,7 +3,7 @@
 //! operation, asset, and destination layer on-chain.
 
 use pinocchio::error::ProgramError;
-use zolana_squads_interface::{error::SquadsZoneError, state::proposal::Proposal, types::Address};
+use zolana_squads_interface::{error::SquadsRingError, state::proposal::Proposal, types::Address};
 
 use crate::shared::proof::poseidon_hash;
 
@@ -34,7 +34,7 @@ fn domain_field() -> [u8; 32] {
     field
 }
 
-/// Compute the proposal public input the zone circuit returns when proposals
+/// Compute the proposal public input the ring circuit returns when proposals
 /// are enabled. `Proposal.proposal_hash` is the private v2 core.
 pub fn proposal_commitment_hash(
     proposal: &Proposal,
@@ -53,13 +53,13 @@ pub fn proposal_commitment_hash(
             asset,
             destination,
         ],
-        SquadsZoneError::ProofHashingFailed,
+        SquadsRingError::ProofHashingFailed,
     )
 }
 
 fn hash_public_address(address: Address) -> Result<[u8; 32], ProgramError> {
     zolana_hasher::primitives::hash_bytes(address.as_array())
-        .map_err(|_| SquadsZoneError::ProofHashingFailed.into())
+        .map_err(|_| SquadsRingError::ProofHashingFailed.into())
 }
 
 /// Check public fields from the immutable proposal record against the accounts
@@ -71,10 +71,10 @@ pub fn verify_execution_context(
     actual_destination: Address,
 ) -> Result<(), ProgramError> {
     if proposal.asset != actual_asset {
-        return Err(SquadsZoneError::ProposalAssetMismatch.into());
+        return Err(SquadsRingError::ProposalAssetMismatch.into());
     }
     if proposal.recipient != actual_destination {
-        return Err(SquadsZoneError::ProposalRecipientMismatch.into());
+        return Err(SquadsRingError::ProposalRecipientMismatch.into());
     }
     Ok(())
 }
@@ -105,7 +105,7 @@ mod tests {
                 .unwrap_err();
         assert_eq!(
             error,
-            ProgramError::Custom(SquadsZoneError::ProposalAssetMismatch as u32)
+            ProgramError::Custom(SquadsRingError::ProposalAssetMismatch as u32)
         );
     }
 
@@ -157,7 +157,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             error,
-            ProgramError::Custom(SquadsZoneError::ProposalRecipientMismatch as u32)
+            ProgramError::Custom(SquadsRingError::ProposalRecipientMismatch as u32)
         );
     }
 }

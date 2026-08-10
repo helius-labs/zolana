@@ -12,14 +12,14 @@ use crate::{
 /// Builder for the `execute_proposal` instruction.
 ///
 /// Account order mirrors the spec's `execute_proposal` "Accounts" list: `payer`,
-/// `co_signer`, `zone_config`, `proposal`, `sender_viewing_key_account`, an
+/// `co_signer`, `ring_config`, `proposal`, `sender_viewing_key_account`, an
 /// optional `recipient_viewing_key_account` (transfer only), `rent_recipient`,
 /// `ring_auth`, `spp_program`, then the `tree_accounts` tail, with the withdrawal
 /// settlement accounts following the tree for a withdrawal.
 pub struct ExecuteProposal {
     pub payer: Pubkey,
     pub co_signer: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub proposal: Pubkey,
     pub sender_viewing_key_account: Pubkey,
     /// Present for a transfer, absent for a withdrawal.
@@ -41,13 +41,13 @@ impl ExecuteProposal {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(self.co_signer, true),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
             AccountMeta::new(self.proposal, false),
             AccountMeta::new_readonly(self.sender_viewing_key_account, false),
         ];

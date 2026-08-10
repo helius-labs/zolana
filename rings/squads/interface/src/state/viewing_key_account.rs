@@ -8,7 +8,7 @@ use zolana_hasher::{Hasher, HasherError, Poseidon};
 use super::discriminator;
 use crate::{
     constants::{OWNER_KIND_KEYPAIR, OWNER_KIND_SMART_ACCOUNT},
-    error::SquadsZoneError,
+    error::SquadsRingError,
     types::{Address, EncryptedNullifierSecret, P256Pubkey, SharedKeyCiphertext},
     VIEWING_KEY_ACCOUNT_PDA_SEED,
 };
@@ -27,13 +27,13 @@ pub enum OwnerKind {
 }
 
 impl TryFrom<u8> for OwnerKind {
-    type Error = SquadsZoneError;
+    type Error = SquadsRingError;
 
     fn try_from(byte: u8) -> Result<Self, Self::Error> {
         match byte {
             OWNER_KIND_KEYPAIR => Ok(Self::Keypair),
             OWNER_KIND_SMART_ACCOUNT => Ok(Self::SmartAccount),
-            _ => Err(SquadsZoneError::InvalidOwnerKind),
+            _ => Err(SquadsRingError::InvalidOwnerKind),
         }
     }
 }
@@ -57,7 +57,7 @@ pub struct ViewingKeyAccount {
     pub state: u8,
     pub encryption_scheme: u8,
     /// `OWNER_KIND_KEYPAIR` (P256 rail) or `OWNER_KIND_SMART_ACCOUNT` (signatureless
-    /// zone-authority rail). Selects the SPP settlement rail for spends of this
+    /// ring-authority rail). Selects the SPP settlement rail for spends of this
     /// account's UTXOs. It is not bound by any proof.
     pub owner_kind: u8,
     pub shared_viewing_key: P256Pubkey,
@@ -82,7 +82,7 @@ impl ViewingKeyAccount {
 
     /// Parse the stored `owner_kind` byte. The loader calls this so a later
     /// branch can never see a byte outside the known set.
-    pub fn kind(&self) -> Result<OwnerKind, SquadsZoneError> {
+    pub fn kind(&self) -> Result<OwnerKind, SquadsRingError> {
         OwnerKind::try_from(self.owner_kind)
     }
 

@@ -13,13 +13,13 @@ use crate::{
 ///
 /// Account order mirrors the spec's `create_proposal` "Accounts" list:
 /// `owner` (writable fee payer), `proposal`, `viewing_key_account`,
-/// `zone_config`, `system_program`, `owner`. The repeated owner account is
+/// `ring_config`, `system_program`, `owner`. The repeated owner account is
 /// intentional: the proposal rent payer is also the sender vault used by the
 /// crank when the proposal settles.
 pub struct CreateProposal {
     pub proposal: Pubkey,
     pub viewing_key_account: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub system_program: Pubkey,
     pub owner: Pubkey,
     pub data: CreateProposalIxData,
@@ -32,14 +32,14 @@ impl CreateProposal {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let accounts = vec![
             AccountMeta::new(self.owner, true),
             AccountMeta::new(self.proposal, false),
             AccountMeta::new_readonly(self.viewing_key_account, false),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
             AccountMeta::new_readonly(self.system_program, false),
             AccountMeta::new_readonly(self.owner, true),
         ];

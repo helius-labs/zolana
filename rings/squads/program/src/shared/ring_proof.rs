@@ -1,9 +1,9 @@
-//! Zone proof public-input composition and verification.
+//! Ring proof public-input composition and verification.
 //!
 //! The on-chain program recomputes the circuit's `PublicInputHash` from
 //! instruction data, then verifies the Groth16 proof against it. The chain order
 //! here MUST match `Circuit.Define`
-//! (prover/server/circuits/squads/zone/circuit.go:90-112) byte-for-byte, or
+//! (prover/server/circuits/squads/ring/circuit.go:90-112) byte-for-byte, or
 //! proofs silently fail to verify.
 //!
 //! Two shapes:
@@ -16,7 +16,7 @@
 
 use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_squads_interface::{
-    error::SquadsZoneError, instruction::instruction_data::EncryptedUtxos,
+    error::SquadsRingError, instruction::instruction_data::EncryptedUtxos,
     state::viewing_key_account::ViewingKeyAccount,
 };
 
@@ -24,13 +24,13 @@ use super::{
     proof::{
         pack33_to_2fe, pack_bytes_be, poseidon_hash, verify_groth16, Chain, MAX_POSEIDON_INPUTS,
     },
-    shapes::{select_zone_fold_vk, select_zone_vk, ZONE_FOLD_MAX_LEGS},
+    shapes::{select_ring_fold_vk, select_ring_vk, RING_FOLD_MAX_LEGS},
 };
 
-const HASH_ERR: SquadsZoneError = SquadsZoneError::ProofHashingFailed;
+const HASH_ERR: SquadsRingError = SquadsRingError::ProofHashingFailed;
 
 /// The recipient-side inputs present only on the transfer shape.
-pub struct ZoneRecipient<'a> {
+pub struct RingRecipient<'a> {
     /// `Pack33To2FE` of the compressed tx_viewing_pk: the ephemeral public key
     /// the recipient uses to derive the ECDH shared secret.
     /// `circuit.go:103` (`pkLo, pkHi`).
@@ -48,22 +48,22 @@ pub struct ZoneRecipient<'a> {
 
 /// A transfer has a recipient account and exactly one recipient ciphertext. A
 /// withdrawal has neither.
-pub fn zone_recipient<'a>(
+pub fn ring_recipient<'a>(
     encrypted_utxos: &'a EncryptedUtxos,
     recipient_vka: Option<&'a ViewingKeyAccount>,
-) -> Result<Option<ZoneRecipient<'a>>, ProgramError> {
+) -> Result<Option<RingRecipient<'a>>, ProgramError> {
     match recipient_vka {
         None => {
             if !encrypted_utxos.recipient_ciphertexts.is_empty() {
-                return Err(SquadsZoneError::InvalidInstructionData.into());
+                return Err(SquadsRingError::InvalidInstructionData.into());
             }
             Ok(None)
         }
         Some(recipient) => {
             let [recipient_ciphertext] = encrypted_utxos.recipient_ciphertexts.as_slice() else {
-                return Err(SquadsZoneError::InvalidInstructionData.into());
+                return Err(SquadsRingError::InvalidInstructionData.into());
             };
-            Ok(Some(ZoneRecipient {
+            Ok(Some(RingRecipient {
                 tx_viewing_pk: &encrypted_utxos.tx_viewing_pk,
                 owner: recipient.owner.to_bytes(),
                 viewing_pk: &recipient.shared_viewing_key,
@@ -74,9 +74,9 @@ pub fn zone_recipient<'a>(
     }
 }
 
-/// Inputs required to recompute the zone circuit's public-input hash, plus the
+/// Inputs required to recompute the ring circuit's public-input hash, plus the
 /// proof and shape.
-pub struct ZoneProof<'a> {
+pub struct RingProof<'a> {
     /// `c.Transaction.Hash(api)`. `circuit.go:91`.
     pub private_tx_hash: [u8; 32],
     /// `c.PublicAmount`. `circuit.go:92`.
@@ -92,7 +92,7 @@ pub struct ZoneProof<'a> {
     pub sender_ciphertext: &'a [u8],
 
     /// Present iff this is a transfer (2 outputs). `None` for a withdrawal.
-    pub recipient: Option<ZoneRecipient<'a>>,
+    pub recipient: Option<RingRecipient<'a>>,
 
     /// `c.Proposal.Constrain(..)` -- the proposal hash (0 when no proposal).
     /// `circuit.go:109-110`, `proposal.go:17`.
@@ -126,7 +126,7 @@ fn ciphertext_hash(ciphertext: &[u8]) -> Result<[u8; 32], ProgramError> {
     poseidon_hash(used, HASH_ERR)
 }
 
-impl ZoneProof<'_> {
+impl RingProof<'_> {
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         // view_key.go:22.
         let sender_account_hash = poseidon_hash(
@@ -173,13 +173,13 @@ impl ZoneProof<'_> {
 
     pub fn verify(&self) -> ProgramResult {
         let public_input_hash = self.public_input_hash()?;
-        let vk = select_zone_vk(self.n_inputs, self.n_outputs)?;
+        let vk = select_ring_vk(self.n_inputs, self.n_outputs)?;
         verify_groth16(
             self.proof,
             public_input_hash,
             vk,
-            SquadsZoneError::InvalidProofEncoding,
-            SquadsZoneError::ZoneProofVerificationFailed,
+            SquadsRingError::InvalidProofEncoding,
+            SquadsRingError::RingProofVerificationFailed,
         )
     }
 }
@@ -187,7 +187,7 @@ impl ZoneProof<'_> {
 /// One leg of a folded spend, as the program reads it back from instruction
 /// data. Only the fields the fold chains per leg. The sender and recipient
 /// identities are shared and read from the accounts once.
-pub struct ZoneFoldLeg<'a> {
+pub struct RingFoldLeg<'a> {
     /// `c.Transaction.Hash(api)` for this leg.
     pub private_tx_hash: [u8; 32],
     /// Sender ciphertext (40 bytes: amount 8 || asset 32).
@@ -198,30 +198,30 @@ pub struct ZoneFoldLeg<'a> {
     pub recipient_ciphertext: &'a [u8],
 }
 
-/// Inputs to recompute the zone fold circuit's public-input hash, plus the
+/// Inputs to recompute the ring fold circuit's public-input hash, plus the
 /// proof and shape.
 ///
 /// The chain carries the sender and recipient identities once and every leg's
 /// own fields after them, mirroring `Circuit.Define`
-/// (prover/server/circuits/squads/zone_fold/fold.go). Reading the identities
+/// (prover/server/circuits/squads/ring_fold/fold.go). Reading the identities
 /// once is sound because the circuit asserts every leg agrees on them. Without
 /// that a leg could spend another account and this hash would still match.
 ///
 /// A leg carries no proposal and no public amount. The circuit asserts the
 /// proposal hash is zero on every leg, and a transfer's public amount is zero.
-pub struct ZoneFoldProof<'a> {
-    /// Sender public account identity, as `ZoneProof` composes it.
+pub struct RingFoldProof<'a> {
+    /// Sender public account identity, as `RingProof` composes it.
     pub sender_owner: [u8; 32],
     pub sender_commitment: [u8; 32],
     pub sender_nullifier_pubkey: [u8; 32],
 
-    /// Recipient public account identity, as `ZoneRecipient` composes it.
+    /// Recipient public account identity, as `RingRecipient` composes it.
     pub recipient_owner: [u8; 32],
     pub recipient_viewing_pk: &'a [u8; 33],
     pub recipient_nullifier_pubkey: [u8; 32],
 
     /// Legs in the order the fold chained them.
-    pub legs: &'a [ZoneFoldLeg<'a>],
+    pub legs: &'a [RingFoldLeg<'a>],
 
     /// The 192-byte compressed Groth16 proof of the fold.
     pub proof: &'a [u8; 192],
@@ -239,17 +239,17 @@ const FOLD_FIELDS_PER_LEG: usize = 6;
 
 /// Largest chain the buffer must hold: the two shared identities plus the
 /// widest supported leg count.
-const MAX_FOLD_CHAIN: usize = 2 + FOLD_FIELDS_PER_LEG * ZONE_FOLD_MAX_LEGS as usize;
+const MAX_FOLD_CHAIN: usize = 2 + FOLD_FIELDS_PER_LEG * RING_FOLD_MAX_LEGS as usize;
 
-impl ZoneFoldProof<'_> {
+impl RingFoldProof<'_> {
     /// The leg count the verifying-key selector reads. A run wider than the
     /// chain buffer has no key and no recomputable public input, so it fails
     /// here rather than hashing a truncated chain.
     fn leg_count(&self) -> Result<u8, ProgramError> {
         let legs =
-            u8::try_from(self.legs.len()).map_err(|_| SquadsZoneError::FoldLegCountOverflow)?;
-        if legs == 0 || legs > ZONE_FOLD_MAX_LEGS {
-            return Err(SquadsZoneError::FoldLegCountOverflow.into());
+            u8::try_from(self.legs.len()).map_err(|_| SquadsRingError::FoldLegCountOverflow)?;
+        if legs == 0 || legs > RING_FOLD_MAX_LEGS {
+            return Err(SquadsRingError::FoldLegCountOverflow.into());
         }
         Ok(legs)
     }
@@ -298,13 +298,13 @@ impl ZoneFoldProof<'_> {
 
     pub fn verify(&self) -> ProgramResult {
         let public_input_hash = self.public_input_hash()?;
-        let vk = select_zone_fold_vk(self.n_inputs, self.n_outputs, self.leg_count()?)?;
+        let vk = select_ring_fold_vk(self.n_inputs, self.n_outputs, self.leg_count()?)?;
         verify_groth16(
             self.proof,
             public_input_hash,
             vk,
-            SquadsZoneError::InvalidProofEncoding,
-            SquadsZoneError::ZoneProofVerificationFailed,
+            SquadsRingError::InvalidProofEncoding,
+            SquadsRingError::RingProofVerificationFailed,
         )
     }
 }
@@ -318,9 +318,9 @@ mod tests {
     const SENDER_CIPHERTEXT: [u8; 40] = [0u8; 40];
     const RECIPIENT_CIPHERTEXT: [u8; 71] = [0u8; 71];
 
-    fn legs(count: usize) -> Vec<ZoneFoldLeg<'static>> {
+    fn legs(count: usize) -> Vec<RingFoldLeg<'static>> {
         (0..count)
-            .map(|_| ZoneFoldLeg {
+            .map(|_| RingFoldLeg {
                 private_tx_hash: [0u8; 32],
                 sender_ciphertext: &SENDER_CIPHERTEXT,
                 tx_viewing_pk: &VIEWING_PK,
@@ -329,8 +329,8 @@ mod tests {
             .collect()
     }
 
-    fn fold<'a>(legs: &'a [ZoneFoldLeg<'a>]) -> ZoneFoldProof<'a> {
-        ZoneFoldProof {
+    fn fold<'a>(legs: &'a [RingFoldLeg<'a>]) -> RingFoldProof<'a> {
+        RingFoldProof {
             sender_owner: [0u8; 32],
             sender_commitment: [0u8; 32],
             sender_nullifier_pubkey: [0u8; 32],
@@ -348,14 +348,14 @@ mod tests {
     /// truncated chain, which no verifying key ever constrained.
     #[test]
     fn a_run_wider_than_the_chain_is_rejected() {
-        let wide = legs(ZONE_FOLD_MAX_LEGS as usize + 1);
+        let wide = legs(RING_FOLD_MAX_LEGS as usize + 1);
         assert_eq!(
             fold(&wide).public_input_hash().unwrap_err(),
-            ProgramError::Custom(SquadsZoneError::FoldLegCountOverflow as u32)
+            ProgramError::Custom(SquadsRingError::FoldLegCountOverflow as u32)
         );
         assert_eq!(
             fold(&[]).public_input_hash().unwrap_err(),
-            ProgramError::Custom(SquadsZoneError::FoldLegCountOverflow as u32)
+            ProgramError::Custom(SquadsRingError::FoldLegCountOverflow as u32)
         );
     }
 }

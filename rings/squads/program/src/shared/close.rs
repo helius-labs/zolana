@@ -1,6 +1,6 @@
 use pinocchio::{AccountView, ProgramResult, Resize};
 use pinocchio_system::ID as SYSTEM_PROGRAM_ID;
-use zolana_squads_interface::error::SquadsZoneError;
+use zolana_squads_interface::error::SquadsRingError;
 
 /// Close `account`, crediting its full lamport balance to `rent_recipient`, then
 /// zeroing and truncating its data and reassigning it to the system program.
@@ -13,13 +13,13 @@ use zolana_squads_interface::error::SquadsZoneError;
 pub fn close_account(
     account: &mut AccountView,
     rent_recipient: &mut AccountView,
-    borrow_err: SquadsZoneError,
+    borrow_err: SquadsRingError,
 ) -> ProgramResult {
     let closed_lamports = account.lamports();
     let recipient_lamports = rent_recipient
         .lamports()
         .checked_add(closed_lamports)
-        .ok_or(SquadsZoneError::ArithmeticOverflow)?;
+        .ok_or(SquadsRingError::ArithmeticOverflow)?;
     rent_recipient.set_lamports(recipient_lamports);
     account.set_lamports(0);
 

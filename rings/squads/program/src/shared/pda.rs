@@ -1,4 +1,4 @@
-//! PDA derivation and program-derived account creation for the Squads zone.
+//! PDA derivation and program-derived account creation for the Squads ring.
 //! The syscall-bound derivations are cfg-gated for the Solana target so the
 //! host build compiles.
 
@@ -7,7 +7,7 @@ use pinocchio::{
     error::ProgramError,
     AccountView, Address, ProgramResult,
 };
-use zolana_squads_interface::error::SquadsZoneError;
+use zolana_squads_interface::error::SquadsRingError;
 
 /// Verify that `account_key` is the canonical CPI-signer PDA for the declared
 /// program: `create_program_address([seed, bump], program_id)`.
@@ -23,9 +23,9 @@ pub fn verify_cpi_signer(
     let program_id = Address::from(*program_id);
     let bump = [bump];
     let derived = Address::create_program_address(&[seed, &bump], &program_id)
-        .map_err(|_| SquadsZoneError::InvalidZoneAuth)?;
+        .map_err(|_| SquadsRingError::InvalidRingAuth)?;
     if !address_eq(account_key, &derived) {
-        return Err(SquadsZoneError::InvalidZoneAuth.into());
+        return Err(SquadsRingError::InvalidRingAuth.into());
     }
     Ok(())
 }
@@ -37,7 +37,7 @@ pub fn verify_cpi_signer(
     _bump: u8,
     _seed: &[u8],
 ) -> Result<(), ProgramError> {
-    Err(SquadsZoneError::InvalidZoneAuth.into())
+    Err(SquadsRingError::InvalidRingAuth.into())
 }
 
 /// Create a program-derived account. Handles both the hot path (the account has
@@ -107,7 +107,7 @@ pub fn verify_pda(
 
     let (derived, bump) = Address::find_program_address(seeds, program_id);
     if !address_eq(account_key, &derived) {
-        return Err(SquadsZoneError::InvalidPda.into());
+        return Err(SquadsRingError::InvalidPda.into());
     }
     Ok(bump)
 }

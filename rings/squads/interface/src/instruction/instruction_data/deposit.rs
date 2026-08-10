@@ -4,10 +4,10 @@ use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::instruction::{DepositAssetKind, EncryptedRingDepositData};
 
 /// `deposit` instruction data (spec: squads `deposit`). A fully public deposit
-/// into a new zone-owned UTXO. The amount, asset, and recipient are public.
+/// into a new ring-owned UTXO. The amount, asset, and recipient are public.
 ///
 /// The recipient `owner` is derived on-chain from the recipient viewing key
-/// account, so it is not carried here. The deposited UTXO carries no zone or
+/// account, so it is not carried here. The deposited UTXO carries no ring or
 /// application data.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct DepositIxData {
@@ -24,7 +24,7 @@ pub struct DepositIxData {
     /// with the viewing-key-derived owner into the `owner_utxo_hash` it forwards
     /// to SPP, which is what binds the deposit to that recipient.
     pub blinding: [u8; 32],
-    /// Passed through to SPP for recipient discovery. SPP and the zone both
+    /// Passed through to SPP for recipient discovery. SPP and the ring both
     /// treat it as opaque, so it commits to nothing the program checks.
     pub encrypted: EncryptedRingDepositData,
 }

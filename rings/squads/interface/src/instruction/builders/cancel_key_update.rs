@@ -10,14 +10,14 @@ use crate::{instruction::tag, PROGRAM_ID_PUBKEY};
 /// Builder for the `cancel_key_update` instruction.
 ///
 /// Account order: `authority`, `target`, `key_update_proposal`,
-/// `rent_recipient`, `zone_config`. The authority is the target's owner or the
-/// zone co-signer, which the program reads from `zone_config`.
+/// `rent_recipient`, `ring_config`. The authority is the target's owner or the
+/// ring co-signer, which the program reads from `ring_config`.
 pub struct CancelKeyUpdate {
     pub authority: Pubkey,
     pub target: Pubkey,
     pub key_update_proposal: Pubkey,
     pub rent_recipient: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
 }
 
 impl CancelKeyUpdate {
@@ -27,7 +27,7 @@ impl CancelKeyUpdate {
             AccountMeta::new_readonly(self.target, false),
             AccountMeta::new(self.key_update_proposal, false),
             AccountMeta::new(self.rent_recipient, false),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
         ];
 
         Instruction {

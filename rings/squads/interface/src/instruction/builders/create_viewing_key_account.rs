@@ -13,8 +13,8 @@ use crate::{
 ///
 /// Account order mirrors the spec's `create_viewing_key_account` "Accounts"
 /// list: `enrollment_authority`, `owner_identity`, `viewing_key_account`,
-/// `zone_config`, `system_program`. `enrollment_authority` is the configured
-/// zone co-signer and pays rent. `owner_identity` is the already-derived proof
+/// `ring_config`, `system_program`. `enrollment_authority` is the configured
+/// ring co-signer and pays rent. `owner_identity` is the already-derived proof
 /// identity field used verbatim as the PDA seed. Auditor-only enrollment does not
 /// require it to sign. A non-empty recovery-key list requires control of this
 /// exact account. The builder derives the signer bit from `data.recovery_keys`.
@@ -24,7 +24,7 @@ pub struct CreateViewingKeyAccount {
     pub enrollment_authority: Pubkey,
     pub owner_identity: Pubkey,
     pub viewing_key_account: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub system_program: Pubkey,
     pub data: CreateViewingKeyAccountIxData,
 }
@@ -36,14 +36,14 @@ impl CreateViewingKeyAccount {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let accounts = vec![
             AccountMeta::new(self.enrollment_authority, true),
             AccountMeta::new_readonly(self.owner_identity, !self.data.recovery_keys.is_empty()),
             AccountMeta::new(self.viewing_key_account, false),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
             AccountMeta::new_readonly(self.system_program, false),
         ];
 

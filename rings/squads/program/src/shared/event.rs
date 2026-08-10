@@ -7,18 +7,18 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use zolana_squads_interface::{
-    error::SquadsZoneError,
+    error::SquadsRingError,
     event::{
         encode_event_instruction, KeyRotationEvent, SquadsEventKind, ViewingKeyAccountClosedEvent,
     },
 };
 
 /// Every emit path must run this first. Without the executable and id check a
-/// caller could point the emit at another program and have the zone invoke it.
+/// caller could point the emit at another program and have the ring invoke it.
 #[inline(always)]
-pub fn validate_zone_program(program: &AccountView) -> Result<(), ProgramError> {
+pub fn validate_ring_program(program: &AccountView) -> Result<(), ProgramError> {
     if !program.executable() || !address_eq(program.address(), &crate::ID) {
-        return Err(SquadsZoneError::InvalidZoneProgram.into());
+        return Err(SquadsRingError::InvalidRingProgram.into());
     }
     Ok(())
 }
@@ -28,7 +28,7 @@ pub fn validate_zone_program(program: &AccountView) -> Result<(), ProgramError> 
 #[inline(never)]
 pub fn emit_key_rotation_event(event: &KeyRotationEvent) -> ProgramResult {
     let data = encode_event_instruction(SquadsEventKind::KeyRotation, event)
-        .map_err(|_| SquadsZoneError::Serialization)?;
+        .map_err(|_| SquadsRingError::Serialization)?;
     emit_encoded_event(&data)
 }
 
@@ -39,7 +39,7 @@ pub fn emit_viewing_key_account_closed_event(
     event: &ViewingKeyAccountClosedEvent,
 ) -> ProgramResult {
     let data = encode_event_instruction(SquadsEventKind::ViewingKeyAccountClosed, event)
-        .map_err(|_| SquadsZoneError::Serialization)?;
+        .map_err(|_| SquadsRingError::Serialization)?;
     emit_encoded_event(&data)
 }
 

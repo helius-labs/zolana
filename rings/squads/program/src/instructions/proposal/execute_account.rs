@@ -12,7 +12,7 @@ use zolana_account_checks::AccountIterator;
 pub struct ExecuteProposalAccounts<'a> {
     pub payer: &'a AccountView,
     pub co_signer: &'a AccountView,
-    pub zone_config: &'a AccountView,
+    pub ring_config: &'a AccountView,
     pub proposal: &'a mut AccountView,
     pub sender_vka: &'a AccountView,
     pub recipient_vka: Option<&'a AccountView>,
@@ -31,7 +31,7 @@ impl<'a> ExecuteProposalAccounts<'a> {
         let mut iter = AccountIterator::new(accounts);
         let payer = iter.next_account("payer")?;
         let co_signer = iter.next_account("co_signer")?;
-        let zone_config = iter.next_account("zone_config")?;
+        let ring_config = iter.next_account("ring_config")?;
         let proposal = iter.next_account("proposal")?;
         let sender_vka = iter.next_account("sender_viewing_key_account")?;
         let recipient_vka = iter
@@ -45,7 +45,7 @@ impl<'a> ExecuteProposalAccounts<'a> {
         Ok(Self {
             payer,
             co_signer,
-            zone_config,
+            ring_config,
             proposal,
             sender_vka,
             recipient_vka,

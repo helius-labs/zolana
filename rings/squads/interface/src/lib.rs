@@ -1,4 +1,4 @@
-//! Squads zone interface: shared instruction data, account state, ciphertext
+//! Squads ring interface: shared instruction data, account state, ciphertext
 //! types, and verifying keys for the on-chain program, the SDK, and tests.
 
 pub mod circuits;
@@ -20,17 +20,17 @@ macro_rules! pubkey_array {
     }};
 }
 
-/// Development program id for the Squads zone program.
-pub const SQUADS_ZONE_PROGRAM_ID: [u8; 32] =
+/// Development program id for the Squads ring program.
+pub const SQUADS_RING_PROGRAM_ID: [u8; 32] =
     pubkey_array!("62EpnphqgmKwc1x9nfnLVvxGBNF8cdkrfvWPnY5VECAo");
 
-/// [`SQUADS_ZONE_PROGRAM_ID`] as a `Pubkey`, used by instruction builders.
+/// [`SQUADS_RING_PROGRAM_ID`] as a `Pubkey`, used by instruction builders.
 pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
-    solana_pubkey::Pubkey::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+    solana_pubkey::Pubkey::new_from_array(SQUADS_RING_PROGRAM_ID);
 
 // PDA seeds (this program's accounts).
-/// Singleton zone configuration PDA: `[b"zone_config"]`.
-pub const ZONE_CONFIG_PDA_SEED: &[u8] = b"zone_config";
+/// Singleton ring configuration PDA: `[b"ring_config"]`.
+pub const RING_CONFIG_PDA_SEED: &[u8] = b"ring_config";
 /// Per-owner viewing key account PDA: `[b"viewing_key_account", owner]`.
 pub const VIEWING_KEY_ACCOUNT_PDA_SEED: &[u8] = b"viewing_key_account";
 /// Async proposal PDA: `[b"proposal", owner, cipher_text[0..33]]`.

@@ -11,7 +11,7 @@ use zolana_squads_interface::{
         KEY_OP_ADD, KEY_OP_REMOVE, KEY_OP_REPLACE, KEY_OP_UPDATE_AUDITOR,
         REQUIRED_AUDITOR_KEY_COUNT,
     },
-    error::SquadsZoneError,
+    error::SquadsRingError,
     event::KeyRotationEvent,
     instruction::instruction_data::ExecuteKeyUpdateIxData,
     state::{key_update_proposal::KeyOperation, viewing_key_account::ViewingKeyAccount},
@@ -19,11 +19,11 @@ use zolana_squads_interface::{
 };
 
 use super::loader::load_key_update_proposal;
+use crate::instructions::ring_config::loader::load_ring_config;
 use crate::instructions::viewing_key_account::loader::load_viewing_key_account;
-use crate::instructions::zone_config::loader::load_zone_config;
 use crate::shared::{
     close::close_account,
-    event::{emit_key_rotation_event, validate_zone_program},
+    event::{emit_key_rotation_event, validate_ring_program},
     key_encryption_proof::{KeyEncryptionProof, RecipientKey},
 };
 
@@ -32,7 +32,7 @@ use crate::shared::{
 /// are supported. Recovery set changes stay disabled until an
 /// owner-authenticated instruction exists, so the recovery list never changes.
 #[inline(never)]
-fn declares_auditor_update(operations: &[KeyOperation]) -> Result<bool, SquadsZoneError> {
+fn declares_auditor_update(operations: &[KeyOperation]) -> Result<bool, SquadsRingError> {
     let mut auditor_update = false;
     for op in operations {
         match op.op {
@@ -41,98 +41,98 @@ fn declares_auditor_update(operations: &[KeyOperation]) -> Result<bool, SquadsZo
             // version. Keep the same gate at execution so proposals created
             // before an upgrade cannot bypass the new authorization policy.
             KEY_OP_ADD | KEY_OP_REMOVE | KEY_OP_REPLACE => {
-                return Err(SquadsZoneError::RecoveryKeyUpdateUnsupported)
+                return Err(SquadsRingError::RecoveryKeyUpdateUnsupported)
             }
-            _ => return Err(SquadsZoneError::InvalidKeyOperation),
+            _ => return Err(SquadsRingError::InvalidKeyOperation),
         }
     }
     Ok(auditor_update)
 }
 
 /// Accounts: `[executor (signer, writable, fee payer), co_signer (signer),
-/// viewing_key_account (writable, target), zone_config (readonly),
+/// viewing_key_account (writable, target), ring_config (readonly),
 /// key_update_proposal (writable), rent_recipient (writable), system_program
 /// (readonly)]`.
 #[inline(never)]
 pub fn process_execute_key_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     if accounts.len() < 8 {
-        return Err(SquadsZoneError::InvalidInstructionData.into());
+        return Err(SquadsRingError::InvalidInstructionData.into());
     }
-    validate_zone_program(&accounts[7])?;
+    validate_ring_program(&accounts[7])?;
     let (executor, rest) = accounts
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let (co_signer, rest) = rest
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let (viewing_key_account, rest) = rest
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
-    let (zone_config, rest) = rest
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
+    let (ring_config, rest) = rest
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let (key_update_proposal, rest) = rest
         .split_first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
     let rent_recipient = rest
         .first_mut()
-        .ok_or(SquadsZoneError::InvalidInstructionData)?;
+        .ok_or(SquadsRingError::InvalidInstructionData)?;
 
     if !executor.is_signer() {
-        return Err(SquadsZoneError::MissingExecutorSignature.into());
+        return Err(SquadsRingError::MissingExecutorSignature.into());
     }
     if !co_signer.is_signer() {
-        return Err(SquadsZoneError::MissingCoSignerSignature.into());
+        return Err(SquadsRingError::MissingCoSignerSignature.into());
     }
 
     let proposal = load_key_update_proposal(key_update_proposal)?;
-    let zone = load_zone_config(zone_config)?;
+    let ring = load_ring_config(ring_config)?;
     // A blocked account is still rotated. Blocking is the response to a
     // suspected key compromise and the rotation is the remedy for it.
     let target_vka = load_viewing_key_account(viewing_key_account)?;
 
     if proposal.target != *viewing_key_account.address() {
-        return Err(SquadsZoneError::ProposalTargetMismatch.into());
+        return Err(SquadsRingError::ProposalTargetMismatch.into());
     }
     // A rotation advances the nonce, so a proposal opened before it no longer
     // describes the account it would settle against.
     if proposal.key_nonce != target_vka.key_nonce {
-        return Err(SquadsZoneError::StaleKeyUpdateProposal.into());
+        return Err(SquadsRingError::StaleKeyUpdateProposal.into());
     }
     if executor.address() != &proposal.executor {
-        return Err(SquadsZoneError::ExecutorMismatch.into());
+        return Err(SquadsRingError::ExecutorMismatch.into());
     }
-    if co_signer.address() != &zone.co_signer {
-        return Err(SquadsZoneError::CoSignerMismatch.into());
+    if co_signer.address() != &ring.co_signer {
+        return Err(SquadsRingError::CoSignerMismatch.into());
     }
     if rent_recipient.address() != &proposal.rent_payer {
-        return Err(SquadsZoneError::RentRecipientMismatch.into());
+        return Err(SquadsRingError::RentRecipientMismatch.into());
     }
     if Clock::get()?.unix_timestamp > proposal.expiry {
-        return Err(SquadsZoneError::ProposalExpired.into());
+        return Err(SquadsRingError::ProposalExpired.into());
     }
 
     let ix = ExecuteKeyUpdateIxData::deserialize(data)
-        .map_err(|_| SquadsZoneError::InvalidInstructionData)?;
+        .map_err(|_| SquadsRingError::InvalidInstructionData)?;
 
     // A UTXO binds its owner as a hash over the nullifier public key and the
     // spend proof binds the value the account holds now. Changing it on a
     // rotation makes every pre-rotation UTXO of this account unspendable, so a
     // rotation re-encrypts the same nullifier secret and keeps the key.
     if ix.new_nullifier_pubkey != target_vka.nullifier_pubkey {
-        return Err(SquadsZoneError::NullifierPubkeyRotationUnsupported.into());
+        return Err(SquadsRingError::NullifierPubkeyRotationUnsupported.into());
     }
 
-    // Only a proposal that declared the auditor operation adopts the zone's
+    // Only a proposal that declared the auditor operation adopts the ring's
     // auditor keys. Creation gates that operation behind the co-signer, so an
     // unconditional copy here would let any ungated rotation swap the auditor.
     let auditor_keys = if declares_auditor_update(&proposal.operations)? {
-        zone.auditor_keys
+        ring.auditor_keys
     } else {
         target_vka.auditor_keys.clone()
     };
     if auditor_keys.len() != REQUIRED_AUDITOR_KEY_COUNT {
-        return Err(SquadsZoneError::InvalidAuditorKeyCount.into());
+        return Err(SquadsRingError::InvalidAuditorKeyCount.into());
     }
 
     let resulting_recovery = target_vka.recovery_keys.clone();
@@ -143,9 +143,9 @@ pub fn process_execute_key_update_ix(accounts: &mut [AccountView], data: &[u8]) 
     // per auditor.
     let buffer_capacity = recovery_count
         .checked_add(auditor_count)
-        .ok_or(SquadsZoneError::ArithmeticOverflow)?;
+        .ok_or(SquadsRingError::ArithmeticOverflow)?;
     if proposal.new_key_ciphertexts.len() != buffer_capacity {
-        return Err(SquadsZoneError::KeyBufferNotFull.into());
+        return Err(SquadsRingError::KeyBufferNotFull.into());
     }
 
     // Buffer ordering is recovery ciphertexts first, then auditor (positional
@@ -169,7 +169,7 @@ pub fn process_execute_key_update_ix(accounts: &mut [AccountView], data: &[u8]) 
 
     let old_state_hash = target_vka
         .key_rotation_commitment()
-        .map_err(|_| SquadsZoneError::ProofHashingFailed)?;
+        .map_err(|_| SquadsRingError::ProofHashingFailed)?;
     KeyEncryptionProof {
         old_state_hash,
         shared_pk: &ix.new_shared_viewing_key,
@@ -185,7 +185,7 @@ pub fn process_execute_key_update_ix(accounts: &mut [AccountView], data: &[u8]) 
     let key_nonce = target_vka
         .key_nonce
         .checked_add(1)
-        .ok_or(SquadsZoneError::ArithmeticOverflow)?;
+        .ok_or(SquadsRingError::ArithmeticOverflow)?;
 
     // The rotation overwrites the shared viewing key, its commitment and every
     // recovery/auditor ciphertext, while the UTXO ciphertexts they decrypt stay
@@ -216,7 +216,7 @@ pub fn process_execute_key_update_ix(accounts: &mut [AccountView], data: &[u8]) 
     };
     let bytes = rotated
         .serialize()
-        .map_err(|_| SquadsZoneError::Serialization)?;
+        .map_err(|_| SquadsRingError::Serialization)?;
 
     // The VKA size may change with the recovery count. This instruction's
     // account set has no fee payer or system program to fund a rent top-up, so
@@ -226,26 +226,26 @@ pub fn process_execute_key_update_ix(accounts: &mut [AccountView], data: &[u8]) 
         if bytes.len() > viewing_key_account.data_len() {
             let required = Rent::get()?.try_minimum_balance(bytes.len())?;
             if viewing_key_account.lamports() < required {
-                return Err(SquadsZoneError::InvalidAccountSize.into());
+                return Err(SquadsRingError::InvalidAccountSize.into());
             }
         }
         viewing_key_account
             .resize(bytes.len())
-            .map_err(|_| SquadsZoneError::InvalidAccountSize)?;
+            .map_err(|_| SquadsRingError::InvalidAccountSize)?;
     }
     {
         let mut account_data = viewing_key_account
             .try_borrow_mut()
-            .map_err(|_| SquadsZoneError::InvalidViewingKeyAccount)?;
+            .map_err(|_| SquadsRingError::InvalidViewingKeyAccount)?;
         let slot = account_data
             .get_mut(..bytes.len())
-            .ok_or(SquadsZoneError::InvalidAccountSize)?;
+            .ok_or(SquadsRingError::InvalidAccountSize)?;
         slot.copy_from_slice(&bytes);
     }
 
     close_account(
         key_update_proposal,
         rent_recipient,
-        SquadsZoneError::InvalidKeyUpdateProposal,
+        SquadsRingError::InvalidKeyUpdateProposal,
     )
 }

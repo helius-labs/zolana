@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Withdrawal settlement accounts, selecting the asset rail. Forwarded after the
-/// tree account to SPP's `zone_transact`, which settles a negative public amount.
+/// tree account to SPP's `ring_transact`, which settles a negative public amount.
 /// Shared by `transact` and `execute_proposal`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransactWithdrawal {
@@ -31,7 +31,7 @@ pub enum TransactWithdrawal {
 }
 
 impl TransactWithdrawal {
-    /// Append this rail's settlement account metas in SPP's `zone_transact`
+    /// Append this rail's settlement account metas in SPP's `ring_transact`
     /// settlement order.
     pub fn push_account_metas(&self, accounts: &mut Vec<AccountMeta>) {
         match *self {
@@ -67,7 +67,7 @@ impl TransactWithdrawal {
 /// a signer. For a P256 sender, `payer` is normally the relayer. Authorization is
 /// additionally bound by the P256 proof.
 ///
-/// Account order: `payer`, `co_signer`, `zone_config`,
+/// Account order: `payer`, `co_signer`, `ring_config`,
 /// `sender_viewing_key_account`, an optional `recipient_viewing_key_account`
 /// (transfer only), `ring_auth`, `spp_program`, then the `tree_accounts` tail.
 /// For a withdrawal the recipient viewing key account is absent and the
@@ -76,7 +76,7 @@ impl TransactWithdrawal {
 pub struct Transact {
     pub payer: Pubkey,
     pub co_signer: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub sender_viewing_key_account: Pubkey,
     /// Present for a transfer, absent for a withdrawal.
     pub recipient_viewing_key_account: Option<Pubkey>,
@@ -96,13 +96,13 @@ impl Transact {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(self.co_signer, true),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
             AccountMeta::new_readonly(self.sender_viewing_key_account, false),
         ];
         if let Some(recipient) = self.recipient_viewing_key_account {

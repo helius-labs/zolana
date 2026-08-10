@@ -1,6 +1,6 @@
-//! Zone-serialized output ciphertext blob carried in `TransactIxData`/
+//! Ring-serialized output ciphertext blob carried in `TransactIxData`/
 //! `ExecuteProposalIxData` (spec: squads `transact`, "Encrypted UTXO
-//! Serialization"). Checked by the zone proof, not parsed by SPP.
+//! Serialization"). Checked by the ring proof, not parsed by SPP.
 
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 

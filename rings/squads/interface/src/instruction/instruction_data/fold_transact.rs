@@ -1,8 +1,8 @@
 //! `fold_transact` (tag 17) instruction data.
 //!
 //! A folded spend is several transfer legs of one account settled in one
-//! transaction under one zone proof. Each leg keeps its own transaction and its
-//! own SPP proof, so the zone forwards one `ring_transact` per leg. The fold is
+//! transaction under one ring proof. Each leg keeps its own transaction and its
+//! own SPP proof, so the ring forwards one `ring_transact` per leg. The fold is
 //! what proves they spend the same account and pay the same recipient.
 
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// One leg of a folded spend. The transfer half of [`TransactIxData`], minus
-/// the fields a fold fixes: there is no per-leg zone proof, no public amount
+/// the fields a fold fixes: there is no per-leg ring proof, no public amount
 /// (the shape is a transfer), and no SPL interface bump.
 ///
 /// [`TransactIxData`]: super::TransactIxData
@@ -39,9 +39,9 @@ pub struct FoldTransactLeg {
 /// `fold_transact` instruction data.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct FoldTransactIxData {
-    /// Compressed Groth16 zone fold proof with commitment. One proof covers
+    /// Compressed Groth16 ring fold proof with commitment. One proof covers
     /// every leg.
-    pub zone_fold_proof: ProofBytes,
+    pub ring_fold_proof: ProofBytes,
     /// Unix timestamp after which the transaction is rejected. Shared, because
     /// the legs settle together or not at all.
     pub expiry: i64,

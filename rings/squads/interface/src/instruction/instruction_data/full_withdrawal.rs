@@ -9,11 +9,11 @@ use crate::{
 
 /// `full_withdrawal` instruction data (spec: squads `full_withdrawal`).
 ///
-/// Escape-hatch public exit without the co-signer or backend. There is no zone
+/// Escape-hatch public exit without the co-signer or backend. There is no ring
 /// proof (the owner authorizes with a Solana signature). Only the forwarded SPP
-/// proof is carried. The remaining fields are what SPP's `zone_transact` needs to
+/// proof is carried. The remaining fields are what SPP's `ring_transact` needs to
 /// settle the withdrawal (mirrors [`crate::instruction::TransactIxData`] minus
-/// `zone_proof`, with an unsigned `public_amount`).
+/// `ring_proof`, with an unsigned `public_amount`).
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct FullWithdrawalIxData {
     /// Compressed Groth16 SPP proof. Forwarded to SPP.
@@ -22,7 +22,7 @@ pub struct FullWithdrawalIxData {
     pub public_amount: u64,
     /// Canonical bump of the per-mint SPL interface PDA, required on an SPL
     /// withdrawal. SPP validates it against the settlement accounts, so the
-    /// zone forwards it without checking.
+    /// ring forwards it without checking.
     pub spl_interface_bump: u8,
     /// Binds this transaction in the SPP proof's public inputs.
     pub private_tx_hash: [u8; 32],

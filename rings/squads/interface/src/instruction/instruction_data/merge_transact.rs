@@ -9,7 +9,7 @@ use crate::{instruction::instruction_data::transact::InputContext, types::ProofB
 /// A merge authority consolidates one owner's input UTXOs into a single output
 /// UTXO of the same owner and total value. Carries the single forwarded SPP
 /// merge proof, which also proves the verifiable encryption of the
-/// consolidated output. The consolidated output ciphertext is zone-serialized
+/// consolidated output. The consolidated output ciphertext is ring-serialized
 /// and checked by that proof, not parsed.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeTransactIxData {
@@ -17,8 +17,8 @@ pub struct MergeTransactIxData {
     /// verifiable encryption of the consolidated output.
     pub spp_proof: ProofBytes,
     /// Unix timestamp after which the transaction is rejected. Forwarded
-    /// verbatim into the SPP `MergeTransactIxData` the zone constructs for its
-    /// CPI (SPP's `merge_zone` enforces it).
+    /// verbatim into the SPP `MergeTransactIxData` the ring constructs for its
+    /// CPI (SPP's `merge_ring` enforces it).
     pub expiry_unix_ts: u64,
     /// Indexes the merged output for SPP's `merge_ring`. Forwarded verbatim.
     /// The SPP merge proof asserts it against the output UTXO's

@@ -1,13 +1,13 @@
 use pinocchio::{AccountView, ProgramResult};
 use zolana_squads_interface::{
-    error::SquadsZoneError, event::ViewingKeyAccountClosedEvent, types::Address,
+    error::SquadsRingError, event::ViewingKeyAccountClosedEvent, types::Address,
 };
 
 use super::loader::load_viewing_key_account;
-use crate::instructions::zone_config::loader::load_zone_config;
+use crate::instructions::ring_config::loader::load_ring_config;
 use crate::shared::{
     close::close_account,
-    event::{emit_viewing_key_account_closed_event, validate_zone_program},
+    event::{emit_viewing_key_account_closed_event, validate_ring_program},
     owner::is_owner_identity,
 };
 
@@ -15,10 +15,10 @@ use crate::shared::{
 /// rent to the supplied rent recipient.
 ///
 /// Accounts: `[authority (signer), viewing_key_account (writable),
-/// rent_recipient (writable), zone_config (readonly), program (self-CPI event
+/// rent_recipient (writable), ring_config (readonly), program (self-CPI event
 /// target)]`.
 ///
-/// The authority is the account's own owner or the zone co-signer. A keypair
+/// The authority is the account's own owner or the ring co-signer. A keypair
 /// owner is stored as a hash of its address and can never satisfy the owner
 /// test, so without the co-signer such an account could never be closed.
 #[inline(never)]
@@ -26,21 +26,21 @@ pub fn process_close_viewing_key_account_ix(
     accounts: &mut [AccountView],
     _data: &[u8],
 ) -> ProgramResult {
-    let [authority, viewing_key_account, rent_recipient, zone_config, program] = accounts else {
-        return Err(SquadsZoneError::InvalidInstructionData.into());
+    let [authority, viewing_key_account, rent_recipient, ring_config, program] = accounts else {
+        return Err(SquadsRingError::InvalidInstructionData.into());
     };
 
     if !authority.is_signer() {
-        return Err(SquadsZoneError::MissingOwnerSignature.into());
+        return Err(SquadsRingError::MissingOwnerSignature.into());
     }
-    validate_zone_program(program)?;
+    validate_ring_program(program)?;
 
     let current = load_viewing_key_account(viewing_key_account)?;
-    let zone = load_zone_config(zone_config)?;
-    if authority.address() != &zone.co_signer
+    let ring = load_ring_config(ring_config)?;
+    if authority.address() != &ring.co_signer
         && !is_owner_identity(authority, current.owner.to_bytes())?
     {
-        return Err(SquadsZoneError::OwnerMismatch.into());
+        return Err(SquadsRingError::OwnerMismatch.into());
     }
 
     // The close destroys the shared viewing key, its commitment, the nullifier
@@ -54,6 +54,6 @@ pub fn process_close_viewing_key_account_ix(
     close_account(
         viewing_key_account,
         rent_recipient,
-        SquadsZoneError::InvalidViewingKeyAccount,
+        SquadsRingError::InvalidViewingKeyAccount,
     )
 }

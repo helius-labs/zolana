@@ -13,7 +13,7 @@ mod cancel_key_update {
             target: Pubkey::new_from_array([1; 32]),
             key_update_proposal: Pubkey::new_from_array([1; 32]),
             rent_recipient: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
         }
         .instruction();
 
@@ -38,7 +38,7 @@ mod cancel_proposal {
             viewing_key_account: Pubkey::new_from_array([1; 32]),
             proposal: Pubkey::new_from_array([1; 32]),
             rent_recipient: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
         }
         .instruction();
 
@@ -62,13 +62,13 @@ mod close_viewing_key_account {
             authority: Pubkey::new_from_array([1; 32]),
             viewing_key_account: Pubkey::new_from_array([1; 32]),
             rent_recipient: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
         }
         .instruction();
 
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(ix.data, vec![tag::CLOSE_VIEWING_KEY_ACCOUNT]);
-        // authority, vka, rent_recipient, zone_config, program (self-CPI).
+        // authority, vka, rent_recipient, ring_config, program (self-CPI).
         assert_eq!(ix.accounts.len(), 5);
         // The authority signs.
         assert!(ix.accounts[0].is_signer);
@@ -88,7 +88,7 @@ mod create_proposal {
         let ix = CreateProposal {
             proposal: Pubkey::new_from_array([1; 32]),
             viewing_key_account: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([2; 32]),
+            ring_config: Pubkey::new_from_array([2; 32]),
             system_program: Pubkey::new_from_array([1; 32]),
             owner: Pubkey::new_from_array([1; 32]),
             data: CreateProposalIxData {
@@ -140,7 +140,7 @@ mod create_viewing_key_account {
             enrollment_authority: Pubkey::new_from_array([1; 32]),
             owner_identity: Pubkey::new_from_array([2; 32]),
             viewing_key_account: Pubkey::new_from_array([3; 32]),
-            zone_config: Pubkey::new_from_array([4; 32]),
+            ring_config: Pubkey::new_from_array([4; 32]),
             system_program: Pubkey::new_from_array([5; 32]),
             data: data(),
         }
@@ -165,7 +165,7 @@ mod create_viewing_key_account {
             enrollment_authority: Pubkey::new_from_array([1; 32]),
             owner_identity: Pubkey::new_from_array([2; 32]),
             viewing_key_account: Pubkey::new_from_array([3; 32]),
-            zone_config: Pubkey::new_from_array([4; 32]),
+            ring_config: Pubkey::new_from_array([4; 32]),
             system_program: Pubkey::new_from_array([5; 32]),
             data: recovery_data,
         }
@@ -176,20 +176,20 @@ mod create_viewing_key_account {
     }
 }
 
-mod create_zone_config {
+mod create_ring_config {
     use super::Pubkey;
     use zolana_squads_interface::{
-        instruction::{builders::CreateZoneConfig, tag, CreateZoneConfigIxData},
+        instruction::{builders::CreateRingConfig, tag, CreateRingConfigIxData},
         PROGRAM_ID_PUBKEY,
     };
 
     #[test]
     fn builds_instruction() {
-        let ix = CreateZoneConfig {
+        let ix = CreateRingConfig {
             creator: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
             system_program: Pubkey::new_from_array([1; 32]),
-            data: CreateZoneConfigIxData {
+            data: CreateRingConfigIxData {
                 authority: Pubkey::new_from_array([1u8; 32]),
                 co_signer: Pubkey::new_from_array([2u8; 32]),
                 max_proposal_lifetime: 3600,
@@ -200,7 +200,7 @@ mod create_zone_config {
         .instruction();
 
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.data[0], tag::CREATE_ZONE_CONFIG);
+        assert_eq!(ix.data[0], tag::CREATE_RING_CONFIG);
         assert_eq!(ix.accounts.len(), 5);
         // creator signs and is writable.
         assert!(ix.accounts[0].is_signer && ix.accounts[0].is_writable);
@@ -299,7 +299,7 @@ mod execute_key_update {
             executor: Pubkey::new_from_array([1; 32]),
             co_signer: Pubkey::new_from_array([1; 32]),
             viewing_key_account: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
             key_update_proposal: Pubkey::new_from_array([1; 32]),
             rent_recipient: Pubkey::new_from_array([1; 32]),
             system_program: Pubkey::new_from_array([1; 32]),
@@ -316,7 +316,7 @@ mod execute_key_update {
 
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(ix.data[0], tag::EXECUTE_KEY_UPDATE);
-        // executor, co_signer, vka, zone_config, proposal, rent_recipient,
+        // executor, co_signer, vka, ring_config, proposal, rent_recipient,
         // system_program, program (self-CPI).
         assert_eq!(ix.accounts.len(), 8);
         // executor signs and is writable (fee payer).
@@ -336,7 +336,7 @@ mod execute_proposal {
 
     fn ix_data() -> ExecuteProposalIxData {
         ExecuteProposalIxData {
-            zone_proof: [1u8; 192],
+            ring_proof: [1u8; 192],
             spp_proof: [2u8; 192],
             public_amount: None,
             spl_interface_bump: 0,
@@ -358,7 +358,7 @@ mod execute_proposal {
         let ix = ExecuteProposal {
             payer: Pubkey::new_from_array([1; 32]),
             co_signer: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
             proposal: Pubkey::new_from_array([1; 32]),
             sender_viewing_key_account: Pubkey::new_from_array([1; 32]),
             recipient_viewing_key_account: Some(Pubkey::new_from_array([1; 32])),
@@ -373,7 +373,7 @@ mod execute_proposal {
 
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(ix.data[0], tag::EXECUTE_PROPOSAL);
-        // payer, co_signer, zone_config, proposal, sender, recipient,
+        // payer, co_signer, ring_config, proposal, sender, recipient,
         // rent_recipient, ring_auth, spp_program, 1 tree.
         assert_eq!(ix.accounts.len(), 10);
         assert!(ix.accounts[0].is_signer && ix.accounts[0].is_writable);
@@ -482,17 +482,17 @@ mod full_withdrawal {
     }
 }
 
-mod init_spp_zone_config {
+mod init_spp_ring_config {
     use super::Pubkey;
     use zolana_squads_interface::{
-        instruction::builders::InitSppZoneConfig, instruction::tag, PROGRAM_ID_PUBKEY,
+        instruction::builders::InitSppRingConfig, instruction::tag, PROGRAM_ID_PUBKEY,
     };
 
     #[test]
     fn builds_instruction() {
-        let ix = InitSppZoneConfig {
+        let ix = InitSppRingConfig {
             authority: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([2; 32]),
+            ring_config: Pubkey::new_from_array([2; 32]),
             protocol_config: Pubkey::new_from_array([3; 32]),
             ring_auth: Pubkey::new_from_array([4; 32]),
             system_program: Pubkey::new_from_array([5; 32]),
@@ -501,7 +501,7 @@ mod init_spp_zone_config {
         .instruction();
 
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.data, vec![tag::INIT_SPP_ZONE_CONFIG]);
+        assert_eq!(ix.data, vec![tag::INIT_SPP_RING_CONFIG]);
         assert_eq!(ix.accounts.len(), 6);
         assert!(ix.accounts[0].is_signer);
     }
@@ -518,7 +518,7 @@ mod merge_transact {
     fn builds_instruction() {
         let ix = MergeTransact {
             merge_authority: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
             owner_viewing_key_account: Pubkey::new_from_array([1; 32]),
             ring_auth: Pubkey::new_from_array([1; 32]),
             spp_program: Pubkey::new_from_array([1; 32]),
@@ -539,7 +539,7 @@ mod merge_transact {
 
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(ix.data[0], tag::MERGE_TRANSACT);
-        // merge_authority, zone_config, owner vka, ring_auth, spp_program, 2 trees.
+        // merge_authority, ring_config, owner vka, ring_auth, spp_program, 2 trees.
         assert_eq!(ix.accounts.len(), 7);
         // merge_authority signs and is writable (fee payer).
         assert!(ix.accounts[0].is_signer && ix.accounts[0].is_writable);
@@ -558,7 +558,7 @@ mod toggle_viewing_key_account {
         let ix = ToggleViewingKeyAccount {
             authority: Pubkey::new_from_array([1; 32]),
             viewing_key_account: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
             data: ToggleViewingKeyAccountIxData { state: 1 },
         }
         .instruction();
@@ -583,7 +583,7 @@ mod transact {
 
     fn ix_data() -> TransactIxData {
         TransactIxData {
-            zone_proof: [1u8; 192],
+            ring_proof: [1u8; 192],
             spp_proof: [2u8; 192],
             public_amount: None,
             spl_interface_bump: 0,
@@ -606,7 +606,7 @@ mod transact {
         let ix = Transact {
             payer: Pubkey::new_from_array([1; 32]),
             co_signer: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
             sender_viewing_key_account: Pubkey::new_from_array([1; 32]),
             recipient_viewing_key_account: Some(Pubkey::new_from_array([1; 32])),
             withdrawal: None,
@@ -619,7 +619,7 @@ mod transact {
 
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(ix.data[0], tag::TRANSACT);
-        // payer, co_signer, zone_config, sender, recipient, ring_auth,
+        // payer, co_signer, ring_config, sender, recipient, ring_auth,
         // spp_program, 1 tree.
         assert_eq!(ix.accounts.len(), 8);
         assert!(ix.accounts[0].is_signer && ix.accounts[0].is_writable);
@@ -631,7 +631,7 @@ mod transact {
         let ix = Transact {
             payer: Pubkey::new_from_array([1; 32]),
             co_signer: Pubkey::new_from_array([2; 32]),
-            zone_config: Pubkey::new_from_array([3; 32]),
+            ring_config: Pubkey::new_from_array([3; 32]),
             sender_viewing_key_account: Pubkey::new_from_array([4; 32]),
             recipient_viewing_key_account: None,
             withdrawal: Some(TransactWithdrawal::Sol {
@@ -645,7 +645,7 @@ mod transact {
         }
         .instruction();
 
-        // payer, co_signer, zone_config, sender, ring_auth, spp_program (6),
+        // payer, co_signer, ring_config, sender, ring_auth, spp_program (6),
         // 1 tree, then SOL settlement [sol_interface, recipient, system_program].
         assert_eq!(ix.accounts.len(), 10);
         let payer = ix.accounts.first().expect("payer");
@@ -658,7 +658,7 @@ mod transact {
         let ix = Transact {
             payer: Pubkey::new_from_array([1; 32]),
             co_signer: Pubkey::new_from_array([2; 32]),
-            zone_config: Pubkey::new_from_array([3; 32]),
+            ring_config: Pubkey::new_from_array([3; 32]),
             sender_viewing_key_account: Pubkey::new_from_array([4; 32]),
             recipient_viewing_key_account: None,
             withdrawal: Some(TransactWithdrawal::Spl {
@@ -705,7 +705,7 @@ mod update_viewing_key_account {
             target: Pubkey::new_from_array([1; 32]),
             key_update_proposal: Pubkey::new_from_array([1; 32]),
             system_program: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
+            ring_config: Pubkey::new_from_array([1; 32]),
             data: UpdateViewingKeyAccountIxData {
                 domain: 0,
                 operations: vec![],
@@ -723,19 +723,19 @@ mod update_viewing_key_account {
     }
 }
 
-mod update_zone_config {
+mod update_ring_config {
     use super::Pubkey;
     use zolana_squads_interface::{
-        instruction::{builders::UpdateZoneConfig, tag, UpdateZoneConfigIxData},
+        instruction::{builders::UpdateRingConfig, tag, UpdateRingConfigIxData},
         PROGRAM_ID_PUBKEY,
     };
 
     #[test]
     fn builds_instruction() {
-        let ix = UpdateZoneConfig {
+        let ix = UpdateRingConfig {
             authority: Pubkey::new_from_array([1; 32]),
-            zone_config: Pubkey::new_from_array([1; 32]),
-            data: UpdateZoneConfigIxData {
+            ring_config: Pubkey::new_from_array([1; 32]),
+            data: UpdateRingConfigIxData {
                 authority: Pubkey::new_from_array([1u8; 32]),
                 co_signer: Pubkey::new_from_array([2u8; 32]),
                 max_proposal_lifetime: 3600,
@@ -746,7 +746,7 @@ mod update_zone_config {
         .instruction();
 
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
-        assert_eq!(ix.data[0], tag::UPDATE_ZONE_CONFIG);
+        assert_eq!(ix.data[0], tag::UPDATE_RING_CONFIG);
         assert_eq!(ix.accounts.len(), 2);
         // authority signs.
         assert!(ix.accounts[0].is_signer);

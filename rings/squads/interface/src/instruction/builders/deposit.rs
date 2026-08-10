@@ -8,8 +8,8 @@ use crate::{
     PROGRAM_ID_PUBKEY,
 };
 
-/// Settlement accounts for a `deposit`, selecting the asset rail. The zone
-/// forwards these to SPP's `zone_deposit`, which infers the asset from them.
+/// Settlement accounts for a `deposit`, selecting the asset rail. The ring
+/// forwards these to SPP's `ring_deposit`, which infers the asset from them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DepositSettlement {
     /// Native SOL. The depositor funds the SPP `sol_interface` PDA. SPP also
@@ -47,7 +47,7 @@ impl Deposit {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let mut accounts = vec![

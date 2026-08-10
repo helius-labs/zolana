@@ -1,8 +1,8 @@
 //! Supported proof shapes and verifying-key selection.
 //!
 //! These shape sets MUST stay in sync with the Go prover's lazy key manager:
-//! `prover/server/prover/common/lazy_key_manager.go` -- `zoneSupportedShapes`
-//! (zone `(nInputs, nOutputs)` pairs) and `keyEncryptionSupportedKeys`
+//! `prover/server/prover/common/lazy_key_manager.go` -- `ringSupportedShapes`
+//! (ring `(nInputs, nOutputs)` pairs) and `keyEncryptionSupportedKeys`
 //! (key-encryption recipient counts), plus `lazy_key_manager_squads_fold.go`
 //! for the folds. A shape the prover can produce a proof for but the program
 //! cannot select a VK for (or vice versa) silently breaks verification, so the
@@ -10,16 +10,16 @@
 
 use groth16_solana::groth16::Groth16Verifyingkey;
 use zolana_squads_interface::{
-    error::SquadsZoneError,
+    error::SquadsRingError,
     verifying_keys::{
         key_encryption_1, key_encryption_2, key_encryption_3, key_encryption_fold_3_l2,
-        key_encryption_fold_3_l3, zone_1_1, zone_2_2, zone_fold_2_2_l2, zone_fold_2_2_l3,
+        key_encryption_fold_3_l3, ring_1_1, ring_2_2, ring_fold_2_2_l2, ring_fold_2_2_l3,
     },
 };
 
-/// Supported zone circuit shapes as `(n_inputs, n_outputs)`.
+/// Supported ring circuit shapes as `(n_inputs, n_outputs)`.
 /// `(1, 1)` = withdrawal, `(2, 2)` = transfer.
-pub const ZONE_SUPPORTED_SHAPES: [(u8, u8); 2] = [(1, 1), (2, 2)];
+pub const RING_SUPPORTED_SHAPES: [(u8, u8); 2] = [(1, 1), (2, 2)];
 
 /// Supported key-encryption recipient counts (recovery + auditor keys).
 pub const KEY_ENCRYPTION_SUPPORTED_KEYS: [u8; 3] = [1, 2, 3];
@@ -40,17 +40,17 @@ pub const KEY_ENCRYPTION_FOLD_SUPPORTED_KEYS: [u8; 2] = [
     KEY_ENCRYPTION_FOLD_SUPPORTED_LEGS[1] * KEY_ENCRYPTION_FOLD_KEYS_PER_LEG,
 ];
 
-/// Leg shapes a zone fold covers. Only the transfer shape folds, a withdrawal
+/// Leg shapes a ring fold covers. Only the transfer shape folds, a withdrawal
 /// already spends the whole balance.
-pub const ZONE_FOLD_SUPPORTED_SHAPES: [(u8, u8); 1] = [(2, 2)];
+pub const RING_FOLD_SUPPORTED_SHAPES: [(u8, u8); 1] = [(2, 2)];
 
-pub const ZONE_FOLD_SUPPORTED_LEGS: [u8; 2] = [2, 3];
+pub const RING_FOLD_SUPPORTED_LEGS: [u8; 2] = [2, 3];
 
-/// The widest supported leg count. `ZONE_FOLD_SUPPORTED_LEGS` is ascending, so
+/// The widest supported leg count. `RING_FOLD_SUPPORTED_LEGS` is ascending, so
 /// the last entry is the maximum.
-pub const ZONE_FOLD_MAX_LEGS: u8 = ZONE_FOLD_SUPPORTED_LEGS[ZONE_FOLD_SUPPORTED_LEGS.len() - 1];
+pub const RING_FOLD_MAX_LEGS: u8 = RING_FOLD_SUPPORTED_LEGS[RING_FOLD_SUPPORTED_LEGS.len() - 1];
 
-/// The zone shape an operation names, checked against the instruction data the
+/// The ring shape an operation names, checked against the instruction data the
 /// SPP proof is built from.
 ///
 /// The operation is the single source of the shape. SPP picks its own circuit
@@ -61,38 +61,38 @@ pub fn operation_shape(
     is_transfer: bool,
     input_contexts: usize,
     output_utxo_hashes: usize,
-) -> Result<(u8, u8), SquadsZoneError> {
+) -> Result<(u8, u8), SquadsRingError> {
     let (n_inputs, n_outputs) = if is_transfer { (2u8, 2u8) } else { (1u8, 1u8) };
     if input_contexts != usize::from(n_inputs) || output_utxo_hashes != usize::from(n_outputs) {
-        return Err(SquadsZoneError::ProofShapeMismatch);
+        return Err(SquadsRingError::ProofShapeMismatch);
     }
     Ok((n_inputs, n_outputs))
 }
 
 #[inline(always)]
-pub fn select_zone_vk(
+pub fn select_ring_vk(
     n_inputs: u8,
     n_outputs: u8,
-) -> Result<&'static Groth16Verifyingkey<'static>, SquadsZoneError> {
+) -> Result<&'static Groth16Verifyingkey<'static>, SquadsRingError> {
     match (n_inputs, n_outputs) {
-        (1, 1) => Ok(&zone_1_1::VERIFYINGKEY),
-        (2, 2) => Ok(&zone_2_2::VERIFYINGKEY),
-        _ => Err(SquadsZoneError::UnsupportedProofShape),
+        (1, 1) => Ok(&ring_1_1::VERIFYINGKEY),
+        (2, 2) => Ok(&ring_2_2::VERIFYINGKEY),
+        _ => Err(SquadsRingError::UnsupportedProofShape),
     }
 }
 
 /// The leg verifying key is a compile-time constant of the fold circuit, so
 /// the selected key alone names the shape a fold proved.
 #[inline(always)]
-pub fn select_zone_fold_vk(
+pub fn select_ring_fold_vk(
     n_inputs: u8,
     n_outputs: u8,
     legs: u8,
-) -> Result<&'static Groth16Verifyingkey<'static>, SquadsZoneError> {
+) -> Result<&'static Groth16Verifyingkey<'static>, SquadsRingError> {
     match (n_inputs, n_outputs, legs) {
-        (2, 2, 2) => Ok(&zone_fold_2_2_l2::VERIFYINGKEY),
-        (2, 2, 3) => Ok(&zone_fold_2_2_l3::VERIFYINGKEY),
-        _ => Err(SquadsZoneError::UnsupportedProofShape),
+        (2, 2, 2) => Ok(&ring_fold_2_2_l2::VERIFYINGKEY),
+        (2, 2, 3) => Ok(&ring_fold_2_2_l3::VERIFYINGKEY),
+        _ => Err(SquadsRingError::UnsupportedProofShape),
     }
 }
 
@@ -101,14 +101,14 @@ pub fn select_zone_fold_vk(
 #[inline(always)]
 pub fn select_key_encryption_vk(
     num_keys: u8,
-) -> Result<&'static Groth16Verifyingkey<'static>, SquadsZoneError> {
+) -> Result<&'static Groth16Verifyingkey<'static>, SquadsRingError> {
     match num_keys {
         1 => Ok(&key_encryption_1::VERIFYINGKEY),
         2 => Ok(&key_encryption_2::VERIFYINGKEY),
         3 => Ok(&key_encryption_3::VERIFYINGKEY),
         6 => Ok(&key_encryption_fold_3_l2::VERIFYINGKEY),
         9 => Ok(&key_encryption_fold_3_l3::VERIFYINGKEY),
-        _ => Err(SquadsZoneError::UnsupportedKeyCount),
+        _ => Err(SquadsRingError::UnsupportedKeyCount),
     }
 }
 
@@ -135,7 +135,7 @@ mod tests {
                 || KEY_ENCRYPTION_FOLD_SUPPORTED_KEYS.contains(&keys);
             assert_eq!(
                 supported,
-                select_key_encryption_vk(keys) != Err(SquadsZoneError::UnsupportedKeyCount),
+                select_key_encryption_vk(keys) != Err(SquadsRingError::UnsupportedKeyCount),
                 "{keys} keys resolve a key the catalogue does not list",
             );
         }
@@ -145,9 +145,9 @@ mod tests {
     /// instruction data vector lengths. That is only sound while one output
     /// count names one shape.
     #[test]
-    fn output_count_determines_one_zone_shape() {
-        for (_, n_outputs) in ZONE_SUPPORTED_SHAPES {
-            let matching = ZONE_SUPPORTED_SHAPES
+    fn output_count_determines_one_ring_shape() {
+        for (_, n_outputs) in RING_SUPPORTED_SHAPES {
+            let matching = RING_SUPPORTED_SHAPES
                 .iter()
                 .filter(|(_, outputs)| *outputs == n_outputs)
                 .count();
@@ -156,8 +156,8 @@ mod tests {
 
         // A shape outside the catalogue resolves no key.
         assert_eq!(
-            select_zone_vk(2, 1),
-            Err(SquadsZoneError::UnsupportedProofShape)
+            select_ring_vk(2, 1),
+            Err(SquadsRingError::UnsupportedProofShape)
         );
 
         // Both operations resolve to a catalogued shape.
@@ -167,27 +167,27 @@ mod tests {
             .into_iter()
             .map(|shape| shape.expect("supported shape"))
         {
-            assert!(ZONE_SUPPORTED_SHAPES.contains(&(n_inputs, n_outputs)));
+            assert!(RING_SUPPORTED_SHAPES.contains(&(n_inputs, n_outputs)));
         }
 
         // Instruction data that names a different shape than the operation is
-        // rejected, so the zone proof and the SPP proof cannot disagree.
+        // rejected, so the ring proof and the SPP proof cannot disagree.
         for (is_transfer, inputs, outputs) in
             [(true, 1, 2), (true, 2, 1), (false, 2, 1), (false, 1, 2)]
         {
             assert_eq!(
                 operation_shape(is_transfer, inputs, outputs),
-                Err(SquadsZoneError::ProofShapeMismatch)
+                Err(SquadsRingError::ProofShapeMismatch)
             );
         }
     }
 
     #[test]
-    fn zone_fold_support_and_keys_agree() {
-        for (n_inputs, n_outputs) in ZONE_FOLD_SUPPORTED_SHAPES {
-            for legs in ZONE_FOLD_SUPPORTED_LEGS {
+    fn ring_fold_support_and_keys_agree() {
+        for (n_inputs, n_outputs) in RING_FOLD_SUPPORTED_SHAPES {
+            for legs in RING_FOLD_SUPPORTED_LEGS {
                 assert!(
-                    select_zone_fold_vk(n_inputs, n_outputs, legs).is_ok(),
+                    select_ring_fold_vk(n_inputs, n_outputs, legs).is_ok(),
                     "{legs} {n_inputs}x{n_outputs} legs are supported but have no verifying key",
                 );
             }
@@ -195,12 +195,12 @@ mod tests {
         for n_inputs in 0u8..=4 {
             for n_outputs in 0u8..=4 {
                 for legs in 0u8..=4 {
-                    let supported = ZONE_FOLD_SUPPORTED_SHAPES.contains(&(n_inputs, n_outputs))
-                        && ZONE_FOLD_SUPPORTED_LEGS.contains(&legs);
+                    let supported = RING_FOLD_SUPPORTED_SHAPES.contains(&(n_inputs, n_outputs))
+                        && RING_FOLD_SUPPORTED_LEGS.contains(&legs);
                     assert_eq!(
                         supported,
-                        select_zone_fold_vk(n_inputs, n_outputs, legs)
-                            != Err(SquadsZoneError::UnsupportedProofShape),
+                        select_ring_fold_vk(n_inputs, n_outputs, legs)
+                            != Err(SquadsRingError::UnsupportedProofShape),
                         "{legs} {n_inputs}x{n_outputs} legs resolve a key the catalogue does not list",
                     );
                 }

@@ -1,8 +1,8 @@
-//! Account-type discriminators for the Squads zone. The first byte of every
+//! Account-type discriminators for the Squads ring. The first byte of every
 //! account stamps one of these so loaders can reject mismatched accounts.
 
-/// Singleton [`ZoneConfig`](super::zone_config::ZoneConfig).
-pub const ZONE_CONFIG: u8 = 1;
+/// Singleton [`SquadsRingConfig`](super::ring_config::SquadsRingConfig).
+pub const RING_CONFIG: u8 = 1;
 /// Per-owner [`ViewingKeyAccount`](super::viewing_key_account::ViewingKeyAccount).
 pub const VIEWING_KEY_ACCOUNT: u8 = 2;
 /// Async [`Proposal`](super::proposal::Proposal).

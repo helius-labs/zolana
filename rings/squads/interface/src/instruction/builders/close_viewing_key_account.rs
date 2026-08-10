@@ -10,15 +10,15 @@ use crate::{instruction::tag, PROGRAM_ID_PUBKEY};
 /// Builder for the `close_viewing_key_account` instruction.
 ///
 /// Account order: `authority`, `viewing_key_account`, `rent_recipient`,
-/// `zone_config`. The authority is the account's owner or the zone co-signer,
-/// which the program reads from `zone_config`. The program records the prior
+/// `ring_config`. The authority is the account's owner or the ring co-signer,
+/// which the program reads from `ring_config`. The program records the prior
 /// account state as a self-CPI event, so `program` is appended last as a
 /// loadable target.
 pub struct CloseViewingKeyAccount {
     pub authority: Pubkey,
     pub viewing_key_account: Pubkey,
     pub rent_recipient: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
 }
 
 impl CloseViewingKeyAccount {
@@ -27,7 +27,7 @@ impl CloseViewingKeyAccount {
             AccountMeta::new_readonly(self.authority, true),
             AccountMeta::new(self.viewing_key_account, false),
             AccountMeta::new(self.rent_recipient, false),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
 

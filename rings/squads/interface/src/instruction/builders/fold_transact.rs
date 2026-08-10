@@ -16,7 +16,7 @@ use crate::{
 pub struct FoldTransact {
     pub payer: Pubkey,
     pub co_signer: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub sender_viewing_key_account: Pubkey,
     pub recipient_viewing_key_account: Pubkey,
     pub ring_auth: Pubkey,
@@ -33,13 +33,13 @@ impl FoldTransact {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(self.co_signer, true),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
             AccountMeta::new_readonly(self.sender_viewing_key_account, false),
             AccountMeta::new_readonly(self.recipient_viewing_key_account, false),
             AccountMeta::new_readonly(self.ring_auth, false),

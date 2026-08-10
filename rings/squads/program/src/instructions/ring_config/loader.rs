@@ -1,21 +1,22 @@
-//! Loader for the singleton zone config account. `ZoneConfig` is a
+//! Loader for the singleton ring config account. `SquadsRingConfig` is a
 //! variable-length wincode type, so the loader returns an owned value instead
 //! of a `Ref<T>`.
 
 use pinocchio::{error::ProgramError, AccountView};
-use zolana_squads_interface::{error::SquadsZoneError, state::zone_config::ZoneConfig};
+use zolana_squads_interface::{error::SquadsRingError, state::ring_config::SquadsRingConfig};
 
 #[inline(always)]
-pub fn load_zone_config(account: &AccountView) -> Result<ZoneConfig, ProgramError> {
+pub fn load_ring_config(account: &AccountView) -> Result<SquadsRingConfig, ProgramError> {
     if !account.owned_by(&crate::ID) {
-        return Err(SquadsZoneError::InvalidAccountOwner.into());
+        return Err(SquadsRingError::InvalidAccountOwner.into());
     }
     let data = account
         .try_borrow()
-        .map_err(|_| SquadsZoneError::InvalidZoneConfig)?;
-    let value = ZoneConfig::deserialize(&data).map_err(|_| SquadsZoneError::Deserialization)?;
-    if value.discriminator != ZoneConfig::DISCRIMINATOR {
-        return Err(SquadsZoneError::InvalidDiscriminator.into());
+        .map_err(|_| SquadsRingError::InvalidRingConfig)?;
+    let value =
+        SquadsRingConfig::deserialize(&data).map_err(|_| SquadsRingError::Deserialization)?;
+    if value.discriminator != SquadsRingConfig::DISCRIMINATOR {
+        return Err(SquadsRingError::InvalidDiscriminator.into());
     }
     Ok(value)
 }

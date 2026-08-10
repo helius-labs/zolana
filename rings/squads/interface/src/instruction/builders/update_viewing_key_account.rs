@@ -13,13 +13,13 @@ use crate::{
 ///
 /// Account order mirrors the spec's `update_viewing_key_account` "Accounts"
 /// list: `proposer`, `target`, `key_update_proposal`, `system_program`,
-/// `zone_config`.
+/// `ring_config`.
 pub struct UpdateViewingKeyAccount {
     pub proposer: Pubkey,
     pub target: Pubkey,
     pub key_update_proposal: Pubkey,
     pub system_program: Pubkey,
-    pub zone_config: Pubkey,
+    pub ring_config: Pubkey,
     pub data: UpdateViewingKeyAccountIxData,
 }
 
@@ -30,7 +30,7 @@ impl UpdateViewingKeyAccount {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let accounts = vec![
@@ -38,7 +38,7 @@ impl UpdateViewingKeyAccount {
             AccountMeta::new_readonly(self.target, false),
             AccountMeta::new(self.key_update_proposal, false),
             AccountMeta::new_readonly(self.system_program, false),
-            AccountMeta::new_readonly(self.zone_config, false),
+            AccountMeta::new_readonly(self.ring_config, false),
         ];
 
         Instruction {

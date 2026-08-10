@@ -1,22 +1,22 @@
-//! `update_zone_config` (tag 4) instruction data (spec: squads
-//! `update_zone_config`).
+//! `update_ring_config` (tag 4) instruction data (spec: squads
+//! `update_ring_config`).
 
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 use crate::types::{Address, P256Pubkey};
 
-/// `update_zone_config` instruction data (spec: squads `update_zone_config`).
-/// Overwrites the zone config's mutable fields. Same field shape as
-/// `create_zone_config`. Setting `authority` to the default freezes the config.
+/// `update_ring_config` instruction data (spec: squads `update_ring_config`).
+/// Overwrites the ring config's mutable fields. Same field shape as
+/// `create_ring_config`. Setting `authority` to the default freezes the config.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct UpdateZoneConfigIxData {
+pub struct UpdateRingConfigIxData {
     /// New update authority. The default freezes the config.
     pub authority: Address,
     /// New co-signer. The default disables co-signing.
     pub co_signer: Address,
     /// New upper bound on a proposal's `expiry`, in seconds from creation.
     pub max_proposal_lifetime: i64,
-    /// New zone auditor keys. The list must contain exactly one for now.
+    /// New ring auditor keys. The list must contain exactly one for now.
     #[wincode(with = "containers::Vec<[u8; 33], FixIntLen<u8>>")]
     pub auditor_keys: Vec<P256Pubkey>,
     /// New authorities allowed to run merge_transact.
@@ -24,7 +24,7 @@ pub struct UpdateZoneConfigIxData {
     pub merge_authorities: Vec<Address>,
 }
 
-impl UpdateZoneConfigIxData {
+impl UpdateRingConfigIxData {
     pub fn serialize(&self) -> Result<Vec<u8>, wincode::Error> {
         Ok(wincode::serialize(self)?)
     }

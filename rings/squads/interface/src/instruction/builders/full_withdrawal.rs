@@ -13,7 +13,7 @@ use crate::{
 ///
 /// Account order: `payer` (signer, also the SPP payer bound in the proof),
 /// `ring_auth`, `spp_program`, `tree`, then the SOL/SPL settlement tail. There is
-/// no co-signer and no zone proof. The forwarded SPP proof authorizes the exit
+/// no co-signer and no ring proof. The forwarded SPP proof authorizes the exit
 /// (P256 UTXO ownership), and the signer is only a fee payer -- it need not be the
 /// UTXO owner.
 pub struct FullWithdrawal {
@@ -32,7 +32,7 @@ impl FullWithdrawal {
             &self
                 .data
                 .serialize()
-                .expect("squads-zone instruction serialization is infallible"),
+                .expect("squads-ring instruction serialization is infallible"),
         );
 
         let mut accounts = vec![

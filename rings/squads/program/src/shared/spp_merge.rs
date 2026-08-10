@@ -1,5 +1,5 @@
 //! Builds the SPP `merge_ring` instruction data (tag-prefixed, wincode
-//! serialized) the zone forwards via CPI.
+//! serialized) the ring forwards via CPI.
 
 use zolana_interface::instruction::{
     instruction_data::merge_transact::MergeProof,
@@ -7,12 +7,12 @@ use zolana_interface::instruction::{
     MergeTransactIxData as SppMergeTransactIxData,
 };
 use zolana_squads_interface::{
-    error::SquadsZoneError, instruction::instruction_data::transact::InputContext,
+    error::SquadsRingError, instruction::instruction_data::transact::InputContext,
     types::ProofBytes,
 };
 
 /// Inputs needed to build SPP's `merge_ring` instruction data.
-pub struct SppZoneMergeParams<'a> {
+pub struct SppRingMergeParams<'a> {
     pub expiry_unix_ts: u64,
     /// Indexes the merged output for wallet discovery. The merge proof asserts
     /// it against the output UTXO's `ring_data_hash`.
@@ -23,14 +23,14 @@ pub struct SppZoneMergeParams<'a> {
     pub input_contexts: &'a [InputContext],
 }
 
-/// `eddsa_owner` is always `false` because the zone's merge users are always
+/// `eddsa_owner` is always `false` because the ring's merge users are always
 /// P256-owned. SPP's `merge_ring` path never reads the flag. It binds the owner
 /// via the signing `RingConfig`, so this is convention rather than a gate.
-pub fn build_spp_zone_merge_data(
-    params: SppZoneMergeParams<'_>,
-) -> Result<Vec<u8>, SquadsZoneError> {
+pub fn build_spp_ring_merge_data(
+    params: SppRingMergeParams<'_>,
+) -> Result<Vec<u8>, SquadsRingError> {
     if params.input_contexts.len() != MERGE_INPUT_COUNT {
-        return Err(SquadsZoneError::InvalidInstructionData);
+        return Err(SquadsRingError::InvalidInstructionData);
     }
 
     let mut nullifiers = Vec::with_capacity(MERGE_INPUT_COUNT);
@@ -61,15 +61,15 @@ pub fn build_spp_zone_merge_data(
     instruction_data.extend_from_slice(
         &ix_data
             .serialize()
-            .map_err(|_| SquadsZoneError::Serialization)?,
+            .map_err(|_| SquadsRingError::Serialization)?,
     );
     Ok(instruction_data)
 }
 
 /// The merge circuit is uncommitted Groth16, so only the leading 128 bytes of
-/// the zone's flat proof carry it and the BSB22 tail must stay unread.
-fn merge_proof(bytes: &ProofBytes) -> Result<MergeProof, SquadsZoneError> {
-    let err = SquadsZoneError::InvalidProofEncoding;
+/// the ring's flat proof carry it and the BSB22 tail must stay unread.
+fn merge_proof(bytes: &ProofBytes) -> Result<MergeProof, SquadsRingError> {
+    let err = SquadsRingError::InvalidProofEncoding;
     Ok(MergeProof {
         a: bytes.get(0..32).ok_or(err)?.try_into().map_err(|_| err)?,
         b: bytes.get(32..96).ok_or(err)?.try_into().map_err(|_| err)?,
@@ -79,7 +79,7 @@ fn merge_proof(bytes: &ProofBytes) -> Result<MergeProof, SquadsZoneError> {
 
 #[cfg(test)]
 mod tests {
-    use zolana_interface::instruction::{tag, MergeRingIxData as SppMergeZoneIxData};
+    use zolana_interface::instruction::{tag, MergeRingIxData as SppMergeRingIxData};
 
     use super::*;
 
@@ -99,7 +99,7 @@ mod tests {
         let proof_bytes: ProofBytes = [3u8; 192];
         let input_contexts = sample_input_contexts();
 
-        let instruction_data = build_spp_zone_merge_data(SppZoneMergeParams {
+        let instruction_data = build_spp_ring_merge_data(SppRingMergeParams {
             expiry_unix_ts: 1_700_000_000,
             output_ring_data_hash: [5u8; 32],
             private_tx_hash: [6u8; 32],
@@ -114,7 +114,7 @@ mod tests {
             Some(tag::RING_MERGE_TRANSACT)
         );
         let parsed =
-            SppMergeZoneIxData::deserialize(instruction_data.get(1..).expect("tag-stripped bytes"))
+            SppMergeRingIxData::deserialize(instruction_data.get(1..).expect("tag-stripped bytes"))
                 .expect("SPP must accept the constructed bytes");
 
         assert_eq!(parsed.output_ring_data_hash, [5u8; 32]);
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn rejects_wrong_input_count() {
         let proof_bytes: ProofBytes = [0u8; 192];
-        let err = build_spp_zone_merge_data(SppZoneMergeParams {
+        let err = build_spp_ring_merge_data(SppRingMergeParams {
             expiry_unix_ts: 0,
             output_ring_data_hash: [0u8; 32],
             private_tx_hash: [0u8; 32],
@@ -154,6 +154,6 @@ mod tests {
             input_contexts: &[],
         })
         .expect_err("wrong input count must be rejected");
-        assert_eq!(err, SquadsZoneError::InvalidInstructionData);
+        assert_eq!(err, SquadsRingError::InvalidInstructionData);
     }
 }

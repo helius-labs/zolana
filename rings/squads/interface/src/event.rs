@@ -1,4 +1,4 @@
-//! Events the Squads zone records with the `EMIT_EVENT` self-CPI.
+//! Events the Squads ring records with the `EMIT_EVENT` self-CPI.
 //!
 //! A key rotation and an account close both destroy viewing key material in
 //! place while the ciphertexts it decrypts stay on chain forever. A recovery or

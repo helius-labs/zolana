@@ -6,21 +6,21 @@
 
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_squads_interface::{
-    error::SquadsZoneError, state::key_update_proposal::KeyUpdateProposal,
+    error::SquadsRingError, state::key_update_proposal::KeyUpdateProposal,
 };
 
 #[inline(always)]
 pub fn load_key_update_proposal(account: &AccountView) -> Result<KeyUpdateProposal, ProgramError> {
     if !account.owned_by(&crate::ID) {
-        return Err(SquadsZoneError::InvalidAccountOwner.into());
+        return Err(SquadsRingError::InvalidAccountOwner.into());
     }
     let data = account
         .try_borrow()
-        .map_err(|_| SquadsZoneError::InvalidKeyUpdateProposal)?;
+        .map_err(|_| SquadsRingError::InvalidKeyUpdateProposal)?;
     let value =
-        KeyUpdateProposal::deserialize(&data).map_err(|_| SquadsZoneError::Deserialization)?;
+        KeyUpdateProposal::deserialize(&data).map_err(|_| SquadsRingError::Deserialization)?;
     if value.discriminator != KeyUpdateProposal::DISCRIMINATOR {
-        return Err(SquadsZoneError::InvalidDiscriminator.into());
+        return Err(SquadsRingError::InvalidDiscriminator.into());
     }
     Ok(value)
 }

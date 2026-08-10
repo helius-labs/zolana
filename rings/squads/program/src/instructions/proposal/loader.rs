@@ -2,19 +2,19 @@
 //! wincode type, so the loader returns an owned value instead of a `Ref<T>`.
 
 use pinocchio::{error::ProgramError, AccountView};
-use zolana_squads_interface::{error::SquadsZoneError, state::proposal::Proposal};
+use zolana_squads_interface::{error::SquadsRingError, state::proposal::Proposal};
 
 #[inline(always)]
 pub fn load_proposal(account: &AccountView) -> Result<Proposal, ProgramError> {
     if !account.owned_by(&crate::ID) {
-        return Err(SquadsZoneError::InvalidAccountOwner.into());
+        return Err(SquadsRingError::InvalidAccountOwner.into());
     }
     let data = account
         .try_borrow()
-        .map_err(|_| SquadsZoneError::InvalidProposal)?;
-    let value = Proposal::deserialize(&data).map_err(|_| SquadsZoneError::Deserialization)?;
+        .map_err(|_| SquadsRingError::InvalidProposal)?;
+    let value = Proposal::deserialize(&data).map_err(|_| SquadsRingError::Deserialization)?;
     if value.discriminator != Proposal::DISCRIMINATOR {
-        return Err(SquadsZoneError::InvalidDiscriminator.into());
+        return Err(SquadsRingError::InvalidDiscriminator.into());
     }
     Ok(value)
 }

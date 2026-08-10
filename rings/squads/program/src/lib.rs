@@ -1,5 +1,5 @@
-//! Squads zone on-chain program (pinocchio). Verifies the zone and
-//! key-encryption proofs, manages zone accounts, and CPIs the SPP.
+//! Squads ring on-chain program (pinocchio). Verifies the ring and
+//! key-encryption proofs, manages ring accounts, and CPIs the SPP.
 
 pub mod instructions;
 pub mod shared;
@@ -9,12 +9,12 @@ use zolana_squads_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
     process_cancel_key_update_ix, process_cancel_proposal_ix, process_close_viewing_key_account_ix,
-    process_create_proposal_ix, process_create_viewing_key_account_ix,
-    process_create_zone_config_ix, process_deposit_ix, process_execute_key_update_ix,
+    process_create_proposal_ix, process_create_ring_config_ix,
+    process_create_viewing_key_account_ix, process_deposit_ix, process_execute_key_update_ix,
     process_execute_proposal_ix, process_fill_key_update_ix, process_fold_transact_ix,
-    process_full_withdrawal_ix, process_init_spp_zone_config_ix, process_merge_transact_ix,
-    process_toggle_viewing_key_account_ix, process_transact_ix,
-    process_update_viewing_key_account_ix, process_update_zone_config_ix,
+    process_full_withdrawal_ix, process_init_spp_ring_config_ix, process_merge_transact_ix,
+    process_toggle_viewing_key_account_ix, process_transact_ix, process_update_ring_config_ix,
+    process_update_viewing_key_account_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -48,8 +48,8 @@ pub fn process_instruction(
         InstructionTag::FoldTransact => process_fold_transact_ix(accounts, data),
         InstructionTag::Deposit => process_deposit_ix(accounts, data),
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, data),
-        InstructionTag::CreateZoneConfig => process_create_zone_config_ix(accounts, data),
-        InstructionTag::UpdateZoneConfig => process_update_zone_config_ix(accounts, data),
+        InstructionTag::CreateRingConfig => process_create_ring_config_ix(accounts, data),
+        InstructionTag::UpdateRingConfig => process_update_ring_config_ix(accounts, data),
         InstructionTag::CreateViewingKeyAccount => {
             process_create_viewing_key_account_ix(accounts, data)
         }
@@ -69,6 +69,6 @@ pub fn process_instruction(
         InstructionTag::ExecuteProposal => process_execute_proposal_ix(accounts, data),
         InstructionTag::ExecuteKeyUpdate => process_execute_key_update_ix(accounts, data),
         InstructionTag::CancelKeyUpdate => process_cancel_key_update_ix(accounts, data),
-        InstructionTag::InitSppZoneConfig => process_init_spp_zone_config_ix(accounts, data),
+        InstructionTag::InitSppRingConfig => process_init_spp_ring_config_ix(accounts, data),
     }
 }

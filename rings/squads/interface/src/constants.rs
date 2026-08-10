@@ -14,7 +14,7 @@ pub const SENDER_CIPHERTEXT_LEN: usize = 40;
 /// Recipient output ciphertext: `amount(8) || asset(32) || blinding(31)`, AES-CTR.
 pub const RECIPIENT_CIPHERTEXT_LEN: usize = 71;
 /// On-chain Groth16 proof: compressed (32 + 64 + 32) plus BSB22 commitment + PoK
-/// (32 + 32). Both zone circuits carry a commitment.
+/// (32 + 32). Both ring circuits carry a commitment.
 pub const PROOF_LEN: usize = 192;
 
 // ViewingKeyAccount.state values.
@@ -26,7 +26,7 @@ pub const ENCRYPTION_SCHEME_P256_AES: u8 = 1;
 
 // ViewingKeyAccount.owner_kind values. A keypair/P256 owner spends via the P256 SPP
 // rail (owner signature). A smart-account owner (a Squads vault, no signing key)
-// settles signatureless via the zone-authority SPP rail, authorized by the co-signer
+// settles signatureless via the ring-authority SPP rail, authorized by the co-signer
 // and, for the async path, an approved proposal.
 pub const OWNER_KIND_KEYPAIR: u8 = 0;
 pub const OWNER_KIND_SMART_ACCOUNT: u8 = 1;
@@ -37,5 +37,5 @@ pub const KEY_OP_REMOVE: u8 = 1;
 pub const KEY_OP_REPLACE: u8 = 2;
 pub const KEY_OP_UPDATE_AUDITOR: u8 = 3;
 
-/// The zone supports exactly one auditor key for now (spec).
+/// The ring supports exactly one auditor key for now (spec).
 pub const REQUIRED_AUDITOR_KEY_COUNT: usize = 1;

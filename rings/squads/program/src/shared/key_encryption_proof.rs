@@ -7,7 +7,7 @@
 //! ordered.
 
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_squads_interface::error::SquadsZoneError;
+use zolana_squads_interface::error::SquadsRingError;
 
 use super::{
     proof::{
@@ -16,7 +16,7 @@ use super::{
     shapes::{select_key_encryption_vk, KEY_ENCRYPTION_FOLD_SUPPORTED_KEYS},
 };
 
-const HASH_ERR: SquadsZoneError = SquadsZoneError::ProofHashingFailed;
+const HASH_ERR: SquadsRingError = SquadsRingError::ProofHashingFailed;
 
 /// Largest supported recipient-key count. It bounds the fixed chain buffer. The
 /// widest fold sets it, because a fold's public input is the chain a single
@@ -109,14 +109,14 @@ impl KeyEncryptionProof<'_> {
     pub fn verify(&self) -> ProgramResult {
         let public_input_hash = self.public_input_hash()?;
         let num_keys = u8::try_from(self.recipient_keys.len())
-            .map_err(|_| SquadsZoneError::KeyEncryptionProofVerificationFailed)?;
+            .map_err(|_| SquadsRingError::KeyEncryptionProofVerificationFailed)?;
         let vk = select_key_encryption_vk(num_keys)?;
         verify_groth16(
             self.proof,
             public_input_hash,
             vk,
-            SquadsZoneError::InvalidProofEncoding,
-            SquadsZoneError::KeyEncryptionProofVerificationFailed,
+            SquadsRingError::InvalidProofEncoding,
+            SquadsRingError::KeyEncryptionProofVerificationFailed,
         )
     }
 }

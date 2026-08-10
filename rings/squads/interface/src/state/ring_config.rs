@@ -1,4 +1,4 @@
-//! Zone configuration account: the per-program singleton holding the auditor
+//! Ring configuration account: the per-program singleton holding the auditor
 //! keys, optional co-signer, proposal lifetime bound, and merge authorities.
 
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
@@ -6,14 +6,14 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use super::discriminator;
 use crate::{
     types::{Address, P256Pubkey},
-    ZONE_CONFIG_PDA_SEED,
+    RING_CONFIG_PDA_SEED,
 };
 
-/// Singleton zone config, derived at `[b"zone_config"]`. Variable-length because
+/// Singleton ring config, derived at `[b"ring_config"]`. Variable-length because
 /// `auditor_keys` and `merge_authorities` are vectors, so it (de)serializes with
 /// wincode rather than a zero-copy `bytemuck` cast.
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
-pub struct ZoneConfig {
+pub struct SquadsRingConfig {
     pub discriminator: u8,
     pub authority: Address,
     pub co_signer: Address,
@@ -24,9 +24,9 @@ pub struct ZoneConfig {
     pub merge_authorities: Vec<Address>,
 }
 
-impl ZoneConfig {
-    pub const DISCRIMINATOR: u8 = discriminator::ZONE_CONFIG;
-    pub const SEED: &'static [u8] = ZONE_CONFIG_PDA_SEED;
+impl SquadsRingConfig {
+    pub const DISCRIMINATOR: u8 = discriminator::RING_CONFIG;
+    pub const SEED: &'static [u8] = RING_CONFIG_PDA_SEED;
 
     /// Build a config with the discriminator already stamped.
     pub fn new(

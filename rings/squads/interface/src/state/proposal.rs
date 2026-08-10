@@ -1,7 +1,7 @@
 //! Proposal account: the parameters of a queued withdrawal or transfer, bound to
 //! the hidden operation by `proposal_hash` (the private v2 core). At execution
 //! the program adds the operation, asset, and checked destination to derive the
-//! zone proof's public proposal commitment.
+//! ring proof's public proposal commitment.
 
 use wincode::{SchemaRead, SchemaWrite};
 
@@ -13,7 +13,7 @@ use crate::{
 
 /// Async proposal, derived at `[b"proposal", owner, cipher_text[0..33]]`. All
 /// fields are fixed-size. It (de)serializes with wincode for symmetry with the
-/// other zone accounts and to stamp/check the discriminator uniformly.
+/// other ring accounts and to stamp/check the discriminator uniformly.
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct Proposal {
     pub discriminator: u8,

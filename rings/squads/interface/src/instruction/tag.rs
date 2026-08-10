@@ -1,10 +1,10 @@
-//! First-byte instruction dispatch tags for the Squads zone program.
+//! First-byte instruction dispatch tags for the Squads ring program.
 
 pub const TRANSACT: u8 = 0;
 pub const DEPOSIT: u8 = 1;
 pub const MERGE_TRANSACT: u8 = 2;
-pub const CREATE_ZONE_CONFIG: u8 = 3;
-pub const UPDATE_ZONE_CONFIG: u8 = 4;
+pub const CREATE_RING_CONFIG: u8 = 3;
+pub const UPDATE_RING_CONFIG: u8 = 4;
 pub const CREATE_VIEWING_KEY_ACCOUNT: u8 = 5;
 pub const UPDATE_VIEWING_KEY_ACCOUNT: u8 = 6;
 pub const FILL_KEY_UPDATE: u8 = 7;
@@ -16,13 +16,13 @@ pub const CANCEL_PROPOSAL: u8 = 12;
 pub const EXECUTE_PROPOSAL: u8 = 13;
 pub const EXECUTE_KEY_UPDATE: u8 = 14;
 pub const CANCEL_KEY_UPDATE: u8 = 15;
-pub const INIT_SPP_ZONE_CONFIG: u8 = 16;
+pub const INIT_SPP_RING_CONFIG: u8 = 16;
 pub const FOLD_TRANSACT: u8 = 17;
 
 /// No-op self-CPI target that records events as inner-instruction data. The
 /// program validates nothing on this tag, so ANY caller can invoke it with
 /// forged bytes. Consumers MUST only trust an `EMIT_EVENT` inner instruction
-/// whose direct parent is a squads-zone instruction with a state-transitioning
+/// whose direct parent is a squads-ring instruction with a state-transitioning
 /// tag, never `EMIT_EVENT` itself.
 pub const EMIT_EVENT: u8 = 18;
 
@@ -33,8 +33,8 @@ pub enum InstructionTag {
     Transact = TRANSACT,
     Deposit = DEPOSIT,
     MergeTransact = MERGE_TRANSACT,
-    CreateZoneConfig = CREATE_ZONE_CONFIG,
-    UpdateZoneConfig = UPDATE_ZONE_CONFIG,
+    CreateRingConfig = CREATE_RING_CONFIG,
+    UpdateRingConfig = UPDATE_RING_CONFIG,
     CreateViewingKeyAccount = CREATE_VIEWING_KEY_ACCOUNT,
     UpdateViewingKeyAccount = UPDATE_VIEWING_KEY_ACCOUNT,
     FillKeyUpdate = FILL_KEY_UPDATE,
@@ -46,7 +46,7 @@ pub enum InstructionTag {
     ExecuteProposal = EXECUTE_PROPOSAL,
     ExecuteKeyUpdate = EXECUTE_KEY_UPDATE,
     CancelKeyUpdate = CANCEL_KEY_UPDATE,
-    InitSppZoneConfig = INIT_SPP_ZONE_CONFIG,
+    InitSppRingConfig = INIT_SPP_RING_CONFIG,
     FoldTransact = FOLD_TRANSACT,
     EmitEvent = EMIT_EVENT,
 }
@@ -59,8 +59,8 @@ impl TryFrom<u8> for InstructionTag {
             TRANSACT => Ok(Self::Transact),
             DEPOSIT => Ok(Self::Deposit),
             MERGE_TRANSACT => Ok(Self::MergeTransact),
-            CREATE_ZONE_CONFIG => Ok(Self::CreateZoneConfig),
-            UPDATE_ZONE_CONFIG => Ok(Self::UpdateZoneConfig),
+            CREATE_RING_CONFIG => Ok(Self::CreateRingConfig),
+            UPDATE_RING_CONFIG => Ok(Self::UpdateRingConfig),
             CREATE_VIEWING_KEY_ACCOUNT => Ok(Self::CreateViewingKeyAccount),
             UPDATE_VIEWING_KEY_ACCOUNT => Ok(Self::UpdateViewingKeyAccount),
             FILL_KEY_UPDATE => Ok(Self::FillKeyUpdate),
@@ -72,7 +72,7 @@ impl TryFrom<u8> for InstructionTag {
             EXECUTE_PROPOSAL => Ok(Self::ExecuteProposal),
             EXECUTE_KEY_UPDATE => Ok(Self::ExecuteKeyUpdate),
             CANCEL_KEY_UPDATE => Ok(Self::CancelKeyUpdate),
-            INIT_SPP_ZONE_CONFIG => Ok(Self::InitSppZoneConfig),
+            INIT_SPP_RING_CONFIG => Ok(Self::InitSppRingConfig),
             FOLD_TRANSACT => Ok(Self::FoldTransact),
             EMIT_EVENT => Ok(Self::EmitEvent),
             _ => Err(()),

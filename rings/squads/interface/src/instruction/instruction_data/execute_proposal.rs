@@ -13,27 +13,27 @@ use crate::{
 /// Settles an approved proposal. Per the spec this matches `transact`'s
 /// `TransactIxData` without `expiry`. The proposal supplies the private proposal
 /// core, recipient/destination, and asset. Execution validates the public fields
-/// against the actual accounts and derives the zone proof's v2 commitment.
+/// against the actual accounts and derives the ring proof's v2 commitment.
 /// `public_amount` is `Some` for a withdrawal, `None` for a transfer.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct ExecuteProposalIxData {
-    /// Compressed Groth16 zone proof with commitment.
-    pub zone_proof: ProofBytes,
+    /// Compressed Groth16 ring proof with commitment.
+    pub ring_proof: ProofBytes,
     /// Compressed Groth16 SPP proof. Forwarded to SPP.
     pub spp_proof: ProofBytes,
     /// `Some` for a withdrawal, `None` for a transfer.
     pub public_amount: Option<u64>,
     /// Canonical bump of the per-mint SPL interface PDA, required on an SPL
     /// withdrawal. SPP validates it against the settlement accounts, so the
-    /// zone forwards it without checking.
+    /// ring forwards it without checking.
     pub spl_interface_bump: u8,
     /// Public input shared with the SPP proof.
     pub private_tx_hash: [u8; 32],
     /// Per-transaction encryption salt shared by every output ciphertext.
-    /// Forwarded verbatim into the SPP `TransactIxData` the zone constructs
+    /// Forwarded verbatim into the SPP `TransactIxData` the ring constructs
     /// for its CPI.
     pub salt: [u8; 16],
-    /// One `view_tag` per SPP output-ciphertext slot the zone forwards
+    /// One `view_tag` per SPP output-ciphertext slot the ring forwards
     /// (sender bundle first, then one per recipient -- same order as
     /// `encrypted_utxos`).
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
@@ -44,8 +44,8 @@ pub struct ExecuteProposalIxData {
     /// Per spent input. Length `N`.
     #[wincode(with = "containers::Vec<InputContext, FixIntLen<u8>>")]
     pub input_contexts: Vec<InputContext>,
-    /// Output ciphertexts, zone serialization (spec `EncryptedUtxos`). Parsed
-    /// inline and bound by the zone proof.
+    /// Output ciphertexts, ring serialization (spec `EncryptedUtxos`). Parsed
+    /// inline and bound by the ring proof.
     pub encrypted_utxos: EncryptedUtxos,
 }
 

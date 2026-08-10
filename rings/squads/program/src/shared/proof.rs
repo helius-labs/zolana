@@ -1,5 +1,5 @@
 //! Shared Groth16 public-input field math and proof verification, reused by every
-//! proof-bearing zone instruction. The hash helpers mirror the circuits' Poseidon
+//! proof-bearing ring instruction. The hash helpers mirror the circuits' Poseidon
 //! field encoding. `verify_groth16` decompresses the 192-byte proof and runs the
 //! BSB22 or vanilla pairing depending on the VK.
 
@@ -9,20 +9,20 @@ use groth16_solana::{
 };
 use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::{Hasher, Poseidon};
-use zolana_squads_interface::error::SquadsZoneError;
+use zolana_squads_interface::error::SquadsRingError;
 
 /// `Poseidon(a, b)` of two field elements.
 pub fn poseidon2(
     a: &[u8; 32],
     b: &[u8; 32],
-    verify_err: SquadsZoneError,
+    verify_err: SquadsRingError,
 ) -> Result<[u8; 32], ProgramError> {
     Poseidon::hashv(&[a.as_slice(), b.as_slice()]).map_err(|_| verify_err.into())
 }
 
 /// Split a 32-byte value into low/high 128-bit limbs and `Poseidon(low, high)`.
 #[inline(never)]
-pub fn hash_field(value: &[u8; 32], verify_err: SquadsZoneError) -> Result<[u8; 32], ProgramError> {
+pub fn hash_field(value: &[u8; 32], verify_err: SquadsRingError) -> Result<[u8; 32], ProgramError> {
     let (high, low) = split_16(value);
     poseidon2(&right_align_16(&low), &right_align_16(&high), verify_err)
 }
@@ -49,7 +49,7 @@ impl<const N: usize> Chain<N> {
         let slot = self
             .elements
             .get_mut(self.len)
-            .ok_or(SquadsZoneError::ProofHashingFailed)?;
+            .ok_or(SquadsRingError::ProofHashingFailed)?;
         *slot = element;
         self.len += 1;
         Ok(())
@@ -59,8 +59,8 @@ impl<const N: usize> Chain<N> {
         let used = self
             .elements
             .get(..self.len)
-            .ok_or(SquadsZoneError::ProofHashingFailed)?;
-        hash_chain(used, SquadsZoneError::ProofHashingFailed)
+            .ok_or(SquadsRingError::ProofHashingFailed)?;
+        hash_chain(used, SquadsRingError::ProofHashingFailed)
     }
 }
 
@@ -68,7 +68,7 @@ impl<const N: usize> Chain<N> {
 #[inline(never)]
 pub fn hash_chain(
     items: &[[u8; 32]],
-    verify_err: SquadsZoneError,
+    verify_err: SquadsRingError,
 ) -> Result<[u8; 32], ProgramError> {
     let mut iter = items.iter();
     let Some(first) = iter.next() else {
@@ -107,7 +107,7 @@ pub const MAX_POSEIDON_INPUTS: usize = 8;
 #[inline(never)]
 pub fn poseidon_hash(
     inputs: &[[u8; 32]],
-    verify_err: SquadsZoneError,
+    verify_err: SquadsRingError,
 ) -> Result<[u8; 32], ProgramError> {
     if inputs.is_empty() || inputs.len() > MAX_POSEIDON_INPUTS {
         return Err(verify_err.into());
@@ -122,7 +122,7 @@ pub fn poseidon_hash(
 
 /// `pack33_to_2fe`: split a 33-byte compressed P-256 pubkey into two big-endian
 /// field elements, mirroring `Pack33To2FECircuit`
-/// (prover/server/circuits/zone-utils/poseidon_kdf.go:63).
+/// (prover/server/circuits/ring-utils/poseidon_kdf.go:63).
 ///
 /// - `lo` = big-endian integer of `key[0..31]` left-padded with one zero byte:
 ///   `lo[0] = 0`, `lo[1..32] = key[0..31]`.
@@ -145,12 +145,12 @@ pub fn pack33_to_2fe(key: &[u8; 33]) -> ([u8; 32], [u8; 32]) {
 /// `data` longer than `16 * out.len()` is rejected with `verify_err`.
 ///
 /// Mirrors `PackBytesBE(.., 16)`
-/// (prover/server/circuits/zone-utils/poseidon_kdf.go:127). E.g. a 40-byte
+/// (prover/server/circuits/ring-utils/poseidon_kdf.go:127). E.g. a 40-byte
 /// ciphertext -> 3 FEs (16, 16, 8). A 71-byte ciphertext -> 5 FEs (16,16,16,16,7).
 pub fn pack_bytes_be(
     data: &[u8],
     out: &mut [[u8; 32]],
-    verify_err: SquadsZoneError,
+    verify_err: SquadsRingError,
 ) -> Result<usize, ProgramError> {
     let mut count = 0usize;
     for (slot, chunk) in out.iter_mut().zip(data.chunks(16)) {
@@ -179,8 +179,8 @@ pub fn verify_groth16(
     proof: &[u8; 192],
     public_input_hash: [u8; 32],
     verifying_key: &Groth16Verifyingkey,
-    encoding_err: SquadsZoneError,
-    verify_err: SquadsZoneError,
+    encoding_err: SquadsRingError,
+    verify_err: SquadsRingError,
 ) -> ProgramResult {
     let proof_a = decompress_g1(chunk::<32>(proof, 0, encoding_err)?).map_err(|_| encoding_err)?;
     let proof_b = decompress_g2(chunk::<64>(proof, 32, encoding_err)?).map_err(|_| encoding_err)?;
@@ -215,7 +215,7 @@ pub fn verify_groth16(
 fn chunk<const N: usize>(
     data: &[u8],
     start: usize,
-    encoding_err: SquadsZoneError,
+    encoding_err: SquadsRingError,
 ) -> Result<&[u8; N], ProgramError> {
     data.get(start..start + N)
         .ok_or(encoding_err)?
@@ -227,7 +227,7 @@ fn chunk<const N: usize>(
 mod tests {
     use super::*;
 
-    const ERR: SquadsZoneError = SquadsZoneError::ProofHashingFailed;
+    const ERR: SquadsRingError = SquadsRingError::ProofHashingFailed;
 
     /// `pack33_to_2fe` of key[i] = i+1 (so key[0]=1 .. key[32]=33) gives
     /// lo = [0, 1, 2, .., 31] and hi = zeros except hi[30]=32, hi[31]=33.

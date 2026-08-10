@@ -1,13 +1,13 @@
-use zolana_squads_interface::error::SquadsZoneError::{self, *};
+use zolana_squads_interface::error::SquadsRingError::{self, *};
 
 /// The pinned code of every declared variant. The match is exhaustive, so a new
 /// variant does not compile until it is pinned here. Codes 8008, 8030, 8042,
 /// 8047, and 8048 belonged to deleted variants and stay retired.
-fn pinned_code(error: SquadsZoneError) -> u32 {
+fn pinned_code(error: SquadsRingError) -> u32 {
     match error {
         InvalidInstructionData => 8000,
         Deserialization => 8001,
-        InvalidZoneConfig => 8002,
+        InvalidRingConfig => 8002,
         InvalidViewingKeyAccount => 8003,
         InvalidProposal => 8004,
         InvalidKeyUpdateProposal => 8005,
@@ -15,7 +15,7 @@ fn pinned_code(error: SquadsZoneError) -> u32 {
         InvalidAccountSize => 8007,
         InvalidAccountOwner => 8009,
         InvalidPda => 8010,
-        InvalidZoneAuth => 8011,
+        InvalidRingAuth => 8011,
         MissingAuthoritySignature => 8012,
         MissingOwnerSignature => 8013,
         MissingExecutorSignature => 8014,
@@ -43,7 +43,7 @@ fn pinned_code(error: SquadsZoneError) -> u32 {
         ProposalTargetMismatch => 8037,
         RentRecipientMismatch => 8038,
         InvalidProofEncoding => 8039,
-        ZoneProofVerificationFailed => 8040,
+        RingProofVerificationFailed => 8040,
         KeyEncryptionProofVerificationFailed => 8041,
         ProofHashingFailed => 8043,
         InvalidSppProgram => 8044,
@@ -62,7 +62,7 @@ fn pinned_code(error: SquadsZoneError) -> u32 {
         UnsupportedKeyCount => 8059,
         Serialization => 8060,
         FoldLegCountOverflow => 8061,
-        InvalidZoneProgram => 8062,
+        InvalidRingProgram => 8062,
         NullifierPubkeyRotationUnsupported => 8063,
         StaleKeyUpdateProposal => 8064,
         ProofShapeMismatch => 8065,
@@ -71,10 +71,10 @@ fn pinned_code(error: SquadsZoneError) -> u32 {
 }
 
 /// Every declared variant, in code order.
-const DECLARED: [SquadsZoneError; 62] = [
+const DECLARED: [SquadsRingError; 62] = [
     InvalidInstructionData,
     Deserialization,
-    InvalidZoneConfig,
+    InvalidRingConfig,
     InvalidViewingKeyAccount,
     InvalidProposal,
     InvalidKeyUpdateProposal,
@@ -82,7 +82,7 @@ const DECLARED: [SquadsZoneError; 62] = [
     InvalidAccountSize,
     InvalidAccountOwner,
     InvalidPda,
-    InvalidZoneAuth,
+    InvalidRingAuth,
     MissingAuthoritySignature,
     MissingOwnerSignature,
     MissingExecutorSignature,
@@ -110,7 +110,7 @@ const DECLARED: [SquadsZoneError; 62] = [
     ProposalTargetMismatch,
     RentRecipientMismatch,
     InvalidProofEncoding,
-    ZoneProofVerificationFailed,
+    RingProofVerificationFailed,
     KeyEncryptionProofVerificationFailed,
     ProofHashingFailed,
     InvalidSppProgram,
@@ -129,7 +129,7 @@ const DECLARED: [SquadsZoneError; 62] = [
     UnsupportedKeyCount,
     Serialization,
     FoldLegCountOverflow,
-    InvalidZoneProgram,
+    InvalidRingProgram,
     NullifierPubkeyRotationUnsupported,
     StaleKeyUpdateProposal,
     ProofShapeMismatch,
