@@ -102,6 +102,7 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-cli
+      - run: just check-tree-clean
 
   test-shielded-pool:
     name: tests / shielded-pool
@@ -122,6 +123,7 @@ jobs:
       - name: Install pinned SBF platform tools
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - run: just test-program-fast
+      - run: just check-tree-clean
 
   test-squads:
     name: tests / squads zone
@@ -142,6 +144,40 @@ jobs:
       - name: Install pinned SBF platform tools
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - run: just test-squads
+      - run: just check-tree-clean
+
+  # The registered verify path, the finalized loader, and the permissionless init
+  # machine compile only under the non-default `vk-registry` feature, so this job
+  # is the only place they are built and exercised.
+  test-vk-registry:
+    name: tests / vk-registry
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    env:
+      AGAVE_VERSION: v4.0.2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: litesvm
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Install Anza CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Install pinned SBF platform tools
+        run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
+      - name: Cache proving keys
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: prover/server/proving-keys
+          key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
+      - run: just test-vk-registry
+      - run: just check-tree-clean
 
   test-sdk-libs:
     name: tests / sdk-libs
@@ -153,6 +189,7 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs
+      - run: just check-tree-clean
 
   test-programs:
     name: tests / programs
@@ -182,6 +219,7 @@ jobs:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-program-proofs-programs-only
+      - run: just check-tree-clean
 
   build-photon:
     name: build / photon
@@ -272,6 +310,7 @@ jobs:
         if: steps.squads-cache.outputs.cache-hit != 'true'
         run: just fetch-smart-account
       - run: just ${{ matrix.recipe }}
+      - run: just check-tree-clean
       - name: Dump prover and photon logs on failure
         if: failure()
         run: |
@@ -303,6 +342,7 @@ jobs:
       - name: Install pinned SBF platform tools
         run: cargo build-sbf --tools-version "$SBF_TOOLS_VERSION" --install-only
       - run: just test-user-registry-litesvm
+      - run: just check-tree-clean
 
   # Line/region coverage over the library and binary crates: the program-libs,
   # the SDK crates, the CLI, forester, and photon. Informational — it renders a
@@ -367,4 +407,5 @@ jobs:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
       - run: just test-client-integration
+      - run: just check-tree-clean
 

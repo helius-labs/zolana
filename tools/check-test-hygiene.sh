@@ -32,6 +32,7 @@ test_roots=(
 # Test packages whose `[[test]]` binaries are pinned by manifest path.
 manifest_pinned_suites=(
   program-tests/shielded-pool
+  program-tests/vk-registry
   zones/squads/integration-tests
 )
 
@@ -39,10 +40,11 @@ require_paths \
   Cargo.toml justfile sdk-libs/client \
   program-tests/spp-test-validator program-tests/spp-test-validator/tests \
   program-tests/ring-test-program program-tests/ring-test-program/tests \
+  program-tests/vk-registry/tests \
   "${test_roots[@]}" "${manifest_pinned_suites[@]}"
 
 # git grep exits 0 on a match (a hygiene violation), 1 on no match (clean),
-# and >1 on a fatal error such as an invalid pathspec; the fatal case must
+# and >1 on a fatal error such as an invalid pathspec. The fatal case must
 # fail the script instead of passing as "no match".
 report_matches() {
   local message=$1
@@ -75,6 +77,51 @@ report_matches \
   "program tests must use the standard Rust test harness" \
   'harness[[:space:]]*=[[:space:]]*false' -- \
   sdk-libs/client "${test_roots[@]}"
+
+# A test file with no content is a placeholder, not a suite. It passes for free
+# and hides the missing coverage behind a declared-looking name.
+empty_tests=$(find "${test_roots[@]}" -type f -name '*.rs' -size 0)
+if [ -n "$empty_tests" ]; then
+  echo "empty test files are not allowed:" >&2
+  printf '%s\n' "$empty_tests" >&2
+  failed=1
+fi
+
+# A test that serializes a value, deserializes it, and asserts only that the two
+# are equal exercises the derive macro, not this code. CLAUDE.md forbids it.
+# A whole-value comparison is the single signature here. An assertion that reads
+# a length, a discriminator, a field, or an error is a real wire check and keeps
+# the test.
+round_trip_only=$(find "${test_roots[@]}" -type f -name '*.rs' -print0 \
+  | xargs -0 awk '
+    /#\[test\]/ { pending = 1; next }
+    pending && /fn [A-Za-z_][A-Za-z0-9_]*/ {
+      match($0, /fn [A-Za-z_][A-Za-z0-9_]*/)
+      name = substr($0, RSTART + 3, RLENGTH - 3)
+      pending = 0; inbody = 1; depth = 0; body = ""; asserts = 0; whole = 0
+    }
+    inbody {
+      body = body $0 "\n"
+      line = $0
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line ~ /assert/) {
+        asserts++
+        if (line ~ /^assert_eq!\([A-Za-z_][A-Za-z0-9_]*, ?[A-Za-z_][A-Za-z0-9_]*\);$/) whole++
+      }
+      depth += gsub(/\{/, "{")
+      depth -= gsub(/\}/, "}")
+      if (depth <= 0 && body ~ /\{/) {
+        if (body ~ /serialize\(/ && body ~ /deserialize\(/ && asserts > 0 && asserts == whole)
+          printf "%s: %s\n", FILENAME, name
+        inbody = 0
+      }
+    }
+  ')
+if [ -n "$round_trip_only" ]; then
+  echo "tests that only round-trip a derived serialization are not allowed:" >&2
+  printf '%s\n' "$round_trip_only" >&2
+  failed=1
+fi
 
 report_matches \
   "validator failures must inspect typed errors, not formatted strings" \
@@ -161,7 +208,7 @@ if [ -n "$tracked_artifacts" ]; then
   failed=1
 fi
 
-# --- invariants ledger consistency ---
+# Invariants ledger consistency.
 #
 # (e) The README's tallies must match the ledger files: per-file
 #     total/ticked/N-A, the global totals, and the severity counts.
@@ -233,7 +280,7 @@ claim_na=$(readme_number x 's/^- Not applicable post-PR164: ([0-9]+).*/\1/p')
 claim_partial=$(readme_number x 's/^- Partial: ([0-9]+).*/\1/p')
 claim_pointer=$(readme_number x 's/^- Pointer: ([0-9]+).*/\1/p')
 # The pointer count comes from the ledger (entries marked "pointer entry"),
-# not from the README claim; Partial is computed from the ledger and both
+# not from the README claim. Partial is computed from the ledger and both
 # are diffed against the README, never one from the other.
 ledger_pointer=0
 for name in $inv_files; do
@@ -261,8 +308,8 @@ for sev in Critical High Medium; do
 done
 
 # (f) Covered-by citations. A `Covered by:` line must carry at least one
-# backticked token (otherwise the citation is invisible to this check);
-# tokens after a repo-relative file path must exist in that file; other
+# backticked token (otherwise the citation is invisible to this check).
+# Tokens after a repo-relative file path must exist in that file. Other
 # identifier tokens must be a real function somewhere. `Cross-branch
 # coverage:` lines are the explicit companion-branch label and skip this
 # check entirely.
@@ -271,7 +318,7 @@ bad_citations=""
 covered_lines=$(grep -hE 'Covered by:|Cross-branch coverage:' "$inv_dir"/*.md || true)
 while IFS= read -r line; do
   case "$line" in
-    *Cross-branch\ coverage:*) continue ;;  # explicit companion-branch label
+    *Cross-branch\ coverage:*) continue ;;
   esac
   tokens=$(printf '%s' "$line" | grep -oE '`[^`]+`' | tr -d '`' || true)
   if [ -z "$tokens" ]; then

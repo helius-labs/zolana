@@ -18,6 +18,7 @@ on:
           - test-nullifier-fold
           - test-ring-validator-aggregate-cu
           - test-swap-batch
+          - test-vk-registry-aggregate
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

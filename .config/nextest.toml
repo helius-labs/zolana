@@ -41,12 +41,13 @@ serial-validator = { max-threads = 1 }
 # Assign every validator/localnet-spawning test to that group. Applied to both
 # profiles (nextest does not inherit overrides across profiles); only the ci
 # override retries, since these are the suites exposed to localnet/prover
-# flakiness.
+# flakiness. `vk-registry-test` spawns a prover on the same fixed port, so it
+# belongs here even though `just test-vk-registry` runs it under `cargo test`.
 [[profile.default.overrides]]
-filter = "package(spp-test-validator) | package(ring-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | (package(shielded-pool-tests) & binary_id(/localnet/))"
+filter = "package(spp-test-validator) | package(ring-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | package(vk-registry-test) | (package(shielded-pool-tests) & binary_id(/localnet/))"
 test-group = "serial-validator"
 
 [[profile.ci.overrides]]
-filter = "package(spp-test-validator) | package(ring-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | (package(shielded-pool-tests) & binary_id(/localnet/))"
+filter = "package(spp-test-validator) | package(ring-test-program) | package(swap-test-validator) | package(timelock-escrow-test) | package(dynamic-swap-test) | package(vk-registry-test) | (package(shielded-pool-tests) & binary_id(/localnet/))"
 test-group = "serial-validator"
 retries = 2
