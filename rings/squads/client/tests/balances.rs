@@ -15,7 +15,7 @@ use zolana_squads_client::{
     seed_viewing_key_account, tags::view_tag_from_shared_viewing_key, GetBalancesRequest,
     ReadAuthorization, SquadsBackend, SquadsBackendError, ViewingKeyAccountSeed,
 };
-use zolana_squads_interface::{types::Address, SQUADS_ZONE_PROGRAM_ID};
+use zolana_squads_interface::{types::Address, SQUADS_RING_PROGRAM_ID};
 use zolana_squads_sdk::encrypted_utxo::encrypt_recipient_ciphertext;
 use zolana_transaction::{instructions::transact::asset_field, SOL_MINT};
 
@@ -48,7 +48,7 @@ impl Rpc for MockIndexer {
             Ok(Some(Account {
                 lamports: 1,
                 data: self.vka_data.clone(),
-                owner: Address::new_from_array(SQUADS_ZONE_PROGRAM_ID),
+                owner: Address::new_from_array(SQUADS_RING_PROGRAM_ID),
                 executable: false,
                 rent_epoch: 0,
             }))

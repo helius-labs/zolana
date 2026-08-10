@@ -61,10 +61,10 @@ pub(crate) fn ctr_apply_pub(key: &[u8; 32], nonce: &[u8; NONCE_LEN], buf: &mut [
     crypto::ctr_apply(key, nonce, buf)
 }
 
-/// The settlement transfer a zone withdrawal folds into its external data. SPP
+/// The settlement transfer a ring withdrawal folds into its external data. SPP
 /// recomputes the same value, so the rail selection and every address here must
-/// match the accounts the zone forwards.
-/// The public destination a zone withdrawal pays. The variant selects both the
+/// match the accounts the ring forwards.
+/// The public destination a ring withdrawal pays. The variant selects both the
 /// settlement rail and the asset field the circuit's balance check binds, so the
 /// addresses that mean nothing on the other rail cannot be supplied at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,7 +106,7 @@ pub(crate) fn withdrawal_transfer(
     }
 }
 
-/// The public-transfer slots a zone withdrawal proves. One asset moves, so slot
+/// The public-transfer slots a ring withdrawal proves. One asset moves, so slot
 /// zero carries it. The amount is negative because a withdrawal leaves the pool,
 /// which the circuit's balance check binds.
 pub(crate) fn withdrawal_public_transfers(

@@ -1,6 +1,6 @@
-//! Squads zone backend client. This in-process backend holds the auditor P-256
+//! Squads ring backend client. This in-process backend holds the auditor P-256
 //! key, decrypts every account's UTXOs and proposals via each account's shared
-//! viewing key, runs the prover, and builds or sends the zone transactions. It
+//! viewing key, runs the prover, and builds or sends the ring transactions. It
 //! wraps the `zolana-client` indexer (`Rpc`) and exposes the Backend API
 //! endpoints from `docs/squads_policy_program.md` (`getBalances`, `getProposals`,
 //! `requestCreateViewingKeyAccount`, `requestTransact`).

@@ -22,7 +22,7 @@ const INPUTS = {
     privateTxHash: 0n,
     publicAssets: [0n, 0n, 0n],
     publicAmounts: [0n, 0n, 0n],
-    zoneProgramId: 0n,
+    ringProgramId: 0n,
     signerPublicKeyHashes: [0n],
     allowDummyInputs: 1n,
     publishedOutputOwnerPublicKeyHashes: [],
@@ -57,8 +57,8 @@ function mergeInputs(): MergeInputs {
     privateTxHash: 0n,
     allowDummyInputs: 1n,
     publicInputHash: 0n,
-    outputZoneDataHash: 0n,
-    zoneProgramId: 0n,
+    outputRingDataHash: 0n,
+    ringProgramId: 0n,
   } as unknown as MergeInputs;
 }
 
@@ -158,8 +158,8 @@ describe("dummy prover inputs", () => {
       amount: 0n,
       blinding: BigInt(`0x${"07".repeat(32)}`),
       dataHash: 0n,
-      zoneDataHash: 0n,
-      zoneProgramId: 0n,
+      ringDataHash: 0n,
+      ringProgramId: 0n,
     });
   });
 });

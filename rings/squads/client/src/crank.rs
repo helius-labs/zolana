@@ -1,6 +1,6 @@
 //! Autonomous background settlement crank.
 //!
-//! [`SquadsBackend::new_with_crank`] spawns one thread that polls the zone
+//! [`SquadsBackend::new_with_crank`] spawns one thread that polls the ring
 //! program's `Proposal` PDAs, reconstructs and verifies each against on-chain
 //! data plus the auditor key, proves the smart-account (signatureless)
 //! settlement, and sends `execute_proposal` over a v0 transaction backed by a
@@ -34,7 +34,7 @@ use zolana_interface::{
 };
 use zolana_keypair::NullifierKey;
 use zolana_squads_interface::{
-    error::SquadsZoneError,
+    error::SquadsRingError,
     instruction::{
         builders::{ExecuteProposal, MergeTransact, TransactWithdrawal},
         instruction_data::{
@@ -42,7 +42,7 @@ use zolana_squads_interface::{
         },
     },
     state::{Proposal, ViewingKeyAccount},
-    SQUADS_ZONE_PROGRAM_ID,
+    SQUADS_RING_PROGRAM_ID,
 };
 use zolana_squads_sdk::crypto;
 use zolana_squads_sdk::prover::{
@@ -65,7 +65,7 @@ use crate::{
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const ALT_ACTIVATION_TIMEOUT: Duration = Duration::from_secs(30);
-/// Validity window stamped on auto-merge proofs (SPP `merge_zone` enforces it
+/// Validity window stamped on auto-merge proofs (SPP `merge_ring` enforces it
 /// against the chain clock). A merge binds no proposal, so the crank sets its own
 /// deadline off the local clock rather than echoing a proposal `expiry`.
 const MERGE_EXPIRY_WINDOW_SECS: u64 = 600;
@@ -94,13 +94,13 @@ fn proposal_expiry(reconstructed: &ReconstructedProposal) -> Result<u64> {
 }
 
 /// Whether a merge send failure is the permanent `MergeAuthorityNotWhitelisted`
-/// zone config error (a `ProgramError::Custom(8021)`), which surfaces in the send
+/// ring config error (a `ProgramError::Custom(8021)`), which surfaces in the send
 /// error string as the hex custom-error code (`custom program error: 0x1f55`).
 /// Any other error is treated as transient. Detection is best-effort string
 /// matching on the code the runtime renders. A false negative only shortens the
 /// backoff and never causes an unsafe spend.
 fn is_merge_authority_not_whitelisted(err: &SquadsBackendError) -> bool {
-    let code = SquadsZoneError::MergeAuthorityNotWhitelisted as u32;
+    let code = SquadsRingError::MergeAuthorityNotWhitelisted as u32;
     let hex = format!("0x{code:x}");
     err.to_string().to_ascii_lowercase().contains(&hex)
 }
@@ -109,7 +109,7 @@ type ProposalScan = Vec<(Address, Proposal)>;
 type ViewingKeyAccountScan = Vec<(Address, ViewingKeyAccount)>;
 
 /// Accounts of any other kind, or that fail to decode, are dropped.
-fn partition_zone_accounts(
+fn partition_ring_accounts(
     accounts: Vec<(Address, Account)>,
 ) -> (ProposalScan, ViewingKeyAccountScan) {
     let mut proposals = Vec::new();
@@ -171,8 +171,8 @@ impl SquadsBackend<ZolanaIndexer, SolanaRpc> {
     /// from pre-built indexer/RPC instances goes through [`SquadsBackend::new`].
     pub fn new_with_crank(
         auditor_sk: SecretKey,
-        zone_authority: Keypair,
-        zone_config: Address,
+        ring_authority: Keypair,
+        ring_config: Address,
         tree: Address,
         prover_url: impl Into<String>,
         indexer_url: impl Into<String>,
@@ -182,8 +182,8 @@ impl SquadsBackend<ZolanaIndexer, SolanaRpc> {
         let rpc_url = rpc_url.into();
         Self::new(
             auditor_sk,
-            zone_authority,
-            zone_config,
+            ring_authority,
+            ring_config,
             tree,
             prover_url,
             ZolanaIndexer::new(&indexer_url),
@@ -207,8 +207,8 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         let thread_shutdown = Arc::clone(&shutdown);
 
         let auditor = self.auditor_secret().clone();
-        let zone_authority = self.zone_authority().insecure_clone();
-        let zone_config = self.zone_config();
+        let ring_authority = self.ring_authority().insecure_clone();
+        let ring_config = self.ring_config();
         let tree = self.tree();
         let prover_url = self.prover_url().to_string();
         let assets: Vec<(u64, Address)> = self.assets().to_vec();
@@ -220,8 +220,8 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
             let rpc = SolanaRpc::new(rpc_url);
             let mut backend = SquadsBackend::new(
                 auditor,
-                zone_authority,
-                zone_config,
+                ring_authority,
+                ring_config,
                 tree,
                 prover_url,
                 indexer,
@@ -276,9 +276,9 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         inflight_spent: &mut HashSet<[u8; 32]>,
         merge_backoff: &mut HashMap<[u8; 32], Instant>,
     ) -> Result<()> {
-        let program_id = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+        let program_id = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
         let (proposals, viewing_key_accounts) =
-            partition_zone_accounts(self.rpc().get_program_accounts(program_id)?);
+            partition_ring_accounts(self.rpc().get_program_accounts(program_id)?);
 
         for (pda, proposal) in &proposals {
             let key = pda.to_bytes();
@@ -418,7 +418,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
 
         let ix = MergeTransact {
             merge_authority: self.relayer_pubkey(),
-            zone_config: to_pubkey(self.zone_config()),
+            ring_config: to_pubkey(self.ring_config()),
             owner_viewing_key_account: to_pubkey(vka_address),
             ring_auth: self.ring_auth_pubkey(),
             spp_program: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
@@ -441,7 +441,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         settled: &HashSet<[u8; 32]>,
         skipped: &HashSet<[u8; 32]>,
     ) -> Result<bool> {
-        let program_id = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+        let program_id = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
         for (pda, account) in self.rpc().get_program_accounts(program_id)? {
             if account.data.first() != Some(&Proposal::DISCRIMINATOR) {
                 continue;
@@ -459,7 +459,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
 
     /// Prove and settle one reconstructed proposal on the smart-account rail.
     fn settle_proposal(&self, pda: Address, proposal: &Proposal) -> Result<()> {
-        let reconstructed = self.reconstruct_zone_proposal(pda, proposal)?;
+        let reconstructed = self.reconstruct_ring_proposal(pda, proposal)?;
 
         // The smart-account settlement proof spends with the raw vault. Confirm it
         // hashes to the stored owner field before proving.
@@ -550,7 +550,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         ExecuteProposal {
             payer: relayer,
             co_signer: relayer,
-            zone_config: to_pubkey(self.zone_config()),
+            ring_config: to_pubkey(self.ring_config()),
             proposal: to_pubkey(reconstructed.pda),
             sender_viewing_key_account: to_pubkey(sender_vka_address),
             recipient_viewing_key_account: recipient_vka_address.map(to_pubkey),
@@ -590,7 +590,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         self.rpc().create_and_send_versioned_transaction(
             &instructions,
             relayer_address,
-            &[self.zone_authority()],
+            &[self.ring_authority()],
             &[alt],
             Preflight::Skip,
         )?;
@@ -600,7 +600,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
     fn create_alt(&self, addresses: &[Pubkey]) -> Result<AddressLookupTableAccount> {
         let authority = self.relayer_pubkey();
         let authority_address = Address::new_from_array(authority.to_bytes());
-        let signer = self.zone_authority();
+        let signer = self.ring_authority();
 
         // `create_lookup_table` needs a slot already in SlotHashes. The tip is not
         // yet there, so use its parent.
@@ -714,7 +714,7 @@ impl ProposalSettlement<'_> {
             salt,
             sender_view_tag: self.sender_view_tag,
             recipient_view_tag,
-            proposal: Some(self.reconstructed.zone_proposal.clone()),
+            proposal: Some(self.reconstructed.ring_proposal.clone()),
             prover_url: backend.prover_url().to_string(),
         })?;
 
@@ -733,7 +733,7 @@ impl ProposalSettlement<'_> {
             .collect();
 
         let data = ExecuteProposalIxData {
-            zone_proof: proof.zone_proof,
+            ring_proof: proof.ring_proof,
             spp_proof: proof.spp_proof,
             public_amount: None,
             spl_interface_bump: 0,
@@ -798,12 +798,12 @@ impl ProposalSettlement<'_> {
             expiry_unix_ts: proposal_expiry(self.reconstructed)?,
             salt,
             sender_view_tag: self.sender_view_tag,
-            proposal: Some(self.reconstructed.zone_proposal.clone()),
+            proposal: Some(self.reconstructed.ring_proposal.clone()),
             prover_url: backend.prover_url().to_string(),
         })?;
 
         let data = ExecuteProposalIxData {
-            zone_proof: proof.zone_proof,
+            ring_proof: proof.ring_proof,
             spp_proof: proof.spp_proof,
             public_amount: Some(self.reconstructed.public_amount),
             spl_interface_bump: 0,
@@ -931,7 +931,7 @@ mod tests {
         };
 
         let (proposals, vkas) =
-            partition_zone_accounts(vec![(pda(10), proposal_account), (pda(20), junk)]);
+            partition_ring_accounts(vec![(pda(10), proposal_account), (pda(20), junk)]);
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals.first().map(|(_, p)| p.owner), Some(owner(1)));
         assert!(vkas.is_empty());

@@ -1,10 +1,10 @@
-//! `requestTransact` builds the paired zone + SPP proofs and the `transact`
+//! `requestTransact` builds the paired ring + SPP proofs and the `transact`
 //! instruction for a transfer or withdrawal.
 //!
 //! The backend proves on the account's behalf using the shared viewing key and
 //! nullifier secret it recovered with the auditor key. A smart-account
 //! instruction uses the vault as its signer/payer and must be wrapped in an
-//! approved Squads synchronous execution. The backend relayer remains the zone
+//! approved Squads synchronous execution. The backend relayer remains the ring
 //! co-signer. The P256 keypair rail instead uses the relayer as payer and binds
 //! the owner's P256 signature in the proof.
 
@@ -119,7 +119,7 @@ impl WithdrawalInstruction<'_> {
         backend: &SquadsBackend<I, R, A>,
     ) -> solana_instruction::Instruction {
         let ix_data = TransactIxData {
-            zone_proof: self.proof.zone_proof,
+            ring_proof: self.proof.ring_proof,
             spp_proof: self.proof.spp_proof,
             public_amount: Some(self.public_amount),
             spl_interface_bump: self.rail.spl_interface_bump,
@@ -217,7 +217,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
     }
 
     /// The smart-account proof rail. The SPP proof itself is signatureless, but
-    /// the returned zone instruction requires the authenticated vault as payer.
+    /// the returned ring instruction requires the authenticated vault as payer.
     fn request_transact_smart_account(
         &self,
         request: &RequestTransactRequest,
@@ -537,10 +537,10 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         }
     }
 
-    /// The relayer that pays and co-signs zone transactions (the backend's
-    /// `zone_authority`).
+    /// The relayer that pays and co-signs ring transactions (the backend's
+    /// `ring_authority`).
     pub(crate) fn relayer_pubkey(&self) -> Pubkey {
-        to_pubkey(self.zone_authority_address())
+        to_pubkey(self.ring_authority_address())
     }
 
     /// Sha256-BE of the SPP payer address SPP sees (the relayer).
@@ -548,7 +548,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         sha256_be(&self.relayer_pubkey().to_bytes())
     }
 
-    /// The zone authority PDA (SPP's `ZoneConfig` for this zone).
+    /// The ring authority PDA (SPP's `RingConfig` for this ring).
     pub(crate) fn ring_auth_pubkey(&self) -> Pubkey {
         Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &PROGRAM_ID_PUBKEY).0
     }
@@ -702,7 +702,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
             view_tag_from_shared_viewing_key(&recipient_account.shared_viewing_key);
 
         let ix_data = TransactIxData {
-            zone_proof: proof.zone_proof,
+            ring_proof: proof.ring_proof,
             spp_proof: proof.spp_proof,
             public_amount: None,
             spl_interface_bump: 0,
@@ -742,7 +742,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
 
     /// Assemble `transact`. Smart-account callers pass their vault as `payer`
     /// and wrap the instruction so the vault becomes a signer. P256 callers
-    /// pass the relayer. The backend relayer is always the configured zone
+    /// pass the relayer. The backend relayer is always the configured ring
     /// co-signer.
     fn transact_instruction(
         &self,
@@ -756,7 +756,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         Transact {
             payer,
             co_signer: relayer,
-            zone_config: to_pubkey(self.zone_config()),
+            ring_config: to_pubkey(self.ring_config()),
             sender_viewing_key_account: to_pubkey(sender_viewing_key_account),
             recipient_viewing_key_account: recipient_viewing_key_account.map(to_pubkey),
             withdrawal,

@@ -1,16 +1,16 @@
-//! Wallet-facing zone encrypted-UTXO ciphertexts (sender change + recipient
-//! output), reusing the proven AES-256-CTR zone crypto.
+//! Wallet-facing ring encrypted-UTXO ciphertexts (sender change + recipient
+//! output), reusing the proven AES-256-CTR ring crypto.
 //!
 //! Formats (sources of truth):
 //! - Sender change ciphertext: 40 bytes = `amount(8) || asset(32)`, AES-CTR with
 //!   `tx_viewing_sk` used directly as the shared secret
-//!   (`prover/server/circuits/squads/zone/sender.go:25,92,108-113`).
+//!   (`prover/server/circuits/squads/ring/sender.go:25,92,108-113`).
 //! - Recipient ciphertext: 71 bytes = `amount(8) || asset(32) || blinding(31)`,
 //!   AES-CTR keyed by `DeriveSharedSecret(dh, tx_viewing_pk, recipient_pk)`
 //!   (`recipient.go:18,59-66,71-77`).
 //!
 //! Neither ciphertext carries a tag. In production, integrity comes from the
-//! zone proof's Poseidon ciphertext hash. These helpers cover the construction
+//! ring proof's Poseidon ciphertext hash. These helpers cover the construction
 //! and wallet-side decryption only.
 //!
 //! AES-CTR is its own inverse, so decryption reuses the same key schedule. The

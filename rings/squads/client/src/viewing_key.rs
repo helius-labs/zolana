@@ -1,6 +1,6 @@
 //! The backend mints a fresh shared viewing key and nullifier secret and
 //! encrypts the shared key to the caller's auditor key. The backend's
-//! configured zone co-signer authenticates enrollment on-chain. The proof
+//! configured ring co-signer authenticates enrollment on-chain. The proof
 //! owner field is a separate identity that does not sign. Recovery enrollment
 //! fails closed until the instruction can verify a signature from an authority
 //! cryptographically bound to that identity.
@@ -33,7 +33,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         request: RequestCreateViewingKeyAccountRequest,
     ) -> Result<RequestCreateViewingKeyAccountResponse> {
         // `owner_signature` has no public key or signed-message binding in this
-        // request, so checking only its presence would let the zone co-signer add
+        // request, so checking only its presence would let the ring co-signer add
         // arbitrary recovery keys. The stored owner is usually a derived proof
         // identity and cannot sign as a Solana account either. Reject instead of
         // silently dropping or trusting unverifiable authorization.
@@ -75,10 +75,10 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         );
 
         let instruction = CreateViewingKeyAccount {
-            enrollment_authority: to_pubkey(self.zone_authority_address()),
+            enrollment_authority: to_pubkey(self.ring_authority_address()),
             owner_identity: owner,
             viewing_key_account,
-            zone_config: Pubkey::new_from_array(self.zone_config().to_bytes()),
+            ring_config: Pubkey::new_from_array(self.ring_config().to_bytes()),
             system_program: Pubkey::default(),
             data: ix_data,
         }

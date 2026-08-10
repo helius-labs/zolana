@@ -10,12 +10,12 @@ use zolana_squads_client::{
 use zolana_squads_interface::{
     state::{Proposal, ViewingKeyAccount},
     types::Address,
-    SQUADS_ZONE_PROGRAM_ID,
+    SQUADS_RING_PROGRAM_ID,
 };
 use zolana_squads_sdk::proposal::{build_proposal_ciphertext, proposal_hash, ProposalOperation};
 
 /// A mock RPC backed by an address to account map. `get_program_accounts`
-/// returns every stored account (all owned by the zone program in this test).
+/// returns every stored account (all owned by the ring program in this test).
 /// The suite reads its own seeded account, so it supplies a policy that
 /// authorizes the read.
 struct AllowSeededRead;
@@ -39,7 +39,7 @@ impl MockRpc {
         Account {
             lamports: 1,
             data,
-            owner: Address::new_from_array(SQUADS_ZONE_PROGRAM_ID),
+            owner: Address::new_from_array(SQUADS_RING_PROGRAM_ID),
             executable: false,
             rent_epoch: 0,
         }
@@ -208,7 +208,7 @@ fn reconstructs_and_classifies_withdrawal_and_transfer() {
     let backend = build_backend(accounts, auditor);
 
     let w = backend
-        .reconstruct_zone_proposal(withdrawal_pda, &withdrawal)
+        .reconstruct_ring_proposal(withdrawal_pda, &withdrawal)
         .expect("reconstruct withdrawal");
     assert_eq!(w.op, OP_WITHDRAW);
     assert_eq!(w.amount, withdrawn);
@@ -219,13 +219,13 @@ fn reconstructs_and_classifies_withdrawal_and_transfer() {
     assert_eq!(w.proposal_hash, withdrawal_hash);
 
     let t = backend
-        .reconstruct_zone_proposal(transfer_pda, &transfer)
+        .reconstruct_ring_proposal(transfer_pda, &transfer)
         .expect("reconstruct transfer");
     assert_eq!(t.op, OP_TRANSFER);
     assert_eq!(t.amount, transferred);
     assert_eq!(t.public_amount, 0);
     assert_eq!(t.recipient, recipient.owner);
-    assert_eq!(t.zone_proposal.recipient, owner_hash);
+    assert_eq!(t.ring_proposal.recipient, owner_hash);
     assert_eq!(t.proposal_hash, transfer_hash);
 
     // `get_proposals` for the sender returns both (sender is a party to each).
@@ -289,5 +289,5 @@ fn reconstruction_rejects_hash_mismatch() {
     ];
     let backend = build_backend(accounts, auditor);
 
-    assert!(backend.reconstruct_zone_proposal(pda, &proposal).is_err());
+    assert!(backend.reconstruct_ring_proposal(pda, &proposal).is_err());
 }

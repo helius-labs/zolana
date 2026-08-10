@@ -43,7 +43,7 @@ export interface TransferInputs {
   readonly privateTxHash: Field;
   readonly publicAssets: readonly Field[];
   readonly publicAmounts: readonly Field[];
-  readonly zoneProgramId: Field;
+  readonly ringProgramId: Field;
   readonly signerPublicKeyHashes: readonly Field[];
   readonly allowDummyInputs: Field;
   readonly publishedOutputOwnerPublicKeyHashes: readonly Field[];
@@ -60,8 +60,8 @@ export interface MergeInputs {
   readonly privateTxHash: Field;
   readonly allowDummyInputs: Field;
   readonly publicInputHash: Field;
-  readonly outputZoneDataHash: Field;
-  readonly zoneProgramId: Field;
+  readonly outputRingDataHash: Field;
+  readonly ringProgramId: Field;
 }
 
 export type ProverInputs = Readonly<{ circuit: "transfer"; payload: TransferInputs }>;

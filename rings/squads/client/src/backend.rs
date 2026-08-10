@@ -7,7 +7,7 @@ use p256::SecretKey;
 use solana_keypair::Keypair;
 use zolana_client::Rpc;
 use zolana_keypair::P256Pubkey;
-use zolana_squads_interface::{state::ViewingKeyAccount, types::Address, SQUADS_ZONE_PROGRAM_ID};
+use zolana_squads_interface::{state::ViewingKeyAccount, types::Address, SQUADS_RING_PROGRAM_ID};
 use zolana_squads_sdk::{crypto, viewing_key_account::recover_nullifier_secret};
 
 use crate::{
@@ -33,8 +33,8 @@ pub struct ResolvedAccount {
 /// type implementing both may be passed for both.
 pub struct SquadsBackend<I: Rpc, R: Rpc, A: ReadAuthorization = DenyUnverifiedRead> {
     auditor_sk: SecretKey,
-    zone_authority: Keypair,
-    zone_config: Address,
+    ring_authority: Keypair,
+    ring_config: Address,
     tree: Address,
     prover_url: String,
     indexer: I,
@@ -57,8 +57,8 @@ impl<I: Rpc, R: Rpc> SquadsBackend<I, R, DenyUnverifiedRead> {
     /// `SquadsBackend::new_with_crank`, which also starts the settlement crank.
     pub fn new(
         auditor_sk: SecretKey,
-        zone_authority: Keypair,
-        zone_config: Address,
+        ring_authority: Keypair,
+        ring_config: Address,
         tree: Address,
         prover_url: impl Into<String>,
         indexer: I,
@@ -66,8 +66,8 @@ impl<I: Rpc, R: Rpc> SquadsBackend<I, R, DenyUnverifiedRead> {
     ) -> Self {
         Self {
             auditor_sk,
-            zone_authority,
-            zone_config,
+            ring_authority,
+            ring_config,
             tree,
             prover_url: prover_url.into(),
             indexer,
@@ -88,8 +88,8 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
     ) -> SquadsBackend<I, R, B> {
         let Self {
             auditor_sk,
-            zone_authority,
-            zone_config,
+            ring_authority,
+            ring_config,
             tree,
             prover_url,
             indexer,
@@ -100,8 +100,8 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         } = self;
         SquadsBackend {
             auditor_sk,
-            zone_authority,
-            zone_config,
+            ring_authority,
+            ring_config,
             tree,
             prover_url,
             indexer,
@@ -128,8 +128,8 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
     }
 
     /// The relayer/co-signer keypair the crank clones to sign settlements.
-    pub(crate) fn zone_authority(&self) -> &Keypair {
-        &self.zone_authority
+    pub(crate) fn ring_authority(&self) -> &Keypair {
+        &self.ring_authority
     }
 
     /// Register an SPL asset so its UTXOs are attributed to `asset_id` / `mint`.
@@ -160,7 +160,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
     }
 
     /// Load and decode a viewing key account's public fields (no decryption).
-    /// The account must be owned by the zone program and carry the viewing key
+    /// The account must be owned by the ring program and carry the viewing key
     /// account discriminator, because its `owner`, `nullifier_pubkey` and
     /// `shared_viewing_key` become the recipient a transfer pays.
     pub fn load_viewing_key_account(&self, address: Address) -> Result<ViewingKeyAccount> {
@@ -169,7 +169,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
             .get_account(address)?
             .ok_or_else(|| SquadsBackendError::AccountNotFound(address.to_string()))?;
         let invalid = || SquadsBackendError::InvalidViewingKeyAccount(address.to_string());
-        if account.owner.to_bytes() != SQUADS_ZONE_PROGRAM_ID {
+        if account.owner.to_bytes() != SQUADS_RING_PROGRAM_ID {
             return Err(invalid());
         }
         let vka = ViewingKeyAccount::deserialize(&account.data).map_err(|_| invalid())?;
@@ -188,18 +188,18 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
     }
 
     /// The relayer and co-signer address.
-    pub fn zone_authority_address(&self) -> Address {
+    pub fn ring_authority_address(&self) -> Address {
         use solana_signer::Signer;
-        Address::new_from_array(self.zone_authority.pubkey().to_bytes())
+        Address::new_from_array(self.ring_authority.pubkey().to_bytes())
     }
 
-    /// The auditor's P-256 public key (the key published in `zone_config`).
+    /// The auditor's P-256 public key (the key published in `ring_config`).
     pub fn auditor_public_key(&self) -> p256::PublicKey {
         self.auditor_sk.public_key()
     }
 
-    pub fn zone_config(&self) -> Address {
-        self.zone_config
+    pub fn ring_config(&self) -> Address {
+        self.ring_config
     }
 
     pub fn tree(&self) -> Address {
@@ -211,14 +211,14 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
     }
 
     /// Find the viewing key account whose `owner` (its `owner_pk_field`) matches
-    /// `owner`, scanning the zone program's accounts. A proposal stores only the
+    /// `owner`, scanning the ring program's accounts. A proposal stores only the
     /// sender's / recipient's `owner_pk_field`, so the crank resolves the account
     /// address (and shared key) by this scan.
     pub fn find_viewing_key_account_by_owner(
         &self,
         owner: Address,
     ) -> Result<Option<(Address, ViewingKeyAccount)>> {
-        let program_id = Address::new_from_array(zolana_squads_interface::SQUADS_ZONE_PROGRAM_ID);
+        let program_id = Address::new_from_array(zolana_squads_interface::SQUADS_RING_PROGRAM_ID);
         for (address, account) in self.rpc.get_program_accounts(program_id)? {
             let Ok(vka) = ViewingKeyAccount::deserialize(&account.data) else {
                 continue;

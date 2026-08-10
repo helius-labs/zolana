@@ -11,11 +11,11 @@
 //!   program recompute every public part of the approval without publishing the
 //!   encrypted amount or blinding.
 //!
-//! Unlike the AES-CTR zone ciphertexts (whose integrity comes from the proof's
+//! Unlike the AES-CTR ring ciphertexts (whose integrity comes from the proof's
 //! Poseidon ciphertext hash), the proposal ciphertext is NOT proven by any
 //! circuit, so it carries a real GCM authentication tag. The AES-256-GCM key and
 //! 96-bit nonce are derived from the ECDH shared secret with the same proven
-//! Poseidon key schedule the zone uses ([`crate::crypto::derive_shared_secret`] +
+//! Poseidon key schedule the ring uses ([`crate::crypto::derive_shared_secret`] +
 //! [`crate::crypto::key_schedule`]), so no extra KDF dependency is introduced.
 
 use aes_gcm::{
@@ -66,7 +66,7 @@ fn proposal_keys(
 
 /// `ephemeral_secret` is a 32-byte big-endian scalar the caller supplies (fresh
 /// per proposal, since the ciphertext's first 33 bytes seed the proposal PDA). It
-/// is reduced into the P-256 scalar field, matching how the zone builder treats
+/// is reduced into the P-256 scalar field, matching how the ring builder treats
 /// ephemeral scalars.
 pub fn build_proposal_ciphertext(
     amount: u64,
@@ -203,7 +203,7 @@ pub(crate) fn proposal_hash_fields(
     .map_err(|_| ProposalError::Crypto(CryptoError::Poseidon))
 }
 
-/// Public asset commitment included in the zone transaction proposal context.
+/// Public asset commitment included in the ring transaction proposal context.
 pub fn proposal_asset_commitment(asset: &Address) -> Result<[u8; 32], ProposalError> {
     zolana_hasher::primitives::hash_bytes(asset.as_array())
         .map_err(|_| ProposalError::Crypto(CryptoError::Poseidon))
@@ -225,7 +225,7 @@ pub fn proposal_destination_commitment(
     }
 }
 
-/// V2 proposal commitment used as the zone proof's proposal public input:
+/// V2 proposal commitment used as the ring proof's proposal public input:
 ///
 /// `Poseidon(context_domain, operation, private_core, asset, destination)`.
 ///

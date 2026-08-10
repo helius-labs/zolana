@@ -1,9 +1,9 @@
-//! Zone-proof input builder and prover glue (gated under the `prover` feature).
+//! Ring-proof input builder and prover glue (gated under the `prover` feature).
 //!
-//! Mirrors the squads zone circuit
-//! `prover/server/circuits/squads/zone/{circuit.go,view_key.go,sender.go,
+//! Mirrors the squads ring circuit
+//! `prover/server/circuits/squads/ring/{circuit.go,view_key.go,sender.go,
 //! recipient.go,proposal.go}` and the shared gadgets in
-//! `prover/server/circuits/zone-utils/{poseidon_kdf.go,p256/*}` and
+//! `prover/server/circuits/ring-utils/{poseidon_kdf.go,p256/*}` and
 //! `prover/server/circuits/{spp_transaction/*,gadget/*,verifiable-encryption/aes/*}`
 //! byte-for-byte.
 //!
@@ -11,7 +11,7 @@
 //! viewing pubkey (transfer only), an optional proposal, and the public amount,
 //! this builds the sender and recipient AES-CTR ciphertexts, derives the
 //! change blinding via the Poseidon KDF chain, recomputes every UTXO/account hash
-//! and the public-input hash, serialises the `squads-zone` JSON request, requests a
+//! and the public-input hash, serialises the `squads-ring` JSON request, requests a
 //! Groth16 proof from the prover server, and returns the 192-byte compressed proof
 //! plus the computed public-input hash and published artefacts.
 //!
@@ -41,14 +41,14 @@ use crate::{
     },
 };
 
-pub use zolana_squads_interface::circuits::ZONE_SUPPORTED_SHAPES;
+pub use zolana_squads_interface::circuits::RING_SUPPORTED_SHAPES;
 
 /// A single UTXO as the prover witnesses it. `owner_key_hash` and
 /// `nullifier_pubkey` reconstruct the output's `owner_hash =
 /// Poseidon(owner_key_hash, nullifier_pubkey)` (transaction `OwnerHashGadget`).
 /// All scalar fields are 32-byte big-endian field elements.
 #[derive(Clone)]
-pub struct ZoneUtxo {
+pub struct RingUtxo {
     /// Owner key hash (the `Owner` half of `OwnerHashGadget`).
     pub owner_key_hash: [u8; 32],
     /// Nullifier pubkey bound into `owner_hash`.
@@ -70,7 +70,7 @@ pub struct ZoneUtxo {
 /// The recipient of a transfer. The prover holds no recipient secret, so only the
 /// recipient's public account identity and viewing pubkey are provided.
 #[derive(Clone)]
-pub struct ZoneRecipient {
+pub struct RingRecipient {
     pub owner_key_hash: [u8; 32],
     pub nullifier_pubkey: [u8; 32],
     pub viewing_pubkey: P256Pubkey,
@@ -78,7 +78,7 @@ pub struct ZoneRecipient {
 
 /// An optional proposal commitment bound into the proof.
 #[derive(Clone)]
-pub struct ZoneProposal {
+pub struct RingProposal {
     pub amount: [u8; 32],
     pub recipient: [u8; 32],
     /// `hash_bytes(asset mint)`, constrained against every real input/output.
@@ -90,8 +90,8 @@ pub struct ZoneProposal {
     pub public_amount: [u8; 32],
 }
 
-/// Inputs to a zone proof.
-pub struct ZoneProofInputs {
+/// Inputs to a ring proof.
+pub struct RingProofInputs {
     /// The sender's shared viewing secret key (a P-256 scalar). Drives the change
     /// blinding KDF chain and the sender/recipient ciphertext keys.
     pub viewing_secret_key: SecretKey,
@@ -100,25 +100,25 @@ pub struct ZoneProofInputs {
 
     /// Spent input UTXOs. At least one is required, and `Inputs[0]` seeds the KDF
     /// chain.
-    pub inputs: Vec<ZoneUtxo>,
+    pub inputs: Vec<RingUtxo>,
     /// Output UTXOs. `Outputs[0]` is the sender change. For a transfer,
     /// `Outputs[1]` is the recipient output.
-    pub outputs: Vec<ZoneUtxo>,
+    pub outputs: Vec<RingUtxo>,
     /// External data hash folded into `private_tx_hash`.
     pub external_data_hash: [u8; 32],
 
     /// Present iff this is a transfer (2 outputs). `None` for a withdrawal.
-    pub recipient: Option<ZoneRecipient>,
+    pub recipient: Option<RingRecipient>,
 
     /// The proposal commitment (enabled iff `Some`).
-    pub proposal: Option<ZoneProposal>,
+    pub proposal: Option<RingProposal>,
 
     /// The public withdrawn amount (0 for a transfer).
     pub public_amount: [u8; 32],
 }
 
-/// The published artefacts and proof of a zone proof.
-pub struct ZoneProofResult {
+/// The published artefacts and proof of a ring proof.
+pub struct RingProofResult {
     /// The 192-byte compressed Groth16 proof (BSB22 layout, commitment included).
     pub proof: [u8; 192],
     /// The public-input hash the circuit constrains and the program recomputes.
@@ -192,10 +192,10 @@ fn owner_hash(
 /// pre-encoded field elements, so the fold is replicated structurally
 /// (`zolana_transaction::utxo::utxo_hash` is the same fold over raw
 /// address-typed inputs).
-fn utxo_hash(u: &ZoneUtxo) -> Result<[u8; 32], SquadsProverError> {
+fn utxo_hash(u: &RingUtxo) -> Result<[u8; 32], SquadsProverError> {
     let owner = owner_hash(&u.owner_key_hash, &u.nullifier_pubkey)?;
     let inner = poseidon(&[&owner, &u.blinding])?;
-    let zone_hash = poseidon(&[&u.ring_data_hash, &u.ring_program_id])?;
+    let ring_hash = poseidon(&[&u.ring_data_hash, &u.ring_program_id])?;
     let domain = fe_from_u64(u64::from(zolana_interface::UTXO_DOMAIN));
     let amount = fe_from_u64(u.amount);
     poseidon(&[
@@ -203,14 +203,14 @@ fn utxo_hash(u: &ZoneUtxo) -> Result<[u8; 32], SquadsProverError> {
         &u.asset,
         &amount,
         &u.program_data_hash,
-        &zone_hash,
+        &ring_hash,
         &inner,
     ])
 }
 
 /// `Transaction.Hash` (transaction.go): the shared SPP fold `Poseidon(
 /// HashChain(inputs), HashChain(outputs), HashChain(addresses),
-/// external_data_hash)` with one all-zero address hash per input (the zone
+/// external_data_hash)` with one all-zero address hash per input (the ring
 /// circuit hardcodes them to zero, and only the SPP rail creates addresses).
 /// Delegates to the canonical implementation in `zolana-transaction`.
 fn private_tx_hash(
@@ -272,9 +272,9 @@ struct UtxoJson {
     blinding: String,
     #[serde(rename = "programDataHash")]
     program_data_hash: String,
-    #[serde(rename = "zoneDataHash")]
+    #[serde(rename = "ringDataHash")]
     ring_data_hash: String,
-    #[serde(rename = "zoneProgramId")]
+    #[serde(rename = "ringProgramId")]
     ring_program_id: String,
 }
 
@@ -312,7 +312,7 @@ struct ProposalJson {
 }
 
 #[derive(Serialize)]
-struct ZoneRequestJson {
+struct RingRequestJson {
     #[serde(rename = "circuitType")]
     circuit_type: String,
     #[serde(rename = "nInputs")]
@@ -336,7 +336,7 @@ struct ZoneRequestJson {
     public_input_hash: String,
 }
 
-fn utxo_json(u: &ZoneUtxo) -> Result<UtxoJson, SquadsProverError> {
+fn utxo_json(u: &RingUtxo) -> Result<UtxoJson, SquadsProverError> {
     Ok(UtxoJson {
         owner_hash: fe_hex(&owner_hash(&u.owner_key_hash, &u.nullifier_pubkey)?),
         asset: fe_hex(&u.asset),
@@ -355,7 +355,7 @@ fn utxo_json(u: &ZoneUtxo) -> Result<UtxoJson, SquadsProverError> {
 fn tx_viewing_sk_chain(
     viewing_secret_key: &SecretKey,
     nullifier_secret: &[u8; 32],
-    first_input: &ZoneUtxo,
+    first_input: &RingUtxo,
 ) -> Result<[u8; 32], SquadsProverError> {
     let viewing_sk_be: [u8; 32] = {
         let mut b = [0u8; 32];
@@ -374,7 +374,7 @@ fn tx_viewing_sk_chain(
 
 /// The change-blinding KDF step, masked to its low 248 bits (top byte of the
 /// 32-byte BE encoding zeroed). SPP's `SppProofOutputUtxo` blinding is 31 bytes and the
-/// circuit applies the same in-circuit mask (sender.go), so the zone and SPP
+/// circuit applies the same in-circuit mask (sender.go), so the ring and SPP
 /// folds agree on the change output for any deposit blinding.
 fn masked_change_blinding(tx_viewing_sk: &[u8; 32]) -> Result<[u8; 32], SquadsProverError> {
     let mut blinding = poseidon_kdf(&[tx_viewing_sk, &right_align_label(b"blinding")])?;
@@ -391,7 +391,7 @@ fn masked_change_blinding(tx_viewing_sk: &[u8; 32]) -> Result<[u8; 32], SquadsPr
 pub fn derive_change_blinding(
     viewing_secret_key: &SecretKey,
     nullifier_secret: &[u8; 32],
-    first_input: &ZoneUtxo,
+    first_input: &RingUtxo,
 ) -> Result<[u8; 32], SquadsProverError> {
     let tx_viewing_sk = tx_viewing_sk_chain(viewing_secret_key, nullifier_secret, first_input)?;
     masked_change_blinding(&tx_viewing_sk)
@@ -402,7 +402,7 @@ pub fn derive_change_blinding(
 /// under AES-CTR keyed by `tx_viewing_sk`). Both are pure, deterministic functions
 /// of the sender secrets and the first input, so the caller can build the shared
 /// `external_data` (which folds the sender ciphertext and the change output hash)
-/// before requesting either proof. [`ZoneProofInputs::prove`] recomputes the identical
+/// before requesting either proof. [`RingProofInputs::prove`] recomputes the identical
 /// values internally, so the two always agree.
 pub struct SenderArtifacts {
     pub change_blinding: [u8; 32],
@@ -414,7 +414,7 @@ pub struct SenderArtifacts {
 pub fn derive_sender_artifacts(
     viewing_secret_key: &SecretKey,
     nullifier_secret: &[u8; 32],
-    first_input: &ZoneUtxo,
+    first_input: &RingUtxo,
     change_amount: u64,
     change_asset: &[u8; 32],
 ) -> Result<SenderArtifacts, SquadsProverError> {
@@ -444,7 +444,7 @@ pub fn derive_sender_artifacts(
 pub fn decrypt_sender_change(
     viewing_secret_key: &SecretKey,
     nullifier_secret: &[u8; 32],
-    first_input: &ZoneUtxo,
+    first_input: &RingUtxo,
     ciphertext: &[u8],
 ) -> Result<(u64, [u8; 32], [u8; 32]), SquadsProverError> {
     if ciphertext.len() != 40 {
@@ -509,7 +509,7 @@ impl TransferOutputs<'_> {
         self,
         viewing_secret_key: &SecretKey,
         nullifier_secret: &[u8; 32],
-        first_input: &ZoneUtxo,
+        first_input: &RingUtxo,
     ) -> Result<TransferArtifacts, SquadsProverError> {
         if self.recipient_blinding[0] != 0 {
             return Err(SquadsProverError::BlindingMismatch);
@@ -545,10 +545,10 @@ impl TransferOutputs<'_> {
     }
 }
 
-impl ZoneProofInputs {
+impl RingProofInputs {
     /// Assemble the inputs, request a proof from the prover at `server_address`, and
     /// return the proof and computed public-input hash.
-    pub fn prove(self, server_address: &str) -> Result<ZoneProofResult, SquadsProverError> {
+    pub fn prove(self, server_address: &str) -> Result<RingProofResult, SquadsProverError> {
         let n_inputs = self.inputs.len();
         let n_outputs = self.outputs.len();
         let unsupported = || SquadsProverError::UnsupportedShape(n_inputs, n_outputs);
@@ -556,7 +556,7 @@ impl ZoneProofInputs {
             u8::try_from(n_inputs).map_err(|_| unsupported())?,
             u8::try_from(n_outputs).map_err(|_| unsupported())?,
         );
-        if !ZONE_SUPPORTED_SHAPES.contains(&shape) {
+        if !RING_SUPPORTED_SHAPES.contains(&shape) {
             return Err(unsupported());
         }
         if self.inputs.is_empty() {
@@ -708,7 +708,7 @@ impl ZoneProofInputs {
         let proof = gnark_json_to_transact_bytes(&proof_json)?;
         let recursion_proof = gnark_json_to_recursion_proof(&proof_json)?;
 
-        Ok(ZoneProofResult {
+        Ok(RingProofResult {
             proof,
             public_input_hash,
             public_input_chain: chain,
@@ -800,8 +800,8 @@ impl ZoneProofInputs {
             ),
         };
 
-        let json = ZoneRequestJson {
-            circuit_type: "squads-zone".to_string(),
+        let json = RingRequestJson {
+            circuit_type: "squads-ring".to_string(),
             n_inputs,
             n_outputs,
             inputs,

@@ -11,12 +11,12 @@ use zolana_keypair::NullifierKey;
 
 use zolana_squads_interface::{
     constants::{RECIPIENT_CIPHERTEXT_LEN, SENDER_CIPHERTEXT_LEN},
-    SQUADS_ZONE_PROGRAM_ID,
+    SQUADS_RING_PROGRAM_ID,
 };
 use zolana_squads_sdk::{
     crypto::{low_31, right_align_31},
     encrypted_utxo::decrypt_recipient_ciphertext,
-    prover::{decrypt_sender_change, ZoneUtxo},
+    prover::{decrypt_sender_change, RingUtxo},
 };
 use zolana_transaction::{instructions::transact::asset_field, Address};
 
@@ -238,7 +238,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
 
         let owner_key_hash = resolved.account.owner.to_bytes();
         let nullifier_pubkey = resolved.account.nullifier_pubkey;
-        let ring_program_id = zolana_hasher::primitives::hash_bytes(&SQUADS_ZONE_PROGRAM_ID)?;
+        let ring_program_id = zolana_hasher::primitives::hash_bytes(&SQUADS_RING_PROGRAM_ID)?;
         let nullifier_secret_32 = right_align_31(&resolved.nullifier_secret);
 
         let mut decoded = vec![false; change_slots.len()];
@@ -255,7 +255,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
                     let Ok(asset_fe) = asset_field(&mint) else {
                         continue;
                     };
-                    let first_input = ZoneUtxo {
+                    let first_input = RingUtxo {
                         owner_key_hash,
                         nullifier_pubkey,
                         asset: asset_fe,

@@ -86,9 +86,9 @@ jsonwebtoken = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-indexer-api = { workspace = true, features = ["openapi"] }
 zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["tree"] }
-# Nested-workspace crate (root `Cargo.toml` excludes `zones/squads`). Photon
-# parses squads zone events, so the two must move in the same commit.
-zolana-squads-interface = { path = "../../zones/squads/interface", version = "0.1.0", default-features = false }
+# Nested-workspace crate (root `Cargo.toml` excludes `rings/squads`). Photon
+# parses squads ring events, so the two must move in the same commit.
+zolana-squads-interface = { path = "../../rings/squads/interface", version = "0.1.0", default-features = false }
 zolana-tree = { workspace = true }
 
 [dev-dependencies]

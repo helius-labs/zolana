@@ -173,8 +173,8 @@ function u64Amount(amount: bigint): void {
 
 function plain(entry: WalletUtxo): boolean {
   return (
-    entry.utxo.zoneProgramId === undefined &&
-    entry.zoneDataHash === undefined &&
+    entry.utxo.ringProgramId === undefined &&
+    entry.ringDataHash === undefined &&
     entry.dataHash === undefined &&
     entry.utxo.data.isEmpty()
   );
@@ -398,8 +398,8 @@ export function createSplit(params: SplitParams): CreatedSplit {
     throw new WalletError("WALLET_INSUFFICIENT_BALANCE");
   }
   const hash = selected.outputContext.hash;
-  if (selected.utxo.zoneProgramId !== undefined) {
-    throw new WalletError("WALLET_SPLIT_INPUT_ZONE_MISMATCH", { details: { hash } });
+  if (selected.utxo.ringProgramId !== undefined) {
+    throw new WalletError("WALLET_SPLIT_INPUT_RING_MISMATCH", { details: { hash } });
   }
   if (!plain(selected)) throw new WalletError("WALLET_SPLIT_INPUT_HAS_DATA", { details: { hash } });
   if (selected.utxo.amount % BigInt(params.parts) !== 0n) {

@@ -1,10 +1,10 @@
-//! Policy-zone merge proof builder for a Squads-vault-owned shielded account.
+//! Policy-ring merge proof builder for a Squads-vault-owned shielded account.
 //!
-//! A merge consolidates 1..=8 of one owner's same-asset, same-zone UTXOs into a
+//! A merge consolidates 1..=8 of one owner's same-asset, same-ring UTXOs into a
 //! single output of the same owner and total value, verifiably encrypted to the
 //! owner's shared viewing key. Unlike the transfer / withdrawal rails there is no
-//! paired zone proof and no signature: the squads zone's `merge_transact` verifies
-//! only its merge-authority access control and forwards the single SPP `merge_zone`
+//! paired ring proof and no signature: the squads ring's `merge_transact` verifies
+//! only its merge-authority access control and forwards the single SPP `merge_ring`
 //! proof, which the SPP verifies (it also covers the verifiable encryption).
 //!
 //! The owner is a Squads vault addressed only by its shielded owner field element
@@ -27,12 +27,12 @@ use zolana_transaction::{Address, Data, SppProofOutputUtxo, Utxo};
 
 use zolana_squads_interface::{
     constants::PROOF_LEN, instruction::instruction_data::InputContext, types::ProofBytes,
-    SQUADS_ZONE_PROGRAM_ID,
+    SQUADS_RING_PROGRAM_ID,
 };
 
 use crate::{crypto::right_align_31, prover::error::SquadsProverError};
 
-/// One spendable zone UTXO the owner consolidates, plus its Photon inclusion /
+/// One spendable ring UTXO the owner consolidates, plus its Photon inclusion /
 /// non-inclusion proofs. Reuses the transfer input shape so the crank assembles
 /// merge and transfer inputs identically.
 pub use crate::prover::transfer::SquadsTransferInput as SquadsMergeInput;
@@ -59,7 +59,7 @@ pub struct SquadsMergeRequest {
     /// The asset mint shared by every input and the merged output.
     pub asset: Address,
     /// Validity deadline. Bound into the merge `external_data_hash` and forwarded
-    /// verbatim into the SPP `merge_zone` instruction.
+    /// verbatim into the SPP `merge_ring` instruction.
     pub expiry_unix_ts: u64,
     /// Opaque tag SPP indexes the merged output under. SPP treats it as bytes (never
     /// a tree leaf), so the crank passes the owner's static account view tag.
@@ -105,7 +105,7 @@ impl SquadsMergeRequest {
             asset: self.asset,
             amount: input.amount,
             blinding,
-            ring_program_id: Some(Address::new_from_array(SQUADS_ZONE_PROGRAM_ID)),
+            ring_program_id: Some(Address::new_from_array(SQUADS_RING_PROGRAM_ID)),
             data: Data::default(),
         };
         let utxo_hash = utxo
@@ -120,9 +120,9 @@ impl SquadsMergeRequest {
 /// The merge proof and every field the crank needs to assemble the squads
 /// `MergeTransactIxData`.
 pub struct SquadsMergeProof {
-    /// The compressed SPP `merge_zone` proof, forwarded to SPP.
+    /// The compressed SPP `merge_ring` proof, forwarded to SPP.
     pub spp_proof: ProofBytes,
-    /// Forwarded verbatim into the SPP `merge_zone` instruction.
+    /// Forwarded verbatim into the SPP `merge_ring` instruction.
     pub expiry_unix_ts: u64,
     /// Indexes the merged output for SPP's `merge_ring`, echoed from the request.
     pub output_ring_data_hash: [u8; 32],
@@ -131,7 +131,7 @@ pub struct SquadsMergeProof {
     /// Hash of the consolidated output UTXO.
     pub output_utxo_hash: [u8; 32],
     /// Exactly [`MERGE_INPUT_COUNT`] entries, real inputs first then padding slots.
-    /// SPP's `merge_zone` requires all 8.
+    /// SPP's `merge_ring` requires all 8.
     pub input_contexts: Vec<InputContext>,
     /// The merged output amount (`sum(input amounts)`).
     pub output_amount: u64,
@@ -142,7 +142,7 @@ pub struct SquadsMergeProof {
     pub public_input_hash: [u8; 32],
 }
 
-/// Build the SPP `merge_zone` proof consolidating a Squads-vault-owned account's
+/// Build the SPP `merge_ring` proof consolidating a Squads-vault-owned account's
 /// same-asset UTXOs into one owner-field-owned output.
 pub fn prove_squads_merge(req: SquadsMergeRequest) -> Result<SquadsMergeProof, SquadsProverError> {
     let real_count = req.inputs.len();
@@ -174,7 +174,7 @@ pub fn prove_squads_merge(req: SquadsMergeRequest) -> Result<SquadsMergeProof, S
         prover_url,
     } = req;
 
-    let squads = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+    let squads = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
     let owner_public = PublicKey::from_owner_proof_input_hash(owner_field);
     let nullifier_key = NullifierKey::from_secret(nullifier_secret);
     let viewing_pubkey = P256Pubkey::from_p256(&viewing_secret.public_key());
@@ -231,7 +231,7 @@ pub fn prove_squads_merge(req: SquadsMergeRequest) -> Result<SquadsMergeProof, S
         .map_err(|_| SquadsProverError::InvalidScalar)?;
 
     // The consolidated output, owned by the same identity (known only by its owner
-    // field). `MergeRingProver::build` stamps the shared zone on it.
+    // field). `MergeRingProver::build` stamps the shared ring on it.
     let output = SppProofOutputUtxo {
         owner_address: Some(ShieldedAddress {
             signing_pubkey: owner_public,
@@ -279,11 +279,11 @@ pub fn prove_squads_merge(req: SquadsMergeRequest) -> Result<SquadsMergeProof, S
     })
 }
 
-/// Pack the merge proof into the zone's proof field.
+/// Pack the merge proof into the ring's proof field.
 ///
 /// The merge circuit takes the pass-through owner rail, so its verifying key
-/// declares no BSB22 commitment and the proof carries none. The zone shares one
-/// proof-field width with the committing rails, and both SPP and the zone read
+/// declares no BSB22 commitment and the proof carries none. The ring shares one
+/// proof-field width with the committing rails, and both SPP and the ring read
 /// only `a || b || c` from a merge, so the commitment region stays zero. A proof
 /// that arrives with a commitment came from a different circuit than the merge
 /// verifying key proves.
@@ -306,7 +306,7 @@ fn pack_merge_proof(proof: &Proof) -> Result<ProofBytes, SquadsProverError> {
     Ok(out)
 }
 
-/// Assemble the [`MERGE_INPUT_COUNT`] input contexts SPP's `merge_zone` requires,
+/// Assemble the [`MERGE_INPUT_COUNT`] input contexts SPP's `merge_ring` requires,
 /// 1:1 with the proof result's per-slot nullifiers and root indices. All inputs
 /// live in one tree, so `tree_index` is always 0.
 fn build_input_contexts(result: &MergeProofResult) -> Result<Vec<InputContext>, SquadsProverError> {
@@ -334,7 +334,7 @@ fn build_input_contexts(result: &MergeProofResult) -> Result<Vec<InputContext>, 
 }
 
 fn merge_err(e: zolana_client::ClientError) -> SquadsProverError {
-    SquadsProverError::ProverServer(format!("merge_zone prover: {e}"))
+    SquadsProverError::ProverServer(format!("merge_ring prover: {e}"))
 }
 
 #[cfg(test)]
@@ -508,7 +508,7 @@ mod tests {
         let nullifier_key = NullifierKey::from_secret(nullifier_secret);
         let nullifier_pubkey = nullifier_key.pubkey().expect("nullifier pubkey");
         let owner_public = PublicKey::from_owner_proof_input_hash(owner_field);
-        let squads = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+        let squads = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
 
         let amounts = [400u64, 600u64];
         let mut indexer = MiniIndexer::new();

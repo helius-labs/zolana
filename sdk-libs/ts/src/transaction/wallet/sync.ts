@@ -261,7 +261,7 @@ class SyncPass {
     utxo: Utxo,
     outputContext: OutputContext,
     dataHash: Bytes32 | undefined,
-    zoneDataHash: Bytes32 | undefined,
+    ringDataHash: Bytes32 | undefined,
   ): void {
     if (!equal(utxo.owner.toBytes(), this.#owner.toBytes())) return;
     const outputId = hex(outputContext.hash);
@@ -276,7 +276,7 @@ class SyncPass {
         }),
         nullifier: utxo.nullifier(outputContext.hash, this.#nullifierKey),
         ...(dataHash === undefined ? {} : { dataHash }),
-        ...(zoneDataHash === undefined ? {} : { zoneDataHash }),
+        ...(ringDataHash === undefined ? {} : { ringDataHash }),
         spent: false,
       }),
     );
@@ -305,15 +305,15 @@ class SyncPass {
     utxos: readonly Utxo[],
     outputContext: OutputContext,
     dataHash: Bytes32 | undefined,
-    zoneDataHash: Bytes32 | undefined,
+    ringDataHash: Bytes32 | undefined,
   ): boolean {
     let stored = false;
     for (const utxo of utxos) {
-      if (!equal(utxo.hash(this.#nullifierPublicKey, dataHash, zoneDataHash), outputContext.hash)) {
+      if (!equal(utxo.hash(this.#nullifierPublicKey, dataHash, ringDataHash), outputContext.hash)) {
         this.undecryptableCandidates++;
         continue;
       }
-      this.#store(utxo, outputContext, dataHash, zoneDataHash);
+      this.#store(utxo, outputContext, dataHash, ringDataHash);
       stored = true;
     }
     return stored;
@@ -576,7 +576,7 @@ class SyncPass {
       }
       this.#resolveAssetCandidate(siteKey);
       if (
-        this.#storeRecipientUtxos([utxo], outputContext, deposit.dataHash, deposit.zoneDataHash)
+        this.#storeRecipientUtxos([utxo], outputContext, deposit.dataHash, deposit.ringDataHash)
       ) {
         this.#processedSlots.add(siteKey);
         this.#recordDeposit(tx, outputContext, utxo);
@@ -731,18 +731,18 @@ class SyncPass {
         amount += entry.utxo.amount;
         if (amount > U64_MAX) throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
       }
-      const zoneProgramId = first.utxo.zoneProgramId;
-      if (matched.some((entry) => entry.utxo.zoneProgramId !== zoneProgramId)) {
+      const ringProgramId = first.utxo.ringProgramId;
+      if (matched.some((entry) => entry.utxo.ringProgramId !== ringProgramId)) {
         this.undecryptableCandidates++;
         return;
       }
-      const zoneDataHash =
-        zoneProgramId === undefined
+      const ringDataHash =
+        ringProgramId === undefined
           ? undefined
           : slot.payload.length === 32
             ? (copy(slot.payload) as Bytes32)
             : null;
-      if (zoneDataHash === null) {
+      if (ringDataHash === null) {
         this.undecryptableCandidates++;
         return;
       }
@@ -751,9 +751,9 @@ class SyncPass {
         asset: first.utxo.asset,
         amount,
         blinding: mergeOutputBlinding(this.#nullifierKey, firstNullifier),
-        ...(zoneProgramId === undefined ? {} : { zoneProgramId }),
+        ...(ringProgramId === undefined ? {} : { ringProgramId }),
       });
-      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, zoneDataHash)) {
+      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, ringDataHash)) {
         this.#processedSlots.add(siteKey);
         this.#recordMerge(tx, slot.outputContext, utxo);
       }

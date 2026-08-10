@@ -3,10 +3,10 @@
 //!
 //! The on-chain program (`process_create_viewing_key_account_ix`) recomputes the
 //! key-encryption proof's public-input hash from EXACTLY these instruction fields
-//! plus the auditor key read from `zone_config`, so every field here MUST be the
+//! plus the auditor key read from `ring_config`, so every field here MUST be the
 //! same bytes the proof inputs used. The auditor recipient key(s)
-//! are NOT in the instruction data. The program reads them from `zone_config`, so
-//! the trailing auditor recipient key must equal the zone's configured
+//! are NOT in the instruction data. The program reads them from `ring_config`, so
+//! the trailing auditor recipient key must equal the ring's configured
 //! auditor. See [`create_viewing_key_account_ix_data`] for the recovery/auditor
 //! ordering contract.
 
@@ -33,7 +33,7 @@ use zolana_squads_interface::state::ViewingKeyAccount;
 ///
 /// `recovery_count` is the number of recovery (smart-account-holder) keys at the
 /// FRONT of the proof's `recipient_keys`. The remainder are auditor keys whose
-/// public keys live in `zone_config`. The combined `key_ciphertexts` vector keeps
+/// public keys live in `ring_config`. The combined `key_ciphertexts` vector keeps
 /// the proof's recovery-then-auditor ordering, which is the positional contract
 /// the program relies on.
 ///
@@ -224,7 +224,7 @@ pub fn execute_key_update_ix_data(
 ///
 /// `proof_inputs.recipient_keys` MUST be the resulting recovery keys (after the
 /// proposal's `operations` are applied to the target's recovery keys) followed by
-/// the zone's auditor key(s). This helper replaces `proof_inputs.old_state_hash`
+/// the ring's auditor key(s). This helper replaces `proof_inputs.old_state_hash`
 /// with the target account's canonical pre-rotation commitment.
 #[cfg(feature = "prover")]
 pub fn prove_execute_key_update(

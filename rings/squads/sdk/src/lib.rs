@@ -1,4 +1,4 @@
-//! Squads zone SDK: shared-viewing-key crypto, zone UTXO/ciphertext
+//! Squads ring SDK: shared-viewing-key crypto, ring UTXO/ciphertext
 //! (de)serialization, proposal building, and prover glue.
 //!
 //! [`crypto`] holds the pure-crypto gadgets (P-256 ECDH, the Poseidon key

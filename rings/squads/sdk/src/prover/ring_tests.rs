@@ -1,7 +1,7 @@
-//! End-to-end zone-proof tests. Build the proof inputs in Rust, get a real
+//! End-to-end ring-proof tests. Build the proof inputs in Rust, get a real
 //! Groth16 proof from the prover server, and verify it on the host against the
-//! committed on-chain zone verifying key using the same public-input hash the
-//! on-chain program computes (zones/squads/program/src/shared/zone_proof.rs).
+//! committed on-chain ring verifying key using the same public-input hash the
+//! on-chain program computes (rings/squads/program/src/shared/ring_proof.rs).
 //!
 //! The first request for a shape lazy-loads its proving key.
 
@@ -13,11 +13,11 @@ use p256::{elliptic_curve::rand_core::OsRng, SecretKey};
 use zolana_client::prover::{spawn_prover, SERVER_ADDRESS};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::P256Pubkey;
-use zolana_squads_interface::verifying_keys::{zone_1_1, zone_2_2};
+use zolana_squads_interface::verifying_keys::{ring_1_1, ring_2_2};
 
-use crate::prover::zone::{
-    decrypt_sender_change, derive_change_blinding, derive_sender_artifacts, TransferOutputs,
-    ZoneProofInputs, ZoneProofResult, ZoneRecipient, ZoneUtxo,
+use crate::prover::ring::{
+    decrypt_sender_change, derive_change_blinding, derive_sender_artifacts, RingProofInputs,
+    RingProofResult, RingRecipient, RingUtxo, TransferOutputs,
 };
 
 /// Reads `ZOLANA_PROVER_URL` like `spawn_prover` does, so `.prove(...)` targets
@@ -55,11 +55,11 @@ fn random_field() -> [u8; 32] {
 /// Host verification of the 192-byte BSB22 proof against `vk` and the SDK-computed
 /// public input, mirroring the program's `verify_groth16`.
 fn verify_on_host(
-    proof_result: &ZoneProofResult,
+    proof_result: &RingProofResult,
     vk: &Groth16Verifyingkey,
     public_input: &[u8; 32],
 ) -> bool {
-    assert!(vk.vk_commitment.is_some(), "zone vk must be the BSB22 rail");
+    assert!(vk.vk_commitment.is_some(), "ring vk must be the BSB22 rail");
     let proof = &proof_result.proof;
     let proof_a = decompress_g1(&to32(&proof[0..32])).expect("decompress a");
     let proof_b = decompress_g2(&to64(&proof[32..96])).expect("decompress b");
@@ -101,8 +101,8 @@ fn nullifier_pubkey(nullifier_secret: &[u8; 32]) -> [u8; 32] {
 /// A plain input UTXO with the given amount. Its blinding is arbitrary (only the
 /// first input's fields feed the KDF chain, but every input's hash is bound into
 /// private_tx_hash). owner/nullifier are the sender's.
-fn input_utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32]) -> ZoneUtxo {
-    ZoneUtxo {
+fn input_utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32]) -> RingUtxo {
+    RingUtxo {
         owner_key_hash,
         nullifier_pubkey: nullifier_pk,
         asset: [0u8; 32],
@@ -118,8 +118,8 @@ fn input_utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32]) -> 
 /// A zeroed dummy input slot. Its fields never enter the fold (the circuit selects 0
 /// for its input-hash slot), so only `is_dummy` matters. The random blinding shows
 /// the remaining fields are free.
-fn dummy_input_utxo() -> ZoneUtxo {
-    ZoneUtxo {
+fn dummy_input_utxo() -> RingUtxo {
+    RingUtxo {
         owner_key_hash: [0u8; 32],
         nullifier_pubkey: [0u8; 32],
         asset: [0u8; 32],
@@ -211,7 +211,7 @@ fn decrypt_sender_change_round_trips_transfer_artifacts() {
 }
 
 #[test]
-fn zone_transfer_2_2_proof_verifies_end_to_end() {
+fn ring_transfer_2_2_proof_verifies_end_to_end() {
     start_prover();
 
     let sender_viewing = SecretKey::random(&mut OsRng);
@@ -231,7 +231,7 @@ fn zone_transfer_2_2_proof_verifies_end_to_end() {
     let change_blinding =
         derive_change_blinding(&sender_viewing, &sender_nullifier_secret, &inputs[0])
             .expect("derive change blinding");
-    let change_output = ZoneUtxo {
+    let change_output = RingUtxo {
         owner_key_hash: sender_owner,
         nullifier_pubkey: sender_nullifier_pk,
         asset: [0u8; 32],
@@ -242,7 +242,7 @@ fn zone_transfer_2_2_proof_verifies_end_to_end() {
         ring_program_id: [0u8; 32],
         is_dummy: false,
     };
-    let recipient_output = ZoneUtxo {
+    let recipient_output = RingUtxo {
         owner_key_hash: recipient_owner,
         nullifier_pubkey: recipient_nullifier_pk,
         asset: [0u8; 32],
@@ -254,13 +254,13 @@ fn zone_transfer_2_2_proof_verifies_end_to_end() {
         is_dummy: false,
     };
 
-    let proof_inputs = ZoneProofInputs {
+    let proof_inputs = RingProofInputs {
         viewing_secret_key: sender_viewing,
         nullifier_secret: sender_nullifier_secret,
         inputs,
         outputs: vec![change_output, recipient_output],
         external_data_hash: random_field(),
-        recipient: Some(ZoneRecipient {
+        recipient: Some(RingRecipient {
             owner_key_hash: recipient_owner,
             nullifier_pubkey: recipient_nullifier_pk,
             viewing_pubkey: recipient_viewing,
@@ -280,22 +280,22 @@ fn zone_transfer_2_2_proof_verifies_end_to_end() {
     assert!(
         verify_on_host(
             &proof_result,
-            &zone_2_2::VERIFYINGKEY,
+            &ring_2_2::VERIFYINGKEY,
             &proof_result.public_input_hash
         ),
-        "host Groth16 verification of the (2,2) zone proof failed",
+        "host Groth16 verification of the (2,2) ring proof failed",
     );
 
     let mut tampered = proof_result.public_input_hash;
     tampered[1] ^= 1;
     assert!(
-        !verify_on_host(&proof_result, &zone_2_2::VERIFYINGKEY, &tampered),
+        !verify_on_host(&proof_result, &ring_2_2::VERIFYINGKEY, &tampered),
         "verification must fail for a tampered public input",
     );
 }
 
 #[test]
-fn zone_transfer_2_2_with_dummy_input_proof_verifies_end_to_end() {
+fn ring_transfer_2_2_with_dummy_input_proof_verifies_end_to_end() {
     start_prover();
 
     let sender_viewing = SecretKey::random(&mut OsRng);
@@ -315,7 +315,7 @@ fn zone_transfer_2_2_with_dummy_input_proof_verifies_end_to_end() {
     let change_blinding =
         derive_change_blinding(&sender_viewing, &sender_nullifier_secret, &inputs[0])
             .expect("derive change blinding");
-    let change_output = ZoneUtxo {
+    let change_output = RingUtxo {
         owner_key_hash: sender_owner,
         nullifier_pubkey: sender_nullifier_pk,
         asset: [0u8; 32],
@@ -326,7 +326,7 @@ fn zone_transfer_2_2_with_dummy_input_proof_verifies_end_to_end() {
         ring_program_id: [0u8; 32],
         is_dummy: false,
     };
-    let recipient_output = ZoneUtxo {
+    let recipient_output = RingUtxo {
         owner_key_hash: recipient_owner,
         nullifier_pubkey: recipient_nullifier_pk,
         asset: [0u8; 32],
@@ -338,13 +338,13 @@ fn zone_transfer_2_2_with_dummy_input_proof_verifies_end_to_end() {
         is_dummy: false,
     };
 
-    let proof_inputs = ZoneProofInputs {
+    let proof_inputs = RingProofInputs {
         viewing_secret_key: sender_viewing,
         nullifier_secret: sender_nullifier_secret,
         inputs,
         outputs: vec![change_output, recipient_output],
         external_data_hash: random_field(),
-        recipient: Some(ZoneRecipient {
+        recipient: Some(RingRecipient {
             owner_key_hash: recipient_owner,
             nullifier_pubkey: recipient_nullifier_pk,
             viewing_pubkey: recipient_viewing,
@@ -364,22 +364,22 @@ fn zone_transfer_2_2_with_dummy_input_proof_verifies_end_to_end() {
     assert!(
         verify_on_host(
             &proof_result,
-            &zone_2_2::VERIFYINGKEY,
+            &ring_2_2::VERIFYINGKEY,
             &proof_result.public_input_hash
         ),
-        "host Groth16 verification of the dummy-input (2,2) zone proof failed",
+        "host Groth16 verification of the dummy-input (2,2) ring proof failed",
     );
 
     let mut tampered = proof_result.public_input_hash;
     tampered[1] ^= 1;
     assert!(
-        !verify_on_host(&proof_result, &zone_2_2::VERIFYINGKEY, &tampered),
+        !verify_on_host(&proof_result, &ring_2_2::VERIFYINGKEY, &tampered),
         "verification must fail for a tampered public input",
     );
 }
 
 #[test]
-fn zone_prove_rejects_dummy_first_input() {
+fn ring_prove_rejects_dummy_first_input() {
     let sender_viewing = SecretKey::random(&mut OsRng);
     let sender_nullifier_secret = random_field();
     let sender_nullifier_pk = nullifier_pubkey(&sender_nullifier_secret);
@@ -396,13 +396,13 @@ fn zone_prove_rejects_dummy_first_input() {
     let change_output = input_utxo(600, sender_owner, sender_nullifier_pk);
     let recipient_output = input_utxo(400, recipient_owner, recipient_nullifier_pk);
 
-    let proof_inputs = ZoneProofInputs {
+    let proof_inputs = RingProofInputs {
         viewing_secret_key: sender_viewing,
         nullifier_secret: sender_nullifier_secret,
         inputs,
         outputs: vec![change_output, recipient_output],
         external_data_hash: random_field(),
-        recipient: Some(ZoneRecipient {
+        recipient: Some(RingRecipient {
             owner_key_hash: recipient_owner,
             nullifier_pubkey: recipient_nullifier_pk,
             viewing_pubkey: recipient_viewing,
@@ -425,7 +425,7 @@ fn zone_prove_rejects_dummy_first_input() {
 }
 
 #[test]
-fn zone_withdrawal_1_1_proof_verifies_end_to_end() {
+fn ring_withdrawal_1_1_proof_verifies_end_to_end() {
     start_prover();
 
     let sender_viewing = SecretKey::random(&mut OsRng);
@@ -438,7 +438,7 @@ fn zone_withdrawal_1_1_proof_verifies_end_to_end() {
     let change_blinding =
         derive_change_blinding(&sender_viewing, &sender_nullifier_secret, &inputs[0])
             .expect("derive change blinding");
-    let change_output = ZoneUtxo {
+    let change_output = RingUtxo {
         owner_key_hash: sender_owner,
         nullifier_pubkey: sender_nullifier_pk,
         asset: [0u8; 32],
@@ -453,7 +453,7 @@ fn zone_withdrawal_1_1_proof_verifies_end_to_end() {
     let mut public_amount = [0u8; 32];
     public_amount[24..32].copy_from_slice(&700u64.to_be_bytes());
 
-    let proof_inputs = ZoneProofInputs {
+    let proof_inputs = RingProofInputs {
         viewing_secret_key: sender_viewing,
         nullifier_secret: sender_nullifier_secret,
         inputs,
@@ -475,16 +475,16 @@ fn zone_withdrawal_1_1_proof_verifies_end_to_end() {
     assert!(
         verify_on_host(
             &proof_result,
-            &zone_1_1::VERIFYINGKEY,
+            &ring_1_1::VERIFYINGKEY,
             &proof_result.public_input_hash
         ),
-        "host Groth16 verification of the (1,1) zone proof failed",
+        "host Groth16 verification of the (1,1) ring proof failed",
     );
 
     let mut tampered = proof_result.public_input_hash;
     tampered[2] ^= 1;
     assert!(
-        !verify_on_host(&proof_result, &zone_1_1::VERIFYINGKEY, &tampered),
+        !verify_on_host(&proof_result, &ring_1_1::VERIFYINGKEY, &tampered),
         "verification must fail for a tampered public input",
     );
 }

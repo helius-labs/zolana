@@ -3,7 +3,7 @@
 //! `EMIT_EVENT` validates nothing on chain, so any caller can invoke it with
 //! forged bytes. An event is trustworthy only when its reconstructed parent is
 //! an instruction of the same program carrying a state-transitioning tag. Both
-//! the Rings and the Squads zone logs need that walk, so it lives here once.
+//! the Rings and the Squads ring logs need that walk, so it lives here once.
 
 use solana_pubkey::Pubkey;
 use zolana_event::{InstructionGroup, ParsedInstruction};

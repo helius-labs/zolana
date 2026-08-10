@@ -5,7 +5,7 @@
 use solana_instruction::Instruction;
 use solana_signature::Signature;
 use zolana_squads_interface::{instruction::instruction_data::EncryptedUtxos, types::P256Pubkey};
-use zolana_squads_sdk::prover::ZoneProposal;
+use zolana_squads_sdk::prover::RingProposal;
 use zolana_transaction::Address;
 
 /// One decrypted UTXO the auditor recovered via an account's shared viewing key.
@@ -67,7 +67,7 @@ pub struct DecryptedProposal {
 
 /// A fully reconstructed and `proposal_hash`-verified async proposal. It holds
 /// the on-chain `Proposal` identity fields, the auditor-decrypted
-/// `(amount, blinding)`, the classified operation, and the [`ZoneProposal`]
+/// `(amount, blinding)`, the classified operation, and the [`RingProposal`]
 /// the settlement proof binds. The crank builds one per pending proposal
 /// before it proves and settles it.
 #[derive(Clone)]
@@ -97,7 +97,7 @@ pub struct ReconstructedProposal {
     pub expiry: i64,
     pub proposal_hash: [u8; 32],
     /// The proposal commitment the settlement proof binds.
-    pub zone_proposal: ZoneProposal,
+    pub ring_proposal: RingProposal,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,7 +156,7 @@ pub struct RequestTransactRequest {
 pub enum RequestTransactResponse {
     /// On the smart-account rail the instruction names the vault as payer and
     /// signer. Wrap it in an approved synchronous smart-account execution, then
-    /// have the zone co-signer co-sign and submit it.
+    /// have the ring co-signer co-sign and submit it.
     Instruction(Instruction),
     /// On the keypair rail the backend co-signed and sent the transaction.
     Signature(Signature),

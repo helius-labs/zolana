@@ -16,8 +16,8 @@ pub enum SquadsProverError {
     /// `num_keys` is outside the supported set.
     #[error("unsupported key-encryption key count: {0}")]
     UnsupportedKeyCount(usize),
-    /// `(n_inputs, n_outputs)` is outside the supported zone shape set.
-    #[error("unsupported zone shape: {0} inputs, {1} outputs")]
+    /// `(n_inputs, n_outputs)` is outside the supported ring shape set.
+    #[error("unsupported ring shape: {0} inputs, {1} outputs")]
     UnsupportedShape(usize, usize),
     /// `inputs[0]` was flagged as a dummy. The first input must be real because
     /// its nullifier seeds the `tx_viewing_sk` KDF.

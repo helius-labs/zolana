@@ -1,6 +1,6 @@
-//! Fold several zone spends of one account into one proof.
+//! Fold several ring spends of one account into one proof.
 //!
-//! The zone circuit has a key for `(1,1)` and `(2,2)` only, so three UTXOs
+//! The ring circuit has a key for `(1,1)` and `(2,2)` only, so three UTXOs
 //! cannot be spent together. Each leg keeps its own transaction and settles
 //! through its own SPP `ring_transact`. The fold proves every leg spends the
 //! same account and pays the same recipient, so the run is one operation.
@@ -14,19 +14,19 @@ use crate::prover::{
     error::SquadsProverError,
     fold::{leg_json, LegJson},
     proof::gnark_json_to_transact_bytes,
+    ring::{RingProofInputs, RingProofResult},
     server::send_prove_request,
     shared_viewing_key::hash_chain,
-    zone::{ZoneProofInputs, ZoneProofResult},
 };
 
 /// Leg shapes with a fold key, as `(n_inputs, n_outputs)`. MUST mirror the
-pub use zolana_squads_interface::circuits::ZONE_FOLD_SUPPORTED_SHAPES;
+pub use zolana_squads_interface::circuits::RING_FOLD_SUPPORTED_SHAPES;
 
 /// Leg counts with a fold key. MUST mirror the program's
-pub use zolana_squads_interface::circuits::ZONE_FOLD_SUPPORTED_LEGS;
+pub use zolana_squads_interface::circuits::RING_FOLD_SUPPORTED_LEGS;
 
 /// Positions in a transfer leg's public-input chain. Mirrors the index
-/// constants in `prover/server/circuits/squads/zone_fold/fold.go`.
+/// constants in `prover/server/circuits/squads/ring_fold/fold.go`.
 const PRIVATE_TX_HASH: usize = 0;
 const PUBLIC_AMOUNT: usize = 1;
 const SENDER_ACCOUNT: usize = 2;
@@ -38,10 +38,10 @@ const RECIPIENT_CIPHERTEXT: usize = 7;
 const TRANSFER_PREIMAGE_LEN: usize = 9;
 
 /// The proved legs of a folded spend together with the fold proof. The caller
-/// settles each leg result through SPP. The zone verifies the fold proof once.
-pub struct ZoneFoldProofResult {
-    pub legs: Vec<ZoneProofResult>,
-    /// The public input the zone recomputes: the shared sender and recipient
+/// settles each leg result through SPP. The ring verifies the fold proof once.
+pub struct RingFoldProofResult {
+    pub legs: Vec<RingProofResult>,
+    /// The public input the ring recomputes: the shared sender and recipient
     /// once, then every leg's own fields in leg order.
     pub public_input_hash: [u8; 32],
     /// The 192-byte compressed Groth16 proof of the fold.
@@ -65,11 +65,11 @@ struct FoldRequestJson {
 /// pay the same recipient, and carry no proposal. The first three are checked
 /// here so the caller sees which leg is wrong rather than an unsatisfiable
 /// constraint system. The program trusts only the circuit.
-pub fn prove_zone_fold(
-    legs: Vec<ZoneProofInputs>,
+pub fn prove_ring_fold(
+    legs: Vec<RingProofInputs>,
     server_address: &str,
-) -> Result<ZoneFoldProofResult, SquadsProverError> {
-    if !u8::try_from(legs.len()).is_ok_and(|legs| ZONE_FOLD_SUPPORTED_LEGS.contains(&legs)) {
+) -> Result<RingFoldProofResult, SquadsProverError> {
+    if !u8::try_from(legs.len()).is_ok_and(|legs| RING_FOLD_SUPPORTED_LEGS.contains(&legs)) {
         return Err(SquadsProverError::UnsupportedLegCount(legs.len()));
     }
     let (n_inputs, n_outputs) = match legs.first() {
@@ -82,7 +82,7 @@ pub fn prove_zone_fold(
         (Ok(inputs), Ok(outputs)) => (inputs, outputs),
         _ => return Err(SquadsProverError::UnsupportedShape(n_inputs, n_outputs)),
     };
-    if !ZONE_FOLD_SUPPORTED_SHAPES.contains(&shape) {
+    if !RING_FOLD_SUPPORTED_SHAPES.contains(&shape) {
         return Err(SquadsProverError::UnsupportedShape(n_inputs, n_outputs));
     }
     for leg in &legs {
@@ -137,7 +137,7 @@ pub fn prove_zone_fold(
     let public_input_hash = hash_chain(&chain)?;
 
     let request = serde_json::to_string(&FoldRequestJson {
-        circuit_type: "squads-zone-fold",
+        circuit_type: "squads-ring-fold",
         n_inputs: n_inputs as u32,
         n_outputs: n_outputs as u32,
         legs: requests,
@@ -146,7 +146,7 @@ pub fn prove_zone_fold(
     let proof_json = send_prove_request(server_address, &request)?;
     let proof = gnark_json_to_transact_bytes(&proof_json)?;
 
-    Ok(ZoneFoldProofResult {
+    Ok(RingFoldProofResult {
         legs: proved,
         public_input_hash,
         proof,

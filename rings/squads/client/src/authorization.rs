@@ -21,7 +21,7 @@ pub trait ReadAuthorization {
 /// A viewing key account stores `owner` as a proof identity (a P-256 key hash on
 /// the keypair rail, a vault hash on the smart-account rail), never a signing
 /// public key, so no signature over the request can be verified against it from
-/// this crate. Until the zone publishes an owner authentication key, denying is
+/// this crate. Until the ring publishes an owner authentication key, denying is
 /// the only answer that does not hand every caller another user's UTXO set.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DenyUnverifiedRead;

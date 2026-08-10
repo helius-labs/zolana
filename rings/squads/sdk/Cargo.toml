@@ -24,7 +24,7 @@ zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 zolana-client = { workspace = true }
 
-# Pure-crypto deps. Always available: `crypto.rs` (the relocated zone gadgets) and
+# Pure-crypto deps. Always available: `crypto.rs` (the relocated ring gadgets) and
 # the client-side construction/decryption modules use them under the default
 # `encryption` feature, and the `prover` witness builders reuse the same code.
 # Versions mirror the root workspace.
@@ -48,7 +48,7 @@ zolana-interface = { workspace = true, optional = true }
 
 [dev-dependencies]
 groth16-solana = { workspace = true }
-# The merge_zone_8_1 verifying key lives in `zolana-interface`, which pins a
+# The merge_ring_8_1 verifying key lives in `zolana-interface`, which pins a
 # different groth16-solana rev than this workspace; the merge prover test verifies
 # against it with a matching-rev verifier (the rev is already in Cargo.lock as a
 # transitive dep of zolana-interface).

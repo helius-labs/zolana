@@ -1,17 +1,17 @@
-//! Paired zone + SPP-rail withdrawal proof builder (gated under the `prover`
+//! Paired ring + SPP-rail withdrawal proof builder (gated under the `prover`
 //! feature).
 //!
 //! A squads withdrawal forwards TWO proofs that must agree on one shared
 //! `private_tx_hash`:
-//! 1. the squads ZONE proof (this crate's [`ZoneProofInputs`]), verified on-chain by
+//! 1. the squads RING proof (this crate's [`RingProofInputs`]), verified on-chain by
 //!    the squads program, and
-//! 2. the SPP zone-rail proof ([`RingTransferP256Prover`], `transfer_p256_zone`),
-//!    verified on-chain by SPP after the zone-auth-signed CPI.
+//! 2. the SPP ring-rail proof ([`RingTransferP256Prover`], `transfer_p256_ring`),
+//!    verified on-chain by SPP after the ring-auth-signed CPI.
 //!
 //! Consistency is achieved by construction: this builder computes ONE
 //! [`ExternalData`] (the settlement recipient/vault, the change output hash, and
 //! the sender ciphertext all folded into `external_data_hash`) and feeds the SAME
-//! hash into both proofs, and encodes the squads [`ZoneUtxo`] fields so its
+//! hash into both proofs, and encodes the squads [`RingUtxo`] fields so its
 //! `utxo_hash` fold matches SPP's [`Utxo`]/[`SppProofOutputUtxo`] fold exactly (asset via
 //! `hash_field`, blinding right-aligned into 32 bytes, `ring_program_id` via
 //! `hash_field`, owner via `Poseidon(owner_pk_field, nullifier_pubkey)`). The
@@ -19,7 +19,7 @@
 //! `private_tx_hash`, nullifier, and change hash.
 //!
 //! The change blinding is a pure function of the sender secrets and the first
-//! input ([`derive_change_blinding`](super::zone::derive_change_blinding)),
+//! input ([`derive_change_blinding`](super::ring::derive_change_blinding)),
 //! masked to its low 248 bits on both sides
 //! (the circuit and the Rust derivation), so its top byte is always zero and it
 //! round-trips SPP's 31-byte `SppProofOutputUtxo` blinding for any deposit blinding.
@@ -40,18 +40,18 @@ use zolana_transaction::{
     instructions::transact::asset_field, Address, Data, ExternalData, SppProofOutputUtxo, Utxo,
 };
 
-use zolana_squads_interface::SQUADS_ZONE_PROGRAM_ID;
+use zolana_squads_interface::SQUADS_RING_PROGRAM_ID;
 
 use crate::prover::{
     error::SquadsProverError,
+    ring::{derive_sender_artifacts, RingProofInputs, RingProposal, RingUtxo},
     shared_viewing_key::{
         hash_field, withdrawal_public_transfers, withdrawal_transfer, WithdrawalDestination,
     },
-    zone::{derive_sender_artifacts, ZoneProofInputs, ZoneProposal, ZoneUtxo},
 };
 
 /// The deterministic P256 identity behind a squads viewing key account: the
-/// secrets needed to spend a zone UTXO owned by that account.
+/// secrets needed to spend a ring UTXO owned by that account.
 #[derive(Clone)]
 pub struct SquadsIdentity {
     /// P256 owner (signing) key. It signs the SPP spend over `sha256(private_tx_hash)`.
@@ -59,11 +59,11 @@ pub struct SquadsIdentity {
     /// Nullifier secret (31 bytes). `NullifierKey.pubkey()` == the VKA's
     /// `nullifier_pubkey`.
     pub nullifier_secret: [u8; 31],
-    /// P256 viewing key. It is the zone circuit's shared viewing secret key.
+    /// P256 viewing key. It is the ring circuit's shared viewing secret key.
     pub viewing_secret: SecretKey,
 }
 
-/// One deposited zone UTXO to spend, plus its Photon inclusion / non-inclusion
+/// One deposited ring UTXO to spend, plus its Photon inclusion / non-inclusion
 /// proofs fetched by the caller.
 pub struct SquadsWithdrawalInput {
     /// The asset mint (`SOL_MINT` for a SOL withdrawal).
@@ -81,7 +81,7 @@ pub struct SquadsWithdrawalRequest {
     pub identity: SquadsIdentity,
     pub input: SquadsWithdrawalInput,
     /// The public amount to withdraw out of the pool. `change = input.amount -
-    /// withdrawn` stays as a zone UTXO.
+    /// withdrawn` stays as a ring UTXO.
     pub withdrawn: u64,
     /// The public destination, which also selects the settlement rail.
     pub destination: WithdrawalDestination,
@@ -98,7 +98,7 @@ pub struct SquadsWithdrawalRequest {
     /// `external_data_hash` via the output ciphertext).
     pub sender_view_tag: [u8; 32],
     /// A bound proposal for `execute_proposal`. `None` for a sync `transact`.
-    pub proposal: Option<ZoneProposal>,
+    pub proposal: Option<RingProposal>,
     /// The prover server URL.
     pub prover_url: String,
 }
@@ -106,9 +106,9 @@ pub struct SquadsWithdrawalRequest {
 /// The paired proofs and every field the caller needs to assemble the squads
 /// `TransactIxData` / `ExecuteProposalIxData`.
 pub struct SquadsWithdrawalProof {
-    /// The 192-byte squads zone proof.
-    pub zone_proof: [u8; 192],
-    /// The 192-byte SPP zone-rail proof, forwarded to SPP.
+    /// The 192-byte squads ring proof.
+    pub ring_proof: [u8; 192],
+    /// The 192-byte SPP ring-rail proof, forwarded to SPP.
     pub spp_proof: [u8; 192],
     /// The shared `private_tx_hash` both proofs bind.
     pub private_tx_hash: [u8; 32],
@@ -181,7 +181,7 @@ pub(crate) fn probe_encodings(
     })
 }
 
-/// The spend commitment of one deposited zone UTXO: its leaf `utxo_hash` (to fetch
+/// The spend commitment of one deposited ring UTXO: its leaf `utxo_hash` (to fetch
 /// a Photon merkle proof) and its `nullifier` (to fetch a non-inclusion proof).
 /// The caller fetches both proofs, then hands them to [`prove_squads_withdrawal`].
 pub fn squads_input_commitment(
@@ -191,7 +191,7 @@ pub fn squads_input_commitment(
     blinding: &[u8; 31],
 ) -> Result<([u8; 32], [u8; 32]), SquadsProverError> {
     let enc = identity_encodings(identity)?;
-    let squads_address = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+    let squads_address = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
     let utxo = Utxo {
         owner: enc.owner_public,
         asset,
@@ -220,11 +220,11 @@ pub struct ProbedWithdrawal {
     pub private_tx_hash: [u8; 32],
     viewing_secret: SecretKey,
     nullifier_secret_32: [u8; 32],
-    input_zone_utxo: ZoneUtxo,
-    change_zone_utxo: ZoneUtxo,
+    input_ring_utxo: RingUtxo,
+    change_ring_utxo: RingUtxo,
     external_data_hash: [u8; 32],
     public_amount: [u8; 32],
-    proposal: Option<ZoneProposal>,
+    proposal: Option<RingProposal>,
     spend_input: TransferSpendInput,
     change_spp_utxo: SppProofOutputUtxo,
     external_data: ExternalData,
@@ -248,7 +248,7 @@ pub struct SquadsWithdrawalProbe {
     pub owner_pubkey: P256Pubkey,
     /// Nullifier secret (31 bytes).
     pub nullifier_secret: [u8; 31],
-    /// P256 viewing key. It is the zone circuit's shared viewing secret key.
+    /// P256 viewing key. It is the ring circuit's shared viewing secret key.
     pub viewing_secret: SecretKey,
     pub input: SquadsWithdrawalInput,
     /// The public amount to withdraw out of the pool.
@@ -261,7 +261,7 @@ pub struct SquadsWithdrawalProbe {
     pub expiry_unix_ts: u64,
     pub salt: [u8; 16],
     pub sender_view_tag: [u8; 32],
-    pub proposal: Option<ZoneProposal>,
+    pub proposal: Option<RingProposal>,
     pub prover_url: String,
 }
 
@@ -271,7 +271,7 @@ pub struct SquadsWithdrawalProbe {
 pub fn probe_squads_withdrawal(
     probe: SquadsWithdrawalProbe,
 ) -> Result<ProbedWithdrawal, SquadsProverError> {
-    let squads_address = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+    let squads_address = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
 
     let IdentityEncodings {
         owner_p256,
@@ -287,8 +287,8 @@ pub fn probe_squads_withdrawal(
         &probe.viewing_secret,
     )?;
     let asset_fe = asset_field(&probe.input.asset).map_err(|_| SquadsProverError::Poseidon)?;
-    let zone_program_field =
-        hash_field(&SQUADS_ZONE_PROGRAM_ID).map_err(|_| SquadsProverError::Poseidon)?;
+    let ring_program_field =
+        hash_field(&SQUADS_RING_PROGRAM_ID).map_err(|_| SquadsProverError::Poseidon)?;
 
     let change_amount = probe
         .input
@@ -296,7 +296,7 @@ pub fn probe_squads_withdrawal(
         .checked_sub(probe.withdrawn)
         .ok_or(SquadsProverError::InvalidAmount)?;
 
-    let input_zone_utxo = ZoneUtxo {
+    let input_ring_utxo = RingUtxo {
         owner_key_hash: owner_pk_field,
         nullifier_pubkey: nullifier_pk,
         asset: asset_fe,
@@ -304,7 +304,7 @@ pub fn probe_squads_withdrawal(
         blinding: right_align_31(&probe.input.blinding),
         program_data_hash: [0u8; 32],
         ring_data_hash: [0u8; 32],
-        ring_program_id: zone_program_field,
+        ring_program_id: ring_program_field,
         is_dummy: false,
     };
     let input_spp_utxo = Utxo {
@@ -325,7 +325,7 @@ pub fn probe_squads_withdrawal(
     let artifacts = derive_sender_artifacts(
         &probe.viewing_secret,
         &nullifier_secret_32,
-        &input_zone_utxo,
+        &input_ring_utxo,
         change_amount,
         &asset_fe,
     )?;
@@ -337,7 +337,7 @@ pub fn probe_squads_withdrawal(
         .map_err(|_| SquadsProverError::InvalidProofEncoding)?;
     let change_blinding_31 = low_31(&change_blinding);
 
-    let change_zone_utxo = ZoneUtxo {
+    let change_ring_utxo = RingUtxo {
         owner_key_hash: owner_pk_field,
         nullifier_pubkey: nullifier_pk,
         asset: asset_fe,
@@ -345,7 +345,7 @@ pub fn probe_squads_withdrawal(
         blinding: change_blinding,
         program_data_hash: [0u8; 32],
         ring_data_hash: [0u8; 32],
-        ring_program_id: zone_program_field,
+        ring_program_id: ring_program_field,
         is_dummy: false,
     };
     let change_spp_utxo = SppProofOutputUtxo {
@@ -409,7 +409,7 @@ pub fn probe_squads_withdrawal(
         public_amounts: &public_amounts,
         payer_pubkey_hash: probe.payer_pubkey_hash,
         owner_p256,
-        zone: squads_address,
+        ring: squads_address,
     }
     .unsigned()
     .private_tx_hash()
@@ -419,8 +419,8 @@ pub fn probe_squads_withdrawal(
         private_tx_hash,
         viewing_secret: probe.viewing_secret,
         nullifier_secret_32,
-        input_zone_utxo,
-        change_zone_utxo,
+        input_ring_utxo,
+        change_ring_utxo,
         external_data_hash,
         public_amount,
         proposal: probe.proposal,
@@ -449,34 +449,34 @@ impl ProbedWithdrawal {
             public_amounts: &self.public_amounts,
             payer_pubkey_hash: self.payer_pubkey_hash,
             owner_p256: self.owner_p256,
-            zone: self.squads_address,
+            ring: self.squads_address,
         }
     }
 
     /// Finalize with the owner's P256 ECDSA signature `(sig_r, sig_s)` over
-    /// `sha256(private_tx_hash)`: prove the squads zone rail, prove the signed SPP
-    /// zone rail, and assemble the paired [`SquadsWithdrawalProof`]. Cross-checks
+    /// `sha256(private_tx_hash)`: prove the squads ring rail, prove the signed SPP
+    /// ring rail, and assemble the paired [`SquadsWithdrawalProof`]. Cross-checks
     /// that the two proofs agree on `private_tx_hash`, nullifier, and change hash.
     pub fn finalize(
         self,
         sig_r: [u8; 32],
         sig_s: [u8; 32],
     ) -> Result<SquadsWithdrawalProof, SquadsProverError> {
-        let zone_result = ZoneProofInputs {
+        let ring_result = RingProofInputs {
             viewing_secret_key: self.viewing_secret.clone(),
             nullifier_secret: self.nullifier_secret_32,
-            inputs: vec![self.input_zone_utxo.clone()],
-            outputs: vec![self.change_zone_utxo.clone()],
+            inputs: vec![self.input_ring_utxo.clone()],
+            outputs: vec![self.change_ring_utxo.clone()],
             external_data_hash: self.external_data_hash,
             recipient: None,
             proposal: self.proposal.clone(),
             public_amount: self.public_amount,
         }
         .prove(&self.prover_url)?;
-        if zone_result.change_blinding != self.change_blinding {
+        if ring_result.change_blinding != self.change_blinding {
             return Err(SquadsProverError::BlindingMismatch);
         }
-        if zone_result.sender_ciphertext != self.sender_ciphertext {
+        if ring_result.sender_ciphertext != self.sender_ciphertext {
             return Err(SquadsProverError::BlindingMismatch);
         }
 
@@ -490,10 +490,10 @@ impl ProbedWithdrawal {
             .map_err(spp_err)?;
         let spp_proof = pack_proof(&spp_proof_raw)?;
 
-        if zone_result.private_tx_hash != final_prover.private_tx_hash {
+        if ring_result.private_tx_hash != final_prover.private_tx_hash {
             return Err(SquadsProverError::ProofValidation(format!(
-                "private_tx_hash mismatch: zone {:?} vs spp {:?}",
-                zone_result.private_tx_hash, final_prover.private_tx_hash
+                "private_tx_hash mismatch: ring {:?} vs spp {:?}",
+                ring_result.private_tx_hash, final_prover.private_tx_hash
             )));
         }
         if final_prover.nullifiers.first().copied() != Some(self.nullifier) {
@@ -512,10 +512,10 @@ impl ProbedWithdrawal {
             .ok_or(SquadsProverError::MissingSlot)?;
 
         Ok(SquadsWithdrawalProof {
-            zone_proof: zone_result.proof,
+            ring_proof: ring_result.proof,
             spp_proof,
-            private_tx_hash: zone_result.private_tx_hash,
-            proposal_hash: zone_result.proposal_hash,
+            private_tx_hash: ring_result.private_tx_hash,
+            proposal_hash: ring_result.proposal_hash,
             change_utxo_hash: self.change_utxo_hash,
             nullifier: self.nullifier,
             input_utxo_hash: self.input_utxo_hash,
@@ -545,7 +545,7 @@ impl ProbedWithdrawal {
     }
 }
 
-/// Build the paired zone + SPP-rail proofs for a `(1, 1)` squads withdrawal. A
+/// Build the paired ring + SPP-rail proofs for a `(1, 1)` squads withdrawal. A
 /// thin wrapper over [`probe_squads_withdrawal`] + [`ProbedWithdrawal::finalize`]:
 /// it probes with the owner's public key, signs `sha256(private_tx_hash)` with the
 /// held owner secret, and finalizes.
@@ -576,7 +576,7 @@ pub fn prove_squads_withdrawal(
     probed.finalize(sig_r, sig_s)
 }
 
-/// The signature-independent inputs to the SPP zone-rail prover, shared by the
+/// The signature-independent inputs to the SPP ring-rail prover, shared by the
 /// withdrawal and transfer builders. The proven shape is the input and output
 /// counts, so both slices must already be padded to it.
 pub(crate) struct SppRingSpend<'a> {
@@ -586,7 +586,7 @@ pub(crate) struct SppRingSpend<'a> {
     pub(crate) public_amounts: &'a PublicTransfers,
     pub(crate) payer_pubkey_hash: [u8; 32],
     pub(crate) owner_p256: P256Pubkey,
-    pub(crate) zone: Address,
+    pub(crate) ring: Address,
 }
 
 impl SppRingSpend<'_> {
@@ -606,7 +606,7 @@ impl SppRingSpend<'_> {
                 sig_r,
                 sig_s,
             },
-            ring_program_id: Some(self.zone),
+            ring_program_id: Some(self.ring),
             shape: Some(shape),
         }
     }
@@ -619,7 +619,7 @@ impl SppRingSpend<'_> {
 }
 
 /// The circuit commits a fixed-width signer vector, payer in slot zero followed
-/// by the non-payer input owners. A zone input is owned by the zone PDA and
+/// by the non-payer input owners. A ring input is owned by the ring PDA and
 /// proves ownership with P256, so it never signs and its slot stays zero. The
 /// width must be `n_inputs + 1` or the witness binds a different statement than
 /// the key proves.
@@ -632,7 +632,7 @@ pub(crate) fn signer_slots(payer_pubkey_hash: [u8; 32], shape: Shape) -> Vec<[u8
 }
 
 pub(crate) fn spp_err(e: zolana_client::ClientError) -> SquadsProverError {
-    SquadsProverError::ProverServer(format!("SPP zone-rail prover: {e}"))
+    SquadsProverError::ProverServer(format!("SPP ring-rail prover: {e}"))
 }
 
 /// Pack a BSB22-committed Groth16 proof into the 192-byte layout SPP reads:

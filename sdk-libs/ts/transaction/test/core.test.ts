@@ -45,7 +45,7 @@ const ZERO_NULLIFIER_KEY = (): NullifierKey =>
   NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
 
 const ZERO_ADDRESS = "11111111111111111111111111111111" as Address;
-const ZONE = "SysvarRent111111111111111111111111111111111" as Address;
+const RING = "SysvarRent111111111111111111111111111111111" as Address;
 const ZERO_HASH = (): Bytes32 => new Uint8Array(32) as Bytes32;
 
 function zeroOwnerUtxo(overrides: Partial<ConstructorParameters<typeof Utxo>[0]> = {}): Utxo {
@@ -80,10 +80,10 @@ function noncanonicalDummies(): readonly (readonly [
       },
     ],
     [
-      "zone_program_id",
+      "ring_program_id",
       {
         utxo: zeroOwnerUtxo({
-          zoneProgramId: "SysvarRent111111111111111111111111111111111" as Address,
+          ringProgramId: "SysvarRent111111111111111111111111111111111" as Address,
         }),
         nullifierKey: ZERO_NULLIFIER_KEY(),
       },
@@ -93,8 +93,8 @@ function noncanonicalDummies(): readonly (readonly [
       { utxo: zeroOwnerUtxo(), nullifierKey: ZERO_NULLIFIER_KEY(), dataHash: scalar(9) },
     ],
     [
-      "zone_data_hash",
-      { utxo: zeroOwnerUtxo(), nullifierKey: ZERO_NULLIFIER_KEY(), zoneDataHash: scalar(10) },
+      "ring_data_hash",
+      { utxo: zeroOwnerUtxo(), nullifierKey: ZERO_NULLIFIER_KEY(), ringDataHash: scalar(10) },
     ],
     [
       "nullifier_key",
@@ -150,7 +150,7 @@ describe("transaction core", () => {
       () =>
         new Data([
           { kind: "memo", bytes: Uint8Array.of(1) },
-          { kind: "zoneData", bytes: Uint8Array.of(2) },
+          { kind: "ringData", bytes: Uint8Array.of(2) },
         ]),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_NON_CANONICAL_DATA_ORDER" }));
 
@@ -190,23 +190,23 @@ describe("transaction core", () => {
       asset: SOL_MINT,
       amount: 42n,
       blinding: new Uint8Array(32).fill(3) as Bytes32,
-      zoneProgramId: "SysvarRent111111111111111111111111111111111" as Address,
+      ringProgramId: "SysvarRent111111111111111111111111111111111" as Address,
     });
     const dataHash = scalar(4);
-    const zoneHash = scalar(5);
-    const hash = base.hash(scalar(6), dataHash, zoneHash);
-    expect(base.hash(scalar(6), dataHash, zoneHash)).toEqual(hash);
-    expect(base.hash(scalar(6), scalar(7), zoneHash)).not.toEqual(hash);
-    expect(base.hash(scalar(8), dataHash, zoneHash)).not.toEqual(hash);
+    const ringHash = scalar(5);
+    const hash = base.hash(scalar(6), dataHash, ringHash);
+    expect(base.hash(scalar(6), dataHash, ringHash)).toEqual(hash);
+    expect(base.hash(scalar(6), scalar(7), ringHash)).not.toEqual(hash);
+    expect(base.hash(scalar(8), dataHash, ringHash)).not.toEqual(hash);
     expect(base.nullifier(hash, nullifier)).not.toEqual(base.nullifier(scalar(9), nullifier));
 
     const proof = new ProofInputUtxo({
       utxo: base,
       nullifierKey: nullifier,
       dataHash,
-      zoneDataHash: zoneHash,
+      ringDataHash: ringHash,
     });
-    expect(proof.hash()).toEqual(base.hash(nullifier.publicKey(), dataHash, zoneHash));
+    expect(proof.hash()).toEqual(base.hash(nullifier.publicKey(), dataHash, ringHash));
     expect(ProofInputUtxo.dummy().isDummy()).toBe(true);
     expect(
       () =>
@@ -291,7 +291,7 @@ describe("transaction core", () => {
       utxo: zeroOwnerUtxo(),
       nullifierKey: ZERO_NULLIFIER_KEY(),
       dataHash: ZERO_HASH(),
-      zoneDataHash: ZERO_HASH(),
+      ringDataHash: ZERO_HASH(),
     });
 
     expect(hex(explicit.hash())).toBe(DUMMY_ORACLE_HASH);
@@ -300,30 +300,30 @@ describe("transaction core", () => {
   });
 
   // The other half of the T28 split, at the dummy rule rather than at the
-  // builders: a zero zone address is carried, not absent, so a dummy holding
+  // builders: a zero ring address is carried, not absent, so a dummy holding
   // one stays noncanonical however the two hashes are read.
-  it("rejects a dummy bound to the zero zone address", () => {
+  it("rejects a dummy bound to the zero ring address", () => {
     expect(
       () =>
         new ProofInputUtxo({
-          utxo: zeroOwnerUtxo({ zoneProgramId: ZERO_ADDRESS }),
+          utxo: zeroOwnerUtxo({ ringProgramId: ZERO_ADDRESS }),
           nullifierKey: ZERO_NULLIFIER_KEY(),
         }),
     ).toThrow(
       expect.objectContaining({
         code: "TRANSACTION_NONCANONICAL_DUMMY_INPUT",
-        details: { field: "zone_program_id" },
+        details: { field: "ring_program_id" },
       }),
     );
   });
 
-  // T28 covers two zone bindings that cost differently, and the suite holds
-  // them apart. Normalizing the zone data hash moves no commitment, because the
-  // zero was already the committed field. Normalizing the zone address would
+  // T28 covers two ring bindings that cost differently, and the suite holds
+  // them apart. Normalizing the ring data hash moves no commitment, because the
+  // zero was already the committed field. Normalizing the ring address would
   // move one: the zero address commits to `pk_field(0)`, a non-zero field the
-  // circuit reads as zone-bound. The two `not.toEqual` assertions fail if
+  // circuit reads as ring-bound. The two `not.toEqual` assertions fail if
   // anyone extends normalization to the address.
-  it("normalizes an explicit zero at the zone data hash and not at the zone address", () => {
+  it("normalizes an explicit zero at the ring data hash and not at the ring address", () => {
     const { keypair, nullifier } = keyMaterial();
     const blinding = new Uint8Array(32).fill(3) as Bytes32;
     const utxo = new Utxo({
@@ -337,22 +337,22 @@ describe("transaction core", () => {
     const normalizedInput = new ProofInputUtxo({
       utxo,
       nullifierKey: nullifier,
-      zoneDataHash: ZERO_HASH(),
+      ringDataHash: ZERO_HASH(),
     });
-    expect(normalizedInput.zoneDataHash).toBeUndefined();
+    expect(normalizedInput.ringDataHash).toBeUndefined();
     expect(normalizedInput.hash()).toEqual(unboundInput.hash());
 
-    const zeroZoneInput = new ProofInputUtxo({
+    const zeroRingInput = new ProofInputUtxo({
       utxo: new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
         amount: 42n,
         blinding,
-        zoneProgramId: ZERO_ADDRESS,
+        ringProgramId: ZERO_ADDRESS,
       }),
       nullifierKey: nullifier,
     });
-    expect(zeroZoneInput.hash()).not.toEqual(unboundInput.hash());
+    expect(zeroRingInput.hash()).not.toEqual(unboundInput.hash());
 
     const output = createProofOutput({
       ownerAddress: keypair.shieldedAddress(),
@@ -361,17 +361,17 @@ describe("transaction core", () => {
       blinding,
     });
     expect(
-      createProofOutput({ ...output, zoneProgramId: ZONE, zoneDataHash: ZERO_HASH() }).zoneDataHash,
+      createProofOutput({ ...output, ringProgramId: RING, ringDataHash: ZERO_HASH() }).ringDataHash,
     ).toBeUndefined();
     expect(
       createProofOutput({
         ...output,
-        zoneProgramId: ZONE,
-        zoneDataHash: ZERO_HASH(),
-        data: new Data([{ kind: "zoneData", bytes: Uint8Array.of(1, 2) }]),
-      }).zoneDataHash,
+        ringProgramId: RING,
+        ringDataHash: ZERO_HASH(),
+        data: new Data([{ kind: "ringData", bytes: Uint8Array.of(1, 2) }]),
+      }).ringDataHash,
     ).toBeUndefined();
-    expect(createProofOutput({ ...output, zoneProgramId: ZERO_ADDRESS }).hash()).not.toEqual(
+    expect(createProofOutput({ ...output, ringProgramId: ZERO_ADDRESS }).hash()).not.toEqual(
       output.hash(),
     );
   });
@@ -388,16 +388,16 @@ describe("transaction core", () => {
       asset: SOL_MINT,
       amount: 42n,
       blinding: new Uint8Array(32).fill(3) as Bytes32,
-      zoneProgramId: ZONE,
+      ringProgramId: RING,
     });
 
-    const zoneBound = new ProofInputUtxo({
+    const ringBound = new ProofInputUtxo({
       utxo,
       nullifierKey: nullifier,
-      zoneDataHash: aboveModulus,
+      ringDataHash: aboveModulus,
     });
-    expect(zoneBound.zoneDataHash).toEqual(aboveModulus);
-    expect(() => zoneBound.hash()).toThrow(
+    expect(ringBound.ringDataHash).toEqual(aboveModulus);
+    expect(() => ringBound.hash()).toThrow(
       expect.objectContaining({ code: "TRANSACTION_POSEIDON" }),
     );
 

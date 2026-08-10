@@ -1,6 +1,6 @@
 //! Account view-tag derivation for indexer queries.
 //!
-//! Every zone output an account can decrypt, a deposit into it, a transfer to
+//! Every ring output an account can decrypt, a deposit into it, a transfer to
 //! it, or its own change, is tagged with that account's shared viewing key
 //! X coordinate. The prover takes `sender_view_tag` / `recipient_view_tag` as
 //! inputs the caller derives this way. A single tag per account fetches all of

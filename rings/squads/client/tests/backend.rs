@@ -8,7 +8,7 @@ use zolana_squads_client::{
     SquadsBackendError, ViewingKeyAccountSeed,
 };
 use zolana_squads_interface::{
-    constants::OWNER_KIND_KEYPAIR, types::Address, SQUADS_ZONE_PROGRAM_ID,
+    constants::OWNER_KIND_KEYPAIR, types::Address, SQUADS_RING_PROGRAM_ID,
 };
 
 struct OneAccountRpc {
@@ -54,7 +54,7 @@ fn resolve_shared_key_recovers_via_auditor() {
     let account = Account {
         lamports: 1,
         data: vka.serialize().expect("serialize vka"),
-        owner: Address::new_from_array(SQUADS_ZONE_PROGRAM_ID),
+        owner: Address::new_from_array(SQUADS_RING_PROGRAM_ID),
         executable: false,
         rent_epoch: 0,
     };

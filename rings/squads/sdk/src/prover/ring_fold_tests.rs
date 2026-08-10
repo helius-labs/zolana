@@ -1,8 +1,8 @@
-//! End-to-end zone fold test: three UTXOs spent together as two `(2,2)` legs of
+//! End-to-end ring fold test: three UTXOs spent together as two `(2,2)` legs of
 //! one account, folded into one proof.
 //!
 //! The fold is verified on the host against the committed fold verifying key
-//! using the public-input hash the on-chain `ZoneFoldProof` recomputes, so this
+//! using the public-input hash the on-chain `RingFoldProof` recomputes, so this
 //! covers the circuit, the prover glue, the SDK, and the on-chain composition.
 
 use groth16_solana::{
@@ -13,12 +13,12 @@ use p256::{elliptic_curve::rand_core::OsRng, SecretKey};
 use zolana_client::prover::{spawn_prover, SERVER_ADDRESS};
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_keypair::P256Pubkey;
-use zolana_squads_interface::verifying_keys::zone_fold_2_2_l2;
+use zolana_squads_interface::verifying_keys::ring_fold_2_2_l2;
 
 use crate::prover::{
     error::SquadsProverError,
-    zone::{derive_change_blinding, ZoneProofInputs, ZoneProposal, ZoneRecipient, ZoneUtxo},
-    zone_fold::prove_zone_fold,
+    ring::{derive_change_blinding, RingProofInputs, RingProposal, RingRecipient, RingUtxo},
+    ring_fold::prove_ring_fold,
 };
 
 fn prover_url() -> String {
@@ -51,8 +51,8 @@ fn nullifier_pubkey(nullifier_secret: &[u8; 32]) -> [u8; 32] {
     Poseidon::hashv(&[nullifier_secret.as_slice()]).expect("poseidon")
 }
 
-fn utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32], is_dummy: bool) -> ZoneUtxo {
-    ZoneUtxo {
+fn utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32], is_dummy: bool) -> RingUtxo {
+    RingUtxo {
         owner_key_hash,
         nullifier_pubkey: nullifier_pk,
         asset: [0u8; 32],
@@ -66,7 +66,7 @@ fn utxo(amount: u64, owner_key_hash: [u8; 32], nullifier_pk: [u8; 32], is_dummy:
 }
 
 fn verify_on_host(proof: &[u8; 192], public_input: &[u8; 32]) -> bool {
-    let vk = &zone_fold_2_2_l2::VERIFYINGKEY;
+    let vk = &ring_fold_2_2_l2::VERIFYINGKEY;
     assert!(
         vk.vk_commitment.is_some(),
         "the fold must be the BSB22 rail",
@@ -109,7 +109,7 @@ struct Parties {
     sender_nullifier_secret: [u8; 32],
     sender_nullifier_pk: [u8; 32],
     sender_owner: [u8; 32],
-    recipient: ZoneRecipient,
+    recipient: RingRecipient,
 }
 
 impl Parties {
@@ -120,7 +120,7 @@ impl Parties {
             sender_nullifier_secret,
             sender_nullifier_pk: nullifier_pubkey(&sender_nullifier_secret),
             sender_owner: random_field(),
-            recipient: ZoneRecipient {
+            recipient: RingRecipient {
                 owner_key_hash: random_field(),
                 nullifier_pubkey: random_field(),
                 viewing_pubkey: P256Pubkey::from_p256(&SecretKey::random(&mut OsRng).public_key()),
@@ -131,7 +131,7 @@ impl Parties {
     /// A `(2,2)` leg spending `amounts` and paying `transferred` to the
     /// recipient. A `None` second amount is a dummy input slot, which is how a
     /// run spends an odd number of UTXOs.
-    fn leg(&self, amounts: (u64, Option<u64>), transferred: u64) -> ZoneProofInputs {
+    fn leg(&self, amounts: (u64, Option<u64>), transferred: u64) -> RingProofInputs {
         let second = amounts.1.unwrap_or(0);
         let inputs = vec![
             utxo(
@@ -153,7 +153,7 @@ impl Parties {
             &inputs[0],
         )
         .expect("derive change blinding");
-        let change = ZoneUtxo {
+        let change = RingUtxo {
             owner_key_hash: self.sender_owner,
             nullifier_pubkey: self.sender_nullifier_pk,
             asset: [0u8; 32],
@@ -164,7 +164,7 @@ impl Parties {
             ring_program_id: [0u8; 32],
             is_dummy: false,
         };
-        let recipient_output = ZoneUtxo {
+        let recipient_output = RingUtxo {
             owner_key_hash: self.recipient.owner_key_hash,
             nullifier_pubkey: self.recipient.nullifier_pubkey,
             asset: [0u8; 32],
@@ -175,7 +175,7 @@ impl Parties {
             ring_program_id: [0u8; 32],
             is_dummy: false,
         };
-        ZoneProofInputs {
+        RingProofInputs {
             viewing_secret_key: self.sender_viewing.clone(),
             nullifier_secret: self.sender_nullifier_secret,
             inputs,
@@ -198,7 +198,7 @@ fn three_utxos_spend_together_under_one_fold() {
         parties.leg((500, None), 200),
     ];
 
-    let folded = prove_zone_fold(legs, &prover_url()).expect("fold proof generation must succeed");
+    let folded = prove_ring_fold(legs, &prover_url()).expect("fold proof generation must succeed");
 
     assert_eq!(folded.legs.len(), 2);
     for leg in &folded.legs {
@@ -216,7 +216,7 @@ fn three_utxos_spend_together_under_one_fold() {
 
     assert!(
         verify_on_host(&folded.proof, &folded.public_input_hash),
-        "host Groth16 verification of the folded zone proof failed",
+        "host Groth16 verification of the folded ring proof failed",
     );
 
     let mut tampered = folded.public_input_hash;
@@ -235,7 +235,7 @@ fn a_leg_carrying_a_proposal_is_rejected() {
         parties.leg((700, Some(300)), 400),
         parties.leg((500, None), 200),
     ];
-    legs[1].proposal = Some(ZoneProposal {
+    legs[1].proposal = Some(RingProposal {
         amount: [0u8; 32],
         recipient: [0u8; 32],
         asset: [0u8; 32],
@@ -245,7 +245,7 @@ fn a_leg_carrying_a_proposal_is_rejected() {
     });
 
     assert!(matches!(
-        prove_zone_fold(legs, &prover_url()),
+        prove_ring_fold(legs, &prover_url()),
         Err(SquadsProverError::FoldedProposal)
     ));
 }
@@ -255,7 +255,7 @@ fn a_leg_carrying_a_proposal_is_rejected() {
 fn an_unsupported_leg_count_is_rejected() {
     let parties = Parties::random();
     assert!(matches!(
-        prove_zone_fold(vec![parties.leg((700, Some(300)), 400)], &prover_url()),
+        prove_ring_fold(vec![parties.leg((700, Some(300)), 400)], &prover_url()),
         Err(SquadsProverError::UnsupportedLegCount(1))
     ));
 }

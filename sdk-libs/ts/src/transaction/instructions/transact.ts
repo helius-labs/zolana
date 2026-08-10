@@ -201,7 +201,7 @@ export interface ExternalData {
   readonly expiryUnixTs: bigint;
   readonly interfaceTransfers: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
@@ -222,7 +222,7 @@ export interface ExternalDataInit {
   readonly expiryUnixTs?: bigint;
   readonly interfaceTransfers?: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
@@ -302,7 +302,7 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
           },
     ),
     ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
-    ...(data.zoneDataHash === undefined ? {} : { zoneDataHash: data.zoneDataHash }),
+    ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
     txViewingPk: data.txViewingPublicKey.toBytes(),
     salt: data.salt,
     outputs: data.outputs.map((output, index) => ({
@@ -384,7 +384,7 @@ function sealExternalData(fields: ExternalDataFields): ExternalData {
 export interface InputUtxo {
   readonly utxo: Utxo;
   readonly nullifierPublicKey: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly dataHash?: Bytes32;
   hash(): Bytes32;
   isDummy(): boolean;
@@ -394,7 +394,7 @@ export function createInputUtxo(
   input: Readonly<{
     utxo: Utxo;
     nullifierPublicKey: Bytes32;
-    zoneDataHash?: Bytes32;
+    ringDataHash?: Bytes32;
     dataHash?: Bytes32;
   }>,
 ): InputUtxo {
@@ -405,7 +405,7 @@ export function createInputUtxo(
     utxo,
     nullifierPublicKey,
     hash(): Bytes32 {
-      return utxo.hash(nullifierPublicKey, input.dataHash, input.zoneDataHash);
+      return utxo.hash(nullifierPublicKey, input.dataHash, input.ringDataHash);
     },
     isDummy(): boolean {
       return utxo.owner.isZero();
@@ -905,7 +905,7 @@ export function encodeConfidentialSlots(
             assetId: assets.assetId(output.asset),
             amount: output.amount,
             blinding: output.blinding,
-            ...(output.zoneProgramId === undefined ? {} : { zoneProgramId: output.zoneProgramId }),
+            ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
             data: output.data,
           },
           salt,

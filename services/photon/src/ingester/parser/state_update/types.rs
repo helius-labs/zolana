@@ -81,7 +81,7 @@ pub struct RingsTransactionUpdate {
     pub nullifiers: Vec<RingsNullifierUpdate>,
 }
 
-/// One Squads zone key-material event. The scalar fields identify and order the
+/// One Squads ring key-material event. The scalar fields identify and order the
 /// event, `raw_event` carries the destroyed key material as the program encoded
 /// it.
 #[derive(Debug, Clone, PartialEq, Eq)]

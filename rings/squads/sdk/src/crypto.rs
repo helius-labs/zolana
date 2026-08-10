@@ -2,7 +2,7 @@
 //! wallet-facing construction/decryption modules.
 //!
 //! Mirrors the circuit gadgets in
-//! `prover/server/circuits/zone-utils/{poseidon_kdf.go,p256/*,aes/*}` byte-for-byte:
+//! `prover/server/circuits/ring-utils/{poseidon_kdf.go,p256/*,aes/*}` byte-for-byte:
 //! P-256 ECDH, a Poseidon key schedule with the `CT_*` domain separators and EMPTY
 //! info, and AES-256-CTR (J0 = nonce || 2). Integrity is provided by the proof (the
 //! Poseidon ciphertext hash is bound into the public input hash), not a GCM tag,
@@ -35,7 +35,7 @@ pub enum CryptoError {
     InvalidPubkey,
 }
 
-/// Domain separators from `prover/server/circuits/zone-utils/poseidon_kdf.go:14-19`.
+/// Domain separators from `prover/server/circuits/ring-utils/poseidon_kdf.go:14-19`.
 const DOM_SEP_SHARED_SECRET: u32 = 0x4354_5f53; // "CT_S"
 const DOM_SEP_SILO: u32 = 0x4354_5f49; // "CT_I"
 const DOM_SEP_KEY: u32 = 0x4354_5f4b; // "CT_K" (key_1 = DOM_SEP_KEY + 1 = "CT_L")

@@ -1,28 +1,28 @@
-//! Paired zone + SPP-rail transfer proof builder (gated under the `prover`
+//! Paired ring + SPP-rail transfer proof builder (gated under the `prover`
 //! feature).
 //!
 //! A squads transfer is a `(2, 2)` spend that keeps every lamport/token inside
-//! the pool: the sender spends two deposited zone UTXOs into a sender-change
+//! the pool: the sender spends two deposited ring UTXOs into a sender-change
 //! output and a recipient output, with `public_amount = 0` (no settlement). Like
 //! [`prove_squads_withdrawal`](super::withdrawal::prove_squads_withdrawal) it
 //! forwards TWO proofs that must agree on one shared `private_tx_hash`:
-//! 1. the squads ZONE proof ([`ZoneProofInputs`] with a recipient), verified on-chain
+//! 1. the squads RING proof ([`RingProofInputs`] with a recipient), verified on-chain
 //!    by the squads program, and
-//! 2. the SPP zone-rail proof ([`RingTransferP256Prover`], `transfer_p256_zone`),
-//!    verified on-chain by SPP after the zone-auth-signed CPI.
+//! 2. the SPP ring-rail proof ([`RingTransferP256Prover`], `transfer_p256_ring`),
+//!    verified on-chain by SPP after the ring-auth-signed CPI.
 //!
 //! Consistency is achieved by construction: one [`ExternalData`] (folding both
 //! output hashes and both output ciphertexts) feeds both proofs, and both output
-//! UTXOs are encoded so the squads [`ZoneUtxo`] fold matches SPP's [`SppProofOutputUtxo`]
+//! UTXOs are encoded so the squads [`RingUtxo`] fold matches SPP's [`SppProofOutputUtxo`]
 //! fold exactly. The output order is fixed: `Outputs[0]` is the sender change,
 //! `Outputs[1]` is the recipient. The sender-change and recipient ciphertexts and
 //! the ephemeral `tx_viewing_pk` are derived deterministically (via
 //! [`TransferOutputs::derive`]) before proving so they can be folded into the
-//! shared external data. [`ZoneProofInputs::prove`] recomputes the identical values
+//! shared external data. [`RingProofInputs::prove`] recomputes the identical values
 //! and this builder cross-checks them.
 //!
 //! The sender-change blinding is a pure function of the sender secrets and the
-//! first input ([`derive_change_blinding`](super::zone::derive_change_blinding)),
+//! first input ([`derive_change_blinding`](super::ring::derive_change_blinding)),
 //! masked to its low 248 bits on both sides (the circuit and the Rust
 //! derivation), so its top byte is always zero and it round-trips SPP's 31-byte
 //! `SppProofOutputUtxo` blinding for any deposit blinding.
@@ -38,22 +38,22 @@ use zolana_transaction::{
     instructions::transact::asset_field, Address, Data, ExternalData, SppProofOutputUtxo, Utxo,
 };
 
-use zolana_squads_interface::SQUADS_ZONE_PROGRAM_ID;
+use zolana_squads_interface::SQUADS_RING_PROGRAM_ID;
 
 use crate::{
     crypto::{fe_from_u64, random_blinding_31, right_align_31},
     prover::{
         error::SquadsProverError,
+        ring::{RingProofInputs, RingProposal, RingRecipient, RingUtxo, TransferOutputs},
         shared_viewing_key::hash_field,
         withdrawal::{
             pack_proof, probe_encodings, secret_bytes, split_signature, spp_err, IdentityEncodings,
             SppRingSpend, SquadsIdentity,
         },
-        zone::{TransferOutputs, ZoneProofInputs, ZoneProposal, ZoneRecipient, ZoneUtxo},
     },
 };
 
-/// One deposited zone UTXO the sender spends, plus its Photon inclusion /
+/// One deposited ring UTXO the sender spends, plus its Photon inclusion /
 /// non-inclusion proofs. A `(2, 2)` transfer spends exactly two, which must share
 /// one asset.
 pub struct SquadsTransferInput {
@@ -69,7 +69,7 @@ pub struct SquadsTransferInput {
 
 /// The transfer recipient, addressed only by its public shielded identity (the
 /// sender never holds a recipient secret). `owner_pk_field` is the recipient's
-/// owner-identity field element (the zone `owner_key_hash` and, with the nullifier
+/// owner-identity field element (the ring `owner_key_hash` and, with the nullifier
 /// pubkey, SPP's `owner_hash`) — read directly from the recipient's viewing-key
 /// account `owner`, so the raw recipient signing key is never required.
 pub struct SquadsTransferRecipient {
@@ -87,7 +87,7 @@ pub struct SquadsTransferRequest {
     /// The recipient's public shielded identity.
     pub recipient: SquadsTransferRecipient,
     /// Amount routed to the recipient. The change (`sum(inputs) - transferred`)
-    /// stays as the sender's zone UTXO.
+    /// stays as the sender's ring UTXO.
     pub transferred: u64,
     /// The 31-byte recipient-output blinding the sender picks and encrypts to the
     /// recipient (right-aligned into a 32-byte field element with a zero top byte).
@@ -103,7 +103,7 @@ pub struct SquadsTransferRequest {
     /// The recipient output ciphertext view tag.
     pub recipient_view_tag: [u8; 32],
     /// A bound proposal for `execute_proposal`. `None` for a sync `transact`.
-    pub proposal: Option<ZoneProposal>,
+    pub proposal: Option<RingProposal>,
     pub prover_url: String,
 }
 
@@ -111,9 +111,9 @@ pub struct SquadsTransferRequest {
 /// `TransactIxData` / `ExecuteProposalIxData` for a transfer. Outputs are ordered
 /// `[change, recipient]` (sender change first).
 pub struct SquadsTransferProof {
-    /// The 192-byte squads zone proof.
-    pub zone_proof: [u8; 192],
-    /// The 192-byte SPP zone-rail proof, forwarded to SPP.
+    /// The 192-byte squads ring proof.
+    pub ring_proof: [u8; 192],
+    /// The 192-byte SPP ring-rail proof, forwarded to SPP.
     pub spp_proof: [u8; 192],
     /// The shared `private_tx_hash` both proofs bind.
     pub private_tx_hash: [u8; 32],
@@ -151,11 +151,11 @@ pub struct ProbedTransfer {
     pub private_tx_hash: [u8; 32],
     viewing_secret: SecretKey,
     nullifier_secret_32: [u8; 32],
-    zone_inputs: Vec<ZoneUtxo>,
-    zone_outputs: Vec<ZoneUtxo>,
-    zone_recipient: ZoneRecipient,
+    ring_inputs: Vec<RingUtxo>,
+    ring_outputs: Vec<RingUtxo>,
+    ring_recipient: RingRecipient,
     external_data_hash: [u8; 32],
-    proposal: Option<ZoneProposal>,
+    proposal: Option<RingProposal>,
     spend_inputs: Vec<TransferSpendInput>,
     outputs: Vec<SppProofOutputUtxo>,
     external_data: ExternalData,
@@ -182,13 +182,13 @@ pub struct SquadsTransferProbe {
     /// The sender's P256 owner *public* key (signs `sha256(private_tx_hash)` off-box).
     pub owner_pubkey: P256Pubkey,
     pub nullifier_secret: [u8; 31],
-    /// The zone circuit's shared viewing secret key.
+    /// The ring circuit's shared viewing secret key.
     pub viewing_secret: SecretKey,
     /// The two deposited inputs to spend (both the same asset).
     pub inputs: Vec<SquadsTransferInput>,
     /// The recipient's public shielded identity.
     pub recipient: SquadsTransferRecipient,
-    /// Amount routed to the recipient. The change stays as the sender's zone UTXO.
+    /// Amount routed to the recipient. The change stays as the sender's ring UTXO.
     pub transferred: u64,
     /// The 31-byte recipient-output blinding.
     pub recipient_blinding: [u8; 31],
@@ -197,7 +197,7 @@ pub struct SquadsTransferProbe {
     pub salt: [u8; 16],
     pub sender_view_tag: [u8; 32],
     pub recipient_view_tag: [u8; 32],
-    pub proposal: Option<ZoneProposal>,
+    pub proposal: Option<RingProposal>,
     pub prover_url: String,
 }
 
@@ -229,12 +229,12 @@ pub fn probe_squads_transfer(
         return Err(SquadsProverError::UnsupportedShape(real_count, 2));
     }
     // A single real input is padded with one dummy so the circuit shape stays (2, 2).
-    // The dummy folds `[0u8; 32]` into both proofs' `private_tx_hash`, its zone slot
+    // The dummy folds `[0u8; 32]` into both proofs' `private_tx_hash`, its ring slot
     // is flagged `is_dummy` and its SPP slot carries no `SpendProof`. The single real
-    // input MUST stay at index 0 (its nullifier seeds the KDF and the zone circuit
+    // input MUST stay at index 0 (its nullifier seeds the KDF and the ring circuit
     // rejects a dummy first input).
     let dummy_blinding: Option<[u8; 31]> = (real_count == 1).then(random_blinding_31);
-    let squads_address = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+    let squads_address = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
 
     let IdentityEncodings {
         owner_p256,
@@ -254,8 +254,8 @@ pub fn probe_squads_transfer(
         return Err(SquadsProverError::InputAssetMismatch);
     }
     let asset_fe = asset_field(&asset).map_err(|_| SquadsProverError::Poseidon)?;
-    let zone_program_field =
-        hash_field(&SQUADS_ZONE_PROGRAM_ID).map_err(|_| SquadsProverError::Poseidon)?;
+    let ring_program_field =
+        hash_field(&SQUADS_RING_PROGRAM_ID).map_err(|_| SquadsProverError::Poseidon)?;
 
     let total_in = inputs
         .iter()
@@ -268,9 +268,9 @@ pub fn probe_squads_transfer(
     let recipient_owner_pk_field = recipient.owner_pk_field;
     let recipient_blinding_fe = right_align_31(&recipient_blinding);
 
-    let input_zone_utxos: Vec<ZoneUtxo> = inputs
+    let input_ring_utxos: Vec<RingUtxo> = inputs
         .iter()
-        .map(|input| ZoneUtxo {
+        .map(|input| RingUtxo {
             owner_key_hash: owner_pk_field,
             nullifier_pubkey: nullifier_pk,
             asset: asset_fe,
@@ -278,7 +278,7 @@ pub fn probe_squads_transfer(
             blinding: right_align_31(&input.blinding),
             program_data_hash: [0u8; 32],
             ring_data_hash: [0u8; 32],
-            ring_program_id: zone_program_field,
+            ring_program_id: ring_program_field,
             is_dummy: false,
         })
         .collect();
@@ -307,7 +307,7 @@ pub fn probe_squads_transfer(
         nullifiers.push(nullifier);
     }
 
-    let first_input_zone = input_zone_utxos
+    let first_input_ring = input_ring_utxos
         .first()
         .ok_or(SquadsProverError::MissingSlot)?;
     let artifacts = TransferOutputs {
@@ -318,7 +318,7 @@ pub fn probe_squads_transfer(
         transferred_asset: &asset_fe,
         recipient_blinding: &recipient_blinding_fe,
     }
-    .derive(&viewing_secret, &nullifier_secret_32, first_input_zone)?;
+    .derive(&viewing_secret, &nullifier_secret_32, first_input_ring)?;
     let change_blinding = artifacts.change_blinding;
     let sender_ciphertext: [u8; 40] = artifacts
         .sender_ciphertext
@@ -332,9 +332,9 @@ pub fn probe_squads_transfer(
         .map_err(|_| SquadsProverError::InvalidProofEncoding)?;
     let tx_viewing_pk = artifacts.tx_viewing_pk;
 
-    let mut zone_inputs = input_zone_utxos;
+    let mut ring_inputs = input_ring_utxos;
     if let Some(dummy_blinding) = dummy_blinding {
-        zone_inputs.push(ZoneUtxo {
+        ring_inputs.push(RingUtxo {
             owner_key_hash: [0u8; 32],
             nullifier_pubkey: [0u8; 32],
             asset: [0u8; 32],
@@ -347,7 +347,7 @@ pub fn probe_squads_transfer(
         });
     }
 
-    let change_zone_utxo = ZoneUtxo {
+    let change_ring_utxo = RingUtxo {
         owner_key_hash: owner_pk_field,
         nullifier_pubkey: nullifier_pk,
         asset: asset_fe,
@@ -355,7 +355,7 @@ pub fn probe_squads_transfer(
         blinding: change_blinding,
         program_data_hash: [0u8; 32],
         ring_data_hash: [0u8; 32],
-        ring_program_id: zone_program_field,
+        ring_program_id: ring_program_field,
         is_dummy: false,
     };
     let change_spp_utxo = SppProofOutputUtxo {
@@ -377,7 +377,7 @@ pub fn probe_squads_transfer(
         .hash()
         .map_err(|_| SquadsProverError::Poseidon)?;
 
-    let recipient_zone_utxo = ZoneUtxo {
+    let recipient_ring_utxo = RingUtxo {
         owner_key_hash: recipient_owner_pk_field,
         nullifier_pubkey: recipient.nullifier_pubkey,
         asset: asset_fe,
@@ -385,7 +385,7 @@ pub fn probe_squads_transfer(
         blinding: recipient_blinding_fe,
         program_data_hash: [0u8; 32],
         ring_data_hash: [0u8; 32],
-        ring_program_id: zone_program_field,
+        ring_program_id: ring_program_field,
         is_dummy: false,
     };
     // The recipient's signing key is unknown. A synthetic PublicKey carrying the
@@ -435,7 +435,7 @@ pub fn probe_squads_transfer(
         .hash()
         .map_err(|_| SquadsProverError::Poseidon)?;
 
-    let zone_recipient = ZoneRecipient {
+    let ring_recipient = RingRecipient {
         owner_key_hash: recipient_owner_pk_field,
         nullifier_pubkey: recipient.nullifier_pubkey,
         viewing_pubkey: recipient.viewing_pubkey,
@@ -458,7 +458,7 @@ pub fn probe_squads_transfer(
     if let Some(dummy_blinding) = dummy_blinding {
         // A proofless (dummy) SPP slot: only its blinding is read (it mirrors the first
         // real input's roots) and it folds a `[0u8; 32]` input hash. The shared
-        // `dummy_blinding` keeps its zone and SPP slots consistent.
+        // `dummy_blinding` keeps its ring and SPP slots consistent.
         spend_inputs.push(TransferSpendInput {
             utxo: Utxo {
                 owner: owner_public,
@@ -485,7 +485,7 @@ pub fn probe_squads_transfer(
         public_amounts: &public_amounts,
         payer_pubkey_hash,
         owner_p256,
-        zone: squads_address,
+        ring: squads_address,
     }
     .unsigned()
     .private_tx_hash()
@@ -495,9 +495,9 @@ pub fn probe_squads_transfer(
         private_tx_hash,
         viewing_secret,
         nullifier_secret_32,
-        zone_inputs,
-        zone_outputs: vec![change_zone_utxo, recipient_zone_utxo],
-        zone_recipient,
+        ring_inputs,
+        ring_outputs: vec![change_ring_utxo, recipient_ring_utxo],
+        ring_recipient,
         external_data_hash,
         proposal,
         spend_inputs,
@@ -529,34 +529,34 @@ impl ProbedTransfer {
             public_amounts: &self.public_amounts,
             payer_pubkey_hash: self.payer_pubkey_hash,
             owner_p256: self.owner_p256,
-            zone: self.squads_address,
+            ring: self.squads_address,
         }
     }
 
     /// Finalize with the sender's P256 ECDSA signature `(sig_r, sig_s)` over
-    /// `sha256(private_tx_hash)`: prove the squads zone rail, prove the signed SPP
-    /// zone rail, and assemble the paired [`SquadsTransferProof`]. Cross-checks that
+    /// `sha256(private_tx_hash)`: prove the squads ring rail, prove the signed SPP
+    /// ring rail, and assemble the paired [`SquadsTransferProof`]. Cross-checks that
     /// the two proofs agree on `private_tx_hash`, nullifiers, and output hashes.
     pub fn finalize(
         self,
         sig_r: [u8; 32],
         sig_s: [u8; 32],
     ) -> Result<SquadsTransferProof, SquadsProverError> {
-        let zone_result = ZoneProofInputs {
+        let ring_result = RingProofInputs {
             viewing_secret_key: self.viewing_secret.clone(),
             nullifier_secret: self.nullifier_secret_32,
-            inputs: self.zone_inputs.clone(),
-            outputs: self.zone_outputs.clone(),
+            inputs: self.ring_inputs.clone(),
+            outputs: self.ring_outputs.clone(),
             external_data_hash: self.external_data_hash,
-            recipient: Some(self.zone_recipient.clone()),
+            recipient: Some(self.ring_recipient.clone()),
             proposal: self.proposal.clone(),
             public_amount: fe_from_u64(0),
         }
         .prove(&self.prover_url)?;
-        if zone_result.change_blinding != self.change_blinding
-            || zone_result.sender_ciphertext != self.sender_ciphertext
-            || zone_result.recipient_ciphertext != self.recipient_ciphertext
-            || zone_result.tx_viewing_pk != Some(self.tx_viewing_pk)
+        if ring_result.change_blinding != self.change_blinding
+            || ring_result.sender_ciphertext != self.sender_ciphertext
+            || ring_result.recipient_ciphertext != self.recipient_ciphertext
+            || ring_result.tx_viewing_pk != Some(self.tx_viewing_pk)
         {
             return Err(SquadsProverError::BlindingMismatch);
         }
@@ -571,10 +571,10 @@ impl ProbedTransfer {
             .map_err(spp_err)?;
         let spp_proof = pack_proof(&spp_proof_raw)?;
 
-        if zone_result.private_tx_hash != final_prover.private_tx_hash {
+        if ring_result.private_tx_hash != final_prover.private_tx_hash {
             return Err(SquadsProverError::ProofValidation(format!(
-                "private_tx_hash mismatch: zone {:?} vs spp {:?}",
-                zone_result.private_tx_hash, final_prover.private_tx_hash
+                "private_tx_hash mismatch: ring {:?} vs spp {:?}",
+                ring_result.private_tx_hash, final_prover.private_tx_hash
             )));
         }
         // Only the real slots (0..real_count) are checked. A padded dummy's nullifier
@@ -592,10 +592,10 @@ impl ProbedTransfer {
         }
 
         Ok(SquadsTransferProof {
-            zone_proof: zone_result.proof,
+            ring_proof: ring_result.proof,
             spp_proof,
-            private_tx_hash: zone_result.private_tx_hash,
-            proposal_hash: zone_result.proposal_hash,
+            private_tx_hash: ring_result.private_tx_hash,
+            proposal_hash: ring_result.proposal_hash,
             change_utxo_hash: self.change_utxo_hash,
             recipient_utxo_hash: self.recipient_utxo_hash,
             change_amount: self.change_amount,
@@ -630,7 +630,7 @@ impl ProbedTransfer {
     }
 }
 
-/// Build the paired zone + SPP-rail proofs for a `(2, 2)` squads transfer. A thin
+/// Build the paired ring + SPP-rail proofs for a `(2, 2)` squads transfer. A thin
 /// wrapper over [`probe_squads_transfer`] + [`ProbedTransfer::finalize`] that
 /// probes with the sender's public key and signs `sha256(private_tx_hash)` with
 /// the held owner secret.

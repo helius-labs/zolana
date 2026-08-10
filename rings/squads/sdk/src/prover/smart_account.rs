@@ -1,20 +1,20 @@
-//! Paired zone + SPP zone-authority proof builders for a Squads-vault-owned
+//! Paired ring + SPP ring-authority proof builders for a Squads-vault-owned
 //! shielded account (gated under the `prover` feature).
 //!
 //! A smart-account owner is a Squads vault: an ed25519 `Address` with no shielded
 //! signing key. Its shielded owner field is `owner_pk_field = hash_field(vault)`.
-//! The vault cannot sign, so settlement uses the SPP zone-authority rail
-//! (`zone_authority_transact`): the zone authorizes the spend via its `zone_config`
+//! The vault cannot sign, so settlement uses the SPP ring-authority rail
+//! (`ring_authority_transact`): the ring authorizes the spend via its `ring_config`
 //! PDA and, for the async path, an approved proposal binds the operation. There is
 //! NO P256/owner signature anywhere in these builders.
 //!
 //! Like the P256 builders ([`prove_squads_transfer`](super::transfer::prove_squads_transfer),
 //! [`prove_squads_withdrawal`](super::withdrawal::prove_squads_withdrawal)) each
 //! function forwards TWO proofs that must agree on one shared `private_tx_hash`:
-//! 1. the squads ZONE proof ([`ZoneProofInputs`], keyed by the vault's
+//! 1. the squads RING proof ([`RingProofInputs`], keyed by the vault's
 //!    `nullifier_secret` + `viewing_secret`, with `owner_key_hash` = the vault owner
 //!    field), and
-//! 2. the SPP zone-authority proof ([`RingAuthorityProver`], `zone_authority`), a
+//! 2. the SPP ring-authority proof ([`RingAuthorityProver`], `ring_authority`), a
 //!    vanilla Groth16 proof with no BSB22 commitment and no signature.
 //!
 //! Both provers fold the SAME [`ExternalData`] and the SAME input/output UTXOs into
@@ -22,8 +22,8 @@
 //! external_data_hash)`, so the two hashes match by construction. Each builder
 //! cross-checks that equality plus the reconstructed nullifiers and output hashes.
 //!
-//! The SPP zone-authority rail recomputes `external_data_hash` with the
-//! `RING_AUTHORITY_TRANSACT` discriminator (that is the SPP instruction the zone
+//! The SPP ring-authority rail recomputes `external_data_hash` with the
+//! `RING_AUTHORITY_TRANSACT` discriminator (that is the SPP instruction the ring
 //! CPIs into), so the shared [`ExternalData`] uses that discriminator here -- the
 //! one field that differs from the P256 builders.
 
@@ -41,36 +41,36 @@ use zolana_transaction::{
     instructions::transact::asset_field, Address, Data, ExternalData, SppProofOutputUtxo, Utxo,
 };
 
-use zolana_squads_interface::SQUADS_ZONE_PROGRAM_ID;
+use zolana_squads_interface::SQUADS_RING_PROGRAM_ID;
 
 use crate::{
     crypto::{fe_from_u64, low_31, random_blinding_31, right_align_31},
     prover::{
         error::SquadsProverError,
+        ring::{
+            derive_sender_artifacts, RingProofInputs, RingProposal, RingRecipient, RingUtxo,
+            TransferOutputs,
+        },
         shared_viewing_key::hash_field,
         shared_viewing_key::{
             withdrawal_public_transfers, withdrawal_transfer, WithdrawalDestination,
         },
         transfer::{SquadsTransferInput, SquadsTransferProof, SquadsTransferRecipient},
         withdrawal::{spp_err, SquadsWithdrawalInput, SquadsWithdrawalProof},
-        zone::{
-            derive_sender_artifacts, TransferOutputs, ZoneProofInputs, ZoneProposal, ZoneRecipient,
-            ZoneUtxo,
-        },
     },
 };
 
-/// A Squads-vault-owned shielded identity: the secrets needed to spend a zone UTXO
+/// A Squads-vault-owned shielded identity: the secrets needed to spend a ring UTXO
 /// the vault owns. Unlike [`SquadsIdentity`](super::withdrawal::SquadsIdentity)
 /// there is NO owner signing key -- the vault settles signatureless via the SPP
-/// zone-authority rail. The shielded owner field is `hash_field(owner_vault)`.
+/// ring-authority rail. The shielded owner field is `hash_field(owner_vault)`.
 #[derive(Clone)]
 pub struct SquadsSmartAccountIdentity {
     /// The Squads vault (an ed25519 Solana pubkey).
     pub owner_vault: Address,
     /// `NullifierKey.pubkey()` must equal the VKA's `nullifier_pubkey`.
     pub nullifier_secret: [u8; 31],
-    /// The zone circuit's shared viewing secret key.
+    /// The ring circuit's shared viewing secret key.
     pub viewing_secret: SecretKey,
 }
 
@@ -83,7 +83,7 @@ impl SquadsSmartAccountIdentity {
     }
 
     /// The vault's shielded owner field element (`hash_field(owner_vault)`), used as
-    /// the zone `owner_key_hash` and folded into SPP's `owner_hash`.
+    /// the ring `owner_key_hash` and folded into SPP's `owner_hash`.
     pub fn owner_pk_field(&self) -> Result<[u8; 32], SquadsProverError> {
         self.owner_public()
             .owner_proof_input_hash()
@@ -135,7 +135,7 @@ pub struct SquadsSmartAccountTransferRequest {
     pub inputs: Vec<SquadsTransferInput>,
     /// The recipient's public shielded identity (an ordinary P256 recipient).
     pub recipient: SquadsTransferRecipient,
-    /// Amount routed to the recipient. The change stays as the vault's zone UTXO.
+    /// Amount routed to the recipient. The change stays as the vault's ring UTXO.
     pub transferred: u64,
     /// The 31-byte recipient-output blinding (right-aligned into a field element).
     pub recipient_blinding: [u8; 31],
@@ -150,7 +150,7 @@ pub struct SquadsSmartAccountTransferRequest {
     /// The recipient output ciphertext view tag.
     pub recipient_view_tag: [u8; 32],
     /// A bound proposal for `execute_proposal`. `None` for a sync `transact`.
-    pub proposal: Option<ZoneProposal>,
+    pub proposal: Option<RingProposal>,
     pub prover_url: String,
 }
 
@@ -162,7 +162,7 @@ pub struct SquadsSmartAccountWithdrawalRequest {
     pub identity: SquadsSmartAccountIdentity,
     pub input: SquadsWithdrawalInput,
     /// The public amount to withdraw out of the pool. `change = input.amount -
-    /// withdrawn` stays as a zone UTXO.
+    /// withdrawn` stays as a ring UTXO.
     pub withdrawn: u64,
     /// The public destination, which also selects the settlement rail.
     pub destination: WithdrawalDestination,
@@ -179,17 +179,17 @@ pub struct SquadsSmartAccountWithdrawalRequest {
     /// The sender-change output ciphertext view tag.
     pub sender_view_tag: [u8; 32],
     /// A bound proposal for `execute_proposal`. `None` for a sync `transact`.
-    pub proposal: Option<ZoneProposal>,
+    pub proposal: Option<RingProposal>,
     pub prover_url: String,
 }
 
-/// Build the paired zone + SPP zone-authority proofs for a smart-account transfer.
+/// Build the paired ring + SPP ring-authority proofs for a smart-account transfer.
 /// The circuit shape is fixed `(2, 2)`. `inputs.len()` may be 1 or 2. A single real
 /// input is paired with one synthesized dummy input so the shape holds: the dummy
-/// contributes `[0u8; 32]` to both proofs' `private_tx_hash` folds, its zone slot is
+/// contributes `[0u8; 32]` to both proofs' `private_tx_hash` folds, its ring slot is
 /// flagged `is_dummy` (amount pinned to 0), and its SPP slot carries no `SpendProof`
 /// (it mirrors the first real input's roots). The single real input MUST occupy
-/// index 0 (its nullifier seeds the `tx_viewing_sk` KDF, and the zone circuit rejects
+/// index 0 (its nullifier seeds the `tx_viewing_sk` KDF, and the ring circuit rejects
 /// a dummy first input). The result reuses [`SquadsTransferProof`]. Its `spp_proof`
 /// holds the 128-byte vanilla Groth16 proof in bytes `0..128` (bytes `128..192`
 /// zero-padded), matching the on-chain `decompose_proof` `SmartAccount` branch.
@@ -216,7 +216,7 @@ pub fn prove_squads_smart_account_transfer(
         return Err(SquadsProverError::UnsupportedShape(real_count, 2));
     }
     let dummy_blinding: Option<[u8; 31]> = (real_count == 1).then(random_blinding_31);
-    let squads_address = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+    let squads_address = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
 
     let SmartAccountEncodings {
         owner_public,
@@ -235,8 +235,8 @@ pub fn prove_squads_smart_account_transfer(
         return Err(SquadsProverError::InputAssetMismatch);
     }
     let asset_fe = asset_field(&asset).map_err(|_| SquadsProverError::Poseidon)?;
-    let zone_program_field =
-        hash_field(&SQUADS_ZONE_PROGRAM_ID).map_err(|_| SquadsProverError::Poseidon)?;
+    let ring_program_field =
+        hash_field(&SQUADS_RING_PROGRAM_ID).map_err(|_| SquadsProverError::Poseidon)?;
 
     let total_in = inputs
         .iter()
@@ -249,9 +249,9 @@ pub fn prove_squads_smart_account_transfer(
     let recipient_owner_pk_field = recipient.owner_pk_field;
     let recipient_blinding_fe = right_align_31(&recipient_blinding);
 
-    let input_zone_utxos: Vec<ZoneUtxo> = inputs
+    let input_ring_utxos: Vec<RingUtxo> = inputs
         .iter()
-        .map(|input| ZoneUtxo {
+        .map(|input| RingUtxo {
             owner_key_hash: owner_pk_field,
             nullifier_pubkey: nullifier_pk,
             asset: asset_fe,
@@ -259,7 +259,7 @@ pub fn prove_squads_smart_account_transfer(
             blinding: right_align_31(&input.blinding),
             program_data_hash: [0u8; 32],
             ring_data_hash: [0u8; 32],
-            ring_program_id: zone_program_field,
+            ring_program_id: ring_program_field,
             is_dummy: false,
         })
         .collect();
@@ -288,7 +288,7 @@ pub fn prove_squads_smart_account_transfer(
         nullifiers.push(nullifier);
     }
 
-    let first_input_zone = input_zone_utxos
+    let first_input_ring = input_ring_utxos
         .first()
         .ok_or(SquadsProverError::MissingSlot)?;
     let artifacts = TransferOutputs {
@@ -302,7 +302,7 @@ pub fn prove_squads_smart_account_transfer(
     .derive(
         &identity.viewing_secret,
         &nullifier_secret_32,
-        first_input_zone,
+        first_input_ring,
     )?;
     let change_blinding = artifacts.change_blinding;
     let sender_ciphertext: [u8; 40] = artifacts
@@ -317,7 +317,7 @@ pub fn prove_squads_smart_account_transfer(
         .map_err(|_| SquadsProverError::InvalidProofEncoding)?;
     let tx_viewing_pk = artifacts.tx_viewing_pk;
 
-    let change_zone_utxo = ZoneUtxo {
+    let change_ring_utxo = RingUtxo {
         owner_key_hash: owner_pk_field,
         nullifier_pubkey: nullifier_pk,
         asset: asset_fe,
@@ -325,7 +325,7 @@ pub fn prove_squads_smart_account_transfer(
         blinding: change_blinding,
         program_data_hash: [0u8; 32],
         ring_data_hash: [0u8; 32],
-        ring_program_id: zone_program_field,
+        ring_program_id: ring_program_field,
         is_dummy: false,
     };
     let change_spp_utxo = SppProofOutputUtxo {
@@ -347,7 +347,7 @@ pub fn prove_squads_smart_account_transfer(
         .hash()
         .map_err(|_| SquadsProverError::Poseidon)?;
 
-    let recipient_zone_utxo = ZoneUtxo {
+    let recipient_ring_utxo = RingUtxo {
         owner_key_hash: recipient_owner_pk_field,
         nullifier_pubkey: recipient.nullifier_pubkey,
         asset: asset_fe,
@@ -355,7 +355,7 @@ pub fn prove_squads_smart_account_transfer(
         blinding: recipient_blinding_fe,
         program_data_hash: [0u8; 32],
         ring_data_hash: [0u8; 32],
-        ring_program_id: zone_program_field,
+        ring_program_id: ring_program_field,
         is_dummy: false,
     };
     let recipient_spp_utxo = SppProofOutputUtxo {
@@ -401,9 +401,9 @@ pub fn prove_squads_smart_account_transfer(
         .hash()
         .map_err(|_| SquadsProverError::Poseidon)?;
 
-    let mut zone_inputs = input_zone_utxos;
+    let mut ring_inputs = input_ring_utxos;
     if let Some(dummy_blinding) = dummy_blinding {
-        zone_inputs.push(ZoneUtxo {
+        ring_inputs.push(RingUtxo {
             owner_key_hash: [0u8; 32],
             nullifier_pubkey: [0u8; 32],
             asset: [0u8; 32],
@@ -415,13 +415,13 @@ pub fn prove_squads_smart_account_transfer(
             is_dummy: true,
         });
     }
-    let zone_result = ZoneProofInputs {
+    let ring_result = RingProofInputs {
         viewing_secret_key: identity.viewing_secret.clone(),
         nullifier_secret: nullifier_secret_32,
-        inputs: zone_inputs,
-        outputs: vec![change_zone_utxo, recipient_zone_utxo],
+        inputs: ring_inputs,
+        outputs: vec![change_ring_utxo, recipient_ring_utxo],
         external_data_hash,
-        recipient: Some(ZoneRecipient {
+        recipient: Some(RingRecipient {
             owner_key_hash: recipient_owner_pk_field,
             nullifier_pubkey: recipient.nullifier_pubkey,
             viewing_pubkey: recipient.viewing_pubkey,
@@ -430,10 +430,10 @@ pub fn prove_squads_smart_account_transfer(
         public_amount: fe_from_u64(0),
     }
     .prove(&prover_url)?;
-    if zone_result.change_blinding != change_blinding
-        || zone_result.sender_ciphertext != artifacts.sender_ciphertext
-        || zone_result.recipient_ciphertext != artifacts.recipient_ciphertext
-        || zone_result.tx_viewing_pk != Some(tx_viewing_pk)
+    if ring_result.change_blinding != change_blinding
+        || ring_result.sender_ciphertext != artifacts.sender_ciphertext
+        || ring_result.recipient_ciphertext != artifacts.recipient_ciphertext
+        || ring_result.tx_viewing_pk != Some(tx_viewing_pk)
     {
         return Err(SquadsProverError::BlindingMismatch);
     }
@@ -455,7 +455,7 @@ pub fn prove_squads_smart_account_transfer(
     if let Some(dummy_blinding) = dummy_blinding {
         // A proofless (dummy) SPP slot: only its blinding is read (it mirrors the
         // first real input's roots), and it folds a [0u8; 32] input hash. The shared
-        // dummy_blinding keeps its zone and SPP slots consistent.
+        // dummy_blinding keeps its ring and SPP slots consistent.
         spend_inputs.push(TransferSpendInput {
             utxo: Utxo {
                 owner: owner_public,
@@ -474,7 +474,7 @@ pub fn prove_squads_smart_account_transfer(
     }
     let outputs = vec![change_spp_utxo, recipient_spp_utxo];
 
-    let zone_authority_result = RingAuthorityProver {
+    let ring_authority_result = RingAuthorityProver {
         inputs: spend_inputs,
         outputs,
         external_data,
@@ -487,42 +487,42 @@ pub fn prove_squads_smart_account_transfer(
     .build()
     .map_err(spp_err)?;
     let spp_proof_raw = ProverClient::new(prover_url.clone())
-        .prove_ring_authority(&zone_authority_result.inputs)
+        .prove_ring_authority(&ring_authority_result.inputs)
         .map_err(spp_err)?;
     let spp_proof = pack_vanilla_proof(&spp_proof_raw)?;
 
-    if zone_result.private_tx_hash != zone_authority_result.private_tx_hash {
+    if ring_result.private_tx_hash != ring_authority_result.private_tx_hash {
         return Err(SquadsProverError::ProofValidation(format!(
-            "private_tx_hash mismatch: zone {:?} vs spp {:?}",
-            zone_result.private_tx_hash, zone_authority_result.private_tx_hash
+            "private_tx_hash mismatch: ring {:?} vs spp {:?}",
+            ring_result.private_tx_hash, ring_authority_result.private_tx_hash
         )));
     }
     // Only the real slots (0..real_count) are checked. A padded dummy's nullifier
     // comes from the SPP witness with no real spend to reconstruct against.
-    if zone_authority_result.nullifiers.get(..real_count) != Some(nullifiers.as_slice()) {
+    if ring_authority_result.nullifiers.get(..real_count) != Some(nullifiers.as_slice()) {
         return Err(SquadsProverError::ProofValidation(
             "SPP nullifiers do not match the reconstructed nullifiers".to_string(),
         ));
     }
-    if zone_authority_result.output_hashes != vec![change_utxo_hash, recipient_utxo_hash] {
+    if ring_authority_result.output_hashes != vec![change_utxo_hash, recipient_utxo_hash] {
         return Err(SquadsProverError::ProofValidation(
             "SPP output hashes do not match the reconstructed hashes".to_string(),
         ));
     }
 
     Ok(SquadsTransferProof {
-        zone_proof: zone_result.proof,
+        ring_proof: ring_result.proof,
         spp_proof,
-        private_tx_hash: zone_result.private_tx_hash,
-        proposal_hash: zone_result.proposal_hash,
+        private_tx_hash: ring_result.private_tx_hash,
+        proposal_hash: ring_result.proposal_hash,
         change_utxo_hash,
         recipient_utxo_hash,
         change_amount,
         // The full (2-slot) nullifier set, including the padded dummy, so the caller's
         // per-slot InputContext lines up with `input_root_indices`.
-        nullifiers: zone_authority_result.nullifiers,
+        nullifiers: ring_authority_result.nullifiers,
         input_utxo_hashes,
-        input_root_indices: zone_authority_result.input_root_indices,
+        input_root_indices: ring_authority_result.input_root_indices,
         tx_viewing_pk,
         sender_ciphertext,
         recipient_ciphertext,
@@ -530,14 +530,14 @@ pub fn prove_squads_smart_account_transfer(
     })
 }
 
-/// Build the paired zone + SPP zone-authority proofs for a `(1, 1)` smart-account
+/// Build the paired ring + SPP ring-authority proofs for a `(1, 1)` smart-account
 /// withdrawal. The result reuses [`SquadsWithdrawalProof`]. Its `spp_proof` holds
 /// the 128-byte vanilla Groth16 proof in bytes `0..128` (bytes `128..192`
 /// zero-padded), matching the on-chain `decompose_proof` `SmartAccount` branch.
 pub fn prove_squads_smart_account_withdrawal(
     req: SquadsSmartAccountWithdrawalRequest,
 ) -> Result<SquadsWithdrawalProof, SquadsProverError> {
-    let squads_address = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+    let squads_address = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
 
     let SmartAccountEncodings {
         owner_public,
@@ -548,8 +548,8 @@ pub fn prove_squads_smart_account_withdrawal(
         nullifier_secret_32,
     } = smart_account_encodings(&req.identity)?;
     let asset_fe = asset_field(&req.input.asset).map_err(|_| SquadsProverError::Poseidon)?;
-    let zone_program_field =
-        hash_field(&SQUADS_ZONE_PROGRAM_ID).map_err(|_| SquadsProverError::Poseidon)?;
+    let ring_program_field =
+        hash_field(&SQUADS_RING_PROGRAM_ID).map_err(|_| SquadsProverError::Poseidon)?;
 
     let change_amount = req
         .input
@@ -557,7 +557,7 @@ pub fn prove_squads_smart_account_withdrawal(
         .checked_sub(req.withdrawn)
         .ok_or(SquadsProverError::InvalidAmount)?;
 
-    let input_zone_utxo = ZoneUtxo {
+    let input_ring_utxo = RingUtxo {
         owner_key_hash: owner_pk_field,
         nullifier_pubkey: nullifier_pk,
         asset: asset_fe,
@@ -565,7 +565,7 @@ pub fn prove_squads_smart_account_withdrawal(
         blinding: right_align_31(&req.input.blinding),
         program_data_hash: [0u8; 32],
         ring_data_hash: [0u8; 32],
-        ring_program_id: zone_program_field,
+        ring_program_id: ring_program_field,
         is_dummy: false,
     };
     let input_spp_utxo = Utxo {
@@ -586,7 +586,7 @@ pub fn prove_squads_smart_account_withdrawal(
     let artifacts = derive_sender_artifacts(
         &req.identity.viewing_secret,
         &nullifier_secret_32,
-        &input_zone_utxo,
+        &input_ring_utxo,
         change_amount,
         &asset_fe,
     )?;
@@ -598,7 +598,7 @@ pub fn prove_squads_smart_account_withdrawal(
         .map_err(|_| SquadsProverError::InvalidProofEncoding)?;
     let change_blinding_31 = low_31(&change_blinding);
 
-    let change_zone_utxo = ZoneUtxo {
+    let change_ring_utxo = RingUtxo {
         owner_key_hash: owner_pk_field,
         nullifier_pubkey: nullifier_pk,
         asset: asset_fe,
@@ -606,7 +606,7 @@ pub fn prove_squads_smart_account_withdrawal(
         blinding: change_blinding,
         program_data_hash: [0u8; 32],
         ring_data_hash: [0u8; 32],
-        ring_program_id: zone_program_field,
+        ring_program_id: ring_program_field,
         is_dummy: false,
     };
     let change_spp_utxo = SppProofOutputUtxo {
@@ -653,21 +653,21 @@ pub fn prove_squads_smart_account_withdrawal(
         .map_err(|_| SquadsProverError::Poseidon)?;
 
     let public_amount = fe_from_u64(req.withdrawn);
-    let zone_result = ZoneProofInputs {
+    let ring_result = RingProofInputs {
         viewing_secret_key: req.identity.viewing_secret.clone(),
         nullifier_secret: nullifier_secret_32,
-        inputs: vec![input_zone_utxo],
-        outputs: vec![change_zone_utxo],
+        inputs: vec![input_ring_utxo],
+        outputs: vec![change_ring_utxo],
         external_data_hash,
         recipient: None,
         proposal: req.proposal,
         public_amount,
     }
     .prove(&req.prover_url)?;
-    if zone_result.change_blinding != change_blinding {
+    if ring_result.change_blinding != change_blinding {
         return Err(SquadsProverError::BlindingMismatch);
     }
-    if zone_result.sender_ciphertext != sender_ciphertext {
+    if ring_result.sender_ciphertext != sender_ciphertext {
         return Err(SquadsProverError::BlindingMismatch);
     }
 
@@ -681,7 +681,7 @@ pub fn prove_squads_smart_account_withdrawal(
         nullifier_proof: None,
     };
 
-    let zone_authority_result = RingAuthorityProver {
+    let ring_authority_result = RingAuthorityProver {
         inputs: vec![spend_input],
         outputs: vec![change_spp_utxo],
         external_data,
@@ -694,36 +694,36 @@ pub fn prove_squads_smart_account_withdrawal(
     .build()
     .map_err(spp_err)?;
     let spp_proof_raw = ProverClient::new(req.prover_url.clone())
-        .prove_ring_authority(&zone_authority_result.inputs)
+        .prove_ring_authority(&ring_authority_result.inputs)
         .map_err(spp_err)?;
     let spp_proof = pack_vanilla_proof(&spp_proof_raw)?;
 
-    if zone_result.private_tx_hash != zone_authority_result.private_tx_hash {
+    if ring_result.private_tx_hash != ring_authority_result.private_tx_hash {
         return Err(SquadsProverError::ProofValidation(format!(
-            "private_tx_hash mismatch: zone {:?} vs spp {:?}",
-            zone_result.private_tx_hash, zone_authority_result.private_tx_hash
+            "private_tx_hash mismatch: ring {:?} vs spp {:?}",
+            ring_result.private_tx_hash, ring_authority_result.private_tx_hash
         )));
     }
-    if zone_authority_result.nullifiers.first().copied() != Some(nullifier) {
+    if ring_authority_result.nullifiers.first().copied() != Some(nullifier) {
         return Err(SquadsProverError::ProofValidation(
             "SPP nullifier does not match the reconstructed nullifier".to_string(),
         ));
     }
-    if zone_authority_result.output_hashes.first().copied() != Some(change_utxo_hash) {
+    if ring_authority_result.output_hashes.first().copied() != Some(change_utxo_hash) {
         return Err(SquadsProverError::ProofValidation(
             "SPP change output hash does not match the reconstructed hash".to_string(),
         ));
     }
-    let &(utxo_root_index, nullifier_root_index) = zone_authority_result
+    let &(utxo_root_index, nullifier_root_index) = ring_authority_result
         .input_root_indices
         .first()
         .ok_or(SquadsProverError::MissingSlot)?;
 
     Ok(SquadsWithdrawalProof {
-        zone_proof: zone_result.proof,
+        ring_proof: ring_result.proof,
         spp_proof,
-        private_tx_hash: zone_result.private_tx_hash,
-        proposal_hash: zone_result.proposal_hash,
+        private_tx_hash: ring_result.private_tx_hash,
+        proposal_hash: ring_result.proposal_hash,
         change_utxo_hash,
         nullifier,
         input_utxo_hash,
@@ -735,7 +735,7 @@ pub fn prove_squads_smart_account_withdrawal(
 }
 
 /// Pack a vanilla (non-committed) Groth16 proof into the 192-byte layout SPP reads
-/// for the zone-authority `SmartAccount` rail: `a || b || c` in bytes `0..128`, the
+/// for the ring-authority `SmartAccount` rail: `a || b || c` in bytes `0..128`, the
 /// trailing `128..192` zero-padded. The on-chain `decompose_proof` reads only the
 /// leading 128 bytes as `TransactProof::Eddsa`.
 fn pack_vanilla_proof(proof: &Proof) -> Result<[u8; 192], SquadsProverError> {

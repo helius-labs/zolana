@@ -1,6 +1,6 @@
 //! `getProposals` lists the pending proposals a viewing key account is a party
 //! to, decrypted with the auditor-recovered shared viewing key. The crank uses
-//! the shared [`SquadsBackend::reconstruct_zone_proposal`] helper to rebuild and
+//! the shared [`SquadsBackend::reconstruct_ring_proposal`] helper to rebuild and
 //! verify a proposal from on-chain data alone.
 //!
 //! A `Proposal` carries no op discriminant. Classification is authenticated.
@@ -11,14 +11,14 @@
 
 use zolana_client::Rpc;
 use zolana_keypair::hash::poseidon;
-use zolana_squads_interface::{state::Proposal, SQUADS_ZONE_PROGRAM_ID};
+use zolana_squads_interface::{state::Proposal, SQUADS_RING_PROGRAM_ID};
 use zolana_squads_sdk::{
     crypto::{fe_from_u64, right_align_31},
     proposal::{
         decrypt_proposal_ciphertext, proposal_asset_commitment, proposal_destination_commitment,
         proposal_hash, ProposalOperation,
     },
-    prover::ZoneProposal,
+    prover::RingProposal,
 };
 use zolana_transaction::Address;
 
@@ -37,9 +37,9 @@ pub const OP_TRANSFER: u8 = 3;
 impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
     /// Reconstruct and verify a pending proposal from on-chain data plus the
     /// auditor key. Classify it, resolve the viewing key account it is encrypted
-    /// to, decrypt `(amount, blinding)`, rebuild the [`ZoneProposal`], and
+    /// to, decrypt `(amount, blinding)`, rebuild the [`RingProposal`], and
     /// confirm the recomputed `proposal_hash` matches the stored one.
-    pub fn reconstruct_zone_proposal(
+    pub fn reconstruct_ring_proposal(
         &self,
         pda: Address,
         proposal: &Proposal,
@@ -85,7 +85,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
                         blinding,
                         expiry: proposal.expiry,
                         proposal_hash: proposal.proposal_hash,
-                        zone_proposal: ZoneProposal {
+                        ring_proposal: RingProposal {
                             amount: [0u8; 32],
                             recipient: [0u8; 32],
                             asset,
@@ -145,7 +145,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
             blinding,
             expiry: proposal.expiry,
             proposal_hash: proposal.proposal_hash,
-            zone_proposal: ZoneProposal {
+            ring_proposal: RingProposal {
                 amount: fe_from_u64(amount),
                 recipient: owner_hash,
                 asset,
@@ -164,7 +164,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
         let queried = self.resolve_shared_key(request.viewing_key_account)?;
         let owner = queried.account.owner;
 
-        let program_id = Address::new_from_array(SQUADS_ZONE_PROGRAM_ID);
+        let program_id = Address::new_from_array(SQUADS_RING_PROGRAM_ID);
         let accounts = self.rpc().get_program_accounts(program_id)?;
 
         let mut proposals = Vec::new();
@@ -178,7 +178,7 @@ impl<I: Rpc, R: Rpc, A: ReadAuthorization> SquadsBackend<I, R, A> {
             if proposal.owner != owner && proposal.recipient != owner {
                 continue;
             }
-            let Ok(reconstructed) = self.reconstruct_zone_proposal(pda, &proposal) else {
+            let Ok(reconstructed) = self.reconstruct_ring_proposal(pda, &proposal) else {
                 continue;
             };
             proposals.push(DecryptedProposal {

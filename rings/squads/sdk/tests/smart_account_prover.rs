@@ -16,7 +16,7 @@ use zolana_client::{
 use zolana_hasher::Poseidon;
 use zolana_keypair::{NullifierKey, P256Pubkey, PublicKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_squads_interface::SQUADS_ZONE_PROGRAM_ID;
+use zolana_squads_interface::SQUADS_RING_PROGRAM_ID;
 use zolana_squads_sdk::prover::{
     prove_squads_smart_account_transfer, prove_squads_smart_account_withdrawal,
     SquadsSmartAccountIdentity, SquadsSmartAccountTransferRequest,
@@ -153,7 +153,7 @@ fn p256_secret(n: u8) -> SecretKey {
 }
 
 fn squads_address() -> Address {
-    Address::new_from_array(SQUADS_ZONE_PROGRAM_ID)
+    Address::new_from_array(SQUADS_RING_PROGRAM_ID)
 }
 
 /// The SPP UTXO stores the 31-byte blinding right-aligned in 32 bytes.
@@ -164,7 +164,7 @@ fn right_align_31(bytes: &[u8; 31]) -> [u8; 32] {
 }
 
 /// Build the input UTXO exactly as `smart_account.rs` does. Any difference
-/// makes the SPP proof and the zone proof disagree.
+/// makes the SPP proof and the ring proof disagree.
 fn spend_proof_for_input(
     indexer: &mut TestIndexer,
     identity: &SquadsSmartAccountIdentity,

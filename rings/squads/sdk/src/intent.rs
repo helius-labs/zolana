@@ -2,8 +2,8 @@
 //!
 //! These carry no crypto or proving logic. They are the wallet's intermediate
 //! representation that the construction modules ([`crate::proposal`],
-//! [`crate::encrypted_utxo`]) and the prover witness builders consume. The zone
-//! supports two operation shapes (`docs/SQUADS.md`, Zone Proof): a transfer
+//! [`crate::encrypted_utxo`]) and the prover witness builders consume. The ring
+//! supports two operation shapes (`docs/SQUADS.md`, Ring Proof): a transfer
 //! (recipient output + sender change) and a withdrawal (sender change only,
 //! with a public withdrawn amount).
 
@@ -77,7 +77,7 @@ impl OutputUtxo {
 
 /// A wallet's expression of a private transaction: the inputs it spends, the
 /// outputs it creates, and the operation type. The witness builder turns this
-/// into a zone proof and the proposal builder commits to it via `proposal_hash`.
+/// into a ring proof and the proposal builder commits to it via `proposal_hash`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrivateTransactionIntent {
     pub tx_type: TransactionType,
