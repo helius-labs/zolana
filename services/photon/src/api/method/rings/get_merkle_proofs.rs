@@ -4,14 +4,18 @@ use super::common::{
     get_tree_info, merkle_proof_from_context, rings_output_leaf_indices, validate_proof_leaves,
 };
 use crate::api::error::PhotonApiError;
+use crate::api::root_index_cache::RootIndexCache;
 use crate::common::indexer_context::extract as extract_context;
 use crate::common::rings_tree::RingsTreeKind;
 use crate::ingester::persist::get_multiple_compressed_leaf_proofs_by_indices_with_height;
+use crate::rpc::RpcClient;
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use zolana_indexer_api::{GetMerkleProofsRequest, GetMerkleProofsResponse};
 
 pub async fn get_merkle_proofs(
     conn: &DatabaseConnection,
+    rpc_client: &RpcClient,
+    root_index_cache: &RootIndexCache,
     request: GetMerkleProofsRequest,
 ) -> Result<GetMerkleProofsResponse, PhotonApiError> {
     validate_proof_leaves(&request.leaves)?;
@@ -37,20 +41,23 @@ pub async fn get_merkle_proofs(
         .into_iter()
         .map(|proof| (proof.leaf_index, proof))
         .collect::<BTreeMap<_, _>>();
-    let proofs = request
-        .leaves
-        .into_iter()
-        .zip(leaf_indices)
-        .map(|(leaf, leaf_index)| {
-            let proof = proofs_by_index.get(&leaf_index).ok_or_else(|| {
-                PhotonApiError::RecordNotFound(format!(
-                    "No proof found for leaf index {}",
-                    leaf_index
-                ))
-            })?;
-            merkle_proof_from_context(proof.clone(), &tree_info, RingsTreeKind::State, &leaf)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut proofs = Vec::with_capacity(leaf_indices.len());
+    for (leaf, leaf_index) in request.leaves.into_iter().zip(leaf_indices) {
+        let proof = proofs_by_index.get(&leaf_index).ok_or_else(|| {
+            PhotonApiError::RecordNotFound(format!("No proof found for leaf index {}", leaf_index))
+        })?;
+        proofs.push(
+            merkle_proof_from_context(
+                proof.clone(),
+                &tree_info,
+                RingsTreeKind::State,
+                &leaf,
+                rpc_client,
+                root_index_cache,
+            )
+            .await?,
+        );
+    }
 
     tx.commit().await?;
 

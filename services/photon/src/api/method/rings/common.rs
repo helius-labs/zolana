@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::api::error::PhotonApiError;
+use crate::api::root_index_cache::RootIndexCache;
 use crate::common::bind_sql_value;
 use crate::common::bn254::is_bn254_field_element;
 use crate::common::rings_tree::RingsTreeKind;
 use crate::dao::generated::{indexed_trees, rings_outputs};
 use crate::ingester::parser::tree_info::TreeInfo;
 use crate::ingester::persist::MerkleProofWithContext;
+use crate::rpc::RpcClient;
 use bincode::{Decode, Encode};
 use sea_orm::{
     ColumnTrait, DatabaseBackend, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder, Value,
@@ -124,11 +126,13 @@ pub(super) async fn rings_output_leaf_indices(
         .collect()
 }
 
-pub(super) fn merkle_proof_from_context(
+pub(super) async fn merkle_proof_from_context(
     proof: MerkleProofWithContext,
     tree_info: &TreeInfo,
     tree_kind: RingsTreeKind,
     expected_leaf: &Hash,
+    rpc_client: &RpcClient,
+    root_index_cache: &RootIndexCache,
 ) -> Result<MerkleProof, PhotonApiError> {
     let expected_tree = SerializablePubkey::from(tree_info.tree);
     if proof.merkle_tree != expected_tree {
@@ -145,7 +149,11 @@ pub(super) fn merkle_proof_from_context(
     }
 
     let root_seq = proof.root_seq.unwrap_or(0);
-    let root_index = state_root_index(&proof, tree_info)?;
+    // The chain's slot for this exact root, not a number photon counted. See
+    // `RootIndexCache` for why the two cannot be kept in step by construction.
+    let root_index = root_index_cache
+        .index_for(rpc_client, tree_info.tree, proof.root.0)
+        .await?;
 
     Ok(MerkleProof {
         leaf: proof.hash,
@@ -190,42 +198,6 @@ pub(super) fn non_inclusion_proof_from_context(
         root_seq,
         root_index,
     })
-}
-
-/// The ring-buffer slot the chain holds this proof's root in.
-///
-/// Taken from the tree account rather than derived from a sequence photon
-/// counts, because the two are independent counters and nothing detects them
-/// drifting apart: photon then serves a correct root with an index pointing at
-/// a different one, and every proof built on it fails verification with no clue
-/// that an index is to blame.
-///
-/// The synced index is only meaningful for the root it was read with, so serving
-/// it for any other root is refused. That happens while photon is behind the
-/// chain, where a proof against its older root would be rejected anyway -- an
-/// error here is the same outcome, arriving before the proof is built.
-fn state_root_index(
-    proof: &MerkleProofWithContext,
-    tree_info: &TreeInfo,
-) -> Result<u16, PhotonApiError> {
-    let (synced_root, synced_index) = tree_info
-        .state_root
-        .zip(tree_info.state_root_index)
-        .ok_or_else(|| {
-            PhotonApiError::UnexpectedError(format!(
-                "Tree {} has no synced state root yet",
-                tree_info.tree
-            ))
-        })?;
-
-    if proof.root.to_vec() != synced_root.to_vec() {
-        return Err(PhotonApiError::StaleRoot(format!(
-            "Indexed state root for tree {} is behind the chain; retry once it catches up",
-            tree_info.tree
-        )));
-    }
-
-    Ok(synced_index)
 }
 
 /// Root index for the nullifier tree, where the sequence number *is* the
@@ -417,68 +389,4 @@ pub(super) fn rings_output_slot_from_parts(
         output_context: rings_output_context_from_parts(hash, tree, leaf_index)?,
         payload: Base64String(payload),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tree_info_with(state_root: Option<[u8; 32]>, state_root_index: Option<u16>) -> TreeInfo {
-        TreeInfo {
-            tree: solana_pubkey::Pubkey::new_from_array([7; 32]),
-            queue: solana_pubkey::Pubkey::new_from_array([7; 32]),
-            height: 32,
-            root_history_capacity: 200,
-            input_queue_zkp_batch_size: 250,
-            state_root,
-            state_root_index,
-        }
-    }
-
-    fn proof_with_root(root: [u8; 32]) -> MerkleProofWithContext {
-        MerkleProofWithContext {
-            proof: Vec::new(),
-            root: Hash::from(root),
-            leaf_index: 0,
-            hash: Hash::from([1; 32]),
-            merkle_tree: SerializablePubkey::from(solana_pubkey::Pubkey::new_from_array([7; 32])),
-            // Deliberately a value whose `% capacity` differs from the synced
-            // index, so a test passing cannot mean the old derivation was used.
-            root_seq: Some(91175),
-        }
-    }
-
-    #[test]
-    fn serves_the_index_the_chain_reports_for_this_root() {
-        let root = [9; 32];
-        let info = tree_info_with(Some(root), Some(155));
-
-        let index = state_root_index(&proof_with_root(root), &info).unwrap();
-
-        assert_eq!(index, 155);
-        // What the discarded derivation would have produced: 91175 % 200.
-        assert_ne!(index, 175);
-    }
-
-    #[test]
-    fn refuses_an_index_read_with_a_different_root() {
-        // photon is behind the chain: the synced index names a slot holding a
-        // root this proof was not built against. Quoting it would send the
-        // program to the wrong root and fail verification with no clue why.
-        let info = tree_info_with(Some([9; 32]), Some(155));
-
-        let error = state_root_index(&proof_with_root([8; 32]), &info).unwrap_err();
-
-        assert!(
-            matches!(error, PhotonApiError::StaleRoot(_)),
-            "unexpected error: {error}"
-        );
-    }
-
-    #[test]
-    fn refuses_before_the_tree_has_been_synced() {
-        let info = tree_info_with(None, None);
-
-        assert!(state_root_index(&proof_with_root([9; 32]), &info).is_err());
-    }
 }
