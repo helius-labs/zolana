@@ -3,8 +3,9 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use zolana_client::{
-    InputUtxoContext, PreparedRingAuthority, ProverClient, PublicTransfers, RingAuthorityProver,
-    RingAuthorityWitness, Rpc, Shape, SppProofInputUtxo, TransferSpendInput,
+    InputUtxoContext, PreparedRingAuthority, ProverClient, PublicTransfers,
+    RingAuthorityProofMaterial, RingAuthorityProver, Rpc, Shape, SppProofInputUtxo,
+    TransferSpendInput,
 };
 use zolana_interface::{
     instruction::{
@@ -85,7 +86,7 @@ fn mixed_owners() -> RingAuthorityProver {
 }
 
 /// #5: build through the transaction-crate boundary: `PreparedRingAuthority` ->
-/// `RingAuthorityWitness` -> `RingAuthorityProver` (shape 2x2).
+/// `RingAuthorityProofMaterial` -> `RingAuthorityProver` (shape 2x2).
 fn boundary_prover() -> RingAuthorityProver {
     let ring = ring_program();
     let mut indexer = TestIndexer::new();
@@ -129,7 +130,7 @@ fn boundary_prover() -> RingAuthorityProver {
             TestIndexer::new().dummy_nullifier_proof(nullifier)
         })
         .collect();
-    RingAuthorityProver::try_from(RingAuthorityWitness {
+    RingAuthorityProver::try_from(RingAuthorityProofMaterial {
         prepared,
         proofs,
         dummy_nullifier_proofs,

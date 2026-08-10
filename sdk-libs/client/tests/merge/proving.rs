@@ -3,7 +3,7 @@
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
-    prover::merge::MergeProver, Merge, MergeWitness, ProverClient, Rpc, SppProofInputUtxo,
+    prover::merge::MergeProver, Merge, MergeProofMaterial, ProverClient, Rpc, SppProofInputUtxo,
     MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_8_1;
@@ -50,7 +50,7 @@ impl MergeHarness {
             inputs.push(SppProofInputUtxo::new(utxo, &sender));
         }
         // The plan derives the merged output and owner identity; preparing it pads to
-        // MERGE_INPUTS, and the MergeWitness folds in the owner nullifier key and the
+        // MERGE_INPUTS, and the MergeProofMaterial folds in the owner nullifier key and the
         // proofs. The prover never sees the high-level plan.
         let merge = Merge::new(&sender, inputs)
             .expect("build merge plan")
@@ -67,7 +67,7 @@ impl MergeHarness {
             .into_iter()
             .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
             .collect();
-        let result = MergeProver::try_from(MergeWitness {
+        let result = MergeProver::try_from(MergeProofMaterial {
             prepared,
             nullifier_key: sender.nullifier_key.clone(),
             proofs,

@@ -176,11 +176,23 @@ pub enum ClientError {
     #[error("P256-owned inputs are unsupported by transact")]
     P256TransactUnsupported,
 
-    #[error("field element exceeds 32 bytes")]
+    #[error("value exceeds 32 bytes")]
     FieldTooLong,
 
     #[error("prover server error: {0}")]
     ProverServer(String),
+
+    #[error("proof inputs carry wallet secrets and require a local prover, not {server_address}")]
+    ProverRequiresLocalTransport { server_address: String },
+
+    #[error("a remote prover URL must use HTTPS: {server_address}")]
+    ProverTransportNotHttps { server_address: String },
+
+    #[error("prover server URL is malformed: {server_address}")]
+    ProverUrlMalformed { server_address: String },
+
+    #[error("prover api key is empty; call `without_api_key` to send unauthenticated")]
+    EmptyProverApiKey,
 
     #[error("proof parse error: {0}")]
     ProofParse(String),
@@ -242,10 +254,10 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
-    #[error("indexer did not reach block_time {target} within {attempts} attempts; latest indexed block_time is {latest}")]
+    #[error("indexer did not reach slot {required} within {attempts} attempts; highest indexed slot is {indexed}")]
     IndexerNotCaughtUp {
-        target: i64,
-        latest: i64,
+        required: u64,
+        indexed: u64,
         attempts: u32,
     },
 
@@ -258,8 +270,11 @@ pub enum ClientError {
     #[error("proof path has {got} elements, expected {expected}")]
     ProofPathLength { got: usize, expected: usize },
 
-    #[error("assembled witness has {got} input slots, expected {expected}")]
-    WitnessInputCountMismatch { got: usize, expected: usize },
+    #[error("assembled proof inputs have {got} input slots, expected {expected}")]
+    ProofInputCountMismatch { got: usize, expected: usize },
+
+    #[error("authorization has {got} signer pubkey hashes, expected {expected}")]
+    SignerHashCountMismatch { got: usize, expected: usize },
 
     #[error("deposit funding account not found: {address:?}")]
     AccountNotFound { address: [u8; 32] },

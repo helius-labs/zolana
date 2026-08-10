@@ -1486,7 +1486,7 @@ mod tests {
     fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
         let signature = Signature::from([9u8; 64]);
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
-            "context": { "block_time": 12 },
+            "context": { "block_time": 12, "slot": 1 },
             "transactions": [],
         }))]);
         let rpc = MockSubmitRpc::new(signature);
@@ -1512,7 +1512,7 @@ mod tests {
         let signature = Signature::from([10u8; 64]);
         let server = MockIndexerServer::respond_with(vec![
             rpc_result(json!({
-                "context": { "block_time": 12 },
+                "context": { "block_time": 12, "slot": 1 },
                 "transactions": [],
             })),
             indexed_transaction_by_signature_response(signature),
@@ -1622,7 +1622,7 @@ mod tests {
     fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
         let signature = Signature::from([18u8; 64]);
         let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
-            "context": { "block_time": 12 },
+            "context": { "block_time": 12, "slot": 1 },
             "transactions": [
                 { "event_index": 0, "transaction": indexed_transaction_json(signature) },
                 { "event_index": 1, "transaction": indexed_transaction_json(signature) },
@@ -1648,8 +1648,8 @@ mod tests {
         );
     }
 
-    /// Confirmation no longer reads view tags, so the forwarders are the only
-    /// thing keeping the capability reachable through `ZolanaClient`.
+    /// Confirmation does not read view tags, so these forwarders are the only
+    /// path that keeps the capability reachable through `ZolanaClient`.
     #[test]
     fn client_forwards_transact_output_view_tags_to_the_rpc() {
         let signature = Signature::from([21u8; 64]);
@@ -1809,7 +1809,7 @@ mod tests {
 
     fn merkle_response(tree: Address, leaf: [u8; 32]) -> Value {
         rpc_result(json!({
-            "context": { "block_time": 10 },
+            "context": { "block_time": 10, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash(leaf),
                 "merkle_context": {
@@ -1827,7 +1827,7 @@ mod tests {
 
     fn nullifier_response(tree: Address, leaf: [u8; 32]) -> Value {
         rpc_result(json!({
-            "context": { "block_time": 10 },
+            "context": { "block_time": 10, "slot": 1 },
             "proofs": [{
                 "leaf": encode_hash(leaf),
                 "merkle_context": {
@@ -1868,7 +1868,7 @@ mod tests {
 
     fn indexed_transaction_by_signature_response(signature: Signature) -> Value {
         rpc_result(json!({
-            "context": { "block_time": 11 },
+            "context": { "block_time": 11, "slot": 1 },
             "transactions": [{
                 "event_index": 0,
                 "transaction": indexed_transaction_json(signature),

@@ -250,7 +250,7 @@ pub fn assemble_with_dummy_policy(
     let root_indices = result.input_root_indices;
 
     if nullifiers.len() != shape.n_inputs() || root_indices.len() != shape.n_inputs() {
-        return Err(ClientError::WitnessInputCountMismatch {
+        return Err(ClientError::ProofInputCountMismatch {
             got: nullifiers.len(),
             expected: shape.n_inputs(),
         });
@@ -260,14 +260,14 @@ pub fn assemble_with_dummy_policy(
     for i in 0..shape.n_inputs() {
         let nullifier_hash = *nullifiers
             .get(i)
-            .ok_or(ClientError::WitnessInputCountMismatch {
+            .ok_or(ClientError::ProofInputCountMismatch {
                 got: nullifiers.len(),
                 expected: shape.n_inputs(),
             })?;
         let &(utxo_tree_root_index, nullifier_tree_root_index) =
             root_indices
                 .get(i)
-                .ok_or(ClientError::WitnessInputCountMismatch {
+                .ok_or(ClientError::ProofInputCountMismatch {
                     got: root_indices.len(),
                     expected: shape.n_inputs(),
                 })?;

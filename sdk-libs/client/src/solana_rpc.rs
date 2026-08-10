@@ -133,7 +133,7 @@ impl SolanaRpc {
     pub fn with_client(client: RpcClient) -> Self {
         Self {
             client,
-            confirmation_timeout: Duration::from_secs(30),
+            confirmation_timeout: DEFAULT_CONFIRMATION_TIMEOUT,
         }
     }
 

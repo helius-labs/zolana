@@ -68,7 +68,7 @@ impl MergeRingProver {
         // A ring merge is the default merge plus a ring binding: reuse its
         // shared computation under the `merge_ring` instruction tag.
         let ring_program_id = self.ring_program_id;
-        let prover = MergeProver {
+        let merge = MergeProver {
             inputs: self.inputs,
             output: self.output,
             expiry_unix_ts: self.expiry_unix_ts,
@@ -76,8 +76,8 @@ impl MergeRingProver {
             nullifier_key: self.nullifier_key,
         };
         let external_data_hash =
-            prover.external_data_hash(zolana_interface::instruction::tag::RING_MERGE_TRANSACT)?;
-        let merge = prover.common(external_data_hash)?;
+            merge.external_data_hash(zolana_interface::instruction::tag::RING_MERGE_TRANSACT)?;
+        let merge = merge.common(external_data_hash)?;
 
         // The policy-ring merge omits the owner-identity public input (no registry
         // binds it) and instead commits the output ring-data hash and the ring's
@@ -101,23 +101,23 @@ impl MergeRingProver {
 /// Merkle proofs, ready to fold into a [`MergeRingProver`]. The nullifier key is
 /// the secret the merge circuit proves ownership from; it is not carried on
 /// [`PreparedMergeRing`], so the caller supplies it from the keypair.
-pub struct MergeRingWitness {
+pub struct MergeRingProofMaterial {
     pub prepared: PreparedMergeRing,
     pub nullifier_key: NullifierKey,
     pub proofs: Vec<SpendProof>,
     pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
-impl TryFrom<MergeRingWitness> for MergeRingProver {
+impl TryFrom<MergeRingProofMaterial> for MergeRingProver {
     type Error = ClientError;
 
-    fn try_from(witness: MergeRingWitness) -> Result<Self, Self::Error> {
-        let MergeRingWitness {
+    fn try_from(material: MergeRingProofMaterial) -> Result<Self, Self::Error> {
+        let MergeRingProofMaterial {
             prepared,
             nullifier_key,
             proofs,
             dummy_nullifier_proofs,
-        } = witness;
+        } = material;
         let PreparedMergeRing {
             inputs,
             output,

@@ -167,7 +167,11 @@ pub(crate) fn assemble_inputs(
             .nullifier_key
             .nullifier(&utxo_hash, &spend.utxo.blinding)?;
 
-        let is_p256 = spend.utxo.owner.signature_type()? == SignatureType::P256;
+        // A precomputed-owner-field key has no signature scheme and must never
+        // reach signature_type(). It takes the non-P256 arms, which consume only
+        // its owner field verbatim.
+        let is_p256 = !spend.utxo.owner.is_precomputed_owner_field()
+            && spend.utxo.owner.signature_type()? == SignatureType::P256;
         // Per-input owner pk_field, selected by mode. A P256 owner's value
         // depends on the mode (see OwnerMode); an ed25519 owner always uses
         // its own pk_field.

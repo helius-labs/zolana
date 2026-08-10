@@ -18,7 +18,7 @@ use zolana_user_registry_interface::{user_record_pda, UserRecord};
 use zolana_client::{
     error::ClientError,
     prover::{
-        merge::{MergeProver, MergeWitness},
+        merge::{MergeProofMaterial, MergeProver},
         ProofCompressed, ProverClient,
     },
     rpc::Rpc,
@@ -127,7 +127,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         }
     }
 
-    let result = MergeProver::try_from(MergeWitness {
+    let result = MergeProver::try_from(MergeProofMaterial {
         prepared,
         nullifier_key: material.nullifier_key.clone(),
         proofs,

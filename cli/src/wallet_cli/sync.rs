@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use solana_signature::Signature;
 use zolana_client::{IndexerPollConfig, Rpc, ZolanaIndexer};
 use zolana_transaction::{Address, Wallet};
-use zolana_wallet::sync_wallet as client_sync_wallet;
+use zolana_wallet::{sync_wallet_with_config as client_sync_wallet_with_config, SyncWalletConfig};
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},
@@ -39,7 +39,12 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
     let mut wallet = Wallet::new(material.keypair.shielded_address()?, assets)?;
-    let report = client_sync_wallet(&mut wallet, &material, &indexer)?;
+    let report = client_sync_wallet_with_config(
+        &mut wallet,
+        &material,
+        &indexer,
+        SyncWalletConfig::default(),
+    )?;
     Ok(SyncContext {
         material,
         wallet,
@@ -51,8 +56,9 @@ pub(super) fn sync_context(opts: &SyncOptions) -> Result<SyncContext> {
 /// The CLI's indexer poll schedule: [`INDEXER_POLL`] between attempts (constant,
 /// no backoff growth) for a total budget of [`INDEXER_TIMEOUT`].
 fn indexer_poll() -> IndexerPollConfig {
-    let delay_ms = INDEXER_POLL.as_millis() as u64;
-    let retries = (INDEXER_TIMEOUT.as_millis() / INDEXER_POLL.as_millis().max(1)) as u32;
+    let delay_ms = u64::try_from(INDEXER_POLL.as_millis()).unwrap_or(u64::MAX);
+    let retries = u32::try_from(INDEXER_TIMEOUT.as_millis() / INDEXER_POLL.as_millis().max(1))
+        .unwrap_or(u32::MAX);
     IndexerPollConfig::new(retries, delay_ms, delay_ms)
 }
 

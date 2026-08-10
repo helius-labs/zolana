@@ -31,10 +31,10 @@ pub struct WithdrawProof {
 pub struct WithdrawIxData {
     pub proof: WithdrawProof,
     /// The committed escrow `unlock` timestamp the withdraw proof reveals as a
-    /// public input. Separate from `transact.expiry_unix_ts` (the SPP relayer
-    /// deadline): withdraw requires `now > unlock`, which is necessarily in the
+    /// public input. It is separate from `transact.expiry_unix_ts`, the SPP relayer
+    /// deadline. Withdraw requires `now > unlock`, which is necessarily in the
     /// past, whereas SPP rejects a `transact` whose `expiry_unix_ts` is in the
-    /// past. The escrow's committed terms hash includes `unlock`; the proof
+    /// past. The escrow's committed terms hash includes `unlock` and the proof
     /// recomputes it.
     pub unlock_timestamp: u64,
     pub transact: TransactIxData,
@@ -62,10 +62,9 @@ impl WithdrawPublicInput<'_> {
 pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("caller")?;
-    // The creator signs the withdraw; the withdraw proof recomputes the
-    // escrow's committed owner_hash from this pubkey (owner_pk_field), so only
-    // the creator can withdraw and the creator knows the refund blinding it
-    // chose.
+    // The withdraw proof recomputes the escrow's committed owner_hash from the
+    // creator signer's pubkey (owner_pk_field), so only the creator can withdraw
+    // and the creator knows the refund blinding it chose.
     let owner_pk_field = hash_bytes(iter.next_signer("creator")?.address().as_array())
         .map_err(TimelockEscrowError::from)?;
 

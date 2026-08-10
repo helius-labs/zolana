@@ -40,7 +40,7 @@ impl TransferProver {
     pub fn build(self) -> Result<TransferProofResult, ClientError> {
         let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.n_inputs() + 1 {
-            return Err(ClientError::WitnessInputCountMismatch {
+            return Err(ClientError::SignerHashCountMismatch {
                 got: self.signer_pk_hashes.len(),
                 expected: shape.n_inputs() + 1,
             });

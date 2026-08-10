@@ -15,8 +15,7 @@ no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
-# Registry-backed verification; needs the local/bn254-prepared-stateless
-# agave fork's syscalls to load.
+# Registry-backed verification. Needs the bn254-prepared agave fork's syscalls to load.
 vk-registry = [
     "groth16-solana/vk-registry",
     "pinocchio/account-resize",

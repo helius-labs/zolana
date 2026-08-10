@@ -30,12 +30,11 @@ pub struct CancelProof {
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CancelIxData {
     pub proof: CancelProof,
-    /// The committed order `expiry` the cancel proof reveals as a public input.
-    /// Separate from `transact.expiry_unix_ts` (the SPP relayer deadline): cancel
+    /// The committed order `expiry` the cancel proof reveals as a public input. It
+    /// is separate from `transact.expiry_unix_ts`, the SPP relayer deadline. Cancel
     /// requires `now > order_expiry`, which is necessarily in the past, whereas
-    /// SPP rejects a `transact` whose `expiry_unix_ts` is in the past. The
-    /// order's committed terms hash includes `order_expiry`; the proof
-    /// recomputes it.
+    /// SPP rejects a `transact` whose `expiry_unix_ts` is in the past. The order's
+    /// committed terms hash includes `order_expiry` and the proof recomputes it.
     pub order_expiry: u64,
     pub transact: TransactIxData,
 }
@@ -62,9 +61,9 @@ impl CancelPublicInput<'_> {
 pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("payer")?;
-    // The maker signs the cancel; the cancel proof recomputes the order's
-    // committed maker_owner_hash from this pubkey (owner_pk_field), so only the
-    // maker can cancel and the maker knows the refund blinding it chose.
+    // The cancel proof recomputes the order's committed maker_owner_hash from the
+    // maker signer's pubkey (owner_pk_field), so only the maker can cancel and the
+    // maker knows the refund blinding it chose.
     let maker_owner_pk_field =
         hash_bytes(iter.next_signer("maker")?.address().as_array()).map_err(SwapError::from)?;
 
@@ -83,43 +82,35 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         spp_accounts,
         &crate::vk_registry_specs::CANCEL_REGISTRY,
     );
+    let proof = CompressedGroth16Proof {
+        a: &proof.proof_a,
+        b: &proof.proof_b,
+        c: &proof.proof_c,
+        commitment: None,
+    };
+    let public_input_hash = CancelPublicInput {
+        private_tx_hash: &transact.private_tx_hash,
+        expiry: order_expiry,
+        maker_owner_pk_field: &maker_owner_pk_field,
+    }
+    .hash()?;
     #[cfg(feature = "vk-registry")]
     crate::instructions::verifier::verify_groth16_registered(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        CancelPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            expiry: order_expiry,
-            maker_owner_pk_field: &maker_owner_pk_field,
-        }
-        .hash()?,
+        proof,
+        public_input_hash,
         &crate::verifying_keys::cancel::VERIFYINGKEY,
         vk_registry,
         &crate::vk_registry_specs::CANCEL_REGISTRY,
     )?;
     #[cfg(not(feature = "vk-registry"))]
     verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        CancelPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            expiry: order_expiry,
-            maker_owner_pk_field: &maker_owner_pk_field,
-        }
-        .hash()?,
+        proof,
+        public_input_hash,
         &crate::verifying_keys::cancel::VERIFYINGKEY,
     )?;
 
     let transact_bytes = transact
         .serialize()
-        .map_err(|_| SwapError::InvalidInstructionData)?;
+        .map_err(|_| SwapError::SerializationFailed)?;
     cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

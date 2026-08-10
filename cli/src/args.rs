@@ -1,8 +1,8 @@
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 use crate::config::{
-    DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
-    DEFAULT_PROVER_PORT, DEFAULT_RPC_PORT,
+    default_prover_url, DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR,
+    DEFAULT_PHOTON_PORT, DEFAULT_PROVER_PORT, DEFAULT_RPC_PORT,
 };
 
 #[derive(Debug, Parser)]
@@ -498,7 +498,7 @@ pub(crate) struct NetworkWalletOptions {
 
     #[arg(
         long = "prover-url",
-        help = "Prover server URL (default: configured value or http://127.0.0.1:3001)"
+        help = format!("Prover server URL (default: configured value or {})", default_prover_url())
     )]
     pub(crate) prover_url: Option<String>,
 

@@ -13,8 +13,8 @@ pub mod transact;
 
 pub use aggregate::{AggregateInputs, AggregateLeg};
 pub use client::{
-    spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient, ProverClient,
-    PROVE_PATH, SERVER_ADDRESS,
+    spawn_prover, spawn_prover_with_artifacts, AsyncPollConfig, AsyncProverClient,
+    InputSensitivity, ProverClient, PROVE_PATH, SERVER_ADDRESS,
 };
 pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
@@ -25,10 +25,11 @@ pub use merge::{MergeProofResult, MergeProver};
 pub use merge_chain::{
     merge_chain_external_data_hash, MergeChain, MergeChainInputs, MergeChainLeg, MergeChainLegProof,
 };
-pub use merge_ring::{MergeRingProver, MergeRingWitness};
-pub use nullifier_fold::{FoldAppend, NullifierFoldInputs};
+pub use merge_ring::{MergeRingProofMaterial, MergeRingProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
-pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness};
+pub use ring_authority::{
+    RingAuthorityProofMaterial, RingAuthorityProofResult, RingAuthorityProver,
+};
 pub use transact::{
     PublicInputs, PublicTransfers, RingTransferP256ProofResult, RingTransferP256Prover,
     RingTransferProofResult, RingTransferProver, TransferProofResult, TransferProver,

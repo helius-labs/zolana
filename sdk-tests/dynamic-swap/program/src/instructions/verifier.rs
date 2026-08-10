@@ -16,7 +16,7 @@ pub struct CompressedGroth16Proof<'a> {
 }
 
 /// Registry-backed verification against a finalized account already matched
-/// by address; falls through to [`verify_groth16`] when `registry` is `None`.
+/// by address. Falls through to [`verify_groth16`] when `registry` is `None`.
 #[cfg(feature = "vk-registry")]
 #[inline(never)]
 pub fn verify_groth16_registered(

@@ -90,10 +90,10 @@ pub fn process_make_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         order_utxo_hash,
         maker_pubkey,
     };
-    marker_message.data = borsh::to_vec(&marker).map_err(|_| SwapError::InvalidInstructionData)?;
+    marker_message.data = borsh::to_vec(&marker).map_err(|_| SwapError::SerializationFailed)?;
     let transact_bytes = transact
         .serialize()
-        .map_err(|_| SwapError::InvalidInstructionData)?;
+        .map_err(|_| SwapError::SerializationFailed)?;
 
     cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

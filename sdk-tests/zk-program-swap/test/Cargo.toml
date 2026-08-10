@@ -35,8 +35,8 @@ zolana-transaction = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
-# Solana transactions serialize with bincode 1.x wire format; bincode 2.x is not
-# byte-compatible, so this must stay pinned to match the runtime.
+# Solana transactions serialize with the bincode 1.x wire format. bincode 2.x
+# is not byte-compatible, so this must stay pinned to match the runtime.
 bincode = "1.3"
 borsh = { workspace = true }
 groth16-solana = { workspace = true, features = ["bsb22"] }

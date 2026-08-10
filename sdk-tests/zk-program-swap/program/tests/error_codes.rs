@@ -13,6 +13,11 @@ fn error_codes_are_stable() {
         (MarkerDataNotEmpty as u32, 8015),
         (HashingFailed as u32, 8016),
         (TakeProofCountMismatch as u32, 8017),
+        (InvalidVkRegistryAccount as u32, 8018),
+        (InvalidVkRegistryIndex as u32, 8019),
+        (VkRegistryAlreadyInitialized as u32, 8020),
+        (VkRegistryNotReady as u32, 8021),
+        (VkRegistryInitFailed as u32, 8022),
         (SerializationFailed as u32, 8023),
     ];
     for (got, want) in table {

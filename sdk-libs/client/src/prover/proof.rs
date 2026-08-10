@@ -164,22 +164,30 @@ pub(crate) struct GnarkProofJson {
 fn g1_from_hex_pair(pair: &[String]) -> Option<[u8; 64]> {
     let [x, y] = pair else { return None };
     let mut out = [0u8; 64];
-    out[..32].copy_from_slice(&hex_to_be_32(x));
-    out[32..].copy_from_slice(&hex_to_be_32(y));
+    out[..32].copy_from_slice(&hex_to_be_32(x)?);
+    out[32..].copy_from_slice(&hex_to_be_32(y)?);
     Some(out)
 }
 
-fn hex_to_be_32(hex_str: &str) -> [u8; 32] {
-    let trimmed = hex_str.trim_start_matches("0x");
-    let big_int = num_bigint::BigInt::from_str_radix(trimmed, 16).unwrap_or_default();
-    let bytes = big_int.to_bytes_be().1;
-    let mut result = [0u8; 32];
-    if bytes.len() <= 32 {
-        result[32 - bytes.len()..].copy_from_slice(&bytes);
-    } else {
-        result.copy_from_slice(&bytes[bytes.len() - 32..]);
+/// `None` for a malformed string or a value wider than a field element, so a
+/// bad coordinate cannot enter a proof as zero or as its low 32 bytes.
+fn hex_to_be_32(value: &str) -> Option<[u8; 32]> {
+    // The prover emits `0x` hex. Decimal is accepted so a hand-written or
+    // re-encoded response parses as the number it reads as.
+    let (radix, body) = match value.strip_prefix("0x") {
+        Some(body) => (16, body),
+        None => (10, value),
+    };
+    let bytes = num_bigint::BigInt::from_str_radix(body, radix)
+        .ok()?
+        .to_bytes_be()
+        .1;
+    if bytes.len() > 32 {
+        return None;
     }
-    result
+    let mut out = [0u8; 32];
+    out[32 - bytes.len()..].copy_from_slice(&bytes);
+    Some(out)
 }
 
 /// Parse a gnark proof JSON (`{ar, bs, krs, proof_commitment?, proof_commitment_pok?}`)
@@ -269,6 +277,16 @@ mod tests {
         assert_eq!(proof.c, [3u8; 32]);
         assert_eq!(commitment.commitment, [4u8; 32]);
         assert_eq!(commitment.commitment_pok, [5u8; 32]);
+    }
+
+    /// A coordinate that is not a field element must fail the parse. Truncating
+    /// it to its low bytes would put a different point into the proof.
+    #[test]
+    fn oversize_coordinate_is_rejected() {
+        assert!(hex_to_be_32(&format!("0x{}", "f".repeat(66))).is_none());
+        assert!(hex_to_be_32("0xzz").is_none());
+        assert_eq!(hex_to_be_32("0x01").expect("hex parses")[31], 1);
+        assert_eq!(hex_to_be_32("255").expect("decimal parses")[31], 255);
     }
 
     #[test]

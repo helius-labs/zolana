@@ -69,9 +69,8 @@ impl SettlePublicInput<'_> {
 /// the order/reservation witnesses off-chain (the maker/operator) can build a
 /// valid proof.
 ///
-/// Every escrow is priced at creation (commit is folded into create_escrow), so
-/// the outcome (settle vs refund) is fixed at creation and settle is deterministic
-/// deferred execution. Each escrow is self-contained (its own locked order +
+/// Every escrow is priced at creation, so the outcome (settle vs refund) is
+/// fixed at creation and settle is deterministic deferred execution. Each escrow is self-contained (its own locked order +
 /// reservation UTXOs), so there is no shared pool and no ordering between escrows.
 /// A single instruction, account list, VK, and 3-out shape covers both settle and
 /// refund, so an observer cannot tell them apart.

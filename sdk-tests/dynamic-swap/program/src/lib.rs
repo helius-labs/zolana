@@ -15,14 +15,10 @@ use crate::instructions::{
 pub mod tag {
     pub const CREATE_PAIR: u8 = 1;
     pub const UPDATE_PRICE: u8 = 2;
-    // 3 retired (was DEPOSIT_LIQUIDITY) and 4 retired (was WITHDRAW_LIQUIDITY):
-    // there is no shared pool -- the maker funds each escrow directly.
+    // Tags 3 and 4 are retired and stay reserved.
     pub const CREATE_ESCROW: u8 = 5;
-    // 6 retired (was EXPIRE_ESCROW): expire is now one outcome of SETTLE.
-    // 7 retired (was COMMIT_TO_SWAP): pricing is folded into CREATE_ESCROW, so
-    // every escrow is committed at creation and there is no separate commit step.
-    // Settles an escrow (settle / price-refund) in one indistinguishable
-    // instruction. Reuses the former PAYOUT tag.
+    // Tags 6 and 7 are retired and stay reserved.
+    // Settles an escrow (settle or price-refund) in one indistinguishable instruction.
     pub const SETTLE: u8 = 8;
     /// Only handled by a `vk-registry` build.
     pub const INIT_VK_REGISTRY: u8 = 9;

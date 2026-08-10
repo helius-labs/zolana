@@ -49,7 +49,7 @@ pub struct MergeProver {
     pub nullifier_key: NullifierKey,
 }
 
-/// The built merge witness and the instruction-data ingredients, produced by
+/// The built merge proof inputs and the instruction-data ingredients, produced by
 /// both [`MergeProver`] (default) and
 /// [`crate::prover::merge_ring::MergeRingProver`] (policy ring); the two rails
 /// differ only in their public-input tail and the ring binding inside `inputs`.
@@ -61,9 +61,9 @@ pub struct MergeProofResult {
     /// Per-slot input UTXO hashes, length 8. A dummy slot is zero. A merge
     /// chain binds a chained slot by this hash, and nothing else exposes it.
     pub input_hashes: Vec<[u8; 32]>,
-    /// Per-input references into the tree's root caches (length 8; dummy slots
-    /// mirror the first real input's UTXO root while carrying their own
-    /// nullifier non-inclusion root), for the `merge_transact` instruction data.
+    /// Per-input references into the tree's root caches, length 8, for the
+    /// `merge_transact` instruction data. Dummy slots mirror the first real
+    /// input's UTXO root while carrying their own nullifier non-inclusion root.
     pub utxo_tree_root_indices: Vec<u16>,
     pub nullifier_tree_root_indices: Vec<u16>,
     pub output_hash: [u8; 32],
@@ -253,7 +253,11 @@ impl MergeProver {
             super::transact::assembly::bool_field(true),
         ];
 
-        let eddsa_owner = self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
+        // A precomputed-owner-field key takes the pass-through rail, which feeds
+        // its owner field through owner_pk_hash. The gate must come first. Such
+        // a key has no signature scheme.
+        let eddsa_owner = self.signing_pubkey.is_precomputed_owner_field()
+            || self.signing_pubkey.signature_type()? == SignatureType::Ed25519;
         let owner_pk_hash = BigUint::from_bytes_be(&user_signing_pk_hash);
         let user_nullifier_pk = self.nullifier_key.pubkey()?;
         let mut user_nullifier_secret = [0u8; 32];
@@ -329,23 +333,23 @@ impl CommonMerge {
 /// ready to fold into a [`MergeProver`]. The nullifier key is the secret the merge
 /// circuit proves ownership from; it is not carried on [`PreparedMerge`], so the
 /// caller supplies it from the keypair.
-pub struct MergeWitness {
+pub struct MergeProofMaterial {
     pub prepared: PreparedMerge,
     pub nullifier_key: NullifierKey,
     pub proofs: Vec<SpendProof>,
     pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
-impl TryFrom<MergeWitness> for MergeProver {
+impl TryFrom<MergeProofMaterial> for MergeProver {
     type Error = ClientError;
 
-    fn try_from(witness: MergeWitness) -> Result<Self, Self::Error> {
-        let MergeWitness {
+    fn try_from(material: MergeProofMaterial) -> Result<Self, Self::Error> {
+        let MergeProofMaterial {
             prepared,
             nullifier_key,
             proofs,
             dummy_nullifier_proofs,
-        } = witness;
+        } = material;
         let PreparedMerge {
             inputs,
             output,

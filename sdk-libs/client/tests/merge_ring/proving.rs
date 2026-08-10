@@ -3,7 +3,7 @@
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
-    prover::merge_ring::MergeRingProver, MergeRing, MergeRingWitness, ProverClient, Rpc,
+    prover::merge_ring::MergeRingProver, MergeRing, MergeRingProofMaterial, ProverClient, Rpc,
     SppProofInputUtxo, MERGE_INPUTS,
 };
 use zolana_interface::verifying_keys::merge_ring_8_1;
@@ -59,7 +59,7 @@ impl MergeRingHarness {
             inputs.push(SppProofInputUtxo::new(utxo, &sender).with_ring_data_hash(ring_data_hash));
         }
         // The plan derives the merged ring-owned output and owner identity; preparing
-        // it pads to MERGE_INPUTS, and the MergeRingWitness folds in the owner
+        // it pads to MERGE_INPUTS, and the MergeRingProofMaterial folds in the owner
         // nullifier key and the proofs. The prover never sees the high-level plan.
         let mut output_ring_data_hash = [0u8; 32];
         output_ring_data_hash[31] = 0xd2;
@@ -78,7 +78,7 @@ impl MergeRingHarness {
             .into_iter()
             .map(|nullifier| indexer.dummy_nullifier_proof(nullifier))
             .collect();
-        let result = MergeRingProver::try_from(MergeRingWitness {
+        let result = MergeRingProver::try_from(MergeRingProofMaterial {
             prepared,
             nullifier_key: sender.nullifier_key.clone(),
             proofs,

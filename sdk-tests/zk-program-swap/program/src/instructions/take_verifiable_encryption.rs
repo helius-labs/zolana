@@ -86,43 +86,35 @@ pub fn process_take_verifiable_encryption_ix(
         spp_accounts,
         &crate::vk_registry_specs::TAKE_VERIFIABLE_ENCRYPTION_REGISTRY,
     );
+    let proof = CompressedGroth16Proof {
+        a: &proof.proof_a,
+        b: &proof.proof_b,
+        c: &proof.proof_c,
+        commitment: Some((&proof.commitment, &proof.commitment_pok)),
+    };
+    let public_input_hash = TakeVerifiableEncryptionPublicInput {
+        private_tx_hash: &transact.private_tx_hash,
+        expiry: transact.expiry_unix_ts,
+        destination_ciphertext,
+    }
+    .hash()?;
     #[cfg(feature = "vk-registry")]
     crate::instructions::verifier::verify_groth16_registered(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: Some((&proof.commitment, &proof.commitment_pok)),
-        },
-        TakeVerifiableEncryptionPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            expiry: transact.expiry_unix_ts,
-            destination_ciphertext,
-        }
-        .hash()?,
+        proof,
+        public_input_hash,
         &crate::verifying_keys::take_verifiable_encryption::VERIFYINGKEY,
         vk_registry,
         &crate::vk_registry_specs::TAKE_VERIFIABLE_ENCRYPTION_REGISTRY,
     )?;
     #[cfg(not(feature = "vk-registry"))]
     verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: Some((&proof.commitment, &proof.commitment_pok)),
-        },
-        TakeVerifiableEncryptionPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            expiry: transact.expiry_unix_ts,
-            destination_ciphertext,
-        }
-        .hash()?,
+        proof,
+        public_input_hash,
         &crate::verifying_keys::take_verifiable_encryption::VERIFYINGKEY,
     )?;
 
     let transact_bytes = transact
         .serialize()
-        .map_err(|_| SwapError::InvalidInstructionData)?;
+        .map_err(|_| SwapError::SerializationFailed)?;
     cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

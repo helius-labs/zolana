@@ -128,10 +128,10 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     let pair_address = *pair_account.address();
     let source_asset = pair.source_asset;
     let destination_asset = pair.destination_asset;
-    // The escrow is priced at creation (commit folded in): snapshot the current
-    // pair price so `execution_price` is stamped below. A zero price would leave
-    // the escrow unpriced and unsettleable, so reject it -- create_pair and
-    // update_price already forbid a zero price, making this defense in depth.
+    // The escrow is priced at creation. Snapshot the current pair price so
+    // `execution_price` is stamped below. A zero price would leave the escrow
+    // unsettleable. create_pair and update_price already forbid it, so this is
+    // defense in depth.
     let execution_price = pair.price;
     drop(pair);
     if execution_price == 0 {
@@ -193,12 +193,9 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         &crate::verifying_keys::escrow_open::VERIFYINGKEY,
     )?;
 
-    // `escrow_utxo_hash`/`reservation_utxo_hash` are not read from instruction
-    // data at all -- they're derived here directly from the transact CPI's own
-    // outputs (the proof already commits to these via `private_tx_hash`), which
-    // both saves 64 bytes of otherwise-redundant instruction data and makes a
-    // divergent client-claimed hash impossible by construction, rather than by
-    // a cross-check.
+    // `escrow_utxo_hash`/`reservation_utxo_hash` are derived from the transact
+    // CPI's own outputs, which the proof commits to via `private_tx_hash`, so a
+    // divergent client-claimed hash is impossible by construction.
     let order_out_hash = transact
         .outputs
         .get(ORDER_OUTPUT_INDEX)

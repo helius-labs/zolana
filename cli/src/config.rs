@@ -2,6 +2,11 @@ use std::time::Duration;
 
 pub(crate) const DEFAULT_RPC_PORT: u16 = 8899;
 pub(crate) const DEFAULT_PROVER_PORT: u16 = 3001;
+/// The local prover URL the CLI falls back to. Derived from
+/// [`DEFAULT_PROVER_PORT`] so help text cannot name a port nothing serves.
+pub(crate) fn default_prover_url() -> String {
+    format!("http://127.0.0.1:{DEFAULT_PROVER_PORT}")
+}
 /// Prover Prometheus metrics server default. Offset in lockstep with
 /// `DEFAULT_PROVER_PORT` so concurrent clones do not collide on it.
 pub(crate) const DEFAULT_METRICS_PORT: u16 = 9998;

@@ -65,41 +65,34 @@ pub fn process_take_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         spp_accounts,
         &crate::vk_registry_specs::TAKE_REGISTRY,
     );
+    let proof = CompressedGroth16Proof {
+        a: &proof.proof_a,
+        b: &proof.proof_b,
+        c: &proof.proof_c,
+        commitment: None,
+    };
+    let public_input_hash = TakePublicInput {
+        private_tx_hash: &transact.private_tx_hash,
+        expiry: transact.expiry_unix_ts,
+    }
+    .hash()?;
     #[cfg(feature = "vk-registry")]
     crate::instructions::verifier::verify_groth16_registered(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        TakePublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            expiry: transact.expiry_unix_ts,
-        }
-        .hash()?,
+        proof,
+        public_input_hash,
         &crate::verifying_keys::take::VERIFYINGKEY,
         vk_registry,
         &crate::vk_registry_specs::TAKE_REGISTRY,
     )?;
     #[cfg(not(feature = "vk-registry"))]
     verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: None,
-        },
-        TakePublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            expiry: transact.expiry_unix_ts,
-        }
-        .hash()?,
+        proof,
+        public_input_hash,
         &crate::verifying_keys::take::VERIFYINGKEY,
     )?;
 
     let transact_bytes = transact
         .serialize()
-        .map_err(|_| SwapError::InvalidInstructionData)?;
+        .map_err(|_| SwapError::SerializationFailed)?;
     cpi_spp_transact_signed(spp_accounts, &transact_bytes)
 }

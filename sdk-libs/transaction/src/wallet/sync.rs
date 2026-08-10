@@ -13,11 +13,13 @@ use super::state::{
     PrivateTransactionKind, PrivateTransactionStatus, SyncReport, ViewingKeyEntry, Wallet,
     WalletUtxo, DEFAULT_TAG_WINDOW, SENDER_HISTORY_ROW_BASE,
 };
+use zolana_interface::verifying_keys::merge_chain::merge_chain_chained_slots;
 use zolana_keypair::merge::{merge_dummy_nullifier, merge_output_blinding};
 
 use crate::{
     data::Data,
     error::TransactionError,
+    instructions::merge::MERGE_INPUTS,
     instructions::transact::{OutputContext, ShieldedTransaction, SENDER_SLOT_COUNT},
     serialization::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle},
@@ -709,9 +711,10 @@ impl SyncCtx<'_> {
     }
 
     /// Reconstruct a merge output deterministically: the wallet recomputes the
-    /// candidate UTXO from its spent inputs and the published first nullifier,
-    /// and stores it only if the canonical UTXO hash matches the on-chain
-    /// output commitment (`store_recipient_utxos` performs the check).
+    /// candidate UTXO from its spent inputs and the first nullifier of the leg
+    /// that produced the output, and stores it only if the canonical UTXO hash
+    /// matches the on-chain output commitment (`store_recipient_utxos` performs
+    /// the check).
     fn reconstruct_merge(
         &mut self,
         tx: &ShieldedTransaction,
@@ -736,25 +739,59 @@ impl SyncCtx<'_> {
             return Ok(outcome);
         }
 
+        // A chain publishes its level shape, and a plain merge nothing. The
+        // legs run bottom first, and each leg's tree-backed slots are its low
+        // ones, so the shape alone locates every leg's first nullifier.
+        let Some(legs) = merge_leg_slots(&slot.payload, tx.nullifiers.len()) else {
+            self.report.undecryptable_candidates += 1;
+            return Ok(outcome);
+        };
+
         // Match this wallet's spent inputs in slot order; deterministic dummy
-        // nullifiers are skipped. A real nullifier we do not own means the
-        // merge is not ours (the proof binds a single owner).
+        // nullifiers are skipped. Both derivations are per leg, so a leg is
+        // seeded by its own first nullifier and indexed by its own slot. A real
+        // nullifier we do not own means the merge is not ours (the proof binds
+        // a single owner).
         let mut matched = Vec::new();
-        for (i, nullifier) in tx.nullifiers.iter().enumerate() {
-            if *nullifier == merge_dummy_nullifier(self.nullifier_key, first_nullifier, i as u8)? {
-                continue;
-            }
-            let Some(wallet_utxo) = self.utxos.iter().find(|u| &u.nullifier == nullifier) else {
+        let mut offset = 0usize;
+        for tree_slots in &legs {
+            let Some(leg_first) = tx.nullifiers.get(offset) else {
                 self.report.undecryptable_candidates += 1;
                 return Ok(outcome);
             };
-            matched.push((
-                wallet_utxo.utxo.asset,
-                wallet_utxo.utxo.amount,
-                wallet_utxo.utxo.blinding,
-                wallet_utxo.utxo.ring_program_id,
-            ));
+            for slot_index in 0..*tree_slots {
+                let Some(nullifier) = tx.nullifiers.get(offset + slot_index) else {
+                    self.report.undecryptable_candidates += 1;
+                    return Ok(outcome);
+                };
+                if *nullifier
+                    == merge_dummy_nullifier(self.nullifier_key, leg_first, slot_index as u8)?
+                {
+                    continue;
+                }
+                let Some(wallet_utxo) = self.utxos.iter().find(|u| &u.nullifier == nullifier)
+                else {
+                    self.report.undecryptable_candidates += 1;
+                    return Ok(outcome);
+                };
+                matched.push((
+                    wallet_utxo.utxo.asset,
+                    wallet_utxo.utxo.amount,
+                    wallet_utxo.utxo.blinding,
+                    wallet_utxo.utxo.ring_program_id,
+                ));
+            }
+            offset += tree_slots;
         }
+        // The settled output belongs to the top leg, so its blinding is seeded
+        // by that leg's first nullifier, not the transaction's.
+        let Some(top_first_nullifier) = tx
+            .nullifiers
+            .get(offset - legs.last().copied().unwrap_or(0))
+        else {
+            self.report.undecryptable_candidates += 1;
+            return Ok(outcome);
+        };
         let Some(&(asset, _, _, ring_program_id)) = matched.first() else {
             self.report.undecryptable_candidates += 1;
             return Ok(outcome);
@@ -769,8 +806,9 @@ impl SyncCtx<'_> {
                 .checked_add(m.1)
                 .ok_or(TransactionError::SelectedBalanceOverflow)?;
         }
-        let blinding = merge_output_blinding(self.nullifier_key, first_nullifier)?;
+        let blinding = merge_output_blinding(self.nullifier_key, top_first_nullifier)?;
         // A ring merge publishes the output ring-data hash as the slot payload.
+        // A ring merge is never chained, so the two payloads never collide.
         let ring_data_hash: Option<[u8; 32]> = if ring_program_id.is_some() {
             let Ok(hash) = <&[u8; 32]>::try_from(slot.payload.as_slice()) else {
                 self.report.undecryptable_candidates += 1;
@@ -794,6 +832,28 @@ impl SyncCtx<'_> {
         }
         Ok(outcome)
     }
+}
+
+/// Tree-backed slots per leg, bottom leg first.
+///
+/// A plain merge spends exactly [`MERGE_INPUTS`] slots in one leg. A chain
+/// spends `7 * legs + 1`, never eight, and publishes its level shape as the
+/// output payload. The nullifier count alone separates the two, which leaves
+/// the payload of a ring merge free to stay its `ring_data_hash`.
+///
+/// Chained slots take the high slots of a leg, so every leg's tree-backed slots
+/// are its low ones. `None` when the shape does not account for exactly the
+/// published nullifiers.
+fn merge_leg_slots(payload: &[u8], nullifiers: usize) -> Option<Vec<usize>> {
+    if nullifiers == MERGE_INPUTS {
+        return Some(vec![MERGE_INPUTS]);
+    }
+    let chained = merge_chain_chained_slots(payload)?;
+    let legs: Vec<usize> = chained
+        .iter()
+        .map(|c| MERGE_INPUTS.saturating_sub(usize::from(*c)))
+        .collect();
+    (legs.iter().sum::<usize>() == nullifiers).then_some(legs)
 }
 
 fn scan_stream(

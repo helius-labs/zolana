@@ -133,9 +133,9 @@ impl RingAuthorityProver {
 }
 
 /// A [`PreparedRingAuthority`] plus the fetched Merkle proofs, ready to fold into a
-/// [`RingAuthorityProver`]. Mirrors the merge `MergeWitness` pattern: one
-/// [`SpendProof`] per real (non-dummy) input, in input order.
-pub struct RingAuthorityWitness {
+/// [`RingAuthorityProver`]. Mirrors the merge `MergeProofMaterial` pattern,
+/// with one [`SpendProof`] per real (non-dummy) input, in input order.
+pub struct RingAuthorityProofMaterial {
     pub prepared: PreparedRingAuthority,
     pub proofs: Vec<SpendProof>,
     /// One nullifier non-inclusion proof per dummy input, in dummy-slot order.
@@ -144,15 +144,15 @@ pub struct RingAuthorityWitness {
     pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
-impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
+impl TryFrom<RingAuthorityProofMaterial> for RingAuthorityProver {
     type Error = ClientError;
 
-    fn try_from(witness: RingAuthorityWitness) -> Result<Self, Self::Error> {
-        let RingAuthorityWitness {
+    fn try_from(material: RingAuthorityProofMaterial) -> Result<Self, Self::Error> {
+        let RingAuthorityProofMaterial {
             prepared,
             proofs,
             dummy_nullifier_proofs,
-        } = witness;
+        } = material;
         let PreparedRingAuthority {
             inputs,
             outputs,

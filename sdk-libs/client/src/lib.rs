@@ -29,7 +29,7 @@ pub use error::ClientError;
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
     canonical_shape,
-    merge::MergeWitness,
+    merge::MergeProofMaterial,
     nullifier_fold::{FoldAppend, NullifierFoldInputs},
     resolve_shape, spawn_prover, spawn_prover_with_artifacts,
     transact::{
@@ -37,9 +37,9 @@ pub use prover::{
         AssembledTransfer, ProverInputs, ProverVariant, SpendProof,
     },
     AsyncPollConfig, AsyncProverClient, BatchAddressAppendInputs, Commitments,
-    CompressedCommitments, MergeProofResult, MergeProver, MergeRingProver, MergeRingWitness, Proof,
-    ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers,
-    RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
+    CompressedCommitments, MergeProofResult, MergeProver, MergeRingProofMaterial, MergeRingProver,
+    Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs, PublicTransfers,
+    RingAuthorityProofMaterial, RingAuthorityProofResult, RingAuthorityProver,
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
     RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
     TransferProofResult, TransferProver, TransferSpendInput, SPP_SUPPORTED_SHAPES,

@@ -38,9 +38,11 @@ pub enum Preflight {
     Skip,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
     pub block_time: i64,
+    /// Highest slot the indexer has persisted.
+    pub slot: u64,
 }
 
 /// Identifies the tree a proof was produced against.
@@ -152,8 +154,6 @@ pub struct ProveResult {
 /// Combined Solana RPC, SPP indexer, and proving surface used by clients.
 #[allow(unused_variables)]
 pub trait Rpc {
-    // ===== Accounts =====
-
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         Err(unsupported("get_account"))
     }
@@ -171,8 +171,6 @@ pub trait Rpc {
     ) -> Result<Vec<(Address, Account)>, ClientError> {
         Err(unsupported("get_program_accounts"))
     }
-
-    // ===== Chain state =====
 
     fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
         Err(unsupported("get_balance"))
@@ -208,8 +206,6 @@ pub trait Rpc {
     fn health(&self) -> Result<(), ClientError> {
         Err(unsupported("health"))
     }
-
-    // ===== Transactions =====
 
     fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
         Err(unsupported("send_transaction"))
@@ -273,8 +269,6 @@ pub trait Rpc {
         Err(unsupported("create_and_send_versioned_transaction"))
     }
 
-    // ===== Misc =====
-
     fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
         Err(unsupported("confirm_transaction"))
     }
@@ -293,8 +287,6 @@ pub trait Rpc {
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }
-
-    // ===== Indexer (SPP) =====
 
     fn get_encrypted_utxos_by_tags(
         &self,
@@ -383,8 +375,6 @@ pub trait Rpc {
         let _ = input_tree;
         self.get_input_merkle_proofs(input_utxo_commitments, config)
     }
-
-    // ===== Proving =====
 
     /// Build the SPP proof for a signed transaction (server-side proving).
     fn prove(&self, proof_inputs: SppProofInputs) -> Result<ProveResult, ClientError> {

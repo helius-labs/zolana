@@ -4,6 +4,7 @@ use std::{
 };
 
 use solana_address::Address;
+use solana_signature::Signature;
 use zolana_interface::{
     event::{decode_encrypted_ring_deposit_output_data, decode_output_data},
     state::SplAssetRegistry,
@@ -32,8 +33,11 @@ pub struct SyncWalletConfig {
     pub tag_query_chunk: usize,
     pub page_limit: u32,
     pub rounds: usize,
-    pub wait_for_indexer: bool,
     pub retry: IndexerPollConfig,
+    /// Slot the indexer must have persisted before its answers are accepted.
+    /// `None` accepts whatever it currently has. Read the slot from the RPC the
+    /// caller submits through, so both sides of the comparison are slots.
+    pub require_slot: Option<u64>,
 }
 
 impl Default for SyncWalletConfig {
@@ -43,16 +47,17 @@ impl Default for SyncWalletConfig {
             tag_query_chunk: DEFAULT_TAG_QUERY_CHUNK,
             page_limit: DEFAULT_PAGE_LIMIT,
             rounds: DEFAULT_SYNC_ROUNDS,
-            wait_for_indexer: false,
             retry: IndexerPollConfig::default(),
+            require_slot: None,
         }
     }
 }
 
 impl SyncWalletConfig {
-    pub fn new() -> Self {
+    /// Require the indexer to have persisted `slot` before its answers are used.
+    pub fn at_slot(slot: u64) -> Self {
         Self {
-            wait_for_indexer: true,
+            require_slot: Some(slot),
             ..Self::default()
         }
     }
@@ -67,7 +72,32 @@ where
     A: SyncWalletAuthority + ?Sized,
     I: Rpc,
 {
-    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::new())
+    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::default())
+}
+
+/// Sync after a submitted transaction confirmed, gating every indexer query on
+/// the slot that transaction landed in. Without the gate a lagging indexer can
+/// answer from before the submit and the wallet silently misses its own outputs.
+pub fn sync_wallet_after<A, I, R>(
+    wallet: &mut Wallet,
+    authority: &A,
+    indexer: &I,
+    rpc: &R,
+    signature: Signature,
+) -> Result<SyncReport, ClientError>
+where
+    A: SyncWalletAuthority + ?Sized,
+    I: Rpc,
+    R: Rpc,
+{
+    let slot = rpc
+        .get_signature_statuses(vec![signature])?
+        .into_iter()
+        .next()
+        .flatten()
+        .map(|status| status.slot)
+        .ok_or(ClientError::IndexerTimeout)?;
+    sync_wallet_with_config(wallet, authority, indexer, SyncWalletConfig::at_slot(slot))
 }
 
 pub fn sync_wallet_with_config<A, I>(
@@ -81,46 +111,38 @@ where
     I: Rpc,
 {
     let config = normalized_config(config);
-    let rpc_config = indexer_rpc_config(config);
     let material = authority.sync_material()?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut report = SyncReport::default();
     let mut txs: Vec<ShieldedTransaction> = Vec::new();
 
+    let freshness_gate = indexer_rpc_config(config);
+
     for _ in 0..config.rounds {
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         let nullifiers = wallet_query_nullifiers(wallet);
-        fetch_shielded_transactions(indexer, &tags, &mut transactions, config, rpc_config)?;
+        fetch_shielded_transactions(indexer, &tags, &mut transactions, config, freshness_gate)?;
         fetch_shielded_transactions_by_nullifiers(
             indexer,
             &nullifiers,
             &mut transactions,
             config,
-            rpc_config,
+            freshness_gate,
         )?;
-        fetch_proofless_deposits(indexer, &tags, &mut proofless_deposits, config, rpc_config)?;
+        fetch_proofless_deposits(
+            indexer,
+            &tags,
+            &mut proofless_deposits,
+            config,
+            freshness_gate,
+        )?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
         let mut deposits = proofless_deposits.values().cloned().collect::<Vec<_>>();
-        deposits.sort_by(|a, b| {
-            (
-                a.output_slots
-                    .first()
-                    .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
-                a.slot,
-                a.tx_signature,
-            )
-                .cmp(&(
-                    b.output_slots
-                        .first()
-                        .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
-                    b.slot,
-                    b.tx_signature,
-                ))
-        });
+        deposits.sort_by_key(deposit_sort_key);
         txs.extend(deposits);
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
 
@@ -129,12 +151,9 @@ where
         }
     }
 
-    // Lazy registry backfill: if decode hit asset ids the wallet's registry did
-    // not know, refresh the id->mint map from the on-chain SplAssetRegistry
-    // accounts and re-run sync once. Single pass — if an id is still unknown
-    // after the refresh it is genuinely not on chain, so we stop rather than
-    // loop. A refresh source that cannot enumerate accounts (RPC without
-    // `get_program_accounts`) is a soft miss: sync keeps today's behaviour.
+    // If decode hit unknown asset ids, refresh the id->mint map from the on-chain
+    // SplAssetRegistry accounts and re-run sync once. An id still unknown after the
+    // refresh is not on chain. An RPC without `get_program_accounts` is a soft miss.
     if !report.unknown_asset_ids.is_empty() && refresh_registry_from_chain(wallet, indexer)? > 0 {
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
     }
@@ -154,6 +173,30 @@ where
     sync_wallet_with_config_async(wallet, authority, indexer, SyncWalletConfig::default()).await
 }
 
+/// [`sync_wallet_after`] for an async RPC pair.
+pub async fn sync_wallet_after_async<A, I, R>(
+    wallet: &mut Wallet,
+    authority: &A,
+    indexer: &I,
+    rpc: &R,
+    signature: Signature,
+) -> Result<SyncReport, ClientError>
+where
+    A: SyncWalletAuthority + ?Sized,
+    I: AsyncRpc + Sync,
+    R: AsyncRpc + Sync,
+{
+    let slot = rpc
+        .get_signature_statuses(vec![signature])
+        .await?
+        .into_iter()
+        .next()
+        .flatten()
+        .map(|status| status.slot)
+        .ok_or(ClientError::IndexerTimeout)?;
+    sync_wallet_with_config_async(wallet, authority, indexer, SyncWalletConfig::at_slot(slot)).await
+}
+
 pub async fn sync_wallet_with_config_async<A, I>(
     wallet: &mut Wallet,
     authority: &A,
@@ -165,7 +208,7 @@ where
     I: AsyncRpc,
 {
     let config = normalized_config(config);
-    let rpc_config = indexer_rpc_config(config);
+    let freshness_gate = indexer_rpc_config(config);
     let material = authority.sync_material().await?;
     let mut transactions: HashMap<String, ShieldedTransaction> = HashMap::new();
     let mut proofless_deposits: HashMap<String, ShieldedTransaction> = HashMap::new();
@@ -176,38 +219,35 @@ where
         let before = (transactions.len(), proofless_deposits.len());
         let tags = wallet_query_tags(wallet, &material, config.tag_window)?;
         let nullifiers = wallet_query_nullifiers(wallet);
-        fetch_shielded_transactions_async(indexer, &tags, &mut transactions, config, rpc_config)
-            .await?;
+        fetch_shielded_transactions_async(
+            indexer,
+            &tags,
+            &mut transactions,
+            config,
+            freshness_gate,
+        )
+        .await?;
         fetch_shielded_transactions_by_nullifiers_async(
             indexer,
             &nullifiers,
             &mut transactions,
             config,
-            rpc_config,
+            freshness_gate,
         )
         .await?;
-        fetch_proofless_deposits_async(indexer, &tags, &mut proofless_deposits, config, rpc_config)
-            .await?;
+        fetch_proofless_deposits_async(
+            indexer,
+            &tags,
+            &mut proofless_deposits,
+            config,
+            freshness_gate,
+        )
+        .await?;
 
         txs = transactions.values().cloned().collect::<Vec<_>>();
         txs.sort_by_key(|a| (a.slot, a.tx_signature));
         let mut deposits = proofless_deposits.values().cloned().collect::<Vec<_>>();
-        deposits.sort_by(|a, b| {
-            (
-                a.output_slots
-                    .first()
-                    .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
-                a.slot,
-                a.tx_signature,
-            )
-                .cmp(&(
-                    b.output_slots
-                        .first()
-                        .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
-                    b.slot,
-                    b.tx_signature,
-                ))
-        });
+        deposits.sort_by_key(deposit_sort_key);
         txs.extend(deposits);
         report = wallet.sync_with_material(&material, &txs, now_unix_ts(), config.tag_window)?;
 
@@ -245,8 +285,8 @@ where
         let Ok(registry) = SplAssetRegistry::from_account_bytes(&account.data) else {
             continue;
         };
-        // `insert` rejects the reserved SOL id and duplicates; a dup just means
-        // the id is already known, which is not an error for a refresh.
+        // `insert` rejects the reserved SOL id and duplicates. A duplicate means the
+        // id is already known, which is not an error for a refresh.
         if wallet
             .registry
             .insert(registry.asset_id, registry.mint)
@@ -296,13 +336,27 @@ pub fn get_private_token_balances(wallet: &Wallet) -> Result<Vec<AssetBalance>, 
     Ok(wallet.balances(true)?)
 }
 
+/// Proofless deposits carry no ordering of their own, so they are ordered by the
+/// tree position they landed in, then by slot and signature.
+fn deposit_sort_key(
+    tx: &ShieldedTransaction,
+) -> (Option<(Address, u64)>, u64, solana_signature::Signature) {
+    (
+        tx.output_slots
+            .first()
+            .map(|slot| (slot.output_context.tree, slot.output_context.leaf_index)),
+        tx.slot,
+        tx.tx_signature,
+    )
+}
+
 fn normalized_config(config: SyncWalletConfig) -> SyncWalletConfig {
     SyncWalletConfig {
         tag_window: config.tag_window,
         tag_query_chunk: config.tag_query_chunk.max(1),
         page_limit: config.page_limit.max(1),
         rounds: config.rounds.max(1),
-        wait_for_indexer: config.wait_for_indexer,
+        require_slot: config.require_slot,
         retry: IndexerPollConfig {
             num_retries: config.retry.num_retries.max(1),
             ..config.retry
@@ -361,10 +415,12 @@ fn wallet_query_tags(
     Ok(tags.into_iter().collect())
 }
 
+/// The freshness gate every collector in a sync round carries. It is `Copy`, so
+/// each query waits for the required slot rather than only the first.
 fn indexer_rpc_config(config: SyncWalletConfig) -> Option<IndexerRpcConfig> {
     Some(IndexerRpcConfig {
-        wait_for_indexer: config.wait_for_indexer,
         poll: config.retry,
+        require_slot: config.require_slot,
     })
 }
 
@@ -590,9 +646,8 @@ async fn fetch_proofless_deposits_async<I: AsyncRpc>(
 fn proofless_deposit_from_indexed_match(
     item: EncryptedUtxoMatch,
 ) -> Result<Option<ShieldedTransaction>, ClientError> {
-    // The wallet deserializes the `ProoflessOutput` from the slot payload itself;
-    // here we only confirm the payload is a decodable proofless output before
-    // wrapping the slot into a proofless `ShieldedTransaction`.
+    // Only confirm the payload decodes. The wallet deserializes the
+    // `ProoflessOutput` itself.
     if decode_output_data(&item.output_slot.payload).is_err()
         && decode_encrypted_ring_deposit_output_data(&item.output_slot.payload).is_err()
     {
@@ -680,6 +735,108 @@ mod tests {
         GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
 
+    /// Records the freshness gate each collector carried.
+    #[derive(Default)]
+    struct GateRecordingIndexer {
+        required_slots: std::sync::Mutex<Vec<Option<u64>>>,
+    }
+
+    impl GateRecordingIndexer {
+        fn record(&self, config: Option<IndexerRpcConfig>) {
+            self.required_slots
+                .lock()
+                .expect("recorder is uncontended")
+                .push(config.and_then(|config| config.require_slot));
+        }
+    }
+
+    impl Rpc for GateRecordingIndexer {
+        fn get_encrypted_utxos_by_tags(
+            &self,
+            _tags: Vec<ViewTag>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
+            self.record(config);
+            Ok(GetEncryptedUtxosByTagsResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                matches: Vec::new(),
+                next_cursor: None,
+            })
+        }
+
+        fn get_shielded_transactions_by_tags(
+            &self,
+            _tags: Vec<ViewTag>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
+            self.record(config);
+            Ok(GetShieldedTransactionsByTagsResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                transactions: Vec::new(),
+                next_cursor: None,
+            })
+        }
+
+        fn get_shielded_transactions_by_nullifiers(
+            &self,
+            _nullifiers: Vec<ViewTag>,
+            _cursor: Option<Vec<u8>>,
+            _limit: Option<u32>,
+            config: Option<IndexerRpcConfig>,
+        ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
+            self.record(config);
+            Ok(GetShieldedTransactionsByNullifiersResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
+                transactions: Vec::new(),
+                next_cursor: None,
+            })
+        }
+    }
+
+    /// A sync round runs three collectors. All three must wait for the required
+    /// slot, or the two that skip it answer from before the submit.
+    #[test]
+    fn every_collector_carries_the_freshness_gate() {
+        let alice = ShieldedKeypair::new().expect("keypair");
+        let mut wallet = Wallet::new(
+            alice.shielded_address().expect("address"),
+            AssetRegistry::default(),
+        )
+        .expect("wallet");
+        let indexer = GateRecordingIndexer::default();
+
+        sync_wallet_with_config(
+            &mut wallet,
+            &local_authority(&alice),
+            &indexer,
+            SyncWalletConfig::at_slot(77),
+        )
+        .expect("sync");
+
+        let required = indexer
+            .required_slots
+            .lock()
+            .expect("recorder is uncontended");
+        assert!(
+            required.len() >= 3,
+            "every collector must query the indexer"
+        );
+        assert!(required.iter().all(|slot| *slot == Some(77)));
+    }
+
     #[derive(Default)]
     struct MockIndexer {
         transactions: Vec<ShieldedTransaction>,
@@ -705,7 +862,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
             Ok(GetEncryptedUtxosByTagsResponse {
-                context: Context { block_time: 0 },
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
                 matches: self.matches.clone(),
                 next_cursor: None,
             })
@@ -719,7 +879,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
             Ok(GetShieldedTransactionsByTagsResponse {
-                context: Context { block_time: 0 },
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
                 transactions: self.transactions.clone(),
                 next_cursor: None,
             })
@@ -733,7 +896,10 @@ mod tests {
             _config: Option<IndexerRpcConfig>,
         ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
             Ok(GetShieldedTransactionsByNullifiersResponse {
-                context: Context { block_time: 0 },
+                context: Context {
+                    block_time: 0,
+                    slot: 1,
+                },
                 transactions: self
                     .transactions
                     .iter()
@@ -982,9 +1148,15 @@ mod tests {
             SppProofInputUtxo::new(test_utxo(&alice, SPL_MINT, 100, 9), &alice),
         ];
         let tx = signed_to_shielded_tx(
-            confidential_send_and_withdraw(
-                &alice, inputs, &bob, SPL_MINT, 60, SOL_MINT, 30, &assets,
-            ),
+            SendAndWithdraw {
+                inputs,
+                recipient: &bob,
+                send_asset: SPL_MINT,
+                send_amount: 60,
+                withdraw_asset: SOL_MINT,
+                withdraw_amount: 30,
+            }
+            .sign(&alice, &assets),
             1,
         );
         let mut wallet = wallet_with_utxos(&alice, &[(SOL_MINT, 100, 8), (SPL_MINT, 100, 9)]);
@@ -1260,39 +1432,43 @@ mod tests {
         transfer.sign(sender, assets).expect("sign")
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn confidential_send_and_withdraw(
-        sender: &ShieldedKeypair,
+    struct SendAndWithdraw<'a> {
         inputs: Vec<SppProofInputUtxo>,
-        recipient: &ShieldedKeypair,
+        recipient: &'a ShieldedKeypair,
         send_asset: Address,
         send_amount: u64,
         withdraw_asset: Address,
         withdraw_amount: u64,
-        assets: &AssetRegistry,
-    ) -> SppProofInputs {
-        let mut transfer = ConfidentialTransfer::new(
-            sender.shielded_address().expect("sender address"),
-            inputs,
-            Address::default(),
-        );
-        transfer
-            .send(
-                &recipient.shielded_address().expect("recipient address"),
-                send_asset,
-                send_amount,
-            )
-            .expect("send");
-        transfer
-            .withdraw(
-                withdraw_asset,
-                withdraw_amount,
-                SettlementTarget::Sol {
-                    user_sol_account: Address::new_from_array([9u8; 32]),
-                },
-            )
-            .expect("withdraw");
-        transfer.sign(sender, assets).expect("sign")
+    }
+
+    impl SendAndWithdraw<'_> {
+        fn sign(self, sender: &ShieldedKeypair, assets: &AssetRegistry) -> SppProofInputs {
+            let mut transfer = ConfidentialTransfer::new(
+                sender.shielded_address().expect("sender address"),
+                self.inputs,
+                Address::default(),
+            );
+            transfer
+                .send(
+                    &self
+                        .recipient
+                        .shielded_address()
+                        .expect("recipient address"),
+                    self.send_asset,
+                    self.send_amount,
+                )
+                .expect("send");
+            transfer
+                .withdraw(
+                    self.withdraw_asset,
+                    self.withdraw_amount,
+                    SettlementTarget::Sol {
+                        user_sol_account: Address::new_from_array([9u8; 32]),
+                    },
+                )
+                .expect("withdraw");
+            transfer.sign(sender, assets).expect("sign")
+        }
     }
 
     fn confidential_withdrawal(

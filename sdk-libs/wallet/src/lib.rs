@@ -50,6 +50,7 @@ pub use wallet_authority::{
     LocalWalletAuthority, P256Signature, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
 pub use wallet_sync::{
-    get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_async,
-    sync_wallet_with_config, sync_wallet_with_config_async, SyncWalletConfig,
+    get_private_token_balances, get_private_transactions, sync_wallet, sync_wallet_after,
+    sync_wallet_after_async, sync_wallet_async, sync_wallet_with_config,
+    sync_wallet_with_config_async, SyncWalletConfig,
 };
