@@ -5,9 +5,9 @@ import (
 
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 )
 
@@ -48,7 +48,7 @@ func ProveTransfer(ps *common.TransferProofSystem, params *TransferParameters) (
 		return nil, fmt.Errorf("error creating witness: %v", err)
 	}
 
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	proof, err := gpuprove.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 	if err != nil {
 		return nil, fmt.Errorf("error proving: %v", err)
 	}

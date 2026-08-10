@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"zolana/prover/logging"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -33,7 +34,7 @@ func LoadProvingKey(filepath string) (pk groth16.ProvingKey, err error) {
 		Str("filepath", filepath).
 		Msg("start reading proving key")
 
-	pk = groth16.NewProvingKey(ecc.BN254)
+	pk = gpuprove.NewProvingKey()
 	f, err := os.Open(filepath)
 	if err != nil {
 		logging.Logger().Error().

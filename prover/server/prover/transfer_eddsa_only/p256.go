@@ -8,6 +8,7 @@ import (
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
+	"zolana/prover/prover/gpuprove"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -300,7 +301,7 @@ func ProveP256Transfer(ps *common.TransferProofSystem, params *P256TransferParam
 	if err != nil {
 		return nil, fmt.Errorf("error creating P256 witness: %w", err)
 	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
+	proof, err := gpuprove.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
 	if err != nil {
 		return nil, fmt.Errorf("error proving P256 transfer: %w", err)
 	}

@@ -14,23 +14,32 @@ import (
 	"zolana/prover/prover/common"
 	"zolana/prover/server"
 
+	"github.com/alicebob/miniredis/v2"
 	bn254 "github.com/consensys/gnark-crypto/ecc/bn254"
 	groth16bn254 "github.com/consensys/gnark/backend/groth16/bn254"
 	"github.com/google/uuid"
 )
 
-const TestRedisURL = "redis://localhost:6379/15"
+// redisURLForTest prefers TEST_REDIS_URL and falls back to an in-process
+// Redis, so the queue tests run everywhere instead of skipping.
+func redisURLForTest(t *testing.T) string {
+	if redisURL := os.Getenv("TEST_REDIS_URL"); redisURL != "" {
+		return redisURL
+	}
+	// RunT registers its own cleanup, so the server dies with the test.
+	return "redis://" + miniredis.RunT(t).Addr() + "/0"
+}
 
 func setupRedisQueue(t *testing.T) *server.RedisQueue {
-	// Skip if Redis URL not available
-	redisURL := os.Getenv("TEST_REDIS_URL")
-	if redisURL == "" {
-		redisURL = TestRedisURL
-	}
+	return setupRedisQueueAt(t, redisURLForTest(t))
+}
 
+// setupRedisQueueAt is for tests that also need to hand the URL to something
+// else, such as a server config, so both ends talk to the same instance.
+func setupRedisQueueAt(t *testing.T, redisURL string) *server.RedisQueue {
 	rq, err := server.NewRedisQueue(redisURL)
 	if err != nil {
-		t.Skipf("Redis not available for testing: %v", err)
+		t.Fatalf("Redis not available for testing: %v", err)
 	}
 
 	err = rq.Client.FlushDB(context.Background()).Err()
@@ -52,12 +61,10 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	// Create a mix of old and recent jobs across multiple queues
 	now := time.Now()
 	oldTime := now.Add(-35 * time.Minute)    // 35 minutes ago (should be removed)
 	recentTime := now.Add(-20 * time.Minute) // 20 minutes ago (should stay)
 
-	// Create test jobs for all input queues
 	testJobs := []struct {
 		queueName    string
 		job          *server.ProofJob
@@ -105,7 +112,6 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 		},
 	}
 
-	// Enqueue all test jobs
 	for _, testJob := range testJobs {
 		err := rq.EnqueueProof(testJob.queueName, testJob.job)
 		if err != nil {
@@ -113,7 +119,6 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 		}
 	}
 
-	// Verify initial state
 	stats, err := rq.GetQueueStats()
 	if err != nil {
 		t.Fatalf("Failed to get initial queue stats: %v", err)
@@ -131,19 +136,16 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 		}
 	}
 
-	// Run cleanup
 	err = rq.CleanupOldRequests()
 	if err != nil {
 		t.Errorf("CleanupOldRequests failed: %v", err)
 	}
 
-	// Verify cleanup results
 	stats, err = rq.GetQueueStats()
 	if err != nil {
 		t.Fatalf("Failed to get queue stats after cleanup: %v", err)
 	}
 
-	// Count expected remaining jobs
 	expectedAfter := map[string]int64{
 		"zk_address_append_queue": 1, // 1 recent job remains, 1 old removed
 		"zk_failed_queue":         1, // untouched by cleanup
@@ -156,7 +158,6 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 		}
 	}
 
-	// Verify we can still dequeue the remaining address append job
 	remainingAddress, err := rq.DequeueProof("zk_address_append_queue", 1*time.Second)
 	if err != nil {
 		t.Errorf("Failed to dequeue remaining address append job: %v", err)
@@ -165,7 +166,6 @@ func TestPeriodicCleanupFunctionality(t *testing.T) {
 		t.Errorf("Expected to find remaining address append job")
 	}
 
-	// Verify the address append queue is now empty (only the old job was cleaned up)
 	emptyAddress, err := rq.DequeueProof("zk_address_append_queue", 500*time.Millisecond)
 	if err != nil {
 		t.Errorf("Failed to check empty address append queue: %v", err)
@@ -179,12 +179,10 @@ func TestCleanupOldProofRequests(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	// Create jobs with different ages
 	now := time.Now()
 	oldTime := now.Add(-45 * time.Minute)    // 45 minutes ago (should be removed)
 	recentTime := now.Add(-15 * time.Minute) // 15 minutes ago (should stay)
 
-	// Create old jobs (should be removed)
 	oldAddressJob := &server.ProofJob{
 		ID:        uuid.New().String(),
 		Type:      "zk_proof",
@@ -192,7 +190,6 @@ func TestCleanupOldProofRequests(t *testing.T) {
 		CreatedAt: oldTime,
 	}
 
-	// Create recent jobs (should stay)
 	recentAddressJob := &server.ProofJob{
 		ID:        uuid.New().String(),
 		Type:      "zk_proof",
@@ -215,7 +212,6 @@ func TestCleanupOldProofRequests(t *testing.T) {
 		CreatedAt: recentTime,
 	}
 
-	// Enqueue all jobs
 	err := rq.EnqueueProof("zk_address_append_queue", oldAddressJob)
 	if err != nil {
 		t.Fatalf("Failed to enqueue old address append job: %v", err)
@@ -236,7 +232,6 @@ func TestCleanupOldProofRequests(t *testing.T) {
 		t.Fatalf("Failed to enqueue recent failed job: %v", err)
 	}
 
-	// Verify initial state
 	stats, err := rq.GetQueueStats()
 	if err != nil {
 		t.Fatalf("Failed to get initial queue stats: %v", err)
@@ -248,19 +243,16 @@ func TestCleanupOldProofRequests(t *testing.T) {
 		t.Errorf("Expected zk_failed_queue to have 2 jobs initially, got %d", stats["zk_failed_queue"])
 	}
 
-	// Run cleanup
 	err = rq.CleanupOldRequests()
 	if err != nil {
 		t.Errorf("CleanupOldRequests failed: %v", err)
 	}
 
-	// Verify cleanup results
 	stats, err = rq.GetQueueStats()
 	if err != nil {
 		t.Fatalf("Failed to get queue stats after cleanup: %v", err)
 	}
 
-	// The address append queue drops its old job; the failed queue is untouched
 	if stats["zk_address_append_queue"] != 1 {
 		t.Errorf("Expected zk_address_append_queue to have 1 job after cleanup, got %d", stats["zk_address_append_queue"])
 	}
@@ -268,7 +260,6 @@ func TestCleanupOldProofRequests(t *testing.T) {
 		t.Errorf("Expected zk_failed_queue to have 2 jobs after cleanup, got %d", stats["zk_failed_queue"])
 	}
 
-	// Verify the remaining address append job is the recent one
 	dequeuedAddress, err := rq.DequeueProof("zk_address_append_queue", 1*time.Second)
 	if err != nil {
 		t.Errorf("Failed to dequeue remaining address append job: %v", err)
@@ -414,7 +405,7 @@ func TestDequeueFromFailedQueue(t *testing.T) {
 		t.Errorf("Failed to dequeue proof: %v", err)
 	}
 	if dequeuedJob == nil {
-		t.Errorf("Expected to dequeue a job, got nil")
+		t.Fatalf("Expected to dequeue a job, got nil")
 	}
 	if dequeuedJob.ID != originalJob.ID {
 		t.Errorf("Expected job ID %s, got %s", originalJob.ID, dequeuedJob.ID)
@@ -440,7 +431,7 @@ func TestDequeueFromResultsQueue(t *testing.T) {
 		t.Errorf("Failed to dequeue proof: %v", err)
 	}
 	if dequeuedJob == nil {
-		t.Errorf("Expected to dequeue a job, got nil")
+		t.Fatalf("Expected to dequeue a job, got nil")
 	}
 	if dequeuedJob.ID != originalJob.ID {
 		t.Errorf("Expected job ID %s, got %s", originalJob.ID, dequeuedJob.ID)
@@ -463,7 +454,7 @@ func TestDequeueFromAddressAppendQueue(t *testing.T) {
 		t.Errorf("Failed to dequeue proof: %v", err)
 	}
 	if dequeuedJob == nil {
-		t.Errorf("Expected to dequeue a job, got nil")
+		t.Fatalf("Expected to dequeue a job, got nil")
 	}
 	if dequeuedJob.ID != originalJob.ID {
 		t.Errorf("Expected job ID %s, got %s", originalJob.ID, dequeuedJob.ID)
@@ -487,7 +478,11 @@ func TestDequeueTimeout(t *testing.T) {
 	if duration < 400*time.Millisecond {
 		t.Errorf("Timeout duration too short: %v", duration)
 	}
-	if duration > 1*time.Second {
+	// A 1s block cannot return in under 1s, so the old "> 1 * time.Second"
+	// bound was unsatisfiable -- it measured 1.0013s here. The point of the
+	// upper bound is to catch a block that ignores its timeout entirely, so it
+	// needs slack for scheduling.
+	if duration > 3*time.Second {
 		t.Errorf("Timeout duration too long: %v", duration)
 	}
 }
@@ -553,6 +548,9 @@ func TestMultipleJobsInDifferentQueues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to dequeue from address append queue: %v", err)
 	}
+	if dequeuedAddressAppend == nil {
+		t.Fatalf("Expected to dequeue an address append job, got nil")
+	}
 	if dequeuedAddressAppend.ID != addressAppendJob.ID {
 		t.Errorf("Expected address append job ID %s, got %s", addressAppendJob.ID, dequeuedAddressAppend.ID)
 	}
@@ -580,26 +578,28 @@ func TestJobResultStorage(t *testing.T) {
 
 	jobID := "test-result-job"
 
-	mockResult := map[string]interface{}{
-		"proof":  "mock-proof-data",
-		"status": "completed",
-	}
+	// GetResult decodes into common.ProofWithTiming.
+	stored := &common.ProofWithTiming{ProofDurationMs: 271}
 
-	err := rq.StoreResult(jobID, mockResult)
+	err := rq.StoreResult(jobID, stored)
 	if err != nil {
-		t.Errorf("Failed to store result: %v", err)
+		t.Fatalf("Failed to store result: %v", err)
 	}
 
 	result, err := rq.GetResult(jobID)
 	if err != nil {
-		t.Errorf("Failed to retrieve result: %v", err)
-	}
-	if result == nil {
-		t.Errorf("Expected result, got nil")
+		t.Fatalf("Failed to retrieve result: %v", err)
 	}
 
-	if _, ok := result.(map[string]interface{}); !ok {
-		t.Errorf("Expected result to be map[string]interface{}, got %T", result)
+	loaded, ok := result.(*common.ProofWithTiming)
+	if !ok {
+		t.Fatalf("Expected result to be *common.ProofWithTiming, got %T", result)
+	}
+	if loaded.ProofDurationMs != stored.ProofDurationMs {
+		t.Errorf(
+			"ProofDurationMs = %d, want %d",
+			loaded.ProofDurationMs, stored.ProofDurationMs,
+		)
 	}
 }
 
@@ -626,6 +626,12 @@ func TestQueuedCommittedProofResultRoundTrip(t *testing.T) {
 	payload, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal committed proof result: %v", err)
+	}
+
+	// Both, because the worker does both. StoreResult writes zk_result_<id>,
+	// which GetResult reads, and the queue entry is what cleanup ages out.
+	if err := rq.StoreResult(jobID, result); err != nil {
+		t.Fatalf("store committed proof result: %v", err)
 	}
 	if err := rq.EnqueueProof("zk_results_queue", &server.ProofJob{
 		ID:        jobID,
@@ -659,34 +665,89 @@ func TestQueuedCommittedProofResultRoundTrip(t *testing.T) {
 	}
 }
 
+// CleanupOldResults removes results by age, and only by age. Nothing caps the
+// queue length, so zk_results_queue grows unbounded between cleanup passes.
 func TestResultCleanup(t *testing.T) {
 	rq := setupRedisQueue(t)
 	defer teardownRedisQueue(t, rq)
 
-	for i := 0; i < 1005; i++ {
+	// The cutoff is one hour, so these straddle it.
+	const staleCount, freshCount = 3, 2
+	enqueue := func(id string, createdAt time.Time) {
+		t.Helper()
 		job := &server.ProofJob{
-			ID:        fmt.Sprintf("cleanup-job-%d", i),
+			ID:        id,
 			Type:      "result",
 			Payload:   json.RawMessage(`{"test": "data"}`),
-			CreatedAt: time.Now(),
+			CreatedAt: createdAt,
 		}
-		err := rq.EnqueueProof("zk_results_queue", job)
-		if err != nil {
-			t.Fatalf("Failed to enqueue cleanup job %d: %v", i, err)
+		if err := rq.EnqueueProof("zk_results_queue", job); err != nil {
+			t.Fatalf("Failed to enqueue %s: %v", id, err)
 		}
 	}
+	for i := 0; i < staleCount; i++ {
+		enqueue(fmt.Sprintf("stale-result-%d", i), time.Now().Add(-2*time.Hour))
+	}
+	for i := 0; i < freshCount; i++ {
+		enqueue(fmt.Sprintf("fresh-result-%d", i), time.Now())
+	}
 
-	err := rq.CleanupOldResults()
-	if err != nil {
-		t.Errorf("Failed to cleanup old results: %v", err)
+	if err := rq.CleanupOldResults(); err != nil {
+		t.Fatalf("Failed to cleanup old results: %v", err)
 	}
 
 	stats, err := rq.GetQueueStats()
 	if err != nil {
 		t.Fatalf("Failed to get queue stats: %v", err)
 	}
-	if stats["zk_results_queue"] != int64(1000) {
-		t.Errorf("Expected results queue to have 1000 jobs after cleanup, got %d", stats["zk_results_queue"])
+	if stats["zk_results_queue"] != int64(freshCount) {
+		t.Errorf(
+			"Expected only the %d recent results to survive cleanup, got %d",
+			freshCount, stats["zk_results_queue"],
+		)
+	}
+}
+
+// A result key with no TTL never expires on its own, so the cleanup is the only
+// thing that removes it. The scan must reach every one of them, past the size of
+// a single batch.
+func TestOldResultKeyCleanupReachesEveryKey(t *testing.T) {
+	rq := setupRedisQueue(t)
+	defer teardownRedisQueue(t, rq)
+
+	ctx := context.Background()
+	const persistentCount = 1200
+	for i := 0; i < persistentCount; i++ {
+		key := fmt.Sprintf("zk_result_persistent-%d", i)
+		if err := rq.Client.Set(ctx, key, `{"test":"data"}`, 0).Err(); err != nil {
+			t.Fatalf("Failed to store %s: %v", key, err)
+		}
+	}
+	if err := rq.Client.Set(ctx, "zk_result_fresh", `{"test":"data"}`, time.Hour).Err(); err != nil {
+		t.Fatalf("Failed to store the fresh result key: %v", err)
+	}
+
+	if err := rq.CleanupOldResultKeys(); err != nil {
+		t.Fatalf("Failed to cleanup old result keys: %v", err)
+	}
+
+	for i := 0; i < persistentCount; i++ {
+		key := fmt.Sprintf("zk_result_persistent-%d", i)
+		exists, err := rq.Client.Exists(ctx, key).Result()
+		if err != nil {
+			t.Fatalf("Failed to check %s: %v", key, err)
+		}
+		if exists != 0 {
+			t.Fatalf("Expected %s to be removed by cleanup", key)
+		}
+	}
+
+	exists, err := rq.Client.Exists(ctx, "zk_result_fresh").Result()
+	if err != nil {
+		t.Fatalf("Failed to check the fresh result key: %v", err)
+	}
+	if exists != 1 {
+		t.Error("Expected the result key with a live TTL to survive cleanup")
 	}
 }
 
@@ -848,7 +909,8 @@ func TestFailedJobStatusDetails(t *testing.T) {
 }
 
 func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
-	rq := setupRedisQueue(t)
+	redisURL := redisURLForTest(t)
+	rq := setupRedisQueueAt(t, redisURL)
 	defer teardownRedisQueue(t, rq)
 
 	keyManager := common.NewLazyKeyManager("./proving-keys/", common.DefaultDownloadConfig())
@@ -857,7 +919,7 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 		ProverAddress:  "localhost:8082",
 		MetricsAddress: "localhost:9997",
 		Queue: &server.QueueConfig{
-			RedisURL: TestRedisURL,
+			RedisURL: redisURL,
 			Enabled:  true,
 		},
 	}
@@ -902,7 +964,6 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Failed to read response body: %v", err)
@@ -920,7 +981,7 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 
 	if message, ok := statusResponse["message"].(string); !ok {
 		t.Errorf("Expected message field in response")
-	} else if !contains(message, errorMessage) {
+	} else if !strings.Contains(message, errorMessage) {
 		t.Errorf("Expected message to contain '%s', got '%s'", errorMessage, message)
 	}
 
@@ -937,58 +998,6 @@ func TestFailedJobStatusHTTPEndpoint(t *testing.T) {
 	if jobIDField, ok := statusResponse["job_id"].(string); !ok || jobIDField != jobID {
 		t.Errorf("Expected job_id to be '%s', got %v", jobID, statusResponse["job_id"])
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || strings.Contains(s, substr)))
-}
-
-func TestWorkerSelectionLogic(t *testing.T) {
-	testCases := []struct {
-		name          string
-		circuits      []string
-		expectAddress bool
-	}{
-		{
-			name:          "Address append only",
-			circuits:      []string{"address-append"},
-			expectAddress: true,
-		},
-		{
-			name:          "Address append test",
-			circuits:      []string{"address-append-test"},
-			expectAddress: true,
-		},
-		{
-			name:          "Unrelated circuits only",
-			circuits:      []string{"transfer", "transfer-p256"},
-			expectAddress: false,
-		},
-		{
-			name:          "Empty",
-			circuits:      []string{},
-			expectAddress: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			shouldStartAddress := containsCircuit(tc.circuits, "address-append") || containsCircuit(tc.circuits, "address-append-test")
-
-			if shouldStartAddress != tc.expectAddress {
-				t.Errorf("Expected address append worker: %v, got: %v", tc.expectAddress, shouldStartAddress)
-			}
-		})
-	}
-}
-
-func containsCircuit(circuits []string, circuit string) bool {
-	for _, c := range circuits {
-		if c == circuit {
-			return true
-		}
-	}
-	return false
 }
 
 func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
@@ -1009,7 +1018,7 @@ func TestBatchOperationsAlwaysUseQueue(t *testing.T) {
 		})
 	}
 
-	// Transfer circuits queue too: they route to the shared transfer queue.
+	// Transfer circuits queue too, on the shared transfer queue.
 	transferTests := []common.CircuitType{
 		common.TransferConfidentialCircuitType,
 		common.TransferP256RingCircuitType,
