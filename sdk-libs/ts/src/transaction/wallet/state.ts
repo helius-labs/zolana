@@ -156,6 +156,33 @@ export class Wallet {
   #transactions: PrivateTransaction[] = [];
   #nullifiers = new Set<string>();
   #lastSynced = 0n;
+  /**
+   * Per-view-tag sync watermarks: for each tag, the indexer cursor up to which
+   * every matching transaction has already been seen. Mirrors Rust's
+   * `Wallet::sync_cursors`.
+   *
+   * Per tag rather than one shared position, because the tag set GROWS. Tags
+   * come from a local counter plus a window, and a second device spending
+   * beyond that window makes the counter lag by more than the window absorbs.
+   * A tag learned late must be scanned from the beginning even though other
+   * tags have advanced far past those slots, so a single cursor would skip
+   * those transactions permanently.
+   *
+   * In memory only. A client persisting wallet state across restarts should
+   * persist these too -- without them sync stays correct but pays for the full
+   * history every time.
+   */
+  #syncCursors = new Map<string, Uint8Array>();
+  /**
+   * The same watermarks for the encrypted-utxo stream that proofless deposits
+   * are read from. Mirrors Rust's `Wallet::proofless_cursors`.
+   *
+   * Separate from `#syncCursors` because they are positions in different
+   * streams: reaching the tip of the transaction stream says nothing about
+   * where the encrypted-utxo stream has been read to, and sharing one cursor
+   * would skip rows in whichever stream is behind.
+   */
+  #prooflessCursors = new Map<string, Uint8Array>();
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry?: AssetRegistry }>) {
     this.identity = input.identity;
@@ -174,6 +201,26 @@ export class Wallet {
   /** Timestamp the last completed sync was told to record, zero before the first. */
   get lastSynced(): bigint {
     return this.#lastSynced;
+  }
+
+  /**
+   * Cursor this tag's stream has been read to, or `undefined` for a tag never
+   * scanned -- which must start from the beginning, not from another tag's
+   * position.
+   *
+   * @internal
+   */
+  _syncCursor(stream: "transactions" | "proofless", tag: string): Uint8Array | undefined {
+    return this.#cursorsFor(stream).get(tag);
+  }
+
+  /** @internal */
+  _setSyncCursor(stream: "transactions" | "proofless", tag: string, cursor: Uint8Array): void {
+    this.#cursorsFor(stream).set(tag, Uint8Array.from(cursor));
+  }
+
+  #cursorsFor(stream: "transactions" | "proofless"): Map<string, Uint8Array> {
+    return stream === "transactions" ? this.#syncCursors : this.#prooflessCursors;
   }
 
   registerAsset(assetId: bigint, mint: Address): void {
