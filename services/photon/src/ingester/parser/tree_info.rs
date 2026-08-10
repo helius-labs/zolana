@@ -14,6 +14,13 @@ pub struct TreeInfo {
     pub height: u32,
     pub root_history_capacity: u64,
     pub input_queue_zkp_batch_size: u64,
+    /// UTXO tree root last read from the tree account, and the ring-buffer slot
+    /// the chain holds it in. `None` until the tree has been synced.
+    ///
+    /// Only valid as a pair: the index means nothing for any other root, which
+    /// is why they are stored and read together rather than derived.
+    pub state_root: Option<[u8; 32]>,
+    pub state_root_index: Option<u16>,
 }
 
 impl TreeInfo {
@@ -126,6 +133,24 @@ impl TreeInfo {
                     PhotonApiError::UnexpectedError(format!(
                         "Invalid input queue ZKP batch size in DB: {}",
                         metadata.input_queue_zkp_batch_size
+                    ))
+                })?,
+            state_root: metadata
+                .state_root
+                .as_deref()
+                .map(<[u8; 32]>::try_from)
+                .transpose()
+                .map_err(|_| {
+                    PhotonApiError::UnexpectedError("Synced state root is not 32 bytes".to_string())
+                })?,
+            state_root_index: metadata
+                .state_root_index
+                .map(u16::try_from)
+                .transpose()
+                .map_err(|_| {
+                    PhotonApiError::UnexpectedError(format!(
+                        "Invalid state root index in DB: {:?}",
+                        metadata.state_root_index
                     ))
                 })?,
         })

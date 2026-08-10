@@ -18,6 +18,10 @@ pub struct TreeAccountData {
     pub height: u32,
     pub sequence_number: u64,
     pub next_index: u64,
+    /// UTXO tree root at sync time, with the ring-buffer slot the chain holds
+    /// it in. Read together so the index is never applied to a different root.
+    pub state_root: [u8; 32],
+    pub state_root_index: u16,
 }
 
 pub async fn sync_tree_metadata(
@@ -94,6 +98,12 @@ fn process_rings_tree_account(pubkey: Pubkey, account: &Account) -> Option<TreeA
     let mut data = account.data.clone();
     let mut tree = parse_rings_tree_account(pubkey, account, &mut data)?;
     let nullifier_metadata = *tree.nullifer_tree().get_metadata();
+    // The slot the chain currently keeps its UTXO root in, and that root. A
+    // client quotes the index and the program loads the root it verifies
+    // against from it, so the pair has to travel together: an index is only
+    // meaningful for the root that was in it when it was read.
+    let state_root = tree.utxo_tree().root();
+    let state_root_index = tree.utxo_tree().current_root_index();
 
     Some(TreeAccountData {
         // Rings UTXO and nullifier trees live in the same account; there is
@@ -104,6 +114,8 @@ fn process_rings_tree_account(pubkey: Pubkey, account: &Account) -> Option<TreeA
         height: nullifier_metadata.height,
         sequence_number: nullifier_metadata.sequence_number,
         next_index: nullifier_metadata.next_index,
+        state_root,
+        state_root_index,
     })
 }
 
@@ -176,6 +188,8 @@ where
         sequence_number: Set(i64_from_u64(data.sequence_number, "sequence number")?),
         next_index: Set(i64_from_u64(data.next_index, "next index")?),
         last_synced_slot: Set(i64_from_u64(slot, "last synced slot")?),
+        state_root: Set(Some(data.state_root.to_vec())),
+        state_root_index: Set(Some(i32::from(data.state_root_index))),
     };
 
     TreeMetadata::insert(model)
@@ -189,6 +203,8 @@ where
                     tree_metadata::Column::SequenceNumber,
                     tree_metadata::Column::NextIndex,
                     tree_metadata::Column::LastSyncedSlot,
+                    tree_metadata::Column::StateRoot,
+                    tree_metadata::Column::StateRootIndex,
                 ])
                 .to_owned(),
         )

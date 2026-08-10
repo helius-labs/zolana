@@ -165,6 +165,8 @@ mod tests {
             height: RingsTreeKind::Nullifier.tree_height(),
             sequence_number: 0,
             next_index: 0,
+            state_root: [0; 32],
+            state_root_index: 0,
         };
 
         upsert_tree_metadata(db, tree_pk, &data, 0).await.unwrap();

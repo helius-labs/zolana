@@ -420,6 +420,8 @@ mod tests {
             height: RingsTreeKind::Nullifier.tree_height(),
             sequence_number: 0,
             next_index: 0,
+            state_root: [0; 32],
+            state_root_index: 0,
         };
         upsert_tree_metadata(db, tree, &data, 0).await.unwrap();
 
@@ -431,6 +433,8 @@ mod tests {
                 height: RingsTreeKind::Nullifier.tree_height(),
                 root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
                 input_queue_zkp_batch_size: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+                state_root: None,
+                state_root_index: None,
             },
         )])
     }

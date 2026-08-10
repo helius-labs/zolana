@@ -360,6 +360,8 @@ mod tests {
                         root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
                         input_queue_zkp_batch_size:
                             zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+                        state_root: None,
+                        state_root_index: None,
                     },
                 )
             })

@@ -19,6 +19,12 @@ pub struct Model {
     pub sequence_number: i64,
     pub next_index: i64,
     pub last_synced_slot: i64,
+    /// UTXO tree root as of `last_synced_slot`, read from the tree account.
+    #[sea_orm(column_type = "VarBinary(StringLen::None)", nullable)]
+    pub state_root: Option<Vec<u8>>,
+    /// Ring-buffer slot the chain holds `state_root` in. Clients must quote
+    /// this index, and the program loads the root it verifies against from it.
+    pub state_root_index: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
