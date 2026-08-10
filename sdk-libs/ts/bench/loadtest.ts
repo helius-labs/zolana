@@ -23,6 +23,7 @@
  *     --tree <address> --keypairs <dir> --duration 420
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -63,10 +64,32 @@ interface Options {
 interface Timing {
   readonly syncMs: number;
   readonly proveMs: number;
+  /** Of `proveMs`, time inside HTTP requests rather than local compute. */
+  readonly proveNetworkMs: number;
   readonly sendMs: number;
   readonly confirmMs: number;
   readonly totalMs: number;
 }
+
+/**
+ * Per-transfer HTTP time, so `prove` can be split into waiting on the indexer
+ * and prover versus computing locally.
+ *
+ * Workers run concurrently, so a single accumulator would blend them; the store
+ * is bound per transfer with `AsyncLocalStorage` and every fetch the SDK makes
+ * inside that transfer lands in the right bucket.
+ */
+const networkTime = new AsyncLocalStorage<{ ms: number }>();
+
+const timedFetch: typeof globalThis.fetch = async (input, init) => {
+  const started = Date.now();
+  try {
+    return await globalThis.fetch(input, init);
+  } finally {
+    const store = networkTime.getStore();
+    if (store !== undefined) store.ms += Date.now() - started;
+  }
+};
 
 interface Actor {
   readonly signer: KeyPairSigner;
@@ -190,16 +213,20 @@ async function transferOnce(
   await syncWallet({ client, wallet: from.wallet, authority: from.authority });
   const synced = Date.now();
 
-  // Proving happens inside the build: it requests the proof from the prover
-  // service, which is what the Rust harness times as `prove`.
-  const transaction = await buildTransferTransaction({
-    client,
-    wallet: from.wallet,
-    authority: from.authority,
-    feePayer: from.signer.address,
-    recipient: to.shieldedAddress,
-    amount,
-  });
+  // Proving happens inside the build: two indexer round-trips for the input
+  // merkle and dummy non-inclusion proofs, local assembly, then the prover
+  // call. The Rust harness brackets the same work, so the phases compare.
+  const proveNetwork = { ms: 0 };
+  const transaction = await networkTime.run(proveNetwork, () =>
+    buildTransferTransaction({
+      client,
+      wallet: from.wallet,
+      authority: from.authority,
+      feePayer: from.signer.address,
+      recipient: to.shieldedAddress,
+      amount,
+    }),
+  );
   const proved = Date.now();
 
   const signed = await signTransactionWithSigners([from.signer], transaction);
@@ -215,6 +242,7 @@ async function transferOnce(
   return {
     syncMs: synced - started,
     proveMs: proved - synced,
+    proveNetworkMs: proveNetwork.ms,
     sendMs: sent - proved,
     confirmMs: confirmed - sent,
     totalMs: confirmed - started,
@@ -254,6 +282,7 @@ async function main(): Promise<void> {
     // network in the clear -- and it is spelled out here rather than defaulted,
     // so it disappears the moment the certificate is issued.
     allowInsecureHttp: true,
+    fetch: timedFetch,
   });
   const actors = await loadActors(options.keypairs);
 
@@ -340,6 +369,17 @@ async function main(): Promise<void> {
     "prove",
     timings.map((timing) => timing.proveMs),
   );
+  // Splitting prove tells a client problem from a service one: `net` is time
+  // inside the indexer and prover requests, `local` is everything this process
+  // computes around them.
+  reportPhase(
+    "  net",
+    timings.map((timing) => timing.proveNetworkMs),
+  );
+  reportPhase(
+    "  local",
+    timings.map((timing) => timing.proveMs - timing.proveNetworkMs),
+  );
   reportPhase(
     "send",
     timings.map((timing) => timing.sendMs),
@@ -382,6 +422,7 @@ async function main(): Promise<void> {
           phases: {
             sync: timings.map((timing) => timing.syncMs),
             prove: timings.map((timing) => timing.proveMs),
+            proveNetwork: timings.map((timing) => timing.proveNetworkMs),
             send: timings.map((timing) => timing.sendMs),
             confirm: timings.map((timing) => timing.confirmMs),
             total: timings.map((timing) => timing.totalMs),
