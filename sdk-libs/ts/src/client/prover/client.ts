@@ -53,13 +53,15 @@ export class ProverClient {
       url: URL | string;
       fetch?: typeof globalThis.fetch;
       asyncPoll?: AsyncPollConfig;
+      /** See `ZolanaClientConfig.allowInsecureHttp`. */
+      allowInsecureHttp?: boolean;
     }>,
   ) {
     const candidate: unknown = input;
     if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
-    const url = checkedServiceUrl(input.url, "url");
+    const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
     url.pathname = `${url.pathname.replace(/\/+$/u, "")}${PROVE_PATH}`;
     const fetchImplementation = input.fetch ?? globalThis.fetch;
     if (typeof fetchImplementation !== "function") {

@@ -32,7 +32,27 @@ const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
-export function checkedServiceUrl(value: string | URL, field: string): URL {
+/**
+ * Service URLs must be https, or http to loopback.
+ *
+ * This is stricter than a general "prefer TLS" default because of what these
+ * two endpoints carry. The indexer's response says which UTXOs an identity
+ * owns, and the prover's request carries the witness. In plaintext both are
+ * readable by anyone on the path, which is the whole privacy property of a
+ * shielded protocol, not a hardening nicety. A tamperer can also feed altered
+ * merkle proofs or root indices and steer the client into proving against
+ * state it did not choose.
+ *
+ * `allowInsecureHttp` exists for deployments where the transport is already
+ * private -- an indexer inside your own VPC, a service mesh terminating TLS
+ * elsewhere. It is opt-in so that choice is deliberate and greppable rather
+ * than the silent default.
+ */
+export function checkedServiceUrl(
+  value: string | URL,
+  field: string,
+  allowInsecureHttp = false,
+): URL {
   let url: URL;
   try {
     url = new URL(value instanceof URL ? value.href : value);
@@ -45,8 +65,9 @@ export function checkedServiceUrl(value: string | URL, field: string): URL {
     hostname.endsWith(".localhost") ||
     hostname === "[::1]" ||
     /^127(?:\.\d{1,3}){3}$/u.test(hostname);
+  const httpAllowed = isLoopback || allowInsecureHttp;
   if (
-    (url.protocol !== "https:" && (url.protocol !== "http:" || !isLoopback)) ||
+    (url.protocol !== "https:" && (url.protocol !== "http:" || !httpAllowed)) ||
     url.username !== "" ||
     url.password !== "" ||
     url.hash !== ""

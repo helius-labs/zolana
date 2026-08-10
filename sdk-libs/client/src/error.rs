@@ -19,6 +19,16 @@ pub enum ClientError {
     #[error("hasher error: {0}")]
     Hasher(#[from] HasherError),
 
+    /// A service URL that would carry shielded material in plaintext.
+    ///
+    /// The indexer's response says which UTXOs an identity owns and the
+    /// prover's request carries the witness, so over plain http both are
+    /// readable by anyone on the path -- that is the protocol's privacy, not a
+    /// hardening detail. Use `from_urls_allowing_insecure_http` where the
+    /// transport is already private.
+    #[error("{field} must use https (or http to loopback): {url}")]
+    InsecureServiceUrl { field: &'static str, url: String },
+
     #[error("no supported circuit shape holds {n_in} inputs and {n_out} outputs")]
     UnsupportedShape { n_in: usize, n_out: usize },
 

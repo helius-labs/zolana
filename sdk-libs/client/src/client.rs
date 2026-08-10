@@ -7,6 +7,48 @@
 
 use std::{sync::OnceLock, thread::sleep, time::Duration};
 
+/// Reject a service URL that would carry shielded material in plaintext.
+///
+/// Mirrors the TypeScript SDK's `checkedServiceUrl`: https anywhere, http only
+/// to loopback, where there is no network to observe. Kept deliberately simple
+/// -- scheme and host, no dependency on a URL crate -- because the rule is
+/// about which wire the bytes cross, not about parsing.
+fn check_service_url(url: &str, field: &'static str) -> Result<(), ClientError> {
+    let insecure = || ClientError::InsecureServiceUrl {
+        field,
+        url: url.to_string(),
+    };
+
+    if url.starts_with("https://") {
+        return Ok(());
+    }
+    let Some(rest) = url.strip_prefix("http://") else {
+        return Err(insecure());
+    };
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .rsplit_once(':')
+        .map_or(
+            rest.split(['/', '?', '#']).next().unwrap_or_default(),
+            |(host, _)| host,
+        );
+    let host = host.trim_end_matches('.');
+
+    let loopback = host == "localhost"
+        || host.ends_with(".localhost")
+        || host == "[::1]"
+        || host
+            .strip_prefix("127.")
+            .is_some_and(|tail| tail.split('.').count() == 3);
+    if loopback {
+        Ok(())
+    } else {
+        Err(insecure())
+    }
+}
+
 use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
@@ -106,7 +148,37 @@ impl<R> ZolanaClient<R> {
     ///
     /// Blocking adapters are initialized on first blocking use so constructing
     /// an async client inside a Tokio runtime never creates a nested runtime.
+    ///
+    /// Both URLs must be https, or http to loopback. The indexer's response
+    /// says which UTXOs an identity owns and the prover's request carries the
+    /// witness, so in plaintext they hand a network observer exactly what a
+    /// shielded protocol exists to hide. Where the transport is already private
+    /// -- an indexer inside your own VPC, TLS terminated elsewhere -- use
+    /// [`Self::from_urls_allowing_insecure_http`], which is named so that
+    /// choice is greppable.
     pub fn from_urls(
+        rpc: R,
+        indexer_url: impl AsRef<str>,
+        prover_url: impl Into<String>,
+        output_tree: Address,
+    ) -> Result<Self, ClientError> {
+        let indexer_url = indexer_url.as_ref().to_string();
+        let prover_url = prover_url.into();
+        check_service_url(&indexer_url, "indexer_url")?;
+        check_service_url(&prover_url, "prover_url")?;
+        Ok(Self::from_urls_allowing_insecure_http(
+            rpc,
+            indexer_url,
+            prover_url,
+            output_tree,
+        ))
+    }
+
+    /// [`Self::from_urls`] without the transport check.
+    ///
+    /// Only for a network that is already private. On a public endpoint this
+    /// publishes the wallet's UTXO set and every proof witness in the clear.
+    pub fn from_urls_allowing_insecure_http(
         rpc: R,
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
@@ -1247,11 +1319,80 @@ mod tests {
         types::SppProofInputUtxo,
     };
 
+    #[test]
+    fn from_urls_requires_https_off_loopback() {
+        // The indexer response is the wallet's UTXO set and the prover request
+        // is the witness. In plaintext to a remote host both are readable by
+        // anyone on the path, which is the privacy property itself.
+        let tree = Address::new_from_array([42u8; 32]);
+        for (indexer, prover) in [
+            ("http://indexer.example.com", "https://prover.example.com"),
+            ("https://indexer.example.com", "http://prover.example.com"),
+        ] {
+            assert!(
+                matches!(
+                    ZolanaClient::from_urls((), indexer, prover, tree),
+                    Err(ClientError::InsecureServiceUrl { .. })
+                ),
+                "expected {indexer} / {prover} to be rejected"
+            );
+        }
+
+        assert!(ZolanaClient::from_urls(
+            (),
+            "https://indexer.example.com",
+            "https://prover.example.com",
+            tree
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn loopback_http_is_allowed_but_lookalikes_are_not() {
+        // `127.` prefix matching has to mean the loopback block, not any host
+        // whose name merely starts with it.
+        let tree = Address::new_from_array([42u8; 32]);
+        for url in [
+            "http://127.0.0.1:8784",
+            "http://127.1.2.3:8784",
+            "http://localhost:8784",
+            "http://svc.localhost:8784",
+        ] {
+            assert!(
+                ZolanaClient::from_urls((), url, url, tree).is_ok(),
+                "expected {url} to be allowed"
+            );
+        }
+        for url in [
+            "http://127.0.0.1.evil.com:8784",
+            "http://localhost.evil.com:8784",
+            "http://notlocalhost:8784",
+        ] {
+            assert!(
+                ZolanaClient::from_urls((), url, url, tree).is_err(),
+                "expected {url} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn the_insecure_escape_hatch_is_explicit() {
+        let tree = Address::new_from_array([42u8; 32]);
+        let client = ZolanaClient::from_urls_allowing_insecure_http(
+            (),
+            "http://indexer.internal:8784",
+            "http://prover.internal:3001",
+            tree,
+        );
+        assert_eq!(client.output_tree(), tree);
+    }
+
     #[tokio::test]
     async fn from_urls_is_safe_inside_an_async_runtime() {
         let tree = Address::new_from_array([42u8; 32]);
         let client =
-            ZolanaClient::from_urls((), "http://127.0.0.1:8784", "http://127.0.0.1:3001", tree);
+            ZolanaClient::from_urls((), "http://127.0.0.1:8784", "http://127.0.0.1:3001", tree)
+                .expect("loopback http is allowed");
 
         assert_eq!(client.output_tree(), tree);
         assert!(

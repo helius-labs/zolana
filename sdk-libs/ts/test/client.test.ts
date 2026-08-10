@@ -301,6 +301,39 @@ describe("ZolanaClient", () => {
     }
   });
 
+  it("allows plaintext non-loopback URLs only when asked explicitly", () => {
+    // The escape hatch for a transport that is already private -- an indexer
+    // inside a VPC, TLS terminated elsewhere. It has to be opt-in, so running a
+    // shielded client over plaintext stays a visible decision.
+    expect(
+      () =>
+        new ZolanaClient({
+          solanaRpcUrl: RPC_URL,
+          indexerUrl: "http://indexer.internal:8784",
+          proverUrl: "http://prover.internal:3001",
+          allowInsecureHttp: true,
+        }),
+    ).not.toThrow();
+  });
+
+  it("still rejects credentials and fragments when insecure http is allowed", () => {
+    // The opt-in relaxes the scheme and nothing else: a service URL carrying
+    // credentials or a fragment is malformed either way.
+    for (const indexerUrl of [
+      "http://user:pass@indexer.internal:8784",
+      "http://indexer.internal:8784#fragment",
+    ]) {
+      expect(
+        () =>
+          new ZolanaClient({
+            solanaRpcUrl: RPC_URL,
+            indexerUrl,
+            allowInsecureHttp: true,
+          }),
+      ).toThrow();
+    }
+  });
+
   it("validates an RPC fallback against each service's HTTPS requirement", () => {
     for (const { config, field } of [
       {
