@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import (
 	"encoding/json"
@@ -14,8 +14,8 @@ type UtxoParamsJSON struct {
 	Amount          string `json:"amount"`
 	Blinding        string `json:"blinding"`
 	ProgramDataHash string `json:"programDataHash"`
-	ZoneDataHash    string `json:"zoneDataHash"`
-	ZoneProgramID   string `json:"zoneProgramId"`
+	RingDataHash    string `json:"ringDataHash"`
+	RingProgramID   string `json:"ringProgramId"`
 }
 
 type SenderParamsJSON struct {
@@ -41,7 +41,7 @@ type ProposalParamsJSON struct {
 	PublicAmount string `json:"publicAmount"`
 }
 
-type ZoneParametersJSON struct {
+type RingParametersJSON struct {
 	CircuitType        common.CircuitType  `json:"circuitType"`
 	NInputs            uint32              `json:"nInputs"`
 	NOutputs           uint32              `json:"nOutputs"`
@@ -57,21 +57,21 @@ type ZoneParametersJSON struct {
 	PublicInputHash    string              `json:"publicInputHash"`
 }
 
-func (p *ZoneParameters) MarshalJSON() ([]byte, error) {
+func (p *RingParameters) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p.toJSON())
 }
 
-func (p *ZoneParameters) UnmarshalJSON(data []byte) error {
-	var params ZoneParametersJSON
+func (p *RingParameters) UnmarshalJSON(data []byte) error {
+	var params RingParametersJSON
 	if err := json.Unmarshal(data, &params); err != nil {
 		return err
 	}
 	return p.updateWithJSON(params)
 }
 
-func (p *ZoneParameters) toJSON() ZoneParametersJSON {
-	out := ZoneParametersJSON{
-		CircuitType:      common.SquadsZoneCircuitType,
+func (p *RingParameters) toJSON() RingParametersJSON {
+	out := RingParametersJSON{
+		CircuitType:      common.SquadsRingCircuitType,
 		NInputs:          p.NInputs,
 		NOutputs:         p.NOutputs,
 		ExternalDataHash: common.FeHex(p.ExternalDataHash),
@@ -114,7 +114,7 @@ func (p *ZoneParameters) toJSON() ZoneParametersJSON {
 	return out
 }
 
-func (p *ZoneParameters) updateWithJSON(params ZoneParametersJSON) error {
+func (p *RingParameters) updateWithJSON(params RingParametersJSON) error {
 	var err error
 	p.NInputs = params.NInputs
 	p.NOutputs = params.NOutputs
@@ -220,8 +220,8 @@ func utxoParamsToJSON(u UtxoParams) UtxoParamsJSON {
 		Amount:          common.FeHex(u.Amount),
 		Blinding:        common.FeHex(u.Blinding),
 		ProgramDataHash: common.FeHex(u.ProgramDataHash),
-		ZoneDataHash:    common.FeHex(u.ZoneDataHash),
-		ZoneProgramID:   common.FeHex(u.ZoneProgramID),
+		RingDataHash:    common.FeHex(u.RingDataHash),
+		RingProgramID:   common.FeHex(u.RingProgramID),
 	}
 }
 
@@ -243,10 +243,10 @@ func utxoParamsFromJSON(u UtxoParamsJSON) (UtxoParams, error) {
 	if out.ProgramDataHash, err = common.FeFromHex(u.ProgramDataHash); err != nil {
 		return out, err
 	}
-	if out.ZoneDataHash, err = common.FeFromHex(u.ZoneDataHash); err != nil {
+	if out.RingDataHash, err = common.FeFromHex(u.RingDataHash); err != nil {
 		return out, err
 	}
-	if out.ZoneProgramID, err = common.FeFromHex(u.ZoneProgramID); err != nil {
+	if out.RingProgramID, err = common.FeFromHex(u.RingProgramID); err != nil {
 		return out, err
 	}
 	return out, nil

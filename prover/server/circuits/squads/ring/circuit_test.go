@@ -1,4 +1,4 @@
-package squadszone_test
+package squadsring_test
 
 import (
 	"crypto/aes"
@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"testing"
 
-	. "zolana/prover/circuits/squads/zone"
+	. "zolana/prover/circuits/squads/ring"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
@@ -28,11 +28,11 @@ func TestTransferConstraintCountStable(t *testing.T) {
 	circuit := NewTransferCircuit(2)
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
 	if err != nil {
-		t.Fatalf("compile squads_zone transfer circuit: %v", err)
+		t.Fatalf("compile squads_ring transfer circuit: %v", err)
 	}
 	const want = 390959
 	if got := ccs.GetNbConstraints(); got != want {
-		t.Fatalf("squads_zone (2,2) constraint count changed: got %d want %d", got, want)
+		t.Fatalf("squads_ring (2,2) constraint count changed: got %d want %d", got, want)
 	}
 }
 
@@ -43,11 +43,11 @@ func TestWithdrawalConstraintCountStable(t *testing.T) {
 	circuit := NewWithdrawalCircuit(1)
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
 	if err != nil {
-		t.Fatalf("compile squads_zone withdrawal circuit: %v", err)
+		t.Fatalf("compile squads_ring withdrawal circuit: %v", err)
 	}
 	const want = 83732
 	if got := ccs.GetNbConstraints(); got != want {
-		t.Fatalf("squads_zone (1,1) constraint count changed: got %d want %d", got, want)
+		t.Fatalf("squads_ring (1,1) constraint count changed: got %d want %d", got, want)
 	}
 }
 
@@ -65,7 +65,7 @@ func TestTransferWitnessSolvedWithDummyInput(t *testing.T) {
 	}
 }
 
-// The zone proof must identify the account whose UTXOs are being spent, not
+// The ring proof must identify the account whose UTXOs are being spent, not
 // merely the account receiving the change. This witness is otherwise
 // self-consistent. Its private transaction hash, first-nullifier KDF, change
 // blinding, and ciphertext are all rebuilt around the foreign first input.
@@ -96,7 +96,7 @@ func TestTransferRejectsDummyWithNonzeroAmount(t *testing.T) {
 	}
 }
 
-// Zone KDF constants, mirroring circuits/squads/utils/poseidon_kdf.go and
+// Ring KDF constants, mirroring circuits/squads/utils/poseidon_kdf.go and
 // sender.go byte-for-byte.
 var (
 	kdfDomainSep   = new(big.Int).SetBytes([]byte("TSPP/kdf"))
@@ -276,10 +276,10 @@ func buildTransferWitnessWithForeignInputs(t *testing.T, inputAmounts []int64, i
 
 	a := NewTransferCircuit(len(inputAmounts))
 	for i := range inUtxos {
-		a.Transaction.Inputs[i] = zoneUtxo(inUtxos[i])
+		a.Transaction.Inputs[i] = ringUtxo(inUtxos[i])
 	}
-	a.Transaction.Outputs[0] = zoneUtxo(changeUtxo)
-	a.Transaction.Outputs[1] = zoneUtxo(recipientUtxo)
+	a.Transaction.Outputs[0] = ringUtxo(changeUtxo)
+	a.Transaction.Outputs[1] = ringUtxo(recipientUtxo)
 	a.Transaction.ExternalDataHash = externalDataHash
 	for i, d := range inputsDummy {
 		a.InputsDummy[i] = big.NewInt(d)
@@ -358,7 +358,7 @@ func ctrEncrypt(t *testing.T, key [32]byte, nonce [12]byte, plaintext []byte) []
 	return out
 }
 
-func zoneUtxo(u protocol.Utxo) squadsutils.Utxo {
+func ringUtxo(u protocol.Utxo) squadsutils.Utxo {
 	return squadsutils.Utxo{
 		OwnerHash:       u.Owner,
 		Asset:           u.Asset,

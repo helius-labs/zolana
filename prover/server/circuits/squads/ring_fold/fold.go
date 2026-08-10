@@ -1,7 +1,7 @@
-// Package squads_zone_fold holds the outer circuit that folds several zone
+// Package squads_ring_fold holds the outer circuit that folds several ring
 // spends of one account into one proof.
 //
-// The zone circuit has a key for (1,1) and (2,2) only, so three UTXOs cannot be
+// The ring circuit has a key for (1,1) and (2,2) only, so three UTXOs cannot be
 // spent together. Each leg keeps its own transaction, and the fold is what
 // makes the run one operation. Every leg spends the same account and, on the
 // transfer shape, pays the same recipient.
@@ -12,7 +12,7 @@
 //
 // The inner verifying key is a compile-time constant, so the outer verifying
 // key alone names the leg shape a fold proved.
-package squads_zone_fold
+package squads_ring_fold
 
 import (
 	"fmt"
@@ -26,7 +26,7 @@ import (
 	stdgroth16 "github.com/consensys/gnark/std/recursion/groth16"
 )
 
-// The zone circuit's public input is HashChain over these, in this order. The
+// The ring circuit's public input is HashChain over these, in this order. The
 // four recipient fields are present on the transfer shape only, and the
 // proposal hash always comes last. Exported so the prover reads a leg preimage
 // by name against this one definition of the order.
@@ -71,13 +71,13 @@ type (
 // that FoldInputHash commits to the run.
 type Circuit struct {
 	// The shared identities followed by every leg's own fields, in leg order.
-	// The only public input, so the on-chain key keeps the shape the zone
+	// The only public input, so the on-chain key keeps the shape the ring
 	// already verifies.
 	FoldInputHash frontend.Variable `gnark:",public"`
 
 	Proofs    []InnerProof
 	Witnesses []InnerWitness
-	// Per leg, the zone circuit's public-input preimage. Witnessed, then bound
+	// Per leg, the ring circuit's public-input preimage. Witnessed, then bound
 	// to the proof's public input, so a leg cannot claim a spend it did not
 	// prove.
 	Preimages [][]frontend.Variable
@@ -131,8 +131,8 @@ func (c *Circuit) Define(api frontend.API) error {
 	proposal := proposalIndex(c.NumOutputs)
 
 	for i := range c.Proofs {
-		// The legs are the bytes the zone verifies on chain, so their BSB22
-		// challenge follows the native RFC 9380 derivation. The zone circuit
+		// The legs are the bytes the ring verifies on chain, so their BSB22
+		// challenge follows the native RFC 9380 derivation. The ring circuit
 		// emulates P-256, which commits, so this is load bearing.
 		if err := verifier.AssertProof(
 			c.VerifyingKey, c.Proofs[i], c.Witnesses[i], stdgroth16.WithNativeHashToField(),

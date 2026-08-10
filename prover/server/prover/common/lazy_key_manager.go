@@ -12,9 +12,9 @@ type LazyKeyManager struct {
 	mu                sync.RWMutex
 	batchSystems      map[string]*BatchProofSystem
 	transferSystems   map[string]*TransferProofSystem
-	zoneSystems       map[string]*SquadsZoneProofSystem
+	ringSystems       map[string]*SquadsRingProofSystem
 	keyEncSystems     map[string]*SquadsKeyEncryptionProofSystem
-	zoneFoldSystems   map[string]*SquadsZoneFoldProofSystem
+	ringFoldSystems   map[string]*SquadsRingFoldProofSystem
 	keyEncFoldSystems map[string]*SquadsKeyEncryptionFoldProofSystem
 	keysDir           string
 	downloadConfig    *DownloadConfig
@@ -28,9 +28,9 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 	return &LazyKeyManager{
 		batchSystems:      make(map[string]*BatchProofSystem),
 		transferSystems:   make(map[string]*TransferProofSystem),
-		zoneSystems:       make(map[string]*SquadsZoneProofSystem),
+		ringSystems:       make(map[string]*SquadsRingProofSystem),
 		keyEncSystems:     make(map[string]*SquadsKeyEncryptionProofSystem),
-		zoneFoldSystems:   make(map[string]*SquadsZoneFoldProofSystem),
+		ringFoldSystems:   make(map[string]*SquadsRingFoldProofSystem),
 		keyEncFoldSystems: make(map[string]*SquadsKeyEncryptionFoldProofSystem),
 		keysDir:           keysDir,
 		downloadConfig:    downloadConfig,
@@ -70,28 +70,28 @@ func (m *LazyKeyManager) GetTransferSystem(circuitType CircuitType, nInputs uint
 	return m.loadTransferSystem(key, circuitType, nInputs, nOutputs)
 }
 
-func (m *LazyKeyManager) GetZoneSystem(nInputs uint32, nOutputs uint32) (*SquadsZoneProofSystem, error) {
-	key := fmt.Sprintf("%s_%d_%d", SquadsZoneCircuitType, nInputs, nOutputs)
+func (m *LazyKeyManager) GetRingSystem(nInputs uint32, nOutputs uint32) (*SquadsRingProofSystem, error) {
+	key := fmt.Sprintf("%s_%d_%d", SquadsRingCircuitType, nInputs, nOutputs)
 
 	m.mu.RLock()
-	if ps, exists := m.zoneSystems[key]; exists {
+	if ps, exists := m.ringSystems[key]; exists {
 		m.mu.RUnlock()
 		logging.Logger().Debug().
 			Str("key", key).
-			Msg("Found cached SquadsZoneProofSystem")
+			Msg("Found cached SquadsRingProofSystem")
 		return ps, nil
 	}
 	m.mu.RUnlock()
 
-	return m.loadZoneSystem(key, nInputs, nOutputs)
+	return m.loadRingSystem(key, nInputs, nOutputs)
 }
 
-func (m *LazyKeyManager) loadZoneSystem(key string, nInputs uint32, nOutputs uint32) (*SquadsZoneProofSystem, error) {
+func (m *LazyKeyManager) loadRingSystem(key string, nInputs uint32, nOutputs uint32) (*SquadsRingProofSystem, error) {
 	loadChan := m.acquireLoadingLock(key)
 	if loadChan == nil {
 		m.waitForLoading(key)
 		m.mu.RLock()
-		ps, exists := m.zoneSystems[key]
+		ps, exists := m.ringSystems[key]
 		m.mu.RUnlock()
 		if exists {
 			return ps, nil
@@ -100,15 +100,15 @@ func (m *LazyKeyManager) loadZoneSystem(key string, nInputs uint32, nOutputs uin
 	}
 	defer m.releaseLoadingLock(key, loadChan)
 
-	keyPath := m.determineZoneKeyPath(nInputs, nOutputs)
+	keyPath := m.determineRingKeyPath(nInputs, nOutputs)
 	if keyPath == "" {
-		return nil, fmt.Errorf("no key file mapping for squads-zone with %d inputs and %d outputs", nInputs, nOutputs)
+		return nil, fmt.Errorf("no key file mapping for squads-ring with %d inputs and %d outputs", nInputs, nOutputs)
 	}
 
 	logging.Logger().Info().
 		Str("key_path", keyPath).
 		Str("cache_key", key).
-		Msg("Loading SquadsZoneProofSystem")
+		Msg("Loading SquadsRingProofSystem")
 
 	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
 		return nil, fmt.Errorf("failed to ensure key %s: %w", keyPath, err)
@@ -119,20 +119,20 @@ func (m *LazyKeyManager) loadZoneSystem(key string, nInputs uint32, nOutputs uin
 		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
 	}
 
-	ps, ok := system.(*SquadsZoneProofSystem)
+	ps, ok := system.(*SquadsRingProofSystem)
 	if !ok {
-		return nil, fmt.Errorf("expected SquadsZoneProofSystem but got different type")
+		return nil, fmt.Errorf("expected SquadsRingProofSystem but got different type")
 	}
 
 	m.mu.Lock()
-	m.zoneSystems[key] = ps
+	m.ringSystems[key] = ps
 	m.mu.Unlock()
 
 	logging.Logger().Info().
 		Str("cache_key", key).
 		Uint32("n_inputs", ps.NInputs).
 		Uint32("n_outputs", ps.NOutputs).
-		Msg("SquadsZoneProofSystem loaded and cached successfully")
+		Msg("SquadsRingProofSystem loaded and cached successfully")
 
 	return ps, nil
 }
@@ -406,17 +406,17 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	return ""
 }
 
-// zoneSupportedShapes is the squads zone circuit's supported (nInputs,
+// ringSupportedShapes is the squads ring circuit's supported (nInputs,
 // nOutputs) set. (1,1) is a withdrawal and (2,2) is a transfer.
-var zoneSupportedShapes = [][2]uint32{
+var ringSupportedShapes = [][2]uint32{
 	{1, 1},
 	{2, 2},
 }
 
-func (m *LazyKeyManager) determineZoneKeyPath(nInputs uint32, nOutputs uint32) string {
-	for _, shape := range zoneSupportedShapes {
+func (m *LazyKeyManager) determineRingKeyPath(nInputs uint32, nOutputs uint32) string {
+	for _, shape := range ringSupportedShapes {
 		if shape[0] == nInputs && shape[1] == nOutputs {
-			return m.keyPath(fmt.Sprintf("squads_zone_%d_%d.key", nInputs, nOutputs))
+			return m.keyPath(fmt.Sprintf("squads_ring_%d_%d.key", nInputs, nOutputs))
 		}
 	}
 	return ""
@@ -444,9 +444,9 @@ func (m *LazyKeyManager) GetStats() map[string]interface{} {
 	return map[string]interface{}{
 		"batch_systems_loaded":               len(m.batchSystems),
 		"transfer_systems_loaded":            len(m.transferSystems),
-		"zone_systems_loaded":                len(m.zoneSystems),
+		"ring_systems_loaded":                len(m.ringSystems),
 		"key_encryption_systems_loaded":      len(m.keyEncSystems),
-		"zone_fold_systems_loaded":           len(m.zoneFoldSystems),
+		"ring_fold_systems_loaded":           len(m.ringFoldSystems),
 		"key_encryption_fold_systems_loaded": len(m.keyEncFoldSystems),
 		"keys_loading":                       len(m.loadingInProgress),
 	}
@@ -574,12 +574,12 @@ func (m *LazyKeyManager) cacheSystem(system interface{}) error {
 			Str("cache_key", key).
 			Msg("Cached TransferProofSystem")
 
-	case *SquadsZoneProofSystem:
+	case *SquadsRingProofSystem:
 		key := fmt.Sprintf("%s_%d_%d", ps.CircuitType, ps.NInputs, ps.NOutputs)
-		m.zoneSystems[key] = ps
+		m.ringSystems[key] = ps
 		logging.Logger().Debug().
 			Str("cache_key", key).
-			Msg("Cached SquadsZoneProofSystem")
+			Msg("Cached SquadsRingProofSystem")
 
 	case *SquadsKeyEncryptionProofSystem:
 		key := fmt.Sprintf("%s_%d", ps.CircuitType, ps.NumKeys)
@@ -588,12 +588,12 @@ func (m *LazyKeyManager) cacheSystem(system interface{}) error {
 			Str("cache_key", key).
 			Msg("Cached SquadsKeyEncryptionProofSystem")
 
-	case *SquadsZoneFoldProofSystem:
-		key := fmt.Sprintf("%s_%d_%d_l%d", SquadsZoneFoldCircuitType, ps.NInputs, ps.NOutputs, ps.Legs)
-		m.zoneFoldSystems[key] = ps
+	case *SquadsRingFoldProofSystem:
+		key := fmt.Sprintf("%s_%d_%d_l%d", SquadsRingFoldCircuitType, ps.NInputs, ps.NOutputs, ps.Legs)
+		m.ringFoldSystems[key] = ps
 		logging.Logger().Debug().
 			Str("cache_key", key).
-			Msg("Cached SquadsZoneFoldProofSystem")
+			Msg("Cached SquadsRingFoldProofSystem")
 
 	case *SquadsKeyEncryptionFoldProofSystem:
 		key := fmt.Sprintf("%s_%d_l%d", SquadsKeyEncryptionFoldCircuitType, ps.KeysPerLeg, ps.Legs)

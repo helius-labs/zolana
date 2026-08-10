@@ -247,7 +247,7 @@ func (ps *TransferProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	return totalRead, nil
 }
 
-func (ps *SquadsZoneProofSystem) WriteTo(w io.Writer) (int64, error) {
+func (ps *SquadsRingProofSystem) WriteTo(w io.Writer) (int64, error) {
 	var totalWritten int64 = 0
 	var intBuf [4]byte
 
@@ -281,7 +281,7 @@ func (ps *SquadsZoneProofSystem) WriteTo(w io.Writer) (int64, error) {
 	return totalWritten, nil
 }
 
-func (ps *SquadsZoneProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+func (ps *SquadsRingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	var totalRead int64 = 0
 	var intBuf [4]byte
 
@@ -403,8 +403,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			return nil, err
 		}
 		return ps, nil
-	} else if strings.Contains(name, "squads_zone_fold") {
-		ps := new(SquadsZoneFoldProofSystem)
+	} else if strings.Contains(name, "squads_ring_fold") {
+		ps := new(SquadsRingFoldProofSystem)
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, err
@@ -428,9 +428,9 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 			return nil, err
 		}
 		return ps, nil
-	} else if strings.Contains(name, "squads_zone") {
-		ps := new(SquadsZoneProofSystem)
-		ps.CircuitType = SquadsZoneCircuitType
+	} else if strings.Contains(name, "squads_ring") {
+		ps := new(SquadsRingProofSystem)
+		ps.CircuitType = SquadsRingCircuitType
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, err

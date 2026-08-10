@@ -1,10 +1,10 @@
-package squads_zone_fold
+package squads_ring_fold
 
 import (
 	"fmt"
 	"math/big"
 
-	foldcircuit "zolana/prover/circuits/squads/zone_fold"
+	foldcircuit "zolana/prover/circuits/squads/ring_fold"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -15,7 +15,7 @@ import (
 	stdgroth16 "github.com/consensys/gnark/std/recursion/groth16"
 )
 
-// Leg is one proved zone spend together with the preimage its public input
+// Leg is one proved ring spend together with the preimage its public input
 // chains. The prover binds the two rather than trusting the preimage.
 type Leg struct {
 	Proof         groth16.Proof
@@ -30,7 +30,7 @@ type Leg struct {
 // must already share a sender and a recipient and carry no proposal. A
 // violation fails inside the circuit rather than here, because the circuit is
 // what the program trusts.
-func ProveFold(ps *common.SquadsZoneFoldProofSystem, legs []Leg) (*common.Proof, error) {
+func ProveFold(ps *common.SquadsRingFoldProofSystem, legs []Leg) (*common.Proof, error) {
 	if ps == nil {
 		return nil, fmt.Errorf("fold proving system is not loaded")
 	}
@@ -97,7 +97,7 @@ func ProveFold(ps *common.SquadsZoneFoldProofSystem, legs []Leg) (*common.Proof,
 
 // FoldInputHash commits to the run. It covers the shared sender, the shared
 // recipient on the transfer shape, then every leg's own transaction fields in
-// leg order. The zone recomputes this from the accounts and the instruction, so
+// leg order. The ring recomputes this from the accounts and the instruction, so
 // the order here is part of the statement.
 func FoldInputHash(legs []Leg, numOutputs int) (*big.Int, error) {
 	if len(legs) == 0 {

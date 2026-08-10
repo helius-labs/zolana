@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import (
 	"fmt"
@@ -10,9 +10,9 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-func (p *ZoneParameters) ValidateShape() error {
+func (p *RingParameters) ValidateShape() error {
 	if p.NOutputs != 1 && p.NOutputs != 2 {
-		return fmt.Errorf("squads zone: NOutputs must be 1 (withdrawal) or 2 (transfer), got %d", p.NOutputs)
+		return fmt.Errorf("squads ring: NOutputs must be 1 (withdrawal) or 2 (transfer), got %d", p.NOutputs)
 	}
 	if len(p.Inputs) != int(p.NInputs) {
 		return fmt.Errorf("wrong number of inputs: %d, expected: %d", len(p.Inputs), p.NInputs)
@@ -26,12 +26,12 @@ func (p *ZoneParameters) ValidateShape() error {
 	return nil
 }
 
-func ProveZone(ps *common.SquadsZoneProofSystem, params *ZoneParameters) (*common.Proof, error) {
+func ProveRing(ps *common.SquadsRingProofSystem, params *RingParameters) (*common.Proof, error) {
 	if ps == nil {
-		return nil, fmt.Errorf("zone proving system is not loaded")
+		return nil, fmt.Errorf("ring proving system is not loaded")
 	}
 	if params == nil {
-		return nil, fmt.Errorf("zone parameters are missing")
+		return nil, fmt.Errorf("ring parameters are missing")
 	}
 
 	if err := params.ValidateShape(); err != nil {

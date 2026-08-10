@@ -1,4 +1,4 @@
-// Package squadsutils holds the squads zone proof circuits. private_tx_hash is
+// Package squadsutils holds the squads ring proof circuits. private_tx_hash is
 // the public input a ring proof shares with the SPP proof.
 package squadsutils
 

@@ -1,6 +1,6 @@
-// Package squads_zone_fold is the proving-system glue for the outer circuit
-// that folds several zone spends of one account into one proof.
-package squads_zone_fold
+// Package squads_ring_fold is the proving-system glue for the outer circuit
+// that folds several ring spends of one account into one proof.
+package squads_ring_fold
 
 import "fmt"
 
@@ -38,7 +38,7 @@ func (p Params) Inputs() uint32 {
 }
 
 // KeyName carries "fold" so common.ReadSystemFromFile picks the fold header
-// rather than the unfolded zone one.
+// rather than the unfolded ring one.
 func (p Params) KeyName() string {
-	return fmt.Sprintf("squads_zone_fold_%d_%d_l%d.key", p.NInputs, p.NOutputs, p.Legs)
+	return fmt.Sprintf("squads_ring_fold_%d_%d_l%d.key", p.NInputs, p.NOutputs, p.Legs)
 }

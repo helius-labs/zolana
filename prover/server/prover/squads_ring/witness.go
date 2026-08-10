@@ -1,15 +1,15 @@
-package squadszone
+package squadsring
 
 import (
 	"math/big"
 
+	ringcircuit "zolana/prover/circuits/squads/ring"
 	squadsutils "zolana/prover/circuits/squads/utils"
-	zonecircuit "zolana/prover/circuits/squads/zone"
 
 	"github.com/consensys/gnark/std/math/emulated"
 )
 
-// A zone rides the ring rail, so its data and program hashes occupy the UTXO's
+// A ring rides the ring rail, so its data and program hashes occupy the UTXO's
 // ring slots.
 func utxoFields(u UtxoParams) squadsutils.Utxo {
 	return squadsutils.Utxo{
@@ -18,16 +18,16 @@ func utxoFields(u UtxoParams) squadsutils.Utxo {
 		Amount:          u.Amount,
 		Blinding:        u.Blinding,
 		ProgramDataHash: u.ProgramDataHash,
-		RingDataHash:    u.ZoneDataHash,
-		RingProgramID:   u.ZoneProgramID,
+		RingDataHash:    u.RingDataHash,
+		RingProgramID:   u.RingProgramID,
 	}
 }
 
-// CreateWitness assigns the parameters onto the zone circuit. Every field,
+// CreateWitness assigns the parameters onto the ring circuit. Every field,
 // including the recipient, which is unconstrained on the withdrawal shape,
 // must be assigned for gnark.
-func (p *ZoneParameters) CreateWitness() (*zonecircuit.Circuit, error) {
-	circuit, err := newZoneCircuit(p.NInputs, p.NOutputs)
+func (p *RingParameters) CreateWitness() (*ringcircuit.Circuit, error) {
+	circuit, err := newRingCircuit(p.NInputs, p.NOutputs)
 	if err != nil {
 		return nil, err
 	}

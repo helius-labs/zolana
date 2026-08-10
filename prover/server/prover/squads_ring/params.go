@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import "math/big"
 
@@ -10,8 +10,8 @@ type UtxoParams struct {
 	Amount          *big.Int
 	Blinding        *big.Int
 	ProgramDataHash *big.Int
-	ZoneDataHash    *big.Int
-	ZoneProgramID   *big.Int
+	RingDataHash    *big.Int
+	RingProgramID   *big.Int
 }
 
 // SenderParams mirrors the squads ViewingKeyAccount on the sender side. It
@@ -44,11 +44,11 @@ type ProposalParams struct {
 	PublicAmount *big.Int
 }
 
-// ZoneParameters is the flat, pre-computed witness for the squads zone circuit.
+// RingParameters is the flat, pre-computed witness for the squads ring circuit.
 // The prover does no hashing or encryption. The client computes every field
 // (utxo hashes, the public-input hash, the recipient ciphertext) and sends
 // them here. NOutputs is 2 for a transfer and 1 for a withdrawal.
-type ZoneParameters struct {
+type RingParameters struct {
 	NInputs  uint32
 	NOutputs uint32
 

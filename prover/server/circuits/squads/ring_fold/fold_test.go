@@ -1,4 +1,4 @@
-package squads_zone_fold
+package squads_ring_fold
 
 import (
 	"math/big"
@@ -18,7 +18,7 @@ import (
 	"github.com/iden3/go-iden3-crypto/poseidon"
 )
 
-// legCircuit stands in for the zone circuit. It exposes the same single public
+// legCircuit stands in for the ring circuit. It exposes the same single public
 // input, HashChain over the transfer-shape preimage, plus a commitment over
 // private wires. The commitment is what the real circuit gets from its emulated
 // P-256 arithmetic, and it is what makes a folded proof exercise the native
@@ -39,7 +39,7 @@ func (c *legCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// leg is one proved zone spend and the preimage it committed to.
+// leg is one proved ring spend and the preimage it committed to.
 type leg struct {
 	preimage []*big.Int
 	witness  witness.Witness

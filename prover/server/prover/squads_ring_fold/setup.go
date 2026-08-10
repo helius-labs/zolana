@@ -1,4 +1,4 @@
-package squads_zone_fold
+package squads_ring_fold
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 // The outer circuit compiles in the inner verifying key, so the inner key must
 // already exist and an inner key rotation invalidates every fold key built from
 // it.
-func SetupFold(p Params, inner *common.SquadsZoneProofSystem) (*common.SquadsZoneFoldProofSystem, error) {
+func SetupFold(p Params, inner *common.SquadsRingProofSystem) (*common.SquadsRingFoldProofSystem, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func SetupFold(p Params, inner *common.SquadsZoneProofSystem) (*common.SquadsZon
 		)
 	}
 
-	fmt.Printf("Setting up squads zone fold: %d legs of %dx%d\n", p.Legs, p.NInputs, p.NOutputs)
+	fmt.Printf("Setting up squads ring fold: %d legs of %dx%d\n", p.Legs, p.NInputs, p.NOutputs)
 	ccs, err := R1CSFold(p, inner.ConstraintSystem, inner.VerifyingKey)
 	if err != nil {
 		return nil, fmt.Errorf("compile: %w", err)
@@ -38,7 +38,7 @@ func SetupFold(p Params, inner *common.SquadsZoneProofSystem) (*common.SquadsZon
 	if err != nil {
 		return nil, fmt.Errorf("setup: %w", err)
 	}
-	return &common.SquadsZoneFoldProofSystem{
+	return &common.SquadsRingFoldProofSystem{
 		NInputs:          p.NInputs,
 		NOutputs:         p.NOutputs,
 		Legs:             p.Legs,

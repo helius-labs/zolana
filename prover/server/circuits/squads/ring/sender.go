@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import (
 	"math/big"
@@ -28,7 +28,7 @@ type Sender struct {
 	Account ViewingKeyAccount
 }
 
-// deriveTxViewingSk mirrors the Zone Proof KDF chain in squads_policy_program.md.
+// deriveTxViewingSk mirrors the Ring Proof KDF chain in squads_policy_program.md.
 func deriveTxViewingSk(api frontend.API, viewingSk emulated.Element[emulated.P256Fr], firstNullifier frontend.Variable) (frontend.Variable, error) {
 	fr, err := emulated.NewField[emulated.P256Fr](api)
 	if err != nil {
@@ -82,7 +82,7 @@ func (s Sender) Constrain(api frontend.API, g *aes.AESGadget, tx squadsutils.Tra
 
 	// SPP's OutputUtxo blinding is 31 bytes, so the change blinding is the KDF
 	// output masked to its low 248 bits (top byte of the 32-byte BE encoding
-	// zeroed). Both the zone and SPP folds then use the same field element for
+	// zeroed). Both the ring and SPP folds then use the same field element for
 	// any deposit blinding. Mirrored by the Rust derive_change_blinding.
 	blinding := squadsutils.PoseidonKDF(api, txViewingSk, labelBlinding)
 	blindingBits := gnarkbits.ToBinary(api, blinding, gnarkbits.WithNbDigits(256))

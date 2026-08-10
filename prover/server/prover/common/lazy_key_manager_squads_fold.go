@@ -10,13 +10,13 @@ import (
 // exists for. A fold widens the recipient set by leg count, so only the widest
 // leg needs a key.
 //
-// MUST stay in sync with the zone program's
+// MUST stay in sync with the ring program's
 // `KEY_ENCRYPTION_FOLD_SUPPORTED_LEGS` selector.
 var keyEncryptionFoldSupportedKeys = []uint32{3}
 
-// zoneFoldSupportedShapes is the leg shape a zone fold key exists for. Only
+// ringFoldSupportedShapes is the leg shape a ring fold key exists for. Only
 // the transfer shape folds. A withdrawal already spends its whole balance.
-var zoneFoldSupportedShapes = [][2]uint32{
+var ringFoldSupportedShapes = [][2]uint32{
 	{2, 2},
 }
 
@@ -94,27 +94,27 @@ func (m *LazyKeyManager) loadKeyEncryptionFoldSystem(key string, keysPerLeg, leg
 	return ps, nil
 }
 
-// GetZoneFoldSystem loads the outer proving system for one leg shape and leg
+// GetRingFoldSystem loads the outer proving system for one leg shape and leg
 // count.
-func (m *LazyKeyManager) GetZoneFoldSystem(nInputs, nOutputs, legs uint32) (*SquadsZoneFoldProofSystem, error) {
-	key := fmt.Sprintf("%s_%d_%d_l%d", SquadsZoneFoldCircuitType, nInputs, nOutputs, legs)
+func (m *LazyKeyManager) GetRingFoldSystem(nInputs, nOutputs, legs uint32) (*SquadsRingFoldProofSystem, error) {
+	key := fmt.Sprintf("%s_%d_%d_l%d", SquadsRingFoldCircuitType, nInputs, nOutputs, legs)
 
 	m.mu.RLock()
-	if ps, exists := m.zoneFoldSystems[key]; exists {
+	if ps, exists := m.ringFoldSystems[key]; exists {
 		m.mu.RUnlock()
 		return ps, nil
 	}
 	m.mu.RUnlock()
 
-	return m.loadZoneFoldSystem(key, nInputs, nOutputs, legs)
+	return m.loadRingFoldSystem(key, nInputs, nOutputs, legs)
 }
 
-func (m *LazyKeyManager) loadZoneFoldSystem(key string, nInputs, nOutputs, legs uint32) (*SquadsZoneFoldProofSystem, error) {
+func (m *LazyKeyManager) loadRingFoldSystem(key string, nInputs, nOutputs, legs uint32) (*SquadsRingFoldProofSystem, error) {
 	loadChan := m.acquireLoadingLock(key)
 	if loadChan == nil {
 		m.waitForLoading(key)
 		m.mu.RLock()
-		ps, exists := m.zoneFoldSystems[key]
+		ps, exists := m.ringFoldSystems[key]
 		m.mu.RUnlock()
 		if exists {
 			return ps, nil
@@ -123,15 +123,15 @@ func (m *LazyKeyManager) loadZoneFoldSystem(key string, nInputs, nOutputs, legs 
 	}
 	defer m.releaseLoadingLock(key, loadChan)
 
-	keyPath := m.determineZoneFoldKeyPath(nInputs, nOutputs, legs)
+	keyPath := m.determineRingFoldKeyPath(nInputs, nOutputs, legs)
 	if keyPath == "" {
-		return nil, fmt.Errorf("no key file mapping for a fold of %d squads-zone %dx%d legs", legs, nInputs, nOutputs)
+		return nil, fmt.Errorf("no key file mapping for a fold of %d squads-ring %dx%d legs", legs, nInputs, nOutputs)
 	}
 
 	logging.Logger().Info().
 		Str("key_path", keyPath).
 		Str("cache_key", key).
-		Msg("Loading SquadsZoneFoldProofSystem")
+		Msg("Loading SquadsRingFoldProofSystem")
 
 	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
 		return nil, fmt.Errorf("failed to ensure key %s: %w", keyPath, err)
@@ -141,9 +141,9 @@ func (m *LazyKeyManager) loadZoneFoldSystem(key string, nInputs, nOutputs, legs 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load key %s: %w", keyPath, err)
 	}
-	ps, ok := system.(*SquadsZoneFoldProofSystem)
+	ps, ok := system.(*SquadsRingFoldProofSystem)
 	if !ok {
-		return nil, fmt.Errorf("expected SquadsZoneFoldProofSystem but got different type")
+		return nil, fmt.Errorf("expected SquadsRingFoldProofSystem but got different type")
 	}
 	if ps.NInputs != nInputs || ps.NOutputs != nOutputs || ps.Legs != legs {
 		return nil, fmt.Errorf(
@@ -153,13 +153,13 @@ func (m *LazyKeyManager) loadZoneFoldSystem(key string, nInputs, nOutputs, legs 
 	}
 
 	m.mu.Lock()
-	m.zoneFoldSystems[key] = ps
+	m.ringFoldSystems[key] = ps
 	m.mu.Unlock()
 
 	logging.Logger().Info().
 		Str("cache_key", key).
 		Uint32("legs", ps.Legs).
-		Msg("SquadsZoneFoldProofSystem loaded and cached successfully")
+		Msg("SquadsRingFoldProofSystem loaded and cached successfully")
 	return ps, nil
 }
 
@@ -175,13 +175,13 @@ func (m *LazyKeyManager) determineKeyEncryptionFoldKeyPath(keysPerLeg, legs uint
 	return ""
 }
 
-func (m *LazyKeyManager) determineZoneFoldKeyPath(nInputs, nOutputs, legs uint32) string {
+func (m *LazyKeyManager) determineRingFoldKeyPath(nInputs, nOutputs, legs uint32) string {
 	if !supportedLegs(legs) {
 		return ""
 	}
-	for _, shape := range zoneFoldSupportedShapes {
+	for _, shape := range ringFoldSupportedShapes {
 		if shape[0] == nInputs && shape[1] == nOutputs {
-			return m.keyPath(fmt.Sprintf("squads_zone_fold_%d_%d_l%d.key", nInputs, nOutputs, legs))
+			return m.keyPath(fmt.Sprintf("squads_ring_fold_%d_%d_l%d.key", nInputs, nOutputs, legs))
 		}
 	}
 	return ""

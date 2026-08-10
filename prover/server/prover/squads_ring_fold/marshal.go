@@ -1,11 +1,11 @@
-package squads_zone_fold
+package squads_ring_fold
 
 import (
 	"encoding/json"
 	"fmt"
 	"math/big"
 
-	foldcircuit "zolana/prover/circuits/squads/zone_fold"
+	foldcircuit "zolana/prover/circuits/squads/ring_fold"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -13,7 +13,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// LegJSON is one zone proof to fold. The preimage is the exact chain input the
+// LegJSON is one ring proof to fold. The preimage is the exact chain input the
 // leg committed to, in order, so the prover can bind the two.
 type LegJSON struct {
 	Proof    common.Proof `json:"proof"`
@@ -40,8 +40,8 @@ func (p *Parameters) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if raw.CircuitType != string(common.SquadsZoneFoldCircuitType) {
-		return fmt.Errorf("circuit type is %q, want %q", raw.CircuitType, common.SquadsZoneFoldCircuitType)
+	if raw.CircuitType != string(common.SquadsRingFoldCircuitType) {
+		return fmt.Errorf("circuit type is %q, want %q", raw.CircuitType, common.SquadsRingFoldCircuitType)
 	}
 
 	p.Params = Params{NInputs: raw.NInputs, NOutputs: raw.NOutputs, Legs: uint32(len(raw.Legs))}
@@ -68,7 +68,7 @@ func (p *Parameters) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// singlePublicInput mirrors the witness shape of the zone circuit, one public
+// singlePublicInput mirrors the witness shape of the ring circuit, one public
 // input and nothing else.
 type singlePublicInput struct {
 	PublicInputHash frontend.Variable `gnark:",public"`

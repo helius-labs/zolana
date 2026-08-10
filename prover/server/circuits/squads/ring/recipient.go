@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import (
 	"github.com/consensys/gnark/frontend"

@@ -1,4 +1,4 @@
-package squads_zone_fold
+package squads_ring_fold
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 )
 
-// Compiled against the real zone circuit, so these are the counts keygen pays.
+// Compiled against the real ring circuit, so these are the counts keygen pays.
 // Pinned because setup memory and time scale with them.
 //
 // Outer cost follows the inner public-input and commitment counts, not the

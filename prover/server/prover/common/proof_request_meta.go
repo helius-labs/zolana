@@ -65,9 +65,9 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		CircuitType(circuitType) == TransferRingAuthorityCircuitType ||
 		CircuitType(circuitType) == MergeCircuitType ||
 		CircuitType(circuitType) == MergeRingCircuitType ||
-		CircuitType(circuitType) == SquadsZoneCircuitType ||
+		CircuitType(circuitType) == SquadsRingCircuitType ||
 		CircuitType(circuitType) == SquadsKeyEncryptionCircuitType ||
-		CircuitType(circuitType) == SquadsZoneFoldCircuitType ||
+		CircuitType(circuitType) == SquadsRingFoldCircuitType ||
 		CircuitType(circuitType) == SquadsKeyEncryptionFoldCircuitType
 
 	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the

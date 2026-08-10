@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -42,7 +42,7 @@ func (a ViewingKeyAccount) Constrain(api frontend.API, tx squadsutils.Transactio
 
 	// Bind the account identity to both sides of the spend. The SPP ring-authority
 	// proof proves only that the transaction has internally consistent owners.
-	// This constraint makes that owner the zone-selected ViewingKeyAccount rather
+	// This constraint makes that owner the ring-selected ViewingKeyAccount rather
 	// than an unrelated account in the same ring.
 	ownerHash := abstractor.Call(api, shared.OwnerHashGadget{
 		OwnerKeyHash: a.Public.Owner,

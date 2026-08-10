@@ -1,10 +1,10 @@
-package squads_zone_fold
+package squads_ring_fold
 
 import (
 	"fmt"
 
-	foldcircuit "zolana/prover/circuits/squads/zone_fold"
-	squadszone "zolana/prover/prover/squads_zone"
+	foldcircuit "zolana/prover/circuits/squads/ring_fold"
+	squadsring "zolana/prover/prover/squads_ring"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
@@ -15,14 +15,14 @@ import (
 	stdgroth16 "github.com/consensys/gnark/std/recursion/groth16"
 )
 
-// InnerSystem compiles the zone circuit so the outer circuit can be built
+// InnerSystem compiles the ring circuit so the outer circuit can be built
 // against its constraint system. Setup also needs the inner verifying key,
 // which only exists in the inner proving system, so the caller supplies that.
 func InnerSystem(p Params) (constraint.ConstraintSystem, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
-	return squadszone.R1CSZone(p.NInputs, p.NOutputs)
+	return squadsring.R1CSRing(p.NInputs, p.NOutputs)
 }
 
 // R1CSFold compiles the outer circuit for p against the inner constraint system

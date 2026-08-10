@@ -28,14 +28,14 @@ const (
 	// to the default merge.
 	MergeRingCircuitType CircuitType = "merge-ring"
 
-	SquadsZoneCircuitType          CircuitType = "squads-zone"
+	SquadsRingCircuitType          CircuitType = "squads-ring"
 	SquadsKeyEncryptionCircuitType CircuitType = "squads-key-encryption"
 
-	// SquadsZoneFoldCircuitType folds several zone spends of one account into
+	// SquadsRingFoldCircuitType folds several ring spends of one account into
 	// one proof, lifting the per-shape input cap. The leg shape and leg count
 	// pick the proving system, because the inner verifying key is compiled into
 	// the outer circuit.
-	SquadsZoneFoldCircuitType CircuitType = "squads-zone-fold"
+	SquadsRingFoldCircuitType CircuitType = "squads-ring-fold"
 
 	// SquadsKeyEncryptionFoldCircuitType folds several key-encryption legs into
 	// one proof over a wider recipient set. The per-leg recipient count and leg

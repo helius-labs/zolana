@@ -237,7 +237,7 @@ func TestFoldRejectsADisagreeingSharedViewingKey(t *testing.T) {
 }
 
 // The commitment is what the account publishes for the viewing secret. A leg
-// committing to another secret breaks the binding the zone proof relies on.
+// committing to another secret breaks the binding the ring proof relies on.
 func TestFoldRejectsADisagreeingCommitment(t *testing.T) {
 	rejectsDisagreementAt(t, commitmentIndex)
 }

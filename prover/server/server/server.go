@@ -15,8 +15,8 @@ import (
 	mergeprover "zolana/prover/prover/merge"
 	nullifiertree "zolana/prover/prover/nullifier_tree"
 	keyencryptionfold "zolana/prover/prover/squads_key_encryption_fold"
-	squadszone "zolana/prover/prover/squads_zone"
-	zonefold "zolana/prover/prover/squads_zone_fold"
+	squadsring "zolana/prover/prover/squads_ring"
+	ringfold "zolana/prover/prover/squads_ring_fold"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 
 	"github.com/google/uuid"
@@ -1135,9 +1135,9 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 		return 60
 	case common.SquadsKeyEncryptionCircuitType:
 		return 120
-	case common.SquadsZoneCircuitType:
+	case common.SquadsRingCircuitType:
 		return 90
-	case common.SquadsZoneFoldCircuitType, common.SquadsKeyEncryptionFoldCircuitType:
+	case common.SquadsRingFoldCircuitType, common.SquadsKeyEncryptionFoldCircuitType:
 		return 600
 	default:
 		return 1
@@ -1163,12 +1163,12 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
-	case common.SquadsZoneCircuitType:
-		return handler.squadsZoneProof(buf)
+	case common.SquadsRingCircuitType:
+		return handler.squadsRingProof(buf)
 	case common.SquadsKeyEncryptionCircuitType:
 		return handler.squadsKeyEncryptionProof(buf)
-	case common.SquadsZoneFoldCircuitType:
-		return handler.squadsZoneFoldProof(buf)
+	case common.SquadsRingFoldCircuitType:
+		return handler.squadsRingFoldProof(buf)
 	case common.SquadsKeyEncryptionFoldCircuitType:
 		return handler.squadsKeyEncryptionFoldProof(buf)
 	default:
@@ -1243,18 +1243,18 @@ func (handler proveHandler) batchAddressAppendProof(buf []byte) (*common.Proof, 
 	return proof, nil
 }
 
-func (handler proveHandler) squadsZoneProof(buf []byte) (*common.Proof, *Error) {
-	var params squadszone.ZoneParameters
+func (handler proveHandler) squadsRingProof(buf []byte) (*common.Proof, *Error) {
+	var params squadsring.RingParameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetZoneSystem(params.NInputs, params.NOutputs)
+	ps, err := handler.keyManager.GetRingSystem(params.NInputs, params.NOutputs)
 	if err != nil {
-		return nil, provingError(fmt.Errorf("squads-zone: %w", err))
+		return nil, provingError(fmt.Errorf("squads-ring: %w", err))
 	}
 
-	proof, err := squadszone.ProveZone(ps, &params)
+	proof, err := squadsring.ProveRing(ps, &params)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)
@@ -1281,22 +1281,22 @@ func (handler proveHandler) squadsKeyEncryptionProof(buf []byte) (*common.Proof,
 	return proof, nil
 }
 
-func (handler proveHandler) squadsZoneFoldProof(buf []byte) (*common.Proof, *Error) {
-	var params zonefold.Parameters
+func (handler proveHandler) squadsRingFoldProof(buf []byte) (*common.Proof, *Error) {
+	var params ringfold.Parameters
 	if err := json.Unmarshal(buf, &params); err != nil {
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetZoneFoldSystem(
+	ps, err := handler.keyManager.GetRingFoldSystem(
 		params.Params.NInputs,
 		params.Params.NOutputs,
 		params.Params.Legs,
 	)
 	if err != nil {
-		return nil, provingError(fmt.Errorf("squads-zone-fold: %w", err))
+		return nil, provingError(fmt.Errorf("squads-ring-fold: %w", err))
 	}
 
-	proof, err := zonefold.ProveFold(ps, params.Legs)
+	proof, err := ringfold.ProveFold(ps, params.Legs)
 	if err != nil {
 		logging.Logger().Err(err)
 		return nil, provingError(err)

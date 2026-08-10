@@ -1,9 +1,9 @@
-package squadszone
+package squadsring
 
 import (
 	"fmt"
 
-	zonecircuit "zolana/prover/circuits/squads/zone"
+	ringcircuit "zolana/prover/circuits/squads/ring"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/constraint"
@@ -11,22 +11,22 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
-func newZoneCircuit(nInputs uint32, nOutputs uint32) (*zonecircuit.Circuit, error) {
+func newRingCircuit(nInputs uint32, nOutputs uint32) (*ringcircuit.Circuit, error) {
 	switch nOutputs {
 	case 2:
-		return zonecircuit.NewTransferCircuit(int(nInputs)), nil
+		return ringcircuit.NewTransferCircuit(int(nInputs)), nil
 	case 1:
-		return zonecircuit.NewWithdrawalCircuit(int(nInputs)), nil
+		return ringcircuit.NewWithdrawalCircuit(int(nInputs)), nil
 	default:
-		return nil, fmt.Errorf("squads zone: unsupported nOutputs %d (want 1 or 2)", nOutputs)
+		return nil, fmt.Errorf("squads ring: unsupported nOutputs %d (want 1 or 2)", nOutputs)
 	}
 }
 
-// R1CSZone compiles the squads zone circuit for the given shape.
+// R1CSRing compiles the squads ring circuit for the given shape.
 // WithCompressThreshold(300) matches the transfer shape's BSB22 commitment
 // (from the emulated-P256 scalar mul), same as the transfer-p256 rail.
-func R1CSZone(nInputs uint32, nOutputs uint32) (constraint.ConstraintSystem, error) {
-	circuit, err := newZoneCircuit(nInputs, nOutputs)
+func R1CSRing(nInputs uint32, nOutputs uint32) (constraint.ConstraintSystem, error) {
+	circuit, err := newRingCircuit(nInputs, nOutputs)
 	if err != nil {
 		return nil, err
 	}

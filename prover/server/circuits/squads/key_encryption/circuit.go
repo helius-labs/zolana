@@ -28,7 +28,7 @@ type RecipientKey struct {
 //
 // NumKeys = R + A is the recovery-plus-auditor recipient count. The circuit does
 // not distinguish the two, ordering is an on-chain concern. One shared ephemeral
-// key covers every ciphertext (recipient and nullifier), zone tx_viewing_pk style.
+// key covers every ciphertext (recipient and nullifier), ring tx_viewing_pk style.
 type Circuit struct {
 	NumKeys int `gnark:"-"`
 

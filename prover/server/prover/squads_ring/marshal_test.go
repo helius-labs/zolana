@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import (
 	"encoding/json"
@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-func TestZoneParametersJSONRoundTripWithDummyFlags(t *testing.T) {
-	p := sampleZoneParams(2, 2)
+func TestRingParametersJSONRoundTripWithDummyFlags(t *testing.T) {
+	p := sampleRingParams(2, 2)
 	p.InputsDummy = []*big.Int{big.NewInt(1)}
 
 	data, err := json.Marshal(p)
@@ -19,7 +19,7 @@ func TestZoneParametersJSONRoundTripWithDummyFlags(t *testing.T) {
 		t.Fatalf("expected inputsDummy in JSON: %s", data)
 	}
 
-	var got ZoneParameters
+	var got RingParameters
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -37,8 +37,8 @@ func TestZoneParametersJSONRoundTripWithDummyFlags(t *testing.T) {
 	}
 }
 
-func TestZoneParametersJSONAbsentDummyFlagsDefaultToZeros(t *testing.T) {
-	p := sampleZoneParams(2, 2)
+func TestRingParametersJSONAbsentDummyFlagsDefaultToZeros(t *testing.T) {
+	p := sampleRingParams(2, 2)
 
 	data, err := json.Marshal(p)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestZoneParametersJSONAbsentDummyFlagsDefaultToZeros(t *testing.T) {
 		t.Fatalf("expected inputsDummy omitted: %s", data)
 	}
 
-	var got ZoneParameters
+	var got RingParameters
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -60,8 +60,8 @@ func TestZoneParametersJSONAbsentDummyFlagsDefaultToZeros(t *testing.T) {
 	}
 }
 
-func TestZoneParametersJSONRejectsWrongDummyFlagCount(t *testing.T) {
-	p := sampleZoneParams(2, 2)
+func TestRingParametersJSONRejectsWrongDummyFlagCount(t *testing.T) {
+	p := sampleRingParams(2, 2)
 	p.InputsDummy = []*big.Int{big.NewInt(0), big.NewInt(1)}
 
 	if err := p.ValidateShape(); err == nil {
@@ -72,20 +72,20 @@ func TestZoneParametersJSONRejectsWrongDummyFlagCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var got ZoneParameters
+	var got RingParameters
 	if err := json.Unmarshal(data, &got); err == nil {
 		t.Fatal("expected unmarshal failure for wrong inputsDummy length")
 	}
 }
 
-func TestZoneParametersJSONSingleInputHasNoDummyFlags(t *testing.T) {
-	p := sampleZoneParams(1, 1)
+func TestRingParametersJSONSingleInputHasNoDummyFlags(t *testing.T) {
+	p := sampleRingParams(1, 1)
 
 	data, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var got ZoneParameters
+	var got RingParameters
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestZoneParametersJSONSingleInputHasNoDummyFlags(t *testing.T) {
 }
 
 func TestProposalContextReachesWitnessVerbatim(t *testing.T) {
-	p := sampleZoneParams(1, 1)
+	p := sampleRingParams(1, 1)
 	asset := new(big.Int).SetBytes([]byte{
 		0x03, 0xdf, 0x2d, 0x93, 0xdf, 0xa1, 0xb0, 0x06,
 		0xbb, 0xad, 0x4e, 0x16, 0x63, 0x8c, 0xc7, 0x92,
@@ -115,7 +115,7 @@ func TestProposalContextReachesWitnessVerbatim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var decoded ZoneParameters
+	var decoded RingParameters
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -133,11 +133,11 @@ func TestProposalContextReachesWitnessVerbatim(t *testing.T) {
 	}
 }
 
-func sampleZoneParams(nInputs, nOutputs uint32) *ZoneParameters {
+func sampleRingParams(nInputs, nOutputs uint32) *RingParameters {
 	utxo := UtxoParams{
 		OwnerHash: big.NewInt(2), Asset: big.NewInt(1), Amount: big.NewInt(5),
 		Blinding: big.NewInt(7), ProgramDataHash: big.NewInt(0),
-		ZoneDataHash: big.NewInt(0), ZoneProgramID: big.NewInt(0),
+		RingDataHash: big.NewInt(0), RingProgramID: big.NewInt(0),
 	}
 	inputs := make([]UtxoParams, nInputs)
 	outputs := make([]UtxoParams, nOutputs)
@@ -151,7 +151,7 @@ func sampleZoneParams(nInputs, nOutputs uint32) *ZoneParameters {
 	for i := range viewing {
 		viewing[i] = big.NewInt(int64(i))
 	}
-	return &ZoneParameters{
+	return &RingParameters{
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		Inputs:           inputs,

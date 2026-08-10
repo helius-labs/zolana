@@ -98,7 +98,7 @@ func ProveFold(ps *common.SquadsKeyEncryptionFoldProofSystem, legs []Leg) (*comm
 
 // FoldInputHash is the chain a single key-encryption circuit over every leg's
 // recipients would expose. The account's shared fields come once, then the
-// recipient triples in leg order. The zone recomputes this from the account and
+// recipient triples in leg order. The ring recomputes this from the account and
 // the instruction, so the order here is part of the statement.
 func FoldInputHash(legs []Leg, keysPerLeg int) (*big.Int, error) {
 	if len(legs) == 0 {

@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import (
 	"fmt"
@@ -8,9 +8,9 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 )
 
-func SetupZone(nInputs uint32, nOutputs uint32) (*common.SquadsZoneProofSystem, error) {
-	fmt.Println("Setting up squads zone: nInputs", nInputs, "nOutputs", nOutputs)
-	ccs, err := R1CSZone(nInputs, nOutputs)
+func SetupRing(nInputs uint32, nOutputs uint32) (*common.SquadsRingProofSystem, error) {
+	fmt.Println("Setting up squads ring: nInputs", nInputs, "nOutputs", nOutputs)
+	ccs, err := R1CSRing(nInputs, nOutputs)
 	if err != nil {
 		return nil, err
 	}
@@ -18,8 +18,8 @@ func SetupZone(nInputs uint32, nOutputs uint32) (*common.SquadsZoneProofSystem, 
 	if err != nil {
 		return nil, err
 	}
-	return &common.SquadsZoneProofSystem{
-		CircuitType:      common.SquadsZoneCircuitType,
+	return &common.SquadsRingProofSystem{
+		CircuitType:      common.SquadsRingCircuitType,
 		NInputs:          nInputs,
 		NOutputs:         nOutputs,
 		ProvingKey:       pk,

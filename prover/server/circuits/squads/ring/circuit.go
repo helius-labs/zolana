@@ -1,4 +1,4 @@
-package squadszone
+package squadsring
 
 import (
 	"fmt"
@@ -33,7 +33,7 @@ type Circuit struct {
 	Proposal           Proposal
 	EnableProposalHash frontend.Variable
 
-	// PublicAmount is the public withdrawn amount, 0 for a transfer. It is a zone
+	// PublicAmount is the public withdrawn amount, 0 for a transfer. It is a ring
 	// public input, bound on every path including a proposal-less withdrawal.
 	PublicAmount frontend.Variable
 
@@ -138,19 +138,19 @@ func (c *Circuit) Define(api frontend.API) error {
 
 func (c *Circuit) validateLayout() error {
 	if c.NumInputs < 1 {
-		return fmt.Errorf("squads_zone: NumInputs must be >= 1, got %d", c.NumInputs)
+		return fmt.Errorf("squads_ring: NumInputs must be >= 1, got %d", c.NumInputs)
 	}
 	if c.NumOutputs != 1 && c.NumOutputs != 2 {
-		return fmt.Errorf("squads_zone: NumOutputs must be 1 (withdrawal) or 2 (transfer), got %d", c.NumOutputs)
+		return fmt.Errorf("squads_ring: NumOutputs must be 1 (withdrawal) or 2 (transfer), got %d", c.NumOutputs)
 	}
 	if got := len(c.Transaction.Inputs); got != c.NumInputs {
-		return fmt.Errorf("squads_zone: input count mismatch: got %d want %d", got, c.NumInputs)
+		return fmt.Errorf("squads_ring: input count mismatch: got %d want %d", got, c.NumInputs)
 	}
 	if got := len(c.Transaction.Outputs); got != c.NumOutputs {
-		return fmt.Errorf("squads_zone: output count mismatch: got %d want %d", got, c.NumOutputs)
+		return fmt.Errorf("squads_ring: output count mismatch: got %d want %d", got, c.NumOutputs)
 	}
 	if got := len(c.InputsDummy); got != c.NumInputs-1 {
-		return fmt.Errorf("squads_zone: dummy flag count mismatch: got %d want %d", got, c.NumInputs-1)
+		return fmt.Errorf("squads_ring: dummy flag count mismatch: got %d want %d", got, c.NumInputs-1)
 	}
 	return nil
 }
