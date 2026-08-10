@@ -48,10 +48,10 @@ jobs:
       - name: Install workspace Rust toolchain
         run: rustup show active-toolchain
       - run: cargo fmt --all -- --check
-      # zones/squads is a nested workspace, so the root invocation above does not
+      # rings/squads is a nested workspace, so the root invocation above does not
       # reach it. Mirrors `just fmt-check`, which this job does not use because
       # it installs no `just`.
-      - run: cd zones/squads && cargo fmt --all -- --check
+      - run: cd rings/squads && cargo fmt --all -- --check
       - run: ./tools/check-test-hygiene.sh
 
   machete:
@@ -126,7 +126,7 @@ jobs:
       - run: just check-tree-clean
 
   test-squads:
-    name: tests / squads zone
+    name: tests / squads ring
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:

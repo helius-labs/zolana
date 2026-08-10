@@ -12,7 +12,7 @@ import (
 )
 
 // p256ScalarLimbBits splits a P-256 scalar into 128-bit hi/lo limbs for the
-// Poseidon commitment, matching the zone viewing-key commitment.
+// Poseidon commitment, matching the ring viewing-key commitment.
 const p256ScalarLimbBits = 128
 
 // p256ScalarBits decomposes an emulated P-256 scalar into its canonical

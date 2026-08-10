@@ -70,7 +70,7 @@ type (
 type Circuit struct {
 	// The chain a single key-encryption circuit over every leg's recipients
 	// would expose. The only public input, so the on-chain key keeps the shape
-	// the zone already verifies.
+	// the ring already verifies.
 	FoldInputHash frontend.Variable `gnark:",public"`
 
 	Proofs    []InnerProof
@@ -130,7 +130,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	keyEnd := PrefixLen + KeyFields*c.KeysPerLeg
 
 	for i := range c.Proofs {
-		// The legs are the bytes the zone verifies on chain, so their BSB22
+		// The legs are the bytes the ring verifies on chain, so their BSB22
 		// challenge follows the native RFC 9380 derivation. The key-encryption
 		// circuit emulates P-256, which commits, so this is load bearing.
 		if err := verifier.AssertProof(

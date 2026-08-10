@@ -333,7 +333,7 @@ pub(crate) fn read_program_config(rpc: &SolanaRpc) -> Result<ProgramConfig> {
 }
 
 /// The Squads `Settings` accounts the previous init run created at consecutive
-/// seeds, in [`Role::ALL`] creation order: protocol, tree, zone, and merge are
+/// seeds, in [`Role::ALL`] creation order: protocol, tree, ring, and merge are
 /// governed by the protocol authorities, forester by the forester authorities
 /// (mirrors `create_all_smart_accounts`).
 pub(crate) fn expected_role_members() -> [&'static [Pubkey]; 5] {
@@ -349,7 +349,7 @@ pub(crate) fn expected_role_members() -> [&'static [Pubkey]; 5] {
 /// Guard the `--resume` seed arithmetic: the five settings accounts derived
 /// from `smart_account_index - 5` must be the ones the previous init run
 /// created, so each must be a Squads `Settings` account listing the expected
-/// role members (protocol/tree/zone/merge: the protocol authorities, so the
+/// role members (protocol/tree/ring/merge: the protocol authorities, so the
 /// `--protocol-signer` keypair among them; forester: the forester
 /// authorities).
 fn verify_resume_settings(rpc: &SolanaRpc, roles: &[RoleAddrs; 5]) -> Result<()> {
@@ -446,7 +446,7 @@ fn load_reused_roles(rpc: &SolanaRpc, settings_keys: &[Pubkey; 5]) -> Result<[Ro
 }
 
 /// Derive the five role accounts at the shared role table's seed offsets above
-/// `base_index` (`zolana_smart_account_client::roles`: protocol, tree, zone,
+/// `base_index` (`zolana_smart_account_client::roles`: protocol, tree, ring,
 /// merge, forester at +1..=+5).
 fn derive_roles(base_index: u128) -> [RoleAddrs; 5] {
     Role::ALL.map(|role| {

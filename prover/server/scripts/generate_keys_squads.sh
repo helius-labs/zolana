@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # None of these are published, so every machine runs its own setup and gets its
 # own verifying key. Every key therefore rewrites its committed constant in
-# zones/squads/interface/src/verifying_keys/, including the proving-key checksum
+# rings/squads/interface/src/verifying_keys/, including the proving-key checksum
 # that pins the constant to that setup. The program must be rebuilt before it
 # verifies that key's proofs.
 #
@@ -27,11 +27,11 @@ keys_dir="$(cd "$keys_dir" && pwd)"
 
 cd "$(dirname "$0")/.."
 repo_root="$(cd ../.. && pwd)"
-vkey_dir="$repo_root/zones/squads/interface/src/verifying_keys"
+vkey_dir="$repo_root/rings/squads/interface/src/verifying_keys"
 
-# Squads zone circuit shapes: (1,1) withdrawal and (2,2) transfer.
-# Mirrors zoneSupportedShapes in prover/common/lazy_key_manager.go.
-zone_shapes=(
+# Squads ring circuit shapes: (1,1) withdrawal and (2,2) transfer.
+# Mirrors ringSupportedShapes in prover/common/lazy_key_manager.go.
+ring_shapes=(
     "1 1"
     "2 2"
 )
@@ -43,9 +43,9 @@ key_encryption_keys=(1 2 3)
 # Leg counts with a fold key. Mirrors foldSupportedLegs.
 fold_legs=(2 3)
 
-# Zone leg shapes a fold covers. Mirrors zoneFoldSupportedShapes. Only the
+# Ring leg shapes a fold covers. Mirrors ringFoldSupportedShapes. Only the
 # transfer shape folds, a withdrawal already spends the whole balance.
-zone_fold_shapes=(
+ring_fold_shapes=(
     "2 2"
 )
 
@@ -63,17 +63,17 @@ trap 'rm -rf "$tmp_dir"' EXIT
 # The catalogue as "<key stem> <verifying-key module>" pairs, in setup order.
 # Every leg key comes before the folds compiled against it.
 catalogue=()
-for shape in "${zone_shapes[@]}"; do
+for shape in "${ring_shapes[@]}"; do
     read -r n_inputs n_outputs <<<"$shape"
-    catalogue+=("squads_zone_${n_inputs}_${n_outputs} zone_${n_inputs}_${n_outputs}")
+    catalogue+=("squads_ring_${n_inputs}_${n_outputs} ring_${n_inputs}_${n_outputs}")
 done
 for num_keys in "${key_encryption_keys[@]}"; do
     catalogue+=("squads_key_encryption_${num_keys} key_encryption_${num_keys}")
 done
-for shape in "${zone_fold_shapes[@]}"; do
+for shape in "${ring_fold_shapes[@]}"; do
     read -r n_inputs n_outputs <<<"$shape"
     for legs in "${fold_legs[@]}"; do
-        catalogue+=("squads_zone_fold_${n_inputs}_${n_outputs}_l${legs} zone_fold_${n_inputs}_${n_outputs}_l${legs}")
+        catalogue+=("squads_ring_fold_${n_inputs}_${n_outputs}_l${legs} ring_fold_${n_inputs}_${n_outputs}_l${legs}")
     done
 done
 for keys_per_leg in "${key_encryption_fold_keys[@]}"; do
@@ -90,10 +90,10 @@ setup() {
     fi
     echo "Generating ${stem}"
     case "$stem" in
-    squads_zone_fold_*)
-        [[ "$stem" =~ ^squads_zone_fold_([0-9]+)_([0-9]+)_l([0-9]+)$ ]]
-        ./light-prover setup-zone-fold \
-            --inner-keys-file "${keys_dir}/squads_zone_${BASH_REMATCH[1]}_${BASH_REMATCH[2]}.key" \
+    squads_ring_fold_*)
+        [[ "$stem" =~ ^squads_ring_fold_([0-9]+)_([0-9]+)_l([0-9]+)$ ]]
+        ./light-prover setup-ring-fold \
+            --inner-keys-file "${keys_dir}/squads_ring_${BASH_REMATCH[1]}_${BASH_REMATCH[2]}.key" \
             --legs "${BASH_REMATCH[3]}" \
             --output "$output.partial"
         ;;
@@ -104,9 +104,9 @@ setup() {
             --legs "${BASH_REMATCH[2]}" \
             --output "$output.partial"
         ;;
-    squads_zone_*)
-        [[ "$stem" =~ ^squads_zone_([0-9]+)_([0-9]+)$ ]]
-        ./light-prover setup-zone \
+    squads_ring_*)
+        [[ "$stem" =~ ^squads_ring_([0-9]+)_([0-9]+)$ ]]
+        ./light-prover setup-ring \
             --n-inputs "${BASH_REMATCH[1]}" \
             --n-outputs "${BASH_REMATCH[2]}" \
             --output "$output.partial"

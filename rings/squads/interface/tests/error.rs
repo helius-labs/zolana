@@ -1,0 +1,155 @@
+use zolana_squads_interface::error::SquadsRingError::{self, *};
+
+/// The pinned code of every declared variant. The match is exhaustive, so a new
+/// variant does not compile until it is pinned here. Codes 8008, 8030, 8042,
+/// 8047, and 8048 belonged to deleted variants and stay retired.
+fn pinned_code(error: SquadsRingError) -> u32 {
+    match error {
+        InvalidInstructionData => 8000,
+        Deserialization => 8001,
+        InvalidRingConfig => 8002,
+        InvalidViewingKeyAccount => 8003,
+        InvalidProposal => 8004,
+        InvalidKeyUpdateProposal => 8005,
+        InvalidDiscriminator => 8006,
+        InvalidAccountSize => 8007,
+        InvalidAccountOwner => 8009,
+        InvalidPda => 8010,
+        InvalidRingAuth => 8011,
+        MissingAuthoritySignature => 8012,
+        MissingOwnerSignature => 8013,
+        MissingExecutorSignature => 8014,
+        MissingCoSignerSignature => 8015,
+        MissingMergeAuthoritySignature => 8016,
+        AuthorityMismatch => 8017,
+        OwnerMismatch => 8018,
+        ExecutorMismatch => 8019,
+        CoSignerMismatch => 8020,
+        MergeAuthorityNotWhitelisted => 8021,
+        ViewingKeyAccountBlocked => 8022,
+        InvalidEncryptionScheme => 8023,
+        InvalidViewingKeyState => 8024,
+        ConfigFrozen => 8025,
+        InvalidAuditorKeyCount => 8026,
+        MixedKeyOperationTypes => 8027,
+        AuditorNotChanged => 8028,
+        InvalidKeyOperation => 8029,
+        CiphertextCountMismatch => 8031,
+        KeyBufferNotFull => 8032,
+        KeyBufferOverflow => 8033,
+        ProposalExpired => 8034,
+        TransactionExpired => 8035,
+        ProposalOwnershipMismatch => 8036,
+        ProposalTargetMismatch => 8037,
+        RentRecipientMismatch => 8038,
+        InvalidProofEncoding => 8039,
+        RingProofVerificationFailed => 8040,
+        KeyEncryptionProofVerificationFailed => 8041,
+        ProofHashingFailed => 8043,
+        InvalidSppProgram => 8044,
+        SppCpiFailed => 8045,
+        ArithmeticOverflow => 8046,
+        InvalidDepositAccounts => 8049,
+        InvalidWithdrawalAccounts => 8050,
+        InvalidOwnerKind => 8051,
+        InvalidInitializationAuthority => 8052,
+        ProposalRecipientMismatch => 8053,
+        ProposalAssetMismatch => 8054,
+        ProposalLifetimeExceeded => 8055,
+        ProposalPayerMismatch => 8056,
+        RecoveryKeyUpdateUnsupported => 8057,
+        UnsupportedProofShape => 8058,
+        UnsupportedKeyCount => 8059,
+        Serialization => 8060,
+        FoldLegCountOverflow => 8061,
+        InvalidRingProgram => 8062,
+        NullifierPubkeyRotationUnsupported => 8063,
+        StaleKeyUpdateProposal => 8064,
+        ProofShapeMismatch => 8065,
+        MergeOutputTagMismatch => 8066,
+    }
+}
+
+/// Every declared variant, in code order.
+const DECLARED: [SquadsRingError; 62] = [
+    InvalidInstructionData,
+    Deserialization,
+    InvalidRingConfig,
+    InvalidViewingKeyAccount,
+    InvalidProposal,
+    InvalidKeyUpdateProposal,
+    InvalidDiscriminator,
+    InvalidAccountSize,
+    InvalidAccountOwner,
+    InvalidPda,
+    InvalidRingAuth,
+    MissingAuthoritySignature,
+    MissingOwnerSignature,
+    MissingExecutorSignature,
+    MissingCoSignerSignature,
+    MissingMergeAuthoritySignature,
+    AuthorityMismatch,
+    OwnerMismatch,
+    ExecutorMismatch,
+    CoSignerMismatch,
+    MergeAuthorityNotWhitelisted,
+    ViewingKeyAccountBlocked,
+    InvalidEncryptionScheme,
+    InvalidViewingKeyState,
+    ConfigFrozen,
+    InvalidAuditorKeyCount,
+    MixedKeyOperationTypes,
+    AuditorNotChanged,
+    InvalidKeyOperation,
+    CiphertextCountMismatch,
+    KeyBufferNotFull,
+    KeyBufferOverflow,
+    ProposalExpired,
+    TransactionExpired,
+    ProposalOwnershipMismatch,
+    ProposalTargetMismatch,
+    RentRecipientMismatch,
+    InvalidProofEncoding,
+    RingProofVerificationFailed,
+    KeyEncryptionProofVerificationFailed,
+    ProofHashingFailed,
+    InvalidSppProgram,
+    SppCpiFailed,
+    ArithmeticOverflow,
+    InvalidDepositAccounts,
+    InvalidWithdrawalAccounts,
+    InvalidOwnerKind,
+    InvalidInitializationAuthority,
+    ProposalRecipientMismatch,
+    ProposalAssetMismatch,
+    ProposalLifetimeExceeded,
+    ProposalPayerMismatch,
+    RecoveryKeyUpdateUnsupported,
+    UnsupportedProofShape,
+    UnsupportedKeyCount,
+    Serialization,
+    FoldLegCountOverflow,
+    InvalidRingProgram,
+    NullifierPubkeyRotationUnsupported,
+    StaleKeyUpdateProposal,
+    ProofShapeMismatch,
+    MergeOutputTagMismatch,
+];
+
+#[test]
+fn error_codes_are_stable() {
+    for error in DECLARED {
+        assert_eq!(error as u32, pinned_code(error), "error code drifted");
+    }
+}
+
+/// Two variants sharing a code would make a client's decode ambiguous, and a
+/// variant missing from `DECLARED` would leave its code unchecked.
+#[test]
+fn every_code_is_declared_once() {
+    let mut codes: Vec<u32> = DECLARED.iter().map(|error| *error as u32).collect();
+    codes.sort_unstable();
+    let declared = codes.len();
+    codes.dedup();
+    assert_eq!(codes.len(), declared);
+}

@@ -1,9 +1,9 @@
-//! Assert for the Squads zone `deposit` (tag 1), a proofless deposit that CPIs
-//! into SPP's `zone_deposit`, creating a zone-owned UTXO whose recipient `owner`
+//! Assert for the Squads ring `deposit` (tag 1), a proofless deposit that CPIs
+//! into SPP's `ring_deposit`, creating a ring-owned UTXO whose recipient `owner`
 //! is derived on-chain from a `ViewingKeyAccount` as
 //! `Poseidon(vka.owner, vka.nullifier_pubkey)`.
 //!
-//! Unlike a direct SPP deposit, the created UTXO carries the zone program id, and
+//! Unlike a direct SPP deposit, the created UTXO carries the ring program id, and
 //! its owner is not a standard shielded-keypair owner hash, so a generic
 //! `Wallet::sync` cannot rediscover it. This assert therefore verifies the full
 //! state transition directly, over the emitted event, an independently
@@ -53,7 +53,7 @@ pub struct SquadsDepositAssertArgs<'a> {
     pub vka_nullifier_pubkey: [u8; 32],
     pub expected_amount: u64,
     pub expected_asset: Address,
-    pub expected_zone_program_id: [u8; 32],
+    pub expected_ring_program_id: [u8; 32],
     pub signature: Signature,
     pub tree_before: &'a Account,
     pub settlement: SquadsDepositSettlement<'a>,
@@ -74,7 +74,7 @@ pub fn assert_squads_deposit<R: Rpc, I: Rpc>(
         vka_nullifier_pubkey,
         expected_amount,
         expected_asset,
-        expected_zone_program_id,
+        expected_ring_program_id,
         signature,
         tree_before,
         settlement,
@@ -95,7 +95,7 @@ pub fn assert_squads_deposit<R: Rpc, I: Rpc>(
             amount: expected_amount,
             data_hash: None,
             utxo_data: None,
-            ring_program_id: Some(expected_zone_program_id),
+            ring_program_id: Some(expected_ring_program_id),
             ring_data_hash: Some(ZERO32),
             ring_data: Some(Vec::new()),
             memo: None,
@@ -103,17 +103,17 @@ pub fn assert_squads_deposit<R: Rpc, I: Rpc>(
     };
     assert_eq!(*event, expected, "squads deposit event");
 
-    // A zone rides the ring rail, so the squads program id occupies the ring
-    // slot. The deposit carries no application or zone data, so both data hashes
-    // are zero and the ring hash binds only that program id.
-    let zone_program_id = Address::new_from_array(expected_zone_program_id);
+    // The Squads program is a policy ring, so its program id occupies the UTXO's
+    // ring slot. The deposit carries no application or ring data, so both data
+    // hashes are zero and the ring hash binds only that program id.
+    let ring_program_id = Address::new_from_array(expected_ring_program_id);
     let recomputed = ProofInputUtxo::new(owner, &expected_asset, expected_amount, &blinding)
         .expect("proof input utxo")
-        .with_ring(ZERO32, &Some(zone_program_id))
+        .with_ring(ZERO32, &Some(ring_program_id))
         .expect("ring binding")
         .hash()
         .expect("utxo hash");
-    assert_eq!(recomputed, event.utxo_hash, "recomputed zone UTXO hash");
+    assert_eq!(recomputed, event.utxo_hash, "recomputed ring UTXO hash");
 
     match settlement {
         SquadsDepositSettlement::Sol {

@@ -52,7 +52,7 @@ check:
 # Check the entire workspace.
 check-all:
     cargo check --workspace --all-targets
-    cd zones/squads && cargo check --workspace --all-targets --all-features
+    cd rings/squads && cargo check --workspace --all-targets --all-features
     cargo run -q -p xtask -- ts-interface-consts --check
 
 # Default test target.
@@ -97,17 +97,17 @@ test-program-mollusk: build-programs
 test-swap-program: build-programs
     cargo nextest run -p swap-program --tests
 
-# Squads zone unit and LiteSVM suites. `zones/squads` is a nested workspace with
+# Squads ring unit and LiteSVM suites. `rings/squads` is a nested workspace with
 # its own lockfile and target dir, so it needs its own manifest path here. The
-# proof-backed binaries under `integration-tests` need the zone proving keys,
+# proof-backed binaries under `integration-tests` need the ring proving keys,
 # which are unpublished (prover/server/scripts/generate_keys_squads.sh), so they
-# stay out of this tier. `init_spp_zone_config_e2e` needs no keys but its fixture
+# stay out of this tier. `init_spp_ring_config_e2e` needs no keys but its fixture
 # is rejected with InvalidInitializationAuthority, so it is out until that is
 # fixed. Plain `cargo test`, because nextest resolves a profile against the
 # workspace root and the nested workspace defines none, so `NEXTEST_PROFILE=ci`
 # would not resolve there.
-# None of the binaries here load the SPP binary, so the tier needs only the zone
-# build. `init_spp_zone_config_e2e` and `composed_localnet` do, so adding either
+# None of the binaries here load the SPP binary, so the tier needs only the ring
+# build. `init_spp_ring_config_e2e` and `composed_localnet` do, so adding either
 # one also adds `build-programs`.
 test-squads: build-programs-squads
     #!/usr/bin/env bash
@@ -118,15 +118,15 @@ test-squads: build-programs-squads
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
     export ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}"
     export ZOLANA_INDEXER_URL="{{localnet-photon-url}}"
-    manifest=zones/squads/Cargo.toml
+    manifest=rings/squads/Cargo.toml
     # One package per invocation. Selecting the client together with the SDK
     # unifies features, which turns on the SDK's `prover` module and with it the
-    # zone proof tests that need the unpublished keys.
+    # ring proof tests that need the unpublished keys.
     cargo test --manifest-path "$manifest" -p zolana-squads-interface
     cargo test --manifest-path "$manifest" -p zolana-squads-sdk
     cargo test --manifest-path "$manifest" -p zolana-squads-client
-    cargo test --manifest-path "$manifest" -p squads-zone-tests \
-        --test zone_config --test viewing_key --test proposal --test key_update \
+    cargo test --manifest-path "$manifest" -p squads-ring-tests \
+        --test ring_config --test viewing_key --test proposal --test key_update \
         --test merge_transact_cpi --test deferred_settlement
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
@@ -249,7 +249,7 @@ coverage-ignore-paths := '(program-tests|sdk-tests|bench)/'
 #
 # Which crates are measured is decided by manifest PATH in
 # tools/coverage-packages.py, not by a list of names here: #181 renamed
-# zone-test-program to ring-test-program, a name-based `--exclude` stopped
+# ring-test-program to ring-test-program, a name-based `--exclude` stopped
 # matching, and a test crate silently entered the coverage set and failed the
 # job. See that script for what each excluded directory is and why.
 #
@@ -923,13 +923,13 @@ ensure-nullifier-fold-keys:
     ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_nullifier_fold.sh \
         "{{spp-keys-dir}}" program-libs/batched-merkle-tree/src/verify/verifying_keys
 
-# Generate whatever Squads zone keys are missing from {{spp-keys-dir}}. Same
+# Generate whatever Squads ring keys are missing from {{spp-keys-dir}}. Same
 # contract as ensure-aggregate-keys. The proof-backed suites under
-# zones/squads/integration-tests need these, and the zone program must be
+# rings/squads/integration-tests need these, and the ring program must be
 # rebuilt after a cold run.
 ensure-squads-keys:
     ./tools/ensure-generated-keys.sh prover/server/scripts/generate_keys_squads.sh \
-        "{{spp-keys-dir}}" zones/squads/interface/src/verifying_keys
+        "{{spp-keys-dir}}" rings/squads/interface/src/verifying_keys
 
 # The nullifier fold tier. Local only, and on the manual aggregate-tiers
 # workflow, because the keys are neither published nor pinned by the lockfile.
@@ -1138,11 +1138,11 @@ install-surfpool:
 build-programs:
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
-# Build the Squads zone SBF binary. `zones/squads` is its own workspace, so the
-# artifact lands in `zones/squads/target/deploy`, which is where the integration
-# harness looks for it (`SQUADS_ZONE_PROGRAM_PATH` overrides).
+# Build the Squads ring SBF binary. `rings/squads` is its own workspace, so the
+# artifact lands in `rings/squads/target/deploy`, which is where the integration
+# harness looks for it (`SQUADS_RING_PROGRAM_PATH` overrides).
 build-programs-squads:
-    cd zones/squads/program && cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint
+    cd rings/squads/program && cargo build-sbf --tools-version {{sbf-tools-version}} --features bpf-entrypoint
 
 # Registry-enabled shielded-pool build into its own artifact dir. The default
 # `build-programs` output stays untouched; this binary needs the
@@ -1273,15 +1273,15 @@ release tag *args: build-programs fetch-smart-account
 
 # === Formatting and linting ===
 
-# zones/squads is its own workspace (excluded from the root one), so every
+# rings/squads is its own workspace (excluded from the root one), so every
 # formatting and linting recipe needs a second invocation or nothing covers it.
 fmt:
     cargo fmt --all
-    cd zones/squads && cargo fmt --all
+    cd rings/squads && cargo fmt --all
 
 fmt-check:
     cargo fmt --all -- --check
-    cd zones/squads && cargo fmt --all -- --check
+    cd rings/squads && cargo fmt --all -- --check
 
 # `vk-registry` is a non-default feature, so the registered verify path, the
 # finalized loader, and the permissionless init machine compile only under the
@@ -1290,7 +1290,7 @@ clippy:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo clippy -p shielded-pool-program --all-targets --features vk-registry -- -D warnings
     cargo clippy -p zolana-batched-merkle-tree --all-targets --features vk-registry -- -D warnings
-    cd zones/squads && cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cd rings/squads && cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 check-test-hygiene:
     ./tools/check-test-hygiene.sh

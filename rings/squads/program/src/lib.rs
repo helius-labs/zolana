@@ -1,0 +1,74 @@
+//! Squads ring on-chain program (pinocchio). Verifies the ring and
+//! key-encryption proofs, manages ring accounts, and CPIs the SPP.
+
+pub mod instructions;
+pub mod shared;
+
+use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
+use zolana_squads_interface::instruction::tag::InstructionTag;
+
+use crate::instructions::{
+    process_cancel_key_update_ix, process_cancel_proposal_ix, process_close_viewing_key_account_ix,
+    process_create_proposal_ix, process_create_ring_config_ix,
+    process_create_viewing_key_account_ix, process_deposit_ix, process_execute_key_update_ix,
+    process_execute_proposal_ix, process_fill_key_update_ix, process_fold_transact_ix,
+    process_full_withdrawal_ix, process_init_spp_ring_config_ix, process_merge_transact_ix,
+    process_toggle_viewing_key_account_ix, process_transact_ix, process_update_ring_config_ix,
+    process_update_viewing_key_account_ix,
+};
+
+#[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
+mod entrypoint {
+    pinocchio::entrypoint!(crate::process_instruction);
+}
+pinocchio::address::declare_id!("62EpnphqgmKwc1x9nfnLVvxGBNF8cdkrfvWPnY5VECAo");
+
+pub fn process_instruction(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    instruction_data: &[u8],
+) -> ProgramResult {
+    if !address_eq(program_id, &crate::ID) {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+    let (ix_tag, data) = instruction_data
+        .split_first()
+        .ok_or(ProgramError::InvalidInstructionData)?;
+
+    let ix_tag =
+        InstructionTag::try_from(*ix_tag).map_err(|_| ProgramError::InvalidInstructionData)?;
+
+    match ix_tag {
+        // Deliberate no-op: the event self-CPI exists only to record inner-
+        // instruction data. Anyone can invoke this tag with forged bytes.
+        // Indexers MUST filter events by parent instruction (see
+        // `zolana_squads_interface::instruction::tag::EMIT_EVENT`).
+        InstructionTag::EmitEvent => Ok(()),
+        InstructionTag::Transact => process_transact_ix(accounts, data),
+        InstructionTag::FoldTransact => process_fold_transact_ix(accounts, data),
+        InstructionTag::Deposit => process_deposit_ix(accounts, data),
+        InstructionTag::MergeTransact => process_merge_transact_ix(accounts, data),
+        InstructionTag::CreateRingConfig => process_create_ring_config_ix(accounts, data),
+        InstructionTag::UpdateRingConfig => process_update_ring_config_ix(accounts, data),
+        InstructionTag::CreateViewingKeyAccount => {
+            process_create_viewing_key_account_ix(accounts, data)
+        }
+        InstructionTag::UpdateViewingKeyAccount => {
+            process_update_viewing_key_account_ix(accounts, data)
+        }
+        InstructionTag::FillKeyUpdate => process_fill_key_update_ix(accounts, data),
+        InstructionTag::CloseViewingKeyAccount => {
+            process_close_viewing_key_account_ix(accounts, data)
+        }
+        InstructionTag::ToggleViewingKeyAccount => {
+            process_toggle_viewing_key_account_ix(accounts, data)
+        }
+        InstructionTag::FullWithdrawal => process_full_withdrawal_ix(accounts, data),
+        InstructionTag::CreateProposal => process_create_proposal_ix(accounts, data),
+        InstructionTag::CancelProposal => process_cancel_proposal_ix(accounts, data),
+        InstructionTag::ExecuteProposal => process_execute_proposal_ix(accounts, data),
+        InstructionTag::ExecuteKeyUpdate => process_execute_key_update_ix(accounts, data),
+        InstructionTag::CancelKeyUpdate => process_cancel_key_update_ix(accounts, data),
+        InstructionTag::InitSppRingConfig => process_init_spp_ring_config_ix(accounts, data),
+    }
+}

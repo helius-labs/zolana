@@ -56,8 +56,8 @@ describe("public package surface", () => {
     expect(client.solanaRpc).toBeDefined();
     expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
-    expect("proveMergeZone" in client).toBe(false);
-    expect("finishMergeZoneSubmissionUnsigned" in client).toBe(false);
+    expect("proveMergeRing" in client).toBe(false);
+    expect("finishMergeRingSubmissionUnsigned" in client).toBe(false);
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {
@@ -173,24 +173,24 @@ describe("public package surface", () => {
     expect(getLatestBlockhash).toHaveBeenCalledOnce();
   });
 
-  it("does not expose partial zone builders", async () => {
+  it("does not expose partial ring builders", async () => {
     const [addresses, instructions, protocol, transaction] = await Promise.all([
       import("../src/addresses.js"),
       import("../src/instructions.js"),
       import("../src/interface/index.js"),
       import("../src/transaction/index.js"),
     ]);
-    expect(addresses).not.toHaveProperty("getZoneConfigAddress");
-    expect(instructions).not.toHaveProperty("getCreateZoneConfigInstructionAsync");
-    expect(instructions).not.toHaveProperty("getUpdateZoneConfigInstruction");
-    expect(instructions).not.toHaveProperty("getUpdateZoneConfigOwnerInstruction");
-    expect(instructions).not.toHaveProperty("getZoneDepositInstructionAsync");
-    expect(instructions).not.toHaveProperty("getZoneTransactInstructionAsync");
-    expect(instructions).not.toHaveProperty("getZoneAuthorityTransactInstructionAsync");
-    expect(instructions).not.toHaveProperty("getMergeZoneInstructionAsync");
-    expect(transaction).not.toHaveProperty("MergeZone");
-    expect(transaction).not.toHaveProperty("PreparedMergeZone");
-    expect(protocol.decodeZoneConfig).toBeTypeOf("function");
+    expect(addresses).not.toHaveProperty("getRingConfigAddress");
+    expect(instructions).not.toHaveProperty("getCreateRingConfigInstructionAsync");
+    expect(instructions).not.toHaveProperty("getUpdateRingConfigInstruction");
+    expect(instructions).not.toHaveProperty("getUpdateRingConfigOwnerInstruction");
+    expect(instructions).not.toHaveProperty("getRingDepositInstructionAsync");
+    expect(instructions).not.toHaveProperty("getRingTransactInstructionAsync");
+    expect(instructions).not.toHaveProperty("getRingAuthorityTransactInstructionAsync");
+    expect(instructions).not.toHaveProperty("getMergeRingInstructionAsync");
+    expect(transaction).not.toHaveProperty("MergeRing");
+    expect(transaction).not.toHaveProperty("PreparedMergeRing");
+    expect(protocol.decodeRingConfig).toBeTypeOf("function");
   });
 
   it("builds the merging opt-in as an unsigned transaction", async () => {

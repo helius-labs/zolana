@@ -21,8 +21,8 @@ import (
 	nullifierfoldprover "zolana/prover/prover/nullifier_fold"
 	"zolana/prover/prover/nullifier_tree"
 	keyencryptionfold "zolana/prover/prover/squads_key_encryption_fold"
-	squadszone "zolana/prover/prover/squads_zone"
-	zonefold "zolana/prover/prover/squads_zone_fold"
+	squadsring "zolana/prover/prover/squads_ring"
+	ringfold "zolana/prover/prover/squads_ring_fold"
 	transfereddsaonly "zolana/prover/prover/transfer_eddsa_only"
 	"zolana/prover/server"
 
@@ -343,7 +343,7 @@ func runCli() {
 				},
 			},
 			{
-				Name: "setup-zone",
+				Name: "setup-ring",
 				Flags: []cli.Flag{
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots (2 = transfer, 1 = withdrawal)", Required: true},
@@ -354,7 +354,7 @@ func runCli() {
 					nOutputs := uint32(context.Uint("n-outputs"))
 					path := context.String("output")
 
-					ps, err := squadszone.SetupZone(nInputs, nOutputs)
+					ps, err := squadsring.SetupRing(nInputs, nOutputs)
 					if err != nil {
 						return err
 					}
@@ -368,7 +368,7 @@ func runCli() {
 						Uint32("n_outputs", nOutputs).
 						Int64("bytes_written", written).
 						Str("output", path).
-						Msg("Squads zone proving system written")
+						Msg("Squads ring proving system written")
 					return nil
 				},
 			},
@@ -400,11 +400,11 @@ func runCli() {
 				},
 			},
 			{
-				Name:  "setup-zone-fold",
-				Usage: "Trusted setup for one squads zone fold. Needs the leg key it folds.",
+				Name:  "setup-ring-fold",
+				Usage: "Trusted setup for one squads ring fold. Needs the leg key it folds.",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the folded zone shape", Required: true},
-					&cli.UintFlag{Name: "legs", Usage: "Number of zone proofs per fold", Required: true},
+					&cli.StringFlag{Name: "inner-keys-file", Usage: "Proving key of the folded ring shape", Required: true},
+					&cli.UintFlag{Name: "legs", Usage: "Number of ring proofs per fold", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
 				},
 				Action: func(context *cli.Context) error {
@@ -415,12 +415,12 @@ func runCli() {
 					if err != nil {
 						return fmt.Errorf("read inner keys: %w", err)
 					}
-					inner, ok := system.(*common.SquadsZoneProofSystem)
+					inner, ok := system.(*common.SquadsRingProofSystem)
 					if !ok {
-						return fmt.Errorf("%s is not a squads zone proving system", innerPath)
+						return fmt.Errorf("%s is not a squads ring proving system", innerPath)
 					}
 
-					ps, err := zonefold.SetupFold(zonefold.Params{
+					ps, err := ringfold.SetupFold(ringfold.Params{
 						NInputs:  inner.NInputs,
 						NOutputs: inner.NOutputs,
 						Legs:     uint32(context.Uint("legs")),
@@ -439,7 +439,7 @@ func runCli() {
 						Uint32("legs", ps.Legs).
 						Int64("bytes_written", written).
 						Str("output", path).
-						Msg("Squads zone fold proving system written")
+						Msg("Squads ring fold proving system written")
 					return nil
 				},
 			},
@@ -611,11 +611,11 @@ func runCli() {
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.MergeChainProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
-					case *common.SquadsZoneProofSystem:
+					case *common.SquadsRingProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.SquadsKeyEncryptionProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
-					case *common.SquadsZoneFoldProofSystem:
+					case *common.SquadsRingFoldProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)
 					case *common.SquadsKeyEncryptionFoldProofSystem:
 						_, err = s.VerifyingKey.WriteRawTo(&buf)

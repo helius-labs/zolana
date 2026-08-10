@@ -1,0 +1,53 @@
+//! `create_proposal` (tag 11) instruction builder (spec: squads
+//! `create_proposal`).
+
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
+
+use crate::{
+    instruction::{tag, CreateProposalIxData},
+    PROGRAM_ID_PUBKEY,
+};
+
+/// Builder for the `create_proposal` instruction.
+///
+/// Account order mirrors the spec's `create_proposal` "Accounts" list:
+/// `owner` (writable fee payer), `proposal`, `viewing_key_account`,
+/// `ring_config`, `system_program`, `owner`. The repeated owner account is
+/// intentional: the proposal rent payer is also the sender vault used by the
+/// crank when the proposal settles.
+pub struct CreateProposal {
+    pub proposal: Pubkey,
+    pub viewing_key_account: Pubkey,
+    pub ring_config: Pubkey,
+    pub system_program: Pubkey,
+    pub owner: Pubkey,
+    pub data: CreateProposalIxData,
+}
+
+impl CreateProposal {
+    pub fn instruction(&self) -> Instruction {
+        let mut instruction_data = vec![tag::CREATE_PROPOSAL];
+        instruction_data.extend_from_slice(
+            &self
+                .data
+                .serialize()
+                .expect("squads-ring instruction serialization is infallible"),
+        );
+
+        let accounts = vec![
+            AccountMeta::new(self.owner, true),
+            AccountMeta::new(self.proposal, false),
+            AccountMeta::new_readonly(self.viewing_key_account, false),
+            AccountMeta::new_readonly(self.ring_config, false),
+            AccountMeta::new_readonly(self.system_program, false),
+            AccountMeta::new_readonly(self.owner, true),
+        ];
+
+        Instruction {
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts,
+            data: instruction_data,
+        }
+    }
+}

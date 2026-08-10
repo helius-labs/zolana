@@ -15,7 +15,7 @@ import (
 //
 // Keyed by the per-leg recipient count and the leg count, because the inner
 // verifying key is a compile-time constant of the outer circuit. One outer key
-// names one inner circuit, so the zone binds a fold from its width alone.
+// names one inner circuit, so the ring binds a fold from its width alone.
 type SquadsKeyEncryptionFoldProofSystem struct {
 	KeysPerLeg       uint32
 	Legs             uint32
@@ -24,9 +24,9 @@ type SquadsKeyEncryptionFoldProofSystem struct {
 	ConstraintSystem constraint.ConstraintSystem
 }
 
-// SquadsZoneFoldProofSystem holds the keys and constraints for one zone fold,
+// SquadsRingFoldProofSystem holds the keys and constraints for one ring fold,
 // keyed by the leg shape and the leg count.
-type SquadsZoneFoldProofSystem struct {
+type SquadsRingFoldProofSystem struct {
 	NInputs          uint32
 	NOutputs         uint32
 	Legs             uint32
@@ -49,11 +49,11 @@ func (ps *SquadsKeyEncryptionFoldProofSystem) UnsafeReadFrom(r io.Reader) (int64
 	return total + read, err
 }
 
-func (ps *SquadsZoneFoldProofSystem) WriteTo(w io.Writer) (int64, error) {
+func (ps *SquadsRingFoldProofSystem) WriteTo(w io.Writer) (int64, error) {
 	return writeFoldSystem(w, []uint32{ps.NInputs, ps.NOutputs, ps.Legs}, ps.ProvingKey, ps.VerifyingKey, ps.ConstraintSystem)
 }
 
-func (ps *SquadsZoneFoldProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
+func (ps *SquadsRingFoldProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 	header := []*uint32{&ps.NInputs, &ps.NOutputs, &ps.Legs}
 	total, err := readFoldHeader(r, header)
 	if err != nil {

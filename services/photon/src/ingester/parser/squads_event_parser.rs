@@ -1,4 +1,4 @@
-//! Squads zone key-material events.
+//! Squads ring key-material events.
 //!
 //! A key rotation overwrites a viewing key account in place and a close zeroes
 //! it, while the UTXO ciphertexts those keys decrypt stay on chain. The event
@@ -15,7 +15,7 @@ use zolana_squads_interface::{
     event::{KeyRotationEvent, SquadsEventKind, ViewingKeyAccountClosedEvent},
     instruction::tag,
     state::viewing_key_account::ViewingKeyAccount,
-    SQUADS_ZONE_PROGRAM_ID,
+    SQUADS_RING_PROGRAM_ID,
 };
 
 /// A record this build decoded in full.
@@ -33,7 +33,7 @@ pub fn parse_squads_events(
     tx: &TransactionInfo,
     slot: u64,
 ) -> Result<Option<StateUpdate>, IngesterError> {
-    let squads_program_id = squads_zone_program_id();
+    let squads_program_id = squads_ring_program_id();
     let groups = to_instruction_groups(&tx.instruction_groups);
     let event_sites = find_event_sites(&groups, squads_program_id, is_emit_event, is_event_source)?;
 
@@ -50,7 +50,7 @@ pub fn parse_squads_events(
         // Bytes after the `EMIT_EVENT` tag, `[SquadsEventKind,
         // wincode(payload)]`. The destroyed key material lives here and nowhere
         // else, so a record this build cannot read is stored whole rather than
-        // dropped, and a zone that adds a kind or a field does not stop a
+        // dropped, and a ring that adds a kind or a field does not stop a
         // deployed indexer.
         let raw_event = event_site.data.get(1..).unwrap_or_default().to_vec();
         let (event_kind, decoded) = match raw_event.split_first() {
@@ -132,12 +132,12 @@ fn decode_event(kind_byte: u8, payload: &[u8]) -> Option<DecodedEvent> {
     }
 }
 
-fn squads_zone_program_id() -> Pubkey {
-    Pubkey::new_from_array(SQUADS_ZONE_PROGRAM_ID)
+fn squads_ring_program_id() -> Pubkey {
+    Pubkey::new_from_array(SQUADS_RING_PROGRAM_ID)
 }
 
 fn is_event_source(squads_program_id: Pubkey, instruction: &SquadsInstruction) -> bool {
-    // Keep in sync with the squads-zone processors that call an emit helper in
+    // Keep in sync with the squads-ring processors that call an emit helper in
     // `shared/event.rs`. A tag missing here silently drops those transactions
     // from the index, and the key material they carry is unrecoverable.
     // `every_instruction_tag_is_classified` fails until a new tag is classified.
@@ -166,10 +166,10 @@ mod tests {
     };
 
     fn squads() -> Pubkey {
-        squads_zone_program_id()
+        squads_ring_program_id()
     }
 
-    /// Stand-in for any foreign program (attacker contract, another zone).
+    /// Stand-in for any foreign program (attacker contract, another ring).
     fn foreign() -> Pubkey {
         Pubkey::new_from_array([9; 32])
     }
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(event.owner, viewing_key_account().owner.to_bytes());
     }
 
-    /// A zone upgrade that adds a kind reaches a Photon built before it. The
+    /// A ring upgrade that adds a kind reaches a Photon built before it. The
     /// record is the only copy of the destroyed key material, so it is stored
     /// whole, and the events beside it keep their decoded columns.
     #[test]
@@ -416,8 +416,8 @@ mod tests {
             tag::TRANSACT,
             tag::DEPOSIT,
             tag::MERGE_TRANSACT,
-            tag::CREATE_ZONE_CONFIG,
-            tag::UPDATE_ZONE_CONFIG,
+            tag::CREATE_RING_CONFIG,
+            tag::UPDATE_RING_CONFIG,
             tag::CREATE_VIEWING_KEY_ACCOUNT,
             tag::UPDATE_VIEWING_KEY_ACCOUNT,
             tag::FILL_KEY_UPDATE,
@@ -427,7 +427,7 @@ mod tests {
             tag::CANCEL_PROPOSAL,
             tag::EXECUTE_PROPOSAL,
             tag::CANCEL_KEY_UPDATE,
-            tag::INIT_SPP_ZONE_CONFIG,
+            tag::INIT_SPP_RING_CONFIG,
             tag::FOLD_TRANSACT,
             tag::EMIT_EVENT,
         ];

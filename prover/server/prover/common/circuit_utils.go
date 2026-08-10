@@ -41,7 +41,7 @@ type TransferProofSystem struct {
 	ConstraintSystem constraint.ConstraintSystem
 }
 
-type SquadsZoneProofSystem struct {
+type SquadsRingProofSystem struct {
 	CircuitType      CircuitType
 	NInputs          uint32
 	NOutputs         uint32

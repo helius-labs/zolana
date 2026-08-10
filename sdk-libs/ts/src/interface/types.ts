@@ -102,13 +102,13 @@ export type CircuitId =
       publicAssetSlots: number;
     }>
   | Readonly<{
-      kind: "zoneEddsa";
+      kind: "ringEddsa";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
     }>
   | Readonly<{
-      kind: "zoneAuthority";
+      kind: "ringAuthority";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -146,7 +146,7 @@ export interface TransactInstructionData {
   readonly inputs: readonly InputUtxo[];
   readonly interfaceTransfers: readonly InterfaceTransfer[];
   readonly dataHash?: Bytes32;
-  readonly zoneDataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
   readonly outputs: readonly TransactOutput[];
   readonly messages: readonly MessageData[];
 }
@@ -166,8 +166,8 @@ export interface ProtocolConfigAccount {
   readonly treeCreationAuthority: Address;
   readonly treeCreationIsPermissionless: boolean;
   readonly foresterAuthority: Address;
-  readonly zoneCreationAuthority: Address;
-  readonly zoneCreationIsPermissionless: boolean;
+  readonly ringCreationAuthority: Address;
+  readonly ringCreationIsPermissionless: boolean;
   readonly splInterfaceCreationIsPermissionless: boolean;
 }
 
@@ -180,10 +180,10 @@ export interface SplAssetRegistryAccount {
   readonly assetId: bigint;
 }
 
-export interface ZoneConfigAccount {
+export interface RingConfigAccount {
   readonly authority: Address;
   readonly programId: Address;
-  readonly zoneAuthorityTransactIsEnabled: boolean;
+  readonly ringAuthorityTransactIsEnabled: boolean;
   readonly paused: boolean;
   readonly bump: number;
 }

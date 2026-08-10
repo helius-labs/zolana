@@ -18,16 +18,16 @@ const (
 	DomSepNonce        uint32 = 0x43545f4e // "CT_N"
 )
 
-// KdfDomainSep separates the squads zone Poseidon KDF chain from plain Poseidon
+// KdfDomainSep separates the squads ring Poseidon KDF chain from plain Poseidon
 // hashes (e.g. the viewing-key commitment), so an intermediate such as view_root
 // can never equal a published commitment computed over the same key. MUST be
 // mirrored byte-for-byte by the on-chain program and the auditor's blinding
 // recompute.
 var KdfDomainSep = new(big.Int).SetBytes([]byte("TSPP/kdf"))
 
-// PoseidonKDF is one keyed step of the zone KDF chain. It is a Poseidon hash
+// PoseidonKDF is one keyed step of the ring KDF chain. It is a Poseidon hash
 // with KdfDomainSep prepended as the first input.
-// Spec: squads_policy_program.md, Zone Proof "Change-blinding derivation".
+// Spec: squads_policy_program.md, Ring Proof "Change-blinding derivation".
 func PoseidonKDF(api frontend.API, inputs ...frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, append([]frontend.Variable{KdfDomainSep}, inputs...))
 }

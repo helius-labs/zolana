@@ -11,7 +11,7 @@ import type {
   TransactInstructionData,
   TransactOutput,
   TransactProof,
-  ZoneConfigAccount,
+  RingConfigAccount,
 } from "../types.js";
 import { MERGE_INPUT_COUNT } from "../constants.js";
 import { AccountSize } from "../generated/account-sizes.js";
@@ -115,7 +115,7 @@ function writeOwnerTag(writer: Writer, value: OwnerTag): void {
 }
 
 function writeCircuit(writer: Writer, value: TransactInstructionData["circuit"]): void {
-  const tag = value.kind === "confidentialEddsa" ? 0 : value.kind === "zoneEddsa" ? 1 : 2;
+  const tag = value.kind === "confidentialEddsa" ? 0 : value.kind === "ringEddsa" ? 1 : 2;
   writer
     .u16(tag, "circuit.kind")
     .u8(value.inputs, "circuit.inputs")
@@ -160,7 +160,7 @@ function writeTransactData(writer: Writer, value: TransactInstructionData): void
   for (const transfer of value.interfaceTransfers) writeInterfaceTransfer(writer, transfer);
   writer
     .option(value.dataHash, (output, hash) => output.bytes(hash, 32, "dataHash"))
-    .option(value.zoneDataHash, (output, hash) => output.bytes(hash, 32, "zoneDataHash"))
+    .option(value.ringDataHash, (output, hash) => output.bytes(hash, 32, "ringDataHash"))
     .u8(value.outputs.length, "outputs.length");
   for (const output of value.outputs) writeOutput(writer, output);
   writer.u8(value.messages.length, "messages.length");
@@ -263,9 +263,9 @@ export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAc
       authority: readAddress(reader, "authority"),
       treeCreationAuthority: readAddress(reader, "treeCreationAuthority"),
       foresterAuthority: readAddress(reader, "foresterAuthority"),
-      zoneCreationAuthority: readAddress(reader, "zoneCreationAuthority"),
+      ringCreationAuthority: readAddress(reader, "ringCreationAuthority"),
       treeCreationIsPermissionless: reader.nonzeroBool("treeCreationIsPermissionless"),
-      zoneCreationIsPermissionless: reader.nonzeroBool("zoneCreationIsPermissionless"),
+      ringCreationIsPermissionless: reader.nonzeroBool("ringCreationIsPermissionless"),
       splInterfaceCreationIsPermissionless: reader.nonzeroBool(
         "splInterfaceCreationIsPermissionless",
       ),
@@ -297,11 +297,11 @@ export function decodeSplAssetRegistryAccount(bytes: Uint8Array): SplAssetRegist
   );
 }
 
-export function decodeZoneConfigAccount(bytes: Uint8Array): ZoneConfigAccount {
+export function decodeRingConfigAccount(bytes: Uint8Array): RingConfigAccount {
   return decodeAccount(bytes, AccountSize.ringConfig, StateDiscriminator.ringConfig, (reader) => ({
     authority: readAddress(reader, "authority"),
     programId: readAddress(reader, "programId"),
-    zoneAuthorityTransactIsEnabled: reader.nonzeroBool("zoneAuthorityTransactIsEnabled"),
+    ringAuthorityTransactIsEnabled: reader.nonzeroBool("ringAuthorityTransactIsEnabled"),
     paused: reader.nonzeroBool("paused"),
     bump: reader.u8("bump"),
   }));
