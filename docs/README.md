@@ -8,7 +8,7 @@ What each document in this directory answers.
 | [spec.md](spec.md) | what the protocol is. Keys, UTXO layout, accounts, every instruction, and the RPC surface. The source of truth |
 | [properties.md](properties.md) | what must hold, per circuit and per program instruction |
 | [RECURSION.md](RECURSION.md) | what each recursive circuit proves, which width cap it lifts, and what its key costs |
-| [SQUADS.md](SQUADS.md) | how the Squads policy zone owns UTXOs and settles them through the pool |
+| [SQUADS.md](SQUADS.md) | how the Squads policy ring owns UTXOs and settles them through the pool |
 | [vk_registry.md](vk_registry.md) | how registry-backed verification is trusted, initialized, and refused |
 | [registry_program.md](registry_program.md) | how a Solana address maps to a shielded address |
 | [detailed_user_flows.md](detailed_user_flows.md) | what the wallet, the RPC, and the prover exchange in each user flow |

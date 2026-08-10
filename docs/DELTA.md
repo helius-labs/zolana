@@ -111,9 +111,9 @@ produces. Photon reconstructs the whole run before it checks the root, pinned by
 `folded_run_reaches_the_root_of_the_whole_run`. The span planner and the two
 rejection causes have their own pins.
 
-## Squads policy zone and folds
+## Squads policy ring and folds
 
-A complete zone program in `zones/squads`, its own nested workspace. Viewing-key
+A complete ring program in `rings/squads`, its own nested workspace. Viewing-key
 accounts carry auditor and recovery ciphertexts. Spends settle on the P256 rail,
 or on the smart-account rail where a Squads vault with no signing key settles
 through crank-executed proposals. Deposits derive the recipient on chain, and
@@ -125,7 +125,7 @@ key-encryption folds for up to nine recipient keys. The protocol description is
 
 ### E2E
 
-`just test-squads` builds the zone program and runs the unit and LiteSVM suites.
+`just test-squads` builds the ring program and runs the unit and LiteSVM suites.
 The lifecycle suites boot a fresh validator and Photon, because the SPP protocol
 config is a singleton. They prove the product property directly, which is that
 the auditor recovers every balance from on-chain data plus its own secret, with
@@ -220,9 +220,9 @@ The code settles, but a cluster cannot run all of it yet. These are protocol
 gaps, not work items.
 
 **Verifying keys are program constants.** Every key the branch adds is compiled
-in, including the aggregate outer keys, the nullifier fold key, and the zone
+in, including the aggregate outer keys, the nullifier fold key, and the ring
 keys. Rotating any circuit is a program upgrade of every program that embeds its
-key, which is the pool, the zone, and the three example programs. The registry
+key, which is the pool, the ring, and the three example programs. The registry
 caches prepared operands for a key that is still a constant, so it does not make
 keys swappable. Nothing on chain lets an operator move to a new circuit without
 redeploying.
@@ -238,10 +238,10 @@ be paused and a tree can be paused, and both cover the new paths correctly, but
 an operator who wants to stop aggregate batches or folded runs while leaving
 ordinary spends alive has no way to do it.
 
-**A zone is inert until it holds a ring config.** Before any Squads settlement,
-someone must create the ring config for the zone program, which needs the
+**A ring is inert until it holds a ring config.** Before any Squads settlement,
+someone must create the ring config for the ring program, which needs the
 ring-creation authority to sign or the permissionless flag set. Deploying the
-zone program is not enough.
+ring program is not enough.
 
 A folded nullifier update needs the forester authority, the same gate a
 sequential update needs, so the fold asks for no new permission.
@@ -252,13 +252,13 @@ sequential update needs, so the fold asks for no new permission.
 |---|---|---|
 | Static, units, pins | `just check-all`, `just clippy`, `just test-program-fast` | nothing |
 | Proof integration, all rails | `just test-programs` | prover build |
-| Squads zone | `just test-squads` | zone program build |
+| Squads ring | `just test-squads` | ring program build |
 | Validator and Photon | `just test-spp-validator`, `just test-ring-validator`, `just test-swap-validator` | photon, smart-account fixture |
 | VK registry | `just test-vk-registry` | git-pinned agave crate |
 | Aggregate, mixed, swap batch | `just test-aggregate` | local key generation |
 | Merge chain | `nextest -p shielded-pool-tests --features aggregate --test merge_chain_functional` | same keys |
 | Nullifier fold and forester | `just test-nullifier-fold` | local fold keys |
-| Squads proof-backed and lifecycle | `just test-squads` after `generate_keys_squads.sh` | zone keys, validator, photon |
+| Squads proof-backed and lifecycle | `just test-squads` after `generate_keys_squads.sh` | ring keys, validator, photon |
 | Device route | `go test -tags "cuda icicle cudawitgen" ./prover/aggregate/...` | CUDA box with ICICLE |
 | GPU dispatch, load, bench | `PROVER_LOAD_TEST=1 go test -tags "cuda icicle" ./circuits/...` | CUDA box with ICICLE |
 
@@ -295,11 +295,11 @@ Aggregate batches and the swap take-batch do not fit the 1232-byte transaction
 and need the 4096-byte transaction of SIMD-0296. Ship dates depend on that being
 active on the target cluster.
 
-### Where the zone boundary sits
+### Where the ring boundary sits
 
-`zones/squads` is excluded from the root workspace and carries its own lockfile,
+`rings/squads` is excluded from the root workspace and carries its own lockfile,
 while Photon depends on its interface crate across that boundary. The crate
 resolves twice, and nothing forces the two resolutions to agree. Either the
 interface crate joins the root workspace, or Photon gets a decoder that lives
-there. The wider question is whether a policy zone is a nested workspace at all,
-because the next zone inherits whatever is decided here.
+there. The wider question is whether a policy ring is a nested workspace at all,
+because the next ring inherits whatever is decided here.

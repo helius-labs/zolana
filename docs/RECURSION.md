@@ -78,7 +78,7 @@ circuit must assert.
 |---|---|---|
 | independent legs | none, only order | `spp_aggregate` |
 | produced then consumed | an earlier leg produces a later leg's input | `nullifier_fold`, `spp_merge_chain` |
-| equality across legs | every leg agrees on the fields the account holds once | `squads_zone_fold`, `squads_key_encryption_fold` |
+| equality across legs | every leg agrees on the fields the account holds once | `squads_ring_fold`, `squads_key_encryption_fold` |
 
 Independent legs need no preimage: order alone is the statement, so chaining the
 opaque public inputs is enough. The other two need it, because their predicate is
@@ -97,7 +97,7 @@ width.
 | `merge` 8 to 1, fixed | consolidation takes several sequential rounds | `merge_chain_transact` |
 | forester append batch, 10 or 250 at height 40 | one transaction per zkp batch | `batch_update_nullifier_tree_folded` |
 | Squads key encryption, 1 to 3 keys | an account with more keys cannot be proved at all | `squads/key_encryption_fold` |
-| Squads zone transfer, (1,1) and (2,2) | three UTXOs cannot be spent together | `squads/zone_fold` |
+| Squads ring transfer, (1,1) and (2,2) | three UTXOs cannot be spent together | `squads/ring_fold` |
 
 Recursion is not a throughput mechanism. `transact` already spans 5 inputs and 8
 outputs, so one party rarely needs a second proof, and the outer proof costs one
@@ -126,9 +126,9 @@ recovery keys plus auditors, while `ViewingKeyAccount` is sized for more than
 that. Folding legs that must agree on the shared viewing key, its commitment,
 and the shared ephemeral key reaches 6 and 9.
 
-#### Three UTXOs in one zone spend
+#### Three UTXOs in one ring spend
 
-Zone transfer has keys for (1,1) and (2,2) only. Folding two legs spends 4 and
+Ring transfer has keys for (1,1) and (2,2) only. Folding two legs spends 4 and
 three legs spends 6, padded down with the dummy-input flag.
 
 ## What is built
@@ -142,8 +142,8 @@ input, so no new syscall is involved.
 | `spp_aggregate` | `aggregate_transact`, tag 18 | order only | `aggregate_reports_compute` (`shielded-pool-tests`) |
 | `nullifier_fold` | `batch_update_nullifier_tree_folded`, tag 19 | root and index continuity | `nullifier_tree_folded_run_matches_sequential_appends` |
 | `spp_merge_chain` | `merge_chain_transact`, tag 20 | chained slot equality | `merge_chain_collapses_fifteen_utxos_in_one_transaction` |
-| `squads/zone_fold` | `fold_transact`, tag 17 (zone) | shared account fields | `three_utxos_spend_together_under_one_fold` |
-| `squads/key_encryption_fold` | zone account creation | shared viewing key | `a_wider_key_set_than_any_leg_proves_is_provable` |
+| `squads/ring_fold` | `fold_transact`, tag 17 (ring) | shared account fields | `three_utxos_spend_together_under_one_fold` |
+| `squads/key_encryption_fold` | ring account creation | shared viewing key | `a_wider_key_set_than_any_leg_proves_is_provable` |
 
 ### Forester nullifier fold
 
@@ -355,7 +355,7 @@ Selector to key resolution is fail closed in both directions, tested by
 
 ### Squads folds
 
-`squads/key_encryption_fold` and `squads/zone_fold` lift the two Squads width
+`squads/key_encryption_fold` and `squads/ring_fold` lift the two Squads width
 caps. They differ from the folds above in their predicate. The legs are
 parallel statements about one account rather than a state chain, so what holds
 a run together is equality on the fields that account holds once.
@@ -371,7 +371,7 @@ summed width would expose, so `select_key_encryption_vk` resolves a folded
 count to a fold key and nothing else in the program changes. Six and nine keys
 have a key.
 
-For the zone, `private_tx_hash` binds a leg's whole input and output set, so no
+For the ring, `private_tx_hash` binds a leg's whole input and output set, so no
 leg continues another. Each keeps its own SPP proof and settles through its own
 `ring_transact`. `fold_transact` (tag 17) verifies the fold once and forwards
 one CPI per leg. A leg carries no proposal, because a proposal commits to one
@@ -383,8 +383,8 @@ Constraint counts are pinned by the `size_test.go` of each fold package.
 |---|---|---:|---:|
 | key encryption | 3 keys | 2 | 2,583,619 |
 | key encryption | 3 keys | 3 | 3,776,084 |
-| zone | 2x2 transfer | 2 | 2,576,895 |
-| zone | 2x2 transfer | 3 | 3,766,715 |
+| ring | 2x2 transfer | 2 | 2,576,895 |
+| ring | 2x2 transfer | 3 | 3,766,715 |
 
 Both track the committed aggregate family, because both leg circuits expose one
 public input and one BSB22 commitment from their emulated P-256 arithmetic.
@@ -408,7 +408,7 @@ One rejection test per equality the fold asserts, in
 | Legs must agree on the shared ephemeral key | `TestFoldRejectsADisagreeingEphemeralKey` |
 | Legs must agree on the nullifier pair | `TestFoldRejectsADisagreeingNullifierPair` |
 
-and in `prover/server/circuits/squads/zone_fold`:
+and in `prover/server/circuits/squads/ring_fold`:
 
 | Invariant | Test |
 |---|---|
