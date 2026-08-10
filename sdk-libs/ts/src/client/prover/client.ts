@@ -26,20 +26,34 @@ const RETRY_DELAY_MS = 2_000n;
 /// Generous enough for a cold prove that first loads a 63MB proving key, so a
 /// clean server-side timeout still returns before it.
 const REQUEST_TIMEOUT_MS = 600_000;
-/// Floor on the status-poll interval so a misconfigured client cannot spin.
-const MIN_POLL_INTERVAL_MS = 1_000;
+/**
+ * First gap between status polls, doubling up to `pollIntervalCapMs`.
+ *
+ * Matches the Rust client's `INITIAL_POLL_MS`. A flat interval pays its full
+ * length on every proof: at 3s, a proof that finished in 1.3s still waited for
+ * the next tick, which was most of the TypeScript SDK's per-transfer latency and
+ * looked like slow local compute because sleeping burns no CPU and issues no
+ * request. Starting small and backing off keeps the common case tight without
+ * hammering the prover while a genuinely long proof runs.
+ */
+const INITIAL_POLL_INTERVAL_MS = 25;
 const PROVE_PATH = "/prove";
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
 /// returns a job handle instead of a proof, and the client polls
 /// `/prove/status` until it completes.
 export interface AsyncPollConfig {
-  readonly pollIntervalMs: number;
+  /**
+   * Ceiling for the gap between status polls. Polling starts at 25ms and
+   * doubles up to this, so a fast proof is noticed quickly and a slow one does
+   * not generate a request per 25ms for its whole duration.
+   */
+  readonly pollIntervalCapMs: number;
   readonly maxWaitMs: number;
 }
 
 const DEFAULT_ASYNC_POLL_CONFIG: AsyncPollConfig = Object.freeze({
-  pollIntervalMs: 3_000,
+  pollIntervalCapMs: 1_000,
   maxWaitMs: 1_200_000,
 });
 
@@ -151,7 +165,8 @@ export class ProverClient {
     const url = new URL(this.#url);
     url.pathname = url.pathname.replace(/\/prove$/u, "/prove/status");
     url.searchParams.set("job_id", jobId);
-    const interval = Math.max(MIN_POLL_INTERVAL_MS, this.#asyncPoll.pollIntervalMs);
+    const intervalCap = Math.max(INITIAL_POLL_INTERVAL_MS, this.#asyncPoll.pollIntervalCapMs);
+    let interval = INITIAL_POLL_INTERVAL_MS;
     const maxWaitMs = this.#asyncPoll.maxWaitMs;
     const deadline = Date.now() + maxWaitMs;
     const remainingMs = (): number => Math.max(0, deadline - Date.now());
@@ -165,6 +180,7 @@ export class ProverClient {
       if (remaining === 0) timeout();
       const sleepMs = Math.min(interval, remaining);
       await sleep(BigInt(sleepMs), { signal: signal.signal });
+      interval = Math.min(interval * 2, intervalCap);
     };
     for (;;) {
       // The Rust status GET inherits the shared client's request timeout, so a
@@ -367,11 +383,11 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function asyncPollConfig(input: AsyncPollConfig | undefined): AsyncPollConfig {
   if (input === undefined) return DEFAULT_ASYNC_POLL_CONFIG;
-  for (const field of ["pollIntervalMs", "maxWaitMs"] as const) {
+  for (const field of ["pollIntervalCapMs", "maxWaitMs"] as const) {
     const value = input[field];
     if (!Number.isSafeInteger(value) || value <= 0) {
       throw new ClientError("CLIENT_INVALID_POLL_CONFIG", { details: { field } });
     }
   }
-  return Object.freeze({ pollIntervalMs: input.pollIntervalMs, maxWaitMs: input.maxWaitMs });
+  return Object.freeze({ pollIntervalCapMs: input.pollIntervalCapMs, maxWaitMs: input.maxWaitMs });
 }

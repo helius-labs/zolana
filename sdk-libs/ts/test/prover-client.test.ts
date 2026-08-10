@@ -90,7 +90,7 @@ describe("queued prover polling", () => {
     const prover = new ProverClient({
       url: "http://127.0.0.1:3001",
       fetch,
-      asyncPoll: { pollIntervalMs: 1_000, maxWaitMs: 2_000 },
+      asyncPoll: { pollIntervalCapMs: 1_000, maxWaitMs: 2_000 },
     });
 
     const settled = prover.prove(INPUTS);
