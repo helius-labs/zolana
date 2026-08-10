@@ -52,6 +52,11 @@
     - [ring_deposit](#ring_deposit)
     - [merge_transact](#merge_transact)
     - [merge_ring](#merge_ring)
+    - [aggregate_transact](#aggregate_transact)
+    - [batch_update_nullifier_tree_folded](#batch_update_nullifier_tree_folded)
+    - [merge_chain_transact](#merge_chain_transact)
+    - [init_vk_registry](#init_vk_registry)
+    - [Errors](#errors)
 - [Ring Program Interface](#ring-program-interface)
 - [ZK Program Interface](#zk-program-interface)
 - [RPC](#rpc)
@@ -1185,7 +1190,9 @@ Usage by instruction:
 
 Tags 0–9 cover administration and maintenance, tag 10 is the internal event
 hook, tags 11–13 are default-ring operations, and tags 14–17 are policy-ring
-operations.
+operations. Tags 18–20 settle several statements against one recursive proof.
+Tag 21 dispatches only in a `vk-registry` build. Every other byte is rejected
+as unknown instruction data on every build.
 
 | Instruction | Description |
 | --- | --- |
@@ -1207,6 +1214,10 @@ operations.
 | ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
 | merge_ring | Tag 16; CPI from an active ring program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
+| aggregate_transact | Tag 18. Settles a batch of `transact` legs against one recursive proof. Each leg runs the [`transact`](#transact) pipeline except its own pairing. See [`aggregate_transact`](#aggregate_transact). |
+| batch_update_nullifier_tree_folded | Tag 19. Gated by `protocol_config.forester_authority`. Advances the nullifier tree by a run of consecutive zkp batches against one folded proof and appends one root. See [`batch_update_nullifier_tree_folded`](#batch_update_nullifier_tree_folded). |
+| merge_chain_transact | Tag 20. Collapses a tree of merge legs against one recursive proof, appending only the top leg's output. Authorized by the same `merging_enabled` opt-in as [`merge_transact`](#merge_transact). See [`merge_chain_transact`](#merge_chain_transact). |
+| init_vk_registry | Tag 21. A `vk-registry` build only, and a default build rejects it as unknown. Permissionless creation of the registry account of one catalogued verifying key. See [`init_vk_registry`](#init_vk_registry). |
 
 ### `transact`
 
@@ -1763,6 +1774,7 @@ Every entry's `blinding` is a fresh CSPRNG value sent in the clear, as in
 | 2 | output_tree | x |   | receives the merged output commitment; may equal `input_tree` |
 | 3 | payer |   | x | fee payer; any account may run the merge |
 | 4 | user_record |   |   | read-only; the owner's [registry](#registry) record. SPP checks `merging_enabled == true` and binds the proof's owner `pk_field(user_signing_pk)` to it (rail-selected by `eddsa_owner`) |
+| 5 | system_program |   |   | canonical System Program |
 
 **Instruction data**
 
@@ -1846,6 +1858,292 @@ cleanliness and output-well-formed rules.
 3. Proof verifies against public inputs (the policy-ring variant: inputs share `ring_program_id` = `ring_config.program_id`; output preserves it; `data_hash = 0` on every non-dummy input and on the output).
 4. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 5. Insert each input nullifier into `input_tree`'s nullifier queue — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`.
+
+### `aggregate_transact`
+
+**Discriminator:** 18
+
+**Description.** Settles a batch of [`transact`](#transact) legs against one
+recursive proof. Per leg the program runs the whole `transact` pipeline except
+that leg's pairing and keeps the leg's public-input hash, then chains the
+hashes in batch order and verifies one outer proof. A leg keeps the instruction
+discriminator it would carry alone, so one leg proof is valid both on its own
+and inside a batch. The batch selector names the outer verifying key, the rail,
+the leg shape, and the batch size. [RECURSION.md](RECURSION.md#aggregate-transact)
+states the outer circuit, the key catalogue, and the transaction size a batch
+needs.
+
+**Accounts**
+
+One account run per leg, concatenated in leg order, with the run lengths
+declared in the instruction data. A run is the [`transact`](#transact) fixed
+prefix (`payer`, `input_tree`, `output_tree`, the SPP program account, the
+canonical System Program), then the `ring_config` account on a ring rail, then
+that leg's owner-signer run and public settlement groups in the layout
+`transact` defines.
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| .. | leg runs |   |   | `leg_account_counts[i]` accounts for leg `i`, in leg order |
+| n | vk_registry |   |   | optional trailing read-only registry for the outer key, in a `vk-registry` build. One account serves the whole batch. See [`init_vk_registry`](#init_vk_registry) |
+
+The declared counts are instruction data and therefore attacker-controlled, so
+their total is compared against the account list before any leg settles.
+
+**Instruction data**
+
+```rust
+struct AggregateTransactIxData {
+    /// Names the outer verifying key, the rail, the leg shape, and the batch
+    /// size.
+    circuit: AggregateCircuitId,
+    /// Over the Poseidon chain of the leg public-input hashes.
+    proof: TransactProof,
+    /// Always present. Emulated arithmetic in the recursive verifier
+    /// range-checks its limbs, which produces the commitment.
+    bsb22_commitment: Bsb22Commitment,
+    /// Ordinary [`TransactIxData`](#transact) payloads, `u8` count.
+    legs: Vec<TransactIxData>,
+    /// Accounts each leg consumes, in leg order, `u8` count. The `transact`
+    /// parser finds owner signers by scanning for the first non-signer, which
+    /// is ambiguous once leg runs are concatenated.
+    leg_account_counts: Vec<u8>,
+}
+```
+
+**Checks**
+
+1. `circuit` is supported and resolves to a committed outer verifying key
+   (`InvalidAggregateBatch`).
+2. `legs.len()` equals the selector's batch size, and `leg_account_counts.len()`
+   equals `legs.len()` (`InvalidAggregateBatch`).
+3. Every leg's `CircuitId` is one the selector accepts
+   (`MismatchedCircuitType`), and the leg's input, output, and public-slot
+   counts match that shape (`InvalidTransactShape`).
+4. Every leg's `proof` is zero, and a P256 leg's `bsb22_commitment` is zero
+   (`AggregateLegCarriesProof`). Neither is part of the statement, so a
+   non-zero value would be unconstrained instruction data.
+5. Every declared count covers at least the five fixed accounts, and the counts
+   total the account list length (`InvalidAggregateBatch`). Both are checked
+   before any leg settles.
+6. Per leg, in order, over that leg's own account run: [`transact`](#transact)
+   checks 1 to 6 and 8 to 13, keeping the leg's public-input hash in place of a
+   per-leg proof verification. The leg's `external_data_hash` binds the
+   discriminator the leg would carry alone, not tag 18.
+7. Verify the outer proof against the Poseidon chain over the leg hashes in
+   batch order (`AggregateProofVerificationFailed`). The chain is a left fold,
+   so batch order is part of the statement.
+
+The outer proof verifies after the last leg has settled, so a batch that fails
+at any step applies no leg.
+
+**Event**
+
+Every leg emits the [`GeneralEvent`](#general-event) it would emit alone.
+
+### `batch_update_nullifier_tree_folded`
+
+**Discriminator:** 19
+
+**Description.** Advances a nullifier tree by a run of consecutive zkp batches
+against one folded proof. Plain
+[`batch_update_nullifier_tree`](#instructions) settles one zkp batch per
+transaction, because each append checks its old root against the tree's current
+root. The fold proves the whole run advanced the root correctly and settles it
+in one transaction. The run applies only at the head, so `StartIndex` is the
+tree's current next index rather than a caller-supplied offset.
+
+**Root history.** A folded run appends exactly one root. The intermediate roots
+stay private to the proof and never enter `root_history`. That is sound because
+those roots never existed on chain, so no client could have bound a proof to
+one. Anything that assumes one history entry per zkp batch MUST read
+`num_update` on the emitted batch address-append event instead of counting
+roots.
+
+**Accounts**
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| 1 | authority |   | x | must equal `protocol_config.forester_authority` |
+| 2 | protocol_config |   |   | read-only |
+| 3 | tree | x |   | the nullifier tree the run advances |
+| 4 | reimbursement_recipient | x |   | receives the forester reimbursement for the run |
+
+The folded path takes no registry account.
+
+**Instruction data**
+
+```rust
+/// Borsh, in this order.
+struct BatchUpdateNullifierTreeFoldedIxData {
+    /// Zkp batches the fold covers.
+    run: u32,
+    inputs: FoldedAddressAppendInputs,
+}
+
+struct FoldedAddressAppendInputs {
+    old_root: [u8; 32],
+    new_root: [u8; 32],
+    proof: CommittedProof,
+}
+```
+
+**Checks**
+
+1. `authority` signs and equals `protocol_config.forester_authority`
+   (`UnauthorizedCaller`).
+2. `run` is at least 2. A run of one does not amortize and has no key.
+3. The pending batch holds at least `run` full zkp batches that are not yet
+   inserted.
+4. `old_root` equals the tree account's current root, checked before verifying,
+   so a run against another tree state costs no pairing.
+5. The element hash chain of every leg comes from account state, so the caller
+   cannot choose which elements the run claims to have appended.
+6. The proof verifies against
+   `HashChain(old_root, new_root, elements, start_index)` for this tree height,
+   zkp batch size, and `run`.
+7. Advance the next index by `run × zkp_batch_size`, append `new_root` once,
+   and mark `run` zkp batches inserted.
+8. Reimburse the forester for `num_update` batches, then emit the batch
+   address-append event. The emit stays the last fallible step, so an indexer
+   never records an update that did not apply.
+
+Every failure in checks 2 to 7 returns `NullifierTreeUpdateFailed`.
+
+### `merge_chain_transact`
+
+**Discriminator:** 20
+
+**Description.** Collapses more UTXOs than the fixed 8-in/1-out merge shape by
+feeding an intermediate merge output straight into the next level inside one
+recursive proof. Only the top leg's output is appended, and every level below
+stays inside the proof, so the rounds a plain [`merge_transact`](#merge_transact)
+runs sequentially collapse into one transaction. Only the UTXOs the chain spends
+out of the state tree publish a nullifier, so the transaction size caps the run
+rather than the merge circuit's eight inputs.
+[RECURSION.md](RECURSION.md#merge-chain) states the level shape, the statement,
+and the key catalogue.
+
+**Accounts**
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| 1 | input_tree | x |   | supplies historical roots and receives the input nullifiers |
+| 2 | output_tree | x |   | receives the top leg's output commitment, and may equal `input_tree` |
+| 3 | payer |   | x | fee payer. Any account may run the chain |
+| 4 | user_record |   |   | read-only. The owner's [registry](#registry) record, as in [`merge_transact`](#merge_transact) |
+| 5 | system_program |   |   | canonical System Program |
+| 6 | vk_registry |   |   | optional trailing read-only registry for the outer key, in a `vk-registry` build. See [`init_vk_registry`](#init_vk_registry) |
+
+**Instruction data**
+
+```rust
+struct MergeChainTransactIxData {
+    /// Unix timestamp in seconds.
+    expiry_unix_ts: u64,
+    proof: MergeProof,
+    /// Always present. Emulated arithmetic in the recursive verifier
+    /// range-checks its limbs, which produces the commitment.
+    bsb22_commitment: Bsb22Commitment,
+    /// The top leg's output. Appended to the UTXO tree.
+    output_utxo_hash: [u8; 32],
+    /// Rail selector for the owner identity, as in
+    /// [`merge_transact`](#merge_transact).
+    eddsa_owner: bool,
+    /// Legs per level, bottom level first. Selects the outer verifying key, so
+    /// a chain cannot claim a tree its proof did not collapse. `u8` count.
+    levels: Vec<u8>,
+    /// One per leg, in leg order. An intermediate leg publishes nothing else,
+    /// so an indexer reconstructs it from this. `u8` count.
+    private_tx_hashes: Vec<[u8; 32]>,
+    /// Tree-backed slots only, in leg then slot order. A chained slot spends a
+    /// UTXO no tree holds, so it has no nullifier to insert. `u8` count.
+    nullifiers: Vec<[u8; 32]>,
+    /// One per tree-backed slot, in the same order. `u8` count.
+    utxo_tree_root_index: Vec<u16>,
+    nullifier_tree_root_index: Vec<u16>,
+}
+```
+
+**Checks**
+
+1. `levels` names a generated verifying key (`UnsupportedMergeChainShape`), and
+   every vector has the length that shape implies (`InvalidMergeShape`). The
+   shape is attacker-controlled and selects the key, so it resolves before any
+   length is trusted.
+2. `current_unix_ts <= expiry_unix_ts`.
+3. SPP loads `user_record` and derives the owner identity by the `eddsa_owner`
+   rail, exactly as [`merge_transact`](#merge_transact) check 5 describes.
+4. The record has `merging_enabled == true` (`MergeDisabled`).
+5. Each `utxo_tree_root_index[i]` and `nullifier_tree_root_index[i]` references
+   a non-stale root in `input_tree`. The resolved roots enter the public input
+   in leg then slot order.
+6. Insert each `nullifiers[i]` into `input_tree`'s nullifier queue.
+7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
+8. The proof verifies against the chain over the per-slot nullifiers, the output
+   hash, the per-slot UTXO and nullifier roots, the chained private tx hashes,
+   `external_data_hash`, `allow_dummy_inputs`, and the owner `pk_field`
+   (`TransactProofVerificationFailed`). `external_data_hash` folds tag 20, so a
+   chain proof cannot be replayed as a plain merge, or the reverse.
+9. Reimburse the forester and emit a [`GeneralEvent`](#general-event) tagged
+   with the owner signing pubkey, as a plain merge does.
+
+### `init_vk_registry`
+
+**Discriminator:** 21, in a `vk-registry` build only
+
+**Description.** Creates the registry account of one catalogued verifying key,
+which caches that key's prepared G2 operands and its `e(alpha, beta)` target.
+The account exceeds the per-transaction allocation cap, so creation is a step
+machine driven by resending one instruction. Create at the cap, one resize per
+transaction, then a final step that prepares the sources and sets `finalized`.
+No authority is involved. The account address is a PDA over a digest of the key
+material, so only the account for exactly one key can pass, and its contents
+derive from compile-time constants and deterministic syscalls.
+[vk_registry.md](vk_registry.md) states the trust model, the layout, the failure
+modes, and what the permissionless flow deliberately does not enforce.
+
+**Accounts**
+
+| # | Name | W | S | Description |
+| --- | --- | --- | --- | --- |
+| 1 | payer | x | x | funds creation and every rent top-up |
+| 2 | vk_registry | x |   | the key's registry PDA |
+| 3 | system_program |   |   | canonical System Program |
+
+**Instruction data**
+
+One byte, the key's index into the committed verifying-key catalog.
+
+**Checks**
+
+1. The index names a catalogued key (`InvalidVkRegistryIndex`).
+2. `vk_registry` matches that key's PDA address constant
+   (`InvalidVkRegistryAccount`).
+3. On a created account the header names this layout, this validator backend,
+   and this key's source count, and is not yet finalized
+   (`InvalidVkRegistryAccount`, `VkRegistryAlreadyInitialized`).
+4. The final step runs only at the target length, prepares every canonical
+   source, writes the GT target, and sets `finalized`
+   (`VkRegistryInitFailed`).
+
+### Errors
+
+Every SPP error is a `ShieldedPoolError` variant in the `7000` space, defined
+once in `program-libs/interface/src/error.rs` and pinned by
+`error_codes_are_stable`. The variants the instructions above add:
+
+| Error | Code | Raised when |
+| --- | --- | --- |
+| `InvalidAggregateBatch` | 7048 | the batch selector, the leg count, or the declared account counts disagree with the account list or the outer key |
+| `AggregateLegCarriesProof` | 7049 | a leg carries a non-zero proof or BSB22 commitment |
+| `AggregateProofVerificationFailed` | 7050 | the outer proof does not verify against the chain over the settled leg hashes |
+| `UnsupportedMergeChainShape` | 7051 | the level shape names no generated verifying key |
+| `InvalidVkRegistryAccount` | 7052 | a registry account's address, owner, length, or header does not match the key's spec |
+| `InvalidVkRegistryIndex` | 7053 | the catalog index is out of range |
+| `VkRegistryAlreadyInitialized` | 7054 | an init step runs against an already finalized account |
+| `VkRegistryNotReady` | 7055 | a verification path is passed a registry account that is not finalized |
+| `VkRegistryInitFailed` | 7056 | a prepare syscall rejects a source or the alpha-beta pair |
 
 # Ring Program Interface
 

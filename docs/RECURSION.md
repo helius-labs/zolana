@@ -39,8 +39,8 @@ A leg keeps the form the on-chain rail produced. A leg whose own circuit carries
 a BSB22 commitment needs `stdgroth16.WithNativeHashToField`, which derives the
 commitment challenge with RFC 9380 `expand_message_xmd` over SHA-256, the way
 the native prover does. gnark's default is MiMC, which no proof sent on chain
-uses. `spp_aggregate` passes it. `nullifier_fold` and `spp_merge_chain` do
-not, because the append and merge circuits declare no
+uses. `spp_aggregate` and both squads folds pass it. `nullifier_fold` and
+`spp_merge_chain` do not, because the append and merge circuits declare no
 commitment. This is most of the gap between the uncommitted and committed
 per-leg costs in the catalogue below.
 
@@ -78,6 +78,7 @@ circuit must assert.
 |---|---|---|
 | independent legs | none, only order | `spp_aggregate` |
 | produced then consumed | an earlier leg produces a later leg's input | `nullifier_fold`, `spp_merge_chain` |
+| equality across legs | every leg agrees on the fields the account holds once | `squads_zone_fold`, `squads_key_encryption_fold` |
 
 Independent legs need no preimage: order alone is the statement, so chaining the
 opaque public inputs is enough. The other two need it, because their predicate is
@@ -95,6 +96,8 @@ width.
 |---|---|---|
 | `merge` 8 to 1, fixed | consolidation takes several sequential rounds | `merge_chain_transact` |
 | forester append batch, 10 or 250 at height 40 | one transaction per zkp batch | `batch_update_nullifier_tree_folded` |
+| Squads key encryption, 1 to 3 keys | an account with more keys cannot be proved at all | `squads/key_encryption_fold` |
+| Squads zone transfer, (1,1) and (2,2) | three UTXOs cannot be spent together | `squads/zone_fold` |
 
 Recursion is not a throughput mechanism. `transact` already spans 5 inputs and 8
 outputs, so one party rarely needs a second proof, and the outer proof costs one
@@ -116,6 +119,18 @@ against the tree's current root, so the forester submits one transaction per zkp
 batch. A fold proves the whole span advanced the root correctly and settles it
 in one.
 
+#### Recipient keys on a Squads account
+
+The key-encryption circuit is keyed by count and supports 1, 2, or 3, counting
+recovery keys plus auditors, while `ViewingKeyAccount` is sized for more than
+that. Folding legs that must agree on the shared viewing key, its commitment,
+and the shared ephemeral key reaches 6 and 9.
+
+#### Three UTXOs in one zone spend
+
+Zone transfer has keys for (1,1) and (2,2) only. Folding two legs spends 4 and
+three legs spends 6, padded down with the dummy-input flag.
+
 ## What is built
 
 Each settles through its own instruction and verifies with `verify_groth16`
@@ -127,6 +142,8 @@ input, so no new syscall is involved.
 | `spp_aggregate` | `aggregate_transact`, tag 18 | order only | `aggregate_reports_compute` (`shielded-pool-tests`) |
 | `nullifier_fold` | `batch_update_nullifier_tree_folded`, tag 19 | root and index continuity | `nullifier_tree_folded_run_matches_sequential_appends` |
 | `spp_merge_chain` | `merge_chain_transact`, tag 20 | chained slot equality | `merge_chain_collapses_fifteen_utxos_in_one_transaction` |
+| `squads/zone_fold` | `fold_transact`, tag 17 (zone) | shared account fields | `three_utxos_spend_together_under_one_fold` |
+| `squads/key_encryption_fold` | zone account creation | shared viewing key | `a_wider_key_set_than_any_leg_proves_is_provable` |
 
 ### Forester nullifier fold
 
@@ -336,6 +353,74 @@ In the circuit, tested in `prover/server/circuits/spp_aggregate`:
 Selector to key resolution is fail closed in both directions, tested by
 `support_and_keys_agree` in `program-libs/interface/tests/aggregate_circuit.rs`.
 
+### Squads folds
+
+`squads/key_encryption_fold` and `squads/zone_fold` lift the two Squads width
+caps. They differ from the folds above in their predicate. The legs are
+parallel statements about one account rather than a state chain, so what holds
+a run together is equality on the fields that account holds once.
+
+Each fold's public input carries those shared fields once and every leg's own
+fields after them. Reading the shared half from the first leg is sound only
+because of the equality assertions. Without them a later leg could encrypt a
+different viewing secret, or spend another account, and the chain the program
+recomputes would still match.
+
+For key encryption the resulting chain is exactly what a single circuit of the
+summed width would expose, so `select_key_encryption_vk` resolves a folded
+count to a fold key and nothing else in the program changes. Six and nine keys
+have a key.
+
+For the zone, `private_tx_hash` binds a leg's whole input and output set, so no
+leg continues another. Each keeps its own SPP proof and settles through its own
+`ring_transact`. `fold_transact` (tag 17) verifies the fold once and forwards
+one CPI per leg. A leg carries no proposal, because a proposal commits to one
+recipient amount and a folded run would settle it once per leg.
+
+Constraint counts are pinned by the `size_test.go` of each fold package.
+
+| fold | leg | legs | constraints |
+|---|---|---:|---:|
+| key encryption | 3 keys | 2 | 2,583,619 |
+| key encryption | 3 keys | 3 | 3,776,084 |
+| zone | 2x2 transfer | 2 | 2,576,895 |
+| zone | 2x2 transfer | 3 | 3,766,715 |
+
+Both track the committed aggregate family, because both leg circuits expose one
+public input and one BSB22 commitment from their emulated P-256 arithmetic.
+
+A fold covers leg width times leg count and nothing between, so the reachable
+recipient counts are 6 and 9 and the reachable UTXO counts are 4 and 6, padded
+down with the dummy-input flag. A count between them needs another leg width.
+Adding 2 to `keyEncryptionFoldSupportedKeys` and its two mirrors reaches 4, at
+the cost of one more setup per leg count.
+
+#### Security invariants
+
+One rejection test per equality the fold asserts, in
+`prover/server/circuits/squads/key_encryption_fold`:
+
+| Invariant | Test |
+|---|---|
+| Legs must agree on the account state they extend | `TestFoldRejectsADisagreeingOldStateHash` |
+| Legs must agree on the shared viewing key | `TestFoldRejectsADisagreeingSharedViewingKey` |
+| Legs must agree on its commitment | `TestFoldRejectsADisagreeingCommitment` |
+| Legs must agree on the shared ephemeral key | `TestFoldRejectsADisagreeingEphemeralKey` |
+| Legs must agree on the nullifier pair | `TestFoldRejectsADisagreeingNullifierPair` |
+
+and in `prover/server/circuits/squads/zone_fold`:
+
+| Invariant | Test |
+|---|---|
+| Legs must agree on the sender | `TestFoldRejectsADisagreeingSender` |
+| Legs must agree on the recipient | `TestFoldRejectsADisagreeingRecipient` |
+| No leg may carry a proposal | `TestFoldRejectsALegCarryingAProposal`, `TestFoldRejectsAProposalOnTheFirstLeg` |
+
+Both folds share the four guards every opening fold needs:
+`TestFoldRejectsAPreimageTheProofDidNotCommitTo`,
+`TestFoldRejectsReorderedLegs`, `TestFoldRejectsAWrongFoldHash`, and
+`TestFoldRejectsAProofForAnotherKey`.
+
 ## Keys
 
 Every outer key is local. None is published, none is in the lockfile, and none
@@ -349,7 +434,9 @@ That has two consequences the scripts exist to handle.
 A regenerated inner key carries a different verifying key, and an outer key
 compiled against it would embed one that no on-chain constant matches.
 `setup-aggregate`, `setup-nullifier-fold`, and `setup-merge-chain` each check
-the inner key against the lockfile before they run.
+the inner key against the lockfile before they run. The squads leg keys are
+local too, so `generate_keys_squads.sh` makes the leg keys and the folds
+compiled against them in one pass.
 
 #### A key rewrites its own committed constant every time
 
@@ -362,6 +449,7 @@ must be rebuilt before they verify that key's proofs.
 |---|---|---|
 | `spp_aggregate`, `spp_merge_chain` | `generate_keys_aggregate.sh` | `just test-aggregate` |
 | `nullifier_fold` | `generate_keys_nullifier_fold.sh` | `just test-nullifier-fold` |
+| squads legs and folds | `generate_keys_squads.sh` | squads SDK tests |
 
 Each recipe regenerates, rewrites, and rebuilds in that order, so a machine
 holding no keys reproduces the catalogue. Run them in the order the standing gates list them.
@@ -397,7 +485,7 @@ Compiled against the pinned inner keys and pinned by `TestAggregateCompileCost`:
 
 The per-leg cost is the difference between adjacent batch rows, which
 `TestAggregateCompileCost` pins with them. The level count is the solver depth,
-which bounds how much of the witness can be generated in parallel.
+which bounds witness-generation parallelism on the device route.
 
 ### Mixed batches
 
@@ -427,3 +515,17 @@ takes one `--slot` per leg, either an inner key file for a transfer rail or
 The outer circuit keeps exactly one BSB22 commitment for every shape, uniform or
 mixed, committed or not. That commitment comes from the emulated range checker,
 not from the batched proofs.
+
+### Device route
+
+Two device-witness properties are checked per shape at compile time, by
+`TestAggregateCompileCost` and `TestMixedAggregateCompileCost`.
+
+- No compiled shape contains a `BlueprintLookupHint`, the committed family
+  included. The in-circuit SHA-256 of the native hash-to-field lowers to plain
+  R1CS, so the tape exporter's lookup refusal reaches none of the catalogue.
+- Every shape keeps exactly one BSB22 commitment, so the single-commitment
+  device path holds.
+
+The tape carries one host-fallback hint family,
+`millerLoopAndCheckFinalExpHint`, one call per leg.

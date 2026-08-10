@@ -26,7 +26,7 @@ holder prove any app statement, but the SPP leg still verifies under our fixed
 key, so the pool stays sound and the blast radius is the app that chose the key.
 The one requirement is that a registry entry cannot be borrowed across apps.
 
-A verifying-key registry is the validating home for such keys. Its
+The [VK registry](../vk_registry.md) is the validating home for such keys. Its
 PDA address commits to the key material, and init runs `g2_prepare`, which
 enforces curve and r-order subgroup membership, and `pairing_map`, which fixes
 the GT target. An in-circuit witness path omits all three.

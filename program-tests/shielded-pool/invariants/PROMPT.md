@@ -64,7 +64,7 @@ Analyze the following code (validation is spread between the program and the int
 
 ### Completeness Requirement: coverage matrix
 
-The program dispatches 21 tags: EmitEvent, Transact, RingTransact, RingAuthorityTransact, CreateTree, BatchUpdateNullifierTree, Deposit, RingDeposit, CreateAssetCounter, CreateSplInterface, CreateProtocolConfig, UpdateProtocolConfig, PauseTree, CreateRingConfig, UpdateRingConfigOwner, UpdateRingConfig, MergeTransact, RingMergeTransact, AggregateTransact, BatchUpdateNullifierTreeFolded, MergeChainTransact.
+The program dispatches 21 tags: EmitEvent, Transact, RingTransact, RingAuthorityTransact, CreateTree, BatchUpdateNullifierTree, Deposit, RingDeposit, CreateAssetCounter, CreateSplInterface, CreateProtocolConfig, UpdateProtocolConfig, PauseTree, CreateRingConfig, UpdateRingConfigOwner, UpdateRingConfig, MergeTransact, RingMergeTransact, AggregateTransact, BatchUpdateNullifierTreeFolded, MergeChainTransact. A `vk-registry` build claims one more tag, InitVkRegistry, ahead of the enum match.
 
 Provide in `README.md` a matrix: instruction x (account constraints / data validation / authz / success postcondition / rollback / frame). An empty cell = a gap in the list -- either add an invariant or flag it as `INSUFFICIENT_INFO`.
 

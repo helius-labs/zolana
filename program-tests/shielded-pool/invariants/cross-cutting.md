@@ -29,7 +29,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `every_first_byte_dispatches_or_is_rejected_exactly` (full 256-byte sweep)
   - Kind: precondition
   - Affects: all 21 dispatched instructions
-  - Statement: for every first byte outside the set {0..=20}, a default build's `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag.
+  - Statement: for every first byte outside the set {0..=20}, a default build's `process_instruction` returns Err; for every byte inside the set it dispatches to exactly the processor of that tag. A `vk-registry` build claims tag 21 ahead of the enum match.
   - Location: `programs/shielded-pool/src/lib.rs:45-75` (`fn process_instruction`), `program-libs/event/src/tag.rs:54-79` (`impl TryFrom<u8> for InstructionTag`)
   - Error: `ProgramError::InvalidInstructionData`
   - Severity: Medium

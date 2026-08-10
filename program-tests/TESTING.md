@@ -12,12 +12,15 @@ end-to-end check.
 | Groth16 integration | Every supported transfer/merge shape and ownership rail proves and verifies | `just test-program-proofs` |
 | Validator + Photon | RPC submission, CPI, indexing, wallet sync, lifecycle rollback, and seed-replayable randomized workloads | `just test-spp-validator`, `just test-ring-validator` |
 | Cross-program swap | Swap, shielded pool, registry, smart-account, prover, and indexer compose correctly | `just test-swap-validator` |
+| Squads zone | Zone accounts, proposals, key updates, and the SPP CPI boundary of the nested workspace | `just test-squads` |
+| Verifying-key registry | A finalized registry account drives the prepared-operand verify path and undercuts the plain one | `just test-vk-registry` |
 | Aggregate (local only) | Batched legs settle against one recursive proof, on every batchable rail, and a merge chain collapses its levels | `just test-aggregate` |
 | Nullifier fold (local only) | A run of consecutive appends settles against one folded proof | `just test-nullifier-fold` |
 
-The aggregate and nullifier-fold tiers prove against keys that are neither
-published nor pinned by the lockfile, so they run locally and on the manual
-`aggregate tiers` workflow, which samples the keys on the runner.
+`test-squads`, `test-vk-registry`, and the tiers above them run per pull
+request. The aggregate and nullifier-fold tiers prove against keys that are
+neither published nor pinned by the lockfile, so they run locally and on the
+manual `aggregate tiers` workflow, which samples the keys on the runner.
 
 ## Coverage map
 
@@ -35,6 +38,10 @@ published nor pinned by the lockfile, so they run locally and on the manual
 | Merge chains | — | — | level shapes, aggregate tier | — |
 | Recursive aggregate batches | — | — | every batchable rail, aggregate tier | ✓ |
 | Nullifier fold runs | — | — | one folded append proof, fold tier | — |
+| Verifying-key registry init and finalize | ✓ | — | — | — |
+| Registry-backed transact verify | ✓ | — | registered key, plain-path CU comparison | — |
+| Squads zone config, proposals, viewing keys | ✓ | — | zone and key-encryption proofs, local keys | ✓ |
+| Squads key rotation | ✓ | — | key-encryption proofs, local keys | ✓ |
 
 Shielded-pool LiteSVM and Mollusk coverage is organized by instruction family.
 The "Model/property binary" column names behavioral-model and property suites
@@ -154,6 +161,11 @@ the dedicated CI `test-user-registry-litesvm` job.
 Tests never silently skip because an artifact is absent.
 
 - `just build-programs` must produce the SBF files in `target/deploy`.
+- `just build-programs-squads` must produce
+  `zones/squads/target/deploy/zolana_squads_program.so`. The nested workspace
+  has its own target dir, so the root build does not produce it.
+- `just build-programs-vk-registry` must produce
+  `target/deploy-vk-registry/shielded_pool_program.so`.
 - `just build-cli` must produce `target/debug/zolana`.
 - `just build-prover-server` must produce `target/prover-server`.
 - Validator harnesses validate every required binary before startup and use
@@ -164,16 +176,22 @@ Tests never silently skip because an artifact is absent.
 - Use `ZOLANA_PORT_OFFSET` in `.env` when multiple worktrees run local services.
 - The aggregate keys are unpublished and not in the lockfile, so `just
   test-aggregate` generates the missing ones and rewrites the verifying-key
-  constants they pin before it builds the programs. The tier is behind the
-  `aggregate` cargo feature and the `aggregate_keys` Go build tag, so no other
-  recipe builds it.
+  constants they pin before it builds the programs. Setting
+  `ZOLANA_AGGREGATE_NO_AUTOGEN=1` turns that into a failure naming the missing
+  keys. The tier is behind the `aggregate` cargo feature and the
+  `aggregate_keys` Go build tag, so no other recipe builds it.
 - The nullifier fold keys are unpublished on the same terms. `just
   test-nullifier-fold` generates the missing ones and rewrites the
   verifying-key constants they pin before it builds the programs.
-- A test recipe must leave the tree clean. A generator exports a constant for
-  every key on disk, so a warm run would rewrite the committed ones with no new
-  setup behind them. `tools/ensure-generated-keys.sh` reverts that, and a cold
-  run keeps its rewrite because the constant must match the key just sampled.
+- The Squads zone keys are unpublished on the same terms.
+  `prover/server/scripts/generate_keys_squads.sh` generates the missing ones and
+  rewrites the constants under `zones/squads/interface/src/verifying_keys/`.
+  Rebuild the zone program before proving against them.
+- A test recipe must leave the tree clean, and `just check-tree-clean` gates
+  that after every CI test job. A generator exports a constant for every key on
+  disk, so a warm run would rewrite the committed ones with no new setup behind
+  them. `tools/ensure-generated-keys.sh` reverts that, and a cold run keeps its
+  rewrite because the constant must match the key just sampled.
 
 ## Mollusk mutation tests and fuzz fixtures
 
@@ -223,7 +241,12 @@ Beyond `cargo test`, two tools sharpen the suite. Install locally with
   process-local and thus a no-op under nextest, so the validator/localnet tests
   that bind fixed ports are serialized by the `serial-validator` test-group in
   `nextest.toml` instead. The manual `bench-*` profiling recipes stay on plain
-  `cargo test -- --ignored` (nextest's value does not apply there).
+  `cargo test -- --ignored` (nextest's value does not apply there). `test-squads`
+  also stays on `cargo test`, because nextest resolves a profile against the
+  workspace root and the nested `zones/squads` workspace defines none, so
+  `NEXTEST_PROFILE=ci` would not resolve there. `test-vk-registry` stays on
+  `cargo test` as well, and its `serial-validator` group entry is what makes it
+  safe to move.
 - **cargo-llvm-cov** (`just coverage`; `just coverage --html`) reports
   line/region coverage over the host-instrumentable kernels + SDK. It cannot
   measure code executed inside the SVM (the program's on-chain paths run as a

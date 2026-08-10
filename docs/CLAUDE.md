@@ -31,6 +31,7 @@ TODO:
 1. shield without proof doesnt store decrypted utxos, we need to handle this in the user flow diagrams and photon indexer
 2. Be smart about Utxo hash, group the owner, and blinding into a sub hash, so that we
 3. Pubkeys are encoded as Poseidon(pubkey_low, pubkey_high) Should this encoding include a prefix which signature scheme the pubkey is of?
+4. Can we commit the asset id in the asset commitment so that we can use it in verifiable encryption?
 
 
 Options for Fetch Performance:

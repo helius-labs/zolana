@@ -108,6 +108,9 @@ path, so `INV-BATCH-NULL-08` and `INV-BATCH-NULL-09` apply to it unchanged.
 - Critical (funds/double-spend/authority takeover): 117
 - High: 91
 - Medium: 72
+- Tag 21 (`INIT_VK_REGISTRY`) has no file. It dispatches only in a
+  `vk-registry` build, and its failure modes are stated in
+  [`docs/vk_registry.md`](../../../docs/vk_registry.md).
 - Not applicable post-PR164: 5 (the both-amounts gate (INV-TRANSACT-12) and the merge ciphertext/`merge_view_tag` entries; the P256 entries returned with PR172 and are re-scoped, not N/A; IDs retained, never renumbered)
 - SPEC_DIVERGENCE items: all 8 originally flagged items were resolved by updating
   `docs/spec.md` to match the code (items 1 and 3 were re-corrected on 2026-07-28

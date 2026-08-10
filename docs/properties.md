@@ -79,3 +79,9 @@
       1. cannot deadlock
       2. can only update the tree with values from queue
       3. can only update the tree with values from complete zkp batches in the queue
+6. recursive settlement (`aggregate_transact`, `batch_update_nullifier_tree_folded`, `merge_chain_transact`)
+    1. every outer public input is a left fold over the leg statements, so leg order is part of the statement
+    2. an aggregated batch is atomic: when any leg fails, no leg applies
+    3. an aggregated leg's `external_data_hash` binds the instruction discriminator the leg carries alone, so one leg proof is valid alone and inside a batch
+    4. a folded run appends exactly one root, and no intermediate root enters `root_history`
+    5. a merge chain appends only the top leg's output, and a chained slot publishes no nullifier because it spends a UTXO no tree holds
