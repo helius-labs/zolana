@@ -1,26 +1,12 @@
 import { InterfaceError } from "./errors.js";
+import { SPP_SUPPORTED_SHAPES } from "./generated/shapes.js";
+
+export { SPP_SUPPORTED_SHAPES };
 
 export type Shape = Readonly<{
   inputs: number;
   outputs: number;
 }>;
-
-function shape(inputs: number, outputs: number): Shape {
-  return Object.freeze({ inputs, outputs });
-}
-
-export const SPP_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze([
-  shape(1, 1),
-  shape(1, 2),
-  shape(2, 2),
-  shape(2, 3),
-  shape(3, 3),
-  shape(4, 3),
-  shape(4, 4),
-  shape(5, 3),
-  shape(5, 4),
-  shape(1, 8),
-]);
 
 function count(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {

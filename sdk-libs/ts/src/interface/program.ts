@@ -1,6 +1,7 @@
 import { address } from "@solana/kit";
 
 import { encodeBase58 } from "./internal.js";
+export { InstructionTag } from "./generated/instruction-tags.js";
 import {
   ADDRESS_TREE_HEIGHT,
   ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
@@ -35,28 +36,6 @@ export const SPL_TOKEN_2022_PROGRAM_ID = address("TokenzQdBNbLqP5VEhdkAS6EPFLC1P
 export const ASSOCIATED_TOKEN_PROGRAM_ID = address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 export const DUMMY_DOMAIN = 1 as const;
 export const UTXO_DOMAIN = 3 as const;
-
-export const InstructionTag = Object.freeze({
-  createProtocolConfig: 0,
-  updateProtocolConfig: 1,
-  createTree: 2,
-  pauseTree: 3,
-  batchUpdateNullifierTree: 4,
-  createAssetCounter: 5,
-  createSplInterface: 6,
-  createRingConfig: 7,
-  updateRingConfig: 8,
-  updateRingConfigOwner: 9,
-  emitEvent: 10,
-  deposit: 11,
-  transact: 12,
-  mergeTransact: 13,
-  ringDeposit: 14,
-  ringTransact: 15,
-  ringMergeTransact: 16,
-  ringAuthorityTransact: 17,
-} as const);
-export type InstructionTag = (typeof InstructionTag)[keyof typeof InstructionTag];
 
 export function addressTreeParams(): AddressTreeParams {
   return Object.freeze({

@@ -51,7 +51,8 @@ export interface SyncWalletConfig {
   readonly queryChunk?: number;
   /** Rows requested per indexer page. Defaults to Photon's maximum, 1000. */
   readonly pageLimit?: number;
-  readonly waitForIndexer?: boolean;
+  /** Slot the indexer must have persisted before its answers are used. */
+  readonly requireSlot?: bigint;
   readonly retry?: IndexerPollConfig;
 }
 
@@ -276,7 +277,7 @@ interface CollectByTagsInput {
   readonly indexer: Pick<ZolanaClient, "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags">;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
-  readonly rpcConfig: IndexerRpcConfig;
+  readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
 }
 
@@ -289,7 +290,7 @@ async function collectShieldedTransactions(
   do {
     const response = await input.indexer.getShieldedTransactionsByTags(
       { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
-      input.rpcConfig,
+      input.nextRpcConfig(),
       context,
     );
     for (const transaction of response.transactions) {
@@ -313,7 +314,7 @@ async function collectProoflessDeposits(
   do {
     const response = await input.indexer.getEncryptedUtxosByTags(
       { tags: input.chunk, limit: input.pageLimit, ...(cursor === undefined ? {} : { cursor }) },
-      input.rpcConfig,
+      input.nextRpcConfig(),
       context,
     );
     for (const match of response.matches) {
@@ -346,7 +347,7 @@ interface CollectByNullifiersInput {
   readonly indexer: Pick<ZolanaClient, "getShieldedTransactionsByNullifiers">;
   readonly chunk: readonly Bytes32[];
   readonly pageLimit: number;
-  readonly rpcConfig: IndexerRpcConfig;
+  readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
 }
 
@@ -363,7 +364,7 @@ async function collectShieldedTransactionsByNullifiers(
         limit: input.pageLimit,
         ...(cursor === undefined ? {} : { cursor }),
       },
-      input.rpcConfig,
+      input.nextRpcConfig(),
       context,
     );
     for (const transaction of response.transactions) {
@@ -393,10 +394,19 @@ export async function syncWallet(
     const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
     const poll = input.config?.retry ?? DEFAULT_INDEXER_POLL_CONFIG;
     const syncedAt = BigInt(Math.floor(Date.now() / 1_000));
-    const rpcConfig: IndexerRpcConfig = Object.freeze({
-      waitForIndexer: input.config?.waitForIndexer ?? false,
-      poll: Object.freeze({ ...poll, numRetries: Math.max(poll.numRetries, 1) }),
-    });
+    const validatedPoll = Object.freeze({ ...poll, numRetries: Math.max(poll.numRetries, 1) });
+    const ungated: IndexerRpcConfig = Object.freeze({ poll: validatedPoll });
+    const requireSlot = input.config?.requireSlot;
+    // Freshness is established once per sync, on the first indexer request. A
+    // per-request gate would pay the wait for every tag chunk, collector, and page.
+    let pendingGate: IndexerRpcConfig | undefined =
+      requireSlot === undefined ? undefined : Object.freeze({ poll: validatedPoll, requireSlot });
+    const nextRpcConfig = (): IndexerRpcConfig => {
+      if (pendingGate === undefined) return ungated;
+      const gate = pendingGate;
+      pendingGate = undefined;
+      return gate;
+    };
     const material = await input.authority.syncMaterial();
     const transactions = new Map<string, IndexedShieldedTransaction>();
     const deposits = new Map<string, IndexedShieldedTransaction>();
@@ -404,11 +414,11 @@ export async function syncWallet(
     for (let offset = 0; offset < tags.length; offset += chunkSize) {
       const chunk = tags.slice(offset, offset + chunkSize);
       await collectShieldedTransactions(
-        { indexer: input.client, chunk, pageLimit, rpcConfig, out: transactions },
+        { indexer: input.client, chunk, pageLimit, nextRpcConfig, out: transactions },
         context,
       );
       await collectProoflessDeposits(
-        { indexer: input.client, chunk, pageLimit, rpcConfig, out: deposits },
+        { indexer: input.client, chunk, pageLimit, nextRpcConfig, out: deposits },
         context,
       );
     }
@@ -422,7 +432,7 @@ export async function syncWallet(
           indexer: input.client,
           chunk: initialNullifiers.slice(offset, offset + chunkSize),
           pageLimit,
-          rpcConfig,
+          nextRpcConfig,
           out: transactions,
         },
         context,
@@ -459,8 +469,7 @@ export async function syncWallet(
 
     // A transaction found by a stable tag can create a note that another
     // device already spent. Query each newly discovered nullifier once, then
-    // stop: this is an explicit bounded backstop rather than a generic round
-    // loop that re-queries the same stable tags.
+    // stop, so the backstop stays bounded.
     const followUpNullifiers = walletQueryNullifiers(input.wallet).filter(
       (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
     );
@@ -471,7 +480,7 @@ export async function syncWallet(
           indexer: input.client,
           chunk: followUpNullifiers.slice(offset, offset + chunkSize),
           pageLimit,
-          rpcConfig,
+          nextRpcConfig,
           out: transactions,
         },
         context,

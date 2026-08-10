@@ -19,8 +19,14 @@ export interface IndexerPollConfig {
 }
 
 export interface IndexerRpcConfig {
-  readonly waitForIndexer: boolean;
   readonly poll: IndexerPollConfig;
+  /**
+   * Slot the indexer must have persisted before its answer is accepted.
+   * Omitted accepts whatever the indexer currently has. A freshness
+   * requirement is always a slot, so both sides of the comparison share one
+   * clock domain.
+   */
+  readonly requireSlot?: bigint;
 }
 
 export const DEFAULT_INDEXER_POLL_CONFIG: IndexerPollConfig = Object.freeze({
@@ -30,7 +36,6 @@ export const DEFAULT_INDEXER_POLL_CONFIG: IndexerPollConfig = Object.freeze({
 });
 
 export const DEFAULT_INDEXER_RPC_CONFIG: IndexerRpcConfig = Object.freeze({
-  waitForIndexer: false,
   poll: DEFAULT_INDEXER_POLL_CONFIG,
 });
 
@@ -43,19 +48,24 @@ export function createIndexerPollConfig(
 }
 
 export function createIndexerRpcConfig(
-  waitForIndexer = false,
   poll: IndexerPollConfig = DEFAULT_INDEXER_POLL_CONFIG,
+  requireSlot?: bigint,
 ): IndexerRpcConfig {
-  if (typeof waitForIndexer !== "boolean") {
-    throw invalidPollConfig("waitForIndexer");
+  if (requireSlot !== undefined && typeof requireSlot !== "bigint") {
+    throw invalidPollConfig("requireSlot");
   }
-  return Object.freeze({ waitForIndexer, poll: validatePollConfig(poll) });
+  const validated = validatePollConfig(poll);
+  return Object.freeze(
+    requireSlot === undefined ? { poll: validated } : { poll: validated, requireSlot },
+  );
 }
 
-export function waitForIndexer(
+/** Require the indexer to have persisted `slot` before answering. */
+export function atSlot(
+  slot: bigint,
   poll: IndexerPollConfig = DEFAULT_INDEXER_POLL_CONFIG,
 ): IndexerRpcConfig {
-  return createIndexerRpcConfig(true, poll);
+  return createIndexerRpcConfig(poll, slot);
 }
 
 export function validatePollConfig(config: IndexerPollConfig): IndexerPollConfig {

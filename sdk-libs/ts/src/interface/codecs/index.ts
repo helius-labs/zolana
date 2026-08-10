@@ -14,6 +14,7 @@ import type {
   ZoneConfigAccount,
 } from "../types.js";
 import { MERGE_INPUT_COUNT } from "../constants.js";
+import { AccountSize } from "../generated/account-sizes.js";
 import type { AddressTreeParams } from "../program.js";
 import { StateDiscriminator } from "../state.js";
 import {
@@ -254,38 +255,54 @@ function readAddress(reader: Reader, name: string): Address {
 }
 
 export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAccount {
-  return decodeAccount(bytes, 132, StateDiscriminator.protocolConfig, (reader) => ({
-    authority: readAddress(reader, "authority"),
-    treeCreationAuthority: readAddress(reader, "treeCreationAuthority"),
-    foresterAuthority: readAddress(reader, "foresterAuthority"),
-    zoneCreationAuthority: readAddress(reader, "zoneCreationAuthority"),
-    treeCreationIsPermissionless: reader.nonzeroBool("treeCreationIsPermissionless"),
-    zoneCreationIsPermissionless: reader.nonzeroBool("zoneCreationIsPermissionless"),
-    splInterfaceCreationIsPermissionless: reader.nonzeroBool(
-      "splInterfaceCreationIsPermissionless",
-    ),
-  }));
+  return decodeAccount(
+    bytes,
+    AccountSize.protocolConfig,
+    StateDiscriminator.protocolConfig,
+    (reader) => ({
+      authority: readAddress(reader, "authority"),
+      treeCreationAuthority: readAddress(reader, "treeCreationAuthority"),
+      foresterAuthority: readAddress(reader, "foresterAuthority"),
+      zoneCreationAuthority: readAddress(reader, "zoneCreationAuthority"),
+      treeCreationIsPermissionless: reader.nonzeroBool("treeCreationIsPermissionless"),
+      zoneCreationIsPermissionless: reader.nonzeroBool("zoneCreationIsPermissionless"),
+      splInterfaceCreationIsPermissionless: reader.nonzeroBool(
+        "splInterfaceCreationIsPermissionless",
+      ),
+    }),
+  );
 }
 
 export function decodeSplAssetCounterAccount(bytes: Uint8Array): SplAssetCounterAccount {
-  return decodeAccount(bytes, 16, StateDiscriminator.splAssetCounter, (reader) => {
-    reader.bytes(7, "reserved");
-    return { nextId: reader.u64("nextId") };
-  });
+  return decodeAccount(
+    bytes,
+    AccountSize.splAssetCounter,
+    StateDiscriminator.splAssetCounter,
+    (reader) => {
+      reader.bytes(7, "reserved");
+      return { nextId: reader.u64("nextId") };
+    },
+  );
 }
 
 export function decodeSplAssetRegistryAccount(bytes: Uint8Array): SplAssetRegistryAccount {
-  return decodeAccount(bytes, 48, StateDiscriminator.splAssetRegistry, (reader) => {
-    reader.bytes(7, "reserved");
-    return { mint: readAddress(reader, "mint"), assetId: reader.u64("assetId") };
-  });
+  return decodeAccount(
+    bytes,
+    AccountSize.splAssetRegistry,
+    StateDiscriminator.splAssetRegistry,
+    (reader) => {
+      reader.bytes(7, "reserved");
+      return { mint: readAddress(reader, "mint"), assetId: reader.u64("assetId") };
+    },
+  );
 }
 
 export function decodeZoneConfigAccount(bytes: Uint8Array): ZoneConfigAccount {
-  return decodeAccount(bytes, 67, StateDiscriminator.zoneConfig, (reader) => ({
+  return decodeAccount(bytes, AccountSize.ringConfig, StateDiscriminator.ringConfig, (reader) => ({
     authority: readAddress(reader, "authority"),
     programId: readAddress(reader, "programId"),
     zoneAuthorityTransactIsEnabled: reader.nonzeroBool("zoneAuthorityTransactIsEnabled"),
+    paused: reader.nonzeroBool("paused"),
     bump: reader.u8("bump"),
   }));
 }

@@ -115,7 +115,7 @@ async function serviceRequestUrls(
         JSON.stringify({
           id: "test-account",
           jsonrpc: "2.0",
-          result: { context: { block_time: 1 }, transactions: [] },
+          result: { context: { block_time: 1, slot: 1 }, transactions: [] },
         }),
         { headers: { "content-type": "application/json" } },
       );
@@ -133,7 +133,6 @@ async function serviceRequestUrls(
     tree: TREE,
     fetch,
     indexerConfig: {
-      waitForIndexer: false,
       poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
     },
   });
@@ -153,7 +152,6 @@ function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
     tree: TREE,
     fetch,
     indexerConfig: {
-      waitForIndexer: false,
       poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
     },
   });
@@ -340,7 +338,7 @@ describe("ZolanaClient", () => {
             id: "test-account",
             jsonrpc: "2.0",
             result: {
-              context: { block_time: 1 },
+              context: { block_time: 1, slot: 1 },
               transactions: [],
               next_cursor: "Ag==",
             },
@@ -394,7 +392,7 @@ describe("ZolanaClient", () => {
     expect(getNonInclusionProofs).toHaveBeenCalledOnce();
 
     resolveState({
-      context: { blockTime: 1n },
+      context: { blockTime: 1n, slot: 1n },
       proofs: [
         {
           leaf: utxoHash,
@@ -408,7 +406,7 @@ describe("ZolanaClient", () => {
       ],
     });
     resolveNullifier({
-      context: { blockTime: 1n },
+      context: { blockTime: 1n, slot: 1n },
       proofs: [
         {
           leaf: nullifier,

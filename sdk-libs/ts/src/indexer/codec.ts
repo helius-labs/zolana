@@ -103,8 +103,7 @@ function wireInteger(value: unknown, path: string, minimum: bigint, maximum: big
  * Photon writes a JSON number, which stays valid. A JSON number that has
  * already lost precision is refused rather than silently truncated, so an
  * indexer with a value past the double-precision range has to send the decimal
- * string instead. The two forms are the union Light Protocol accepts
- * (`js/stateless.js/src/rpc-interface.ts:316-328`).
+ * string instead.
  */
 function unboundedWireInteger(
   value: unknown,
@@ -165,9 +164,9 @@ function checkedPageLimit(value: unknown, path: string) {
  * `unboundedWireInteger` will read as a decimal string. `zolana-indexer-api`
  * serializes with plain serde and installs no string acceptor on its `u64` and
  * `i64` fields, so a quoted integer is a body the Rust side refuses, and
- * `encodeRequest` feeds the body Photon parses. The string form is a reader's
- * tolerance, not a shape we emit, which is why a value past the safe-integer
- * bound is reported here rather than encoded.
+ * `encodeRequest` feeds the body Photon parses. The string form is read-side
+ * tolerance only, so a value past the safe-integer bound is reported here
+ * instead of encoded.
  */
 function toWireInteger(value: bigint, path: string, minimum: bigint, maximum: bigint): number {
   if (value < minimum || value > maximum) {
@@ -203,8 +202,13 @@ function optional<T>(
 }
 
 function context(value: unknown, path: string): IndexerContext {
-  const record = object(value, path, ["block_time"]);
-  return { blockTime: unboundedI64(record["block_time"], `${path}.block_time`) };
+  // `object` rejects any key not listed here, so a new wire field must be added
+  // in the same release that starts sending it.
+  const record = object(value, path, ["block_time", "slot"]);
+  return {
+    blockTime: unboundedI64(record["block_time"], `${path}.block_time`),
+    slot: u64(record["slot"], `${path}.slot`),
+  };
 }
 
 function outputContext(value: unknown, path: string): RingsOutputContext {

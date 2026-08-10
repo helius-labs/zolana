@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 mod create_release;
 mod find_smart_accounts;
 mod init_protocol;
+mod ts_interface_consts;
 mod update_protocol_config;
 
 fn main() {
@@ -20,15 +21,16 @@ fn main() {
             create_verifying_keys(options);
         }
         Some("bsb22-vk") => {
-            let vk_bin = args
-                .next()
-                .unwrap_or_else(|| usage_and_exit("usage: bsb22-vk <vk_bin> <out_dir> <filename>"));
+            let vk_bin = args.next().unwrap_or_else(|| {
+                usage_and_exit("usage: bsb22-vk <vk_bin> <out_dir> <filename> [proving_key]")
+            });
             let out_dir = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <out_dir>"));
             let filename = args
                 .next()
                 .unwrap_or_else(|| usage_and_exit("bsb22-vk missing <filename>"));
+            let proving_key = args.next();
             groth16_solana::vk::gnark::generate_bsb22_vk_file(
                 &vk_bin,
                 Path::new(&out_dir),
@@ -36,6 +38,12 @@ fn main() {
                 "VERIFYINGKEY",
             )
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
+            if let Some(proving_key) = proving_key {
+                prepend_proving_key_checksum(
+                    &Path::new(&out_dir).join(&filename),
+                    Path::new(&proving_key),
+                );
+            }
             println!("wrote {out_dir}/{filename}");
         }
         Some("vk-json") => {
@@ -53,6 +61,14 @@ fn main() {
             println!("wrote {out_dir}/{filename}");
         }
         Some("vk-registry-consts") => generate_vk_registry_consts(),
+        Some("ts-interface-consts") => {
+            if let Err(error) =
+                ts_interface_consts::run(ts_interface_consts::Options::parse(args.collect()))
+            {
+                eprintln!("ts-interface-consts failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
         Some("program-ids") => print_program_ids(),
         Some("init-protocol") => {
             if let Err(error) = init_protocol::run(init_protocol::Options::parse(args.collect())) {
@@ -93,10 +109,10 @@ fn main() {
     }
 }
 
-/// Emit the registry-spec const files: the interface table for the shielded
-/// pool plus one `vk_registry_specs.rs` per sdk-test program (derived under
-/// that program's own id). Runs from the committed VERIFYINGKEY constants,
-/// so no proving keys or Go toolchain are needed to regenerate.
+/// Emit the registry-spec const files. These are the interface table for the
+/// shielded pool plus one `vk_registry_specs.rs` per sdk-test program (derived
+/// under that program's own id). Runs from the committed VERIFYINGKEY
+/// constants, so no proving keys or Go toolchain are needed to regenerate.
 fn generate_vk_registry_consts() {
     use zolana_interface::{verifying_keys::catalog::VK_CATALOG, SHIELDED_POOL_PROGRAM_ID};
 
@@ -181,7 +197,7 @@ fn write_registry_spec_file(
         table.push_str(&format!("    {const_name},\n"));
     }
     out.push_str(&format!(
-        "/// Indexed in catalog order; init instructions select here by index.\n\
+        "/// Indexed in catalog order. Init instructions select here by index.\n\
          pub static VK_REGISTRY_SPECS: [VkRegistrySpec; {}] = [\n{}];\n",
         catalog.len(),
         table
@@ -373,6 +389,33 @@ fn export_verifying_key(prover_server_dir: &Path, key_path: &Path, output_path: 
     }
 }
 
+/// Record the SHA-256 of the proving key the verifying key came from. Groth16
+/// setup is not deterministic, so a vk whose recorded checksum does not match
+/// the on-disk key belongs to a different ceremony and its proofs fail on chain.
+fn prepend_proving_key_checksum(vk_path: &Path, proving_key: &Path) {
+    let checksum = sha256_file(proving_key);
+    let key_name = proving_key
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("<unknown>");
+    let header = format!("// proving key: {key_name}\n// proving key sha256: {checksum}\n");
+
+    let rust = fs::read_to_string(vk_path).unwrap_or_else(|error| {
+        panic!("failed to read generated vk {}: {error}", vk_path.display())
+    });
+    let body = rust
+        .lines()
+        .skip_while(|line| line.starts_with("// proving key"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(vk_path, format!("{header}{body}\n")).unwrap_or_else(|error| {
+        panic!(
+            "failed to write generated vk {}: {error}",
+            vk_path.display()
+        )
+    });
+}
+
 fn sha256_file(path: &Path) -> String {
     let mut file = fs::File::open(path)
         .unwrap_or_else(|error| panic!("failed to open {}: {error}", path.display()));
@@ -419,6 +462,7 @@ fn print_help() {
     println!("  create-verifying-keys    Export prover-server verifying key artifacts");
     println!("  bsb22-vk                 Export one binary verifying key as Rust source");
     println!("  vk-json                  Export one JSON verifying key as Rust source");
+    println!("  ts-interface-consts      Emit the TypeScript interface tables (see --help)");
     println!("  program-ids              Print local validator program ids as shell assignments");
     println!("  init-protocol            Initialize the protocol on a cluster (see --help)");
     println!(
@@ -914,7 +958,6 @@ fn transfer_accounts(
     ]
 }
 
-#[allow(clippy::too_many_arguments)]
 fn shield_accounts(
     payer: solana_pubkey::Pubkey,
     tree: solana_pubkey::Pubkey,

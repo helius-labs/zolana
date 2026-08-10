@@ -184,6 +184,7 @@ export interface ZoneConfigAccount {
   readonly authority: Address;
   readonly programId: Address;
   readonly zoneAuthorityTransactIsEnabled: boolean;
+  readonly paused: boolean;
   readonly bump: number;
 }
 

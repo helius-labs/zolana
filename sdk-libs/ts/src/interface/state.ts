@@ -1,10 +1,5 @@
-export const StateDiscriminator = Object.freeze({
-  treeAccount: 1,
-  protocolConfig: 3,
-  zoneConfig: 4,
-  splAssetRegistry: 5,
-  splAssetCounter: 6,
-} as const);
+export { StateDiscriminator } from "./generated/state-discriminators.js";
+export { STATE_ROOT_OFFSET, TREE_ACCOUNT_SIZE } from "./generated/tree-layout.js";
 
 export const FIRST_ASSET_ID = 2n;
 export const STATE_HEIGHT = 32;
@@ -20,5 +15,3 @@ export const FORESTER_REIMBURSEMENT_LAMPORTS = 5_000n;
 export function foresterFeePerQueueElement(zkpBatchSize: bigint): bigint | undefined {
   return zkpBatchSize === 0n ? undefined : FORESTER_REIMBURSEMENT_LAMPORTS / zkpBatchSize;
 }
-export const TREE_ACCOUNT_SIZE = 1_185_664;
-export const STATE_ROOT_OFFSET = 16;

@@ -16,7 +16,7 @@ export {
   DEFAULT_INDEXER_RPC_CONFIG,
   createIndexerPollConfig,
   createIndexerRpcConfig,
-  waitForIndexer,
+  atSlot,
 } from "./retry.js";
 export type {
   EncryptedUtxoMatch,

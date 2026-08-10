@@ -12,6 +12,8 @@ export type { IndexerPollConfig, IndexerRpcConfig } from "./retry.js";
 
 export interface RpcContext {
   readonly blockTime: bigint;
+  /** Highest slot the indexer has persisted. */
+  readonly slot: bigint;
 }
 
 export interface GetByTagsRequest {
